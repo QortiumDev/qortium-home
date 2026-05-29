@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-29 - build: add release publish helper
+
+Added a release publish helper that verifies local Home artifacts, creates and pushes the release tag, creates the GitHub prerelease, uploads each platform asset one at a time, and reruns the release checker against GitHub so large asset uploads can be retried and verified more predictably.
+
 ### 2026-05-29 - release: prepare home preview 5
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.5` so the Android update install handoff can be published as the next prerelease target across the desktop and Android release assets.
