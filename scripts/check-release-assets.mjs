@@ -72,12 +72,14 @@ function getExpectedArtifacts(version) {
       matrixLabels: ['Linux x64'],
       name: `Qortium-Home-${version}-x86_64.AppImage`,
       path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-x86_64.AppImage`),
+      requiresExecutable: true,
     },
     {
       label: 'Linux arm64 AppImage',
       matrixLabels: ['Linux arm64'],
       name: `Qortium-Home-${version}-arm64.AppImage`,
       path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-arm64.AppImage`),
+      requiresExecutable: true,
     },
     {
       label: 'Windows x64 portable EXE',
@@ -146,6 +148,13 @@ async function readLocalArtifacts(expectedArtifacts) {
     }
 
     const stat = statSync(artifact.path);
+
+    if (artifact.requiresExecutable && (stat.mode & 0o100) === 0) {
+      throw new Error(
+        `Local artifact is not executable: ${path.relative(repoRoot, artifact.path)}. Run npm run chmod:linux:appimages or rebuild it with the Linux dist script.`,
+      );
+    }
+
     const sha256 = await digestFile(artifact.path);
 
     results.set(artifact.name, {

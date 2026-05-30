@@ -129,6 +129,9 @@ Build both Linux AppImage targets:
 npm run dist:linux:all
 ```
 
+Linux AppImage dist scripts set the generated `.AppImage` files to executable
+mode after `electron-builder` finishes.
+
 Build a macOS x64 DMG on macOS:
 
 ```sh

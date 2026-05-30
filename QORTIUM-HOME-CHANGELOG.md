@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-30 - build: make linux appimages executable
+
+Added a Linux AppImage post-build step that sets current AppImage artifacts to executable mode after `electron-builder` finishes, and updated the release asset checker to reject local AppImages that are missing the executable bit before publishing.
+
 ### 2026-05-29 - build: add release publish helper
 
 Added a release publish helper that verifies local Home artifacts, creates and pushes the release tag, creates the GitHub prerelease, uploads each platform asset one at a time, and reruns the release checker against GitHub so large asset uploads can be retried and verified more predictably.
