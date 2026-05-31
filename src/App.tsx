@@ -60,9 +60,11 @@ type TabCommandActions = {
   canGoBack: boolean;
   canGoForward: boolean;
   closeActiveTab: () => void;
+  closeCurrentWindow: () => void;
   focusAddressBar: () => void;
   goBack: () => void;
   goForward: () => void;
+  openDashboardWindow: () => void;
   reloadActiveTab: () => void;
   reopenClosedTab: () => void;
   selectLastTab: () => void;
@@ -772,6 +774,14 @@ export function App() {
     }
   }
 
+  function openDashboardWindow() {
+    void window.qortiumHome.windows?.openDashboardWindow();
+  }
+
+  function closeCurrentWindow() {
+    void window.qortiumHome.windows?.closeCurrentWindow();
+  }
+
   function focusAddressBar() {
     const addressInput = document.querySelector<HTMLInputElement>('#browser-address');
 
@@ -817,9 +827,11 @@ export function App() {
     canGoBack,
     canGoForward,
     closeActiveTab,
+    closeCurrentWindow,
     focusAddressBar,
     goBack,
     goForward,
+    openDashboardWindow,
     reloadActiveTab,
     reopenClosedTab,
     selectLastTab,
@@ -882,10 +894,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    function runCommand(event: KeyboardEvent, command: () => void) {
+    function runCommand(event: KeyboardEvent, command: () => void | Promise<void>) {
       event.preventDefault();
       event.stopPropagation();
-      command();
+      void command();
     }
 
     function handleGlobalKeyDown(event: KeyboardEvent) {
@@ -904,6 +916,17 @@ export function App() {
       const isAddressBarTarget = isAddressBarShortcutTarget(event.target);
       const primaryModifier = isPrimaryShortcutModifier(event);
       const primaryOnly = primaryModifier && !event.altKey;
+      const windowsApi = window.qortiumHome.windows;
+
+      if (windowsApi && primaryOnly && !event.shiftKey && key === 'n') {
+        runCommand(event, actions.openDashboardWindow);
+        return;
+      }
+
+      if (windowsApi && primaryOnly && event.shiftKey && key === 'w') {
+        runCommand(event, actions.closeCurrentWindow);
+        return;
+      }
 
       if (primaryOnly && event.shiftKey && key === 't') {
         runCommand(event, actions.reopenClosedTab);

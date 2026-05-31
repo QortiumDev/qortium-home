@@ -343,7 +343,9 @@ interface Window {
       showDownloadedFile: (filePath: string) => Promise<void>;
     };
     windows?: {
+      closeCurrentWindow: () => Promise<void>;
       getStartupPayload: () => Promise<QortiumHomeWindowStartupPayload | null>;
+      openDashboardWindow: () => Promise<void>;
       openTabInNewWindow: (request: QortiumHomeWindowOpenRequest) => Promise<void>;
     };
     node: {

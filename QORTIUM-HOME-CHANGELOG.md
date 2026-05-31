@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add window keyboard commands
+
+Added desktop window keyboard commands for browser-style window management. Ctrl/Cmd+N now opens a fresh Dashboard window, while Ctrl/Cmd+Shift+W closes the current Qortium Home window without changing the existing Ctrl/Cmd+T new-tab and Ctrl/Cmd+W close-tab behavior.
+
 ### 2026-05-31 - app: add tab drag-out windows
 
 Added desktop tab drag-out behavior. Dragging a tab a clear distance outside the tab strip now moves that tab into a new Qortium Home window using the same route history and account context as the right-click Move Tab to New Window action, while normal in-strip dragging still only reorders tabs.

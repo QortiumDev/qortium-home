@@ -51,7 +51,9 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     showDownloadedFile: (filePath: string) => ipcRenderer.invoke('updates:showDownloadedFile', filePath),
   },
   windows: {
+    closeCurrentWindow: () => ipcRenderer.invoke('windows:closeCurrentWindow'),
     getStartupPayload: () => ipcRenderer.invoke('windows:getStartupPayload'),
+    openDashboardWindow: () => ipcRenderer.invoke('windows:openDashboardWindow'),
     openTabInNewWindow: (request: { tab: unknown }) =>
       ipcRenderer.invoke('windows:openTabInNewWindow', request),
   },

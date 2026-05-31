@@ -47,6 +47,7 @@ type WindowStartupPayload = {
 };
 
 type CreateWindowOptions = {
+  placement?: 'primary' | 'secondary';
   startupPayload?: WindowStartupPayload;
 };
 
@@ -293,7 +294,7 @@ function getSecondaryWindowState(savedState: WindowState | undefined): WindowSta
 function getInitialWindowState(options: CreateWindowOptions): WindowState | undefined {
   const savedState = readWindowState();
 
-  if (options.startupPayload) {
+  if (options.startupPayload || options.placement === 'secondary') {
     return getSecondaryWindowState(savedState);
   }
 
@@ -348,6 +349,14 @@ function registerWindowIpcHandlers() {
     const startupPayload = sanitizeWindowStartupPayload(request);
 
     createWindow({ startupPayload });
+  });
+
+  ipcMain.handle('windows:openDashboardWindow', () => {
+    createWindow({ placement: 'secondary' });
+  });
+
+  ipcMain.handle('windows:closeCurrentWindow', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
   });
 }
 
