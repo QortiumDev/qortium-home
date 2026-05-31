@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getAccountProfile } from './accounts.js';
+import { assertAccountUnlocked, getAccountProfile, getAccountSigningKey } from './accounts.js';
 import { getNodeConnection } from './node-settings.js';
 import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
 
@@ -11,6 +11,8 @@ const PREVIEW_API_KEY_PATH = path.join(os.homedir(), 'git', 'qortium', 'preview'
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS = 120_000;
+const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
+const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
 const PUBLIC_QDN_SERVICES = new Set([
   'APP',
   'WEBSITE',
@@ -96,6 +98,25 @@ type QdnResourceRequest = {
   service: string;
 };
 
+type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
+
+type QdnWriteResourceRequest = {
+  category?: string;
+  description?: string;
+  fee?: number;
+  identifier?: string;
+  name: string;
+  service: string;
+  tags: string[];
+  title?: string;
+};
+
+type QdnWriteSourceSelection = {
+  displayName: string;
+  kind: 'directory' | 'file';
+  path: string;
+};
+
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
 
 type NodeApiFetchResult = {
@@ -114,6 +135,8 @@ type AccountReadApprovalResponse = {
   requestId: string;
 };
 
+type QdnWriteApprovalResponse = AccountReadApprovalResponse;
+
 type PendingAccountReadApproval = {
   resolve: (approved: boolean) => void;
   windowWebContentsId: number;
@@ -121,6 +144,7 @@ type PendingAccountReadApproval = {
 
 const approvedAccountReadRequests = new Set<string>();
 const pendingAccountReadApprovals = new Map<string, PendingAccountReadApproval>();
+const pendingQdnWriteApprovals = new Map<string, PendingAccountReadApproval>();
 
 function expandHomePath(filePath: string) {
   if (filePath === '~') {
@@ -141,6 +165,21 @@ function sanitizeAccountReadApprovalResponse(value: unknown): AccountReadApprova
 
   if (typeof value.requestId !== 'string' || !value.requestId) {
     throw new Error('QDN account request id is required.');
+  }
+
+  return {
+    approved: value.approved === true,
+    requestId: value.requestId,
+  };
+}
+
+function sanitizeQdnWriteApprovalResponse(value: unknown): QdnWriteApprovalResponse {
+  if (!isRecord(value)) {
+    throw new Error('QDN write request response is required.');
+  }
+
+  if (typeof value.requestId !== 'string' || !value.requestId) {
+    throw new Error('QDN write request id is required.');
   }
 
   return {
@@ -218,6 +257,62 @@ async function requestAccountReadApproval(
   }
 
   approvedAccountReadRequests.add(cacheKey);
+}
+
+async function requestQdnWriteApproval(
+  context: QdnViewContext,
+  profile: Awaited<ReturnType<typeof getAccountProfile>>,
+  action: QdnWriteAction,
+  resource: QdnWriteResourceRequest,
+  source?: QdnWriteSourceSelection,
+) {
+  const hostWindow = getQdnViewHostWindow(context);
+
+  if (!hostWindow) {
+    throw new Error('QDN write request does not belong to an active window.');
+  }
+
+  const requestId = randomUUID();
+  const approved = await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (nextApproved: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeoutId);
+      hostWindow.removeListener('closed', handleWindowClosed);
+      pendingQdnWriteApprovals.delete(requestId);
+      resolve(nextApproved);
+    };
+    const handleWindowClosed = () => settle(false);
+    const timeoutId = setTimeout(() => settle(false), QDN_WRITE_APPROVAL_TIMEOUT_MS);
+
+    pendingQdnWriteApprovals.set(requestId, {
+      resolve: settle,
+      windowWebContentsId: hostWindow.webContents.id,
+    });
+    hostWindow.once('closed', handleWindowClosed);
+    hostWindow.webContents.send('qdn-app:write-request', {
+      accountName: profile.name,
+      action,
+      address: profile.address,
+      id: requestId,
+      resource: {
+        identifier: resource.identifier ?? null,
+        name: resource.name,
+        service: resource.service,
+      },
+      resourceUrl: context.currentUrl ?? 'QDN app',
+      sourceKind: source?.kind ?? null,
+      sourceName: source?.displayName ?? null,
+    });
+  });
+
+  if (!approved) {
+    throw new Error('QDN write request was denied.');
+  }
 }
 
 async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
@@ -347,6 +442,58 @@ function getRawResourceRequest(value: QdnRawResourceRequest) {
   };
 }
 
+function getRequestTags(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map(getString).filter(Boolean);
+  }
+
+  const tag = getString(value);
+
+  return tag ? [tag] : [];
+}
+
+function getRequestFee(value: unknown) {
+  const fee = getNumber(value);
+
+  if (typeof fee === 'undefined') {
+    return undefined;
+  }
+
+  if (!Number.isSafeInteger(fee) || fee < 0) {
+    throw new Error('QDN write fee must be a non-negative integer.');
+  }
+
+  return fee;
+}
+
+function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
+  const service = getService(getRequestValue(request, 'service'));
+  const name = getString(getRequestValue(request, 'name'));
+  const identifier = getString(getRequestValue(request, 'identifier'));
+  const title = getString(getRequestValue(request, 'title'));
+  const description = getString(getRequestValue(request, 'description'));
+  const category = getString(getRequestValue(request, 'category')).toUpperCase();
+
+  if (!service) {
+    throw new Error('QDN resource service is required.');
+  }
+
+  if (!name) {
+    throw new Error('QDN resource name is required.');
+  }
+
+  return {
+    service,
+    name,
+    identifier: identifier || undefined,
+    title: title || undefined,
+    description: description || undefined,
+    tags: getRequestTags(getRequestValue(request, 'tags')),
+    category: category || undefined,
+    fee: getRequestFee(getRequestValue(request, 'fee')),
+  };
+}
+
 function splitPathAndQuery(resourcePath: string) {
   const queryIndex = resourcePath.indexOf('?');
 
@@ -449,6 +596,35 @@ function getNodeUnavailableMessage(nodeApiUrl: string) {
 
 function getNetworkRestrictionMessage() {
   return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
+}
+
+function isLoopbackHostname(hostname: string) {
+  const normalizedHostname = hostname.toLowerCase();
+
+  return (
+    normalizedHostname === 'localhost' ||
+    normalizedHostname === '::1' ||
+    normalizedHostname === '[::1]' ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname)
+  );
+}
+
+function assertLocalWriteConnection(connection: NodeConnection) {
+  if (connection.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(connection.nodeApiUrl);
+  } catch {
+    throw new Error('QDN write requests require a local Core node.');
+  }
+
+  if (!isLoopbackHostname(url.hostname)) {
+    throw new Error('QDN write requests require a local Core node so Home never sends private keys or local file paths to a remote node.');
+  }
 }
 
 function getNodeApiKey() {
@@ -707,6 +883,263 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
   return result.data;
 }
 
+async function readSuccessfulNodeText(response: Response, fallbackMessage: string) {
+  const body = await response.text();
+
+  if (!response.ok) {
+    throw new Error(body.trim() || fallbackMessage);
+  }
+
+  return {
+    body: body.trim(),
+    contentType: response.headers.get('content-type') ?? '',
+  };
+}
+
+async function postLocalNodeText(
+  connection: NodeConnection,
+  pathname: string,
+  body: string,
+  apiKey: string,
+  fallbackMessage: string,
+  contentType = 'text/plain',
+) {
+  const response = await fetchNode(
+    pathname,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': contentType,
+        'X-API-KEY': apiKey,
+      },
+      body,
+    },
+    connection.nodeApiUrl,
+  );
+
+  return readSuccessfulNodeText(response, fallbackMessage);
+}
+
+async function signAndProcessTransaction(
+  connection: NodeConnection,
+  apiKey: string,
+  privateKey58: string,
+  rawUnsignedBytes58: string,
+) {
+  const rawUnsignedWithNonce = await postLocalNodeText(
+    connection,
+    '/arbitrary/compute',
+    rawUnsignedBytes58,
+    apiKey,
+    'QDN transaction nonce computation failed.',
+  );
+  const signedTransaction = await postLocalNodeText(
+    connection,
+    '/transactions/sign',
+    JSON.stringify({
+      privateKey: privateKey58,
+      transactionBytes: rawUnsignedWithNonce.body,
+    }),
+    apiKey,
+    'QDN transaction signing failed.',
+    'application/json',
+  );
+  const processedTransaction = await postLocalNodeText(
+    connection,
+    '/transactions/process',
+    signedTransaction.body,
+    apiKey,
+    'QDN transaction processing failed.',
+  );
+
+  return {
+    body: processedTransaction.body,
+    data: parseResponseData(processedTransaction.body, processedTransaction.contentType),
+  };
+}
+
+function appendQdnWriteQuery(queryParams: URLSearchParams, resource: QdnWriteResourceRequest) {
+  appendQueryValue(queryParams, 'title', resource.title);
+  appendQueryValue(queryParams, 'description', resource.description);
+  appendQueryValue(queryParams, 'category', resource.category);
+  appendQueryValue(queryParams, 'fee', resource.fee);
+
+  for (const tag of resource.tags) {
+    appendQueryValue(queryParams, 'tags', tag);
+  }
+}
+
+function buildQdnPublishPath(resource: QdnWriteResourceRequest) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQdnDeletePath(resource: QdnWriteResourceRequest) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQueryValue(queryParams, 'fee', resource.fee);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/resource/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/delete${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function getQdnWriteAccountId(context: QdnViewContext | null) {
+  if (!context) {
+    throw new Error('QDN app requests are only available to isolated QDN app views.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  return context.accountId;
+}
+
+function getQdnWriteSourceKind(filePath: string): QdnWriteSourceSelection['kind'] {
+  try {
+    return statSync(filePath).isDirectory() ? 'directory' : 'file';
+  } catch {
+    return 'file';
+  }
+}
+
+async function selectQdnPublishSource(context: QdnViewContext) {
+  const hostWindow = getQdnViewHostWindow(context);
+
+  if (!hostWindow) {
+    throw new Error('QDN publish request does not belong to an active window.');
+  }
+
+  const result = await dialog.showOpenDialog(hostWindow, {
+    buttonLabel: 'Select',
+    properties: ['openFile', 'openDirectory'],
+    title: 'Select QDN Publish Source',
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const selectedPath = result.filePaths[0];
+
+  return {
+    displayName: path.basename(selectedPath) || 'Selected item',
+    kind: getQdnWriteSourceKind(selectedPath),
+    path: selectedPath,
+  } satisfies QdnWriteSourceSelection;
+}
+
+async function getQdnWriteContext(context: QdnViewContext | null) {
+  const accountId = getQdnWriteAccountId(context);
+  const profile = await getAccountProfile(accountId);
+  const connection = await getNodeConnection();
+
+  assertAccountUnlocked(accountId);
+  assertLocalWriteConnection(connection);
+
+  return {
+    accountId,
+    connection,
+    profile,
+  };
+}
+
+async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const resource = getQdnWriteResourceRequest(request);
+  const writeContext = await getQdnWriteContext(context);
+  const source = await selectQdnPublishSource(context as QdnViewContext);
+
+  if (!source) {
+    throw new Error('QDN publish was canceled.');
+  }
+
+  await requestQdnWriteApproval(
+    context as QdnViewContext,
+    writeContext.profile,
+    'PUBLISH_QDN_RESOURCE',
+    resource,
+    source,
+  );
+
+  const apiKey = getNodeApiKey();
+  const signingKey = getAccountSigningKey(writeContext.accountId);
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    buildQdnPublishPath(resource),
+    source.path,
+    apiKey,
+    'QDN publish transaction build failed.',
+  );
+  const processedTransaction = await signAndProcessTransaction(
+    writeContext.connection,
+    apiKey,
+    signingKey.privateKey58,
+    unsignedTransaction.body,
+  );
+
+  return {
+    accepted: true,
+    action: 'PUBLISH_QDN_RESOURCE',
+    result: processedTransaction.data,
+    resource: {
+      identifier: resource.identifier ?? null,
+      name: resource.name,
+      service: resource.service,
+    },
+  };
+}
+
+async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const resource = getQdnWriteResourceRequest(request);
+  const writeContext = await getQdnWriteContext(context);
+
+  await requestQdnWriteApproval(
+    context as QdnViewContext,
+    writeContext.profile,
+    'DELETE_QDN_RESOURCE',
+    resource,
+  );
+
+  const apiKey = getNodeApiKey();
+  const signingKey = getAccountSigningKey(writeContext.accountId);
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    buildQdnDeletePath(resource),
+    '',
+    apiKey,
+    'QDN delete transaction build failed.',
+  );
+  const processedTransaction = await signAndProcessTransaction(
+    writeContext.connection,
+    apiKey,
+    signingKey.privateKey58,
+    unsignedTransaction.body,
+  );
+
+  return {
+    accepted: true,
+    action: 'DELETE_QDN_RESOURCE',
+    result: processedTransaction.data,
+    resource: {
+      identifier: resource.identifier ?? null,
+      name: resource.name,
+      service: resource.service,
+    },
+  };
+}
+
 function getQdnAppResourceRequest(request: QdnAppRequest) {
   const service = getService(getRequestValue(request, 'service'));
   const name = getString(getRequestValue(request, 'name'));
@@ -949,6 +1382,12 @@ async function handleQdnAppRequest(value: unknown, context: QdnViewContext | nul
     case 'SEARCH_QDN_RESOURCES':
       return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources/search'), request);
 
+    case 'PUBLISH_QDN_RESOURCE':
+      return publishQdnResourceForApp(request, context);
+
+    case 'DELETE_QDN_RESOURCE':
+      return deleteQdnResourceForApp(request, context);
+
     case 'IS_USING_PUBLIC_NODE': {
       const connection = await getNodeConnection();
 
@@ -975,6 +1414,7 @@ async function handleQdnAppRequest(value: unknown, context: QdnViewContext | nul
         'GET_QDN_RESOURCE_URL',
         'IS_USING_PUBLIC_NODE',
         'LIST_QDN_RESOURCES',
+        ...QDN_WRITE_ACTIONS,
         'SEARCH_QDN_RESOURCES',
         'WHICH_UI',
         'SHOW_ACTIONS',
@@ -1006,6 +1446,21 @@ export function registerQdnIpcHandlers() {
 
     if (pendingApproval.windowWebContentsId !== event.sender.id) {
       throw new Error('QDN account request response came from the wrong window.');
+    }
+
+    pendingApproval.resolve(response.approved);
+  });
+
+  ipcMain.handle('qdn-app:resolveWriteApproval', (event, rawResponse: unknown) => {
+    const response = sanitizeQdnWriteApprovalResponse(rawResponse);
+    const pendingApproval = pendingQdnWriteApprovals.get(response.requestId);
+
+    if (!pendingApproval) {
+      return;
+    }
+
+    if (pendingApproval.windowWebContentsId !== event.sender.id) {
+      throw new Error('QDN write request response came from the wrong window.');
     }
 
     pendingApproval.resolve(response.approved);

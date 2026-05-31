@@ -135,5 +135,18 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     },
     resolveAccountReadRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveAccountReadApproval', { approved, requestId }),
+    onWriteRequest: (callback: (request: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        callback(request);
+      };
+
+      ipcRenderer.on('qdn-app:write-request', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:write-request', listener);
+      };
+    },
+    resolveWriteRequest: (requestId: string, approved: boolean) =>
+      ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
   },
 });

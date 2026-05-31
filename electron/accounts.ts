@@ -634,6 +634,47 @@ export async function getAccountProfile(accountId: string): Promise<AccountProfi
   };
 }
 
+export function assertAccountUnlocked(accountId: string) {
+  const store = readWalletStore();
+  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  if (!unlockedWalletSeeds.has(accountId)) {
+    throw new Error('Selected account is locked.');
+  }
+}
+
+export function getAccountSigningKey(accountId: string) {
+  const store = readWalletStore();
+  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  const seed = unlockedWalletSeeds.get(accountId);
+
+  if (!seed) {
+    throw new Error('Selected account is locked.');
+  }
+
+  const privateKey = deriveAddressSeed(seed, 0);
+  const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
+  const address = publicKeyToAddress(keyPair.publicKey);
+
+  if (address !== wallet.address) {
+    throw new Error('Selected account signing key does not match the saved account address.');
+  }
+
+  return {
+    address,
+    privateKey58: base58Encode(privateKey),
+  };
+}
+
 function upsertWallet(store: WalletStore, wallet: StoredWallet) {
   const existingWalletIndex = store.wallets.findIndex((storedWallet) => storedWallet.id === wallet.id);
 

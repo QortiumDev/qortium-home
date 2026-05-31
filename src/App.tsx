@@ -67,6 +67,11 @@ type QdnAccountReadDialogProps = {
   onResolve: (requestId: string, approved: boolean) => void;
 };
 
+type QdnWriteDialogProps = {
+  request: QortiumQdnWriteApprovalRequest;
+  onResolve: (requestId: string, approved: boolean) => void;
+};
+
 type TabCommandActions = {
   addTab: () => void;
   canGoBack: boolean;
@@ -254,6 +259,71 @@ function QdnAccountReadDialog({ request, onResolve }: QdnAccountReadDialogProps)
   );
 }
 
+function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']) {
+  switch (action) {
+    case 'PUBLISH_QDN_RESOURCE':
+      return 'Publish QDN Resource';
+    case 'DELETE_QDN_RESOURCE':
+      return 'Delete QDN Resource';
+    default:
+      return 'QDN Write';
+  }
+}
+
+function getQdnWriteResourceLabel(resource: QortiumQdnWriteApprovalRequest['resource']) {
+  return `${resource.service}/${resource.name}${resource.identifier ? `/${resource.identifier}` : ''}`;
+}
+
+function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onResolve(request.id, false);
+        }
+      }}
+    >
+      <section
+        aria-label="QDN write request"
+        aria-modal="true"
+        className="unlock-dialog qdn-permission-dialog"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 className="unlock-dialog__title">Approve Write</h2>
+        <p className="unlock-dialog__account">{request.accountName || 'Selected account'}</p>
+        <p className="unlock-dialog__address">{request.address}</p>
+        <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
+        <dl className="detail-list qdn-permission-dialog__details">
+          <div>
+            <dt>Action</dt>
+            <dd>{getQdnWriteActionLabel(request.action)}</dd>
+          </div>
+          <div>
+            <dt>Resource</dt>
+            <dd>{getQdnWriteResourceLabel(request.resource)}</dd>
+          </div>
+          {request.sourceName ? (
+            <div>
+              <dt>{request.sourceKind === 'directory' ? 'Folder' : 'File'}</dt>
+              <dd>{request.sourceName}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <div className="unlock-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={() => onResolve(request.id, false)}>
+            Deny
+          </button>
+          <button className="button" type="button" onClick={() => onResolve(request.id, true)}>
+            Approve
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function getTabLabel(tab: BrowserTab) {
   const route = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
 
@@ -320,6 +390,7 @@ export function App() {
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
   const [qdnAccountReadRequests, setQdnAccountReadRequests] = useState<QortiumQdnAccountReadApprovalRequest[]>([]);
+  const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
@@ -338,16 +409,35 @@ export function App() {
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnAccountReadRequest = qdnAccountReadRequests[0] ?? null;
+  const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
 
-    if (!qdnPermissions) {
+    if (!qdnPermissions?.onAccountReadRequest) {
       return undefined;
     }
 
     return qdnPermissions.onAccountReadRequest((request) => {
       setQdnAccountReadRequests((currentRequests) => {
+        if (currentRequests.some((currentRequest) => currentRequest.id === request.id)) {
+          return currentRequests;
+        }
+
+        return [...currentRequests, request];
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+
+    if (!qdnPermissions?.onWriteRequest) {
+      return undefined;
+    }
+
+    return qdnPermissions.onWriteRequest((request) => {
+      setQdnWriteRequests((currentRequests) => {
         if (currentRequests.some((currentRequest) => currentRequest.id === request.id)) {
           return currentRequests;
         }
@@ -370,6 +460,22 @@ export function App() {
 
     void qdnPermissions.resolveAccountReadRequest(requestId, approved).catch((error) => {
       console.warn('Unable to resolve QDN account request.', error);
+    });
+  }
+
+  function resolveQdnWriteRequest(requestId: string, approved: boolean) {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+
+    setQdnWriteRequests((currentRequests) =>
+      currentRequests.filter((request) => request.id !== requestId),
+    );
+
+    if (!qdnPermissions?.resolveWriteRequest) {
+      return;
+    }
+
+    void qdnPermissions.resolveWriteRequest(requestId, approved).catch((error) => {
+      console.warn('Unable to resolve QDN write request.', error);
     });
   }
 
@@ -1358,6 +1464,12 @@ export function App() {
         <QdnAccountReadDialog
           request={activeQdnAccountReadRequest}
           onResolve={resolveQdnAccountReadRequest}
+        />
+      ) : null}
+      {activeQdnWriteRequest ? (
+        <QdnWriteDialog
+          request={activeQdnWriteRequest}
+          onResolve={resolveQdnWriteRequest}
         />
       ) : null}
     </main>

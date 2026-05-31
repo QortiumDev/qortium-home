@@ -348,6 +348,21 @@ type QortiumQdnAccountReadApprovalRequest = {
   resourceUrl: string;
 };
 
+type QortiumQdnWriteApprovalRequest = {
+  accountName: string | null;
+  action: 'PUBLISH_QDN_RESOURCE' | 'DELETE_QDN_RESOURCE';
+  address: string;
+  id: string;
+  resource: {
+    identifier: string | null;
+    name: string;
+    service: string;
+  };
+  resourceUrl: string;
+  sourceKind: 'directory' | 'file' | null;
+  sourceName: string | null;
+};
+
 interface Window {
   qortiumHome: {
     accounts: {
@@ -423,7 +438,11 @@ interface Window {
       onAccountReadRequest: (
         callback: (request: QortiumQdnAccountReadApprovalRequest) => void,
       ) => () => void;
+      onWriteRequest: (
+        callback: (request: QortiumQdnWriteApprovalRequest) => void,
+      ) => () => void;
       resolveAccountReadRequest: (requestId: string, approved: boolean) => Promise<void>;
+      resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
     };
   };
 }

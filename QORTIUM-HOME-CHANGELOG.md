@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add qdn app write approvals
+
+Added the first desktop QDN app write approval flow. Isolated APP and WEBSITE pages can now request QDN resource publish or delete actions, Home asks the user to choose any publish file or folder and approve every write, and approved requests are built, signed with the selected tab account, and submitted through the local Core without exposing wallet seed material or local paths to QDN apps.
+
 ### 2026-05-31 - app: add qdn account read approval
 
 Added the first account-aware QDN app permission prompt on desktop. Isolated APP and WEBSITE pages can now request the selected tab account's public address, name, and avatar URL through `GET_SELECTED_ACCOUNT` after the user approves it for that app session, while Android account access and all signing, publishing, and write-style bridge actions remain blocked.

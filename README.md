@@ -66,16 +66,16 @@ known peers, probes candidates for public QDN/read API support, and prefers a
 reachable node that can answer public QDN resource searches. Home does not send
 the local API key while using Previewnet network mode.
 
-Qortium Home does not yet expose chat send, name registration, QDN publish, QDN
-delete, or group join workflows. Those actions are planned for a later
-account-aware `qdnRequest` and approval/signing pass.
+Qortium Home does not yet expose chat send, name registration, or group join
+workflows. Desktop QDN apps can request QDN publish/delete actions through the
+account-aware `qdnRequest` bridge after a per-write user approval prompt.
 
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
 `qdnRequest` bridge for read-only node and QDN lookups through Home's currently
 selected node. Desktop QDN apps can also request the selected tab account's
 public identity after a user approval prompt. The bridge accepts explicit object
-requests only; write requests, publishing, and signing are still deferred.
+requests only; Android remains read-only.
 
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_NAMES`, `GET_BALANCE`,
@@ -84,15 +84,17 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
 `SEARCH_QDN_RESOURCES`, `IS_USING_PUBLIC_NODE`, `WHICH_UI`, and
 `SHOW_ACTIONS`. Desktop isolated QDN apps also support
-`GET_SELECTED_ACCOUNT`.
+`GET_SELECTED_ACCOUNT`, `PUBLISH_QDN_RESOURCE`, and `DELETE_QDN_RESOURCE`.
+Publishing uses a Home-owned file/folder picker, and each publish/delete request
+requires approval before Home signs and processes the transaction with the
+selected tab account.
 
 ## Planned Work
 
 - Additional derived addresses from the same wallet.
-- Additional `qdnRequest` approval prompts for publishing, signing, and
+- Additional `qdnRequest` approval prompts for generic signing and other
   write-style account actions.
-- Local-node write workflows after approval prompts exist, including chat send,
-  name registration, QDN publish, QDN delete, and group join.
+- Local-node write workflows for chat send, name registration, and group join.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
 - Signed Android APK/AAB release packaging and Android wallet file flows.

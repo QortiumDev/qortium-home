@@ -50,8 +50,8 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
   - Expose strict Qortium-native `qdnRequest` object requests to desktop and Android APP and WEBSITE pages for read-only node and QDN lookups.
   - Allow desktop APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
-  - When write-style `qdnRequest` support is added, prompt the user before approving requests, especially signing requests.
-  - Future permission prompts should show the selected account/address that will be used.
+  - Allow desktop APP and WEBSITE pages to request QDN publish/delete writes only after an explicit per-write approval prompt.
+  - Permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
   - Support preinstalled or externally managed Core.
   - Download the latest Qortium release or prerelease from GitHub on desktop
@@ -158,10 +158,10 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 
 - Wallet/account creation, saving, loading, and selection.
 - Per-tab account selection for the active page.
-- Future user approval prompts for QDN app requests that require account access, signing, or other non-read-only permissions.
+- User approval prompts for QDN app requests that require account access or QDN publish/delete writes.
 - Session-only desktop approval prompts for QDN app requests that read the selected tab account's public identity.
-- Future local-node write workflows for chat send, name registration, QDN
-  publish, QDN delete, and group join after the approval/signing model exists.
+- Per-write desktop approval prompts for QDN publish/delete requests from QDN apps.
+- Future local-node write workflows for chat send, name registration, and group join after the approval/signing model expands.
 - Local wallet list management.
 - Qortium wallet import and export.
 - Multiple loaded wallet files.
@@ -190,8 +190,8 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Complex theming or a large design system before the core workflows exist.
 - A full Qortium Core implementation inside the UI app. The UI should manage and launch the core rather than reimplement it.
 - Running Qortium Core locally inside the Android APK for the initial version.
-- Chat send, name registration, QDN publish, QDN delete, and group join in the
-  public preview browser surface.
+- Chat send, name registration, and group join in the public preview browser surface.
+- Android QDN publish/delete writes until Android wallet/account signing exists.
 - Android wallet file creation, wallet file loading, and QDN file downloads in the first Android scaffold.
 
 ## Open Questions
@@ -204,8 +204,8 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - How should users label derived addresses separately from wallet files?
 - Should tab account selections persist across restarts, or stay session-only with the current tabs?
 - Should account context be changeable while a QDN app or page is already loaded?
-- What exact permission prompts are needed when QDN apps request account access or signing capability?
-- Which future write-style `qdnRequest` actions must always require explicit user approval?
+- What exact permission prompts are needed when QDN apps request generic signing capability?
+- Which future write-style `qdnRequest` actions beyond QDN publish/delete must always require explicit user approval?
 - Should persistent qdnRequest permissions be keyed by app, tab/session, wallet, derived address, and action?
 - When should Qortium Home add multiple saved custom node addresses beyond the first single custom slot?
 - For future core management, which Qortium-specific app data folders should Home use for installs and unpacked releases?
@@ -262,7 +262,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 9. Add first-pass tab support.
 10. Add per-tab account context.
 11. Add visible account controls for already-loaded tabs if users need to change a tab's account after navigation.
-12. Add `qdnRequest` permission and signing support.
+12. Add first-pass `qdnRequest` permission and QDN write support.
 13. Add Qortium Core release/prerelease download and setup flow.
 14. Add local core start/status controls.
 15. Expand packaging targets one at a time.
