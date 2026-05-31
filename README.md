@@ -204,7 +204,14 @@ npm run smoke:android:qdn-bridge
 The smoke command uses the newest debug APK, reuses an attached Android device
 when one is present, or starts the `qortium_home_api36` AVD in headless mode.
 Set `ANDROID_AVD_HOME`, `QORTIUM_HOME_ANDROID_AVD`, or
-`QORTIUM_HOME_KEEP_ANDROID_EMULATOR=1` to override those defaults.
+`QORTIUM_HOME_KEEP_ANDROID_EMULATOR=1` to override those defaults. The command
+points the app at the host's local Previewnet node through
+`http://10.0.2.2:24891`, then verifies strict `qdnRequest` injection,
+`SHOW_ACTIONS`, read-only node API GET/HEAD calls, structured QDN resource
+status/properties/metadata/URL/fetch calls, resource list/search calls, and
+rejected legacy, malformed, write-method, and oversize node API requests. Set
+`QORTIUM_HOME_ANDROID_NODE_API_URL` to override the node URL used inside
+Android.
 
 Smoke-test desktop QDN app publish/delete writes against the local Core:
 

@@ -16,7 +16,18 @@ const avdHome = process.env.ANDROID_AVD_HOME || path.join(os.homedir(), '.config
 const avdName = process.env.QORTIUM_HOME_ANDROID_AVD || 'qortium_home_api36';
 const packageName = 'org.qortium.home';
 const activityName = `${packageName}/.MainActivity`;
-const fixtureAddress = process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE || 'qdn://APP/QortiumHomeTest/home-test';
+const nodeApiUrl = (process.env.QORTIUM_HOME_NODE_API_URL ?? 'http://127.0.0.1:24891').replace(
+  /\/+$/,
+  '',
+);
+const androidNodeApiUrl = (
+  process.env.QORTIUM_HOME_ANDROID_NODE_API_URL ?? 'http://10.0.2.2:24891'
+).replace(/\/+$/, '');
+const fixtureName = process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE_NAME ?? 'QortiumHomeTest';
+const appIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_APP_IDENTIFIER ?? 'home-test';
+const jsonIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_JSON_IDENTIFIER ?? 'home-json';
+const fixtureAddress =
+  process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
 const commandTimeoutMs = 30_000;
 const bootTimeoutMs = 180_000;
 const appTimeoutMs = 90_000;
@@ -226,6 +237,37 @@ async function fetchJson(url) {
   return response.json();
 }
 
+async function assertLocalCoreReady() {
+  const status = await fetchJson(`${nodeApiUrl}/admin/status`);
+
+  if (status?.isSynchronizing === true) {
+    fail(`Local Core is still synchronizing at ${nodeApiUrl}.`);
+  }
+}
+
+async function getResourceStatus(service, name, identifier) {
+  const identifierPath = identifier ? `/${encodeURIComponent(identifier)}` : '';
+
+  return fetchJson(
+    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}${identifierPath}`,
+  );
+}
+
+async function assertFixtureReady() {
+  const appStatus = await getResourceStatus('APP', fixtureName, appIdentifier);
+  const jsonStatus = await getResourceStatus('JSON', fixtureName, jsonIdentifier);
+
+  if (appStatus?.status !== 'READY') {
+    fail(`QDN APP fixture is not READY at ${fixtureAddress}. Run npm run qdn:bootstrap-test-data first.`);
+  }
+
+  if (jsonStatus?.status !== 'READY') {
+    fail(
+      `QDN JSON fixture is not READY at qdn://JSON/${fixtureName}/${jsonIdentifier}. Run npm run qdn:bootstrap-test-data first.`,
+    );
+  }
+}
+
 class CdpClient {
   constructor(webSocketUrl) {
     this.contextsByFrame = new Map();
@@ -363,14 +405,45 @@ async function navigateToFixture(client) {
   }
 }
 
+async function configureSmokeNode(client) {
+  await waitUntil('Qortium Home platform bridge', appTimeoutMs, async () => {
+    const result = await client.send('Runtime.evaluate', {
+      expression: "typeof window.qortiumHome?.node?.saveSettings === 'function'",
+      returnByValue: true,
+    });
+
+    return result.result?.value === true;
+  });
+
+  const expression = `
+    window.qortiumHome.node.saveSettings({
+      customUrl: ${JSON.stringify(androidNodeApiUrl)},
+      mode: 'custom'
+    }).then((settings) => ({ ok: true, settings }), (error) => ({
+      ok: false,
+      message: String(error && error.message || error)
+    }))
+  `;
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || `Unable to point Android smoke test at ${androidNodeApiUrl}.`);
+  }
+}
+
 async function getFixtureFrameContext(client) {
   return waitUntil('QDN fixture iframe', cdpTimeoutMs, async () => {
     const frameTree = await client.send('Page.getFrameTree');
     const frames = flattenFrames(frameTree.frameTree);
     const frame = frames.find(
       (candidate) =>
-        candidate.url.includes('/render/APP/QortiumHomeTest') ||
-        candidate.url.includes('/render/APP/QortiumHomeTest?identifier=home-test'),
+        candidate.url.includes(`/render/APP/${fixtureName}`) &&
+        candidate.url.includes(`identifier=${appIdentifier}`),
     );
 
     if (!frame) {
@@ -404,50 +477,234 @@ function assert(condition, message) {
   }
 }
 
+async function runQdnRequest(client, contextId, request) {
+  const result = await evaluateInFrame(
+    client,
+    contextId,
+    `
+      window.qdnRequest(${JSON.stringify(request)})
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  if (!result?.ok) {
+    fail(result?.message || `${request.action} failed.`);
+  }
+
+  return result.result;
+}
+
+async function expectQdnRequestRejected(client, contextId, request, expectedMessage) {
+  const result = await evaluateInFrame(
+    client,
+    contextId,
+    `
+      window.qdnRequest(${JSON.stringify(request)})
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  if (result?.ok) {
+    fail(`${request.action ?? 'qdnRequest'} unexpectedly succeeded.`);
+  }
+
+  if (expectedMessage && !String(result?.message ?? '').includes(expectedMessage)) {
+    fail(
+      `${request.action ?? 'qdnRequest'} failed with unexpected message: ${
+        result?.message ?? 'unknown error'
+      }`,
+    );
+  }
+}
+
+async function expectExpressionRejected(client, contextId, expression, label) {
+  const result = await evaluateInFrame(client, contextId, expression);
+
+  if (result?.rejected !== true) {
+    fail(`${label} unexpectedly succeeded.`);
+  }
+}
+
+function assertFixtureResource(resources, service, identifier, label) {
+  assert(Array.isArray(resources), `${label} did not return an array.`);
+  assert(
+    resources.some(
+      (item) => item?.service === service && item?.name === fixtureName && item?.identifier === identifier,
+    ),
+    `${label} did not include ${service}/${fixtureName}/${identifier}.`,
+  );
+}
+
 async function runBridgeAssertions(client, contextId) {
   const bridgeState = await evaluateInFrame(client, contextId, 'typeof window.qdnRequest');
 
   assert(bridgeState === 'function', `Expected qdnRequest to be injected, found ${bridgeState}.`);
 
-  const whichUi = await evaluateInFrame(client, contextId, "window.qdnRequest({ action: 'WHICH_UI' })");
+  const whichUi = await runQdnRequest(client, contextId, { action: 'WHICH_UI' });
 
   assert(whichUi === 'QORTIUM_HOME_ANDROID', `Expected QORTIUM_HOME_ANDROID, found ${JSON.stringify(whichUi)}.`);
 
-  const statusResult = await evaluateInFrame(
-    client,
-    contextId,
-    "window.qdnRequest({ action: 'FETCH_NODE_API', path: '/admin/status' })",
-  );
+  const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
+  for (const action of [
+    'FETCH_NODE_API',
+    'GET_NODE_INFO',
+    'GET_NODE_STATUS',
+    'GET_QDN_RESOURCE_METADATA',
+    'GET_QDN_RESOURCE_PROPERTIES',
+    'GET_QDN_RESOURCE_STATUS',
+    'GET_QDN_RESOURCE_URL',
+    'FETCH_QDN_RESOURCE',
+    'LIST_QDN_RESOURCES',
+    'SEARCH_QDN_RESOURCES',
+    'IS_USING_PUBLIC_NODE',
+    'WHICH_UI',
+    'SHOW_ACTIONS',
+  ]) {
+    assert(Array.isArray(actions) && actions.includes(action), `SHOW_ACTIONS did not include ${action}.`);
+  }
+
+  const statusResult = await runQdnRequest(client, contextId, {
+    action: 'FETCH_NODE_API',
+    path: '/admin/status',
+  });
 
   assert(statusResult?.status === 200 && statusResult?.ok === true, 'FETCH_NODE_API /admin/status did not return HTTP 200.');
+  assert(
+    typeof statusResult?.data?.height === 'number' || typeof statusResult?.data?.syncPercent === 'number',
+    'FETCH_NODE_API /admin/status returned an unexpected payload.',
+  );
 
-  const rejectedString = await evaluateInFrame(
+  const headResponse = await runQdnRequest(client, contextId, {
+    action: 'FETCH_NODE_API',
+    method: 'HEAD',
+    path: '/admin/status',
+  });
+  assert(
+    headResponse?.status === 200 && headResponse?.ok === true && headResponse?.body === '',
+    'FETCH_NODE_API HEAD /admin/status did not return an empty HTTP 200 response.',
+  );
+
+  const nodeStatus = await runQdnRequest(client, contextId, { action: 'GET_NODE_STATUS' });
+  assert(
+    typeof nodeStatus?.height === 'number' || typeof nodeStatus?.syncPercent === 'number',
+    'GET_NODE_STATUS returned an unexpected payload.',
+  );
+
+  const nodeInfo = await runQdnRequest(client, contextId, { action: 'GET_NODE_INFO' });
+  assert(typeof nodeInfo?.buildVersion === 'string', 'GET_NODE_INFO returned an unexpected payload.');
+
+  const appStatus = await runQdnRequest(client, contextId, {
+    action: 'GET_QDN_RESOURCE_STATUS',
+    identifier: appIdentifier,
+    name: fixtureName,
+    service: 'APP',
+  });
+  assert(appStatus?.status === 'READY', 'GET_QDN_RESOURCE_STATUS did not return READY for the APP fixture.');
+
+  const appProperties = await runQdnRequest(client, contextId, {
+    action: 'GET_QDN_RESOURCE_PROPERTIES',
+    identifier: appIdentifier,
+    name: fixtureName,
+    service: 'APP',
+  });
+  assert(appProperties?.filename === 'index.html', 'GET_QDN_RESOURCE_PROPERTIES returned unexpected APP properties.');
+
+  const appMetadata = await runQdnRequest(client, contextId, {
+    action: 'GET_QDN_RESOURCE_METADATA',
+    identifier: appIdentifier,
+    name: fixtureName,
+    service: 'APP',
+  });
+  assert(typeof appMetadata?.title === 'string', 'GET_QDN_RESOURCE_METADATA returned unexpected APP metadata.');
+
+  const appUrl = await runQdnRequest(client, contextId, {
+    action: 'GET_QDN_RESOURCE_URL',
+    identifier: appIdentifier,
+    name: fixtureName,
+    service: 'APP',
+  });
+  assert(
+    typeof appUrl === 'string' &&
+      appUrl.includes(`/render/APP/${fixtureName}`) &&
+      appUrl.includes(`identifier=${appIdentifier}`),
+    'GET_QDN_RESOURCE_URL returned an unexpected APP render URL.',
+  );
+
+  const jsonResource = await runQdnRequest(client, contextId, {
+    action: 'FETCH_QDN_RESOURCE',
+    identifier: jsonIdentifier,
+    name: fixtureName,
+    service: 'JSON',
+  });
+  assert(
+    jsonResource?.fixture === 'JSON' && jsonResource?.resource === `qdn://JSON/${fixtureName}/${jsonIdentifier}`,
+    'FETCH_QDN_RESOURCE returned an unexpected JSON fixture payload.',
+  );
+
+  const listedResources = await runQdnRequest(client, contextId, {
+    action: 'LIST_QDN_RESOURCES',
+    identifier: appIdentifier,
+    includeMetadata: true,
+    includeStatus: true,
+    limit: 1,
+    name: fixtureName,
+    service: 'APP',
+  });
+  assertFixtureResource(listedResources, 'APP', appIdentifier, 'LIST_QDN_RESOURCES');
+
+  const searchedResources = await runQdnRequest(client, contextId, {
+    action: 'SEARCH_QDN_RESOURCES',
+    identifier: appIdentifier,
+    includeMetadata: true,
+    includeStatus: true,
+    limit: 1,
+    name: fixtureName,
+    service: 'APP',
+  });
+  assertFixtureResource(searchedResources, 'APP', appIdentifier, 'SEARCH_QDN_RESOURCES');
+
+  const isUsingPublicNode = await runQdnRequest(client, contextId, { action: 'IS_USING_PUBLIC_NODE' });
+  assert(isUsingPublicNode === false, 'IS_USING_PUBLIC_NODE should be false for the Android smoke custom node.');
+
+  await expectExpressionRejected(
     client,
     contextId,
     "window.qdnRequest('GET_NODE_INFO').then(() => ({ rejected: false }), (error) => ({ rejected: true, message: String(error && error.message || error) }))",
+    'String-form qdnRequest',
   );
-
-  assert(rejectedString?.rejected === true, 'String-form qdnRequest unexpectedly succeeded.');
-
-  const rejectedAlias = await evaluateInFrame(
+  await expectQdnRequestRejected(
     client,
     contextId,
-    "window.qdnRequest({ action: 'GET_NODE_API', path: '/admin/status' }).then(() => ({ rejected: false }), (error) => ({ rejected: true, message: String(error && error.message || error) }))",
+    { action: 'GET_NODE_API', path: '/admin/status' },
+    'not supported',
   );
-
-  assert(rejectedAlias?.rejected === true, 'Legacy GET_NODE_API alias unexpectedly succeeded.');
-
-  const rejectedPost = await evaluateInFrame(
+  await expectQdnRequestRejected(
     client,
     contextId,
-    "window.qdnRequest({ action: 'FETCH_NODE_API', path: '/admin/status', method: 'POST' }).then(() => ({ rejected: false }), (error) => ({ rejected: true, message: String(error && error.message || error) }))",
+    { action: 'FETCH_NODE_API', method: 'POST', path: '/admin/status' },
+    'GET and HEAD',
   );
-
-  assert(rejectedPost?.rejected === true, 'POST FETCH_NODE_API unexpectedly succeeded.');
+  await expectQdnRequestRejected(
+    client,
+    contextId,
+    { action: 'FETCH_NODE_API', path: '//example.com/admin/status' },
+    'start with /',
+  );
+  await expectQdnRequestRejected(
+    client,
+    contextId,
+    { action: 'FETCH_NODE_API', maxBytes: 1, path: '/admin/status' },
+    'byte limit',
+  );
 }
 
 async function main() {
   assertTool(adbPath, 'adb');
+
+  await assertLocalCoreReady();
+  await assertFixtureReady();
 
   const apkPath = getDebugApkPath();
   const { serial, startedEmulator } = await launchEmulatorIfNeeded();
@@ -467,6 +724,7 @@ async function main() {
       try {
         await client.send('Page.enable');
         await client.send('Runtime.enable');
+        await configureSmokeNode(client);
         await navigateToFixture(client);
         const { contextId, frame } = await getFixtureFrameContext(client);
 
