@@ -1,7 +1,14 @@
 import './styles.css';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { ApiViewer } from './ApiViewer';
 import { DashboardPage } from './DashboardPage';
 import { QdnExplorer } from './QdnExplorer';
@@ -190,6 +197,14 @@ function createBrowserTabFromClosedTab(tab: ClosedBrowserTab, accountsState: Qor
   return createBrowserTab(accountId, tab.history);
 }
 
+function getCurrentRouteForTab(tab: BrowserTab) {
+  return tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+}
+
+function getQdnViewRouteKey(tab: BrowserTab) {
+  return `${tab.reloadNonce}:${getCurrentRouteForTab(tab).displayUrl}`;
+}
+
 function createInitialTabState(): BrowserTabState {
   const tab = createBrowserTab();
 
@@ -270,6 +285,7 @@ export function App() {
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
+  const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
   const activeAccount =
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
@@ -281,6 +297,28 @@ export function App() {
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
+
+  useLayoutEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+
+    if (!qdnViews) {
+      return;
+    }
+
+    const nextRouteKeys = new Map(tabState.tabs.map((tab) => [tab.id, getQdnViewRouteKey(tab)]));
+
+    for (const [tabId, previousRouteKey] of qdnViewRouteKeysRef.current) {
+      const nextRouteKey = nextRouteKeys.get(tabId);
+
+      if (!nextRouteKey || nextRouteKey !== previousRouteKey) {
+        void qdnViews.destroy(tabId).catch((error) => {
+          console.warn('Unable to destroy stale isolated QDN view.', error);
+        });
+      }
+    }
+
+    qdnViewRouteKeysRef.current = nextRouteKeys;
+  }, [tabState.tabs]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -1205,7 +1243,12 @@ export function App() {
         {currentRoute.kind === 'node-api' ? (
           <ApiViewer key={routeRenderKey} route={currentRoute} />
         ) : currentRoute.kind === 'resource' ? (
-          <QdnViewer key={routeRenderKey} nodeApiUrl={nodeSettings.nodeApiUrl} resource={currentRoute.resource} />
+          <QdnViewer
+            key={routeRenderKey}
+            nodeApiUrl={nodeSettings.nodeApiUrl}
+            resource={currentRoute.resource}
+            tabId={activeTab.id}
+          />
         ) : currentRoute.kind === 'settings' ? (
           <SettingsPage
             key={routeRenderKey}

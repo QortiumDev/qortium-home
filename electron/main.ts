@@ -15,6 +15,7 @@ import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import { registerCoreManagerIpcHandlers } from './core-manager.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerQdnIpcHandlers } from './qdn.js';
+import { registerQdnViewIpcHandlers } from './qdn-views.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WINDOW_WIDTH = 1100;
@@ -496,6 +497,7 @@ app.whenReady().then(() => {
   registerCoreManagerIpcHandlers();
   registerNodeSettingsIpcHandlers();
   registerQdnIpcHandlers();
+  registerQdnViewIpcHandlers();
   registerWindowIpcHandlers();
   buildApplicationMenu();
   createWindow();

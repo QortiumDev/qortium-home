@@ -1,5 +1,5 @@
 import { Copy, Download, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
 import {
   buildQdnDownloadUrl,
@@ -43,6 +43,7 @@ type QdnViewerState =
 type QdnViewerProps = {
   nodeApiUrl: string;
   resource: QdnResource;
+  tabId: string;
 };
 
 type TextPreviewState =
@@ -66,6 +67,10 @@ type TextPreviewState =
 type MediaErrorState = {
   message: string;
 } | null;
+
+function canUseIsolatedQdnViews() {
+  return !isNativePlatform() && !!window.qortiumHome.qdnViews;
+}
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
@@ -883,14 +888,154 @@ function QdnMediaContent({
   );
 }
 
-function QdnReadyContent({
+function getElementBounds(element: HTMLElement): QortiumQdnViewBounds {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height)),
+  };
+}
+
+function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQdnViewBounds) {
+  return (
+    !!first &&
+    first.x === second.x &&
+    first.y === second.y &&
+    first.width === second.width &&
+    first.height === second.height
+  );
+}
+
+function QdnIsolatedFrameContent({
   loadedResource,
+  nodeApiUrl,
   resource,
+  tabId,
 }: {
   loadedResource: LoadedQdnResource;
+  nodeApiUrl: string;
   resource: QdnResource;
+  tabId: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const lastBoundsRef = useRef<QortiumQdnViewBounds | null>(null);
+  const [viewError, setViewError] = useState('');
+
+  useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+    const container = containerRef.current;
+
+    if (!qdnViews || !container) {
+      return undefined;
+    }
+
+    let isDisposed = false;
+    let animationFrameId = 0;
+
+    function syncBounds() {
+      if (isDisposed || !containerRef.current) {
+        return;
+      }
+
+      const bounds = getElementBounds(containerRef.current);
+
+      if (areViewBoundsEqual(lastBoundsRef.current, bounds)) {
+        return;
+      }
+
+      lastBoundsRef.current = bounds;
+      void qdnViews.setBounds({ tabId, bounds }).catch((error) => {
+        console.warn('Unable to resize isolated QDN view.', error);
+      });
+    }
+
+    async function showView() {
+      const bounds = getElementBounds(container);
+
+      lastBoundsRef.current = bounds;
+
+      try {
+        await qdnViews.show({
+          bounds,
+          nodeApiUrl,
+          renderUrl: loadedResource.renderUrl,
+          tabId,
+        });
+
+        if (!isDisposed) {
+          setViewError('');
+        }
+      } catch (error) {
+        if (!isDisposed) {
+          setViewError(formatError(error));
+        }
+      }
+    }
+
+    void showView();
+
+    const resizeObserver = new ResizeObserver(syncBounds);
+
+    resizeObserver.observe(container);
+    window.addEventListener('resize', syncBounds);
+    window.addEventListener('scroll', syncBounds, true);
+    animationFrameId = window.requestAnimationFrame(syncBounds);
+
+    return () => {
+      isDisposed = true;
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', syncBounds);
+      window.removeEventListener('scroll', syncBounds, true);
+
+      if (animationFrameId) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
+      void qdnViews.hide(tabId).catch((error) => {
+        console.warn('Unable to hide isolated QDN view.', error);
+      });
+    };
+  }, [loadedResource.renderUrl, nodeApiUrl, tabId]);
+
+  return (
+    <div
+      className={`qdn-viewer__isolated-frame${viewError ? ' qdn-viewer__isolated-frame--error' : ''}`}
+      aria-label={resource.displayUrl}
+      ref={containerRef}
+    >
+      {viewError ? (
+        <p className="qdn-viewer__message qdn-viewer__message--error">{viewError}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function QdnReadyContent({
+  loadedResource,
+  nodeApiUrl,
+  resource,
+  tabId,
+}: {
+  loadedResource: LoadedQdnResource;
+  nodeApiUrl: string;
+  resource: QdnResource;
+  tabId: string;
 }) {
   if (loadedResource.viewerKind === 'iframe') {
+    if (canUseIsolatedQdnViews()) {
+      return (
+        <QdnIsolatedFrameContent
+          loadedResource={loadedResource}
+          nodeApiUrl={nodeApiUrl}
+          resource={resource}
+          tabId={tabId}
+        />
+      );
+    }
+
     return (
       <iframe
         className="qdn-viewer__frame"
@@ -942,7 +1087,7 @@ function QdnReadyContent({
   );
 }
 
-export function QdnViewer({ nodeApiUrl, resource }: QdnViewerProps) {
+export function QdnViewer({ nodeApiUrl, resource, tabId }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
@@ -973,7 +1118,12 @@ export function QdnViewer({ nodeApiUrl, resource }: QdnViewerProps) {
       </div>
 
       {state.phase === 'ready' ? (
-        <QdnReadyContent loadedResource={state.loadedResource} resource={resource} />
+        <QdnReadyContent
+          loadedResource={state.loadedResource}
+          nodeApiUrl={nodeApiUrl}
+          resource={resource}
+          tabId={tabId}
+        />
       ) : (
         <div className={`qdn-viewer__empty qdn-viewer__empty--${state.phase}`}>
           <p className="qdn-viewer__message">{state.message}</p>

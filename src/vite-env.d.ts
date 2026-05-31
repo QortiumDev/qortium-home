@@ -285,6 +285,25 @@ type QortiumQdnDownloadResult =
       filePath: string;
     };
 
+type QortiumQdnViewBounds = {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+};
+
+type QortiumQdnViewShowRequest = {
+  bounds: QortiumQdnViewBounds;
+  nodeApiUrl: string;
+  renderUrl: string;
+  tabId: string;
+};
+
+type QortiumQdnViewBoundsRequest = {
+  bounds: QortiumQdnViewBounds;
+  tabId: string;
+};
+
 type QortiumHomeRouteSnapshot = {
   displayUrl: string;
   kind: string;
@@ -382,6 +401,12 @@ interface Window {
       downloadResource: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnDownloadResult>;
+    };
+    qdnViews?: {
+      destroy: (tabId: string) => Promise<void>;
+      hide: (tabId: string) => Promise<void>;
+      setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;
+      show: (request: QortiumQdnViewShowRequest) => Promise<void>;
     };
   };
 }

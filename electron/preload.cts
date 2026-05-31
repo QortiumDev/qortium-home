@@ -106,4 +106,18 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       suggestedFilename?: string;
     }) => ipcRenderer.invoke('qdn:downloadResource', request),
   },
+  qdnViews: {
+    show: (request: {
+      bounds: { height: number; width: number; x: number; y: number };
+      nodeApiUrl: string;
+      renderUrl: string;
+      tabId: string;
+    }) => ipcRenderer.invoke('qdn-views:show', request),
+    setBounds: (request: {
+      bounds: { height: number; width: number; x: number; y: number };
+      tabId: string;
+    }) => ipcRenderer.invoke('qdn-views:setBounds', request),
+    hide: (tabId: string) => ipcRenderer.invoke('qdn-views:hide', { tabId }),
+    destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
+  },
 });
