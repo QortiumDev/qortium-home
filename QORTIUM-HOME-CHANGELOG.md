@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - test: add android update install smoke test
+
+Added an Android smoke test for the Home update install handoff. The new command launches or reuses the Android emulator, installs the newest debug APK, copies an APK fixture into Home's app-private update directory, verifies that unsafe paths and non-APK filenames are rejected, and confirms that a valid APK opens Android's package installer or unknown-app-source Settings screen.
+
 ### 2026-05-31 - test: add android qdn media smoke test
 
 Added an Android smoke test for QDN image, audio, and video resource viewing. The new command launches or reuses the Android emulator, points Qortium Home at the local Previewnet node through the emulator bridge, opens the local `IMAGE`, `AUDIO`, and `VIDEO` fixtures, and verifies that each viewer uses an Android blob URL with loaded image dimensions or media metadata and no visible media error.

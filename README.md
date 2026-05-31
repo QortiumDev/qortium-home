@@ -225,6 +225,17 @@ Previewnet node through `http://10.0.2.2:24891`, opens the `IMAGE`, `AUDIO`, and
 `VIDEO` QDN fixtures, and verifies that Android loads them through blob URLs
 with image dimensions or media metadata available and no viewer error message.
 
+Smoke-test the Android update install handoff against the default emulator:
+
+```sh
+npm run smoke:android:update-install
+```
+
+The update install smoke uses the newest debug APK, copies it into Qortium
+Home's app-private update download directory, verifies that unsafe paths and
+non-APK filenames are rejected, then confirms the valid APK reaches Android's
+package installer or the unknown-app-source Settings screen.
+
 Smoke-test desktop QDN app publish/delete writes against the local Core:
 
 ```sh
