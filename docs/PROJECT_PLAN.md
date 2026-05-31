@@ -49,6 +49,7 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Support read-only direct node API endpoint viewing through the address bar.
   - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
   - Expose strict Qortium-native `qdnRequest` object requests to desktop and Android APP and WEBSITE pages for read-only node and QDN lookups.
+  - Keep `FETCH_NODE_API` path-only and read-only; do not support legacy QDN app bridge aliases.
   - Allow desktop APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
   - Allow desktop APP and WEBSITE pages to request QDN publish/delete writes only after an explicit per-write approval prompt.
   - Permission prompts should show the selected account/address that will be used.

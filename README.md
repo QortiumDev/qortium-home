@@ -89,6 +89,10 @@ Publishing uses a Home-owned file/folder picker, and each publish/delete request
 requires approval before Home signs and processes the transaction with the
 selected tab account.
 
+`FETCH_NODE_API` accepts path-only requests such as `/admin/status` and only
+allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
+`GET_NODE_API`, string-form requests, and write-style methods are rejected.
+
 ## Planned Work
 
 - Additional derived addresses from the same wallet.
@@ -216,6 +220,19 @@ already be available. Set `QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH`,
 `QORTIUM_HOME_NODE_API_KEY`, `QORTIUM_HOME_NODE_API_KEY_PATH`,
 `QORTIUM_HOME_SMOKE_ACCOUNT_ROLE`, or `QORTIUM_HOME_SMOKE_PUBLISH_NAME` to
 override those defaults.
+
+Smoke-test desktop QDN app read/API bridge behavior against the local Core:
+
+```sh
+npm run smoke:desktop:qdn-api
+```
+
+This command starts the desktop development app, opens the APP fixture, and
+checks strict `qdnRequest` injection, `SHOW_ACTIONS`, path-only `FETCH_NODE_API`
+GET/HEAD calls, structured QDN resource status/properties/metadata/URL/fetch
+calls, resource list/search calls, and rejected legacy, malformed, write-method,
+and oversize node API requests. It expects the local Previewnet node and QDN
+preview APP/JSON fixtures to already be available.
 
 Run the full desktop QDN permission smoke suite:
 

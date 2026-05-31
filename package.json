@@ -29,6 +29,7 @@
     "android:open": "npm run android:sync && cap open android",
     "dist:android:debug": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "smoke:android:qdn-bridge": "node scripts/smoke-android-qdn-bridge.mjs",
+    "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "release:check": "node scripts/check-release-assets.mjs",
