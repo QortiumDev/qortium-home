@@ -217,6 +217,17 @@ already be available. Set `QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH`,
 `QORTIUM_HOME_SMOKE_ACCOUNT_ROLE`, or `QORTIUM_HOME_SMOKE_PUBLISH_NAME` to
 override those defaults.
 
+Run the full desktop QDN permission smoke suite:
+
+```sh
+npm run smoke:desktop:qdn-permissions
+```
+
+The full suite covers the success path plus denied publish/delete, no selected
+account, locked account, missing API key, non-local node, and stale QDN view
+approval cases. To run one case directly, pass
+`--scenario=<name>` to `scripts/smoke-desktop-qdn-write.mjs`.
+
 Release artifacts are written to `dist-release/`. Generated build output should
 not be committed to git.
 

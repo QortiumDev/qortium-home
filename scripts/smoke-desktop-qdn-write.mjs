@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -36,6 +37,17 @@ const commandTimeoutMs = 120_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
 const qdnStatusTimeoutMs = 180_000;
+const allScenarios = [
+  'success',
+  'deny-publish',
+  'deny-delete',
+  'no-account',
+  'locked-account',
+  'missing-api-key',
+  'nonlocal-node',
+  'stale-tab',
+];
+const qdnWriteSmokeScenarios = new Set(allScenarios);
 
 function log(message) {
   console.log(`[desktop-qdn-write-smoke] ${message}`);
@@ -43,6 +55,34 @@ function log(message) {
 
 function fail(message) {
   throw new Error(message);
+}
+
+function getScenarioArgument() {
+  for (const argument of process.argv.slice(2)) {
+    if (argument === '--all') {
+      return 'all';
+    }
+
+    if (argument.startsWith('--scenario=')) {
+      return argument.slice('--scenario='.length).trim();
+    }
+  }
+
+  return process.env.QORTIUM_HOME_DESKTOP_QDN_WRITE_SCENARIO?.trim() || 'success';
+}
+
+function getRequestedScenarios() {
+  const scenario = getScenarioArgument();
+
+  if (scenario === 'all') {
+    return allScenarios;
+  }
+
+  if (!qdnWriteSmokeScenarios.has(scenario)) {
+    fail(`Unknown desktop QDN write smoke scenario: ${scenario}.`);
+  }
+
+  return [scenario];
 }
 
 function delay(ms) {
@@ -208,6 +248,56 @@ function readNodeApiKey() {
   }
 
   return readFileSync(apiKeyPath, 'utf8').trim();
+}
+
+function writeAppApiKeyFile(tempRoot) {
+  const apiKeyPath = path.join(tempRoot, 'app-apikey.txt');
+
+  writeFileSync(apiKeyPath, `${readNodeApiKey()}\n`, 'utf8');
+
+  return apiKeyPath;
+}
+
+function getWalletId(address) {
+  return `wallet:${address}`;
+}
+
+function writeLockedWalletStore(userDataDir, account) {
+  const now = new Date().toISOString();
+  const walletId = getWalletId(account.accountAddress);
+
+  mkdirSync(userDataDir, { recursive: true });
+  writeFileSync(
+    path.join(userDataDir, 'wallets.json'),
+    `${JSON.stringify(
+      {
+        activeAccountId: walletId,
+        version: 1,
+        wallets: [
+          {
+            address: account.accountAddress,
+            createdAt: now,
+            encryptedWallet: {
+              address0: account.accountAddress,
+              encryptedSeed: '1',
+              iv: '1',
+              kdfThreads: 1,
+              mac: '1',
+              salt: '1',
+              version: 2,
+            },
+            id: walletId,
+            label: 'Locked Smoke Account',
+            sourceFilename: 'locked-smoke.json',
+            updatedAt: now,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
 }
 
 function getPreviewAccount() {
@@ -462,7 +552,7 @@ async function navigateToFixture(client) {
   }
 }
 
-async function approveNextWrite(client) {
+async function resolveNextWrite(client, buttonLabel = 'Approve') {
   await waitUntil('QDN write approval dialog', appTimeoutMs, async () => {
     const result = await evaluate(
       client,
@@ -470,10 +560,10 @@ async function approveNextWrite(client) {
         (() => {
           const dialog = document.querySelector('[aria-label="QDN write request"]');
           if (!dialog) return null;
-          const approve = [...dialog.querySelectorAll('button')]
-            .find((button) => button.textContent && button.textContent.trim() === 'Approve');
-          if (!approve) return { ok: false, message: 'Approve button was not found.' };
-          approve.click();
+          const target = [...dialog.querySelectorAll('button')]
+            .find((button) => button.textContent && button.textContent.trim() === ${JSON.stringify(buttonLabel)});
+          if (!target) return { ok: false, message: ${JSON.stringify(`${buttonLabel} button was not found.`)} };
+          target.click();
           return { ok: true };
         })()
       `,
@@ -491,7 +581,29 @@ async function approveNextWrite(client) {
   });
 }
 
-async function runQdnRequestWithApproval(mainClient, qdnClient, request) {
+async function isWriteDialogVisible(client) {
+  return evaluate(client, "!!document.querySelector('[aria-label=\"QDN write request\"]')");
+}
+
+async function runQdnRequest(qdnClient, request) {
+  return evaluate(
+    qdnClient,
+    `
+      window.qdnRequest(${JSON.stringify(request)})
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+}
+
+async function runQdnRequestWithDialog(
+  mainClient,
+  qdnClient,
+  request,
+  buttonLabel = 'Approve',
+  beforeResolve,
+  allowRejection = false,
+) {
   const requestPromise = evaluate(
     qdnClient,
     `
@@ -501,15 +613,41 @@ async function runQdnRequestWithApproval(mainClient, qdnClient, request) {
     `,
   );
 
-  await approveNextWrite(mainClient);
+  if (beforeResolve) {
+    await beforeResolve();
+  }
+
+  await resolveNextWrite(mainClient, buttonLabel);
 
   const result = await requestPromise;
 
-  if (!result?.ok) {
+  if (buttonLabel === 'Approve' && !result?.ok && !allowRejection) {
     fail(result?.message || `${request.action} failed.`);
   }
 
-  return result.result;
+  if (buttonLabel !== 'Approve' && result?.ok) {
+    fail(`${request.action} unexpectedly succeeded after ${buttonLabel}.`);
+  }
+
+  return result;
+}
+
+async function expectQdnRequestRejected(mainClient, qdnClient, request, expectedMessage) {
+  const result = await runQdnRequest(qdnClient, request);
+
+  if (result?.ok) {
+    fail(`${request.action} unexpectedly succeeded.`);
+  }
+
+  if (expectedMessage && !String(result?.message ?? '').includes(expectedMessage)) {
+    fail(`${request.action} failed with unexpected message: ${result?.message ?? 'unknown error'}`);
+  }
+
+  if (await isWriteDialogVisible(mainClient)) {
+    fail(`${request.action} unexpectedly opened a write approval dialog.`);
+  }
+
+  return result;
 }
 
 async function requestCore(pathname, options = {}) {
@@ -575,31 +713,197 @@ async function cleanupResource({ account, identifier, name, service }) {
   }
 }
 
-async function main() {
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const electronBin = getBin('electron');
-  const viteBin = getBin('vite');
+function getPublishRequest({ identifier, name, service }) {
+  return {
+    action: 'PUBLISH_QDN_RESOURCE',
+    description: 'Qortium Home desktop QDN write smoke test',
+    fee: 0,
+    identifier,
+    name,
+    service,
+    title: 'Qortium Home Write Smoke',
+  };
+}
 
-  assertTool(electronBin, 'electron');
-  assertTool(viteBin, 'vite');
+function getDeleteRequest({ identifier, name, service }) {
+  return {
+    action: 'DELETE_QDN_RESOURCE',
+    fee: 0,
+    identifier,
+    name,
+    service,
+  };
+}
 
-  const account = getPreviewAccount();
-  await assertLocalCoreReady();
-  const publishName = await getOwnedPublishName(account.accountAddress);
-  await assertFixtureReady();
+async function assertResourceStatus(service, name, identifier, expectedStatus, options = {}) {
+  const status = options.build
+    ? await getBuiltResourceStatus(service, name, identifier)
+    : await getResourceStatus(service, name, identifier);
 
-  log(`Using preview account role ${accountRole} with name ${publishName}.`);
-  log('Building Electron main process.');
-  await run(npm, ['run', 'build:electron']);
+  if (status?.status !== expectedStatus) {
+    fail(
+      `Expected ${service}/${name}/${identifier} to be ${expectedStatus}, found ${status?.status ?? 'unknown'}.`,
+    );
+  }
 
-  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-desktop-qdn-write-'));
+  return status;
+}
+
+async function saveNodeSettings(mainClient, request) {
+  const result = await evaluate(
+    mainClient,
+    `
+      window.qortiumHome.node.saveSettings(${JSON.stringify(request)})
+        .then((settings) => ({ ok: true, settings }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  if (!result?.ok) {
+    fail(result?.message || 'Unable to save node settings.');
+  }
+
+  return result.settings;
+}
+
+async function makeQdnViewStale(mainClient) {
+  await waitUntil('QDN write approval dialog', appTimeoutMs, async () => isWriteDialogVisible(mainClient));
+
+  const result = await evaluate(
+    mainClient,
+    `
+      window.qortiumHome.qdnViews.show({
+        accountId: 'stale-smoke-account',
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+        nodeApiUrl: ${JSON.stringify(nodeApiUrl)},
+        renderUrl: ${JSON.stringify(`${nodeApiUrl}/render/APP/${fixtureName}/${fixtureIdentifier}`)},
+        tabId: 'tab-1'
+      })
+        .then(() => ({ ok: true }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  if (!result?.ok) {
+    fail(result?.message || 'Unable to make QDN view stale.');
+  }
+}
+
+async function runScenarioActions({
+  account,
+  apiKeyPathForApp,
+  identifier,
+  mainClient,
+  publishName,
+  qdnClient,
+  scenario,
+  service,
+}) {
+  const publishRequest = getPublishRequest({ identifier, name: publishName, service });
+  const deleteRequest = getDeleteRequest({ identifier, name: publishName, service });
+
+  switch (scenario) {
+    case 'success':
+      log(`Publishing ${service}/${publishName}/${identifier}.`);
+      await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
+
+      log(`Deleting ${service}/${publishName}/${identifier}.`);
+      await runQdnRequestWithDialog(mainClient, qdnClient, deleteRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'DELETED');
+      return { deleted: true, published: true };
+
+    case 'deny-publish':
+      log(`Denying publish for ${service}/${publishName}/${identifier}.`);
+      await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest, 'Deny');
+      await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+
+    case 'deny-delete':
+      log(`Publishing ${service}/${publishName}/${identifier} before denied delete.`);
+      await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
+
+      log(`Denying delete for ${service}/${publishName}/${identifier}.`);
+      await runQdnRequestWithDialog(mainClient, qdnClient, deleteRequest, 'Deny');
+      await assertResourceStatus(service, publishName, identifier, 'READY', { build: true });
+      return { deleted: false, published: true };
+
+    case 'no-account':
+      await expectQdnRequestRejected(mainClient, qdnClient, publishRequest, 'No account is selected');
+      await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+
+    case 'locked-account':
+      await expectQdnRequestRejected(mainClient, qdnClient, publishRequest, 'Selected account is locked');
+      await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+
+    case 'missing-api-key':
+      rmSync(apiKeyPathForApp, { force: true });
+      await runQdnRequestWithDialog(
+        mainClient,
+        qdnClient,
+        publishRequest,
+        'Approve',
+        undefined,
+        true,
+      ).then((result) => {
+        if (result?.ok || !String(result?.message ?? '').includes('API key')) {
+          fail(`Missing API key scenario failed with unexpected result: ${JSON.stringify(result)}`);
+        }
+      });
+      await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+
+    case 'nonlocal-node':
+      await saveNodeSettings(mainClient, {
+        customUrl: 'http://146.103.42.59:24891',
+        mode: 'custom',
+      });
+      await expectQdnRequestRejected(mainClient, qdnClient, publishRequest, 'local Core node');
+      await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+
+    case 'stale-tab': {
+      const result = await runQdnRequestWithDialog(
+        mainClient,
+        qdnClient,
+        publishRequest,
+        'Approve',
+        () => makeQdnViewStale(mainClient),
+        true,
+      );
+
+      if (result?.ok || !String(result?.message ?? '').includes('stale')) {
+        fail(`Stale tab scenario failed with unexpected result: ${JSON.stringify(result)}`);
+      }
+
+      await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+    }
+
+    default:
+      fail(`Scenario is not implemented: ${scenario}.`);
+  }
+}
+
+async function runScenario({ account, electronBin, publishName, scenario, viteBin }) {
+  const usesSmokeSigner = !['no-account', 'locked-account'].includes(scenario);
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), `qortium-home-desktop-qdn-${scenario}-`));
+  const userDataDir = path.join(tempRoot, 'user-data');
   const publishSourcePath = path.join(tempRoot, 'qdn-write-smoke.json');
+  const appApiKeyPath = writeAppApiKeyFile(tempRoot);
   const service = 'JSON';
-  const identifier = `home-write-smoke-${Date.now()}`;
+  const identifier = `home-write-${scenario}-${Date.now()}`;
   let viteProcess = null;
   let electronProcess = null;
   let published = false;
   let deleted = false;
+
+  if (scenario === 'locked-account') {
+    writeLockedWalletStore(userDataDir, account);
+  }
 
   writeFileSync(
     publishSourcePath,
@@ -623,16 +927,25 @@ async function main() {
   const smokeEnv = {
     ...process.env,
     QORTIUM_HOME_NODE_API_URL: nodeApiUrl,
-    QORTIUM_HOME_QDN_WRITE_SMOKE: '1',
+    QORTIUM_HOME_NODE_API_KEY_PATH: appApiKeyPath,
     QORTIUM_HOME_SMOKE_ACCOUNT_ROLE: accountRole,
     QORTIUM_HOME_QDN_WRITE_SMOKE_NAME: publishName,
     QORTIUM_HOME_QDN_WRITE_SMOKE_SOURCE: publishSourcePath,
+    QORTIUM_HOME_USER_DATA_DIR: userDataDir,
     VITE_DEV_SERVER_URL: devServerUrl,
     XDG_CONFIG_HOME: path.join(tempRoot, 'config'),
   };
 
+  delete smokeEnv.QORTIUM_HOME_NODE_API_KEY;
+
+  if (usesSmokeSigner) {
+    smokeEnv.QORTIUM_HOME_QDN_WRITE_SMOKE = '1';
+  } else {
+    delete smokeEnv.QORTIUM_HOME_QDN_WRITE_SMOKE;
+  }
+
   try {
-    log(`Starting Vite on ${devServerUrl}.`);
+    log(`[${scenario}] Starting Vite on ${devServerUrl}.`);
     viteProcess = createManagedProcess(
       viteBin,
       ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
@@ -648,7 +961,7 @@ async function main() {
     const electronArgs = [`--remote-debugging-port=${cdpPort}`, '.'];
     const electronLaunch = getElectronLaunch(electronBin, electronArgs);
 
-    log(`Starting Electron with CDP on 127.0.0.1:${cdpPort}.`);
+    log(`[${scenario}] Starting Electron with CDP on 127.0.0.1:${cdpPort}.`);
     electronProcess = createManagedProcess(electronLaunch.command, electronLaunch.args, { env: smokeEnv });
 
     const mainTarget = await getPageTarget(
@@ -689,31 +1002,20 @@ async function main() {
           }
         }
 
-        log(`Publishing ${service}/${publishName}/${identifier}.`);
-        await runQdnRequestWithApproval(mainClient, qdnClient, {
-          action: 'PUBLISH_QDN_RESOURCE',
-          description: 'Qortium Home desktop QDN write smoke test',
-          fee: 0,
+        const scenarioResult = await runScenarioActions({
+          account,
+          apiKeyPathForApp: appApiKeyPath,
           identifier,
-          name: publishName,
-          service,
-          title: 'Qortium Home Write Smoke',
-        });
-        published = true;
-        await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
-
-        log(`Deleting ${service}/${publishName}/${identifier}.`);
-        await runQdnRequestWithApproval(mainClient, qdnClient, {
-          action: 'DELETE_QDN_RESOURCE',
-          fee: 0,
-          identifier,
-          name: publishName,
+          mainClient,
+          publishName,
+          qdnClient,
+          scenario,
           service,
         });
-        await waitForResourceStatus(service, publishName, identifier, 'DELETED');
-        deleted = true;
 
-        log('Desktop QDN write smoke test passed.');
+        published = scenarioResult.published;
+        deleted = scenarioResult.deleted;
+        log(`[${scenario}] Desktop QDN permission smoke scenario passed.`);
       } finally {
         qdnClient.close();
       }
@@ -742,6 +1044,32 @@ async function main() {
       log(`Electron output:\n${electronProcess.output.join('')}`);
     }
   }
+}
+
+async function main() {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const electronBin = getBin('electron');
+  const viteBin = getBin('vite');
+  const scenarios = getRequestedScenarios();
+
+  assertTool(electronBin, 'electron');
+  assertTool(viteBin, 'vite');
+
+  const account = getPreviewAccount();
+  await assertLocalCoreReady();
+  const publishName = await getOwnedPublishName(account.accountAddress);
+  await assertFixtureReady();
+
+  log(`Using preview account role ${accountRole} with name ${publishName}.`);
+  log('Building Electron main process.');
+  await run(npm, ['run', 'build:electron']);
+
+  for (const scenario of scenarios) {
+    log(`Running scenario: ${scenario}.`);
+    await runScenario({ account, electronBin, publishName, scenario, viteBin });
+  }
+
+  log('Desktop QDN permission smoke test passed.');
 }
 
 main().catch((error) => {

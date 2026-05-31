@@ -26,6 +26,11 @@ const WINDOW_STATE_FILE = 'window-state.json';
 const WINDOW_STATE_SAVE_DELAY_MS = 250;
 const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
+const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
+
+if (!app.isPackaged && USER_DATA_DIR_OVERRIDE) {
+  app.setPath('userData', path.resolve(USER_DATA_DIR_OVERRIDE));
+}
 
 type WindowState = {
   height: number;

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - test: harden qdn permission edge cases
+
+Hardened the desktop QDN app permission flow and expanded smoke coverage around it. Home now delays account signing-key access until after a write approval, rejects approved write requests if the originating QDN view changed while the prompt was open, and has desktop smoke scenarios for denied writes, missing account state, locked accounts, missing API keys, non-local nodes, stale approvals, and the normal publish/delete path.
+
 ### 2026-05-31 - test: add desktop qdn write smoke test
 
 Added a desktop smoke test for QDN app publish and delete approvals. The test opens the local APP fixture in Qortium Home, drives the approval prompts through the UI, signs the write requests with the ignored Previewnet test account stored outside this repository, verifies the published resource reaches ready status, and deletes it again so write coverage no longer depends on a saved Home wallet.

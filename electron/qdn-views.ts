@@ -268,6 +268,12 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
 }
 
 function applyViewGuards(entry: QdnViewEntry) {
+  const updateCurrentUrl = (url: string) => {
+    if (isAllowedRenderUrlForOrigin(url, entry.nodeOrigin)) {
+      entry.currentUrl = url;
+    }
+  };
+
   entry.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   entry.view.webContents.on('will-navigate', (event, url) => {
     const navigationUrl = event.url || url;
@@ -286,6 +292,14 @@ function applyViewGuards(entry: QdnViewEntry) {
 
     if (!isAllowedRenderUrlForOrigin(redirectUrl, entry.nodeOrigin)) {
       event.preventDefault();
+    }
+  });
+  entry.view.webContents.on('did-navigate', (_event, url) => {
+    updateCurrentUrl(url);
+  });
+  entry.view.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (isMainFrame) {
+      updateCurrentUrl(url);
     }
   });
 

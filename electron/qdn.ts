@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -134,10 +134,20 @@ type QdnWriteProfile = {
   name: string | null;
 };
 
+type QdnWriteSigner =
+  | {
+      accountId: string;
+      kind: 'account';
+    }
+  | {
+      kind: 'smoke';
+      resource: QdnWriteResourceRequest;
+    };
+
 type QdnWriteContext = {
   connection: NodeConnection;
-  privateKey58: string;
   profile: QdnWriteProfile;
+  signer: QdnWriteSigner;
 };
 
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
@@ -378,11 +388,7 @@ function readNodeApiKey() {
   const explicitApiKeyPath = process.env.QORTIUM_HOME_NODE_API_KEY_PATH?.trim();
 
   if (explicitApiKeyPath) {
-    const explicitPathKey = readTrimmedFile(explicitApiKeyPath);
-
-    if (explicitPathKey) {
-      return explicitPathKey;
-    }
+    return readTrimmedFile(explicitApiKeyPath);
   }
 
   return readTrimmedFile(PREVIEW_API_KEY_PATH);
@@ -416,7 +422,7 @@ function getQdnWriteSmokeSourceSelection() {
   } satisfies QdnWriteSourceSelection;
 }
 
-function getQdnWriteSmokeAccount(resource: QdnWriteResourceRequest) {
+function getQdnWriteSmokeAccountRecord(resource: QdnWriteResourceRequest) {
   const accountsPath = expandHomePath(
     getString(process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH) || PREVIEW_ACCOUNTS_PATH,
   );
@@ -447,23 +453,38 @@ function getQdnWriteSmokeAccount(resource: QdnWriteResourceRequest) {
     throw new Error(`QDN write smoke preview account role was not found: ${role}.`);
   }
 
-  const address = getString(account.accountAddress);
-  const privateKey58 = getString(account.accountPrivateKey);
+  return {
+    account,
+    role,
+  };
+}
 
-  if (!address || !privateKey58) {
-    throw new Error('QDN write smoke preview account is missing account address or private key.');
+function getQdnWriteSmokeProfile(resource: QdnWriteResourceRequest) {
+  const { account, role } = getQdnWriteSmokeAccountRecord(resource);
+  const address = getString(account.accountAddress);
+
+  if (!address) {
+    throw new Error('QDN write smoke preview account is missing account address.');
   }
 
   return {
-    privateKey58,
-    profile: {
-      accountId: `preview:${role}`,
-      address,
-      avatarUrl: null,
-      label: `Preview ${role}`,
-      name: resource.name,
-    } satisfies QdnWriteProfile,
-  };
+    accountId: `preview:${role}`,
+    address,
+    avatarUrl: null,
+    label: `Preview ${role}`,
+    name: resource.name,
+  } satisfies QdnWriteProfile;
+}
+
+function getQdnWriteSmokePrivateKey(resource: QdnWriteResourceRequest) {
+  const { account } = getQdnWriteSmokeAccountRecord(resource);
+  const privateKey58 = getString(account.accountPrivateKey);
+
+  if (!privateKey58) {
+    throw new Error('QDN write smoke preview account is missing account private key.');
+  }
+
+  return privateKey58;
 }
 
 function getString(value: unknown) {
@@ -1116,6 +1137,28 @@ function getQdnWriteSourceKind(filePath: string): QdnWriteSourceSelection['kind'
   }
 }
 
+function isSameQdnWriteContext(
+  currentContext: QdnViewContext | null,
+  originalContext: QdnViewContext,
+) {
+  return (
+    !!currentContext &&
+    currentContext.accountId === originalContext.accountId &&
+    currentContext.currentUrl === originalContext.currentUrl &&
+    currentContext.nodeOrigin === originalContext.nodeOrigin &&
+    currentContext.tabId === originalContext.tabId &&
+    currentContext.windowId === originalContext.windowId
+  );
+}
+
+function assertFreshQdnWriteContext(sender: WebContents, originalContext: QdnViewContext) {
+  const currentContext = getQdnViewContextForWebContents(sender);
+
+  if (!isSameQdnWriteContext(currentContext, originalContext)) {
+    throw new Error('QDN write request is stale because the app view changed before approval.');
+  }
+}
+
 async function selectQdnPublishSource(context: QdnViewContext) {
   const smokeSource = getQdnWriteSmokeSourceSelection();
 
@@ -1157,12 +1200,15 @@ async function getQdnWriteContext(
   assertLocalWriteConnection(connection);
 
   if (isQdnWriteSmokeMode()) {
-    const smokeAccount = getQdnWriteSmokeAccount(resource);
+    const smokeProfile = getQdnWriteSmokeProfile(resource);
 
     return {
       connection,
-      privateKey58: smokeAccount.privateKey58,
-      profile: smokeAccount.profile,
+      profile: smokeProfile,
+      signer: {
+        kind: 'smoke',
+        resource,
+      },
     };
   }
 
@@ -1171,16 +1217,29 @@ async function getQdnWriteContext(
 
   assertAccountUnlocked(accountId);
 
-  const signingKey = getAccountSigningKey(accountId);
-
   return {
     connection,
-    privateKey58: signingKey.privateKey58,
     profile,
+    signer: {
+      accountId,
+      kind: 'account',
+    },
   };
 }
 
-async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+function getQdnWritePrivateKey(writeContext: QdnWriteContext) {
+  if (writeContext.signer.kind === 'smoke') {
+    return getQdnWriteSmokePrivateKey(writeContext.signer.resource);
+  }
+
+  return getAccountSigningKey(writeContext.signer.accountId).privateKey58;
+}
+
+async function publishQdnResourceForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
   const resource = getQdnWriteResourceRequest(request);
   const writeContext = await getQdnWriteContext(context, resource);
   const source = await selectQdnPublishSource(context as QdnViewContext);
@@ -1197,7 +1256,10 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnView
     source,
   );
 
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
   const apiKey = getNodeApiKey();
+  const privateKey58 = getQdnWritePrivateKey(writeContext);
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
     buildQdnPublishPath(resource),
@@ -1208,7 +1270,7 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnView
   const processedTransaction = await signAndProcessTransaction(
     writeContext.connection,
     apiKey,
-    writeContext.privateKey58,
+    privateKey58,
     unsignedTransaction.body,
   );
 
@@ -1224,7 +1286,11 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnView
   };
 }
 
-async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+async function deleteQdnResourceForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
   const resource = getQdnWriteResourceRequest(request);
   const writeContext = await getQdnWriteContext(context, resource);
 
@@ -1235,7 +1301,10 @@ async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewC
     resource,
   );
 
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
   const apiKey = getNodeApiKey();
+  const privateKey58 = getQdnWritePrivateKey(writeContext);
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
     buildQdnDeletePath(resource),
@@ -1246,7 +1315,7 @@ async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewC
   const processedTransaction = await signAndProcessTransaction(
     writeContext.connection,
     apiKey,
-    writeContext.privateKey58,
+    privateKey58,
     unsignedTransaction.body,
   );
 
@@ -1430,7 +1499,11 @@ async function getQdnResourceUrl(request: QdnAppRequest) {
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
-async function handleQdnAppRequest(value: unknown, context: QdnViewContext | null) {
+async function handleQdnAppRequest(
+  value: unknown,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
   if (!isRecord(value)) {
     throw new Error('QDN app requests must be objects.');
   }
@@ -1505,10 +1578,10 @@ async function handleQdnAppRequest(value: unknown, context: QdnViewContext | nul
       return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources/search'), request);
 
     case 'PUBLISH_QDN_RESOURCE':
-      return publishQdnResourceForApp(request, context);
+      return publishQdnResourceForApp(request, context, sender);
 
     case 'DELETE_QDN_RESOURCE':
-      return deleteQdnResourceForApp(request, context);
+      return deleteQdnResourceForApp(request, context, sender);
 
     case 'IS_USING_PUBLIC_NODE': {
       const connection = await getNodeConnection();
@@ -1555,7 +1628,7 @@ export function registerQdnIpcHandlers() {
       throw new Error('QDN app requests are only available to isolated QDN app views.');
     }
 
-    return handleQdnAppRequest(request, context);
+    return handleQdnAppRequest(request, context, event.sender);
   });
 
   ipcMain.handle('qdn-app:resolveAccountReadApproval', (event, rawResponse: unknown) => {
