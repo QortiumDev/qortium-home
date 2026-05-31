@@ -25,6 +25,7 @@ type TopBarProps = {
   onGoBack: () => void;
   onGoForward: () => void;
   onGoToHistoryIndex: (index: number) => void;
+  onMoveTabToNewWindow?: (tabId: string) => void;
   onNavigate: (route: AppRoute) => void;
   onOpenSettings: () => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
@@ -315,6 +316,7 @@ function BrowserTabs({
   onCloseOtherTabs,
   onCloseTabsToRight,
   onDuplicateTab,
+  onMoveTabToNewWindow,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
@@ -328,6 +330,7 @@ function BrowserTabs({
   onCloseOtherTabs: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
   onDuplicateTab: (tabId: string) => void;
+  onMoveTabToNewWindow?: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
@@ -496,7 +499,7 @@ function BrowserTabs({
     clearDragState();
 
     const menuWidth = 240;
-    const menuHeight = 276;
+    const menuHeight = onMoveTabToNewWindow ? 316 : 276;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
     const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
@@ -508,9 +511,9 @@ function BrowserTabs({
     });
   }
 
-  function runTabMenuCommand(command: () => void) {
+  function runTabMenuCommand(command: () => void | Promise<void>) {
     setContextMenu(null);
-    command();
+    void command();
   }
 
   return (
@@ -625,6 +628,16 @@ function BrowserTabs({
           >
             Duplicate Tab
           </button>
+          {onMoveTabToNewWindow ? (
+            <button
+              className="top-bar__tab-menu-item"
+              role="menuitem"
+              type="button"
+              onClick={() => runTabMenuCommand(() => onMoveTabToNewWindow(contextMenuTab.id))}
+            >
+              Move Tab to New Window
+            </button>
+          ) : null}
           <div className="top-bar__tab-menu-separator" role="separator" />
           <button
             className="top-bar__tab-menu-item"
@@ -687,6 +700,7 @@ export function TopBar({
   onGoBack,
   onGoForward,
   onGoToHistoryIndex,
+  onMoveTabToNewWindow,
   onNavigate,
   onOpenSettings,
   onReorderTab,
@@ -744,6 +758,7 @@ export function TopBar({
         onCloseOtherTabs={onCloseOtherTabs}
         onCloseTabsToRight={onCloseTabsToRight}
         onDuplicateTab={onDuplicateTab}
+        onMoveTabToNewWindow={onMoveTabToNewWindow}
         onReorderTab={onReorderTab}
         onReloadTab={onReloadTab}
         onReopenClosedTab={onReopenClosedTab}

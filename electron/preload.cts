@@ -50,6 +50,11 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     openReleasePage: (url: string) => ipcRenderer.invoke('updates:openReleasePage', url),
     showDownloadedFile: (filePath: string) => ipcRenderer.invoke('updates:showDownloadedFile', filePath),
   },
+  windows: {
+    getStartupPayload: () => ipcRenderer.invoke('windows:getStartupPayload'),
+    openTabInNewWindow: (request: { tab: unknown }) =>
+      ipcRenderer.invoke('windows:openTabInNewWindow', request),
+  },
   node: {
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
     saveSettings: (request: { customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>

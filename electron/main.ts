@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen, type Rectangle } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, type Rectangle } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ const MIN_WINDOW_HEIGHT = 480;
 const WINDOW_STATE_FILE = 'window-state.json';
 const WINDOW_STATE_SAVE_DELAY_MS = 250;
 const WINDOW_ICON_FILE = 'icon.png';
+const NEW_WINDOW_OFFSET_PX = 32;
 
 type WindowState = {
   height: number;
@@ -25,8 +26,104 @@ type WindowState = {
   y?: number;
 };
 
+type WindowRouteSnapshot = {
+  displayUrl: string;
+  kind: string;
+  [key: string]: unknown;
+};
+
+type WindowRouteHistorySnapshot = {
+  entries: WindowRouteSnapshot[];
+  index: number;
+};
+
+type WindowTabSnapshot = {
+  accountId: string | null;
+  history: WindowRouteHistorySnapshot;
+};
+
+type WindowStartupPayload = {
+  tab: WindowTabSnapshot;
+};
+
+type CreateWindowOptions = {
+  startupPayload?: WindowStartupPayload;
+};
+
+const windowStartupPayloads = new Map<number, WindowStartupPayload>();
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sanitizeRouteSnapshot(value: unknown): WindowRouteSnapshot | null {
+  if (!isRecord(value) || typeof value.displayUrl !== 'string' || typeof value.kind !== 'string') {
+    return null;
+  }
+
+  return {
+    ...value,
+    displayUrl: value.displayUrl,
+    kind: value.kind,
+  };
+}
+
+function sanitizeRouteHistorySnapshot(value: unknown): WindowRouteHistorySnapshot | null {
+  if (!isRecord(value) || !Array.isArray(value.entries)) {
+    return null;
+  }
+
+  const entries = value.entries
+    .map((entry) => sanitizeRouteSnapshot(entry))
+    .filter((entry): entry is WindowRouteSnapshot => !!entry);
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const index = isFiniteNumber(value.index)
+    ? Math.max(0, Math.min(entries.length - 1, Math.round(value.index)))
+    : entries.length - 1;
+
+  return {
+    entries,
+    index,
+  };
+}
+
+function sanitizeTabSnapshot(value: unknown): WindowTabSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const history = sanitizeRouteHistorySnapshot(value.history);
+
+  if (!history) {
+    return null;
+  }
+
+  return {
+    accountId: typeof value.accountId === 'string' ? value.accountId : null,
+    history,
+  };
+}
+
+function sanitizeWindowStartupPayload(value: unknown): WindowStartupPayload {
+  if (!isRecord(value)) {
+    throw new Error('New window request must include a tab snapshot.');
+  }
+
+  const tab = sanitizeTabSnapshot(value.tab);
+
+  if (!tab) {
+    throw new Error('New window request must include a valid tab snapshot.');
+  }
+
+  return { tab };
 }
 
 function getWindowStatePath() {
@@ -154,8 +251,57 @@ function getWindowIconPath() {
     : path.join(__dirname, '..', 'build', WINDOW_ICON_FILE);
 }
 
-function createWindow() {
-  const windowState = readWindowState();
+function getSecondaryWindowState(savedState: WindowState | undefined): WindowState | undefined {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+
+  if (!focusedWindow || focusedWindow.isDestroyed()) {
+    return savedState
+      ? {
+          ...savedState,
+          isMaximized: false,
+        }
+      : undefined;
+  }
+
+  const focusedBounds = focusedWindow.isMaximized()
+    ? focusedWindow.getNormalBounds()
+    : focusedWindow.getBounds();
+  const width = savedState?.width ?? Math.max(focusedBounds.width, MIN_WINDOW_WIDTH);
+  const height = savedState?.height ?? Math.max(focusedBounds.height, MIN_WINDOW_HEIGHT);
+  const candidateBounds = {
+    x: focusedBounds.x + NEW_WINDOW_OFFSET_PX,
+    y: focusedBounds.y + NEW_WINDOW_OFFSET_PX,
+    width,
+    height,
+  };
+
+  if (!isVisibleOnAnyDisplay(candidateBounds)) {
+    return savedState
+      ? {
+          ...savedState,
+          isMaximized: false,
+        }
+      : undefined;
+  }
+
+  return {
+    ...candidateBounds,
+    isMaximized: false,
+  };
+}
+
+function getInitialWindowState(options: CreateWindowOptions): WindowState | undefined {
+  const savedState = readWindowState();
+
+  if (options.startupPayload) {
+    return getSecondaryWindowState(savedState);
+  }
+
+  return savedState;
+}
+
+function createWindow(options: CreateWindowOptions = {}) {
+  const windowState = getInitialWindowState(options);
   const window = new BrowserWindow({
     width: windowState?.width ?? DEFAULT_WINDOW_WIDTH,
     height: windowState?.height ?? DEFAULT_WINDOW_HEIGHT,
@@ -173,6 +319,13 @@ function createWindow() {
     },
   });
 
+  if (options.startupPayload) {
+    windowStartupPayloads.set(window.webContents.id, options.startupPayload);
+    window.once('closed', () => {
+      windowStartupPayloads.delete(window.webContents.id);
+    });
+  }
+
   watchWindowState(window);
 
   if (windowState?.isMaximized) {
@@ -186,12 +339,25 @@ function createWindow() {
   }
 }
 
+function registerWindowIpcHandlers() {
+  ipcMain.handle('windows:getStartupPayload', (event) => {
+    return windowStartupPayloads.get(event.sender.id) ?? null;
+  });
+
+  ipcMain.handle('windows:openTabInNewWindow', (_event, request: unknown) => {
+    const startupPayload = sanitizeWindowStartupPayload(request);
+
+    createWindow({ startupPayload });
+  });
+}
+
 app.whenReady().then(() => {
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
   registerCoreManagerIpcHandlers();
   registerNodeSettingsIpcHandlers();
   registerQdnIpcHandlers();
+  registerWindowIpcHandlers();
   createWindow();
 
   app.on('activate', () => {

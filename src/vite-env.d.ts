@@ -285,6 +285,30 @@ type QortiumQdnDownloadResult =
       filePath: string;
     };
 
+type QortiumHomeRouteSnapshot = {
+  displayUrl: string;
+  kind: string;
+  [key: string]: unknown;
+};
+
+type QortiumHomeRouteHistorySnapshot = {
+  entries: QortiumHomeRouteSnapshot[];
+  index: number;
+};
+
+type QortiumHomeTabSnapshot = {
+  accountId: string | null;
+  history: QortiumHomeRouteHistorySnapshot;
+};
+
+type QortiumHomeWindowOpenRequest = {
+  tab: QortiumHomeTabSnapshot;
+};
+
+type QortiumHomeWindowStartupPayload = {
+  tab: QortiumHomeTabSnapshot;
+};
+
 interface Window {
   qortiumHome: {
     accounts: {
@@ -317,6 +341,10 @@ interface Window {
       openDownloadedFile: (filePath: string) => Promise<void>;
       openReleasePage: (url: string) => Promise<void>;
       showDownloadedFile: (filePath: string) => Promise<void>;
+    };
+    windows?: {
+      getStartupPayload: () => Promise<QortiumHomeWindowStartupPayload | null>;
+      openTabInNewWindow: (request: QortiumHomeWindowOpenRequest) => Promise<void>;
     };
     node: {
       getSettings: () => Promise<QortiumNodeSettings>;

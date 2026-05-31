@@ -8,7 +8,7 @@ import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage } from './SettingsPage';
 import { TopBar } from './TopBar';
-import { DASHBOARD_ROUTE, SETTINGS_ROUTE, type AppRoute } from './routes';
+import { DASHBOARD_ROUTE, SETTINGS_ROUTE, parseAppAddress, type AppRoute } from './routes';
 
 type RouteHistoryState = {
   entries: AppRoute[];
@@ -35,6 +35,10 @@ type ClosedBrowserTab = {
 };
 
 type TabDropPosition = 'after' | 'before';
+
+type RemoveTabOptions = {
+  addToClosedHistory: boolean;
+};
 
 type NavigationActions = {
   canGoBack: boolean;
@@ -134,6 +138,45 @@ function createClosedTabSnapshot(tab: BrowserTab): ClosedBrowserTab {
   };
 }
 
+function createRouteHistorySnapshot(history: RouteHistoryState): QortiumHomeRouteHistorySnapshot {
+  const routeHistory = cloneRouteHistory(history);
+
+  return {
+    entries: routeHistory.entries.map((entry) => ({ ...entry }) as QortiumHomeRouteSnapshot),
+    index: routeHistory.index,
+  };
+}
+
+function createWindowTabSnapshot(tab: BrowserTab): QortiumHomeTabSnapshot {
+  return {
+    accountId: tab.accountId,
+    history: createRouteHistorySnapshot(tab.history),
+  };
+}
+
+function createRouteHistoryFromSnapshot(history: QortiumHomeRouteHistorySnapshot): RouteHistoryState {
+  const entries = history.entries
+    .map((entry) => parseAppAddress(entry.displayUrl))
+    .filter((result): result is { route: AppRoute; success: true } => result.success)
+    .map((result) => result.route);
+
+  if (entries.length === 0) {
+    return {
+      entries: [DASHBOARD_ROUTE],
+      index: 0,
+    };
+  }
+
+  return {
+    entries,
+    index: Math.max(0, Math.min(entries.length - 1, history.index)),
+  };
+}
+
+function createBrowserTabFromWindowSnapshot(tab: QortiumHomeTabSnapshot) {
+  return createBrowserTab(tab.accountId, createRouteHistoryFromSnapshot(tab.history));
+}
+
 function createBrowserTabFromClosedTab(tab: ClosedBrowserTab, accountsState: QortiumAccountsState) {
   const currentRoute = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
   const accountId = accountExists(accountsState, tab.accountId)
@@ -221,6 +264,7 @@ export function App() {
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
@@ -235,6 +279,44 @@ export function App() {
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
+
+  useEffect(() => {
+    let isDisposed = false;
+    const windowsApi = window.qortiumHome.windows;
+
+    async function loadWindowStartupPayload() {
+      if (!windowsApi) {
+        setIsLoadingWindowStartupPayload(false);
+        return;
+      }
+
+      try {
+        const startupPayload = await windowsApi.getStartupPayload();
+
+        if (!isDisposed && startupPayload?.tab) {
+          const tab = createBrowserTabFromWindowSnapshot(startupPayload.tab);
+
+          setTabState({
+            activeTabId: tab.id,
+            closedTabs: [],
+            tabs: [tab],
+          });
+        }
+      } catch (error) {
+        console.warn('Unable to load window startup tab.', error);
+      } finally {
+        if (!isDisposed) {
+          setIsLoadingWindowStartupPayload(false);
+        }
+      }
+    }
+
+    void loadWindowStartupPayload();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
 
   function reconcileTabsWithAccounts(nextAccountsState: QortiumAccountsState) {
     setTabState((currentTabState) => {
@@ -524,7 +606,7 @@ export function App() {
     selectRelativeTab(-1);
   }
 
-  function closeTab(tabId: string) {
+  function removeTab(tabId: string, options: RemoveTabOptions) {
     setTabState((currentTabState) => {
       const closingTab = currentTabState.tabs.find((tab) => tab.id === tabId);
 
@@ -532,7 +614,9 @@ export function App() {
         return currentTabState;
       }
 
-      const closedTabs = addClosedTabToHistory(currentTabState.closedTabs, closingTab);
+      const closedTabs = options.addToClosedHistory
+        ? addClosedTabToHistory(currentTabState.closedTabs, closingTab)
+        : currentTabState.closedTabs;
 
       if (currentTabState.tabs.length <= 1) {
         const tab = createBrowserTab(getDefaultAccountId(accountsState));
@@ -558,6 +642,10 @@ export function App() {
           currentTabState.activeTabId === tabId ? tabs[nextActiveIndex].id : currentTabState.activeTabId,
       };
     });
+  }
+
+  function closeTab(tabId: string) {
+    removeTab(tabId, { addToClosedHistory: true });
   }
 
   function closeOtherTabs(tabId: string) {
@@ -664,6 +752,24 @@ export function App() {
         ],
       };
     });
+  }
+
+  async function moveTabToNewWindow(tabId: string) {
+    const windowsApi = window.qortiumHome.windows;
+    const tab = tabState.tabs.find((candidateTab) => candidateTab.id === tabId);
+
+    if (!windowsApi || !tab) {
+      return;
+    }
+
+    try {
+      await windowsApi.openTabInNewWindow({
+        tab: createWindowTabSnapshot(tab),
+      });
+      removeTab(tabId, { addToClosedHistory: false });
+    } catch (error) {
+      console.warn('Unable to move tab to a new window.', error);
+    }
   }
 
   function focusAddressBar() {
@@ -971,14 +1077,14 @@ export function App() {
     }
   }
 
-  if (!nodeSettings) {
+  if (!nodeSettings || isLoadingWindowStartupPayload) {
     return (
       <main className="app-shell">
         <section className="app-main" aria-label="Qortium Home">
           <div className="home-content">
             <h1>Qortium Home</h1>
             <p className={`app-message${nodeSettingsError ? ' app-message--error' : ''}`}>
-              {nodeSettingsError || 'Loading node settings'}
+              {nodeSettingsError || (isLoadingWindowStartupPayload ? 'Loading window' : 'Loading node settings')}
             </p>
           </div>
         </section>
@@ -1009,6 +1115,7 @@ export function App() {
         onGoBack={goBack}
         onGoForward={goForward}
         onGoToHistoryIndex={goToHistoryIndex}
+        onMoveTabToNewWindow={window.qortiumHome.windows ? moveTabToNewWindow : undefined}
         onNavigate={navigateToRoute}
         onOpenSettings={openSettings}
         onReorderTab={reorderTab}
