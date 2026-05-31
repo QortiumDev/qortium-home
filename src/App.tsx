@@ -434,10 +434,14 @@ export function App() {
   }
 
   function addClosedTabToHistory(currentClosedTabs: ClosedBrowserTab[], tab: BrowserTab) {
-    const snapshot = createClosedTabSnapshot(tab);
+    return addClosedTabsToHistory(currentClosedTabs, [tab]);
+  }
+
+  function addClosedTabsToHistory(currentClosedTabs: ClosedBrowserTab[], tabs: BrowserTab[]) {
+    const snapshots = tabs.map(createClosedTabSnapshot).reverse();
 
     return [
-      snapshot,
+      ...snapshots,
       ...currentClosedTabs,
     ].slice(0, CLOSED_TAB_HISTORY_LIMIT);
   }
@@ -556,6 +560,48 @@ export function App() {
     });
   }
 
+  function closeOtherTabs(tabId: string) {
+    setTabState((currentTabState) => {
+      const keepTab = currentTabState.tabs.find((tab) => tab.id === tabId);
+
+      if (!keepTab || currentTabState.tabs.length <= 1) {
+        return currentTabState;
+      }
+
+      const closingTabs = currentTabState.tabs.filter((tab) => tab.id !== tabId);
+      const closedTabs = addClosedTabsToHistory(currentTabState.closedTabs, closingTabs);
+
+      return {
+        ...currentTabState,
+        activeTabId: keepTab.id,
+        closedTabs,
+        tabs: [keepTab],
+      };
+    });
+  }
+
+  function closeTabsToRight(tabId: string) {
+    setTabState((currentTabState) => {
+      const tabIndex = currentTabState.tabs.findIndex((tab) => tab.id === tabId);
+
+      if (tabIndex === -1 || tabIndex === currentTabState.tabs.length - 1) {
+        return currentTabState;
+      }
+
+      const tabs = currentTabState.tabs.slice(0, tabIndex + 1);
+      const closingTabs = currentTabState.tabs.slice(tabIndex + 1);
+      const closedTabs = addClosedTabsToHistory(currentTabState.closedTabs, closingTabs);
+      const activeTabExists = tabs.some((tab) => tab.id === currentTabState.activeTabId);
+
+      return {
+        ...currentTabState,
+        activeTabId: activeTabExists ? currentTabState.activeTabId : currentTabState.tabs[tabIndex].id,
+        closedTabs,
+        tabs,
+      };
+    });
+  }
+
   function closeActiveTab() {
     closeTab(tabState.activeTabId);
   }
@@ -580,10 +626,44 @@ export function App() {
   }
 
   function reloadActiveTab() {
-    updateActiveTab((tab) => ({
-      ...tab,
-      reloadNonce: tab.reloadNonce + 1,
+    reloadTab(tabState.activeTabId);
+  }
+
+  function reloadTab(tabId: string) {
+    setTabState((currentTabState) => ({
+      ...currentTabState,
+      tabs: currentTabState.tabs.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              reloadNonce: tab.reloadNonce + 1,
+            }
+          : tab,
+      ),
     }));
+  }
+
+  function duplicateTab(tabId: string) {
+    setTabState((currentTabState) => {
+      const tabIndex = currentTabState.tabs.findIndex((tab) => tab.id === tabId);
+      const sourceTab = currentTabState.tabs[tabIndex];
+
+      if (!sourceTab) {
+        return currentTabState;
+      }
+
+      const tab = createBrowserTab(sourceTab.accountId, sourceTab.history);
+
+      return {
+        ...currentTabState,
+        activeTabId: tab.id,
+        tabs: [
+          ...currentTabState.tabs.slice(0, tabIndex + 1),
+          tab,
+          ...currentTabState.tabs.slice(tabIndex + 1),
+        ],
+      };
+    });
   }
 
   function focusAddressBar() {
@@ -913,6 +993,7 @@ export function App() {
         activeAccount={activeAccount}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
+        canReopenClosedTab={tabState.closedTabs.length > 0}
         currentRoute={currentRoute}
         historyEntries={routeHistory.entries}
         historyIndex={routeHistory.index}
@@ -922,12 +1003,17 @@ export function App() {
         }))}
         onAddTab={addTab}
         onCloseTab={closeTab}
+        onCloseOtherTabs={closeOtherTabs}
+        onCloseTabsToRight={closeTabsToRight}
+        onDuplicateTab={duplicateTab}
         onGoBack={goBack}
         onGoForward={goForward}
         onGoToHistoryIndex={goToHistoryIndex}
         onNavigate={navigateToRoute}
         onOpenSettings={openSettings}
         onReorderTab={reorderTab}
+        onReloadTab={reloadTab}
+        onReopenClosedTab={reopenClosedTab}
         onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
         onSelectTab={selectTab}
         nodeSettings={nodeSettings}

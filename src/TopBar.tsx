@@ -11,6 +11,7 @@ type TopBarProps = {
   activeTabId: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  canReopenClosedTab: boolean;
   currentRoute: AppRoute;
   historyEntries: AppRoute[];
   historyIndex: number;
@@ -18,12 +19,17 @@ type TopBarProps = {
   tabs: BrowserTabSummary[];
   onAddTab: () => void;
   onCloseTab: (tabId: string) => void;
+  onCloseOtherTabs: (tabId: string) => void;
+  onCloseTabsToRight: (tabId: string) => void;
+  onDuplicateTab: (tabId: string) => void;
   onGoBack: () => void;
   onGoForward: () => void;
   onGoToHistoryIndex: (index: number) => void;
   onNavigate: (route: AppRoute) => void;
   onOpenSettings: () => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
+  onReloadTab: (tabId: string) => void;
+  onReopenClosedTab: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSelectTab: (tabId: string) => void;
 };
@@ -34,6 +40,12 @@ type BrowserTabSummary = {
   id: string;
   label: string;
 };
+
+type TabContextMenuState = {
+  tabId: string;
+  x: number;
+  y: number;
+} | null;
 
 type HistoryButtonProps = {
   canNavigate: boolean;
@@ -297,27 +309,77 @@ function HistoryButton({
 
 function BrowserTabs({
   activeTabId,
+  canReopenClosedTab,
   onAddTab,
   onCloseTab,
+  onCloseOtherTabs,
+  onCloseTabsToRight,
+  onDuplicateTab,
   onReorderTab,
+  onReloadTab,
+  onReopenClosedTab,
   onSelectTab,
   tabs,
 }: {
   activeTabId: string;
+  canReopenClosedTab: boolean;
   onAddTab: () => void;
   onCloseTab: (tabId: string) => void;
+  onCloseOtherTabs: (tabId: string) => void;
+  onCloseTabsToRight: (tabId: string) => void;
+  onDuplicateTab: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
+  onReloadTab: (tabId: string) => void;
+  onReopenClosedTab: () => void;
   onSelectTab: (tabId: string) => void;
   tabs: BrowserTabSummary[];
 }) {
+  const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const dragStateRef = useRef<{
     hasReordered: boolean;
     pointerId: number;
     tabId: string;
   } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const suppressedClickTabIdRef = useRef<string | null>(null);
   const tabElementsRef = useRef(new Map<string, HTMLDivElement>());
+  const contextMenuTabIndex = contextMenu
+    ? tabs.findIndex((tab) => tab.id === contextMenu.tabId)
+    : -1;
+  const contextMenuTab = contextMenuTabIndex === -1 ? null : tabs[contextMenuTabIndex];
+  const hasTabsToRight = contextMenuTabIndex !== -1 && contextMenuTabIndex < tabs.length - 1;
+  const hasOtherTabs = contextMenuTabIndex !== -1 && tabs.length > 1;
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+
+    function closeOnPointerDown(event: globalThis.PointerEvent) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+
+      if (!contextMenuRef.current?.contains(event.target)) {
+        setContextMenu(null);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    }
+
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnEscape);
+
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
 
   function suppressNextTabClick(tabId: string) {
     suppressedClickTabIdRef.current = tabId;
@@ -429,6 +491,28 @@ function BrowserTabs({
     onReorderTab(dragState.tabId, reorderTarget.targetTabId, reorderTarget.dropPosition);
   }
 
+  function handleTabContextMenu(event: MouseEvent<HTMLDivElement>, tabId: string) {
+    event.preventDefault();
+    clearDragState();
+
+    const menuWidth = 240;
+    const menuHeight = 276;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
+    const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
+
+    setContextMenu({
+      tabId,
+      x: Math.max(margin, Math.min(event.clientX, maxX)),
+      y: Math.max(margin, Math.min(event.clientY, maxY)),
+    });
+  }
+
+  function runTabMenuCommand(command: () => void) {
+    setContextMenu(null);
+    command();
+  }
+
   return (
     <div className="top-bar__tabs">
       <div
@@ -469,6 +553,7 @@ function BrowserTabs({
               onPointerDown={(event) => handlePointerDown(event, tab.id)}
               onPointerMove={handlePointerMove}
               onPointerUp={(event) => clearDragState(event, true)}
+              onContextMenu={(event) => handleTabContextMenu(event, tab.id)}
             >
               <button
                 className="top-bar__tab-select"
@@ -505,6 +590,80 @@ function BrowserTabs({
         <Plus aria-hidden="true" size={20} strokeWidth={2} />
         <span className="sr-only">New tab</span>
       </button>
+      {contextMenu && contextMenuTab ? (
+        <div
+          className="top-bar__tab-menu"
+          ref={contextMenuRef}
+          role="menu"
+          aria-label={`Tab options for ${contextMenuTab.label}`}
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+        >
+          <button
+            className="top-bar__tab-menu-item"
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(onAddTab)}
+          >
+            New Tab
+          </button>
+          <button
+            className="top-bar__tab-menu-item"
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(() => onReloadTab(contextMenuTab.id))}
+          >
+            Reload Tab
+          </button>
+          <button
+            className="top-bar__tab-menu-item"
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(() => onDuplicateTab(contextMenuTab.id))}
+          >
+            Duplicate Tab
+          </button>
+          <div className="top-bar__tab-menu-separator" role="separator" />
+          <button
+            className="top-bar__tab-menu-item"
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(() => onCloseTab(contextMenuTab.id))}
+          >
+            Close Tab
+          </button>
+          <button
+            className="top-bar__tab-menu-item"
+            disabled={!hasOtherTabs}
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(() => onCloseOtherTabs(contextMenuTab.id))}
+          >
+            Close Other Tabs
+          </button>
+          <button
+            className="top-bar__tab-menu-item"
+            disabled={!hasTabsToRight}
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(() => onCloseTabsToRight(contextMenuTab.id))}
+          >
+            Close Tabs to the Right
+          </button>
+          <div className="top-bar__tab-menu-separator" role="separator" />
+          <button
+            className="top-bar__tab-menu-item"
+            disabled={!canReopenClosedTab}
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(onReopenClosedTab)}
+          >
+            Reopen Closed Tab
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -514,6 +673,7 @@ export function TopBar({
   activeTabId,
   canGoBack,
   canGoForward,
+  canReopenClosedTab,
   currentRoute,
   historyEntries,
   historyIndex,
@@ -521,12 +681,17 @@ export function TopBar({
   tabs,
   onAddTab,
   onCloseTab,
+  onCloseOtherTabs,
+  onCloseTabsToRight,
+  onDuplicateTab,
   onGoBack,
   onGoForward,
   onGoToHistoryIndex,
   onNavigate,
   onOpenSettings,
   onReorderTab,
+  onReloadTab,
+  onReopenClosedTab,
   onResolvedNodeApiUrl,
   onSelectTab,
 }: TopBarProps) {
@@ -572,10 +737,16 @@ export function TopBar({
     <header className="top-bar">
       <BrowserTabs
         activeTabId={activeTabId}
+        canReopenClosedTab={canReopenClosedTab}
         tabs={tabs}
         onAddTab={onAddTab}
         onCloseTab={onCloseTab}
+        onCloseOtherTabs={onCloseOtherTabs}
+        onCloseTabsToRight={onCloseTabsToRight}
+        onDuplicateTab={onDuplicateTab}
         onReorderTab={onReorderTab}
+        onReloadTab={onReloadTab}
+        onReopenClosedTab={onReopenClosedTab}
         onSelectTab={onSelectTab}
       />
       <form className="top-bar__address-form" onSubmit={handleSubmit}>

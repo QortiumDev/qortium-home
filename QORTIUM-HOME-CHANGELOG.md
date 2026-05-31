@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add tab context menu
+
+Added a right-click tab menu with browser-style options for opening a new tab, reloading or duplicating the clicked tab, closing one tab, closing other tabs, closing tabs to the right, and reopening a closed tab. The menu reuses the same tab history and closed-tab restore behavior as the keyboard shortcuts.
+
 ### 2026-05-30 - app: add browser tab shortcuts
 
 Added browser-style tab keyboard commands for opening, closing, restoring, switching, reloading, and navigating tabs. Qortium Home now keeps a recent closed-tab history so the last closed tab can be reopened with its route history and account context intact.

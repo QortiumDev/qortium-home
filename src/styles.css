@@ -644,6 +644,56 @@ h1 {
   color: #cbd5d5;
 }
 
+.top-bar__tab-menu {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  width: 240px;
+  max-width: calc(100vw - 16px);
+  padding: 6px;
+  color: #f4f0e8;
+  background: #192020;
+  border: 1px solid #344141;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+}
+
+.top-bar__tab-menu-item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  line-height: var(--line-height-small);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.top-bar__tab-menu-item:hover:not(:disabled),
+.top-bar__tab-menu-item:focus-visible {
+  background: #283131;
+  outline: none;
+}
+
+.top-bar__tab-menu-item:disabled {
+  color: #697777;
+  cursor: default;
+}
+
+.top-bar__tab-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: #344141;
+}
+
 .top-bar__address-form {
   display: grid;
   grid-template-columns: 42px 42px minmax(0, 1fr) 42px;
