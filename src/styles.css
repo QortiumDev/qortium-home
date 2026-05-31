@@ -546,9 +546,8 @@ h1 {
 }
 
 .top-bar__tabs {
-  display: grid;
+  display: flex;
   grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) 36px;
   gap: 6px;
   align-items: center;
   min-width: 0;
@@ -556,7 +555,10 @@ h1 {
 
 .top-bar__tab-list {
   display: flex;
+  flex: 0 1 auto;
   gap: 4px;
+  width: max-content;
+  max-width: calc(100% - 42px);
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -1513,7 +1515,7 @@ h1 {
   }
 
   .top-bar__tabs {
-    grid-template-columns: minmax(0, 1fr) 36px;
+    gap: 6px;
   }
 
   .top-bar__tab {
