@@ -91,7 +91,10 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Linux AppImage for arm64, wired as a separate electron-builder script.
   - macOS DMG, wired as separate x64, arm64, and universal electron-builder scripts.
   - Windows EXE.
-  - Android debug APK through Capacitor, with signed APK/AAB release packaging still to be added.
+  - Android debug APK through Capacitor for emulator smoke tests.
+  - Android release APK and AAB packages through Capacitor, collected under
+    `dist-release/`, with release signing configured by external
+    `QORTIUM_HOME_ANDROID_*` environment variables or Gradle properties.
 - Linux, Windows, and macOS desktop builds should use the Qortium Home app icon from tracked build resources.
 - Some target artifacts will need to be built or verified on their native systems, but the repo should be set up so each target can be tackled and tested one at a time.
 
@@ -238,7 +241,8 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - When tab support is added, what practical tab isolation can be provided on Android with Capacitor?
 - When tab support is added, should tabs persist across restarts, and if so should loaded URLs restore without automatically restoring signing/account permissions?
 - What minimum OS versions and CPU architectures should be supported for each platform?
-- How should release signing/notarization be handled for macOS, Windows, and Android?
+- How should release signing/notarization credentials be acquired and managed
+  for macOS, Windows, and Android?
 
 ## Suggested First Implementation Milestones
 

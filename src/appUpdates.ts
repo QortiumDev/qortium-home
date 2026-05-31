@@ -108,7 +108,11 @@ function getAssetPriority(assetName: string, platform: QortiumAppUpdatePlatform)
   const normalizedArch = platform.arch.toLowerCase();
 
   if (platform.os === 'android') {
-    return normalizedName.endsWith('.apk') ? 10 : 0;
+    if (!normalizedName.endsWith('.apk') || normalizedName.includes('-unsigned')) {
+      return 0;
+    }
+
+    return normalizedName.includes('android-release') ? 20 : 10;
   }
 
   if (platform.os === 'linux' && normalizedName.endsWith('.appimage')) {

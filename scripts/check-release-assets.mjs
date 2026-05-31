@@ -18,12 +18,19 @@ matching GitHub release has the expected uploaded assets and digests.
 Options:
   --tag <tag>         Release tag to check. Default: v${packageJson.version}
   --repo <owner/repo> GitHub repository. Default: ${defaultRepository}
+  --allow-unsigned-android
+                      Check locally built unsigned Android release artifacts.
+                      Unsigned Android artifacts are never accepted for GitHub
+                      release verification.
+  --android-only      Only check Android release APK/AAB artifacts.
   --skip-github      Only check local artifacts and the platform matrix.
   --help             Show this help text.`);
 }
 
 function parseArgs(argv) {
   const options = {
+    allowUnsignedAndroid: false,
+    androidOnly: false,
     repository: defaultRepository,
     skipGithub: false,
     tag: `v${packageJson.version}`,
@@ -39,6 +46,16 @@ function parseArgs(argv) {
 
     if (arg === '--skip-github') {
       options.skipGithub = true;
+      continue;
+    }
+
+    if (arg === '--android-only') {
+      options.androidOnly = true;
+      continue;
+    }
+
+    if (arg === '--allow-unsigned-android') {
+      options.allowUnsignedAndroid = true;
       continue;
     }
 
@@ -65,9 +82,11 @@ function parseArgs(argv) {
   return options;
 }
 
-function getExpectedArtifacts(version) {
-  return [
+function getExpectedArtifacts(version, options = {}) {
+  const androidReleaseSuffix = options.allowUnsignedAndroid ? '-unsigned' : '';
+  const artifacts = [
     {
+      group: 'desktop',
       label: 'Linux x64 AppImage',
       matrixLabels: ['Linux x64'],
       name: `Qortium-Home-${version}-x86_64.AppImage`,
@@ -75,6 +94,7 @@ function getExpectedArtifacts(version) {
       requiresExecutable: true,
     },
     {
+      group: 'desktop',
       label: 'Linux arm64 AppImage',
       matrixLabels: ['Linux arm64'],
       name: `Qortium-Home-${version}-arm64.AppImage`,
@@ -82,33 +102,44 @@ function getExpectedArtifacts(version) {
       requiresExecutable: true,
     },
     {
+      group: 'desktop',
       label: 'Windows x64 portable EXE',
       matrixLabels: ['Windows x64'],
       name: `Qortium-Home-${version}-x64.exe`,
       path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-x64.exe`),
     },
     {
+      group: 'desktop',
       label: 'macOS universal DMG',
       matrixLabels: ['macOS x64', 'macOS arm64'],
       name: `Qortium-Home-${version}-universal.dmg`,
       path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-universal.dmg`),
     },
     {
-      label: 'Android debug APK',
-      matrixLabels: ['Android'],
-      name: `Qortium-Home-${version}-android-debug.apk`,
+      group: 'android',
+      label: `Android release APK${options.allowUnsignedAndroid ? ' (unsigned)' : ''}`,
+      matrixLabels: ['Android APK'],
+      name: `Qortium-Home-${version}-android-release${androidReleaseSuffix}.apk`,
       path: path.join(
         repoRoot,
-        'android',
-        'app',
-        'build',
-        'outputs',
-        'apk',
-        'debug',
-        `Qortium-Home-${version}-android-debug.apk`,
+        'dist-release',
+        `Qortium-Home-${version}-android-release${androidReleaseSuffix}.apk`,
+      ),
+    },
+    {
+      group: 'android',
+      label: `Android release AAB${options.allowUnsignedAndroid ? ' (unsigned)' : ''}`,
+      matrixLabels: ['Android AAB'],
+      name: `Qortium-Home-${version}-android-release${androidReleaseSuffix}.aab`,
+      path: path.join(
+        repoRoot,
+        'dist-release',
+        `Qortium-Home-${version}-android-release${androidReleaseSuffix}.aab`,
       ),
     },
   ];
+
+  return options.androidOnly ? artifacts.filter((artifact) => artifact.group === 'android') : artifacts;
 }
 
 function stripTagPrefix(tag) {
@@ -232,7 +263,7 @@ function printLocalSummary(localArtifacts) {
 }
 
 function printPlatformMatrix(localArtifacts) {
-  console.log('\nUpdate-check platform matrix:');
+  console.log('\nRelease platform matrix:');
 
   for (const artifact of localArtifacts.values()) {
     for (const label of artifact.matrixLabels) {
@@ -243,8 +274,13 @@ function printPlatformMatrix(localArtifacts) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+
+  if (options.allowUnsignedAndroid && !options.skipGithub) {
+    throw new Error('--allow-unsigned-android can only be used with --skip-github.');
+  }
+
   const version = stripTagPrefix(options.tag);
-  const expectedArtifacts = getExpectedArtifacts(version);
+  const expectedArtifacts = getExpectedArtifacts(version, options);
   const localArtifacts = await readLocalArtifacts(expectedArtifacts);
 
   printLocalSummary(localArtifacts);

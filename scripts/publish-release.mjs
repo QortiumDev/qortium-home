@@ -110,16 +110,8 @@ function getExpectedArtifacts(version) {
     path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-arm64.AppImage`),
     path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-x64.exe`),
     path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-universal.dmg`),
-    path.join(
-      repoRoot,
-      'android',
-      'app',
-      'build',
-      'outputs',
-      'apk',
-      'debug',
-      `Qortium-Home-${version}-android-debug.apk`,
-    ),
+    path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-android-release.apk`),
+    path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-android-release.aab`),
   ];
 }
 

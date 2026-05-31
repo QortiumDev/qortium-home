@@ -1,5 +1,25 @@
 apply plugin: 'com.android.application'
 
+def qortiumHomeAndroidSigningValue = { name ->
+    def value = project.findProperty(name)
+
+    if (value == null || value.toString().trim().isEmpty()) {
+        value = System.getenv(name)
+    }
+
+    return value == null || value.toString().trim().isEmpty() ? null : value.toString().trim()
+}
+
+def qortiumHomeAndroidKeystore = qortiumHomeAndroidSigningValue('QORTIUM_HOME_ANDROID_KEYSTORE')
+def qortiumHomeAndroidKeystorePassword = qortiumHomeAndroidSigningValue('QORTIUM_HOME_ANDROID_KEYSTORE_PASSWORD')
+def qortiumHomeAndroidKeyAlias = qortiumHomeAndroidSigningValue('QORTIUM_HOME_ANDROID_KEY_ALIAS')
+def qortiumHomeAndroidKeyPassword = qortiumHomeAndroidSigningValue('QORTIUM_HOME_ANDROID_KEY_PASSWORD')
+def qortiumHomeAndroidReleaseSigningConfigured =
+        qortiumHomeAndroidKeystore &&
+        qortiumHomeAndroidKeystorePassword &&
+        qortiumHomeAndroidKeyAlias &&
+        qortiumHomeAndroidKeyPassword
+
 android {
     namespace = "org.qortium.home"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,8 +36,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (qortiumHomeAndroidReleaseSigningConfigured) {
+                storeFile file(qortiumHomeAndroidKeystore)
+                storePassword qortiumHomeAndroidKeystorePassword
+                keyAlias qortiumHomeAndroidKeyAlias
+                keyPassword qortiumHomeAndroidKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
+            if (qortiumHomeAndroidReleaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -51,7 +51,7 @@ more broadly.
 - Show the active tab's selected wallet as an avatar or initial in the top bar.
 - Use in-session Back and Forward navigation history.
 - Build Linux x64 and arm64 AppImages, macOS DMGs, and a Windows x64 portable executable.
-- Build a first-pass Android debug APK with Capacitor.
+- Build Android debug APKs plus release APK/AAB packages with Capacitor.
 - Package Linux, Windows, and macOS build resources with the Qortium Home app icon.
 
 ## Preview Limits
@@ -102,7 +102,7 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 - Local-node write workflows for chat send, name registration, and group join.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
-- Signed Android APK/AAB release packaging and Android wallet file flows.
+- Android signing credential setup and Android wallet file flows.
 - Code signing and release verification for production builds.
 
 ## Development Setup
@@ -194,6 +194,37 @@ Build a local Android debug APK:
 
 ```sh
 npm run dist:android:debug
+```
+
+Build Android release APK and AAB packages:
+
+```sh
+npm run dist:android:release
+```
+
+Build only one Android release package type:
+
+```sh
+npm run dist:android:release:apk
+npm run dist:android:release:aab
+```
+
+Android release packages are copied into `dist-release/`. If release signing is
+not configured, the files are named with an `-unsigned` suffix and are suitable
+for local packaging checks only. Configure these values as environment
+variables or Gradle properties before building public Android release assets:
+
+```sh
+QORTIUM_HOME_ANDROID_KEYSTORE=/absolute/path/to/release.keystore
+QORTIUM_HOME_ANDROID_KEYSTORE_PASSWORD=...
+QORTIUM_HOME_ANDROID_KEY_ALIAS=...
+QORTIUM_HOME_ANDROID_KEY_PASSWORD=...
+```
+
+Check a local unsigned Android package set while signing is still pending:
+
+```sh
+npm run release:check -- --skip-github --android-only --allow-unsigned-android
 ```
 
 Smoke-test the Android QDN app bridge against the default emulator:
@@ -311,12 +342,13 @@ The current macOS DMG builds are unsigned and should be built on macOS. Local
 test builds may require opening from Finder's right-click menu or approving the
 app in macOS privacy and security settings.
 
-The current Android build is an unsigned/debug-oriented Capacitor scaffold. It
-requires a local Android SDK with Android Platform 36 and Build Tools 35
-installed, SDK licenses accepted, and `ANDROID_HOME` or `ANDROID_SDK_ROOT`
-pointing at the SDK. The debug APK output is generated under
+Android builds require a local Android SDK with Android Platform 36 and Build
+Tools 35 installed, SDK licenses accepted, and `ANDROID_HOME` or
+`ANDROID_SDK_ROOT` pointing at the SDK. The debug APK output is generated under
 `android/app/build/outputs/apk/debug/` with a filename like
-`Qortium-Home-1.0.0-android-debug.apk`.
+`Qortium-Home-1.0.0-android-debug.apk`. Release APK/AAB outputs are collected
+under `dist-release/`; `release:publish` expects signed Android release files
+without the `-unsigned` suffix.
 
 Regenerate Android launcher icons after changing `build/icon-source.png`:
 
