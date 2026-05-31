@@ -73,6 +73,7 @@ type QdnResourcesSearchRequest = {
 
 type NodeApiRequest = {
   maxBytes?: unknown;
+  method?: unknown;
   path?: unknown;
 };
 
@@ -850,6 +851,7 @@ async function handleQdnAppRequest(value: unknown) {
         'LIST_QDN_RESOURCES',
         'SEARCH_QDN_RESOURCES',
         'WHICH_UI',
+        'SHOW_ACTIONS',
       ];
 
     default:
@@ -909,7 +911,8 @@ export function registerQdnIpcHandlers() {
   ipcMain.handle('qdn:fetchNodeApi', async (_event, request: NodeApiRequest) => {
     const apiPath = getNodeApiPath(request.path, 'http://127.0.0.1');
     const maxBytes = Math.max(0, Math.floor(getNumber(request.maxBytes) ?? 0));
-    const { connection, response } = await fetchConfiguredNode(apiPath);
+    const method = getReadOnlyMethod(request.method);
+    const { connection, response } = await fetchConfiguredNode(apiPath, { method });
     const contentLength = getContentLength(response);
     const contentType = response.headers.get('content-type') ?? '';
 
@@ -925,7 +928,7 @@ export function registerQdnIpcHandlers() {
       };
     }
 
-    const rawBody = await response.text();
+    const rawBody = method === 'HEAD' ? '' : await response.text();
     const body =
       response.status === 403 && connection.mode === 'network'
         ? getNetworkRestrictionMessage()

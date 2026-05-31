@@ -89,7 +89,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       name?: string;
       service?: string;
     }) => ipcRenderer.invoke('qdn:listResources', request),
-    fetchNodeApi: (request: { maxBytes?: number; path: string }) =>
+    fetchNodeApi: (request: { maxBytes?: number; method?: 'GET' | 'HEAD'; path: string }) =>
       ipcRenderer.invoke('qdn:fetchNodeApi', request),
     fetchResourceText: (request: {
       identifier?: string;

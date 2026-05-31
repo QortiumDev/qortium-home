@@ -70,11 +70,11 @@ Qortium Home does not yet expose chat send, name registration, QDN publish, QDN
 delete, or group join workflows. Those actions are planned for a later
 account-aware `qdnRequest` and approval/signing pass.
 
-Desktop APP and WEBSITE pages rendered in isolated QDN views can use the
-Qortium-native `qdnRequest` bridge for read-only node and QDN lookups through
-Home's currently selected node. The bridge accepts explicit object requests
-only; Android bridge parity, write requests, publishing, signing, and wallet
-permissions are still deferred.
+Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
+APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
+`qdnRequest` bridge for read-only node and QDN lookups through Home's currently
+selected node. The bridge accepts explicit object requests only; write requests,
+publishing, signing, and wallet permissions are still deferred.
 
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_NAMES`, `GET_BALANCE`,

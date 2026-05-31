@@ -48,7 +48,7 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Load direct API endpoint URLs so users can inspect chain data inside the UI.
   - Support read-only direct node API endpoint viewing through the address bar.
   - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
-  - Expose strict Qortium-native `qdnRequest` object requests to isolated desktop APP and WEBSITE pages for read-only node and QDN lookups.
+  - Expose strict Qortium-native `qdnRequest` object requests to desktop and Android APP and WEBSITE pages for read-only node and QDN lookups.
   - When write-style `qdnRequest` support is added, prompt the user before approving requests, especially signing requests.
   - Future permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
@@ -188,7 +188,6 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Complex theming or a large design system before the core workflows exist.
 - A full Qortium Core implementation inside the UI app. The UI should manage and launch the core rather than reimplement it.
 - Running Qortium Core locally inside the Android APK for the initial version.
-- Android `qdnRequest` bridge parity in the first scaffold.
 - Chat send, name registration, QDN publish, QDN delete, and group join in the
   public preview browser surface.
 - Android wallet file creation, wallet file loading, and QDN file downloads in the first Android scaffold.

@@ -11,7 +11,7 @@ import {
   getQdnViewerKind,
   isTerminalQdnStatus,
 } from './qdn';
-import { fetchNativeHttpBlobUrl, isNativePlatform } from './platform';
+import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -68,8 +68,22 @@ type MediaErrorState = {
   message: string;
 } | null;
 
+type QdnAppBridgeMessage = {
+  request?: unknown;
+  requestId?: unknown;
+  type?: unknown;
+};
+
 function canUseIsolatedQdnViews() {
   return !isNativePlatform() && !!window.qortiumHome.qdnViews;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isQdnAppBridgeMessage(value: unknown): value is QdnAppBridgeMessage {
+  return isRecord(value) && value.type === 'qortium:qdn-request' && typeof value.requestId === 'string';
 }
 
 function formatError(error: unknown) {
@@ -1013,6 +1027,84 @@ function QdnIsolatedFrameContent({
   );
 }
 
+function QdnIframeContent({
+  loadedResource,
+  resource,
+}: {
+  loadedResource: LoadedQdnResource;
+  resource: QdnResource;
+}) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+
+  useEffect(() => {
+    if (!isNativePlatform()) {
+      return undefined;
+    }
+
+    const allowedOrigin = new URL(loadedResource.renderUrl).origin;
+
+    async function handleMessage(event: MessageEvent) {
+      const frameWindow = frameRef.current?.contentWindow;
+
+      if (!frameWindow || event.source !== frameWindow || event.origin !== allowedOrigin) {
+        return;
+      }
+
+      if (!isQdnAppBridgeMessage(event.data)) {
+        return;
+      }
+
+      const requestId = event.data.requestId;
+
+      try {
+        const result = await handleQdnAppRequest(event.data.request);
+
+        frameWindow.postMessage(
+          {
+            requestId,
+            result,
+            type: 'qortium:qdn-response',
+          },
+          event.origin,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'QDN app request failed.';
+
+        frameWindow.postMessage(
+          {
+            error: {
+              error: message,
+              message,
+            },
+            requestId,
+            result: null,
+            type: 'qortium:qdn-response',
+          },
+          event.origin,
+        );
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [loadedResource.renderUrl]);
+
+  return (
+    <iframe
+      className="qdn-viewer__frame"
+      key={loadedResource.renderUrl}
+      ref={frameRef}
+      title={resource.displayUrl}
+      src={loadedResource.renderUrl}
+      sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
+      allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
+    />
+  );
+}
+
 function QdnReadyContent({
   loadedResource,
   nodeApiUrl,
@@ -1036,16 +1128,7 @@ function QdnReadyContent({
       );
     }
 
-    return (
-      <iframe
-        className="qdn-viewer__frame"
-        key={loadedResource.renderUrl}
-        title={resource.displayUrl}
-        src={loadedResource.renderUrl}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
-        allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
-      />
-    );
+    return <QdnIframeContent loadedResource={loadedResource} resource={resource} />;
   }
 
   if (loadedResource.viewerKind === 'image') {

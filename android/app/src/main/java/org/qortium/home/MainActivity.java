@@ -9,5 +9,6 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(UpdateInstallerPlugin.class);
         super.onCreate(savedInstanceState);
+        getBridge().setWebViewClient(new QdnBridgeWebViewClient(getBridge()));
     }
 }

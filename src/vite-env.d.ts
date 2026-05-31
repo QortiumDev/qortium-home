@@ -256,6 +256,7 @@ type QortiumQdnTextResult =
 
 type QortiumNodeApiRequest = {
   maxBytes?: number;
+  method?: 'GET' | 'HEAD';
   path: string;
 };
 
