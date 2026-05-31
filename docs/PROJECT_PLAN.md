@@ -52,7 +52,7 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Keep `FETCH_NODE_API` path-only and read-only; do not support legacy QDN app bridge aliases.
   - Verify QDN app bridge behavior in both development and packaged desktop builds before treating the desktop bridge as ready.
   - Keep Android QDN APP and WEBSITE bridge injection scoped to Home-owned tokenized iframe loads.
-  - Allow desktop APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
+  - Allow desktop and Android APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
   - Allow desktop APP and WEBSITE pages to request QDN publish/delete writes only after an explicit per-write approval prompt.
   - Permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
@@ -88,6 +88,8 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   picker, stores encrypted wallet metadata in app-private Preferences storage,
   and keeps decrypted seed material in renderer memory only for the current app
   session.
+- Android APP and WEBSITE pages can request the selected tab account's public
+  identity after an explicit session-only user approval prompt.
 - Android can open downloaded file-style QDN resources through the native Android chooser from Home's private app data.
 - Keep Qortium Home independent from existing wallet or portal applications.
 - Target distributable builds:

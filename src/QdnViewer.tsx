@@ -1066,9 +1066,11 @@ function QdnIsolatedFrameContent({
 }
 
 function QdnIframeContent({
+  accountId,
   loadedResource,
   resource,
 }: {
+  accountId: string | null;
   loadedResource: LoadedQdnResource;
   resource: QdnResource;
 }) {
@@ -1111,7 +1113,11 @@ function QdnIframeContent({
       const requestId = event.data.requestId;
 
       try {
-        const result = await handleQdnAppRequest(event.data.request);
+        const result = await handleQdnAppRequest(event.data.request, {
+          accountId,
+          resourceUrl: resource.displayUrl,
+          sessionKey: bridgeToken,
+        });
 
         frameWindow.postMessage(
           {
@@ -1146,7 +1152,7 @@ function QdnIframeContent({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [bridgeToken, isNativeFrame, loadedResource.renderUrl]);
+  }, [accountId, bridgeToken, isNativeFrame, loadedResource.renderUrl, resource.displayUrl]);
 
   return (
     <iframe
@@ -1188,7 +1194,7 @@ function QdnReadyContent({
       );
     }
 
-    return <QdnIframeContent loadedResource={loadedResource} resource={resource} />;
+    return <QdnIframeContent accountId={accountId} loadedResource={loadedResource} resource={resource} />;
   }
 
   if (loadedResource.viewerKind === 'image') {

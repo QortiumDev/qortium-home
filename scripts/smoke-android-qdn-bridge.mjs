@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, openSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, openSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +28,12 @@ const appIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_APP_IDENTIFIER ?? 'hom
 const jsonIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_JSON_IDENTIFIER ?? 'home-json';
 const fixtureAddress =
   process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
+const accountRole = process.env.QORTIUM_HOME_SMOKE_ACCOUNT_ROLE ?? 'local';
+const previewAccountsPath = expandHomePath(
+  process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH ??
+    '~/git/qortium/preview/secrets/initial-minting-accounts.json',
+);
+const walletStoreKey = 'qortium-home-wallet-store';
 const commandTimeoutMs = 30_000;
 const bootTimeoutMs = 180_000;
 const appTimeoutMs = 90_000;
@@ -45,6 +51,66 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function expandHomePath(filePath) {
+  if (filePath === '~') {
+    return os.homedir();
+  }
+
+  if (filePath.startsWith('~/')) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+
+  return filePath;
+}
+
+function readJson(filePath) {
+  return JSON.parse(readFileSync(filePath, 'utf8'));
+}
+
+function getWalletId(address) {
+  return `wallet:${address}`;
+}
+
+function getPreviewAccount() {
+  const previewAccounts = readJson(previewAccountsPath);
+  const account = previewAccounts.accounts?.find((item) => item.role === accountRole);
+
+  if (!account?.accountAddress) {
+    fail(`Preview account role ${accountRole} was not found in ${previewAccountsPath}.`);
+  }
+
+  return account;
+}
+
+function createAndroidWalletStore(account) {
+  const now = new Date().toISOString();
+  const walletId = getWalletId(account.accountAddress);
+
+  return {
+    activeAccountId: walletId,
+    version: 1,
+    wallets: [
+      {
+        address: account.accountAddress,
+        createdAt: now,
+        encryptedWallet: {
+          address0: account.accountAddress,
+          encryptedSeed: '1',
+          iv: '1',
+          kdfThreads: 1,
+          mac: '1',
+          salt: '1',
+          version: 2,
+        },
+        id: walletId,
+        label: 'Android Smoke Account',
+        sourceFilename: 'android-smoke.json',
+        updatedAt: now,
+      },
+    ],
+  };
 }
 
 function run(command, args, options = {}) {
@@ -237,6 +303,16 @@ async function fetchJson(url) {
   return response.json();
 }
 
+async function getOwnedNames(address) {
+  const names = await fetchJson(`${nodeApiUrl}/names/address/${encodeURIComponent(address)}?limit=0`);
+
+  if (!Array.isArray(names)) {
+    fail(`Unexpected names response for ${address}.`);
+  }
+
+  return names.map((item) => item?.name).filter((name) => typeof name === 'string' && name);
+}
+
 async function assertLocalCoreReady() {
   const status = await fetchJson(`${nodeApiUrl}/admin/status`);
 
@@ -369,7 +445,7 @@ async function getMainPageTarget(port) {
   });
 }
 
-async function navigateToFixture(client) {
+async function navigateToFixture(client, address = fixtureAddress) {
   await waitUntil('Qortium Home address bar', appTimeoutMs, async () => {
     const result = await client.send('Runtime.evaluate', {
       expression: "!!document.querySelector('#browser-address')",
@@ -386,7 +462,7 @@ async function navigateToFixture(client) {
       if (!input || !form) return { ok: false, message: 'Address bar was not found.' };
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
       input.focus();
-      setter.call(input, ${JSON.stringify(fixtureAddress)});
+      setter.call(input, ${JSON.stringify(address)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 80));
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -436,6 +512,113 @@ async function configureSmokeNode(client) {
   }
 }
 
+async function waitForCapacitorPreferences(client) {
+  await waitUntil('Capacitor Preferences bridge', appTimeoutMs, async () => {
+    const result = await client.send('Runtime.evaluate', {
+      expression: "typeof window.Capacitor?.Plugins?.Preferences?.set === 'function'",
+      returnByValue: true,
+    });
+
+    return result.result?.value === true;
+  });
+}
+
+async function seedAndroidAccount(client, account) {
+  const walletStore = createAndroidWalletStore(account);
+  const walletId = walletStore.activeAccountId;
+
+  await waitForCapacitorPreferences(client);
+
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      window.Capacitor.Plugins.Preferences.set({
+        key: ${JSON.stringify(walletStoreKey)},
+        value: ${JSON.stringify(JSON.stringify(walletStore))}
+      }).then(() => ({ ok: true }), (error) => ({
+        ok: false,
+        message: String(error && error.message || error)
+      }))
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Unable to seed Android wallet store.');
+  }
+
+  await client.send('Runtime.evaluate', {
+    expression: 'window.location.reload()',
+    returnByValue: true,
+  });
+
+  await waitUntil('seeded Android account', appTimeoutMs, async () => {
+    const probe = await client.send('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const select = document.querySelector('#selected-wallet');
+          const address = document.querySelector('.account-selector__address')?.textContent?.trim() || '';
+          return {
+            address,
+            ok: select?.value === ${JSON.stringify(walletId)} && address === ${JSON.stringify(account.accountAddress)},
+            selectValue: select?.value || ''
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+
+    return probe.result?.value?.ok === true;
+  });
+}
+
+async function clearAndroidAccount(client) {
+  await waitForCapacitorPreferences(client);
+
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      window.Capacitor.Plugins.Preferences.remove({
+        key: ${JSON.stringify(walletStoreKey)}
+      }).then(() => ({ ok: true }), (error) => ({
+        ok: false,
+        message: String(error && error.message || error)
+      }))
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Unable to clear Android wallet store.');
+  }
+
+  await client.send('Runtime.evaluate', {
+    expression: 'window.location.reload()',
+    returnByValue: true,
+  });
+
+  await waitUntil('cleared Android account', appTimeoutMs, async () => {
+    const probe = await client.send('Runtime.evaluate', {
+      expression: `
+        (() => ({
+          hasAddressBar: !!document.querySelector('#browser-address'),
+          hasWalletSelector: !!document.querySelector('#selected-wallet')
+        }))()
+      `,
+      returnByValue: true,
+    });
+    const value = probe.result?.value;
+
+    return value?.hasAddressBar === true && value?.hasWalletSelector === false;
+  });
+}
+
+function getFixtureAddressWithQuery(label) {
+  return `${fixtureAddress}/?identity=${encodeURIComponent(label)}`;
+}
+
 async function getFixtureFrameContext(client) {
   return waitUntil('QDN fixture iframe', cdpTimeoutMs, async () => {
     const frameTree = await client.send('Page.getFrameTree');
@@ -443,7 +626,8 @@ async function getFixtureFrameContext(client) {
     const frame = frames.find(
       (candidate) =>
         candidate.url.includes(`/render/APP/${fixtureName}`) &&
-        candidate.url.includes(`identifier=${appIdentifier}`),
+        candidate.url.includes(`identifier=${appIdentifier}`) &&
+        candidate.url.includes('qdnHomeBridge='),
     );
 
     if (!frame) {
@@ -489,10 +673,34 @@ async function evaluateInFrame(client, contextId, expression) {
   });
 
   if (result.exceptionDetails) {
-    fail(result.exceptionDetails.text || 'QDN fixture evaluation failed.');
+    fail(formatExceptionDetails(result.exceptionDetails, 'QDN fixture evaluation failed.'));
   }
 
   return result.result?.value;
+}
+
+async function evaluateInMain(client, expression) {
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression,
+    returnByValue: true,
+  });
+
+  if (result.exceptionDetails) {
+    fail(formatExceptionDetails(result.exceptionDetails, 'Qortium Home evaluation failed.'));
+  }
+
+  return result.result?.value;
+}
+
+function formatExceptionDetails(exceptionDetails, fallback) {
+  const parts = [
+    exceptionDetails.exception?.description,
+    exceptionDetails.exception?.value,
+    exceptionDetails.text,
+  ].filter((part) => typeof part === 'string' && part.trim());
+
+  return parts[0] || fallback;
 }
 
 function assert(condition, message) {
@@ -506,7 +714,14 @@ async function runQdnRequest(client, contextId, request) {
     client,
     contextId,
     `
-      window.qdnRequest(${JSON.stringify(request)})
+      Promise.resolve()
+        .then(() => {
+          if (typeof window.qdnRequest !== 'function') {
+            throw new Error('qdnRequest is ' + typeof window.qdnRequest);
+          }
+
+          return window.qdnRequest(${JSON.stringify(request)});
+        })
         .then((result) => ({ ok: true, result }))
         .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
     `,
@@ -519,12 +734,101 @@ async function runQdnRequest(client, contextId, request) {
   return result.result;
 }
 
+async function resolveNextAccountRead(client, buttonLabel = 'Allow') {
+  await waitUntil('QDN account approval dialog', appTimeoutMs, async () => {
+    const result = await evaluateInMain(
+      client,
+      `
+        (() => {
+          const dialog = document.querySelector('[aria-label="QDN account request"]');
+          if (!dialog) return null;
+          const target = [...dialog.querySelectorAll('button')]
+            .find((button) => button.textContent && button.textContent.trim() === ${JSON.stringify(buttonLabel)});
+          if (!target) return { ok: false, message: ${JSON.stringify(`${buttonLabel} button was not found.`)} };
+          target.click();
+          return { ok: true };
+        })()
+      `,
+    );
+
+    if (result?.ok) {
+      return true;
+    }
+
+    if (result?.message) {
+      fail(result.message);
+    }
+
+    return null;
+  });
+}
+
+async function isAccountReadDialogVisible(client) {
+  return evaluateInMain(client, "!!document.querySelector('[aria-label=\"QDN account request\"]')");
+}
+
+async function runQdnRequestWithAccountDialog(
+  mainClient,
+  contextId,
+  request,
+  buttonLabel = 'Allow',
+) {
+  const requestPromise = evaluateInFrame(
+    mainClient,
+    contextId,
+    `
+      Promise.resolve()
+        .then(() => {
+          if (typeof window.qdnRequest !== 'function') {
+            throw new Error('qdnRequest is ' + typeof window.qdnRequest);
+          }
+
+          return window.qdnRequest(${JSON.stringify(request)});
+        })
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  const firstResult = await Promise.race([
+    requestPromise.then((result) => ({ kind: 'request', result })),
+    resolveNextAccountRead(mainClient, buttonLabel).then(() => ({ kind: 'dialog' })),
+  ]);
+
+  if (firstResult.kind === 'request') {
+    fail(
+      `${request.action} settled before the ${buttonLabel} dialog was resolved: ${JSON.stringify(
+        firstResult.result,
+      )}`,
+    );
+  }
+
+  const result = await requestPromise;
+
+  if (buttonLabel === 'Allow' && !result?.ok) {
+    fail(result?.message || `${request.action} failed.`);
+  }
+
+  if (buttonLabel !== 'Allow' && result?.ok) {
+    fail(`${request.action} unexpectedly succeeded after ${buttonLabel}.`);
+  }
+
+  return result;
+}
+
 async function expectQdnRequestRejected(client, contextId, request, expectedMessage) {
   const result = await evaluateInFrame(
     client,
     contextId,
     `
-      window.qdnRequest(${JSON.stringify(request)})
+      Promise.resolve()
+        .then(() => {
+          if (typeof window.qdnRequest !== 'function') {
+            throw new Error('qdnRequest is ' + typeof window.qdnRequest);
+          }
+
+          return window.qdnRequest(${JSON.stringify(request)});
+        })
         .then((result) => ({ ok: true, result }))
         .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
     `,
@@ -606,10 +910,16 @@ async function runBridgeContainmentAssertions(client, fixtureFrame) {
   );
 }
 
-async function runBridgeAssertions(client, contextId) {
-  const bridgeState = await evaluateInFrame(client, contextId, 'typeof window.qdnRequest');
+async function waitForQdnRequestBridge(client, contextId) {
+  await waitUntil('QDN app bridge injection', cdpTimeoutMs, async () => {
+    const bridgeState = await evaluateInFrame(client, contextId, 'typeof window.qdnRequest');
 
-  assert(bridgeState === 'function', `Expected qdnRequest to be injected, found ${bridgeState}.`);
+    return bridgeState === 'function';
+  });
+}
+
+async function runBridgeAssertions(client, contextId) {
+  await waitForQdnRequestBridge(client, contextId);
 
   const whichUi = await runQdnRequest(client, contextId, { action: 'WHICH_UI' });
 
@@ -620,6 +930,7 @@ async function runBridgeAssertions(client, contextId) {
     'FETCH_NODE_API',
     'GET_NODE_INFO',
     'GET_NODE_STATUS',
+    'GET_SELECTED_ACCOUNT',
     'GET_QDN_RESOURCE_METADATA',
     'GET_QDN_RESOURCE_PROPERTIES',
     'GET_QDN_RESOURCE_STATUS',
@@ -769,11 +1080,88 @@ async function runBridgeAssertions(client, contextId) {
   );
 }
 
+async function runSelectedAccountAssertions(client, contextId, account, ownedNames) {
+  const selectedAccountRequest = { action: 'GET_SELECTED_ACCOUNT' };
+  const approved = await runQdnRequestWithAccountDialog(
+    client,
+    contextId,
+    selectedAccountRequest,
+    'Allow',
+  );
+
+  assert(
+    approved?.result?.address === account.accountAddress,
+    `GET_SELECTED_ACCOUNT returned ${JSON.stringify(approved?.result?.address)} instead of the seeded account.`,
+  );
+  assert(
+    approved.result.avatarUrl === null || typeof approved.result.avatarUrl === 'string',
+    'GET_SELECTED_ACCOUNT returned an invalid avatarUrl.',
+  );
+
+  if (ownedNames.length > 0) {
+    assert(
+      ownedNames.includes(approved.result.name),
+      `GET_SELECTED_ACCOUNT returned unexpected name ${JSON.stringify(approved.result.name)}.`,
+    );
+  } else {
+    assert(approved.result.name === null, 'GET_SELECTED_ACCOUNT returned a name for an account with no names.');
+  }
+
+  const cached = await runQdnRequest(client, contextId, selectedAccountRequest);
+
+  assert(
+    cached?.address === account.accountAddress,
+    'GET_SELECTED_ACCOUNT cached approval did not return the seeded account.',
+  );
+  assert(
+    (await isAccountReadDialogVisible(client)) === false,
+    'GET_SELECTED_ACCOUNT cached approval opened another account dialog.',
+  );
+}
+
+async function runSelectedAccountDenyAssertion(client, account) {
+  await navigateToFixture(client, getFixtureAddressWithQuery('deny'));
+  const { contextId } = await getFixtureFrameContext(client);
+  await waitForQdnRequestBridge(client, contextId);
+  const denied = await runQdnRequestWithAccountDialog(
+    client,
+    contextId,
+    { action: 'GET_SELECTED_ACCOUNT' },
+    'Deny',
+  );
+
+  assert(
+    denied?.ok === false && String(denied.message ?? '').includes('denied'),
+    `GET_SELECTED_ACCOUNT deny failed with unexpected result: ${JSON.stringify(denied)}.`,
+  );
+  assert(account.accountAddress, 'Seeded account address disappeared during deny assertion.');
+}
+
+async function runSelectedAccountNoAccountAssertion(client) {
+  await clearAndroidAccount(client);
+  await navigateToFixture(client, getFixtureAddressWithQuery('no-account'));
+  const { contextId } = await getFixtureFrameContext(client);
+  await waitForQdnRequestBridge(client, contextId);
+
+  await expectQdnRequestRejected(
+    client,
+    contextId,
+    { action: 'GET_SELECTED_ACCOUNT' },
+    'No account is selected',
+  );
+  assert(
+    (await isAccountReadDialogVisible(client)) === false,
+    'GET_SELECTED_ACCOUNT opened an account dialog with no selected account.',
+  );
+}
+
 async function main() {
   assertTool(adbPath, 'adb');
 
   await assertLocalCoreReady();
   await assertFixtureReady();
+  const account = getPreviewAccount();
+  const ownedNames = await getOwnedNames(account.accountAddress);
 
   const apkPath = getDebugApkPath();
   const { serial, startedEmulator } = await launchEmulatorIfNeeded();
@@ -794,12 +1182,16 @@ async function main() {
         await client.send('Page.enable');
         await client.send('Runtime.enable');
         await configureSmokeNode(client);
+        await seedAndroidAccount(client, account);
         await navigateToFixture(client);
         const { contextId, frame } = await getFixtureFrameContext(client);
 
         log(`Running bridge assertions in ${frame.url}.`);
         await runBridgeContainmentAssertions(client, frame);
         await runBridgeAssertions(client, contextId);
+        await runSelectedAccountAssertions(client, contextId, account, ownedNames);
+        await runSelectedAccountDenyAssertion(client, account);
+        await runSelectedAccountNoAccountAssertion(client);
       } finally {
         client.close();
       }

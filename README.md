@@ -75,19 +75,19 @@ account-aware `qdnRequest` bridge after a per-write user approval prompt.
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
 `qdnRequest` bridge for read-only node and QDN lookups through Home's currently
-selected node. Desktop QDN apps can also request the selected tab account's
-public identity after a user approval prompt. The bridge accepts explicit object
-requests only; Android remains read-only, and Android APP/WEBSITE bridge
-injection is limited to Home-owned tokenized iframe loads.
+selected node. Desktop QDN apps and Android QDN apps can also request the
+selected tab account's public identity after a user approval prompt. The bridge
+accepts explicit object requests only; Android remains read-only, and Android
+APP/WEBSITE bridge injection is limited to Home-owned tokenized iframe loads.
 
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_NAMES`, `GET_BALANCE`,
 `GET_NAME_DATA`, `GET_QDN_RESOURCE_METADATA`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
-`SEARCH_QDN_RESOURCES`, `IS_USING_PUBLIC_NODE`, `WHICH_UI`, and
-`SHOW_ACTIONS`. Desktop isolated QDN apps also support
-`GET_SELECTED_ACCOUNT`, `PUBLISH_QDN_RESOURCE`, and `DELETE_QDN_RESOURCE`.
+`SEARCH_QDN_RESOURCES`, `GET_SELECTED_ACCOUNT`, `IS_USING_PUBLIC_NODE`,
+`WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps also support
+`PUBLISH_QDN_RESOURCE` and `DELETE_QDN_RESOURCE`.
 Publishing uses a Home-owned file/folder picker, and each publish/delete request
 requires approval before Home signs and processes the transaction with the
 selected tab account.
@@ -244,10 +244,13 @@ points the app at the host's local Previewnet node through
 `http://10.0.2.2:24891`, then verifies strict `qdnRequest` injection,
 `SHOW_ACTIONS`, read-only node API GET/HEAD calls, structured QDN resource
 status/properties/metadata/URL/fetch calls, resource list/search calls, and
-rejected legacy, malformed, write-method, and oversize node API requests. It
-also verifies that un-tokened Android APP render pages do not receive the
-Home-owned `qdnRequest` bridge. Set `QORTIUM_HOME_ANDROID_NODE_API_URL` to
-override the node URL used inside Android.
+selected-account approval/deny/no-account flows with the ignored preview account
+file at `~/git/qortium/preview/secrets/initial-minting-accounts.json`. It also
+verifies rejected legacy, malformed, write-method, and oversize node API
+requests, and that un-tokened Android APP render pages do not receive the
+Home-owned `qdnRequest` bridge. Set `QORTIUM_HOME_ANDROID_NODE_API_URL`,
+`QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH`, or `QORTIUM_HOME_SMOKE_ACCOUNT_ROLE` to
+override those defaults.
 
 Smoke-test Android QDN image, audio, and video viewers against the default
 emulator:

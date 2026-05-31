@@ -43,6 +43,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'GET_NAME_DATA',
   'GET_NODE_INFO',
   'GET_NODE_STATUS',
+  'GET_SELECTED_ACCOUNT',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
@@ -138,10 +139,24 @@ type QdnAppResourceRequest = {
   service: string;
 };
 
+type QdnAppRequestContext = {
+  accountId: string | null;
+  resourceUrl: string;
+  sessionKey: string;
+};
+
+type PendingAccountReadApproval = {
+  resolve: (approved: boolean) => void;
+  timeoutId: number;
+};
+
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
 const QdnFileOpener = registerPlugin<QdnFileOpenerPlugin>('QdnFileOpener');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
+const qdnAccountReadListeners = new Set<(request: QortiumQdnAccountReadApprovalRequest) => void>();
+const pendingAccountReadApprovals = new Map<string, PendingAccountReadApproval>();
+const approvedAccountReadRequests = new Set<string>();
 
 function forgetUnlockedWalletSeed(accountId: string) {
   const seed = unlockedWalletSeeds.get(accountId);
@@ -1251,6 +1266,71 @@ async function getAccountProfile(accountId: string): Promise<QortiumAccountProfi
   };
 }
 
+async function requestAccountReadApproval(
+  context: QdnAppRequestContext,
+  profile: QortiumAccountProfile,
+) {
+  const cacheKey = getQdnAccountReadApprovalCacheKey(context, profile.accountId);
+
+  if (approvedAccountReadRequests.has(cacheKey)) {
+    return;
+  }
+
+  if (qdnAccountReadListeners.size === 0) {
+    throw new Error('QDN account request approval is unavailable.');
+  }
+
+  const requestId = createRequestId();
+  const approved = await new Promise<boolean>((resolve) => {
+    const timeoutId = window.setTimeout(() => {
+      pendingAccountReadApprovals.delete(requestId);
+      resolve(false);
+    }, 120_000);
+
+    pendingAccountReadApprovals.set(requestId, {
+      resolve,
+      timeoutId,
+    });
+
+    for (const listener of qdnAccountReadListeners) {
+      listener({
+        action: 'GET_SELECTED_ACCOUNT',
+        address: profile.address,
+        avatarUrl: profile.avatarUrl,
+        id: requestId,
+        name: profile.name,
+        resourceUrl: context.resourceUrl || 'QDN app',
+      });
+    }
+  });
+
+  if (!approved) {
+    throw new Error('Account request was denied.');
+  }
+
+  approvedAccountReadRequests.add(cacheKey);
+}
+
+async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undefined) {
+  if (!context) {
+    throw new Error('GET_SELECTED_ACCOUNT is only available from a QDN app frame.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  const profile = await getAccountProfile(context.accountId);
+
+  await requestAccountReadApproval(context, profile);
+
+  return {
+    address: profile.address,
+    avatarUrl: profile.avatarUrl,
+    name: profile.name,
+  };
+}
+
 function createStoredAccountsApi(): PlatformApi['accounts'] {
   return {
     list: async () => toAccountsState(await readWalletStore()),
@@ -1571,6 +1651,21 @@ function getNodeApiUrlBase(nodeApiUrl: string) {
 
 function getByteLength(value: string) {
   return new Blob([value]).size;
+}
+
+function createRequestId() {
+  return window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getQdnAccountReadApprovalCacheKey(context: QdnAppRequestContext, accountId: string) {
+  return [
+    context.sessionKey,
+    context.resourceUrl,
+    accountId,
+    'GET_SELECTED_ACCOUNT',
+  ].join('\n');
 }
 
 function stringifyResponseData(data: unknown) {
@@ -2132,7 +2227,7 @@ async function getQdnResourceUrl(request: QdnAppRequest) {
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
-export async function handleQdnAppRequest(value: unknown) {
+export async function handleQdnAppRequest(value: unknown, context?: QdnAppRequestContext) {
   if (!isRecord(value)) {
     throw new Error('QDN app requests must be objects.');
   }
@@ -2169,6 +2264,9 @@ export async function handleQdnAppRequest(value: unknown) {
         `/names/address/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
         request,
       );
+
+    case 'GET_SELECTED_ACCOUNT':
+      return getSelectedAccountForQdnApp(context);
 
     case 'GET_BALANCE':
       return fetchNodeApiPayload(
@@ -2257,6 +2355,28 @@ function createFallbackApi(): PlatformApi {
   return {
     appName: 'Qortium Home',
     accounts: isAndroid() ? createStoredAccountsApi() : createUnsupportedAccountsApi(),
+    qdnPermissions: {
+      onAccountReadRequest(callback) {
+        qdnAccountReadListeners.add(callback);
+
+        return () => {
+          qdnAccountReadListeners.delete(callback);
+        };
+      },
+      onWriteRequest: () => () => undefined,
+      resolveAccountReadRequest: async (requestId, approved) => {
+        const pendingApproval = pendingAccountReadApprovals.get(requestId);
+
+        if (!pendingApproval) {
+          return;
+        }
+
+        window.clearTimeout(pendingApproval.timeoutId);
+        pendingAccountReadApprovals.delete(requestId);
+        pendingApproval.resolve(approved);
+      },
+      resolveWriteRequest: async () => undefined,
+    },
     updates: {
       async downloadAsset(request) {
         return downloadUpdateAsset(request);
