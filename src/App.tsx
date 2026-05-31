@@ -1,5 +1,7 @@
 import './styles.css';
-import { useCallback, useEffect, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import { ApiViewer } from './ApiViewer';
 import { QdnExplorer } from './QdnExplorer';
@@ -26,12 +28,31 @@ type BrowserTabState = {
 
 type TabDropPosition = 'after' | 'before';
 
+type NavigationActions = {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  currentRoute: AppRoute | null;
+  goBack: () => void;
+  goForward: () => void;
+  goHome: () => void;
+};
+
+type NavigationSwipeState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+};
+
 let nextTabId = 1;
 
 const EMPTY_ACCOUNTS_STATE: QortiumAccountsState = {
   accounts: [],
   activeAccountId: null,
 };
+const NAVIGATION_SWIPE_MIN_DISTANCE_PX = 72;
+const NAVIGATION_SWIPE_MAX_VERTICAL_PX = 80;
+const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
+const NAVIGATION_SWIPE_VERTICAL_CANCEL_PX = 48;
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
   return !!accountId && accountsState.accounts.some((account) => account.id === accountId);
@@ -81,6 +102,27 @@ function getTabLabel(tab: BrowserTab) {
   return tab.history.entries[tab.history.index]?.displayUrl ?? 'Qortium Home';
 }
 
+function shouldIgnoreNavigationSwipe(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return true;
+  }
+
+  return !!target.closest(
+    [
+      'a',
+      'audio',
+      'button',
+      'iframe',
+      'input',
+      'select',
+      'textarea',
+      'video',
+      '[contenteditable="true"]',
+      '.qdn-viewer__text-content',
+    ].join(','),
+  );
+}
+
 export function App() {
   const [accountsState, setAccountsState] = useState<QortiumAccountsState>(EMPTY_ACCOUNTS_STATE);
   const [accountsError, setAccountsError] = useState('');
@@ -88,6 +130,8 @@ export function App() {
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const navigationActionsRef = useRef<NavigationActions | null>(null);
+  const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
   const activeAccount =
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
@@ -277,6 +321,13 @@ export function App() {
     }));
   }
 
+  function goHome() {
+    updateActiveTabHistory(() => ({
+      entries: [null],
+      index: 0,
+    }));
+  }
+
   function goToHistoryIndex(index: number) {
     updateActiveTabHistory((currentHistory) => ({
       ...currentHistory,
@@ -371,6 +422,145 @@ export function App() {
     });
   }
 
+  navigationActionsRef.current = {
+    canGoBack,
+    canGoForward,
+    currentRoute,
+    goBack,
+    goForward,
+    goHome,
+  };
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      return undefined;
+    }
+
+    let isDisposed = false;
+    let removeBackButtonListener: (() => Promise<void>) | undefined;
+
+    void CapacitorApp.addListener('backButton', async () => {
+      const actions = navigationActionsRef.current;
+
+      if (!actions) {
+        return;
+      }
+
+      if (actions.canGoBack) {
+        actions.goBack();
+        return;
+      }
+
+      if (actions.currentRoute) {
+        actions.goHome();
+        return;
+      }
+
+      await CapacitorApp.minimizeApp();
+    }).then((listener) => {
+      if (isDisposed) {
+        void listener.remove();
+        return;
+      }
+
+      removeBackButtonListener = () => listener.remove();
+    });
+
+    return () => {
+      isDisposed = true;
+
+      if (removeBackButtonListener) {
+        void removeBackButtonListener();
+      }
+    };
+  }, []);
+
+  const isNativeApp = Capacitor.isNativePlatform();
+  const appMainClassName = [
+    'app-main',
+    isViewerRoute ? 'app-main--viewer' : '',
+    isSettingsRoute ? 'app-main--settings' : '',
+    isNativeApp ? 'app-main--gesture-nav' : '',
+  ].filter(Boolean).join(' ');
+
+  function clearNavigationSwipe(event?: ReactPointerEvent<HTMLElement>) {
+    if (event && navigationSwipeRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    navigationSwipeRef.current = null;
+  }
+
+  function handleMainPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (
+      !isNativeApp ||
+      event.pointerType === 'mouse' ||
+      !event.isPrimary ||
+      shouldIgnoreNavigationSwipe(event.target)
+    ) {
+      return;
+    }
+
+    navigationSwipeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleMainPointerMove(event: ReactPointerEvent<HTMLElement>) {
+    const swipeState = navigationSwipeRef.current;
+
+    if (!swipeState || swipeState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - swipeState.startX;
+    const deltaY = event.clientY - swipeState.startY;
+
+    if (Math.abs(deltaY) > NAVIGATION_SWIPE_VERTICAL_CANCEL_PX && Math.abs(deltaY) > Math.abs(deltaX)) {
+      clearNavigationSwipe(event);
+    }
+  }
+
+  function handleMainPointerUp(event: ReactPointerEvent<HTMLElement>) {
+    const swipeState = navigationSwipeRef.current;
+
+    if (!swipeState || swipeState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - swipeState.startX;
+    const deltaY = event.clientY - swipeState.startY;
+    const absoluteX = Math.abs(deltaX);
+    const absoluteY = Math.abs(deltaY);
+    const isNavigationSwipe =
+      absoluteX >= NAVIGATION_SWIPE_MIN_DISTANCE_PX &&
+      absoluteY <= NAVIGATION_SWIPE_MAX_VERTICAL_PX &&
+      absoluteX >= absoluteY * NAVIGATION_SWIPE_HORIZONTAL_RATIO;
+    const actions = navigationActionsRef.current;
+
+    clearNavigationSwipe(event);
+
+    if (!isNavigationSwipe || !actions) {
+      return;
+    }
+
+    if (deltaX > 0 && actions.canGoBack) {
+      actions.goBack();
+      return;
+    }
+
+    if (deltaX < 0 && actions.canGoForward) {
+      actions.goForward();
+    }
+  }
+
   if (!nodeSettings) {
     return (
       <main className="app-shell">
@@ -413,10 +603,12 @@ export function App() {
         nodeSettings={nodeSettings}
       />
       <section
-        className={`app-main${isViewerRoute ? ' app-main--viewer' : ''}${
-          isSettingsRoute ? ' app-main--settings' : ''
-        }`}
+        className={appMainClassName}
         aria-label={isSettingsRoute ? 'Settings' : isViewerRoute ? 'Browser page' : 'Qortium Home'}
+        onPointerCancel={clearNavigationSwipe}
+        onPointerDown={handleMainPointerDown}
+        onPointerMove={handleMainPointerMove}
+        onPointerUp={handleMainPointerUp}
       >
         {currentRoute?.kind === 'node-api' ? (
           <ApiViewer route={currentRoute} />

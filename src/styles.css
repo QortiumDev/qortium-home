@@ -160,6 +160,11 @@ h1 {
   overflow-y: auto;
 }
 
+.app-main--gesture-nav {
+  overscroll-behavior-x: contain;
+  touch-action: pan-y;
+}
+
 .settings-page {
   display: grid;
   gap: 24px;
