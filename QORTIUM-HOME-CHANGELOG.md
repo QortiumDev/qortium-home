@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-30 - app: auto-detect managed core display mode
+
+Changed managed Core startup so Qortium Home runs the bundled preview launcher in participant mode without forcing Java headless mode. Desktop launches can now use the Core launcher's normal GUI/tray auto-detection, while terminal-only environments still fall back to headless mode through the launcher.
+
 ### 2026-05-30 - build: make linux appimages executable
 
 Added a Linux AppImage post-build step that sets current AppImage artifacts to executable mode after `electron-builder` finishes, and updated the release asset checker to reject local AppImages that are missing the executable bit before publishing.

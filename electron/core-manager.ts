@@ -1084,7 +1084,7 @@ async function startCore() {
   try {
     await runScript(
       startScript,
-      ['--participant', '--headless'],
+      ['--participant'],
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
     );

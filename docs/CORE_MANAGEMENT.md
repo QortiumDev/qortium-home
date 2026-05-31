@@ -55,11 +55,13 @@ path, executable path, and install time.
 
 ## Runtime Behavior
 
-The first pass should run Previewnet participant mode. For the current release
-zip, Qortium Home should use:
+The first pass should run Previewnet participant mode and let the bundled
+preview launcher auto-detect whether the local environment supports the normal
+GUI/tray path or needs Java headless mode. For the current release zip, Qortium
+Home should use:
 
-- Linux/macOS: `preview/start.sh --participant --headless`
-- Windows: `preview/start.bat --participant --headless`
+- Linux/macOS: `preview/start.sh --participant`
+- Windows: `preview/start.bat --participant`
 - Linux/macOS stop: `preview/stop.sh`
 - Windows stop: `preview/stop.bat`
 
