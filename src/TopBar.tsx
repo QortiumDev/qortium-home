@@ -11,8 +11,8 @@ type TopBarProps = {
   activeTabId: string;
   canGoBack: boolean;
   canGoForward: boolean;
-  currentRoute: AppRoute | null;
-  historyEntries: (AppRoute | null)[];
+  currentRoute: AppRoute;
+  historyEntries: AppRoute[];
   historyIndex: number;
   nodeSettings: QortiumNodeSettings;
   tabs: BrowserTabSummary[];
@@ -38,14 +38,14 @@ type BrowserTabSummary = {
 type HistoryButtonProps = {
   canNavigate: boolean;
   direction: 'back' | 'forward';
-  historyEntries: (AppRoute | null)[];
+  historyEntries: AppRoute[];
   historyIndex: number;
   onJump: (index: number) => void;
   onStep: () => void;
 };
 
 type HistoryMenuItem = {
-  entry: AppRoute | null;
+  entry: AppRoute;
   index: number;
 };
 
@@ -61,12 +61,24 @@ const ADDRESS_SCHEME_SUGGESTIONS = [
   },
   {
     description: 'Home',
+    value: 'home://dashboard',
+  },
+  {
+    description: 'Settings',
     value: 'home://settings',
   },
 ];
 
-function formatHistoryEntry(entry: AppRoute | null) {
-  return entry?.displayUrl ?? 'Qortium Home';
+function formatHistoryEntry(entry: AppRoute) {
+  if (entry.kind === 'dashboard') {
+    return 'Dashboard';
+  }
+
+  if (entry.kind === 'settings') {
+    return 'Settings';
+  }
+
+  return entry.displayUrl;
 }
 
 function getAccountProfileCacheKey(account: QortiumAccountSummary, nodeApiUrl: string) {
@@ -523,7 +535,7 @@ export function TopBar({
   const addressSuggestion = getAddressSchemeSuggestion(addressValue);
 
   useEffect(() => {
-    setAddressValue(currentRoute?.displayUrl ?? '');
+    setAddressValue(currentRoute.displayUrl);
     setAddressError('');
   }, [activeTabId, currentRoute]);
 
@@ -592,7 +604,7 @@ export function TopBar({
             autoComplete="off"
             className="top-bar__address-input"
             id="browser-address"
-            placeholder="qdn://APP, core://admin/status, or home://settings"
+            placeholder="qdn://APP, core://admin/status, or home://dashboard"
             spellCheck={false}
             type="text"
             value={addressValue}

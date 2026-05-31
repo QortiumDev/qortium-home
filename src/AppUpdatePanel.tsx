@@ -1,252 +1,11 @@
 import { Download, ExternalLink, FolderOpen, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { checkAppUpdates } from './appUpdates';
-
-type UpdateMessage = {
-  kind: 'error' | 'success';
-  text: string;
-} | null;
-
-function formatError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return 'Unable to check app updates.';
-  }
-
-  return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '-';
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
-}
-
-function getDefaultChannel(environment: QortiumAppUpdateEnvironment | null): QortiumAppUpdateChannel {
-  return environment?.currentVersion.includes('-') ? 'prerelease' : 'stable';
-}
-
-function getStatusKind(result: QortiumAppUpdateCheckResult | null): UpdateMessage['kind'] {
-  if (!result) {
-    return null;
-  }
-
-  return result.status === 'available' || result.status === 'up-to-date' ? 'success' : 'error';
-}
-
-function getReleasePageUrl(result: QortiumAppUpdateCheckResult | null) {
-  return result?.release?.htmlUrl || '';
-}
-
-function isAndroidPlatform(platform: QortiumAppUpdatePlatform | undefined) {
-  return platform?.os === 'android';
-}
-
-function getDownloadedUpdateMessage(
-  downloadedUpdate: QortiumAppUpdateDownloadResult,
-  platform: QortiumAppUpdatePlatform | undefined,
-) {
-  if (isAndroidPlatform(platform)) {
-    return `Downloaded and verified ${downloadedUpdate.fileName}. Tap Install APK to continue with Android's installer.`;
-  }
-
-  return downloadedUpdate.digestVerified
-    ? `Downloaded and verified ${downloadedUpdate.fileName}.`
-    : `Downloaded ${downloadedUpdate.fileName}.`;
-}
-
-function getOpenDownloadedFileLabel(platform: QortiumAppUpdatePlatform | undefined) {
-  return isAndroidPlatform(platform) ? 'Install APK' : 'Open file';
-}
+import {
+  getOpenDownloadedFileLabel,
+  useAppUpdates,
+} from './appUpdateState';
 
 export function AppUpdatePanel() {
-  const [environment, setEnvironment] = useState<QortiumAppUpdateEnvironment | null>(null);
-  const [channel, setChannel] = useState<QortiumAppUpdateChannel>('stable');
-  const [result, setResult] = useState<QortiumAppUpdateCheckResult | null>(null);
-  const [downloadedUpdate, setDownloadedUpdate] = useState<QortiumAppUpdateDownloadResult | null>(null);
-  const [message, setMessage] = useState<UpdateMessage>(null);
-  const [isChecking, setIsChecking] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const releasePageUrl = getReleasePageUrl(result);
-  const updatePlatform = result?.platform ?? environment?.platform;
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    window.qortiumHome.updates
-      .getEnvironment()
-      .then((nextEnvironment) => {
-        if (isDisposed) {
-          return;
-        }
-
-        setEnvironment(nextEnvironment);
-        setChannel(getDefaultChannel(nextEnvironment));
-      })
-      .catch((error) => {
-        if (!isDisposed) {
-          setMessage({
-            kind: 'error',
-            text: formatError(error),
-          });
-        }
-      });
-
-    return () => {
-      isDisposed = true;
-    };
-  }, []);
-
-  const detailRows = useMemo(
-    () => {
-      const rows = [
-        { label: 'Current', value: environment?.currentVersion ?? 'Checking' },
-        { label: 'Platform', value: environment?.platform.label ?? 'Checking' },
-        { label: 'Channel', value: channel === 'stable' ? 'Stable' : 'Prerelease' },
-      ];
-
-      if (result?.release) {
-        rows.push({ label: 'Latest', value: result.release.tagName });
-      }
-
-      if (result?.asset) {
-        rows.push(
-          { label: 'Asset', value: result.asset.name },
-          { label: 'Size', value: formatBytes(result.asset.size) },
-          { label: 'Digest', value: result.asset.digest ?? 'Unavailable' },
-        );
-      }
-
-      if (downloadedUpdate) {
-        rows.push(
-          { label: 'Downloaded', value: downloadedUpdate.fileName },
-          ...(isAndroidPlatform(updatePlatform)
-            ? [
-                { label: 'Saved', value: downloadedUpdate.filePath },
-                { label: 'Install', value: downloadedUpdate.canOpen ? 'Ready' : 'Unavailable' },
-              ]
-            : []),
-          { label: 'Verified', value: downloadedUpdate.digestVerified ? 'Yes' : 'No digest' },
-        );
-      }
-
-      return rows;
-    },
-    [channel, downloadedUpdate, environment, result, updatePlatform],
-  );
-
-  async function checkForUpdates() {
-    if (!environment) {
-      return;
-    }
-
-    setIsChecking(true);
-    setDownloadedUpdate(null);
-    setMessage(null);
-
-    try {
-      const nextResult = await checkAppUpdates(environment, channel);
-      const nextKind = getStatusKind(nextResult);
-
-      setResult(nextResult);
-      setMessage({
-        kind: nextKind ?? 'error',
-        text: nextResult.message,
-      });
-    } catch (error) {
-      setMessage({
-        kind: 'error',
-        text: formatError(error),
-      });
-    } finally {
-      setIsChecking(false);
-    }
-  }
-
-  async function downloadUpdate() {
-    if (!result?.asset || !result.release) {
-      return;
-    }
-
-    setIsDownloading(true);
-    setMessage(null);
-
-    try {
-      const nextDownloadedUpdate = await window.qortiumHome.updates.downloadAsset({
-        asset: result.asset,
-        platform: result.platform,
-        releaseTag: result.release.tagName,
-      });
-
-      setDownloadedUpdate(nextDownloadedUpdate);
-      setMessage({
-        kind: 'success',
-        text: getDownloadedUpdateMessage(nextDownloadedUpdate, result.platform),
-      });
-    } catch (error) {
-      setMessage({
-        kind: 'error',
-        text: formatError(error),
-      });
-    } finally {
-      setIsDownloading(false);
-    }
-  }
-
-  async function openDownloadedFile() {
-    if (!downloadedUpdate) {
-      return;
-    }
-
-    try {
-      await window.qortiumHome.updates.openDownloadedFile(downloadedUpdate.filePath);
-    } catch (error) {
-      setMessage({
-        kind: 'error',
-        text: formatError(error),
-      });
-    }
-  }
-
-  async function showDownloadedFile() {
-    if (!downloadedUpdate) {
-      return;
-    }
-
-    try {
-      await window.qortiumHome.updates.showDownloadedFile(downloadedUpdate.filePath);
-    } catch (error) {
-      setMessage({
-        kind: 'error',
-        text: formatError(error),
-      });
-    }
-  }
-
-  async function openReleasePage() {
-    if (!releasePageUrl) {
-      return;
-    }
-
-    try {
-      await window.qortiumHome.updates.openReleasePage(releasePageUrl);
-    } catch (error) {
-      setMessage({
-        kind: 'error',
-        text: formatError(error),
-      });
-    }
-  }
+  const updates = useAppUpdates();
 
   return (
     <section className="app-updates" aria-label="Qortium Home updates">
@@ -254,10 +13,10 @@ export function AppUpdatePanel() {
         <h2 className="app-updates__title">Qortium Home Updates</h2>
         <button
           className="icon-button app-updates__refresh"
-          disabled={isChecking || !environment}
+          disabled={updates.isChecking || !updates.environment}
           title="Check for app updates"
           type="button"
-          onClick={checkForUpdates}
+          onClick={updates.checkForUpdates}
         >
           <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
           <span className="sr-only">Check for app updates</span>
@@ -268,14 +27,9 @@ export function AppUpdatePanel() {
         <span className="field__label">Release channel</span>
         <select
           className="field__input"
-          disabled={isChecking}
-          value={channel}
-          onChange={(event) => {
-            setChannel(event.target.value as QortiumAppUpdateChannel);
-            setResult(null);
-            setDownloadedUpdate(null);
-            setMessage(null);
-          }}
+          disabled={updates.isChecking}
+          value={updates.channel}
+          onChange={(event) => updates.setChannel(event.target.value as QortiumAppUpdateChannel)}
         >
           <option value="stable">Stable</option>
           <option value="prerelease">Prerelease</option>
@@ -283,7 +37,7 @@ export function AppUpdatePanel() {
       </label>
 
       <dl className="detail-list app-updates__details">
-        {detailRows.map((row) => (
+        {updates.detailRows.map((row) => (
           <div className="detail-list__row" key={row.label}>
             <dt className="detail-list__label">{row.label}</dt>
             <dd className="detail-list__value">{row.value}</dd>
@@ -294,57 +48,62 @@ export function AppUpdatePanel() {
       <div className="app-updates__actions">
         <button
           className="button button--secondary"
-          disabled={isChecking || isDownloading || !environment}
+          disabled={updates.isChecking || updates.isDownloading || !updates.environment}
           type="button"
-          onClick={checkForUpdates}
+          onClick={updates.checkForUpdates}
         >
           <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-          {isChecking ? 'Checking' : 'Check now'}
+          {updates.isChecking ? 'Checking' : 'Check now'}
         </button>
-        {result?.asset && result.release ? (
+        {updates.updateAvailable && updates.result?.asset && updates.result.release ? (
           <button
             className="button button--secondary"
-            disabled={isChecking || isDownloading}
+            disabled={updates.isChecking || updates.isDownloading}
             type="button"
-            onClick={downloadUpdate}
+            onClick={updates.downloadUpdate}
           >
             <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {isDownloading ? 'Downloading' : 'Download update'}
+            {updates.isDownloading ? 'Downloading' : 'Download update'}
           </button>
         ) : null}
-        {downloadedUpdate?.canOpen ? (
+        {updates.downloadedUpdate?.canOpen ? (
           <button
             className="button button--secondary"
-            disabled={isChecking || isDownloading}
+            disabled={updates.isChecking || updates.isDownloading}
             type="button"
-            onClick={openDownloadedFile}
+            onClick={updates.openDownloadedFile}
           >
             <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
-            {getOpenDownloadedFileLabel(updatePlatform)}
+            {getOpenDownloadedFileLabel(updates.updatePlatform)}
           </button>
         ) : null}
-        {downloadedUpdate?.canReveal ? (
+        {updates.downloadedUpdate?.canReveal ? (
           <button
             className="button button--secondary"
-            disabled={isChecking || isDownloading}
+            disabled={updates.isChecking || updates.isDownloading}
             type="button"
-            onClick={showDownloadedFile}
+            onClick={updates.showDownloadedFile}
           >
             <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
             Show file
           </button>
         ) : null}
-        {releasePageUrl ? (
-          <button className="button" disabled={isChecking || isDownloading} type="button" onClick={openReleasePage}>
+        {updates.releasePageUrl ? (
+          <button
+            className="button"
+            disabled={updates.isChecking || updates.isDownloading}
+            type="button"
+            onClick={updates.openReleasePage}
+          >
             <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
             Open release
           </button>
         ) : null}
       </div>
 
-      {message ? (
-        <p className={`app-updates__message app-updates__message--${message.kind}`}>
-          {message.text}
+      {updates.message ? (
+        <p className={`app-updates__message app-updates__message--${updates.message.kind}`}>
+          {updates.message.text}
         </p>
       ) : null}
     </section>

@@ -160,9 +160,108 @@ h1 {
   overflow-y: auto;
 }
 
+.app-main--dashboard {
+  place-items: start center;
+  overflow-y: auto;
+}
+
 .app-main--gesture-nav {
   overscroll-behavior-x: contain;
   touch-action: pan-y;
+}
+
+.dashboard-page {
+  display: grid;
+  gap: 22px;
+  align-self: start;
+  width: min(100%, 1120px);
+  min-width: 0;
+}
+
+.dashboard-page__header {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboard-page__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  min-width: 0;
+}
+
+.dashboard-page__grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  background: #151b1b;
+  border: 1px solid #344141;
+  border-radius: 8px;
+}
+
+.dashboard-card--accounts {
+  justify-items: center;
+}
+
+.dashboard-card__header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.dashboard-card__title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #f4f0e8;
+  font-size: var(--font-size-ui);
+  font-weight: 650;
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card__refresh {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+}
+
+.dashboard-card__message {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #a9b6b6;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.dashboard-card__message--success {
+  color: #87d99b;
+}
+
+.dashboard-card__message--error {
+  color: #ef8b84;
+}
+
+.dashboard-card__details {
+  gap: 8px;
+}
+
+.dashboard-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 }
 
 .settings-page {
@@ -1428,6 +1527,23 @@ h1 {
 
   .home-content {
     gap: 18px;
+  }
+
+  .dashboard-page {
+    gap: 18px;
+  }
+
+  .dashboard-page__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-card {
+    padding: 14px;
+  }
+
+  .dashboard-card__actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .accounts-panel__actions {

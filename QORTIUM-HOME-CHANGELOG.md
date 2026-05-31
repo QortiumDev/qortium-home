@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-30 - app: add dashboard route
+
+Added `home://dashboard` as the new tab start page. The dashboard keeps account management on the first page, shows desktop local-node/Core status with direct Install Java, Install Core, update, and start actions when needed, and checks Home updates on desktop and Android so available app updates are visible without opening Settings first.
+
 ### 2026-05-30 - app: add mobile navigation gestures
 
 Added Android back-button handling and mobile content swipes for Qortium Home navigation. Android's system back action now steps through the active tab history before leaving the app, while horizontal swipes in the main content area move back or forward when that tab has matching history, without taking gestures from form controls, media, or embedded QDN pages.

@@ -2,16 +2,16 @@ import './styles.css';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { AccountsPanel } from './AccountsPanel';
 import { ApiViewer } from './ApiViewer';
+import { DashboardPage } from './DashboardPage';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage } from './SettingsPage';
 import { TopBar } from './TopBar';
-import { SETTINGS_ROUTE, type AppRoute } from './routes';
+import { DASHBOARD_ROUTE, SETTINGS_ROUTE, type AppRoute } from './routes';
 
 type RouteHistoryState = {
-  entries: (AppRoute | null)[];
+  entries: AppRoute[];
   index: number;
 };
 
@@ -31,7 +31,7 @@ type TabDropPosition = 'after' | 'before';
 type NavigationActions = {
   canGoBack: boolean;
   canGoForward: boolean;
-  currentRoute: AppRoute | null;
+  currentRoute: AppRoute;
   goBack: () => void;
   goForward: () => void;
   goHome: () => void;
@@ -83,7 +83,7 @@ function createBrowserTab(accountId: string | null = null): BrowserTab {
     accountId,
     id,
     history: {
-      entries: [null],
+      entries: [DASHBOARD_ROUTE],
       index: 0,
     },
   };
@@ -99,7 +99,17 @@ function createInitialTabState(): BrowserTabState {
 }
 
 function getTabLabel(tab: BrowserTab) {
-  return tab.history.entries[tab.history.index]?.displayUrl ?? 'Qortium Home';
+  const route = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+
+  if (route.kind === 'dashboard') {
+    return 'Dashboard';
+  }
+
+  if (route.kind === 'settings') {
+    return 'Settings';
+  }
+
+  return route.displayUrl;
 }
 
 function shouldIgnoreNavigationSwipe(target: EventTarget | null) {
@@ -136,9 +146,10 @@ export function App() {
   const activeAccount =
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
   const routeHistory = activeTab.history;
-  const currentRoute = routeHistory.entries[routeHistory.index] ?? null;
-  const isSettingsRoute = currentRoute?.kind === 'settings';
-  const isViewerRoute = currentRoute !== null && !isSettingsRoute;
+  const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
+  const isDashboardRoute = currentRoute.kind === 'dashboard';
+  const isSettingsRoute = currentRoute.kind === 'settings';
+  const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
 
@@ -150,8 +161,8 @@ export function App() {
           return tab;
         }
 
-        const currentRoute = tab.history.entries[tab.history.index] ?? null;
-        const nextAccountId = tab.accountId && currentRoute ? null : defaultAccountId;
+        const currentRoute = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+        const nextAccountId = tab.accountId && currentRoute.kind !== 'dashboard' ? null : defaultAccountId;
 
         if (tab.accountId === nextAccountId) {
           return tab;
@@ -323,7 +334,7 @@ export function App() {
 
   function goHome() {
     updateActiveTabHistory(() => ({
-      entries: [null],
+      entries: [DASHBOARD_ROUTE],
       index: 0,
     }));
   }
@@ -451,7 +462,7 @@ export function App() {
         return;
       }
 
-      if (actions.currentRoute) {
+      if (actions.currentRoute.kind !== 'dashboard') {
         actions.goHome();
         return;
       }
@@ -478,6 +489,7 @@ export function App() {
   const isNativeApp = Capacitor.isNativePlatform();
   const appMainClassName = [
     'app-main',
+    isDashboardRoute ? 'app-main--dashboard' : '',
     isViewerRoute ? 'app-main--viewer' : '',
     isSettingsRoute ? 'app-main--settings' : '',
     isNativeApp ? 'app-main--gesture-nav' : '',
@@ -604,36 +616,36 @@ export function App() {
       />
       <section
         className={appMainClassName}
-        aria-label={isSettingsRoute ? 'Settings' : isViewerRoute ? 'Browser page' : 'Qortium Home'}
+        aria-label={isDashboardRoute ? 'Dashboard' : isSettingsRoute ? 'Settings' : 'Browser page'}
         onPointerCancel={clearNavigationSwipe}
         onPointerDown={handleMainPointerDown}
         onPointerMove={handleMainPointerMove}
         onPointerUp={handleMainPointerUp}
       >
-        {currentRoute?.kind === 'node-api' ? (
+        {currentRoute.kind === 'node-api' ? (
           <ApiViewer route={currentRoute} />
-        ) : currentRoute?.kind === 'resource' ? (
+        ) : currentRoute.kind === 'resource' ? (
           <QdnViewer nodeApiUrl={nodeSettings.nodeApiUrl} resource={currentRoute.resource} />
-        ) : currentRoute?.kind === 'settings' ? (
+        ) : currentRoute.kind === 'settings' ? (
           <SettingsPage
             nodeSettings={nodeSettings}
             onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
             onSaveNodeSettings={saveNodeSettings}
           />
-        ) : currentRoute ? (
-          <QdnExplorer nodeApiUrl={nodeSettings.nodeApiUrl} route={currentRoute} onNavigate={navigateToRoute} />
+        ) : currentRoute.kind === 'dashboard' ? (
+          <DashboardPage
+            accountsError={accountsError}
+            accountsState={accountsState}
+            isLoadingAccounts={isLoadingAccounts}
+            nodeSettings={nodeSettings}
+            selectedAccountId={activeTab.accountId}
+            onAccountsStateChange={handleAccountsStateChange}
+            onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
+            onSaveNodeSettings={saveNodeSettings}
+            onSelectedAccountChange={updateActiveTabAccount}
+          />
         ) : (
-          <div className="home-content">
-            <h1>Qortium Home</h1>
-            <AccountsPanel
-              accountsError={accountsError}
-              accountsState={accountsState}
-              isLoadingAccounts={isLoadingAccounts}
-              selectedAccountId={activeTab.accountId}
-              onAccountsStateChange={handleAccountsStateChange}
-              onSelectedAccountChange={updateActiveTabAccount}
-            />
-          </div>
+          <QdnExplorer nodeApiUrl={nodeSettings.nodeApiUrl} route={currentRoute} onNavigate={navigateToRoute} />
         )}
       </section>
     </main>

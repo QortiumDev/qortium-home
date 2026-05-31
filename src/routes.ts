@@ -12,12 +12,22 @@ export type SettingsRoute = {
   kind: 'settings';
 };
 
+export type DashboardRoute = {
+  displayUrl: 'home://dashboard';
+  kind: 'dashboard';
+};
+
+export const DASHBOARD_ROUTE: DashboardRoute = {
+  kind: 'dashboard',
+  displayUrl: 'home://dashboard',
+};
+
 export const SETTINGS_ROUTE: SettingsRoute = {
   kind: 'settings',
   displayUrl: 'home://settings',
 };
 
-export type AppRoute = NodeApiRoute | QdnRoute | SettingsRoute;
+export type AppRoute = DashboardRoute | NodeApiRoute | QdnRoute | SettingsRoute;
 
 type RouteParseResult =
   | {
@@ -82,7 +92,16 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
 
   const pathname = input.replace(/^home:\/\//i, '').replace(/^\/+/, '').replace(/\/+$/, '');
 
-  if (pathname.toLowerCase() === 'settings') {
+  const normalizedPathname = pathname.toLowerCase();
+
+  if (!normalizedPathname || normalizedPathname === 'dashboard') {
+    return {
+      success: true,
+      route: DASHBOARD_ROUTE,
+    };
+  }
+
+  if (normalizedPathname === 'settings') {
     return {
       success: true,
       route: SETTINGS_ROUTE,
@@ -91,7 +110,7 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
 
   return {
     success: false,
-    message: 'Only home://settings can be loaded right now.',
+    message: 'Only home://dashboard and home://settings can be loaded right now.',
   };
 }
 
