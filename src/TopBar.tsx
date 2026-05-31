@@ -81,6 +81,7 @@ const ADDRESS_SCHEME_SUGGESTIONS = [
     value: 'home://settings',
   },
 ];
+const TAB_DRAG_OUT_MIN_DISTANCE_PX = 72;
 
 function formatHistoryEntry(entry: AppRoute) {
   if (entry.kind === 'dashboard') {
@@ -342,10 +343,13 @@ function BrowserTabs({
   const dragStateRef = useRef<{
     hasReordered: boolean;
     pointerId: number;
+    startX: number;
+    startY: number;
     tabId: string;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const suppressedClickTabIdRef = useRef<string | null>(null);
+  const tabStripRef = useRef<HTMLDivElement>(null);
   const tabElementsRef = useRef(new Map<string, HTMLDivElement>());
   const contextMenuTabIndex = contextMenu
     ? tabs.findIndex((tab) => tab.id === contextMenu.tabId)
@@ -459,6 +463,45 @@ function BrowserTabs({
     };
   }
 
+  function isDragOutRelease(event: PointerEvent<HTMLElement>, dragState: NonNullable<typeof dragStateRef.current>) {
+    if (!onMoveTabToNewWindow) {
+      return false;
+    }
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    const distance = Math.hypot(deltaX, deltaY);
+
+    if (distance < TAB_DRAG_OUT_MIN_DISTANCE_PX) {
+      return false;
+    }
+
+    if (
+      event.clientX < 0 ||
+      event.clientX > window.innerWidth ||
+      event.clientY < 0 ||
+      event.clientY > window.innerHeight
+    ) {
+      return true;
+    }
+
+    const tabStripBounds = tabStripRef.current?.getBoundingClientRect();
+
+    if (!tabStripBounds) {
+      return false;
+    }
+
+    if (event.clientY < tabStripBounds.top) {
+      return tabStripBounds.top - event.clientY >= TAB_DRAG_OUT_MIN_DISTANCE_PX;
+    }
+
+    if (event.clientY > tabStripBounds.bottom) {
+      return event.clientY - tabStripBounds.bottom >= TAB_DRAG_OUT_MIN_DISTANCE_PX;
+    }
+
+    return false;
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLDivElement>, tabId: string) {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
@@ -471,6 +514,8 @@ function BrowserTabs({
     dragStateRef.current = {
       hasReordered: false,
       pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
       tabId,
     };
     setDraggedTabId(tabId);
@@ -492,6 +537,25 @@ function BrowserTabs({
 
     dragState.hasReordered = true;
     onReorderTab(dragState.tabId, reorderTarget.targetTabId, reorderTarget.dropPosition);
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (isDragOutRelease(event, dragState)) {
+      const tabId = dragState.tabId;
+
+      suppressNextTabClick(tabId);
+      clearDragState(event);
+      onMoveTabToNewWindow?.(tabId);
+      return;
+    }
+
+    clearDragState(event, true);
   }
 
   function handleTabContextMenu(event: MouseEvent<HTMLDivElement>, tabId: string) {
@@ -517,7 +581,7 @@ function BrowserTabs({
   }
 
   return (
-    <div className="top-bar__tabs">
+    <div className="top-bar__tabs" ref={tabStripRef}>
       <div
         className="top-bar__tab-list"
         role="tablist"
@@ -555,7 +619,7 @@ function BrowserTabs({
               onPointerCancel={clearDragState}
               onPointerDown={(event) => handlePointerDown(event, tab.id)}
               onPointerMove={handlePointerMove}
-              onPointerUp={(event) => clearDragState(event, true)}
+              onPointerUp={handlePointerUp}
               onContextMenu={(event) => handleTabContextMenu(event, tab.id)}
             >
               <button

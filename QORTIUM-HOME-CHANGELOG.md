@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add tab drag-out windows
+
+Added desktop tab drag-out behavior. Dragging a tab a clear distance outside the tab strip now moves that tab into a new Qortium Home window using the same route history and account context as the right-click Move Tab to New Window action, while normal in-strip dragging still only reorders tabs.
+
 ### 2026-05-31 - app: add multi-window tab moving
 
 Added the first desktop multi-window action for browser tabs. A tab can now be moved into a new Qortium Home window from the tab right-click menu, carrying its current address, back/forward history, and selected account context while keeping each window's tab list and closed-tab history separate.
