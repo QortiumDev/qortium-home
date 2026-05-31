@@ -41,6 +41,7 @@ type QdnViewerState =
     };
 
 type QdnViewerProps = {
+  accountId: string | null;
   nodeApiUrl: string;
   resource: QdnResource;
   tabId: string;
@@ -925,10 +926,12 @@ function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQ
 
 function QdnIsolatedFrameContent({
   loadedResource,
+  accountId,
   nodeApiUrl,
   resource,
   tabId,
 }: {
+  accountId: string | null;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   resource: QdnResource;
@@ -973,6 +976,7 @@ function QdnIsolatedFrameContent({
 
       try {
         await qdnViews.show({
+          accountId,
           bounds,
           nodeApiUrl,
           renderUrl: loadedResource.renderUrl,
@@ -1012,7 +1016,7 @@ function QdnIsolatedFrameContent({
         console.warn('Unable to hide isolated QDN view.', error);
       });
     };
-  }, [loadedResource.renderUrl, nodeApiUrl, tabId]);
+  }, [accountId, loadedResource.renderUrl, nodeApiUrl, tabId]);
 
   return (
     <div
@@ -1107,10 +1111,12 @@ function QdnIframeContent({
 
 function QdnReadyContent({
   loadedResource,
+  accountId,
   nodeApiUrl,
   resource,
   tabId,
 }: {
+  accountId: string | null;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   resource: QdnResource;
@@ -1121,6 +1127,7 @@ function QdnReadyContent({
       return (
         <QdnIsolatedFrameContent
           loadedResource={loadedResource}
+          accountId={accountId}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
           tabId={tabId}
@@ -1170,7 +1177,7 @@ function QdnReadyContent({
   );
 }
 
-export function QdnViewer({ nodeApiUrl, resource, tabId }: QdnViewerProps) {
+export function QdnViewer({ accountId, nodeApiUrl, resource, tabId }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
@@ -1203,6 +1210,7 @@ export function QdnViewer({ nodeApiUrl, resource, tabId }: QdnViewerProps) {
       {state.phase === 'ready' ? (
         <QdnReadyContent
           loadedResource={state.loadedResource}
+          accountId={accountId}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
           tabId={tabId}

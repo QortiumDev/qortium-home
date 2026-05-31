@@ -73,8 +73,9 @@ account-aware `qdnRequest` and approval/signing pass.
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
 `qdnRequest` bridge for read-only node and QDN lookups through Home's currently
-selected node. The bridge accepts explicit object requests only; write requests,
-publishing, signing, and wallet permissions are still deferred.
+selected node. Desktop QDN apps can also request the selected tab account's
+public identity after a user approval prompt. The bridge accepts explicit object
+requests only; write requests, publishing, and signing are still deferred.
 
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_NAMES`, `GET_BALANCE`,
@@ -82,12 +83,14 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
 `SEARCH_QDN_RESOURCES`, `IS_USING_PUBLIC_NODE`, `WHICH_UI`, and
-`SHOW_ACTIONS`.
+`SHOW_ACTIONS`. Desktop isolated QDN apps also support
+`GET_SELECTED_ACCOUNT`.
 
 ## Planned Work
 
 - Additional derived addresses from the same wallet.
-- `qdnRequest` approval prompts for account access, publishing, and signing.
+- Additional `qdnRequest` approval prompts for publishing, signing, and
+  write-style account actions.
 - Local-node write workflows after approval prompts exist, including chat send,
   name registration, QDN publish, QDN delete, and group join.
 - Service-specific viewers for more QDN service types.

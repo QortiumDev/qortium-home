@@ -49,6 +49,7 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Support read-only direct node API endpoint viewing through the address bar.
   - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
   - Expose strict Qortium-native `qdnRequest` object requests to desktop and Android APP and WEBSITE pages for read-only node and QDN lookups.
+  - Allow desktop APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
   - When write-style `qdnRequest` support is added, prompt the user before approving requests, especially signing requests.
   - Future permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
@@ -158,6 +159,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Wallet/account creation, saving, loading, and selection.
 - Per-tab account selection for the active page.
 - Future user approval prompts for QDN app requests that require account access, signing, or other non-read-only permissions.
+- Session-only desktop approval prompts for QDN app requests that read the selected tab account's public identity.
 - Future local-node write workflows for chat send, name registration, QDN
   publish, QDN delete, and group join after the approval/signing model exists.
 - Local wallet list management.

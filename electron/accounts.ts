@@ -601,7 +601,7 @@ async function getFirstOwnedName(address: string, nodeApiUrl: string) {
   return null;
 }
 
-async function getAccountProfile(accountId: string): Promise<AccountProfile> {
+export async function getAccountProfile(accountId: string): Promise<AccountProfile> {
   const store = readWalletStore();
   const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
 

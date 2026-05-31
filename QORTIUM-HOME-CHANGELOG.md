@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add qdn account read approval
+
+Added the first account-aware QDN app permission prompt on desktop. Isolated APP and WEBSITE pages can now request the selected tab account's public address, name, and avatar URL through `GET_SELECTED_ACCOUNT` after the user approves it for that app session, while Android account access and all signing, publishing, and write-style bridge actions remain blocked.
+
 ### 2026-05-31 - test: add android qdn bridge smoke test
 
 Added an Android smoke test for QDN app bridge behavior. The new command can reuse or start the Android emulator, install the latest debug APK, open the Qortium Home test APP fixture, and verify that Android injects `qdnRequest`, supports read-only node API calls, and still rejects legacy, malformed, and write-style bridge requests.

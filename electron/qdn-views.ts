@@ -14,6 +14,7 @@ const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 type QdnViewEntry = {
+  accountId: string | null;
   currentUrl: string | null;
   nodeOrigin: string;
   tabId: string;
@@ -22,6 +23,7 @@ type QdnViewEntry = {
 };
 
 type SanitizedShowRequest = {
+  accountId: string | null;
   bounds: Rectangle;
   nodeOrigin: string;
   renderUrl: string;
@@ -37,6 +39,7 @@ const qdnViewsByWindow = new Map<number, Map<string, QdnViewEntry>>();
 const watchedWindowIds = new Set<number>();
 
 export type QdnViewContext = {
+  accountId: string | null;
   currentUrl: string | null;
   nodeOrigin: string;
   tabId: string;
@@ -63,6 +66,28 @@ function sanitizeTabId(value: unknown) {
   }
 
   return tabId;
+}
+
+function sanitizeOptionalAccountId(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('Account id must be a string.');
+  }
+
+  const accountId = value.trim();
+
+  if (!accountId) {
+    return null;
+  }
+
+  if (accountId.length > 240) {
+    throw new Error('Account id is too long.');
+  }
+
+  return accountId;
 }
 
 function getRequiredNumber(value: unknown, label: string) {
@@ -158,6 +183,7 @@ function sanitizeShowRequest(value: unknown): SanitizedShowRequest {
   const nodeOrigin = getNodeOrigin(value.nodeApiUrl);
 
   return {
+    accountId: sanitizeOptionalAccountId(value.accountId),
     bounds: sanitizeBounds(value.bounds),
     nodeOrigin,
     renderUrl: sanitizeRenderUrl(value.renderUrl, nodeOrigin),
@@ -228,6 +254,7 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
     for (const entry of windowViews.values()) {
       if (entry.view.webContents.id === webContents.id) {
         return {
+          accountId: entry.accountId,
           currentUrl: entry.currentUrl,
           nodeOrigin: entry.nodeOrigin,
           tabId: entry.tabId,
@@ -270,8 +297,14 @@ function applyViewGuards(entry: QdnViewEntry) {
   });
 }
 
-function createViewEntry(window: BrowserWindow, tabId: string, nodeOrigin: string): QdnViewEntry {
+function createViewEntry(
+  window: BrowserWindow,
+  tabId: string,
+  nodeOrigin: string,
+  accountId: string | null,
+): QdnViewEntry {
   const entry: QdnViewEntry = {
+    accountId,
     currentUrl: null,
     nodeOrigin,
     tabId,
@@ -338,6 +371,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
   const existingEntry = windowViews.get(request.tabId);
 
   if (existingEntry && existingEntry.nodeOrigin === request.nodeOrigin) {
+    existingEntry.accountId = request.accountId;
     return existingEntry;
   }
 
@@ -345,7 +379,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     destroyEntry(existingEntry);
   }
 
-  const entry = createViewEntry(window, request.tabId, request.nodeOrigin);
+  const entry = createViewEntry(window, request.tabId, request.nodeOrigin, request.accountId);
 
   windowViews.set(request.tabId, entry);
   watchWindow(window);

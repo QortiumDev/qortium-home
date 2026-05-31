@@ -1,13 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { getAccountProfile } from './accounts.js';
 import { getNodeConnection } from './node-settings.js';
-import { getQdnViewContextForWebContents } from './qdn-views.js';
+import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
 
 const PREVIEW_API_KEY_PATH = path.join(os.homedir(), 'git', 'qortium', 'preview', 'apikey.txt');
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
+const QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS = 120_000;
 const PUBLIC_QDN_SERVICES = new Set([
   'APP',
   'WEBSITE',
@@ -106,6 +109,19 @@ type NodeApiFetchResult = {
   statusText: string;
 };
 
+type AccountReadApprovalResponse = {
+  approved: boolean;
+  requestId: string;
+};
+
+type PendingAccountReadApproval = {
+  resolve: (approved: boolean) => void;
+  windowWebContentsId: number;
+};
+
+const approvedAccountReadRequests = new Set<string>();
+const pendingAccountReadApprovals = new Map<string, PendingAccountReadApproval>();
+
 function expandHomePath(filePath: string) {
   if (filePath === '~') {
     return os.homedir();
@@ -116,6 +132,112 @@ function expandHomePath(filePath: string) {
   }
 
   return filePath;
+}
+
+function sanitizeAccountReadApprovalResponse(value: unknown): AccountReadApprovalResponse {
+  if (!isRecord(value)) {
+    throw new Error('QDN account request response is required.');
+  }
+
+  if (typeof value.requestId !== 'string' || !value.requestId) {
+    throw new Error('QDN account request id is required.');
+  }
+
+  return {
+    approved: value.approved === true,
+    requestId: value.requestId,
+  };
+}
+
+function getQdnViewHostWindow(context: QdnViewContext) {
+  return BrowserWindow.getAllWindows().find(
+    (window) => !window.isDestroyed() && window.webContents.id === context.windowId,
+  ) ?? null;
+}
+
+function getAccountReadApprovalCacheKey(context: QdnViewContext, accountId: string) {
+  return [
+    context.windowId,
+    context.tabId,
+    context.currentUrl ?? '',
+    accountId,
+    'GET_SELECTED_ACCOUNT',
+  ].join('\n');
+}
+
+async function requestAccountReadApproval(
+  context: QdnViewContext,
+  profile: Awaited<ReturnType<typeof getAccountProfile>>,
+) {
+  const cacheKey = getAccountReadApprovalCacheKey(context, profile.accountId);
+
+  if (approvedAccountReadRequests.has(cacheKey)) {
+    return;
+  }
+
+  const hostWindow = getQdnViewHostWindow(context);
+
+  if (!hostWindow) {
+    throw new Error('QDN account request does not belong to an active window.');
+  }
+
+  const requestId = randomUUID();
+  const approved = await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (nextApproved: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeoutId);
+      hostWindow.removeListener('closed', handleWindowClosed);
+      pendingAccountReadApprovals.delete(requestId);
+      resolve(nextApproved);
+    };
+    const handleWindowClosed = () => settle(false);
+    const timeoutId = setTimeout(() => settle(false), QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS);
+
+    pendingAccountReadApprovals.set(requestId, {
+      resolve: settle,
+      windowWebContentsId: hostWindow.webContents.id,
+    });
+    hostWindow.once('closed', handleWindowClosed);
+    hostWindow.webContents.send('qdn-app:account-read-request', {
+      action: 'GET_SELECTED_ACCOUNT',
+      address: profile.address,
+      avatarUrl: profile.avatarUrl,
+      id: requestId,
+      name: profile.name,
+      resourceUrl: context.currentUrl ?? 'QDN app',
+    });
+  });
+
+  if (!approved) {
+    throw new Error('Account request was denied.');
+  }
+
+  approvedAccountReadRequests.add(cacheKey);
+}
+
+async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
+  if (!context) {
+    throw new Error('QDN app requests are only available to isolated QDN app views.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  const profile = await getAccountProfile(context.accountId);
+
+  await requestAccountReadApproval(context, profile);
+
+  return {
+    address: profile.address,
+    avatarUrl: profile.avatarUrl,
+    name: profile.name,
+  };
 }
 
 function readTrimmedFile(filePath: string) {
@@ -753,7 +875,7 @@ async function getQdnResourceUrl(request: QdnAppRequest) {
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
-async function handleQdnAppRequest(value: unknown) {
+async function handleQdnAppRequest(value: unknown, context: QdnViewContext | null) {
   if (!isRecord(value)) {
     throw new Error('QDN app requests must be objects.');
   }
@@ -790,6 +912,9 @@ async function handleQdnAppRequest(value: unknown) {
         `/names/address/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
         request,
       );
+
+    case 'GET_SELECTED_ACCOUNT':
+      return getSelectedAccountForQdnApp(context);
 
     case 'GET_BALANCE':
       return fetchNodeApiPayload(
@@ -843,6 +968,7 @@ async function handleQdnAppRequest(value: unknown) {
         'GET_NAME_DATA',
         'GET_NODE_INFO',
         'GET_NODE_STATUS',
+        'GET_SELECTED_ACCOUNT',
         'GET_QDN_RESOURCE_METADATA',
         'GET_QDN_RESOURCE_PROPERTIES',
         'GET_QDN_RESOURCE_STATUS',
@@ -861,11 +987,28 @@ async function handleQdnAppRequest(value: unknown) {
 
 export function registerQdnIpcHandlers() {
   ipcMain.handle('qdn-app:request', async (event, request: unknown) => {
-    if (!getQdnViewContextForWebContents(event.sender)) {
+    const context = getQdnViewContextForWebContents(event.sender);
+
+    if (!context) {
       throw new Error('QDN app requests are only available to isolated QDN app views.');
     }
 
-    return handleQdnAppRequest(request);
+    return handleQdnAppRequest(request, context);
+  });
+
+  ipcMain.handle('qdn-app:resolveAccountReadApproval', (event, rawResponse: unknown) => {
+    const response = sanitizeAccountReadApprovalResponse(rawResponse);
+    const pendingApproval = pendingAccountReadApprovals.get(response.requestId);
+
+    if (!pendingApproval) {
+      return;
+    }
+
+    if (pendingApproval.windowWebContentsId !== event.sender.id) {
+      throw new Error('QDN account request response came from the wrong window.');
+    }
+
+    pendingApproval.resolve(response.approved);
   });
 
   ipcMain.handle('qdn:authorizeResource', async (_event, request: QdnAuthorizeResourceRequest) => {

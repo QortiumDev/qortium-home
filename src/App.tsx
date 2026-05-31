@@ -62,6 +62,11 @@ type NavigationSwipeState = {
   startY: number;
 };
 
+type QdnAccountReadDialogProps = {
+  request: QortiumQdnAccountReadApprovalRequest;
+  onResolve: (requestId: string, approved: boolean) => void;
+};
+
 type TabCommandActions = {
   addTab: () => void;
   canGoBack: boolean;
@@ -215,6 +220,40 @@ function createInitialTabState(): BrowserTabState {
   };
 }
 
+function QdnAccountReadDialog({ request, onResolve }: QdnAccountReadDialogProps) {
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onResolve(request.id, false);
+        }
+      }}
+    >
+      <section
+        aria-label="QDN account request"
+        aria-modal="true"
+        className="unlock-dialog qdn-permission-dialog"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 className="unlock-dialog__title">Share Account</h2>
+        <p className="unlock-dialog__account">{request.name || 'Selected account'}</p>
+        <p className="unlock-dialog__address">{request.address}</p>
+        <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
+        <div className="unlock-dialog__actions">
+          <button className="button button--secondary" type="button" onClick={() => onResolve(request.id, false)}>
+            Deny
+          </button>
+          <button className="button" type="button" onClick={() => onResolve(request.id, true)}>
+            Allow
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function getTabLabel(tab: BrowserTab) {
   const route = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
 
@@ -280,6 +319,7 @@ export function App() {
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
+  const [qdnAccountReadRequests, setQdnAccountReadRequests] = useState<QortiumQdnAccountReadApprovalRequest[]>([]);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
@@ -297,6 +337,41 @@ export function App() {
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
+  const activeQdnAccountReadRequest = qdnAccountReadRequests[0] ?? null;
+
+  useEffect(() => {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+
+    if (!qdnPermissions) {
+      return undefined;
+    }
+
+    return qdnPermissions.onAccountReadRequest((request) => {
+      setQdnAccountReadRequests((currentRequests) => {
+        if (currentRequests.some((currentRequest) => currentRequest.id === request.id)) {
+          return currentRequests;
+        }
+
+        return [...currentRequests, request];
+      });
+    });
+  }, []);
+
+  function resolveQdnAccountReadRequest(requestId: string, approved: boolean) {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+
+    setQdnAccountReadRequests((currentRequests) =>
+      currentRequests.filter((request) => request.id !== requestId),
+    );
+
+    if (!qdnPermissions) {
+      return;
+    }
+
+    void qdnPermissions.resolveAccountReadRequest(requestId, approved).catch((error) => {
+      console.warn('Unable to resolve QDN account request.', error);
+    });
+  }
 
   useLayoutEffect(() => {
     const qdnViews = window.qortiumHome.qdnViews;
@@ -1247,6 +1322,7 @@ export function App() {
             key={routeRenderKey}
             nodeApiUrl={nodeSettings.nodeApiUrl}
             resource={currentRoute.resource}
+            accountId={activeTab.accountId}
             tabId={activeTab.id}
           />
         ) : currentRoute.kind === 'settings' ? (
@@ -1278,6 +1354,12 @@ export function App() {
           />
         )}
       </section>
+      {activeQdnAccountReadRequest ? (
+        <QdnAccountReadDialog
+          request={activeQdnAccountReadRequest}
+          onResolve={resolveQdnAccountReadRequest}
+        />
+      ) : null}
     </main>
   );
 }

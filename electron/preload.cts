@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   },
   qdnViews: {
     show: (request: {
+      accountId: string | null;
       bounds: { height: number; width: number; x: number; y: number };
       nodeApiUrl: string;
       renderUrl: string;
@@ -119,5 +120,20 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     }) => ipcRenderer.invoke('qdn-views:setBounds', request),
     hide: (tabId: string) => ipcRenderer.invoke('qdn-views:hide', { tabId }),
     destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
+  },
+  qdnPermissions: {
+    onAccountReadRequest: (callback: (request: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        callback(request);
+      };
+
+      ipcRenderer.on('qdn-app:account-read-request', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:account-read-request', listener);
+      };
+    },
+    resolveAccountReadRequest: (requestId: string, approved: boolean) =>
+      ipcRenderer.invoke('qdn-app:resolveAccountReadApproval', { approved, requestId }),
   },
 });

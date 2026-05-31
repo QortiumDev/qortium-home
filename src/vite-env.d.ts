@@ -294,6 +294,7 @@ type QortiumQdnViewBounds = {
 };
 
 type QortiumQdnViewShowRequest = {
+  accountId: string | null;
   bounds: QortiumQdnViewBounds;
   nodeApiUrl: string;
   renderUrl: string;
@@ -337,6 +338,15 @@ type QortiumHomeMenuCommand =
   | 'new-tab'
   | 'reload-tab'
   | 'reopen-closed-tab';
+
+type QortiumQdnAccountReadApprovalRequest = {
+  action: 'GET_SELECTED_ACCOUNT';
+  address: string;
+  avatarUrl: string | null;
+  id: string;
+  name: string | null;
+  resourceUrl: string;
+};
 
 interface Window {
   qortiumHome: {
@@ -408,6 +418,12 @@ interface Window {
       hide: (tabId: string) => Promise<void>;
       setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
+    };
+    qdnPermissions?: {
+      onAccountReadRequest: (
+        callback: (request: QortiumQdnAccountReadApprovalRequest) => void,
+      ) => () => void;
+      resolveAccountReadRequest: (requestId: string, approved: boolean) => Promise<void>;
     };
   };
 }
