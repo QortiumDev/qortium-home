@@ -456,6 +456,30 @@ async function getFixtureFrameContext(client) {
   });
 }
 
+function getUntaggedAppRenderUrl() {
+  const url = new URL(`/render/APP/${encodeURIComponent(fixtureName)}`, androidNodeApiUrl);
+
+  url.searchParams.set('identifier', appIdentifier);
+
+  return url.toString();
+}
+
+async function getUntaggedFrameContext(client, renderUrl) {
+  return waitUntil('untagged QDN render iframe', cdpTimeoutMs, async () => {
+    const frameTree = await client.send('Page.getFrameTree');
+    const frames = flattenFrames(frameTree.frameTree);
+    const frame = frames.find((candidate) => candidate.url === renderUrl);
+
+    if (!frame) {
+      return null;
+    }
+
+    const contextId = client.contextsByFrame.get(frame.id);
+
+    return contextId ? { contextId, frame } : null;
+  });
+}
+
 async function evaluateInFrame(client, contextId, expression) {
   const result = await client.send('Runtime.evaluate', {
     awaitPromise: true,
@@ -534,6 +558,51 @@ function assertFixtureResource(resources, service, identifier, label) {
       (item) => item?.service === service && item?.name === fixtureName && item?.identifier === identifier,
     ),
     `${label} did not include ${service}/${fixtureName}/${identifier}.`,
+  );
+}
+
+async function runBridgeContainmentAssertions(client, fixtureFrame) {
+  const fixtureUrl = new URL(fixtureFrame.url);
+  const bridgeToken = fixtureUrl.searchParams.get('qdnHomeBridge');
+
+  assert(
+    !!bridgeToken && /^[A-Za-z0-9._-]{16,128}$/.test(bridgeToken),
+    `Android QDN fixture frame did not include a valid bridge token: ${fixtureFrame.url}`,
+  );
+
+  const untaggedRenderUrl = getUntaggedAppRenderUrl();
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      (() => {
+        const existing = document.querySelector('#qdn-untagged-bridge-probe');
+        existing?.remove();
+        const frame = document.createElement('iframe');
+        frame.id = 'qdn-untagged-bridge-probe';
+        frame.src = ${JSON.stringify(untaggedRenderUrl)};
+        frame.style.position = 'fixed';
+        frame.style.left = '-10px';
+        frame.style.top = '-10px';
+        frame.style.width = '1px';
+        frame.style.height = '1px';
+        frame.style.opacity = '0';
+        document.body.append(frame);
+        return { ok: true };
+      })()
+    `,
+    returnByValue: true,
+  });
+
+  if (!result.result?.value?.ok) {
+    fail('Unable to create untagged QDN render probe iframe.');
+  }
+
+  const { contextId, frame } = await getUntaggedFrameContext(client, untaggedRenderUrl);
+  const bridgeState = await evaluateInFrame(client, contextId, 'typeof window.qdnRequest');
+
+  assert(
+    bridgeState === 'undefined',
+    `Untagged Android QDN render frame unexpectedly received qdnRequest (${bridgeState}) at ${frame.url}.`,
   );
 }
 
@@ -729,6 +798,7 @@ async function main() {
         const { contextId, frame } = await getFixtureFrameContext(client);
 
         log(`Running bridge assertions in ${frame.url}.`);
+        await runBridgeContainmentAssertions(client, frame);
         await runBridgeAssertions(client, contextId);
       } finally {
         client.close();

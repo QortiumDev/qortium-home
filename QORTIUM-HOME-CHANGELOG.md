@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: harden android qdn app bridge
+
+Hardened Android QDN APP and WEBSITE bridge injection. Android now adds a per-frame bridge token to Home-owned QDN iframe loads, only injects `qdnRequest` into matching tokenized APP and WEBSITE render responses, ignores bridge messages without the matching token, blocks subframe navigations outside QDN render URLs, and expands the Android QDN bridge smoke test to prove un-tokened render pages do not receive the bridge.
+
 ### 2026-05-31 - app: add android qdn file downloads
 
 Added Android support for file-style QDN resources. Android now downloads ready QDN file resources into Qortium Home's private app data, exposes them through the app FileProvider, opens them with Android's native chooser, updates the mobile viewer action from Download to Open, and includes an emulator smoke test for the FILE fixture handoff.

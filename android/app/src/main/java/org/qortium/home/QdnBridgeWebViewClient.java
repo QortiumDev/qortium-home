@@ -22,25 +22,7 @@ import java.util.Map;
 public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     private static final int REQUEST_TIMEOUT_MS = 30000;
-    private static final String QDN_BRIDGE_SCRIPT =
-        "(function(){if(typeof window.qdnRequest==='function')return;" +
-        "var nextRequestId=0;var pending={};" +
-        "window.addEventListener('message',function(event){" +
-        "var data=event.data;if(!data||data.type!=='qortium:qdn-response'||typeof data.requestId!=='string')return;" +
-        "var entry=pending[data.requestId];if(!entry)return;delete pending[data.requestId];clearTimeout(entry.timeoutId);" +
-        "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';entry.reject(new Error(message));return;}" +
-        "entry.resolve(data.result);" +
-        "});" +
-        "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +
-        "return new Promise(function(resolve,reject){" +
-        "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
-        "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
-        "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},30000);" +
-        "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +
-        "window.parent.postMessage({type:'qortium:qdn-request',requestId:requestId,request:request},'*');" +
-        "});}});" +
-        "})();";
-    private static final String QDN_BRIDGE_TAG = "<script>" + QDN_BRIDGE_SCRIPT + "</script>";
+    private static final String QDN_BRIDGE_QUERY_PARAM = "qdnHomeBridge";
 
     public QdnBridgeWebViewClient(Bridge bridge) {
         super(bridge);
@@ -65,27 +47,29 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         }
     }
 
+    @Override
+    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+        if (request == null || request.isForMainFrame()) {
+            return super.shouldOverrideUrlLoading(view, request);
+        }
+
+        Uri url = request.getUrl();
+
+        if (!isHttpScheme(url.getScheme())) {
+            return true;
+        }
+
+        return !isQdnRenderUrl(url);
+    }
+
     private boolean shouldInjectQdnBridge(WebResourceRequest request) {
         if (!"GET".equalsIgnoreCase(request.getMethod())) {
             return false;
         }
 
         Uri url = request.getUrl();
-        String scheme = url.getScheme();
 
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-            return false;
-        }
-
-        List<String> pathSegments = url.getPathSegments();
-
-        if (pathSegments.size() < 3 || !"render".equals(pathSegments.get(0))) {
-            return false;
-        }
-
-        String service = pathSegments.get(1).toUpperCase(Locale.ROOT);
-
-        if (!"APP".equals(service) && !"WEBSITE".equals(service)) {
+        if (!isQdnRenderUrl(url) || !hasValidBridgeToken(url)) {
             return false;
         }
 
@@ -95,6 +79,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     }
 
     private WebResourceResponse fetchAndInjectQdnBridge(WebResourceRequest request) throws IOException {
+        String bridgeToken = request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM);
         HttpURLConnection connection = (HttpURLConnection) new URL(request.getUrl().toString()).openConnection();
 
         connection.setConnectTimeout(REQUEST_TIMEOUT_MS);
@@ -129,12 +114,13 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             Charset charset = getCharset(contentType);
             String html = new String(responseBytes, charset);
 
-            responseBytes = injectQdnBridge(html).getBytes(charset);
+            responseBytes = injectQdnBridge(html, bridgeToken == null ? "" : bridgeToken).getBytes(charset);
             removeHeader(responseHeaders, "Content-Length");
             removeHeader(responseHeaders, "Content-Encoding");
             removeHeader(responseHeaders, "Transfer-Encoding");
             removeHeader(responseHeaders, "Content-Security-Policy");
             removeHeader(responseHeaders, "X-Content-Security-Policy");
+            responseHeaders.put("Referrer-Policy", "no-referrer");
         }
 
         return new WebResourceResponse(
@@ -174,6 +160,32 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
             return output.toByteArray();
         }
+    }
+
+    private boolean isHttpScheme(String scheme) {
+        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+    }
+
+    private boolean isQdnRenderUrl(Uri url) {
+        if (!isHttpScheme(url.getScheme())) {
+            return false;
+        }
+
+        List<String> pathSegments = url.getPathSegments();
+
+        if (pathSegments.size() < 3 || !"render".equals(pathSegments.get(0))) {
+            return false;
+        }
+
+        String service = pathSegments.get(1).toUpperCase(Locale.ROOT);
+
+        return "APP".equals(service) || "WEBSITE".equals(service);
+    }
+
+    private boolean hasValidBridgeToken(Uri url) {
+        String bridgeToken = url.getQueryParameter(QDN_BRIDGE_QUERY_PARAM);
+
+        return bridgeToken != null && bridgeToken.matches("[A-Za-z0-9._-]{16,128}");
     }
 
     private Map<String, String> getResponseHeaders(HttpURLConnection connection) {
@@ -259,7 +271,31 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         return StandardCharsets.UTF_8;
     }
 
-    private String injectQdnBridge(String html) {
+    private String getQdnBridgeTag(String bridgeToken) {
+        return "<script>" +
+            "(function(){if(typeof window.qdnRequest==='function')return;" +
+            "var bridgeToken='" + bridgeToken + "';" +
+            "var nextRequestId=0;var pending={};" +
+            "window.addEventListener('message',function(event){" +
+            "var data=event.data;if(!data||data.type!=='qortium:qdn-response'||data.bridgeToken!==bridgeToken||typeof data.requestId!=='string')return;" +
+            "var entry=pending[data.requestId];if(!entry)return;delete pending[data.requestId];clearTimeout(entry.timeoutId);" +
+            "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';entry.reject(new Error(message));return;}" +
+            "entry.resolve(data.result);" +
+            "});" +
+            "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +
+            "return new Promise(function(resolve,reject){" +
+            "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
+            "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
+            "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},30000);" +
+            "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +
+            "window.parent.postMessage({type:'qortium:qdn-request',bridgeToken:bridgeToken,requestId:requestId,request:request},'*');" +
+            "});}});" +
+            "})();" +
+            "</script>";
+    }
+
+    private String injectQdnBridge(String html, String bridgeToken) {
+        String bridgeTag = getQdnBridgeTag(bridgeToken);
         String lowerHtml = html.toLowerCase(Locale.ROOT);
         int headStart = lowerHtml.indexOf("<head");
 
@@ -267,16 +303,16 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             int headEnd = lowerHtml.indexOf(">", headStart);
 
             if (headEnd >= 0) {
-                return html.substring(0, headEnd + 1) + QDN_BRIDGE_TAG + html.substring(headEnd + 1);
+                return html.substring(0, headEnd + 1) + bridgeTag + html.substring(headEnd + 1);
             }
         }
 
         int bodyStart = lowerHtml.indexOf("<body");
 
         if (bodyStart >= 0) {
-            return html.substring(0, bodyStart) + QDN_BRIDGE_TAG + html.substring(bodyStart);
+            return html.substring(0, bodyStart) + bridgeTag + html.substring(bodyStart);
         }
 
-        return QDN_BRIDGE_TAG + html;
+        return bridgeTag + html;
     }
 }

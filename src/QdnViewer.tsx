@@ -70,6 +70,7 @@ type MediaErrorState = {
 } | null;
 
 type QdnAppBridgeMessage = {
+  bridgeToken?: unknown;
   request?: unknown;
   requestId?: unknown;
   type?: unknown;
@@ -85,6 +86,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isQdnAppBridgeMessage(value: unknown): value is QdnAppBridgeMessage {
   return isRecord(value) && value.type === 'qortium:qdn-request' && typeof value.requestId === 'string';
+}
+
+function createQdnBridgeToken() {
+  const bytes = new Uint8Array(16);
+
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+
+    return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
+function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
+  const url = new URL(renderUrl);
+
+  url.searchParams.set('qdnHomeBridge', bridgeToken);
+
+  return url.toString();
 }
 
 function formatError(error: unknown) {
@@ -1048,9 +1069,21 @@ function QdnIframeContent({
   resource: QdnResource;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const isNativeFrame = isNativePlatform();
+  const bridgeToken = useMemo(
+    () => (isNativeFrame ? createQdnBridgeToken() : ''),
+    [isNativeFrame, loadedResource.renderUrl],
+  );
+  const frameSrc = useMemo(
+    () =>
+      isNativeFrame && bridgeToken
+        ? buildAndroidQdnBridgeUrl(loadedResource.renderUrl, bridgeToken)
+        : loadedResource.renderUrl,
+    [bridgeToken, isNativeFrame, loadedResource.renderUrl],
+  );
 
   useEffect(() => {
-    if (!isNativePlatform()) {
+    if (!isNativeFrame) {
       return undefined;
     }
 
@@ -1067,6 +1100,10 @@ function QdnIframeContent({
         return;
       }
 
+      if (event.data.bridgeToken !== bridgeToken) {
+        return;
+      }
+
       const requestId = event.data.requestId;
 
       try {
@@ -1074,6 +1111,7 @@ function QdnIframeContent({
 
         frameWindow.postMessage(
           {
+            bridgeToken,
             requestId,
             result,
             type: 'qortium:qdn-response',
@@ -1085,6 +1123,7 @@ function QdnIframeContent({
 
         frameWindow.postMessage(
           {
+            bridgeToken,
             error: {
               error: message,
               message,
@@ -1103,15 +1142,16 @@ function QdnIframeContent({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [loadedResource.renderUrl]);
+  }, [bridgeToken, isNativeFrame, loadedResource.renderUrl]);
 
   return (
     <iframe
       className="qdn-viewer__frame"
-      key={loadedResource.renderUrl}
+      key={frameSrc}
       ref={frameRef}
       title={resource.displayUrl}
-      src={loadedResource.renderUrl}
+      src={frameSrc}
+      referrerPolicy="no-referrer"
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
     />
