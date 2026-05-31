@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - test: add android qdn bridge smoke test
+
+Added an Android smoke test for QDN app bridge behavior. The new command can reuse or start the Android emulator, install the latest debug APK, open the Qortium Home test APP fixture, and verify that Android injects `qdnRequest`, supports read-only node API calls, and still rejects legacy, malformed, and write-style bridge requests.
+
 ### 2026-05-31 - app: add android qdn app bridge
 
 Added Android support for the strict Qortium-native QDN app bridge. Android APP and WEBSITE pages can now receive a direct `qdnRequest` function, send read-only node and QDN lookup requests through Home's currently selected node, and get the same blocked behavior for malformed, alias, write, publish, signing, and wallet-permission requests that desktop uses.

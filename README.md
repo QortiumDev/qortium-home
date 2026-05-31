@@ -186,6 +186,17 @@ Build a local Android debug APK:
 npm run dist:android:debug
 ```
 
+Smoke-test the Android QDN app bridge against the default emulator:
+
+```sh
+npm run smoke:android:qdn-bridge
+```
+
+The smoke command uses the newest debug APK, reuses an attached Android device
+when one is present, or starts the `qortium_home_api36` AVD in headless mode.
+Set `ANDROID_AVD_HOME`, `QORTIUM_HOME_ANDROID_AVD`, or
+`QORTIUM_HOME_KEEP_ANDROID_EMULATOR=1` to override those defaults.
+
 Release artifacts are written to `dist-release/`. Generated build output should
 not be committed to git.
 
