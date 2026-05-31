@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add android wallet loading
+
+Added the first Android wallet loading flow. Android can now import an existing encrypted wallet JSON file through the native WebView file picker, save the encrypted wallet metadata in app-private storage, select the wallet for tabs, unlock or remove it with the wallet password, keep decrypted seed material in memory only for the current app session, and use the selected node to show the account name or avatar when available.
+
 ### 2026-05-31 - build: add android release packaging
 
 Added repeatable Android release packaging. Home now has commands for release APK and AAB builds, can collect the outputs into `dist-release/`, keeps unsigned Android packages clearly labeled for local checks only, lets release signing be configured through external Gradle properties or environment variables, adds an Android-only local release check, and updates the publisher to expect signed Android release artifacts instead of the previous debug APK.

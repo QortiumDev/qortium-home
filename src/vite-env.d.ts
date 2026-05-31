@@ -37,6 +37,11 @@ type QortiumCreateWalletResult = QortiumAccountsState & {
   canceled: boolean;
 };
 
+type QortiumAccountsCapabilities = {
+  canCreateWallet: boolean;
+  canLoadWalletFile: boolean;
+};
+
 type QortiumNodeSettingsMode = 'custom' | 'local' | 'network';
 
 type QortiumNodeSettings = {
@@ -370,6 +375,7 @@ interface Window {
   qortiumHome: {
     accounts: {
       list: () => Promise<QortiumAccountsState>;
+      getCapabilities?: () => Promise<QortiumAccountsCapabilities>;
       getProfile: (accountId: string) => Promise<QortiumAccountProfile>;
       selectWalletFile: () => Promise<QortiumSelectWalletResult>;
       discardLoadedWallet: (token: string) => Promise<void>;

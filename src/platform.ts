@@ -1,11 +1,14 @@
 import { Capacitor, CapacitorHttp, registerPlugin, type HttpResponse } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
+import { AES_CBC, HmacSha512, Sha512, bytes_to_base64 } from 'asmcrypto.js';
+import bcrypt from 'bcryptjs';
 import packageJson from '../package.json';
 import { PUBLIC_QDN_SERVICES } from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
 const NODE_DISCOVERY_CACHE_KEY = 'qortium-home-node-discovery-cache';
+const WALLET_STORE_KEY = 'qortium-home-wallet-store';
 const UPDATE_DOWNLOADS_DIR = 'app-updates';
 const QDN_DOWNLOADS_DIR = 'qdn-downloads';
 const DESKTOP_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
@@ -21,6 +24,14 @@ const PUBLIC_READ_PROBE_PATH =
 const REQUEST_TIMEOUT_MS = 30_000;
 const DISCOVERY_TIMEOUT_MS = 5_000;
 const DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
+const WALLET_STORE_VERSION = 1;
+const KDF_THREAD_COUNT = 16;
+const STATIC_SALT = '4ghkVQExoneGqZqHTMMhhFfxXsVg2A75QeS1HCM5KAih';
+const STATIC_BCRYPT_SALT = '$2a$11$IxVE941tXVUD4cW0TNVm.O';
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const BASE58_ALPHABET_MAP = new Map<string, number>(
+  [...BASE58_ALPHABET].map((character, index) => [character, index]),
+);
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_APP_BRIDGE_ACTIONS = [
@@ -46,6 +57,38 @@ const QDN_APP_BRIDGE_ACTIONS = [
 type StoredNodeSettings = {
   customUrl: string;
   mode: QortiumNodeSettingsMode;
+};
+
+type EncryptedWallet = {
+  address0: string;
+  encryptedSeed: string;
+  iv: string;
+  kdfThreads: number;
+  mac: string;
+  salt: string;
+  version: number;
+  [key: string]: unknown;
+};
+
+type StoredWallet = {
+  address: string;
+  createdAt: string;
+  encryptedWallet: EncryptedWallet;
+  id: string;
+  label: string;
+  sourceFilename: string;
+  updatedAt: string;
+};
+
+type WalletStore = {
+  activeAccountId: string | null;
+  version: typeof WALLET_STORE_VERSION;
+  wallets: StoredWallet[];
+};
+
+type PendingLoadedWallet = {
+  encryptedWallet: EncryptedWallet;
+  sourceFilename: string;
 };
 
 type PlatformApi = Window['qortiumHome'];
@@ -97,6 +140,30 @@ type QdnAppResourceRequest = {
 
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
 const QdnFileOpener = registerPlugin<QdnFileOpenerPlugin>('QdnFileOpener');
+const unlockedWalletSeeds = new Map<string, Uint8Array>();
+const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
+
+function forgetUnlockedWalletSeed(accountId: string) {
+  const seed = unlockedWalletSeeds.get(accountId);
+
+  if (seed) {
+    seed.fill(0);
+  }
+
+  unlockedWalletSeeds.delete(accountId);
+}
+
+function clearUnlockedWalletSeeds() {
+  for (const seed of unlockedWalletSeeds.values()) {
+    seed.fill(0);
+  }
+
+  unlockedWalletSeeds.clear();
+}
+
+window.addEventListener('pagehide', () => {
+  clearUnlockedWalletSeeds();
+});
 
 function isAndroid() {
   return Capacitor.getPlatform() === 'android';
@@ -607,6 +674,602 @@ async function readNodeSettings() {
 
 async function writeNodeSettings(settings: StoredNodeSettings) {
   await setStoredValue(NODE_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function createEmptyWalletStore(): WalletStore {
+  return {
+    version: WALLET_STORE_VERSION,
+    activeAccountId: null,
+    wallets: [],
+  };
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isEncryptedWallet(value: unknown): value is EncryptedWallet {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.address0) &&
+    isNonEmptyString(value.encryptedSeed) &&
+    isNonEmptyString(value.iv) &&
+    typeof value.kdfThreads === 'number' &&
+    Number.isFinite(value.kdfThreads) &&
+    isNonEmptyString(value.mac) &&
+    isNonEmptyString(value.salt) &&
+    typeof value.version === 'number' &&
+    Number.isFinite(value.version)
+  );
+}
+
+function assertEncryptedWallet(value: unknown): EncryptedWallet {
+  if (!isEncryptedWallet(value)) {
+    throw new Error(
+      'Wallet file must include address0, encryptedSeed, salt, iv, version, mac, and kdfThreads.',
+    );
+  }
+
+  return value;
+}
+
+function isStoredWallet(value: unknown): value is StoredWallet {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.address) &&
+    isNonEmptyString(value.createdAt) &&
+    isEncryptedWallet(value.encryptedWallet) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.label) &&
+    typeof value.sourceFilename === 'string' &&
+    isNonEmptyString(value.updatedAt)
+  );
+}
+
+function normalizeWalletStore(store: WalletStore): WalletStore {
+  const activeWallet = store.wallets.find((wallet) => wallet.id === store.activeAccountId);
+
+  return {
+    version: WALLET_STORE_VERSION,
+    wallets: store.wallets,
+    activeAccountId: activeWallet?.id ?? store.wallets[0]?.id ?? null,
+  };
+}
+
+function parseWalletStore(value: unknown): WalletStore {
+  if (!isRecord(value) || !Array.isArray(value.wallets)) {
+    return createEmptyWalletStore();
+  }
+
+  return normalizeWalletStore({
+    version: WALLET_STORE_VERSION,
+    wallets: value.wallets.filter(isStoredWallet),
+    activeAccountId: typeof value.activeAccountId === 'string' ? value.activeAccountId : null,
+  });
+}
+
+async function readWalletStore() {
+  try {
+    const rawStore = await getStoredValue(WALLET_STORE_KEY);
+
+    return rawStore ? parseWalletStore(JSON.parse(rawStore) as unknown) : createEmptyWalletStore();
+  } catch {
+    return createEmptyWalletStore();
+  }
+}
+
+async function writeWalletStore(store: WalletStore) {
+  await setStoredValue(WALLET_STORE_KEY, JSON.stringify(normalizeWalletStore(store)));
+}
+
+function toAccountsState(store: WalletStore): QortiumAccountsState {
+  const nextStore = normalizeWalletStore(store);
+
+  return {
+    activeAccountId: nextStore.activeAccountId,
+    accounts: nextStore.wallets.map((wallet) => ({
+      id: wallet.id,
+      label: wallet.label,
+      address: wallet.address,
+      sourceFilename: wallet.sourceFilename,
+      isUnlocked: unlockedWalletSeeds.has(wallet.id),
+    })),
+  };
+}
+
+function base58Encode(buffer: Uint8Array) {
+  if (buffer.length === 0) {
+    return '';
+  }
+
+  const digits = [0];
+
+  for (const byte of buffer) {
+    for (let index = 0; index < digits.length; index += 1) {
+      digits[index] <<= 8;
+    }
+
+    digits[0] += byte;
+
+    let carry = 0;
+
+    for (let index = 0; index < digits.length; index += 1) {
+      digits[index] += carry;
+      carry = (digits[index] / 58) | 0;
+      digits[index] %= 58;
+    }
+
+    while (carry) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+
+  for (let index = 0; buffer[index] === 0 && index < buffer.length - 1; index += 1) {
+    digits.push(0);
+  }
+
+  return digits
+    .reverse()
+    .map((digit) => BASE58_ALPHABET[digit])
+    .join('');
+}
+
+function base58Decode(value: string) {
+  if (value.length === 0) {
+    return new Uint8Array(0);
+  }
+
+  const bytes = [0];
+
+  for (const character of value) {
+    const mappedValue = BASE58_ALPHABET_MAP.get(character);
+
+    if (mappedValue === undefined) {
+      throw new Error(`Base58 value contains an invalid character: ${character}`);
+    }
+
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] *= 58;
+    }
+
+    bytes[0] += mappedValue;
+
+    let carry = 0;
+
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] += carry;
+      carry = bytes[index] >> 8;
+      bytes[index] &= 0xff;
+    }
+
+    while (carry) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+
+  for (let index = 0; value[index] === '1' && index < value.length - 1; index += 1) {
+    bytes.push(0);
+  }
+
+  return new Uint8Array(bytes.reverse());
+}
+
+function stringToUtf8Array(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+function sha512(data: Uint8Array) {
+  const result = new Sha512().process(data).finish().result;
+
+  if (!result) {
+    throw new Error('Unable to hash wallet data.');
+  }
+
+  return result;
+}
+
+async function computeKdfPart(password: string, nonce: number) {
+  const hash = sha512(stringToUtf8Array(`${STATIC_SALT}${password}${nonce}`));
+  const hashBase64 = bytes_to_base64(hash);
+
+  return bcrypt.hash(hashBase64.substring(0, 72), STATIC_BCRYPT_SALT);
+}
+
+async function deriveWalletKey(password: string) {
+  const parts = await Promise.all(
+    Array.from({ length: KDF_THREAD_COUNT }, (_value, nonce) => computeKdfPart(password, nonce)),
+  );
+
+  return sha512(stringToUtf8Array(`${STATIC_SALT}${parts.reduce((combined, part) => combined + part)}`));
+}
+
+async function decryptWalletSeed(password: string, wallet: EncryptedWallet) {
+  if (!password) {
+    throw new Error('Enter the wallet password.');
+  }
+
+  try {
+    const encryptedSeed = base58Decode(wallet.encryptedSeed);
+    const iv = base58Decode(wallet.iv);
+
+    base58Decode(wallet.salt);
+
+    const key = await deriveWalletKey(password);
+    const encryptionKey = key.slice(0, 32);
+    const macKey = key.slice(32, 63);
+    const mac = new HmacSha512(macKey).process(encryptedSeed).finish().result;
+
+    if (!mac || base58Encode(mac) !== wallet.mac) {
+      throw new Error('Incorrect wallet password.');
+    }
+
+    const decryptedSeed = AES_CBC.decrypt(encryptedSeed, encryptionKey, false, iv);
+
+    if (!decryptedSeed) {
+      throw new Error('Unable to unlock wallet.');
+    }
+
+    return new Uint8Array(decryptedSeed);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Incorrect wallet password.') {
+      throw error;
+    }
+
+    throw new Error('Unable to unlock wallet.');
+  }
+}
+
+function getWalletId(wallet: EncryptedWallet) {
+  return `wallet:${wallet.address0}`;
+}
+
+function getWalletLabel(sourceFilename: string, wallet: EncryptedWallet) {
+  const label = sourceFilename.replace(/\.[^.]+$/, '').trim();
+
+  return label || wallet.address0;
+}
+
+function walletNameKey(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function assertValidWalletName(name: string, store: WalletStore, exceptWalletId?: string) {
+  const nextName = name.trim();
+
+  if (!nextName) {
+    throw new Error('Enter the wallet name.');
+  }
+
+  const duplicateWallet = store.wallets.find(
+    (wallet) => wallet.id !== exceptWalletId && walletNameKey(wallet.label) === walletNameKey(nextName),
+  );
+
+  if (duplicateWallet) {
+    throw new Error('Wallet name already exists.');
+  }
+
+  return nextName;
+}
+
+function createToken() {
+  return window.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function selectJsonFile() {
+  return new Promise<{ filename: string; text: string } | null>((resolve, reject) => {
+    const input = document.createElement('input');
+    let settled = false;
+
+    function cleanup() {
+      input.remove();
+      window.removeEventListener('focus', handleFocus);
+    }
+
+    function settle(value: { filename: string; text: string } | null) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      resolve(value);
+    }
+
+    function fail(error: unknown) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function handleFocus() {
+      window.setTimeout(() => {
+        if (!input.files?.length) {
+          settle(null);
+        }
+      }, 500);
+    }
+
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.style.display = 'none';
+    input.addEventListener('cancel', () => settle(null));
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+
+      if (!file) {
+        settle(null);
+        return;
+      }
+
+      file
+        .text()
+        .then((text) => settle({ filename: file.name || 'wallet.json', text }))
+        .catch(fail);
+    });
+
+    document.body.append(input);
+    input.click();
+    window.setTimeout(() => {
+      if (!settled) {
+        window.addEventListener('focus', handleFocus);
+      }
+    }, 500);
+  });
+}
+
+async function selectWalletFile(): Promise<QortiumSelectWalletResult> {
+  const selectedFile = await selectJsonFile();
+
+  if (!selectedFile) {
+    return {
+      canceled: true,
+    };
+  }
+
+  let parsedWallet: unknown;
+
+  try {
+    parsedWallet = JSON.parse(selectedFile.text);
+  } catch {
+    throw new Error('Unable to read the selected wallet file.');
+  }
+
+  const encryptedWallet = assertEncryptedWallet(parsedWallet);
+  const id = getWalletId(encryptedWallet);
+  const existingWallet = (await readWalletStore()).wallets.find((wallet) => wallet.id === id);
+  const token = createToken();
+
+  pendingLoadedWallets.set(token, {
+    encryptedWallet,
+    sourceFilename: selectedFile.filename,
+  });
+
+  return {
+    accountId: id,
+    address: encryptedWallet.address0,
+    canceled: false,
+    suggestedName: existingWallet?.label ?? getWalletLabel(selectedFile.filename, encryptedWallet),
+    token,
+  };
+}
+
+function discardLoadedWallet(token: string) {
+  pendingLoadedWallets.delete(token);
+}
+
+async function saveLoadedWallet(token: string, name: string) {
+  const pendingWallet = pendingLoadedWallets.get(token);
+
+  if (!pendingWallet) {
+    throw new Error('Selected wallet is no longer available. Load the file again.');
+  }
+
+  const store = await readWalletStore();
+  const id = getWalletId(pendingWallet.encryptedWallet);
+  const walletName = assertValidWalletName(name, store, id);
+  const existingWallet = store.wallets.find((wallet) => wallet.id === id);
+  const now = new Date().toISOString();
+  const nextWallet: StoredWallet = {
+    id,
+    label: walletName,
+    address: pendingWallet.encryptedWallet.address0,
+    sourceFilename: pendingWallet.sourceFilename,
+    encryptedWallet: pendingWallet.encryptedWallet,
+    createdAt: existingWallet?.createdAt ?? now,
+    updatedAt: now,
+  };
+  const existingWalletIndex = store.wallets.findIndex((wallet) => wallet.id === id);
+
+  if (existingWalletIndex >= 0) {
+    store.wallets[existingWalletIndex] = nextWallet;
+  } else {
+    store.wallets.push(nextWallet);
+  }
+
+  store.activeAccountId = id;
+  forgetUnlockedWalletSeed(id);
+  pendingLoadedWallets.delete(token);
+  await writeWalletStore(store);
+
+  return toAccountsState(store);
+}
+
+async function setActiveAccount(accountId: string) {
+  const store = await readWalletStore();
+
+  if (!store.wallets.some((wallet) => wallet.id === accountId)) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  store.activeAccountId = accountId;
+  await writeWalletStore(store);
+
+  return toAccountsState(store);
+}
+
+async function unlockWallet(accountId: string, password: string) {
+  const store = await readWalletStore();
+  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  const seed = await decryptWalletSeed(password, wallet.encryptedWallet);
+
+  unlockedWalletSeeds.set(accountId, seed);
+
+  return toAccountsState(store);
+}
+
+async function lockWallet(accountId: string) {
+  const store = await readWalletStore();
+
+  if (!store.wallets.some((wallet) => wallet.id === accountId)) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  forgetUnlockedWalletSeed(accountId);
+
+  return toAccountsState(store);
+}
+
+async function removeWallet(accountId: string, password?: string) {
+  const store = await readWalletStore();
+  const walletIndex = store.wallets.findIndex((wallet) => wallet.id === accountId);
+  const wallet = store.wallets[walletIndex];
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  if (!unlockedWalletSeeds.has(accountId)) {
+    await decryptWalletSeed(password ?? '', wallet.encryptedWallet);
+  }
+
+  const wasActiveWallet = store.activeAccountId === accountId;
+
+  store.wallets.splice(walletIndex, 1);
+  forgetUnlockedWalletSeed(accountId);
+
+  if (wasActiveWallet) {
+    store.activeAccountId = store.wallets[walletIndex]?.id ?? store.wallets[walletIndex - 1]?.id ?? null;
+  }
+
+  await writeWalletStore(store);
+
+  return toAccountsState(store);
+}
+
+function getNameValue(value: unknown) {
+  if (!isRecord(value) || !isNonEmptyString(value.name)) {
+    return null;
+  }
+
+  return value.name.trim();
+}
+
+async function fetchNodeJson(pathname: string, nodeApiUrl: string) {
+  try {
+    const response = await requestNode(nodeApiUrl, pathname, 'json');
+
+    return response.status >= 200 && response.status < 300 ? response.data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getPrimaryName(address: string, nodeApiUrl: string) {
+  const primaryName = await fetchNodeJson(`/names/primary/${encodeURIComponent(address)}`, nodeApiUrl);
+
+  return getNameValue(primaryName);
+}
+
+async function getFirstOwnedName(address: string, nodeApiUrl: string) {
+  const ownedNames = await fetchNodeJson(
+    `/names/address/${encodeURIComponent(address)}?limit=0`,
+    nodeApiUrl,
+  );
+
+  if (!Array.isArray(ownedNames)) {
+    return null;
+  }
+
+  for (const ownedName of ownedNames) {
+    const name = getNameValue(ownedName);
+
+    if (name) {
+      return name;
+    }
+  }
+
+  return null;
+}
+
+async function getAccountProfile(accountId: string): Promise<QortiumAccountProfile> {
+  const store = await readWalletStore();
+  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  let nodeApiUrl = '';
+
+  try {
+    nodeApiUrl = await resolveNodeApiUrl(await readNodeSettings());
+  } catch {
+    nodeApiUrl = '';
+  }
+
+  const name = nodeApiUrl
+    ? (await getPrimaryName(wallet.address, nodeApiUrl)) ??
+      (await getFirstOwnedName(wallet.address, nodeApiUrl))
+    : null;
+  const avatarUrl = name
+    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/qortium_avatar?async=true`
+    : null;
+
+  return {
+    accountId: wallet.id,
+    address: wallet.address,
+    avatarUrl,
+    label: wallet.label,
+    name,
+  };
+}
+
+function createStoredAccountsApi(): PlatformApi['accounts'] {
+  return {
+    list: async () => toAccountsState(await readWalletStore()),
+    getCapabilities: async () => ({
+      canCreateWallet: false,
+      canLoadWalletFile: true,
+    }),
+    getProfile: (accountId) => getAccountProfile(accountId),
+    selectWalletFile,
+    discardLoadedWallet: async (token) => discardLoadedWallet(token),
+    saveLoadedWallet,
+    createWallet: async () => {
+      throw new Error('Creating wallets on Android will be added after the mobile backup flow is ready.');
+    },
+    setActiveAccount,
+    unlockWallet,
+    lockWallet,
+    removeWallet,
+  };
 }
 
 function parseDiscoveryCache(value: unknown): DiscoveryCache | null {
@@ -1568,6 +2231,10 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
 
   return {
     list: async () => emptyState,
+    getCapabilities: async () => ({
+      canCreateWallet: false,
+      canLoadWalletFile: false,
+    }),
     getProfile: async (accountId) => ({
       accountId,
       address: '',
@@ -1589,7 +2256,7 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
 function createFallbackApi(): PlatformApi {
   return {
     appName: 'Qortium Home',
-    accounts: createUnsupportedAccountsApi(),
+    accounts: isAndroid() ? createStoredAccountsApi() : createUnsupportedAccountsApi(),
     updates: {
       async downloadAsset(request) {
         return downloadUpdateAsset(request);

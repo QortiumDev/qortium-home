@@ -21,6 +21,8 @@ more broadly.
 - Create a new encrypted wallet backup file.
 - Load encrypted Qortium wallet files.
 - Save loaded wallet metadata in the local Electron app data folder.
+- Load encrypted wallet JSON files on Android and keep saved Android wallet
+  metadata in app-private storage.
 - Keep wallets locked after restart and unlocked only for the current session.
 - Select, unlock, lock, and remove saved wallets.
 - Show node status for the configured node, including sync phase, target
@@ -102,7 +104,8 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 - Local-node write workflows for chat send, name registration, and group join.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
-- Android signing credential setup and Android wallet file flows.
+- Android signing credential setup, Android wallet creation/backups, and
+  Android account-backed QDN write approvals.
 - Code signing and release verification for production builds.
 
 ## Development Setup
@@ -362,8 +365,9 @@ converts discovered peer addresses to candidate API URLs, and uses a reachable
 node for read-only QDN/API browsing. Candidate nodes are preferred when they
 answer both `/admin/status` and a public QDN resource-search probe. Users can
 still choose a custom LAN or remote node URL. Android can open file-style QDN
-resources through the native Android chooser, while wallet file creation/loading
-is intentionally still desktop-only.
+resources through the native Android chooser, and can load existing encrypted
+wallet JSON files into app-private storage. Android wallet creation and backup
+export are intentionally still deferred until the mobile backup flow is ready.
 
 Desktop still defaults to a local node at `http://127.0.0.1:24891`, but users
 without a local node can also choose Previewnet network discovery from the node

@@ -1,5 +1,6 @@
 import { Lock, Unlock, X } from 'lucide-react';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { isNativePlatform } from './platform';
 
 type PendingLoadedWallet = Extract<QortiumSelectWalletResult, { canceled: false }>;
 
@@ -83,6 +84,27 @@ export function AccountsPanel({
   const [removePassword, setRemovePassword] = useState('');
   const [removeError, setRemoveError] = useState('');
   const [isRemovingAccount, setIsRemovingAccount] = useState(false);
+  const [accountsCapabilities, setAccountsCapabilities] = useState<QortiumAccountsCapabilities | null>(null);
+  const canCreateWallet = accountsCapabilities?.canCreateWallet ?? !isNativePlatform();
+  const canLoadWalletFile = accountsCapabilities?.canLoadWalletFile ?? true;
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    window.qortiumHome.accounts.getCapabilities?.()
+      .then((capabilities) => {
+        if (!isDisposed) {
+          setAccountsCapabilities(capabilities);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load account capabilities.', error);
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
 
   const activeAccount = useMemo(
     () => accountsState.accounts.find((account) => account.id === selectedAccountId),
@@ -376,22 +398,26 @@ export function AccountsPanel({
   return (
     <section className="accounts-panel" aria-label="Accounts">
       <div className="accounts-panel__actions" aria-label="Account actions">
-        <button
-          className="button"
-          type="button"
-          disabled={isLoadingAccounts || isCreatingWallet}
-          onClick={openCreateDialog}
-        >
-          {isCreatingWallet ? 'Creating' : 'New'}
-        </button>
-        <button
-          className="button"
-          type="button"
-          disabled={isLoadingAccounts || isLoadingWallet || isSavingLoadedWallet}
-          onClick={handleLoadWallet}
-        >
-          {isLoadingWallet ? 'Loading' : 'Load'}
-        </button>
+        {canCreateWallet ? (
+          <button
+            className="button"
+            type="button"
+            disabled={isLoadingAccounts || isCreatingWallet}
+            onClick={openCreateDialog}
+          >
+            {isCreatingWallet ? 'Creating' : 'New'}
+          </button>
+        ) : null}
+        {canLoadWalletFile ? (
+          <button
+            className="button"
+            type="button"
+            disabled={isLoadingAccounts || isLoadingWallet || isSavingLoadedWallet}
+            onClick={handleLoadWallet}
+          >
+            {isLoadingWallet ? 'Loading' : 'Load'}
+          </button>
+        ) : null}
       </div>
 
       {hasSavedAccounts ? (
