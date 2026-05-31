@@ -234,6 +234,19 @@ calls, resource list/search calls, and rejected legacy, malformed, write-method,
 and oversize node API requests. It expects the local Previewnet node and QDN
 preview APP/JSON fixtures to already be available.
 
+Smoke-test the same QDN app read/API bridge behavior from the packaged Linux
+AppImage:
+
+```sh
+npm run smoke:desktop:qdn-api:packaged
+```
+
+This command builds the Linux x64 AppImage, launches it with an isolated
+temporary profile, and runs the same bridge assertions against the packaged
+preload and main-process files. Set `QORTIUM_HOME_SKIP_PACKAGE_BUILD=1` to reuse
+an existing AppImage, or set `QORTIUM_HOME_DESKTOP_QDN_API_APPIMAGE` to test a
+specific AppImage path.
+
 Run the full desktop QDN permission smoke suite:
 
 ```sh

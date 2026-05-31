@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - test: add packaged qdn api smoke test
+
+Added a packaged Linux AppImage smoke mode for the desktop QDN app read/API bridge. The new command builds the Linux x64 AppImage, launches it with an isolated temporary app profile, and runs the same strict `qdnRequest`, selected-node API, structured QDN lookup, resource list/search, and rejection checks against the packaged preload and main-process files.
+
 ### 2026-05-31 - test: add desktop qdn api smoke test
 
 Added a desktop smoke test for QDN app read/API bridge behavior. The test opens the local APP fixture in Qortium Home and verifies strict `qdnRequest` injection, supported action discovery, selected-node read-only API calls, structured QDN resource lookups, resource list/search calls, and rejection of legacy aliases, malformed paths, write methods, and oversized node API responses.

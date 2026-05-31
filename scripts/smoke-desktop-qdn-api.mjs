@@ -2,7 +2,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ const jsonIdentifier = process.env.QORTIUM_HOME_QDN_API_JSON_IDENTIFIER ?? 'home
 const fixtureAddress =
   process.env.QORTIUM_HOME_QDN_API_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
 const commandTimeoutMs = 120_000;
+const packageBuildTimeoutMs = 600_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
 
@@ -52,6 +53,61 @@ function assertTool(toolPath, label) {
   if (!existsSync(toolPath)) {
     fail(`${label} was not found at ${toolPath}. Run npm install first.`);
   }
+}
+
+function getArgumentValue(name) {
+  const prefix = `${name}=`;
+  const argument = process.argv.slice(2).find((item) => item.startsWith(prefix));
+
+  return argument ? argument.slice(prefix.length).trim() : '';
+}
+
+function hasArgument(name) {
+  return process.argv.slice(2).includes(name);
+}
+
+function getSmokeMode() {
+  if (hasArgument('--packaged') || process.env.QORTIUM_HOME_DESKTOP_QDN_API_PACKAGED === '1') {
+    return 'packaged';
+  }
+
+  return 'dev';
+}
+
+function readPackageMetadata() {
+  return JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+}
+
+function getAppImageArch() {
+  if (process.arch === 'x64') {
+    return 'x86_64';
+  }
+
+  if (process.arch === 'arm64') {
+    return 'arm64';
+  }
+
+  fail(`Unsupported AppImage smoke architecture: ${process.arch}.`);
+}
+
+function getAppImagePath() {
+  const explicitPath =
+    getArgumentValue('--appimage') ||
+    process.env.QORTIUM_HOME_DESKTOP_QDN_API_APPIMAGE ||
+    process.env.QORTIUM_HOME_APPIMAGE_PATH ||
+    '';
+
+  if (explicitPath) {
+    return path.resolve(explicitPath);
+  }
+
+  const packageMetadata = readPackageMetadata();
+
+  return path.join(
+    repoRoot,
+    'dist-release',
+    `Qortium-Home-${packageMetadata.version}-${getAppImageArch()}.AppImage`,
+  );
 }
 
 function run(command, args, options = {}) {
@@ -213,17 +269,17 @@ async function assertFixtureReady() {
   }
 }
 
-function getElectronLaunch(electronBin, electronArgs) {
+function getDisplayLaunch(command, args) {
   if (!process.env.DISPLAY && process.platform === 'linux' && existsSync('/usr/bin/xvfb-run')) {
     return {
-      args: ['-a', electronBin, ...electronArgs],
+      args: ['-a', command, ...args],
       command: '/usr/bin/xvfb-run',
     };
   }
 
   return {
-    args: electronArgs,
-    command: electronBin,
+    args,
+    command,
   };
 }
 
@@ -304,6 +360,13 @@ async function evaluate(client, expression) {
   }
 
   return result.result?.value;
+}
+
+async function closeBrowser(client) {
+  await Promise.race([
+    client.send('Browser.close').catch(() => undefined),
+    delay(1_000),
+  ]);
 }
 
 async function getPageTarget(cdpPort, predicate, label) {
@@ -566,46 +629,67 @@ async function runBridgeAssertions(qdnClient) {
   );
 }
 
-async function runSmoke({ electronBin, viteBin }) {
+async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-desktop-qdn-api-'));
   const userDataDir = path.join(tempRoot, 'user-data');
   let viteProcess = null;
   let electronProcess = null;
 
-  const vitePort = await getFreePort();
   const cdpPort = await getFreePort();
-  const devServerUrl = `http://127.0.0.1:${vitePort}`;
   const smokeEnv = {
     ...process.env,
     QORTIUM_HOME_NODE_API_URL: nodeApiUrl,
     QORTIUM_HOME_USER_DATA_DIR: userDataDir,
-    VITE_DEV_SERVER_URL: devServerUrl,
     XDG_CONFIG_HOME: path.join(tempRoot, 'config'),
   };
+  let mainPagePredicate;
+  let appCommand;
+  let appArgs;
+
+  delete smokeEnv.VITE_DEV_SERVER_URL;
 
   try {
-    log(`Starting Vite on ${devServerUrl}.`);
-    viteProcess = createManagedProcess(
-      viteBin,
-      ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
-      { env: smokeEnv },
+    if (mode === 'dev') {
+      const vitePort = await getFreePort();
+      const devServerUrl = `http://127.0.0.1:${vitePort}`;
+
+      smokeEnv.VITE_DEV_SERVER_URL = devServerUrl;
+      mainPagePredicate = (url) => url.startsWith(devServerUrl);
+
+      log(`Starting Vite on ${devServerUrl}.`);
+      viteProcess = createManagedProcess(
+        viteBin,
+        ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
+        { env: smokeEnv },
+      );
+
+      await waitUntil('Vite dev server', appTimeoutMs, async () => {
+        const response = await fetch(devServerUrl).catch(() => null);
+
+        return response?.ok === true;
+      });
+
+      appCommand = electronBin;
+      appArgs = [`--remote-debugging-port=${cdpPort}`, '.'];
+    } else {
+      smokeEnv.APPIMAGE_EXTRACT_AND_RUN = smokeEnv.APPIMAGE_EXTRACT_AND_RUN || '1';
+      mainPagePredicate = (url) =>
+        !url.includes('/render/') &&
+        (url === 'about:blank' || url.startsWith('file://') || url.includes('/dist/index.html'));
+      appCommand = appImagePath;
+      appArgs = [`--remote-debugging-port=${cdpPort}`];
+    }
+
+    const electronLaunch = getDisplayLaunch(appCommand, appArgs);
+
+    log(
+      `Starting ${mode === 'packaged' ? path.relative(repoRoot, appImagePath) : 'Electron'} with CDP on 127.0.0.1:${cdpPort}.`,
     );
-
-    await waitUntil('Vite dev server', appTimeoutMs, async () => {
-      const response = await fetch(devServerUrl).catch(() => null);
-
-      return response?.ok === true;
-    });
-
-    const electronArgs = [`--remote-debugging-port=${cdpPort}`, '.'];
-    const electronLaunch = getElectronLaunch(electronBin, electronArgs);
-
-    log(`Starting Electron with CDP on 127.0.0.1:${cdpPort}.`);
     electronProcess = createManagedProcess(electronLaunch.command, electronLaunch.args, { env: smokeEnv });
 
     const mainTarget = await getPageTarget(
       cdpPort,
-      (url) => url.startsWith(devServerUrl),
+      mainPagePredicate,
       'Electron main page target',
     );
     const mainClient = new CdpClient(mainTarget.webSocketDebuggerUrl);
@@ -629,6 +713,7 @@ async function runSmoke({ electronBin, viteBin }) {
         qdnClient.close();
       }
     } finally {
+      await closeBrowser(mainClient);
       mainClient.close();
     }
   } finally {
@@ -657,19 +742,38 @@ async function runSmoke({ electronBin, viteBin }) {
 
 async function main() {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const mode = getSmokeMode();
   const electronBin = getBin('electron');
   const viteBin = getBin('vite');
+  const skipPackageBuild =
+    hasArgument('--skip-package-build') || process.env.QORTIUM_HOME_SKIP_PACKAGE_BUILD === '1';
+  let appImagePath = '';
 
-  assertTool(electronBin, 'electron');
-  assertTool(viteBin, 'vite');
+  if (mode === 'dev') {
+    assertTool(electronBin, 'electron');
+    assertTool(viteBin, 'vite');
+  } else if (process.platform !== 'linux') {
+    fail('Packaged desktop QDN API smoke currently supports Linux AppImage builds only.');
+  }
 
   await assertLocalCoreReady();
   await assertFixtureReady();
 
-  log('Building Electron main process.');
-  await run(npm, ['run', 'build:electron']);
-  await runSmoke({ electronBin, viteBin });
-  log('Desktop QDN API smoke test passed.');
+  if (mode === 'packaged') {
+    if (!skipPackageBuild) {
+      log('Building Linux x64 AppImage.');
+      await run(npm, ['run', 'dist:linux:x64'], { timeout: packageBuildTimeoutMs });
+    }
+
+    appImagePath = getAppImagePath();
+    assertTool(appImagePath, 'Qortium Home AppImage');
+  } else {
+    log('Building Electron main process.');
+    await run(npm, ['run', 'build:electron']);
+  }
+
+  await runSmoke({ appImagePath, electronBin, mode, viteBin });
+  log(`Desktop QDN API ${mode === 'packaged' ? 'packaged ' : ''}smoke test passed.`);
 }
 
 main().catch((error) => {

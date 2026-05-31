@@ -28,7 +28,7 @@ const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
 
-if (!app.isPackaged && USER_DATA_DIR_OVERRIDE) {
+if (USER_DATA_DIR_OVERRIDE) {
   app.setPath('userData', path.resolve(USER_DATA_DIR_OVERRIDE));
 }
 
