@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - test: add android qdn media smoke test
+
+Added an Android smoke test for QDN image, audio, and video resource viewing. The new command launches or reuses the Android emulator, points Qortium Home at the local Previewnet node through the emulator bridge, opens the local `IMAGE`, `AUDIO`, and `VIDEO` fixtures, and verifies that each viewer uses an Android blob URL with loaded image dimensions or media metadata and no visible media error.
+
 ### 2026-05-31 - test: expand android qdn bridge smoke coverage
 
 Expanded the Android QDN app bridge smoke test to match the desktop read/API coverage. The Android smoke now points the app at the local Previewnet node through the emulator bridge, verifies supported action discovery, node info/status reads, structured QDN resource status/properties/metadata/URL/fetch calls, resource list/search calls, and rejects legacy aliases, malformed paths, write methods, and oversized node API responses.

@@ -213,6 +213,18 @@ rejected legacy, malformed, write-method, and oversize node API requests. Set
 `QORTIUM_HOME_ANDROID_NODE_API_URL` to override the node URL used inside
 Android.
 
+Smoke-test Android QDN image, audio, and video viewers against the default
+emulator:
+
+```sh
+npm run smoke:android:qdn-media
+```
+
+The media smoke uses the newest debug APK, points Android at the host's local
+Previewnet node through `http://10.0.2.2:24891`, opens the `IMAGE`, `AUDIO`, and
+`VIDEO` QDN fixtures, and verifies that Android loads them through blob URLs
+with image dimensions or media metadata available and no viewer error message.
+
 Smoke-test desktop QDN app publish/delete writes against the local Core:
 
 ```sh
