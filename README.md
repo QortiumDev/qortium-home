@@ -1,13 +1,11 @@
 # Qortium Home
 
-Qortium Home is an early preview desktop application for managing
-Qortium/Qortal-compatible wallets, checking a configured node, and browsing QDN
-content from one simple interface.
+Qortium Home is an early preview desktop application for managing Qortium
+wallets, checking a configured node, and browsing QDN content from one simple
+interface.
 
-The current application is intentionally smaller than Qortal Hub. Qortal Hub is
-used as a compatibility and integration reference, but Qortium Home is focused
-on account management, QDN browsing, and a browser-like foundation that can grow
-into account-aware tabs over time.
+Qortium Home is focused on account management, QDN browsing, and a browser-like
+foundation that can grow into account-aware tabs over time.
 
 ## Status
 
@@ -21,7 +19,7 @@ more broadly.
 ## Current Features
 
 - Create a new encrypted wallet backup file.
-- Load Qortal Hub-compatible encrypted wallet files.
+- Load encrypted Qortium wallet files.
 - Save loaded wallet metadata in the local Electron app data folder.
 - Keep wallets locked after restart and unlocked only for the current session.
 - Select, unlock, lock, and remove saved wallets.

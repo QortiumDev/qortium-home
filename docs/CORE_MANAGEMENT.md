@@ -27,8 +27,8 @@ Android should continue to use existing nodes and Previewnet network discovery.
 
 ## Managed Folder
 
-The managed Core folder should stay isolated from source checkouts, Qortal Hub,
-and manually installed Qortium or Qortal Core folders. The intended layout is:
+The managed Core folder should stay isolated from source checkouts and manually
+installed Qortium Core folders. The intended layout is:
 
 ```text
 Qortium Home app data/

@@ -52,7 +52,6 @@ async function handleMessage(event: MessageEvent) {
   }
 }
 
-contextBridge.exposeInMainWorld('qortalRequest', sendQdnAppRequest);
 contextBridge.exposeInMainWorld('qdnRequest', sendQdnAppRequest);
 
 window.addEventListener('message', (event) => {

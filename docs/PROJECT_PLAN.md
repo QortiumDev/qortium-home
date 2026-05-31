@@ -4,7 +4,7 @@ Last updated: 2026-05-27
 
 ## Purpose
 
-Qortium Home is intended to be a simple, focused UI for account management and QDN browsing. It should not replicate Qortal Hub. Qortal Hub can be used as a reference for concepts, workflows, and integration details, but Qortium Home should remain a separate, smaller application with a narrower product surface.
+Qortium Home is intended to be a simple, focused, Qortium-native UI for account management and QDN browsing.
 
 ## Decisions So Far
 
@@ -48,7 +48,7 @@ Qortium Home is intended to be a simple, focused UI for account management and Q
   - Load direct API endpoint URLs so users can inspect chain data inside the UI.
   - Support read-only direct node API endpoint viewing through the address bar.
   - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
-  - Add `qdnRequest`-style requests from QDN apps later, similar to Qortal Hub.
+  - Add `qdnRequest` requests from QDN apps later.
   - When `qdnRequest` support is added, prompt the user before approving requests that are not read-only, especially signing requests.
   - Future permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
@@ -80,7 +80,7 @@ Qortium Home is intended to be a simple, focused UI for account management and Q
   public QDN resource searches, while keeping write, admin, and private API
   workflows on local or user-controlled nodes.
 - The first Android scaffold uses Capacitor, shares the React UI, and starts with node settings/status plus read-only QDN/API browsing while wallet file flows remain desktop-only.
-- Use `~/git/Qortal-Hub` only as a reference, not as the product to clone.
+- Keep Qortium Home independent from existing wallet or portal applications.
 - Target distributable builds:
   - Linux AppImage for x64.
   - Linux AppImage for arm64, wired as a separate electron-builder script.
@@ -101,21 +101,21 @@ The chosen starting stack is:
 - Android shell: Capacitor Android, starting with a fallback renderer bridge for node settings/status and read-only QDN/API browsing.
 - First packaging target: Linux x64 AppImage.
 
-This keeps the project aligned with the existing Qortal Hub and Qortal Mobile patterns without copying either application directly. It also gives the desktop app the process-control and embedded-browser primitives needed for future local core management, QDN app rendering, per-tab account context, and packaged releases.
+This gives the desktop app the process-control and embedded-browser primitives needed for future local core management, QDN app rendering, per-tab account context, and packaged releases.
 
 Tauri is not the preferred stack for this project because the application will eventually need browser-like tabs, predictable desktop web rendering, and straightforward process management more than it needs the smallest possible installer size.
 
 ## Wallet Decision
 
-Qortium Home should start by supporting Qortal Hub-compatible wallet files. A Hub wallet file is an encrypted seed container with fields such as `address0`, `encryptedSeed`, `salt`, `iv`, `version`, `mac`, and `kdfThreads`.
+Qortium Home should start by supporting encrypted Qortium wallet files. The initial wallet file is an encrypted seed container with fields such as `address0`, `encryptedSeed`, `salt`, `iv`, `version`, `mac`, and `kdfThreads`.
 
-For compatibility, Qortium Home should be able to import and export that format. However, internally Qortium Home should not treat `address0` as the only usable account. The encrypted seed can derive multiple addresses, so Qortium Home should model derived addresses as separate selectable accounts.
+Internally Qortium Home should not treat `address0` as the only usable account. The encrypted seed can derive multiple addresses, so Qortium Home should model derived addresses as separate selectable accounts.
 
 The internal account model should distinguish:
 
 - The loaded wallet file or encrypted seed container.
 - The derived address index.
-- The derived Qortium/Qortal address.
+- The derived Qortium address.
 - The public key for that derived address.
 - User metadata such as label, note, and whether the address is pinned or discovered.
 
@@ -123,13 +123,13 @@ The active page should refer to a selected account context, not just a global wa
 
 For the initial implementation, it is acceptable to keep the UI simple:
 
-- Load one or more Hub-compatible wallet files.
+- Load one or more encrypted Qortium wallet files.
 - Require a local wallet name when loading or creating a wallet.
 - Show wallet names in the active-wallet selector and show the selected wallet address below it.
 - Persist imported encrypted wallet JSON in Qortium Home's Electron app data.
 - Remember loaded wallets and the selected account across app restarts.
 - Keep all imported wallets locked by default when the app starts.
-- Unlock a wallet only after password verification against the Hub-compatible encrypted wallet data.
+- Unlock a wallet only after password verification against the encrypted wallet data.
 - Keep decrypted seed material in memory for the current application session only, never in persistent storage.
 - Remove saved wallet entries from Qortium Home without deleting the user's wallet backup file, requiring the unlocked state or password verification before removal.
 - Create new wallets from a secure random seed in the initial New flow.
@@ -161,14 +161,14 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Future local-node write workflows for chat send, name registration, QDN
   publish, QDN delete, and group join after the approval/signing model exists.
 - Local wallet list management.
-- Qortal Hub-compatible wallet import and export.
+- Qortium wallet import and export.
 - Multiple loaded wallet files.
 - Multiple derived addresses per wallet.
 - Browser-style tab management for QDN pages, QDN apps/websites, and direct API endpoint views.
 - Future derived-address selection inside each tab account context.
 - QDN service browsing across common service types.
 - Dedicated QDN viewers for app, website, image, audio, video, text, and file-style resources.
-- Direct Qortal API endpoint viewing for read-only node API `GET` requests.
+- Direct Qortium API endpoint viewing for read-only node API `GET` requests.
 - Preinstalled or externally managed core connection support.
 - Desktop local node preset for `http://127.0.0.1:24891`.
 - Android Previewnet network discovery through public seed APIs,
@@ -183,7 +183,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 
 ### Out Of Scope For The Initial Direction
 
-- Rebuilding Qortal Hub.
+- Rebuilding a broad portal or social client beyond Qortium Home's focused scope.
 - Large social, messaging, plugin, or multi-app portal functionality unless later chosen explicitly.
 - Complex theming or a large design system before the core workflows exist.
 - A full Qortium Core implementation inside the UI app. The UI should manage and launch the core rather than reimplement it.
@@ -196,8 +196,8 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 ## Open Questions
 
 - How much of the desktop and Android UI can be shared exactly, and where will Android need platform-specific behavior?
-- Should Qortium Home export only Hub-compatible wallet files at first, or also define an extended Qortium Home wallet metadata format?
-- Should wallet files be encrypted by default? Current direction: yes, preserve Hub-compatible encrypted wallet files.
+- Should Qortium Home export only the first encrypted Qortium wallet format at first, or also define an extended Qortium Home wallet metadata format?
+- Should wallet files be encrypted by default? Current direction: yes.
 - How many derived addresses should Qortium Home show by default for each loaded wallet?
 - Should derived addresses be discovered by scanning chain activity, generated on demand, or both?
 - How should users label derived addresses separately from wallet files?
@@ -208,7 +208,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Which `qdnRequest` actions must always require explicit user approval?
 - Should persistent qdnRequest permissions be keyed by app, tab/session, wallet, derived address, and action?
 - When should Qortium Home add multiple saved custom node addresses beyond the first single custom slot?
-- For future core management, should Qortium Home use the same install/unpack folders as Qortal Hub or choose Qortium-specific app data folders?
+- For future core management, which Qortium-specific app data folders should Home use for installs and unpacked releases?
 - How should Qortium Home discover the latest GitHub release and prerelease?
 - Should prerelease downloads be opt-in only?
 - How should downloaded core artifacts be verified before running?
@@ -245,7 +245,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
    - Create wallet flow.
    - Load wallet flow.
    - Wallet switcher.
-   - Hub-compatible wallet import/export.
+   - Qortium wallet import/export.
    - Initial derived-address model.
 4. Build the single active page shell:
    - Address or endpoint bar.

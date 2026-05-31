@@ -6,14 +6,12 @@ easy to follow without reading code.
 
 ## What Qortium Home Is
 
-Qortium Home is a simple user interface for managing Qortium/Qortal-compatible
-wallets, connecting to a configured node, browsing QDN content, and viewing
-chain/API data.
+Qortium Home is a simple user interface for managing Qortium wallets,
+connecting to a configured node, browsing QDN content, and viewing chain/API
+data.
 
-The aim is to keep the application focused and understandable. Qortal Hub can
-be used as a reference for compatible wallet behavior, QDN concepts, and native
-app patterns, but Qortium Home should remain a smaller application with its own
-clear scope.
+The aim is to keep the application focused, understandable, and Qortium-native,
+with its own clear scope.
 
 ## Early Goals
 
@@ -35,9 +33,13 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: remove legacy compatibility references
+
+Removed legacy compatibility naming from the QDN app bridge and project-facing text. Isolated QDN apps now expose the Qortium-native `qdnRequest` API only, the UI identity lookup uses the `qortium_avatar` thumbnail identifier, and the docs describe Qortium Home as a new-chain application rather than a compatibility layer.
+
 ### 2026-05-31 - app: add qdn app read-only bridge
 
-Added the first QDN app bridge for isolated desktop APP and WEBSITE pages. QDN apps can now call `qortalRequest` or `qdnRequest`, or use the Hub-style message channel, for read-only node and QDN lookups through Qortium Home's currently selected node without exposing the node API key. Write, publish, signing, and wallet-permission requests remain blocked until the explicit permission flow is added.
+Added the first QDN app bridge for isolated desktop APP and WEBSITE pages. QDN apps can now call `qdnRequest` or use Home's message-channel bridge for read-only node and QDN lookups through Qortium Home's currently selected node without exposing the node API key. Write, publish, signing, and wallet-permission requests remain blocked until the explicit permission flow is added.
 
 ### 2026-05-31 - app: isolate desktop qdn app tabs
 
@@ -221,7 +223,7 @@ Added the Qortium Home prototype icon to tracked build resources, generated Linu
 
 ### 2026-05-26 - app: show selected account chip
 
-Added a compact selected-account chip to the top bar for each tab. The chip resolves the account's primary registered name, falls back to the first owned name or saved wallet label, shows a published Qortal avatar when available, and exposes the resolved name, address, and wallet label in a hover tooltip.
+Added a compact selected-account chip to the top bar for each tab. The chip resolves the account's primary registered name, falls back to the first owned name or saved wallet label, shows a published Qortium avatar when available, and exposes the resolved name, address, and wallet label in a hover tooltip.
 
 ### 2026-05-26 - app: assign accounts per tab
 
@@ -333,7 +335,7 @@ Added new wallet creation from Qortium Home. Users can enter and confirm a passw
 
 ### 2026-05-25 - app: load locked wallets
 
-Added desktop wallet loading for Qortal Hub-compatible encrypted wallet files. Qortium Home now stores imported encrypted wallet data in its app data, remembers the selected account across restarts, and lets users unlock a wallet for the current session without writing decrypted seed data to disk.
+Added desktop wallet loading for encrypted wallet files. Qortium Home now stores imported encrypted wallet data in its app data, remembers the selected account across restarts, and lets users unlock a wallet for the current session without writing decrypted seed data to disk.
 
 ### 2026-05-25 - app: add accounts shell
 
@@ -373,4 +375,4 @@ Added the first runnable Qortium Home application scaffold with Vite, React, Typ
 
 ### 2026-05-25 - docs: record initial project plan
 
-Added the initial Qortium Home planning document and changelog. The plan records the chosen React, Vite, TypeScript, Electron, electron-builder, and Capacitor Android stack; the first Linux x64 AppImage target; the initial one-page scope before tabs; Qortal Hub-compatible wallet import/export with future derived-address support; Qortium Previewnet and custom node connection options; and the features intentionally deferred until after the first testable scaffold.
+Added the initial Qortium Home planning document and changelog. The plan records the chosen React, Vite, TypeScript, Electron, electron-builder, and Capacitor Android stack; the first Linux x64 AppImage target; the initial one-page scope before tabs; Qortium wallet import/export with future derived-address support; Qortium Previewnet and custom node connection options; and the features intentionally deferred until after the first testable scaffold.

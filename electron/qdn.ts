@@ -833,7 +833,7 @@ async function handleQdnAppRequest(value: unknown) {
     }
 
     case 'WHICH_UI':
-      return 'HUB_ELECTRON';
+      return 'QORTIUM_HOME_ELECTRON';
 
     case 'SHOW_ACTIONS':
       return [

@@ -622,7 +622,7 @@ async function getAccountProfile(accountId: string): Promise<AccountProfile> {
       (await getFirstOwnedName(wallet.address, nodeApiUrl))
     : null;
   const avatarUrl = name
-    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/qortal_avatar?async=true`
+    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/qortium_avatar?async=true`
     : null;
 
   return {
