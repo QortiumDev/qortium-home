@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-30 - app: fix android qdn media previews
+
+Changed Android QDN image, audio, and video previews to load the ready resource through the app bridge and display it from a typed blob URL instead of handing the remote node render URL directly to WebView media elements. This keeps desktop streaming behavior unchanged while avoiding Android WebView media-format failures on public Previewnet render responses.
+
 ### 2026-05-30 - app: auto-detect managed core display mode
 
 Changed managed Core startup so Qortium Home runs the bundled preview launcher in participant mode without forcing Java headless mode. Desktop launches can now use the Core launcher's normal GUI/tray auto-detection, while terminal-only environments still fall back to headless mode through the launcher.

@@ -47,14 +47,46 @@ type UpdateInstallerPlugin = {
   installApk: (request: { filePath: string }) => Promise<{ opened?: boolean }>;
 };
 
+type NativeHttpBlobUrlRequest = {
+  contentType?: string;
+  readTimeoutMs?: number;
+  url: string;
+};
+
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
 
 function isAndroid() {
   return Capacitor.getPlatform() === 'android';
 }
 
-function isNativePlatform() {
+export function isNativePlatform() {
   return Capacitor.isNativePlatform();
+}
+
+export async function fetchNativeHttpBlobUrl({
+  contentType,
+  readTimeoutMs = REQUEST_TIMEOUT_MS,
+  url,
+}: NativeHttpBlobUrlRequest) {
+  const response = await CapacitorHttp.get({
+    url,
+    responseType: 'arraybuffer',
+    connectTimeout: REQUEST_TIMEOUT_MS,
+    readTimeout: readTimeoutMs,
+  });
+
+  if (response.status < 200 || response.status >= 300 || typeof response.data !== 'string') {
+    throw new Error(
+      stringifyResponseData(response.data) || `Native HTTP request failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const bytes = base64ToBytes(response.data);
+  const blob = new Blob([bytes], {
+    type: contentType || getContentType(response) || 'application/octet-stream',
+  });
+
+  return URL.createObjectURL(blob);
 }
 
 function getFallbackUpdatePlatformOs(): QortiumAppUpdatePlatformOs {

@@ -11,6 +11,7 @@ import {
   getQdnViewerKind,
   isTerminalQdnStatus,
 } from './qdn';
+import { fetchNativeHttpBlobUrl, isNativePlatform } from './platform';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -269,6 +270,60 @@ async function verifyRenderUrl(renderUrl: string, signal: AbortSignal) {
   await response.body?.cancel();
 }
 
+function shouldUseBlobRenderUrl(viewerKind: QdnViewerKind) {
+  return isNativePlatform() && (viewerKind === 'audio' || viewerKind === 'image' || viewerKind === 'video');
+}
+
+function getBlobContentType(viewerKind: QdnViewerKind, mimeType = '', responseContentType = '') {
+  if (viewerKind === 'audio' && (!mimeType || mimeType === 'application/ogg')) {
+    return 'audio/ogg';
+  }
+
+  if (viewerKind === 'video' && (!mimeType || mimeType === 'application/octet-stream')) {
+    return 'video/webm';
+  }
+
+  return mimeType || responseContentType || 'application/octet-stream';
+}
+
+async function createBlobRenderUrl({
+  mimeType,
+  renderUrl,
+  signal,
+  viewerKind,
+}: {
+  mimeType?: string;
+  renderUrl: string;
+  signal: AbortSignal;
+  viewerKind: QdnViewerKind;
+}) {
+  if (isNativePlatform()) {
+    return fetchNativeHttpBlobUrl({
+      contentType: getBlobContentType(viewerKind, mimeType),
+      readTimeoutMs: 120_000,
+      url: renderUrl,
+    });
+  }
+
+  const response = await fetch(renderUrl, { signal });
+
+  if (response.status === 404) {
+    throw new Error('File not found.');
+  }
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `QDN render request failed with HTTP ${response.status}.`);
+  }
+
+  const responseContentType = response.headers.get('content-type') ?? '';
+  const contentType = getBlobContentType(viewerKind, mimeType, responseContentType);
+  const blob = await response.blob();
+  const typedBlob = blob.type === contentType ? blob : blob.slice(0, blob.size, contentType);
+
+  return URL.createObjectURL(typedBlob);
+}
+
 function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryToken: number) {
   const [state, setState] = useState<QdnViewerState>({
     phase: 'loading',
@@ -281,6 +336,7 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
     let isDisposed = false;
     let timeoutId: number | undefined;
     let hasTriggeredDownload = false;
+    let blobRenderUrl: string | undefined;
 
     function setSafeState(nextState: QdnViewerState) {
       if (!isDisposed) {
@@ -308,13 +364,31 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
 
     async function setReadyState(status: QdnResourceStatus) {
       const viewerKind = getQdnViewerKind(resource.service);
-      const renderUrl = buildQdnRenderUrl(resource, nodeApiUrl);
+      const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl);
+      const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
 
-      if (viewerKind === 'iframe' || viewerKind === 'image') {
-        await verifyRenderUrl(renderUrl, abortController.signal);
+      if (viewerKind === 'iframe' || (viewerKind === 'image' && !useBlobRenderUrl)) {
+        await verifyRenderUrl(directRenderUrl, abortController.signal);
       }
 
       const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
+      let renderUrl = directRenderUrl;
+
+      if (useBlobRenderUrl) {
+        renderUrl = await createBlobRenderUrl({
+          mimeType: properties?.mimeType,
+          renderUrl: directRenderUrl,
+          signal: abortController.signal,
+          viewerKind,
+        });
+
+        if (isDisposed) {
+          URL.revokeObjectURL(renderUrl);
+          return;
+        }
+
+        blobRenderUrl = renderUrl;
+      }
 
       setSafeState({
         phase: 'ready',
@@ -404,6 +478,10 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
 
       if (timeoutId) {
         window.clearTimeout(timeoutId);
+      }
+
+      if (blobRenderUrl) {
+        URL.revokeObjectURL(blobRenderUrl);
       }
     };
   }, [nodeApiUrl, resource, resourceKey, retryToken]);
