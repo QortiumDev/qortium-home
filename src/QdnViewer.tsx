@@ -572,14 +572,23 @@ function QdnDownloadButton({
   resource: QdnResource;
 }) {
   const [downloadState, setDownloadState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
+  const opensNativeDownload = isNativePlatform();
   const buttonLabel =
     downloadState === 'saving'
-      ? 'Saving'
+      ? opensNativeDownload
+        ? 'Opening'
+        : 'Saving'
       : downloadState === 'saved'
-        ? 'Saved'
+        ? opensNativeDownload
+          ? 'Opened'
+          : 'Saved'
         : downloadState === 'error'
-          ? 'Save failed'
-          : 'Download';
+          ? opensNativeDownload
+            ? 'Open failed'
+            : 'Save failed'
+          : opensNativeDownload
+            ? 'Open'
+            : 'Download';
 
   useEffect(() => {
     if (downloadState !== 'saved' && downloadState !== 'error') {
@@ -1162,7 +1171,7 @@ function QdnReadyContent({
     return (
       <QdnDetailsContent
         loadedResource={loadedResource}
-        message="This resource is ready to download."
+        message={isNativePlatform() ? 'This resource is ready to open.' : 'This resource is ready to download.'}
         resource={resource}
       />
     );

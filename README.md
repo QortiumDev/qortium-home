@@ -225,6 +225,17 @@ Previewnet node through `http://10.0.2.2:24891`, opens the `IMAGE`, `AUDIO`, and
 `VIDEO` QDN fixtures, and verifies that Android loads them through blob URLs
 with image dimensions or media metadata available and no viewer error message.
 
+Smoke-test Android QDN file download/open handoff against the default emulator:
+
+```sh
+npm run smoke:android:qdn-download
+```
+
+The download smoke uses the newest debug APK, points Android at the host's local
+Previewnet node through `http://10.0.2.2:24891`, opens the `FILE` QDN fixture,
+uses the native Open action, verifies that the file was saved under Home's
+private Android app data, and confirms Android received the open handoff.
+
 Smoke-test the Android update install handoff against the default emulator:
 
 ```sh
@@ -316,8 +327,9 @@ network discovery: it starts from the public seed API URLs, calls `/peers/known`
 converts discovered peer addresses to candidate API URLs, and uses a reachable
 node for read-only QDN/API browsing. Candidate nodes are preferred when they
 answer both `/admin/status` and a public QDN resource-search probe. Users can
-still choose a custom LAN or remote node URL. Android wallet file
-creation/loading and QDN file downloads are intentionally still desktop-only.
+still choose a custom LAN or remote node URL. Android can open file-style QDN
+resources through the native Android chooser, while wallet file creation/loading
+is intentionally still desktop-only.
 
 Desktop still defaults to a local node at `http://127.0.0.1:24891`, but users
 without a local node can also choose Previewnet network discovery from the node

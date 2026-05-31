@@ -29,6 +29,7 @@
     "android:open": "npm run android:sync && cap open android",
     "dist:android:debug": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "smoke:android:qdn-bridge": "node scripts/smoke-android-qdn-bridge.mjs",
+    "smoke:android:qdn-download": "node scripts/smoke-android-qdn-download.mjs",
     "smoke:android:qdn-media": "node scripts/smoke-android-qdn-media.mjs",
     "smoke:android:update-install": "node scripts/smoke-android-update-install.mjs",
     "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",

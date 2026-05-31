@@ -283,7 +283,10 @@ type QortiumQdnDownloadResult =
     }
   | {
       canceled: false;
+      fileName?: string;
       filePath: string;
+      opened?: boolean;
+      size?: number;
     };
 
 type QortiumQdnViewBounds = {

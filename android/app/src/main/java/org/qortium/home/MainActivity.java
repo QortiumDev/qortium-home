@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
+        registerPlugin(QdnFileOpenerPlugin.class);
         registerPlugin(UpdateInstallerPlugin.class);
         super.onCreate(savedInstanceState);
         getBridge().setWebViewClient(new QdnBridgeWebViewClient(getBridge()));

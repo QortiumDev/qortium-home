@@ -3,4 +3,5 @@
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
     <files-path name="app_updates" path="app-updates/" />
+    <files-path name="qdn_downloads" path="qdn-downloads/" />
 </paths>

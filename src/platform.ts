@@ -7,6 +7,7 @@ import { PUBLIC_QDN_SERVICES } from './qdn';
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
 const NODE_DISCOVERY_CACHE_KEY = 'qortium-home-node-discovery-cache';
 const UPDATE_DOWNLOADS_DIR = 'app-updates';
+const QDN_DOWNLOADS_DIR = 'qdn-downloads';
 const DESKTOP_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const ANDROID_EMULATOR_LOCAL_NODE_API_URL = 'http://10.0.2.2:24891';
 const PREVIEWNET_API_PORT = '24891';
@@ -68,6 +69,10 @@ type UpdateInstallerPlugin = {
   installApk: (request: { filePath: string }) => Promise<{ opened?: boolean }>;
 };
 
+type QdnFileOpenerPlugin = {
+  openFile: (request: { filePath: string; mimeType?: string }) => Promise<{ opened?: boolean }>;
+};
+
 type NativeHttpBlobUrlRequest = {
   contentType?: string;
   readTimeoutMs?: number;
@@ -91,6 +96,7 @@ type QdnAppResourceRequest = {
 };
 
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
+const QdnFileOpener = registerPlugin<QdnFileOpenerPlugin>('QdnFileOpener');
 
 function isAndroid() {
   return Capacitor.getPlatform() === 'android';
@@ -244,6 +250,12 @@ function normalizeExternalUrl(value: string) {
 
 function sanitizePathSegment(value: string, fallback: string) {
   return value.replace(/[^a-z0-9._-]/gi, '_') || fallback;
+}
+
+function sanitizeFilename(value: string, fallback: string) {
+  const sanitized = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, ' ').trim();
+
+  return sanitized.slice(0, 180) || fallback;
 }
 
 function normalizeUpdateDigest(value: string | null) {
@@ -913,7 +925,7 @@ function stringifyResponseData(data: unknown) {
 async function requestNode(
   nodeApiUrl: string,
   pathname: string,
-  responseType: 'json' | 'text' = 'text',
+  responseType: 'arraybuffer' | 'json' | 'text' = 'text',
   timeoutMs = REQUEST_TIMEOUT_MS,
   method: 'GET' | 'HEAD' = 'GET',
 ) {
@@ -983,7 +995,7 @@ async function testNodeSettings(settings: StoredNodeSettings): Promise<QortiumNo
 async function requestConfiguredNode(
   settings: StoredNodeSettings,
   pathname: string,
-  responseType: 'json' | 'text' = 'text',
+  responseType: 'arraybuffer' | 'json' | 'text' = 'text',
   method: 'GET' | 'HEAD' = 'GET',
 ) {
   const nodeApiUrl = await resolveNodeApiUrl(settings);
@@ -1227,7 +1239,7 @@ function splitPathAndQuery(resourcePath: string) {
   };
 }
 
-function buildRawResourcePath(resource: QortiumQdnRawResourceRequest) {
+function buildRawResourcePath(resource: QortiumQdnRawResourceRequest, attachment = false) {
   const normalizedResource = normalizeResourceRequest(resource);
   const identifierPath = normalizedResource.identifier
     ? `/${encodeURIComponent(normalizedResource.identifier)}`
@@ -1239,11 +1251,53 @@ function buildRawResourcePath(resource: QortiumQdnRawResourceRequest) {
     queryParams.set('filepath', pathOnly);
   }
 
+  if (attachment) {
+    queryParams.set('attachment', 'true');
+  }
+
   const rawQueryString = queryParams.toString();
 
   return `/arbitrary/${normalizedResource.service}/${encodeURIComponent(
     normalizedResource.name,
   )}${identifierPath}${rawQueryString ? `?${rawQueryString}` : ''}`;
+}
+
+function getSuggestedQdnDownloadFilename(request: QortiumQdnRawResourceRequest) {
+  const requestedFilename = getString(request.suggestedFilename);
+
+  if (requestedFilename) {
+    return sanitizeFilename(requestedFilename, 'qdn-resource');
+  }
+
+  const resource = normalizeResourceRequest(request);
+
+  return sanitizeFilename(
+    `${resource.service}_${resource.name}_${resource.identifier ?? 'default'}`,
+    'qdn-resource',
+  );
+}
+
+async function fetchConfiguredRawResourceBase64(request: QortiumQdnRawResourceRequest) {
+  const settings = await readNodeSettings();
+  const { response } = await requestConfiguredNode(settings, buildRawResourcePath(request, true), 'arraybuffer');
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      response.status === 403 && settings.mode === 'network'
+        ? getNetworkRestrictionMessage()
+        : `QDN raw resource request failed with HTTP ${response.status}.`,
+    );
+  }
+
+  if (typeof response.data !== 'string') {
+    throw new Error('QDN raw resource response was not binary data.');
+  }
+
+  return {
+    content: response.data,
+    contentLength: getContentLength(response) ?? base64ToBytes(response.data).byteLength,
+    contentType: getContentType(response),
+  };
 }
 
 function getQdnAppResourceRequest(request: QdnAppRequest): QdnAppResourceRequest {
@@ -1706,8 +1760,39 @@ function createFallbackApi(): PlatformApi {
           tooLarge: false,
         };
       },
-      async downloadResource() {
-        throw new Error('Saving QDN downloads is only available in the desktop app right now.');
+      async downloadResource(request) {
+        if (!isAndroid()) {
+          throw new Error('Saving QDN downloads is only available in the desktop app and Android app.');
+        }
+
+        const fileName = getSuggestedQdnDownloadFilename(request);
+        const downloadPath = `${QDN_DOWNLOADS_DIR}/${Date.now()}-${fileName}`;
+        const downloadedResource = await fetchConfiguredRawResourceBase64(request);
+
+        await Filesystem.writeFile({
+          path: downloadPath,
+          data: downloadedResource.content,
+          directory: Directory.Data,
+          recursive: true,
+        });
+
+        const fileUri = await Filesystem.getUri({
+          path: downloadPath,
+          directory: Directory.Data,
+        });
+
+        await QdnFileOpener.openFile({
+          filePath: fileUri.uri,
+          mimeType: downloadedResource.contentType || undefined,
+        });
+
+        return {
+          canceled: false,
+          fileName,
+          filePath: fileUri.uri,
+          opened: true,
+          size: downloadedResource.contentLength,
+        };
       },
     },
   };
