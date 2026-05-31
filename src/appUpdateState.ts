@@ -37,7 +37,9 @@ export function getDefaultUpdateChannel(
   return environment?.currentVersion.includes('-') ? 'prerelease' : 'stable';
 }
 
-export function getUpdateStatusKind(result: QortiumAppUpdateCheckResult | null): UpdateMessage['kind'] {
+export function getUpdateStatusKind(
+  result: QortiumAppUpdateCheckResult | null,
+): NonNullable<UpdateMessage>['kind'] | null {
   if (!result) {
     return null;
   }

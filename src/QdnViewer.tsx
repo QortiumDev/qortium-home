@@ -979,33 +979,37 @@ function QdnIsolatedFrameContent({
       return undefined;
     }
 
+    const activeQdnViews = qdnViews;
+    const initialContainer = container;
     let isDisposed = false;
     let animationFrameId = 0;
 
     function syncBounds() {
-      if (isDisposed || !containerRef.current) {
+      const currentContainer = containerRef.current;
+
+      if (isDisposed || !currentContainer) {
         return;
       }
 
-      const bounds = getElementBounds(containerRef.current);
+      const bounds = getElementBounds(currentContainer);
 
       if (areViewBoundsEqual(lastBoundsRef.current, bounds)) {
         return;
       }
 
       lastBoundsRef.current = bounds;
-      void qdnViews.setBounds({ tabId, bounds }).catch((error) => {
+      void activeQdnViews.setBounds({ tabId, bounds }).catch((error) => {
         console.warn('Unable to resize isolated QDN view.', error);
       });
     }
 
     async function showView() {
-      const bounds = getElementBounds(container);
+      const bounds = getElementBounds(initialContainer);
 
       lastBoundsRef.current = bounds;
 
       try {
-        await qdnViews.show({
+        await activeQdnViews.show({
           accountId,
           bounds,
           nodeApiUrl,

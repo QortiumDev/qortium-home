@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - build: fix renderer type check
+
+Fixed the renderer TypeScript check. The isolated QDN view effect now keeps narrowed non-null references for its view API and container before using them inside nested callbacks, and the app update status helper now uses a non-null update-message kind type instead of indexing into a nullable union.
+
 ### 2026-05-31 - app: add android wallet loading
 
 Added the first Android wallet loading flow. Android can now import an existing encrypted wallet JSON file through the native WebView file picker, save the encrypted wallet metadata in app-private storage, select the wallet for tabs, unlock or remove it with the wallet password, keep decrypted seed material in memory only for the current app session, and use the selected node to show the account name or avatar when available.
