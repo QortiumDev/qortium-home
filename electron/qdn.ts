@@ -8,11 +8,20 @@ import { getNodeConnection } from './node-settings.js';
 import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
 
 const PREVIEW_API_KEY_PATH = path.join(os.homedir(), 'git', 'qortium', 'preview', 'apikey.txt');
+const PREVIEW_ACCOUNTS_PATH = path.join(
+  os.homedir(),
+  'git',
+  'qortium',
+  'preview',
+  'secrets',
+  'initial-minting-accounts.json',
+);
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
+const QDN_WRITE_SMOKE_ROLE = 'local';
 const PUBLIC_QDN_SERVICES = new Set([
   'APP',
   'WEBSITE',
@@ -115,6 +124,20 @@ type QdnWriteSourceSelection = {
   displayName: string;
   kind: 'directory' | 'file';
   path: string;
+};
+
+type QdnWriteProfile = {
+  accountId: string;
+  address: string;
+  avatarUrl: string | null;
+  label: string;
+  name: string | null;
+};
+
+type QdnWriteContext = {
+  connection: NodeConnection;
+  privateKey58: string;
+  profile: QdnWriteProfile;
 };
 
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
@@ -363,6 +386,84 @@ function readNodeApiKey() {
   }
 
   return readTrimmedFile(PREVIEW_API_KEY_PATH);
+}
+
+function isQdnWriteSmokeMode() {
+  return !app.isPackaged && process.env.QORTIUM_HOME_QDN_WRITE_SMOKE === '1';
+}
+
+function getQdnWriteSmokeSourceSelection() {
+  if (!isQdnWriteSmokeMode()) {
+    return null;
+  }
+
+  const sourcePath = getString(process.env.QORTIUM_HOME_QDN_WRITE_SMOKE_SOURCE);
+
+  if (!sourcePath) {
+    throw new Error('QDN write smoke source path was not set.');
+  }
+
+  const expandedSourcePath = expandHomePath(sourcePath);
+
+  if (!existsSync(expandedSourcePath)) {
+    throw new Error('QDN write smoke source path does not exist.');
+  }
+
+  return {
+    displayName: path.basename(expandedSourcePath) || 'Smoke source',
+    kind: getQdnWriteSourceKind(expandedSourcePath),
+    path: expandedSourcePath,
+  } satisfies QdnWriteSourceSelection;
+}
+
+function getQdnWriteSmokeAccount(resource: QdnWriteResourceRequest) {
+  const accountsPath = expandHomePath(
+    getString(process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH) || PREVIEW_ACCOUNTS_PATH,
+  );
+  const role = getString(process.env.QORTIUM_HOME_SMOKE_ACCOUNT_ROLE) || QDN_WRITE_SMOKE_ROLE;
+  const allowedName = getString(process.env.QORTIUM_HOME_QDN_WRITE_SMOKE_NAME);
+
+  if (allowedName && resource.name !== allowedName) {
+    throw new Error('QDN write smoke request did not match the configured publish name.');
+  }
+
+  let parsedAccounts: unknown;
+
+  try {
+    parsedAccounts = JSON.parse(readFileSync(accountsPath, 'utf8'));
+  } catch {
+    throw new Error('QDN write smoke preview account file could not be read.');
+  }
+
+  if (!isRecord(parsedAccounts) || !Array.isArray(parsedAccounts.accounts)) {
+    throw new Error('QDN write smoke preview account file is invalid.');
+  }
+
+  const account = parsedAccounts.accounts.find(
+    (candidate) => isRecord(candidate) && getString(candidate.role) === role,
+  );
+
+  if (!isRecord(account)) {
+    throw new Error(`QDN write smoke preview account role was not found: ${role}.`);
+  }
+
+  const address = getString(account.accountAddress);
+  const privateKey58 = getString(account.accountPrivateKey);
+
+  if (!address || !privateKey58) {
+    throw new Error('QDN write smoke preview account is missing account address or private key.');
+  }
+
+  return {
+    privateKey58,
+    profile: {
+      accountId: `preview:${role}`,
+      address,
+      avatarUrl: null,
+      label: `Preview ${role}`,
+      name: resource.name,
+    } satisfies QdnWriteProfile,
+  };
 }
 
 function getString(value: unknown) {
@@ -1016,6 +1117,12 @@ function getQdnWriteSourceKind(filePath: string): QdnWriteSourceSelection['kind'
 }
 
 async function selectQdnPublishSource(context: QdnViewContext) {
+  const smokeSource = getQdnWriteSmokeSourceSelection();
+
+  if (smokeSource) {
+    return smokeSource;
+  }
+
   const hostWindow = getQdnViewHostWindow(context);
 
   if (!hostWindow) {
@@ -1041,24 +1148,41 @@ async function selectQdnPublishSource(context: QdnViewContext) {
   } satisfies QdnWriteSourceSelection;
 }
 
-async function getQdnWriteContext(context: QdnViewContext | null) {
-  const accountId = getQdnWriteAccountId(context);
-  const profile = await getAccountProfile(accountId);
+async function getQdnWriteContext(
+  context: QdnViewContext | null,
+  resource: QdnWriteResourceRequest,
+): Promise<QdnWriteContext> {
   const connection = await getNodeConnection();
 
-  assertAccountUnlocked(accountId);
   assertLocalWriteConnection(connection);
 
+  if (isQdnWriteSmokeMode()) {
+    const smokeAccount = getQdnWriteSmokeAccount(resource);
+
+    return {
+      connection,
+      privateKey58: smokeAccount.privateKey58,
+      profile: smokeAccount.profile,
+    };
+  }
+
+  const accountId = getQdnWriteAccountId(context);
+  const profile = await getAccountProfile(accountId);
+
+  assertAccountUnlocked(accountId);
+
+  const signingKey = getAccountSigningKey(accountId);
+
   return {
-    accountId,
     connection,
+    privateKey58: signingKey.privateKey58,
     profile,
   };
 }
 
 async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   const resource = getQdnWriteResourceRequest(request);
-  const writeContext = await getQdnWriteContext(context);
+  const writeContext = await getQdnWriteContext(context, resource);
   const source = await selectQdnPublishSource(context as QdnViewContext);
 
   if (!source) {
@@ -1074,7 +1198,6 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnView
   );
 
   const apiKey = getNodeApiKey();
-  const signingKey = getAccountSigningKey(writeContext.accountId);
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
     buildQdnPublishPath(resource),
@@ -1085,7 +1208,7 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnView
   const processedTransaction = await signAndProcessTransaction(
     writeContext.connection,
     apiKey,
-    signingKey.privateKey58,
+    writeContext.privateKey58,
     unsignedTransaction.body,
   );
 
@@ -1103,7 +1226,7 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnView
 
 async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   const resource = getQdnWriteResourceRequest(request);
-  const writeContext = await getQdnWriteContext(context);
+  const writeContext = await getQdnWriteContext(context, resource);
 
   await requestQdnWriteApproval(
     context as QdnViewContext,
@@ -1113,7 +1236,6 @@ async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewC
   );
 
   const apiKey = getNodeApiKey();
-  const signingKey = getAccountSigningKey(writeContext.accountId);
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
     buildQdnDeletePath(resource),
@@ -1124,7 +1246,7 @@ async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnViewC
   const processedTransaction = await signAndProcessTransaction(
     writeContext.connection,
     apiKey,
-    signingKey.privateKey58,
+    writeContext.privateKey58,
     unsignedTransaction.body,
   );
 

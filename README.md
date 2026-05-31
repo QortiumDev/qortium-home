@@ -202,6 +202,21 @@ when one is present, or starts the `qortium_home_api36` AVD in headless mode.
 Set `ANDROID_AVD_HOME`, `QORTIUM_HOME_ANDROID_AVD`, or
 `QORTIUM_HOME_KEEP_ANDROID_EMULATOR=1` to override those defaults.
 
+Smoke-test desktop QDN app publish/delete writes against the local Core:
+
+```sh
+npm run smoke:desktop:qdn-write
+```
+
+This command starts the desktop development app, opens the APP fixture, approves
+one QDN publish and one delete request through the UI, and signs with the ignored
+preview account file at `~/git/qortium/preview/secrets/initial-minting-accounts.json`.
+It expects the local Previewnet node, API key, and QDN preview APP fixture to
+already be available. Set `QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH`,
+`QORTIUM_HOME_NODE_API_KEY`, `QORTIUM_HOME_NODE_API_KEY_PATH`,
+`QORTIUM_HOME_SMOKE_ACCOUNT_ROLE`, or `QORTIUM_HOME_SMOKE_PUBLISH_NAME` to
+override those defaults.
+
 Release artifacts are written to `dist-release/`. Generated build output should
 not be committed to git.
 
