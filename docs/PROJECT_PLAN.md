@@ -1,6 +1,6 @@
 # Qortium Home Project Plan
 
-Last updated: 2026-05-27
+Last updated: 2026-05-31
 
 ## Purpose
 
@@ -48,8 +48,8 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Load direct API endpoint URLs so users can inspect chain data inside the UI.
   - Support read-only direct node API endpoint viewing through the address bar.
   - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
-  - Add `qdnRequest` requests from QDN apps later.
-  - When `qdnRequest` support is added, prompt the user before approving requests that are not read-only, especially signing requests.
+  - Expose strict Qortium-native `qdnRequest` object requests to isolated desktop APP and WEBSITE pages for read-only node and QDN lookups.
+  - When write-style `qdnRequest` support is added, prompt the user before approving requests, especially signing requests.
   - Future permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
   - Support preinstalled or externally managed Core.
@@ -188,7 +188,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Complex theming or a large design system before the core workflows exist.
 - A full Qortium Core implementation inside the UI app. The UI should manage and launch the core rather than reimplement it.
 - Running Qortium Core locally inside the Android APK for the initial version.
-- `qdnRequest` request handling in the first scaffold.
+- Android `qdnRequest` bridge parity in the first scaffold.
 - Chat send, name registration, QDN publish, QDN delete, and group join in the
   public preview browser surface.
 - Android wallet file creation, wallet file loading, and QDN file downloads in the first Android scaffold.
@@ -204,8 +204,7 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Should tab account selections persist across restarts, or stay session-only with the current tabs?
 - Should account context be changeable while a QDN app or page is already loaded?
 - What exact permission prompts are needed when QDN apps request account access or signing capability?
-- Which `qdnRequest` actions are read-only and can be allowed without prompting?
-- Which `qdnRequest` actions must always require explicit user approval?
+- Which future write-style `qdnRequest` actions must always require explicit user approval?
 - Should persistent qdnRequest permissions be keyed by app, tab/session, wallet, derived address, and action?
 - When should Qortium Home add multiple saved custom node addresses beyond the first single custom slot?
 - For future core management, which Qortium-specific app data folders should Home use for installs and unpacked releases?

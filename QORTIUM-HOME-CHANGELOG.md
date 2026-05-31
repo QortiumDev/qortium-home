@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: tighten qdn app api bridge
+
+Tightened the isolated QDN app bridge into a stricter Qortium-native API. Desktop APP and WEBSITE pages now use `qdnRequest` object requests only, arbitrary node API reads go through the explicit `FETCH_NODE_API` action, and the old alias/message-channel request forms are no longer accepted while write, publish, signing, and wallet-permission requests remain blocked for a later approval flow.
+
 ### 2026-05-31 - app: remove legacy compatibility references
 
 Removed legacy compatibility naming from the QDN app bridge and project-facing text. Isolated QDN apps now expose the Qortium-native `qdnRequest` API only, the UI identity lookup uses the `qortium_avatar` thumbnail identifier, and the docs describe Qortium Home as a new-chain application rather than a compatibility layer.

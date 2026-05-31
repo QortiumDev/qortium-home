@@ -753,21 +753,18 @@ async function getQdnResourceUrl(request: QdnAppRequest) {
 }
 
 async function handleQdnAppRequest(value: unknown) {
-  const request: QdnAppRequest =
-    typeof value === 'string'
-      ? { action: 'GET_NODE_API', path: value }
-      : isRecord(value)
-        ? value
-        : {};
+  if (!isRecord(value)) {
+    throw new Error('QDN app requests must be objects.');
+  }
+
+  const request: QdnAppRequest = value;
   const action = getString(request.action).toUpperCase();
 
-  if (!action && getString(request.path)) {
-    return handleQdnAppRequest({ ...request, action: 'GET_NODE_API' });
+  if (!action) {
+    throw new Error('QDN app request action is required.');
   }
 
   switch (action) {
-    case 'GET_API':
-    case 'GET_NODE_API':
     case 'FETCH_NODE_API': {
       const apiPath = getNodeApiPath(getRequestValue(request, 'path'), 'http://127.0.0.1');
       const method = getReadOnlyMethod(getRequestValue(request, 'method'));
@@ -841,10 +838,8 @@ async function handleQdnAppRequest(value: unknown) {
         'FETCH_QDN_RESOURCE',
         'GET_ACCOUNT_DATA',
         'GET_ACCOUNT_NAMES',
-        'GET_API',
         'GET_BALANCE',
         'GET_NAME_DATA',
-        'GET_NODE_API',
         'GET_NODE_INFO',
         'GET_NODE_STATUS',
         'GET_QDN_RESOURCE_METADATA',
