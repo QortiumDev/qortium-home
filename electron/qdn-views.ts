@@ -4,10 +4,14 @@ import {
   ipcMain,
   type IpcMainInvokeEvent,
   type Rectangle,
+  type WebContents,
 } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 type QdnViewEntry = {
   currentUrl: string | null;
@@ -31,6 +35,13 @@ type SanitizedBoundsRequest = {
 
 const qdnViewsByWindow = new Map<number, Map<string, QdnViewEntry>>();
 const watchedWindowIds = new Set<number>();
+
+export type QdnViewContext = {
+  currentUrl: string | null;
+  nodeOrigin: string;
+  tabId: string;
+  windowId: number;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -212,6 +223,23 @@ function getPartition(window: BrowserWindow, tabId: string) {
   return `qortium-home-tab-${window.webContents.id}-${tabId}`;
 }
 
+export function getQdnViewContextForWebContents(webContents: WebContents): QdnViewContext | null {
+  for (const [windowId, windowViews] of qdnViewsByWindow) {
+    for (const entry of windowViews.values()) {
+      if (entry.view.webContents.id === webContents.id) {
+        return {
+          currentUrl: entry.currentUrl,
+          nodeOrigin: entry.nodeOrigin,
+          tabId: entry.tabId,
+          windowId,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 function applyViewGuards(entry: QdnViewEntry) {
   entry.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   entry.view.webContents.on('will-navigate', (event, url) => {
@@ -252,6 +280,7 @@ function createViewEntry(window: BrowserWindow, tabId: string, nodeOrigin: strin
         contextIsolation: true,
         nodeIntegration: false,
         partition: getPartition(window, tabId),
+        preload: path.join(__dirname, 'qdn-app-preload.cjs'),
         sandbox: true,
       },
     }),

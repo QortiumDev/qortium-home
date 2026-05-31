@@ -3,8 +3,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getNodeConnection } from './node-settings.js';
+import { getQdnViewContextForWebContents } from './qdn-views.js';
 
 const PREVIEW_API_KEY_PATH = path.join(os.homedir(), 'git', 'qortium', 'preview', 'apikey.txt');
+const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const PUBLIC_QDN_SERVICES = new Set([
   'APP',
   'WEBSITE',
@@ -73,6 +76,15 @@ type NodeApiRequest = {
   path?: unknown;
 };
 
+type QdnAppRequest = {
+  action?: unknown;
+  maxBytes?: unknown;
+  method?: unknown;
+  path?: unknown;
+  payload?: unknown;
+  [key: string]: unknown;
+};
+
 type QdnResourceRequest = {
   identifier?: string;
   name: string;
@@ -81,6 +93,17 @@ type QdnResourceRequest = {
 };
 
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
+
+type NodeApiFetchResult = {
+  body: string;
+  contentLength?: number;
+  contentType: string;
+  data: unknown;
+  headers: Record<string, string>;
+  ok: boolean;
+  status: number;
+  statusText: string;
+};
 
 function expandHomePath(filePath: string) {
   if (filePath === '~') {
@@ -134,6 +157,30 @@ function getNumber(value: unknown) {
 
 function getBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getRequestPayload(request: QdnAppRequest) {
+  return isRecord(request.payload) ? request.payload : request;
+}
+
+function getRequestValue(request: QdnAppRequest, key: string) {
+  const payload = getRequestPayload(request);
+
+  return payload[key] ?? request[key];
+}
+
+function getRequiredRequestString(request: QdnAppRequest, key: string, label: string) {
+  const value = getString(getRequestValue(request, key));
+
+  if (!value) {
+    throw new Error(`${label} is required.`);
+  }
+
+  return value;
 }
 
 function getAuthorizeRequest(value: QdnAuthorizeResourceRequest) {
@@ -428,7 +475,402 @@ function buildResourcesSearchPath(request: QdnResourcesSearchRequest) {
   return `/arbitrary/resources/search?${queryParams.toString()}`;
 }
 
+function getQdnAppMaxBytes(value: unknown) {
+  const maxBytes = Math.floor(getNumber(value) ?? QDN_APP_DEFAULT_MAX_BYTES);
+
+  return Math.max(0, Math.min(maxBytes, QDN_APP_MAX_BYTES_LIMIT));
+}
+
+function getReadOnlyMethod(value: unknown) {
+  const method = getString(value).toUpperCase() || 'GET';
+
+  if (method !== 'GET' && method !== 'HEAD') {
+    throw new Error('QDN app node API requests only support GET and HEAD right now.');
+  }
+
+  return method;
+}
+
+function getHeaders(response: Response) {
+  const headers: Record<string, string> = {};
+
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+
+  return headers;
+}
+
+function parseResponseData(body: string, contentType: string) {
+  const normalizedContentType = contentType.toLowerCase();
+
+  if (!body) {
+    return null;
+  }
+
+  if (
+    normalizedContentType.includes('json') ||
+    body.trimStart().startsWith('{') ||
+    body.trimStart().startsWith('[')
+  ) {
+    try {
+      return JSON.parse(body) as unknown;
+    } catch {
+      return body;
+    }
+  }
+
+  return body;
+}
+
+async function readNodeApiResponse(
+  response: Response,
+  connection: NodeConnection,
+  maxBytes: number,
+  readBody = true,
+): Promise<NodeApiFetchResult> {
+  const contentLength = getContentLength(response);
+  const contentType = response.headers.get('content-type') ?? '';
+  const headers = getHeaders(response);
+
+  if (maxBytes > 0 && typeof contentLength === 'number' && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error(`Node API response exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  const rawBody = readBody ? await response.text() : '';
+  const body =
+    response.status === 403 && connection.mode === 'network'
+      ? getNetworkRestrictionMessage()
+      : rawBody;
+  const bodyLength = Buffer.byteLength(body, 'utf8');
+
+  if (maxBytes > 0 && bodyLength > maxBytes) {
+    throw new Error(`Node API response exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  return {
+    body,
+    contentLength: contentLength ?? bodyLength,
+    contentType,
+    data: parseResponseData(body, contentType),
+    headers,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  };
+}
+
+async function fetchConfiguredNodeApi(
+  apiPath: string,
+  maxBytes: number,
+  method: 'GET' | 'HEAD' = 'GET',
+) {
+  const { connection, response } = await fetchConfiguredNode(apiPath, { method });
+
+  return readNodeApiResponse(response, connection, maxBytes, method !== 'HEAD');
+}
+
+async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
+  const result = await fetchConfiguredNodeApi(
+    apiPath,
+    getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')),
+  );
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+function getQdnAppResourceRequest(request: QdnAppRequest) {
+  const service = getService(getRequestValue(request, 'service'));
+  const name = getString(getRequestValue(request, 'name'));
+  const identifier = getString(getRequestValue(request, 'identifier'));
+  const resourcePath = getString(getRequestValue(request, 'path')) || getString(getRequestValue(request, 'filepath'));
+
+  if (!service) {
+    throw new Error('QDN resource service is required.');
+  }
+
+  if (!name) {
+    throw new Error('QDN resource name is required.');
+  }
+
+  return {
+    service,
+    name,
+    identifier: identifier || undefined,
+    path: resourcePath,
+  };
+}
+
+function getEncodedResourcePath(resourcePath: string) {
+  return resourcePath
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+function buildQdnResourceStatusPath(request: QdnAppRequest) {
+  const resource = getQdnAppResourceRequest(request);
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  if (typeof getBoolean(getRequestValue(request, 'build')) === 'boolean') {
+    queryParams.set('build', String(getBoolean(getRequestValue(request, 'build'))));
+  }
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/resource/status/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQdnResourcePropertiesPath(request: QdnAppRequest) {
+  const resource = getQdnAppResourceRequest(request);
+
+  return `/arbitrary/resource/properties/${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
+    resource.identifier ?? 'default',
+  )}`;
+}
+
+function buildQdnResourceMetadataPath(request: QdnAppRequest) {
+  const resource = getQdnAppResourceRequest(request);
+
+  return `/arbitrary/metadata/${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
+    resource.identifier ?? 'default',
+  )}`;
+}
+
+function buildFetchQdnResourcePath(request: QdnAppRequest) {
+  const resource = getQdnAppResourceRequest(request);
+  const queryParams = new URLSearchParams();
+
+  if (resource.path) {
+    queryParams.set('filepath', resource.path);
+  }
+
+  for (const key of ['encoding', 'rebuild', 'async']) {
+    const value = getRequestValue(request, key);
+
+    if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+      queryParams.set(key, String(value));
+    }
+  }
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${
+    resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : ''
+  }${queryString ? `?${queryString}` : ''}`;
+}
+
+function appendQueryValue(queryParams: URLSearchParams, key: string, value: unknown) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      appendQueryValue(queryParams, key, item);
+    }
+
+    return;
+  }
+
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    queryParams.append(key, String(value));
+    return;
+  }
+
+  const stringValue = getString(value);
+
+  if (stringValue) {
+    queryParams.append(key, stringValue);
+  }
+}
+
+function buildQdnResourcesPath(request: QdnAppRequest, pathBase: string) {
+  const queryParams = new URLSearchParams();
+  const queryFields: Record<string, string> = {
+    default: 'default',
+    description: 'description',
+    exactMatchNames: 'exactmatchnames',
+    excludeBlocked: 'excludeblocked',
+    followedOnly: 'followedonly',
+    identifier: 'identifier',
+    includeMetadata: 'includemetadata',
+    includeStatus: 'includestatus',
+    keywords: 'keywords',
+    limit: 'limit',
+    mode: 'mode',
+    name: 'name',
+    nameListFilter: 'namefilter',
+    names: 'name',
+    offset: 'offset',
+    prefix: 'prefix',
+    query: 'query',
+    reverse: 'reverse',
+    service: 'service',
+    title: 'title',
+  };
+
+  for (const [requestKey, queryKey] of Object.entries(queryFields)) {
+    appendQueryValue(queryParams, queryKey, getRequestValue(request, requestKey));
+  }
+
+  const queryString = queryParams.toString();
+
+  return `${pathBase}${queryString ? `?${queryString}` : ''}`;
+}
+
+async function getQdnResourceUrl(request: QdnAppRequest) {
+  const resource = getQdnAppResourceRequest(request);
+  const status = await fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
+
+  if (
+    !isRecord(status) ||
+    !status.status ||
+    status.status === 'NOT_PUBLISHED'
+  ) {
+    throw new Error('Resource does not exist.');
+  }
+
+  const connection = await getNodeConnection();
+  const { pathOnly, queryString } = splitPathAndQuery(resource.path);
+  const encodedPath = getEncodedResourcePath(pathOnly);
+  const queryParams = new URLSearchParams(queryString);
+
+  if (resource.identifier) {
+    queryParams.set('identifier', resource.identifier);
+  }
+
+  const renderQueryString = queryParams.toString();
+
+  return `${connection.nodeApiUrl}/render/${resource.service}/${encodeURIComponent(resource.name)}${
+    encodedPath ? `/${encodedPath}` : ''
+  }${renderQueryString ? `?${renderQueryString}` : ''}`;
+}
+
+async function handleQdnAppRequest(value: unknown) {
+  const request: QdnAppRequest =
+    typeof value === 'string'
+      ? { action: 'GET_NODE_API', path: value }
+      : isRecord(value)
+        ? value
+        : {};
+  const action = getString(request.action).toUpperCase();
+
+  if (!action && getString(request.path)) {
+    return handleQdnAppRequest({ ...request, action: 'GET_NODE_API' });
+  }
+
+  switch (action) {
+    case 'GET_API':
+    case 'GET_NODE_API':
+    case 'FETCH_NODE_API': {
+      const apiPath = getNodeApiPath(getRequestValue(request, 'path'), 'http://127.0.0.1');
+      const method = getReadOnlyMethod(getRequestValue(request, 'method'));
+
+      return fetchConfiguredNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')), method);
+    }
+
+    case 'GET_NODE_INFO':
+      return fetchNodeApiPayload('/admin/info', request);
+
+    case 'GET_NODE_STATUS':
+      return fetchNodeApiPayload('/admin/status', request);
+
+    case 'GET_ACCOUNT_DATA':
+      return fetchNodeApiPayload(
+        `/addresses/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
+        request,
+      );
+
+    case 'GET_ACCOUNT_NAMES':
+      return fetchNodeApiPayload(
+        `/names/address/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
+        request,
+      );
+
+    case 'GET_BALANCE':
+      return fetchNodeApiPayload(
+        `/addresses/balance/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
+        request,
+      );
+
+    case 'GET_NAME_DATA':
+      return fetchNodeApiPayload(
+        `/names/${encodeURIComponent(getRequiredRequestString(request, 'name', 'Name'))}`,
+        request,
+      );
+
+    case 'GET_QDN_RESOURCE_METADATA':
+      return fetchNodeApiPayload(buildQdnResourceMetadataPath(request), request);
+
+    case 'GET_QDN_RESOURCE_PROPERTIES':
+      return fetchNodeApiPayload(buildQdnResourcePropertiesPath(request), request);
+
+    case 'GET_QDN_RESOURCE_STATUS':
+      return fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
+
+    case 'GET_QDN_RESOURCE_URL':
+      return getQdnResourceUrl(request);
+
+    case 'FETCH_QDN_RESOURCE':
+      return fetchNodeApiPayload(buildFetchQdnResourcePath(request), request);
+
+    case 'LIST_QDN_RESOURCES':
+      return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources'), request);
+
+    case 'SEARCH_QDN_RESOURCES':
+      return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources/search'), request);
+
+    case 'IS_USING_PUBLIC_NODE': {
+      const connection = await getNodeConnection();
+
+      return connection.mode === 'network';
+    }
+
+    case 'WHICH_UI':
+      return 'HUB_ELECTRON';
+
+    case 'SHOW_ACTIONS':
+      return [
+        'FETCH_NODE_API',
+        'FETCH_QDN_RESOURCE',
+        'GET_ACCOUNT_DATA',
+        'GET_ACCOUNT_NAMES',
+        'GET_API',
+        'GET_BALANCE',
+        'GET_NAME_DATA',
+        'GET_NODE_API',
+        'GET_NODE_INFO',
+        'GET_NODE_STATUS',
+        'GET_QDN_RESOURCE_METADATA',
+        'GET_QDN_RESOURCE_PROPERTIES',
+        'GET_QDN_RESOURCE_STATUS',
+        'GET_QDN_RESOURCE_URL',
+        'IS_USING_PUBLIC_NODE',
+        'LIST_QDN_RESOURCES',
+        'SEARCH_QDN_RESOURCES',
+        'WHICH_UI',
+      ];
+
+    default:
+      throw new Error(`${action || 'This'} QDN app request is not supported yet.`);
+  }
+}
+
 export function registerQdnIpcHandlers() {
+  ipcMain.handle('qdn-app:request', async (event, request: unknown) => {
+    if (!getQdnViewContextForWebContents(event.sender)) {
+      throw new Error('QDN app requests are only available to isolated QDN app views.');
+    }
+
+    return handleQdnAppRequest(request);
+  });
+
   ipcMain.handle('qdn:authorizeResource', async (_event, request: QdnAuthorizeResourceRequest) => {
     const { service, name, identifier } = getAuthorizeRequest(request);
     const connection = await getNodeConnection();

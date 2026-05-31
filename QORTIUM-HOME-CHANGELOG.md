@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add qdn app read-only bridge
+
+Added the first QDN app bridge for isolated desktop APP and WEBSITE pages. QDN apps can now call `qortalRequest` or `qdnRequest`, or use the Hub-style message channel, for read-only node and QDN lookups through Qortium Home's currently selected node without exposing the node API key. Write, publish, signing, and wallet-permission requests remain blocked until the explicit permission flow is added.
+
 ### 2026-05-31 - app: isolate desktop qdn app tabs
 
 Changed desktop QDN APP and WEBSITE pages to render in isolated Electron web contents instead of in the main app iframe. Each browser tab now gets its own temporary in-memory web session, inactive QDN app tabs stay alive while switching tabs during the current app session, and QDN app navigation is limited to the configured node's APP/WEBSITE render URLs. Android and the native image, audio, video, text, and download viewers continue using the existing React-based viewers.
