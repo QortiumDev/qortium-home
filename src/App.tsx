@@ -19,11 +19,19 @@ type BrowserTab = {
   accountId: string | null;
   history: RouteHistoryState;
   id: string;
+  reloadNonce: number;
 };
 
 type BrowserTabState = {
   activeTabId: string;
+  closedTabs: ClosedBrowserTab[];
   tabs: BrowserTab[];
+};
+
+type ClosedBrowserTab = {
+  accountId: string | null;
+  history: RouteHistoryState;
+  label: string;
 };
 
 type TabDropPosition = 'after' | 'before';
@@ -43,12 +51,29 @@ type NavigationSwipeState = {
   startY: number;
 };
 
+type TabCommandActions = {
+  addTab: () => void;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  closeActiveTab: () => void;
+  focusAddressBar: () => void;
+  goBack: () => void;
+  goForward: () => void;
+  reloadActiveTab: () => void;
+  reopenClosedTab: () => void;
+  selectLastTab: () => void;
+  selectNextTab: () => void;
+  selectPreviousTab: () => void;
+  selectTabByIndex: (index: number) => void;
+};
+
 let nextTabId = 1;
 
 const EMPTY_ACCOUNTS_STATE: QortiumAccountsState = {
   accounts: [],
   activeAccountId: null,
 };
+const CLOSED_TAB_HISTORY_LIMIT = 20;
 const NAVIGATION_SWIPE_MIN_DISTANCE_PX = 72;
 const NAVIGATION_SWIPE_MAX_VERTICAL_PX = 80;
 const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
@@ -74,19 +99,50 @@ function formatError(error: unknown) {
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
-function createBrowserTab(accountId: string | null = null): BrowserTab {
+function createBrowserTabId() {
   const id = `tab-${nextTabId}`;
 
   nextTabId += 1;
 
+  return id;
+}
+
+function cloneRouteHistory(history: RouteHistoryState): RouteHistoryState {
+  return {
+    entries: [...history.entries],
+    index: Math.max(0, Math.min(history.entries.length - 1, history.index)),
+  };
+}
+
+function createBrowserTab(accountId: string | null = null, history?: RouteHistoryState): BrowserTab {
   return {
     accountId,
-    id,
-    history: {
+    id: createBrowserTabId(),
+    history: history ? cloneRouteHistory(history) : {
       entries: [DASHBOARD_ROUTE],
       index: 0,
     },
+    reloadNonce: 0,
   };
+}
+
+function createClosedTabSnapshot(tab: BrowserTab): ClosedBrowserTab {
+  return {
+    accountId: tab.accountId,
+    history: cloneRouteHistory(tab.history),
+    label: getTabLabel(tab),
+  };
+}
+
+function createBrowserTabFromClosedTab(tab: ClosedBrowserTab, accountsState: QortiumAccountsState) {
+  const currentRoute = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+  const accountId = accountExists(accountsState, tab.accountId)
+    ? tab.accountId
+    : currentRoute.kind === 'dashboard'
+      ? getDefaultAccountId(accountsState)
+      : null;
+
+  return createBrowserTab(accountId, tab.history);
 }
 
 function createInitialTabState(): BrowserTabState {
@@ -94,6 +150,7 @@ function createInitialTabState(): BrowserTabState {
 
   return {
     activeTabId: tab.id,
+    closedTabs: [],
     tabs: [tab],
   };
 }
@@ -133,6 +190,30 @@ function shouldIgnoreNavigationSwipe(target: EventTarget | null) {
   );
 }
 
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return !!target.closest('input, textarea, select, [contenteditable="true"]');
+}
+
+function isAddressBarShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return !!target.closest('#browser-address');
+}
+
+function isPrimaryShortcutModifier(event: KeyboardEvent) {
+  return event.ctrlKey || event.metaKey;
+}
+
+function shouldUseKeyboardShortcut(event: KeyboardEvent) {
+  return !event.defaultPrevented && !event.isComposing;
+}
+
 export function App() {
   const [accountsState, setAccountsState] = useState<QortiumAccountsState>(EMPTY_ACCOUNTS_STATE);
   const [accountsError, setAccountsError] = useState('');
@@ -140,6 +221,7 @@ export function App() {
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
@@ -147,6 +229,7 @@ export function App() {
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
   const routeHistory = activeTab.history;
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
+  const routeRenderKey = `${activeTab.id}:${activeTab.reloadNonce}:${currentRoute.displayUrl}`;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
@@ -350,10 +433,20 @@ export function App() {
     navigateToRoute(SETTINGS_ROUTE);
   }
 
+  function addClosedTabToHistory(currentClosedTabs: ClosedBrowserTab[], tab: BrowserTab) {
+    const snapshot = createClosedTabSnapshot(tab);
+
+    return [
+      snapshot,
+      ...currentClosedTabs,
+    ].slice(0, CLOSED_TAB_HISTORY_LIMIT);
+  }
+
   function addTab() {
     const tab = createBrowserTab(getDefaultAccountId(accountsState));
 
     setTabState((currentTabState) => ({
+      ...currentTabState,
       tabs: [...currentTabState.tabs, tab],
       activeTabId: tab.id,
     }));
@@ -372,12 +465,77 @@ export function App() {
     });
   }
 
+  function selectTabByIndex(index: number) {
+    setTabState((currentTabState) => {
+      const tab = currentTabState.tabs[index];
+
+      if (!tab) {
+        return currentTabState;
+      }
+
+      return {
+        ...currentTabState,
+        activeTabId: tab.id,
+      };
+    });
+  }
+
+  function selectLastTab() {
+    setTabState((currentTabState) => {
+      const tab = currentTabState.tabs[currentTabState.tabs.length - 1];
+
+      if (!tab) {
+        return currentTabState;
+      }
+
+      return {
+        ...currentTabState,
+        activeTabId: tab.id,
+      };
+    });
+  }
+
+  function selectRelativeTab(direction: -1 | 1) {
+    setTabState((currentTabState) => {
+      const currentIndex = currentTabState.tabs.findIndex((tab) => tab.id === currentTabState.activeTabId);
+
+      if (currentIndex === -1 || currentTabState.tabs.length < 2) {
+        return currentTabState;
+      }
+
+      const nextIndex = (currentIndex + direction + currentTabState.tabs.length) % currentTabState.tabs.length;
+
+      return {
+        ...currentTabState,
+        activeTabId: currentTabState.tabs[nextIndex].id,
+      };
+    });
+  }
+
+  function selectNextTab() {
+    selectRelativeTab(1);
+  }
+
+  function selectPreviousTab() {
+    selectRelativeTab(-1);
+  }
+
   function closeTab(tabId: string) {
     setTabState((currentTabState) => {
+      const closingTab = currentTabState.tabs.find((tab) => tab.id === tabId);
+
+      if (!closingTab) {
+        return currentTabState;
+      }
+
+      const closedTabs = addClosedTabToHistory(currentTabState.closedTabs, closingTab);
+
       if (currentTabState.tabs.length <= 1) {
         const tab = createBrowserTab(getDefaultAccountId(accountsState));
 
         return {
+          ...currentTabState,
+          closedTabs,
           tabs: [tab],
           activeTabId: tab.id,
         };
@@ -385,19 +543,54 @@ export function App() {
 
       const closingTabIndex = currentTabState.tabs.findIndex((tab) => tab.id === tabId);
 
-      if (closingTabIndex === -1) {
-        return currentTabState;
-      }
-
       const tabs = currentTabState.tabs.filter((tab) => tab.id !== tabId);
       const nextActiveIndex = Math.min(closingTabIndex, tabs.length - 1);
 
       return {
+        ...currentTabState,
+        closedTabs,
         tabs,
         activeTabId:
           currentTabState.activeTabId === tabId ? tabs[nextActiveIndex].id : currentTabState.activeTabId,
       };
     });
+  }
+
+  function closeActiveTab() {
+    closeTab(tabState.activeTabId);
+  }
+
+  function reopenClosedTab() {
+    setTabState((currentTabState) => {
+      const [closedTab, ...closedTabs] = currentTabState.closedTabs;
+
+      if (!closedTab) {
+        return currentTabState;
+      }
+
+      const tab = createBrowserTabFromClosedTab(closedTab, accountsState);
+
+      return {
+        ...currentTabState,
+        closedTabs,
+        tabs: [...currentTabState.tabs, tab],
+        activeTabId: tab.id,
+      };
+    });
+  }
+
+  function reloadActiveTab() {
+    updateActiveTab((tab) => ({
+      ...tab,
+      reloadNonce: tab.reloadNonce + 1,
+    }));
+  }
+
+  function focusAddressBar() {
+    const addressInput = document.querySelector<HTMLInputElement>('#browser-address');
+
+    addressInput?.focus();
+    addressInput?.select();
   }
 
   function reorderTab(draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) {
@@ -432,6 +625,22 @@ export function App() {
       };
     });
   }
+
+  tabCommandActionsRef.current = {
+    addTab,
+    canGoBack,
+    canGoForward,
+    closeActiveTab,
+    focusAddressBar,
+    goBack,
+    goForward,
+    reloadActiveTab,
+    reopenClosedTab,
+    selectLastTab,
+    selectNextTab,
+    selectPreviousTab,
+    selectTabByIndex,
+  };
 
   navigationActionsRef.current = {
     canGoBack,
@@ -483,6 +692,115 @@ export function App() {
       if (removeBackButtonListener) {
         void removeBackButtonListener();
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    function runCommand(event: KeyboardEvent, command: () => void) {
+      event.preventDefault();
+      event.stopPropagation();
+      command();
+    }
+
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      if (!shouldUseKeyboardShortcut(event)) {
+        return;
+      }
+
+      const actions = tabCommandActionsRef.current;
+
+      if (!actions) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const isEditableTarget = isEditableShortcutTarget(event.target);
+      const isAddressBarTarget = isAddressBarShortcutTarget(event.target);
+      const primaryModifier = isPrimaryShortcutModifier(event);
+      const primaryOnly = primaryModifier && !event.altKey;
+
+      if (primaryOnly && event.shiftKey && key === 't') {
+        runCommand(event, actions.reopenClosedTab);
+        return;
+      }
+
+      if (primaryOnly && !event.shiftKey && key === 't') {
+        runCommand(event, actions.addTab);
+        return;
+      }
+
+      if (primaryOnly && !event.shiftKey && key === 'w') {
+        runCommand(event, actions.closeActiveTab);
+        return;
+      }
+
+      if (primaryOnly && !event.shiftKey && key === 'l') {
+        runCommand(event, actions.focusAddressBar);
+        return;
+      }
+
+      if (primaryOnly && key === 'r') {
+        runCommand(event, actions.reloadActiveTab);
+        return;
+      }
+
+      if (!event.altKey && event.ctrlKey && key === 'tab') {
+        runCommand(event, event.shiftKey ? actions.selectPreviousTab : actions.selectNextTab);
+        return;
+      }
+
+      if (primaryOnly && (key === 'pageup' || key === 'pagedown')) {
+        runCommand(event, key === 'pageup' ? actions.selectPreviousTab : actions.selectNextTab);
+        return;
+      }
+
+      if (primaryOnly && !event.shiftKey && /^[1-9]$/.test(key)) {
+        runCommand(event, () => {
+          if (key === '9') {
+            actions.selectLastTab();
+            return;
+          }
+
+          actions.selectTabByIndex(Number.parseInt(key, 10) - 1);
+        });
+        return;
+      }
+
+      if (key === 'f5') {
+        runCommand(event, actions.reloadActiveTab);
+        return;
+      }
+
+      if (isEditableTarget && !isAddressBarTarget) {
+        return;
+      }
+
+      if (
+        (event.altKey && !primaryModifier && key === 'arrowleft') ||
+        (event.metaKey && !event.ctrlKey && !event.altKey && key === '[') ||
+        key === 'browserback'
+      ) {
+        if (actions.canGoBack) {
+          runCommand(event, actions.goBack);
+        }
+        return;
+      }
+
+      if (
+        (event.altKey && !primaryModifier && key === 'arrowright') ||
+        (event.metaKey && !event.ctrlKey && !event.altKey && key === ']') ||
+        key === 'browserforward'
+      ) {
+        if (actions.canGoForward) {
+          runCommand(event, actions.goForward);
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
+
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown, true);
     };
   }, []);
 
@@ -623,17 +941,19 @@ export function App() {
         onPointerUp={handleMainPointerUp}
       >
         {currentRoute.kind === 'node-api' ? (
-          <ApiViewer route={currentRoute} />
+          <ApiViewer key={routeRenderKey} route={currentRoute} />
         ) : currentRoute.kind === 'resource' ? (
-          <QdnViewer nodeApiUrl={nodeSettings.nodeApiUrl} resource={currentRoute.resource} />
+          <QdnViewer key={routeRenderKey} nodeApiUrl={nodeSettings.nodeApiUrl} resource={currentRoute.resource} />
         ) : currentRoute.kind === 'settings' ? (
           <SettingsPage
+            key={routeRenderKey}
             nodeSettings={nodeSettings}
             onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
             onSaveNodeSettings={saveNodeSettings}
           />
         ) : currentRoute.kind === 'dashboard' ? (
           <DashboardPage
+            key={routeRenderKey}
             accountsError={accountsError}
             accountsState={accountsState}
             isLoadingAccounts={isLoadingAccounts}
@@ -645,7 +965,12 @@ export function App() {
             onSelectedAccountChange={updateActiveTabAccount}
           />
         ) : (
-          <QdnExplorer nodeApiUrl={nodeSettings.nodeApiUrl} route={currentRoute} onNavigate={navigateToRoute} />
+          <QdnExplorer
+            key={routeRenderKey}
+            nodeApiUrl={nodeSettings.nodeApiUrl}
+            route={currentRoute}
+            onNavigate={navigateToRoute}
+          />
         )}
       </section>
     </main>

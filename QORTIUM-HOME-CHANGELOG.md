@@ -35,6 +35,10 @@ clear scope.
 
 ## Change Entries
 
+### 2026-05-30 - app: add browser tab shortcuts
+
+Added browser-style tab keyboard commands for opening, closing, restoring, switching, reloading, and navigating tabs. Qortium Home now keeps a recent closed-tab history so the last closed tab can be reopened with its route history and account context intact.
+
 ### 2026-05-30 - app: keep new tab button beside tabs
 
 Changed the tab bar layout so the new tab button sits directly after the last visible browser tab instead of being pinned to the far right side of the window. The tab strip still scrolls when many tabs are open, keeping the new tab button available beside the scrollable tab row.
