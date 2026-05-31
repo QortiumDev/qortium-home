@@ -850,6 +850,52 @@ export function App() {
   };
 
   useEffect(() => {
+    return window.qortiumHome.menu?.onCommand((command) => {
+      const actions = tabCommandActionsRef.current;
+
+      if (!actions) {
+        return;
+      }
+
+      if (command === 'new-tab') {
+        actions.addTab();
+        return;
+      }
+
+      if (command === 'reopen-closed-tab') {
+        actions.reopenClosedTab();
+        return;
+      }
+
+      if (command === 'close-tab') {
+        actions.closeActiveTab();
+        return;
+      }
+
+      if (command === 'reload-tab') {
+        actions.reloadActiveTab();
+        return;
+      }
+
+      if (command === 'focus-address-bar') {
+        actions.focusAddressBar();
+        return;
+      }
+
+      if (command === 'go-back') {
+        if (actions.canGoBack) {
+          actions.goBack();
+        }
+        return;
+      }
+
+      if (command === 'go-forward' && actions.canGoForward) {
+        actions.goForward();
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     if (!Capacitor.isNativePlatform()) {
       return undefined;
     }

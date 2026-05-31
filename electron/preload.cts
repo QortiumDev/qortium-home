@@ -57,6 +57,19 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     openTabInNewWindow: (request: { tab: unknown }) =>
       ipcRenderer.invoke('windows:openTabInNewWindow', request),
   },
+  menu: {
+    onCommand: (callback: (command: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: unknown) => {
+        callback(command);
+      };
+
+      ipcRenderer.on('menu:command', listener);
+
+      return () => {
+        ipcRenderer.removeListener('menu:command', listener);
+      };
+    },
+  },
   node: {
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
     saveSettings: (request: { customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>

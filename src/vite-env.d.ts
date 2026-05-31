@@ -309,6 +309,15 @@ type QortiumHomeWindowStartupPayload = {
   tab: QortiumHomeTabSnapshot;
 };
 
+type QortiumHomeMenuCommand =
+  | 'close-tab'
+  | 'focus-address-bar'
+  | 'go-back'
+  | 'go-forward'
+  | 'new-tab'
+  | 'reload-tab'
+  | 'reopen-closed-tab';
+
 interface Window {
   qortiumHome: {
     accounts: {
@@ -347,6 +356,9 @@ interface Window {
       getStartupPayload: () => Promise<QortiumHomeWindowStartupPayload | null>;
       openDashboardWindow: () => Promise<void>;
       openTabInNewWindow: (request: QortiumHomeWindowOpenRequest) => Promise<void>;
+    };
+    menu?: {
+      onCommand: (callback: (command: QortiumHomeMenuCommand) => void) => () => void;
     };
     node: {
       getSettings: () => Promise<QortiumNodeSettings>;

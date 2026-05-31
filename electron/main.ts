@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, screen, type Rectangle } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  screen,
+  type MenuItemConstructorOptions,
+  type Rectangle,
+} from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +58,15 @@ type CreateWindowOptions = {
   placement?: 'primary' | 'secondary';
   startupPayload?: WindowStartupPayload;
 };
+
+type MenuCommand =
+  | 'close-tab'
+  | 'focus-address-bar'
+  | 'go-back'
+  | 'go-forward'
+  | 'new-tab'
+  | 'reload-tab'
+  | 'reopen-closed-tab';
 
 const windowStartupPayloads = new Map<number, WindowStartupPayload>();
 
@@ -340,6 +357,119 @@ function createWindow(options: CreateWindowOptions = {}) {
   }
 }
 
+function sendMenuCommand(command: MenuCommand) {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu:command', command);
+}
+
+function buildApplicationMenu() {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Window',
+          accelerator: 'CommandOrControl+N',
+          click: () => createWindow({ placement: 'secondary' }),
+        },
+        {
+          label: 'New Tab',
+          accelerator: 'CommandOrControl+T',
+          click: () => sendMenuCommand('new-tab'),
+        },
+        {
+          label: 'Reopen Closed Tab',
+          accelerator: 'CommandOrControl+Shift+T',
+          click: () => sendMenuCommand('reopen-closed-tab'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Close Tab',
+          accelerator: 'CommandOrControl+W',
+          click: () => sendMenuCommand('close-tab'),
+        },
+        {
+          label: 'Close Window',
+          accelerator: 'CommandOrControl+Shift+W',
+          click: () => BrowserWindow.getFocusedWindow()?.close(),
+        },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Back',
+          accelerator: 'Alt+Left',
+          click: () => sendMenuCommand('go-back'),
+        },
+        {
+          label: 'Forward',
+          accelerator: 'Alt+Right',
+          click: () => sendMenuCommand('go-forward'),
+        },
+        {
+          label: 'Reload Tab',
+          accelerator: 'CommandOrControl+R',
+          click: () => sendMenuCommand('reload-tab'),
+        },
+        {
+          label: 'Focus Address Bar',
+          accelerator: 'CommandOrControl+L',
+          click: () => sendMenuCommand('focus-address-bar'),
+        },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(process.platform === 'darwin'
+          ? ([
+              { type: 'separator' },
+              { role: 'front' },
+            ] satisfies MenuItemConstructorOptions[])
+          : []),
+      ],
+    },
+  ];
+
+  if (process.platform === 'darwin') {
+    template.unshift({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    });
+  }
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function registerWindowIpcHandlers() {
   ipcMain.handle('windows:getStartupPayload', (event) => {
     return windowStartupPayloads.get(event.sender.id) ?? null;
@@ -367,6 +497,7 @@ app.whenReady().then(() => {
   registerNodeSettingsIpcHandlers();
   registerQdnIpcHandlers();
   registerWindowIpcHandlers();
+  buildApplicationMenu();
   createWindow();
 
   app.on('activate', () => {
