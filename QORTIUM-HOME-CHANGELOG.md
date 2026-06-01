@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - ci: enable Gradle Dependabot updates
+
+Updated the Android Gradle dependency version layout so Dependabot can cover Qortium Home's Android project cleanly. Android library and test dependency versions now live in a Gradle file that Dependabot can inspect, while platform SDK settings stay separate, and the Dependabot version update schedule now includes Gradle for the Android project with semver-major updates ignored at first.
+
 ### 2026-06-01 - ci: add Dependabot version updates
 
 Added Dependabot version update configuration for Qortium Home. Dependabot will now check the root npm dependencies and future GitHub Actions workflows weekly against the `main` branch while skipping semver-major update PRs at first, and the Android Gradle setup remains intentionally deferred until its generated Capacitor version layout can be covered cleanly.
