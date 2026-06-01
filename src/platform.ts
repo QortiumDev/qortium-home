@@ -821,7 +821,18 @@ async function readNodeSettings() {
 }
 
 async function writeNodeSettings(settings: StoredNodeSettings) {
-  await setStoredValue(NODE_SETTINGS_KEY, JSON.stringify(settings));
+  if (isNativePlatform()) {
+    await setStoredValue(NODE_SETTINGS_KEY, JSON.stringify(settings));
+    return;
+  }
+
+  const browserSettings: StoredNodeSettings = {
+    apiKey: '',
+    customUrl: settings.customUrl,
+    mode: settings.mode,
+  };
+
+  window.localStorage.setItem(NODE_SETTINGS_KEY, JSON.stringify(browserSettings));
 }
 
 function createEmptyWalletStore(): WalletStore {

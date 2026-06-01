@@ -707,9 +707,9 @@ async function cleanupResource({ account, identifier, name, service }) {
 
     await signAndProcess(rawUnsignedBytes58, account.accountPrivateKey);
     await waitForResourceStatus(service, name, identifier, 'DELETED');
-    log(`Cleaned up ${service}/${name}/${identifier}.`);
+    log('Cleaned up QDN smoke resource.');
   } catch (error) {
-    log(`Cleanup skipped or failed: ${error instanceof Error ? error.message : String(error)}`);
+    log('Cleanup skipped or failed.');
   }
 }
 
@@ -804,27 +804,27 @@ async function runScenarioActions({
 
   switch (scenario) {
     case 'success':
-      log(`Publishing ${service}/${publishName}/${identifier}.`);
+      log('Publishing QDN smoke resource.');
       await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest);
       await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
 
-      log(`Deleting ${service}/${publishName}/${identifier}.`);
+      log('Deleting QDN smoke resource.');
       await runQdnRequestWithDialog(mainClient, qdnClient, deleteRequest);
       await waitForResourceStatus(service, publishName, identifier, 'DELETED');
       return { deleted: true, published: true };
 
     case 'deny-publish':
-      log(`Denying publish for ${service}/${publishName}/${identifier}.`);
+      log('Denying QDN publish request.');
       await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest, 'Deny');
       await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
       return { deleted: false, published: false };
 
     case 'deny-delete':
-      log(`Publishing ${service}/${publishName}/${identifier} before denied delete.`);
+      log('Publishing QDN smoke resource before denied delete.');
       await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest);
       await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
 
-      log(`Denying delete for ${service}/${publishName}/${identifier}.`);
+      log('Denying QDN delete request.');
       await runQdnRequestWithDialog(mainClient, qdnClient, deleteRequest, 'Deny');
       await assertResourceStatus(service, publishName, identifier, 'READY', { build: true });
       return { deleted: false, published: true };
@@ -945,7 +945,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
   }
 
   try {
-    log(`[${scenario}] Starting Vite on ${devServerUrl}.`);
+    log('Starting Vite for smoke scenario.');
     viteProcess = createManagedProcess(
       viteBin,
       ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
@@ -961,7 +961,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
     const electronArgs = [`--remote-debugging-port=${cdpPort}`, '.'];
     const electronLaunch = getElectronLaunch(electronBin, electronArgs);
 
-    log(`[${scenario}] Starting Electron with CDP on 127.0.0.1:${cdpPort}.`);
+    log('Starting Electron with CDP for smoke scenario.');
     electronProcess = createManagedProcess(electronLaunch.command, electronLaunch.args, { env: smokeEnv });
 
     const mainTarget = await getPageTarget(
@@ -1022,7 +1022,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
 
         published = scenarioResult.published;
         deleted = scenarioResult.deleted;
-        log(`[${scenario}] Desktop QDN permission smoke scenario passed.`);
+        log('Desktop QDN permission smoke scenario passed.');
       } finally {
         qdnClient.close();
       }
@@ -1067,19 +1067,19 @@ async function main() {
   const publishName = await getOwnedPublishName(account.accountAddress);
   await assertFixtureReady();
 
-  log(`Using preview account role ${accountRole} with name ${publishName}.`);
+  log('Using configured preview account for QDN smoke test.');
   log('Building Electron main process.');
   await run(npm, ['run', 'build:electron']);
 
   for (const scenario of scenarios) {
-    log(`Running scenario: ${scenario}.`);
+    log('Running QDN permission smoke scenario.');
     await runScenario({ account, electronBin, publishName, scenario, viteBin });
   }
 
   log('Desktop QDN permission smoke test passed.');
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+main().catch(() => {
+  console.error('[desktop-qdn-write-smoke] Smoke test failed.');
   process.exitCode = 1;
 });

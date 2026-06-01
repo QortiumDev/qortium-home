@@ -72,15 +72,28 @@ jobs:
       - name: Sync Capacitor Android project
         run: npm run android:sync
 
+      - name: Prepare Android debug build for Java analysis
+        working-directory: android
+        run: ./gradlew --no-daemon :app:assembleDebug
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
           build-mode: manual
 
-      - name: Build Android debug target
+      - name: Compile Home Android Java sources
         working-directory: android
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: |
+          ./gradlew --no-daemon \
+            :app:compileDebugJavaWithJavac \
+            --rerun-tasks \
+            -x :capacitor-android:compileDebugJavaWithJavac \
+            -x :capacitor-app:compileDebugJavaWithJavac \
+            -x :capacitor-filesystem:compileDebugKotlin \
+            -x :capacitor-filesystem:compileDebugJavaWithJavac \
+            -x :capacitor-preferences:compileDebugJavaWithJavac \
+            -x :capacitor-cordova-android-plugins:compileDebugJavaWithJavac
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4

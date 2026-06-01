@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - security: fix CodeQL scanning alerts
+
+Adjusted the checked-in CodeQL workflow and the alerting code paths it found. Java/Kotlin analysis now prepares the Android build before scanning and then traces Home's own Android Java compile step, browser fallback node settings no longer save API keys to local storage, and QDN smoke scripts avoid printing environment-derived values or raw failure messages.
+
 ### 2026-06-01 - ci: add CodeQL advanced setup
 
 Added a checked-in CodeQL workflow for Qortium Home. The workflow keeps JavaScript/TypeScript scanning active, prepares the Capacitor Android project before Java/Kotlin scanning, uses JDK 21 for the Android build, and builds the Android debug target under CodeQL's manual Java/Kotlin mode so Gradle dependency information can be extracted more accurately.

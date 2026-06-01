@@ -446,7 +446,7 @@ async function launchEmulatorIfNeeded() {
   }
 
   assertTool(emulatorPath, 'emulator');
-  log(`Starting emulator ${avdName}.`);
+  log('Starting Android emulator.');
 
   const logDir = path.join(os.tmpdir(), 'qortium-home-android-smoke');
   await mkdir(logDir, { recursive: true });
@@ -487,7 +487,7 @@ async function launchEmulatorIfNeeded() {
     return stdout.trim().replace(/\r/g, '') === '1';
   });
 
-  log(`Started ${serial}. Emulator log: ${emulatorLog}`);
+  log(`Started Android emulator ${serial}.`);
 
   return {
     serial,
@@ -634,7 +634,7 @@ async function ensureNameRegistered(name, account, apiKey) {
     return;
   }
 
-  log(`Registering Android write smoke name ${name}.`);
+  log('Registering Android write smoke name.');
 
   const rawRegisterBytes58 = buildRegisterNameRawBytes58({
     account,
@@ -2008,11 +2008,11 @@ async function runAndroidWriteAssertions(client, wallet, apiKey) {
       service,
     });
 
-    log(`Publishing ${service}/${wallet.name}/${successIdentifier} from Android.`);
+    log('Publishing Android smoke QDN resource.');
     await runQdnRequestWithWriteDialog(client, contextId, publishRequest);
     await waitForResourceStatus(service, wallet.name, successIdentifier, 'READY', { build: true });
 
-    log(`Deleting ${service}/${wallet.name}/${successIdentifier} from Android.`);
+    log('Deleting Android smoke QDN resource.');
     await runQdnRequestWithWriteDialog(client, contextId, deleteRequest);
     await waitForResourceStatus(service, wallet.name, successIdentifier, 'DELETED');
 
@@ -2121,7 +2121,7 @@ async function main() {
         await navigateToFixture(client);
         const { contextId, frame } = await getFixtureFrameContext(client);
 
-        log(`Running bridge assertions in ${frame.url}.`);
+        log('Running bridge assertions in fixture frame.');
         await runBridgeContainmentAssertions(client, frame);
         await runBridgeAssertions(client, contextId);
         await runSelectedAccountAssertions(client, contextId, account, ownedNames);
@@ -2145,7 +2145,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+main().catch(() => {
+  console.error('[android-qdn-smoke] Smoke test failed.');
   process.exitCode = 1;
 });
