@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
+import { ensurePreviewApiKey } from './local-api-key.js';
 
 const CORE_REPOSITORY = 'QuickMythril/qortium';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
@@ -427,6 +428,10 @@ async function readInstalledCore(): Promise<InstalledCore | null> {
   }
 
   return null;
+}
+
+export async function getManagedCorePreviewPath() {
+  return (await readInstalledCore())?.previewPath ?? null;
 }
 
 async function writeInstalledCore(installedCore: InstalledCore) {
@@ -1077,6 +1082,8 @@ async function startCore() {
       ),
     );
   }
+
+  ensurePreviewApiKey(installedCore.previewPath);
 
   publishProgress({
     action: 'starting',

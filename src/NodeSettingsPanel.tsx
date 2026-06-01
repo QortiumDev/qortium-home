@@ -42,6 +42,14 @@ function formatMode(mode: QortiumNodeSettingsMode) {
   return 'Local node';
 }
 
+function getApiKeyHint(mode: QortiumNodeSettingsMode) {
+  if (mode === 'custom') {
+    return 'Used for protected admin calls on this custom node.';
+  }
+
+  return 'Home detects this from managed Core when available.';
+}
+
 export function NodeSettingsPanel({
   nodeSettings,
   onResolvedNodeApiUrl,
@@ -191,6 +199,7 @@ export function NodeSettingsPanel({
                 setConfigMessage(null);
               }}
             />
+            <span className="field__hint">{getApiKeyHint(mode)}</span>
           </label>
         ) : null}
 

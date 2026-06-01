@@ -1,6 +1,8 @@
 import { app, ipcMain } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { getManagedCorePreviewPath } from './core-manager.js';
+import { ensurePreviewApiKey, readPreviewApiKey } from './local-api-key.js';
 
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_SETTINGS_FILE = 'node-settings.json';
@@ -48,6 +50,10 @@ type NodeConnection = {
   nodeApiUrl: string;
 };
 
+type LocalApiKeyResolutionOptions = {
+  createIfMissing: boolean;
+};
+
 let discoveryCache: DiscoveryCache | null = null;
 
 function getNetworkRestrictionMessage() {
@@ -68,6 +74,10 @@ function getLocalNodeApiUrl() {
   } catch {
     return DEFAULT_LOCAL_NODE_API_URL;
   }
+}
+
+function hasExplicitLocalNodeApiUrl() {
+  return !!process.env.QORTIUM_HOME_NODE_API_URL?.trim();
 }
 
 function normalizeNodeApiUrl(value: string) {
@@ -175,6 +185,38 @@ function writeNodeSettings(settings: NodeSettings) {
 
   mkdirSync(path.dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+async function resolveLocalApiKey(
+  settings: NodeSettings,
+  options: LocalApiKeyResolutionOptions,
+): Promise<NodeSettings> {
+  if (settings.mode !== 'local' || settings.apiKey || hasExplicitLocalNodeApiUrl()) {
+    return settings;
+  }
+
+  const previewPath = await getManagedCorePreviewPath();
+
+  if (!previewPath) {
+    return settings;
+  }
+
+  const apiKeyResult = options.createIfMissing
+    ? ensurePreviewApiKey(previewPath)
+    : readPreviewApiKey(previewPath);
+
+  if (!apiKeyResult?.apiKey) {
+    return settings;
+  }
+
+  const resolvedSettings = {
+    ...settings,
+    apiKey: apiKeyResult.apiKey,
+  };
+
+  writeNodeSettings(resolvedSettings);
+
+  return resolvedSettings;
 }
 
 function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings {
@@ -449,6 +491,8 @@ async function resolveNodeApiUrl(settings: NodeSettings, forceDiscoveryRefresh =
 }
 
 async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
+  settings = await resolveLocalApiKey(settings, { createIfMissing: true });
+
   let nodeApiUrl = getFallbackNodeApiUrl(settings);
 
   try {
@@ -472,6 +516,14 @@ function getErrorMessage(error: unknown) {
 
 function getProtectedNodeApiKey(settings: NodeSettings) {
   if (!settings.apiKey) {
+    if (settings.mode === 'local') {
+      throw new Error('Install managed Core or save the local node API key to check approved on-chain Core updates.');
+    }
+
+    if (settings.mode === 'custom') {
+      throw new Error('Save the custom node API key to check approved on-chain Core updates.');
+    }
+
     throw new Error('Qortium node API key was not found.');
   }
 
@@ -488,8 +540,9 @@ async function requestProtectedNodeJson(
     throw new Error(getNetworkRestrictionMessage());
   }
 
-  const nodeApiUrl = await resolveNodeApiUrl(settings);
-  const apiKey = getProtectedNodeApiKey(settings);
+  const resolvedSettings = await resolveLocalApiKey(settings, { createIfMissing: true });
+  const nodeApiUrl = await resolveNodeApiUrl(resolvedSettings);
+  const apiKey = getProtectedNodeApiKey(resolvedSettings);
   let response: Response;
 
   try {

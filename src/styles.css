@@ -576,6 +576,12 @@ h1 {
   outline: none;
 }
 
+.field__hint {
+  color: #7d8f8f;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
 .top-bar {
   z-index: 12;
   display: grid;

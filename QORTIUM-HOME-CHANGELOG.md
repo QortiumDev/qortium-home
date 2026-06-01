@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - app: manage local core api keys
+
+Improved local Core API key handling for approved on-chain Core update checks. Home now detects an existing managed Core `apikey.txt`, creates one for managed local Core installs when needed, saves the key in node settings, keeps custom node API keys manually configurable, and updates the dashboard/settings wording so local managed Core users are not asked to find and save the key themselves.
+
 ### 2026-06-01 - app: add on-chain core update status
 
 Added on-chain QDN Core update status to Home's dashboard. When a selected local or trusted custom node has an API key saved, Home now checks Core's approved `/admin/update` status, shows whether an approved update is available, explains when Core auto-update mode will install it automatically, and offers a manual approved-update install action when Core is not already set to automatic install mode.

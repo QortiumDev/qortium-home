@@ -78,8 +78,8 @@ function getOnChainCoreUpdateUnavailableMessage(nodeSettings: QortiumNodeSetting
     return 'Requires a local Core or trusted custom node with API key.';
   }
 
-  if (!nodeSettings.apiKey) {
-    return 'Save the node API key to check approved on-chain Core updates.';
+  if (nodeSettings.mode === 'custom' && !nodeSettings.apiKey) {
+    return 'Save the custom node API key to check approved on-chain Core updates.';
   }
 
   return null;
