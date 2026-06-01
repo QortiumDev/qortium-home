@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - build: reduce tooling warning noise
+
+Reduced repeated local tooling warning noise by approving only the known npm install scripts needed by Electron and esbuild, and by raising Vite's chunk warning threshold to match Qortium Home's current Electron-first bundle size. Future new install scripts and genuinely larger bundle growth should now stand out more clearly.
+
 ### 2026-06-01 - security: avoid localStorage api key flow
 
 Adjusted fallback node settings storage so native API-key persistence uses Capacitor Preferences directly, while browser fallback storage continues to save only non-secret node settings. This removes the remaining CodeQL path that could connect a saved node API key to localStorage.
