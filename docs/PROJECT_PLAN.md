@@ -53,7 +53,7 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Verify QDN app bridge behavior in both development and packaged desktop builds before treating the desktop bridge as ready.
   - Keep Android QDN APP and WEBSITE bridge injection scoped to Home-owned tokenized iframe loads.
   - Allow desktop and Android APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
-  - Allow desktop APP and WEBSITE pages to request QDN publish/delete writes only after an explicit per-write approval prompt.
+  - Allow desktop and Android APP and WEBSITE pages to request QDN publish/delete writes only after an explicit per-write approval prompt.
   - Permission prompts should show the selected account/address that will be used.
 - Qortium Home should be able to manage the local Qortium Core setup:
   - Support preinstalled or externally managed Core.
@@ -173,8 +173,8 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Wallet/account creation, saving, loading, and selection.
 - Per-tab account selection for the active page.
 - User approval prompts for QDN app requests that require account access or QDN publish/delete writes.
-- Session-only desktop approval prompts for QDN app requests that read the selected tab account's public identity.
-- Per-write desktop approval prompts for QDN publish/delete requests from QDN apps.
+- Session-only approval prompts for QDN app requests that read the selected tab account's public identity.
+- Per-write approval prompts for QDN publish/delete requests from QDN apps.
 - Future local-node write workflows for chat send, name registration, and group join after the approval/signing model expands.
 - Local wallet list management.
 - Qortium wallet import and export.
@@ -205,7 +205,6 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - A full Qortium Core implementation inside the UI app. The UI should manage and launch the core rather than reimplement it.
 - Running Qortium Core locally inside the Android APK for the initial version.
 - Chat send, name registration, and group join in the public preview browser surface.
-- Android QDN publish/delete writes until Android wallet/account signing exists.
 
 ## Open Questions
 

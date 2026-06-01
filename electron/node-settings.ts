@@ -17,11 +17,13 @@ const DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
 type NodeSettingsMode = 'custom' | 'local' | 'network';
 
 type NodeSettings = {
+  apiKey: string;
   customUrl: string;
   mode: NodeSettingsMode;
 };
 
 type NodeSettingsRequest = {
+  apiKey?: unknown;
   customUrl?: unknown;
   mode?: unknown;
 };
@@ -97,6 +99,7 @@ function normalizeNodeApiUrl(value: string) {
 
 function getDefaultNodeSettings(): NodeSettings {
   return {
+    apiKey: '',
     customUrl: '',
     mode: 'local',
   };
@@ -108,6 +111,7 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
   }
 
   const rawSettings = value as Partial<NodeSettings>;
+  const apiKey = getString(rawSettings.apiKey);
   const rawCustomUrl = getString(rawSettings.customUrl);
   let customUrl = '';
 
@@ -123,6 +127,7 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
 
   if (rawMode === 'custom' && customUrl) {
     return {
+      apiKey,
       customUrl,
       mode: 'custom',
     };
@@ -130,6 +135,7 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
 
   if (rawMode === 'network') {
     return {
+      apiKey: '',
       customUrl,
       mode: 'network',
     };
@@ -137,12 +143,14 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
 
   if (rawMode === 'local' || rawMode === 'previewnet') {
     return {
+      apiKey: rawMode === 'local' ? apiKey : '',
       customUrl,
       mode: 'local',
     };
   }
 
   return {
+    apiKey,
     customUrl,
     mode: 'local',
   };
@@ -176,12 +184,14 @@ function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings 
 
   const rawCustomUrl = getString(value.customUrl);
   const customUrl = rawCustomUrl ? normalizeNodeApiUrl(rawCustomUrl) : '';
+  const apiKey = value.mode === 'network' ? '' : getString(value.apiKey);
 
   if (value.mode === 'custom' && !customUrl) {
     throw new Error('Custom node URL is required.');
   }
 
   return {
+    apiKey,
     customUrl,
     mode: value.mode,
   };

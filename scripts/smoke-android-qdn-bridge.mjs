@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, openSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AES_CBC, HmacSha512, Sha512, bytes_to_base64 } from 'asmcrypto.js';
+import bcrypt from 'bcryptjs';
+import nacl from 'tweetnacl';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -33,11 +37,23 @@ const previewAccountsPath = expandHomePath(
   process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH ??
     '~/git/qortium/preview/secrets/initial-minting-accounts.json',
 );
+const apiKeyPath = expandHomePath(
+  process.env.QORTIUM_HOME_NODE_API_KEY_PATH ?? '~/git/qortium/preview/apikey.txt',
+);
 const walletStoreKey = 'qortium-home-wallet-store';
 const commandTimeoutMs = 30_000;
 const bootTimeoutMs = 180_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
+const qdnStatusTimeoutMs = 180_000;
+const base58Alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const base58Base = BigInt(base58Alphabet.length);
+const registerNameTransactionType = 3;
+const kdfThreadCount = 16;
+const qortiumWalletVersion = 2;
+const qortiumAddressVersion = 58;
+const staticSalt = '4ghkVQExoneGqZqHTMMhhFfxXsVg2A75QeS1HCM5KAih';
+const staticBcryptSalt = '$2a$11$IxVE941tXVUD4cW0TNVm.O';
 
 function log(message) {
   console.log(`[android-qdn-smoke] ${message}`);
@@ -67,6 +83,100 @@ function expandHomePath(filePath) {
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'));
+}
+
+function readText(filePath) {
+  return readFileSync(filePath, 'utf8').trim();
+}
+
+function getApiKey() {
+  const explicitApiKey = process.env.QORTIUM_HOME_NODE_API_KEY?.trim();
+
+  if (explicitApiKey) {
+    return explicitApiKey;
+  }
+
+  return readText(apiKeyPath);
+}
+
+function decodeBase58(value) {
+  let decoded = 0n;
+
+  for (const character of value) {
+    const index = base58Alphabet.indexOf(character);
+
+    if (index === -1) {
+      throw new Error(`Invalid Base58 character: ${character}`);
+    }
+
+    decoded = decoded * base58Base + BigInt(index);
+  }
+
+  const bytes = [];
+
+  while (decoded > 0n) {
+    bytes.unshift(Number(decoded % 256n));
+    decoded /= 256n;
+  }
+
+  for (const character of value) {
+    if (character !== '1') {
+      break;
+    }
+
+    bytes.unshift(0);
+  }
+
+  return Buffer.from(bytes);
+}
+
+function encodeBase58(bytes) {
+  let value = 0n;
+
+  for (const byte of bytes) {
+    value = value * 256n + BigInt(byte);
+  }
+
+  let encoded = '';
+
+  while (value > 0n) {
+    const remainder = Number(value % base58Base);
+
+    value /= base58Base;
+    encoded = base58Alphabet[remainder] + encoded;
+  }
+
+  for (const byte of bytes) {
+    if (byte !== 0) {
+      break;
+    }
+
+    encoded = '1' + encoded;
+  }
+
+  return encoded || '1';
+}
+
+function intBytes(value) {
+  const bytes = Buffer.alloc(4);
+
+  bytes.writeInt32BE(value);
+
+  return bytes;
+}
+
+function longBytes(value) {
+  const bytes = Buffer.alloc(8);
+
+  bytes.writeBigInt64BE(BigInt(value));
+
+  return bytes;
+}
+
+function sizedStringBytes(value) {
+  const stringBytes = Buffer.from(value, 'utf8');
+
+  return Buffer.concat([intBytes(stringBytes.length), stringBytes]);
 }
 
 function getWalletId(address) {
@@ -110,6 +220,129 @@ function createAndroidWalletStore(account) {
         updatedAt: now,
       },
     ],
+  };
+}
+
+function createAndroidEncryptedWalletStore({ address, encryptedWallet, label }) {
+  const now = new Date().toISOString();
+  const walletId = getWalletId(address);
+
+  return {
+    activeAccountId: walletId,
+    version: 1,
+    wallets: [
+      {
+        address,
+        createdAt: now,
+        encryptedWallet,
+        id: walletId,
+        label,
+        sourceFilename: `${label.replace(/[^a-z0-9._-]/gi, '_')}.json`,
+        updatedAt: now,
+      },
+    ],
+  };
+}
+
+function stringToUtf8Array(value) {
+  return new TextEncoder().encode(value);
+}
+
+function sha512(data) {
+  const result = new Sha512().process(data).finish().result;
+
+  if (!result) {
+    throw new Error('Unable to hash wallet data.');
+  }
+
+  return Buffer.from(result);
+}
+
+async function computeKdfPart(password, nonce) {
+  const hash = sha512(stringToUtf8Array(`${staticSalt}${password}${nonce}`));
+  const hashBase64 = bytes_to_base64(hash);
+
+  return bcrypt.hash(hashBase64.substring(0, 72), staticBcryptSalt);
+}
+
+async function deriveWalletKey(password) {
+  const parts = await Promise.all(
+    Array.from({ length: kdfThreadCount }, (_value, nonce) => computeKdfPart(password, nonce)),
+  );
+
+  return sha512(stringToUtf8Array(`${staticSalt}${parts.reduce((combined, part) => combined + part)}`));
+}
+
+function appendBuffer(first, second) {
+  return Buffer.concat([Buffer.from(first), Buffer.from(second)]);
+}
+
+function int32ToBytes(value) {
+  return Buffer.from([24, 16, 8, 0].map((shift) => (value >>> shift) & 0xff));
+}
+
+function deriveAddressSeed(seed, nonce = 0) {
+  const nonceBytes = int32ToBytes(nonce);
+  const nonceSeed = appendBuffer(appendBuffer(nonceBytes, seed), nonceBytes);
+  const firstHash = sha512(nonceSeed);
+
+  return sha512(appendBuffer(firstHash, nonceSeed)).subarray(0, 32);
+}
+
+function publicKeyToAddress(publicKey) {
+  const publicKeyHash = createHash('ripemd160').update(createHash('sha256').update(publicKey).digest()).digest();
+  const versionedHash = appendBuffer([qortiumAddressVersion], publicKeyHash);
+  const checksum = createHash('sha256').update(createHash('sha256').update(versionedHash).digest()).digest().subarray(0, 4);
+
+  return encodeBase58(appendBuffer(versionedHash, checksum));
+}
+
+async function encryptWalletSeed(seed, password) {
+  const privateKey = deriveAddressSeed(seed);
+  const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
+  const address = publicKeyToAddress(Buffer.from(keyPair.publicKey));
+  const iv = createHash('sha256').update(`qortium-home-android-write-smoke-iv:${address}`).digest().subarray(0, 16);
+  const salt = createHash('sha256').update(`qortium-home-android-write-smoke-salt:${address}`).digest();
+  const key = await deriveWalletKey(password);
+  const encryptionKey = key.subarray(0, 32);
+  const macKey = key.subarray(32, 63);
+  const encryptedSeed = Buffer.from(AES_CBC.encrypt(seed, encryptionKey, false, iv));
+  const mac = new HmacSha512(macKey).process(encryptedSeed).finish().result;
+
+  if (!mac) {
+    throw new Error('Unable to authenticate Android smoke wallet seed.');
+  }
+
+  return {
+    account: {
+      accountAddress: address,
+      accountPrivateKey: encodeBase58(privateKey),
+      accountPublicKey: encodeBase58(Buffer.from(keyPair.publicKey)),
+      role: 'android-write',
+    },
+    encryptedWallet: {
+      address0: address,
+      encryptedSeed: encodeBase58(encryptedSeed),
+      salt: encodeBase58(salt),
+      iv: encodeBase58(iv),
+      version: qortiumWalletVersion,
+      mac: encodeBase58(Buffer.from(mac)),
+      kdfThreads: kdfThreadCount,
+    },
+  };
+}
+
+async function createAndroidWriteWallet(baseAccount) {
+  const seed = createHash('sha512')
+    .update(`qortium-home-android-write-smoke:${baseAccount.accountPrivateKey}`)
+    .digest();
+  const password = `android-write-smoke-${accountRole}`;
+  const wallet = await encryptWalletSeed(seed, password);
+
+  return {
+    ...wallet,
+    name: `QHAndroidWrite${accountRole.replace(/[^a-z0-9]/gi, '') || 'Local'}`,
+    password,
   };
 }
 
@@ -303,6 +536,129 @@ async function fetchJson(url) {
   return response.json();
 }
 
+async function requestCore(pathname, options = {}) {
+  const response = await fetch(`${nodeApiUrl}${pathname}`, {
+    ...options,
+    headers: {
+      ...(options.headers ?? {}),
+    },
+  });
+  const text = await response.text();
+
+  if (!response.ok) {
+    fail(text || `${options.method ?? 'GET'} ${pathname} failed with HTTP ${response.status}.`);
+  }
+
+  return text;
+}
+
+function getCoreHeaders(apiKey, contentType) {
+  const headers = {
+    'X-API-KEY': apiKey,
+  };
+
+  if (contentType) {
+    headers['Content-Type'] = contentType;
+  }
+
+  return headers;
+}
+
+async function signAndProcessCore(rawUnsignedBytes58, privateKey58, apiKey) {
+  const signedBytes58 = await requestCore('/transactions/sign', {
+    method: 'POST',
+    headers: getCoreHeaders(apiKey, 'application/json'),
+    body: JSON.stringify({
+      privateKey: privateKey58,
+      transactionBytes: rawUnsignedBytes58,
+    }),
+  });
+  const processResult = await requestCore('/transactions/process', {
+    method: 'POST',
+    headers: getCoreHeaders(apiKey, 'text/plain'),
+    body: signedBytes58,
+  });
+
+  if (processResult.trim() !== 'true' && !processResult.includes('"type"')) {
+    fail(`Transaction was not accepted: ${processResult}`);
+  }
+
+  return signedBytes58;
+}
+
+function buildRegisterNameRawBytes58({ account, data, name, timestamp }) {
+  const publicKey = decodeBase58(account.accountPublicKey);
+
+  if (publicKey.length !== 32) {
+    fail(`Android write smoke public key must decode to 32 bytes, got ${publicKey.length}.`);
+  }
+
+  return encodeBase58(
+    Buffer.concat([
+      intBytes(registerNameTransactionType),
+      longBytes(timestamp),
+      intBytes(0),
+      publicKey,
+      intBytes(0),
+      sizedStringBytes(name),
+      sizedStringBytes(data),
+      longBytes(0),
+    ]),
+  );
+}
+
+async function getNameInfo(name) {
+  const response = await fetch(`${nodeApiUrl}/names/${encodeURIComponent(name)}`);
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    fail(text || `Name lookup failed with HTTP ${response.status}.`);
+  }
+
+  return JSON.parse(text);
+}
+
+async function ensureNameRegistered(name, account, apiKey) {
+  const existingName = await getNameInfo(name);
+
+  if (existingName) {
+    if (existingName.owner !== account.accountAddress) {
+      fail(`${name} is already registered to ${existingName.owner}.`);
+    }
+
+    return;
+  }
+
+  log(`Registering Android write smoke name ${name}.`);
+
+  const rawRegisterBytes58 = buildRegisterNameRawBytes58({
+    account,
+    timestamp: Date.now(),
+    name,
+    data: JSON.stringify({
+      app: 'Qortium Home',
+      purpose: 'Android QDN write smoke',
+    }),
+  });
+  const rawRegisterWithNonce58 = await requestCore('/transactions/mempow/compute', {
+    method: 'POST',
+    headers: getCoreHeaders(apiKey, 'text/plain'),
+    body: rawRegisterBytes58,
+  });
+
+  await signAndProcessCore(rawRegisterWithNonce58, account.accountPrivateKey, apiKey);
+  await waitUntil(`name ${name}`, qdnStatusTimeoutMs, async () => {
+    const nameInfo = await getNameInfo(name);
+
+    return nameInfo?.owner === account.accountAddress ? nameInfo : null;
+  });
+}
+
 async function getOwnedNames(address) {
   const names = await fetchJson(`${nodeApiUrl}/names/address/${encodeURIComponent(address)}?limit=0`);
 
@@ -321,12 +677,41 @@ async function assertLocalCoreReady() {
   }
 }
 
-async function getResourceStatus(service, name, identifier) {
+async function getResourceStatus(service, name, identifier, options = {}) {
   const identifierPath = identifier ? `/${encodeURIComponent(identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  if (options.build) {
+    queryParams.set('build', 'true');
+  }
+
+  const queryString = queryParams.toString();
 
   return fetchJson(
-    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}${identifierPath}`,
+    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}${identifierPath}${
+      queryString ? `?${queryString}` : ''
+    }`,
   );
+}
+
+async function waitForResourceStatus(service, name, identifier, expectedStatus, options = {}) {
+  return waitUntil(`QDN ${service}/${name}/${identifier} ${expectedStatus}`, qdnStatusTimeoutMs, async () => {
+    const status = await getResourceStatus(service, name, identifier, options);
+
+    return status?.status === expectedStatus ? status : null;
+  });
+}
+
+async function assertResourceStatus(service, name, identifier, expectedStatus, options = {}) {
+  const status = await getResourceStatus(service, name, identifier, options);
+
+  if (status?.status !== expectedStatus) {
+    fail(
+      `Expected ${service}/${name}/${identifier} to be ${expectedStatus}, found ${
+        status?.status ?? 'unknown'
+      }.`,
+    );
+  }
 }
 
 async function assertFixtureReady() {
@@ -481,7 +866,7 @@ async function navigateToFixture(client, address = fixtureAddress) {
   }
 }
 
-async function configureSmokeNode(client) {
+async function configureSmokeNode(client, apiKey = getApiKey()) {
   await waitUntil('Qortium Home platform bridge', appTimeoutMs, async () => {
     const result = await client.send('Runtime.evaluate', {
       expression: "typeof window.qortiumHome?.node?.saveSettings === 'function'",
@@ -493,6 +878,7 @@ async function configureSmokeNode(client) {
 
   const expression = `
     window.qortiumHome.node.saveSettings({
+      apiKey: ${JSON.stringify(apiKey)},
       customUrl: ${JSON.stringify(androidNodeApiUrl)},
       mode: 'custom'
     }).then((settings) => ({ ok: true, settings }), (error) => ({
@@ -571,6 +957,79 @@ async function seedAndroidAccount(client, account) {
 
     return probe.result?.value?.ok === true;
   });
+}
+
+async function seedAndUnlockAndroidWallet(client, wallet, password) {
+  const walletStore = createAndroidEncryptedWalletStore({
+    address: wallet.account.accountAddress,
+    encryptedWallet: wallet.encryptedWallet,
+    label: 'Android Write Smoke',
+  });
+  const walletId = walletStore.activeAccountId;
+
+  await waitForCapacitorPreferences(client);
+
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      window.Capacitor.Plugins.Preferences.set({
+        key: ${JSON.stringify(walletStoreKey)},
+        value: ${JSON.stringify(JSON.stringify(walletStore))}
+      }).then(() => ({ ok: true }), (error) => ({
+        ok: false,
+        message: String(error && error.message || error)
+      }))
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Unable to seed Android write wallet store.');
+  }
+
+  await client.send('Runtime.evaluate', {
+    expression: 'window.location.reload()',
+    returnByValue: true,
+  });
+
+  await waitUntil('seeded Android write account', appTimeoutMs, async () => {
+    const probe = await client.send('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const select = document.querySelector('#selected-wallet');
+          const address = document.querySelector('.account-selector__address')?.textContent?.trim() || '';
+          return {
+            address,
+            ok: select?.value === ${JSON.stringify(walletId)} && address === ${JSON.stringify(wallet.account.accountAddress)},
+            selectValue: select?.value || ''
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+
+    return probe.result?.value?.ok === true;
+  });
+
+  const unlockResult = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      window.qortiumHome.accounts.unlockWallet(${JSON.stringify(walletId)}, ${JSON.stringify(password)})
+        .then((state) => {
+          const account = state.accounts.find((item) => item.id === ${JSON.stringify(walletId)});
+          return { ok: !!account?.isUnlocked };
+        }, (error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+    returnByValue: true,
+  });
+  const unlockValue = unlockResult.result?.value;
+
+  if (!unlockValue?.ok) {
+    fail(unlockValue?.message || 'Unable to unlock Android write smoke wallet.');
+  }
+
+  return walletId;
 }
 
 async function clearAndroidAccount(client) {
@@ -891,6 +1350,39 @@ async function isAccountReadDialogVisible(client) {
   return evaluateInMain(client, "!!document.querySelector('[aria-label=\"QDN account request\"]')");
 }
 
+async function resolveNextWrite(client, buttonLabel = 'Approve') {
+  await waitUntil('QDN write approval dialog', appTimeoutMs, async () => {
+    const result = await evaluateInMain(
+      client,
+      `
+        (() => {
+          const dialog = document.querySelector('[aria-label="QDN write request"]');
+          if (!dialog) return null;
+          const target = [...dialog.querySelectorAll('button')]
+            .find((button) => button.textContent && button.textContent.trim() === ${JSON.stringify(buttonLabel)});
+          if (!target) return { ok: false, message: ${JSON.stringify(`${buttonLabel} button was not found.`)} };
+          target.click();
+          return { ok: true };
+        })()
+      `,
+    );
+
+    if (result?.ok) {
+      return true;
+    }
+
+    if (result?.message) {
+      fail(result.message);
+    }
+
+    return null;
+  });
+}
+
+async function isWriteDialogVisible(client) {
+  return evaluateInMain(client, "!!document.querySelector('[aria-label=\"QDN write request\"]')");
+}
+
 async function runQdnRequestWithAccountDialog(
   mainClient,
   contextId,
@@ -934,6 +1426,55 @@ async function runQdnRequestWithAccountDialog(
   }
 
   if (buttonLabel !== 'Allow' && result?.ok) {
+    fail(`${request.action} unexpectedly succeeded after ${buttonLabel}.`);
+  }
+
+  return result;
+}
+
+async function runQdnRequestWithWriteDialog(
+  mainClient,
+  contextId,
+  request,
+  buttonLabel = 'Approve',
+) {
+  const requestPromise = evaluateInFrame(
+    mainClient,
+    contextId,
+    `
+      Promise.resolve()
+        .then(() => {
+          if (typeof window.qdnRequest !== 'function') {
+            throw new Error('qdnRequest is ' + typeof window.qdnRequest);
+          }
+
+          return window.qdnRequest(${JSON.stringify(request)});
+        })
+        .then((result) => ({ ok: true, result }))
+        .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
+    `,
+  );
+
+  const firstResult = await Promise.race([
+    requestPromise.then((result) => ({ kind: 'request', result })),
+    resolveNextWrite(mainClient, buttonLabel).then(() => ({ kind: 'dialog' })),
+  ]);
+
+  if (firstResult.kind === 'request') {
+    fail(
+      `${request.action} settled before the ${buttonLabel} dialog was resolved: ${JSON.stringify(
+        firstResult.result,
+      )}`,
+    );
+  }
+
+  const result = await requestPromise;
+
+  if (buttonLabel === 'Approve' && !result?.ok) {
+    fail(result?.message || `${request.action} failed.`);
+  }
+
+  if (buttonLabel !== 'Approve' && result?.ok) {
     fail(`${request.action} unexpectedly succeeded after ${buttonLabel}.`);
   }
 
@@ -1042,6 +1583,56 @@ async function waitForQdnRequestBridge(client, contextId) {
   });
 }
 
+async function installPublishSourceMock(client, source) {
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      (() => {
+        if (!window.Capacitor?.nativePromise) {
+          return { ok: false, message: 'Capacitor nativePromise is unavailable.' };
+        }
+
+        if (!window.__qortiumAndroidWriteSmokeOriginalNativePromise) {
+          window.__qortiumAndroidWriteSmokeOriginalNativePromise = window.Capacitor.nativePromise.bind(window.Capacitor);
+        }
+
+        window.__qortiumAndroidWriteSmokeSourceCalls = [];
+        window.Capacitor.nativePromise = (pluginName, methodName, options) => {
+          if (pluginName === 'QdnPublishSource' && methodName === 'selectFile') {
+            window.__qortiumAndroidWriteSmokeSourceCalls.push(options);
+            return Promise.resolve(${JSON.stringify(source)});
+          }
+
+          return window.__qortiumAndroidWriteSmokeOriginalNativePromise(pluginName, methodName, options);
+        };
+
+        return { ok: true };
+      })()
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Unable to install Android publish source mock.');
+  }
+}
+
+async function clearPublishSourceMock(client) {
+  await client.send('Runtime.evaluate', {
+    expression: `
+      (() => {
+        if (window.__qortiumAndroidWriteSmokeOriginalNativePromise) {
+          window.Capacitor.nativePromise = window.__qortiumAndroidWriteSmokeOriginalNativePromise;
+          delete window.__qortiumAndroidWriteSmokeOriginalNativePromise;
+        }
+        delete window.__qortiumAndroidWriteSmokeSourceCalls;
+      })()
+    `,
+    returnByValue: true,
+  });
+}
+
 async function runBridgeAssertions(client, contextId) {
   await waitForQdnRequestBridge(client, contextId);
 
@@ -1061,6 +1652,8 @@ async function runBridgeAssertions(client, contextId) {
     'GET_QDN_RESOURCE_URL',
     'FETCH_QDN_RESOURCE',
     'LIST_QDN_RESOURCES',
+    'PUBLISH_QDN_RESOURCE',
+    'DELETE_QDN_RESOURCE',
     'SEARCH_QDN_RESOURCES',
     'IS_USING_PUBLIC_NODE',
     'WHICH_UI',
@@ -1279,12 +1872,181 @@ async function runSelectedAccountNoAccountAssertion(client) {
   );
 }
 
+function getPublishRequest({ identifier, name, service }) {
+  return {
+    action: 'PUBLISH_QDN_RESOURCE',
+    description: 'Android QDN write smoke publish',
+    identifier,
+    name,
+    service,
+    tags: ['qortium-home', 'android-smoke'],
+    title: 'Android QDN Write Smoke',
+  };
+}
+
+function getDeleteRequest({ identifier, name, service }) {
+  return {
+    action: 'DELETE_QDN_RESOURCE',
+    identifier,
+    name,
+    service,
+  };
+}
+
+async function saveAndroidNodeSettings(client, { apiKey, customUrl = androidNodeApiUrl, mode = 'custom' }) {
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      window.qortiumHome.node.saveSettings({
+        apiKey: ${JSON.stringify(apiKey)},
+        customUrl: ${JSON.stringify(customUrl)},
+        mode: ${JSON.stringify(mode)}
+      }).then((settings) => ({ ok: true, settings }), (error) => ({
+        ok: false,
+        message: String(error && error.message || error)
+      }))
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Unable to update Android node settings.');
+  }
+
+  return value.settings;
+}
+
+async function runAndroidWriteAssertions(client, wallet, apiKey) {
+  const service = 'JSON';
+  const successIdentifier = `android-write-${Date.now().toString(36)}`;
+  const denyIdentifier = `${successIdentifier}-deny`;
+  const lockedIdentifier = `${successIdentifier}-locked`;
+  const missingKeyIdentifier = `${successIdentifier}-missing-key`;
+  const nonlocalIdentifier = `${successIdentifier}-nonlocal`;
+  const noAccountIdentifier = `${successIdentifier}-no-account`;
+  const publishSource = {
+    canceled: false,
+    dataBase64: Buffer.from(
+      JSON.stringify({
+        fixture: 'android-qdn-write-smoke',
+        identifier: successIdentifier,
+        resource: `qdn://${service}/${wallet.name}/${successIdentifier}`,
+      }),
+      'utf8',
+    ).toString('base64'),
+    fileName: 'android-qdn-write-smoke.json',
+    mimeType: 'application/json',
+    size: 128,
+    uri: 'smoke://android-qdn-write-source',
+  };
+
+  await saveAndroidNodeSettings(client, { apiKey });
+  const walletId = await seedAndUnlockAndroidWallet(client, wallet, wallet.password);
+  await navigateToFixture(client, getFixtureAddressWithQuery('write'));
+  let { contextId } = await getFixtureFrameContext(client);
+  await waitForQdnRequestBridge(client, contextId);
+  await installPublishSourceMock(client, publishSource);
+
+  try {
+    const publishRequest = getPublishRequest({
+      identifier: successIdentifier,
+      name: wallet.name,
+      service,
+    });
+    const deleteRequest = getDeleteRequest({
+      identifier: successIdentifier,
+      name: wallet.name,
+      service,
+    });
+
+    log(`Publishing ${service}/${wallet.name}/${successIdentifier} from Android.`);
+    await runQdnRequestWithWriteDialog(client, contextId, publishRequest);
+    await waitForResourceStatus(service, wallet.name, successIdentifier, 'READY', { build: true });
+
+    log(`Deleting ${service}/${wallet.name}/${successIdentifier} from Android.`);
+    await runQdnRequestWithWriteDialog(client, contextId, deleteRequest);
+    await waitForResourceStatus(service, wallet.name, successIdentifier, 'DELETED');
+
+    await runQdnRequestWithWriteDialog(
+      client,
+      contextId,
+      getPublishRequest({ identifier: denyIdentifier, name: wallet.name, service }),
+      'Deny',
+    );
+    await assertResourceStatus(service, wallet.name, denyIdentifier, 'NOT_PUBLISHED');
+
+    await client.send('Runtime.evaluate', {
+      awaitPromise: true,
+      expression: `window.qortiumHome.accounts.lockWallet(${JSON.stringify(walletId)})`,
+      returnByValue: true,
+    });
+    await expectQdnRequestRejected(
+      client,
+      contextId,
+      getPublishRequest({ identifier: lockedIdentifier, name: wallet.name, service }),
+      'Selected account is locked',
+    );
+    assert(
+      (await isWriteDialogVisible(client)) === false,
+      'Locked Android write request unexpectedly opened an approval dialog.',
+    );
+
+    await seedAndUnlockAndroidWallet(client, wallet, wallet.password);
+    await navigateToFixture(client, getFixtureAddressWithQuery('write-missing-api-key'));
+    ({ contextId } = await getFixtureFrameContext(client));
+    await waitForQdnRequestBridge(client, contextId);
+    await saveAndroidNodeSettings(client, { apiKey: '' });
+    await expectQdnRequestRejected(
+      client,
+      contextId,
+      getPublishRequest({ identifier: missingKeyIdentifier, name: wallet.name, service }),
+      'API key',
+    );
+    assert(
+      (await isWriteDialogVisible(client)) === false,
+      'Missing API key Android write request unexpectedly opened an approval dialog.',
+    );
+
+    await saveAndroidNodeSettings(client, {
+      apiKey,
+      customUrl: 'http://146.103.42.59:24891',
+      mode: 'custom',
+    });
+    await expectQdnRequestRejected(
+      client,
+      contextId,
+      getPublishRequest({ identifier: nonlocalIdentifier, name: wallet.name, service }),
+      'local Core node',
+    );
+    await assertResourceStatus(service, wallet.name, nonlocalIdentifier, 'NOT_PUBLISHED');
+
+    await clearAndroidAccount(client);
+    await saveAndroidNodeSettings(client, { apiKey });
+    await navigateToFixture(client, getFixtureAddressWithQuery('write-no-account'));
+    ({ contextId } = await getFixtureFrameContext(client));
+    await waitForQdnRequestBridge(client, contextId);
+    await expectQdnRequestRejected(
+      client,
+      contextId,
+      getPublishRequest({ identifier: noAccountIdentifier, name: wallet.name, service }),
+      'No account is selected',
+    );
+  } finally {
+    await clearPublishSourceMock(client);
+    await saveAndroidNodeSettings(client, { apiKey }).catch(() => undefined);
+  }
+}
+
 async function main() {
   assertTool(adbPath, 'adb');
 
   await assertLocalCoreReady();
   await assertFixtureReady();
+  const apiKey = getApiKey();
   const account = getPreviewAccount();
+  const androidWriteWallet = await createAndroidWriteWallet(account);
+  await ensureNameRegistered(androidWriteWallet.name, androidWriteWallet.account, apiKey);
   const ownedNames = await getOwnedNames(account.accountAddress);
 
   const apkPath = getDebugApkPath();
@@ -1306,7 +2068,7 @@ async function main() {
         await client.send('Page.enable');
         await client.send('Runtime.enable');
         await runWalletBackupAssertions(client);
-        await configureSmokeNode(client);
+        await configureSmokeNode(client, apiKey);
         await seedAndroidAccount(client, account);
         await navigateToFixture(client);
         const { contextId, frame } = await getFixtureFrameContext(client);
@@ -1317,6 +2079,7 @@ async function main() {
         await runSelectedAccountAssertions(client, contextId, account, ownedNames);
         await runSelectedAccountDenyAssertion(client, account);
         await runSelectedAccountNoAccountAssertion(client);
+        await runAndroidWriteAssertions(client, androidWriteWallet, apiKey);
       } finally {
         client.close();
       }

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add android qdn write approvals
+
+Added Android QDN publish/delete approvals. Android QDN APP and WEBSITE pages can now request single-file QDN publish and delete actions through the tokenized bridge, Home shows a per-write approval prompt, reads publish files through a native picker, signs and processes the transaction with the selected unlocked wallet against a local node with a saved API key, and the Android QDN bridge smoke test now covers publish/delete success, denial, missing-API-key, non-local-node, and no-account write cases.
+
 ### 2026-05-31 - app: add android wallet backup creation
 
 Added Android wallet creation and backup export. Android now creates encrypted wallets only after the user saves the backup JSON through the native document picker, starts the newly created wallet unlocked for the current app session, lets users export the selected saved encrypted wallet backup later, and expands the Android QDN bridge smoke test to verify the wallet backup JSON and export path before the existing QDN app assertions run.

@@ -38,6 +38,9 @@ const BASE58_ALPHABET_MAP = new Map<string, number>(
 );
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
+const QDN_WRITE_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
+const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
+const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
 const QDN_APP_BRIDGE_ACTIONS = [
   'FETCH_NODE_API',
   'FETCH_QDN_RESOURCE',
@@ -54,12 +57,14 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'GET_QDN_RESOURCE_URL',
   'IS_USING_PUBLIC_NODE',
   'LIST_QDN_RESOURCES',
+  ...QDN_WRITE_ACTIONS,
   'SEARCH_QDN_RESOURCES',
   'WHICH_UI',
   'SHOW_ACTIONS',
 ] as const;
 
 type StoredNodeSettings = {
+  apiKey: string;
   customUrl: string;
   mode: QortiumNodeSettingsMode;
 };
@@ -125,6 +130,10 @@ type WalletBackupPlugin = {
   saveWallet: (request: { content: string; fileName: string }) => Promise<QortiumWalletBackupResult>;
 };
 
+type QdnPublishSourcePlugin = {
+  selectFile: (request: { maxBytes: number }) => Promise<QdnPublishSourceResult>;
+};
+
 type NativeHttpBlobUrlRequest = {
   contentType?: string;
   readTimeoutMs?: number;
@@ -153,6 +162,39 @@ type QdnAppRequestContext = {
   sessionKey: string;
 };
 
+type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
+
+type QdnWriteResourceRequest = {
+  category?: string;
+  description?: string;
+  fee?: number;
+  identifier?: string;
+  name: string;
+  service: string;
+  tags: string[];
+  title?: string;
+};
+
+type QdnPublishSourceResult =
+  | {
+      canceled: true;
+    }
+  | {
+      canceled: false;
+      dataBase64: string;
+      fileName: string;
+      mimeType?: string;
+      size: number;
+      uri?: string;
+    };
+
+type QdnWriteContext = {
+  apiKey: string;
+  nodeApiUrl: string;
+  profile: QortiumAccountProfile;
+  privateKey58: string;
+};
+
 type PendingAccountReadApproval = {
   resolve: (approved: boolean) => void;
   timeoutId: number;
@@ -161,10 +203,13 @@ type PendingAccountReadApproval = {
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
 const QdnFileOpener = registerPlugin<QdnFileOpenerPlugin>('QdnFileOpener');
 const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
+const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
 const qdnAccountReadListeners = new Set<(request: QortiumQdnAccountReadApprovalRequest) => void>();
+const qdnWriteListeners = new Set<(request: QortiumQdnWriteApprovalRequest) => void>();
 const pendingAccountReadApprovals = new Map<string, PendingAccountReadApproval>();
+const pendingQdnWriteApprovals = new Map<string, PendingAccountReadApproval>();
 const approvedAccountReadRequests = new Set<string>();
 
 function forgetUnlockedWalletSeed(accountId: string) {
@@ -557,6 +602,7 @@ function normalizeNodeApiUrl(value: string) {
 
 function getDefaultNodeSettings(): StoredNodeSettings {
   return {
+    apiKey: '',
     customUrl: '',
     mode: isAndroid() ? 'network' : 'local',
   };
@@ -568,6 +614,7 @@ function parseStoredNodeSettings(value: unknown): StoredNodeSettings {
   }
 
   const rawSettings = value as Partial<StoredNodeSettings>;
+  const apiKey = getString(rawSettings.apiKey);
   const rawCustomUrl = getString(rawSettings.customUrl);
   let customUrl = '';
 
@@ -583,6 +630,7 @@ function parseStoredNodeSettings(value: unknown): StoredNodeSettings {
 
   if (rawMode === 'custom' && customUrl) {
     return {
+      apiKey,
       customUrl,
       mode: 'custom',
     };
@@ -590,6 +638,7 @@ function parseStoredNodeSettings(value: unknown): StoredNodeSettings {
 
   if (rawMode === 'network') {
     return {
+      apiKey: '',
       customUrl,
       mode: 'network',
     };
@@ -597,6 +646,7 @@ function parseStoredNodeSettings(value: unknown): StoredNodeSettings {
 
   if (rawMode === 'local') {
     return {
+      apiKey,
       customUrl,
       mode: 'local',
     };
@@ -604,12 +654,14 @@ function parseStoredNodeSettings(value: unknown): StoredNodeSettings {
 
   if (rawMode === 'previewnet') {
     return {
+      apiKey: '',
       customUrl,
       mode: isAndroid() ? 'network' : 'local',
     };
   }
 
   return {
+    apiKey,
     customUrl,
     mode: isAndroid() ? 'network' : 'local',
   };
@@ -626,12 +678,14 @@ function normalizeNodeSettingsRequest(value: QortiumNodeSettingsRequest): Stored
 
   const rawCustomUrl = getString(value.customUrl);
   const customUrl = rawCustomUrl ? normalizeNodeApiUrl(rawCustomUrl) : '';
+  const apiKey = value.mode === 'network' ? '' : getString(value.apiKey);
 
   if (value.mode === 'custom' && !customUrl) {
     throw new Error('Custom node URL is required.');
   }
 
   return {
+    apiKey,
     customUrl,
     mode: value.mode,
   };
@@ -1703,6 +1757,429 @@ async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undef
   };
 }
 
+function getRequestTags(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map(getString).filter(Boolean);
+  }
+
+  const tag = getString(value);
+
+  return tag ? [tag] : [];
+}
+
+function getRequestFee(value: unknown) {
+  const fee = getNumber(value);
+
+  if (typeof fee === 'undefined') {
+    return undefined;
+  }
+
+  if (!Number.isSafeInteger(fee) || fee < 0) {
+    throw new Error('QDN write fee must be a non-negative integer.');
+  }
+
+  return fee;
+}
+
+function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
+  const service = getService(getRequestValue(request, 'service'));
+  const name = getString(getRequestValue(request, 'name'));
+  const identifier = getString(getRequestValue(request, 'identifier'));
+  const title = getString(getRequestValue(request, 'title'));
+  const description = getString(getRequestValue(request, 'description'));
+  const category = getString(getRequestValue(request, 'category')).toUpperCase();
+
+  if (!service) {
+    throw new Error('QDN resource service is required.');
+  }
+
+  if (!name) {
+    throw new Error('QDN resource name is required.');
+  }
+
+  return {
+    service,
+    name,
+    identifier: identifier || undefined,
+    title: title || undefined,
+    description: description || undefined,
+    tags: getRequestTags(getRequestValue(request, 'tags')),
+    category: category || undefined,
+    fee: getRequestFee(getRequestValue(request, 'fee')),
+  };
+}
+
+function appendQdnWriteQuery(
+  queryParams: URLSearchParams,
+  resource: QdnWriteResourceRequest,
+  source?: QdnPublishSourceResult,
+) {
+  appendQueryValue(queryParams, 'title', resource.title);
+  appendQueryValue(queryParams, 'description', resource.description);
+  appendQueryValue(queryParams, 'category', resource.category);
+  appendQueryValue(queryParams, 'fee', resource.fee);
+
+  if (source && !source.canceled) {
+    appendQueryValue(queryParams, 'filename', source.fileName);
+  }
+
+  for (const tag of resource.tags) {
+    appendQueryValue(queryParams, 'tags', tag);
+  }
+}
+
+function buildQdnPublishBase64Path(resource: QdnWriteResourceRequest, source: QdnPublishSourceResult) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource, source);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/base64${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQdnDeletePath(resource: QdnWriteResourceRequest) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQueryValue(queryParams, 'fee', resource.fee);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/resource/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/delete${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function getNodeApiKey(settings: StoredNodeSettings) {
+  if (!settings.apiKey) {
+    throw new Error('Qortium node API key was not found.');
+  }
+
+  return settings.apiKey;
+}
+
+function isLocalWriteHostname(hostname: string) {
+  const normalizedHostname = hostname.toLowerCase();
+
+  return (
+    normalizedHostname === '10.0.2.2' ||
+    normalizedHostname === 'localhost' ||
+    normalizedHostname === '::1' ||
+    normalizedHostname === '[::1]' ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname)
+  );
+}
+
+function assertLocalWriteConnection(settings: StoredNodeSettings, nodeApiUrl: string) {
+  if (settings.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(nodeApiUrl);
+  } catch {
+    throw new Error('QDN write requests require a local Core node.');
+  }
+
+  if (!isLocalWriteHostname(url.hostname)) {
+    throw new Error('QDN write requests require a local Core node so Home never sends private keys to a remote node.');
+  }
+}
+
+async function getAccountSigningKey(accountId: string) {
+  const store = await readWalletStore();
+  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  const seed = unlockedWalletSeeds.get(accountId);
+
+  if (!seed) {
+    throw new Error('Selected account is locked.');
+  }
+
+  const privateKey = deriveAddressSeed(seed, 0);
+  const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
+  const address = await publicKeyToAddress(keyPair.publicKey);
+
+  if (address !== wallet.address) {
+    throw new Error('Selected account signing key does not match the saved account address.');
+  }
+
+  return {
+    address,
+    privateKey58: base58Encode(privateKey),
+  };
+}
+
+async function getQdnWriteContext(context: QdnAppRequestContext | undefined): Promise<QdnWriteContext> {
+  if (!context) {
+    throw new Error('QDN app requests are only available from a QDN app frame.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = getNodeApiKey(settings);
+
+  assertLocalWriteConnection(settings, nodeApiUrl);
+
+  const profile = await getAccountProfile(context.accountId);
+  const signingKey = await getAccountSigningKey(context.accountId);
+
+  return {
+    apiKey,
+    nodeApiUrl,
+    profile,
+    privateKey58: signingKey.privateKey58,
+  };
+}
+
+function normalizeQdnPublishSourceResult(value: unknown): QdnPublishSourceResult {
+  if (!isRecord(value)) {
+    throw new Error('QDN publish file selection did not return a valid result.');
+  }
+
+  if (value.canceled === true) {
+    return {
+      canceled: true,
+    };
+  }
+
+  const dataBase64 = getString(value.dataBase64);
+  const fileName = sanitizeFilename(getString(value.fileName), 'qdn-resource');
+  const size = getNumber(value.size) ?? base64ToBytes(dataBase64).byteLength;
+
+  if (!dataBase64) {
+    throw new Error('Selected QDN publish file did not include data.');
+  }
+
+  if (size > QDN_WRITE_SOURCE_MAX_BYTES) {
+    throw new Error(
+      `Selected QDN publish file exceeds the ${QDN_WRITE_SOURCE_MAX_BYTES.toLocaleString()} byte limit.`,
+    );
+  }
+
+  return {
+    canceled: false,
+    dataBase64,
+    fileName,
+    mimeType: getString(value.mimeType) || undefined,
+    size,
+    uri: getString(value.uri) || undefined,
+  };
+}
+
+async function selectQdnPublishSource() {
+  const result = await QdnPublishSource.selectFile({
+    maxBytes: QDN_WRITE_SOURCE_MAX_BYTES,
+  });
+
+  return normalizeQdnPublishSourceResult(result);
+}
+
+async function requestQdnWriteApproval(
+  context: QdnAppRequestContext,
+  profile: QortiumAccountProfile,
+  action: QdnWriteAction,
+  resource: QdnWriteResourceRequest,
+  source?: QdnPublishSourceResult,
+) {
+  if (qdnWriteListeners.size === 0) {
+    throw new Error('QDN write request approval is unavailable.');
+  }
+
+  const requestId = createRequestId();
+  const approved = await new Promise<boolean>((resolve) => {
+    const timeoutId = window.setTimeout(() => {
+      pendingQdnWriteApprovals.delete(requestId);
+      resolve(false);
+    }, QDN_WRITE_APPROVAL_TIMEOUT_MS);
+
+    pendingQdnWriteApprovals.set(requestId, {
+      resolve,
+      timeoutId,
+    });
+
+    for (const listener of qdnWriteListeners) {
+      listener({
+        accountName: profile.name,
+        action,
+        address: profile.address,
+        id: requestId,
+        resource: {
+          identifier: resource.identifier ?? null,
+          name: resource.name,
+          service: resource.service,
+        },
+        resourceUrl: context.resourceUrl || 'QDN app',
+        sourceKind: source?.canceled === false ? 'file' : null,
+        sourceName: source?.canceled === false ? source.fileName : null,
+      });
+    }
+  });
+
+  if (!approved) {
+    throw new Error('QDN write request was denied.');
+  }
+}
+
+async function postLocalNodeText(
+  nodeApiUrl: string,
+  pathname: string,
+  body: string,
+  apiKey: string,
+  fallbackMessage: string,
+  contentType = 'text/plain',
+) {
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': contentType,
+        'X-API-KEY': apiKey,
+      },
+      data: body,
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const responseBody = stringifyResponseData(response.data).trim();
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(responseBody || fallbackMessage);
+  }
+
+  return {
+    body: responseBody,
+    contentType: getContentType(response),
+  };
+}
+
+async function signAndProcessTransaction(
+  writeContext: QdnWriteContext,
+  rawUnsignedBytes58: string,
+) {
+  const rawUnsignedWithNonce = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/arbitrary/compute',
+    rawUnsignedBytes58,
+    writeContext.apiKey,
+    'QDN transaction nonce computation failed.',
+  );
+  const signedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/transactions/sign',
+    JSON.stringify({
+      privateKey: writeContext.privateKey58,
+      transactionBytes: rawUnsignedWithNonce.body,
+    }),
+    writeContext.apiKey,
+    'QDN transaction signing failed.',
+    'application/json',
+  );
+  const processedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/transactions/process',
+    signedTransaction.body,
+    writeContext.apiKey,
+    'QDN transaction processing failed.',
+  );
+
+  return {
+    body: processedTransaction.body,
+    data: parseResponseData(processedTransaction.body, processedTransaction.contentType),
+  };
+}
+
+async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const resource = getQdnWriteResourceRequest(request);
+  const writeContext = await getQdnWriteContext(context);
+  const source = await selectQdnPublishSource();
+
+  if (source.canceled) {
+    throw new Error('QDN publish was canceled.');
+  }
+
+  await requestQdnWriteApproval(
+    context as QdnAppRequestContext,
+    writeContext.profile,
+    'PUBLISH_QDN_RESOURCE',
+    resource,
+    source,
+  );
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    buildQdnPublishBase64Path(resource, source),
+    source.dataBase64,
+    writeContext.apiKey,
+    'QDN publish transaction build failed.',
+  );
+  const processedTransaction = await signAndProcessTransaction(writeContext, unsignedTransaction.body);
+
+  return {
+    accepted: true,
+    action: 'PUBLISH_QDN_RESOURCE',
+    result: processedTransaction.data,
+    resource: {
+      identifier: resource.identifier ?? null,
+      name: resource.name,
+      service: resource.service,
+    },
+  };
+}
+
+async function deleteQdnResourceForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const resource = getQdnWriteResourceRequest(request);
+  const writeContext = await getQdnWriteContext(context);
+
+  await requestQdnWriteApproval(
+    context as QdnAppRequestContext,
+    writeContext.profile,
+    'DELETE_QDN_RESOURCE',
+    resource,
+  );
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    buildQdnDeletePath(resource),
+    '',
+    writeContext.apiKey,
+    'QDN delete transaction build failed.',
+  );
+  const processedTransaction = await signAndProcessTransaction(writeContext, unsignedTransaction.body);
+
+  return {
+    accepted: true,
+    action: 'DELETE_QDN_RESOURCE',
+    result: processedTransaction.data,
+    resource: {
+      identifier: resource.identifier ?? null,
+      name: resource.name,
+      service: resource.service,
+    },
+  };
+}
+
 function createStoredAccountsApi(): PlatformApi['accounts'] {
   return {
     list: async () => toAccountsState(await readWalletStore()),
@@ -2673,6 +3150,12 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'SEARCH_QDN_RESOURCES':
       return fetchNodeApiPayload(buildQdnAppResourcesPath(request, '/arbitrary/resources/search'), request);
 
+    case 'PUBLISH_QDN_RESOURCE':
+      return publishQdnResourceForApp(request, context);
+
+    case 'DELETE_QDN_RESOURCE':
+      return deleteQdnResourceForApp(request, context);
+
     case 'IS_USING_PUBLIC_NODE': {
       const settings = await readNodeSettings();
 
@@ -2737,7 +3220,13 @@ function createFallbackApi(): PlatformApi {
           qdnAccountReadListeners.delete(callback);
         };
       },
-      onWriteRequest: () => () => undefined,
+      onWriteRequest(callback) {
+        qdnWriteListeners.add(callback);
+
+        return () => {
+          qdnWriteListeners.delete(callback);
+        };
+      },
       resolveAccountReadRequest: async (requestId, approved) => {
         const pendingApproval = pendingAccountReadApprovals.get(requestId);
 
@@ -2749,7 +3238,17 @@ function createFallbackApi(): PlatformApi {
         pendingAccountReadApprovals.delete(requestId);
         pendingApproval.resolve(approved);
       },
-      resolveWriteRequest: async () => undefined,
+      resolveWriteRequest: async (requestId, approved) => {
+        const pendingApproval = pendingQdnWriteApprovals.get(requestId);
+
+        if (!pendingApproval) {
+          return;
+        }
+
+        window.clearTimeout(pendingApproval.timeoutId);
+        pendingQdnWriteApprovals.delete(requestId);
+        pendingApproval.resolve(approved);
+      },
     },
     updates: {
       async downloadAsset(request) {

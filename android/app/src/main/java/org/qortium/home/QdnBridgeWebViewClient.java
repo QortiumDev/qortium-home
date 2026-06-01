@@ -286,7 +286,9 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "return new Promise(function(resolve,reject){" +
             "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
             "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
-            "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},30000);" +
+            "var action=request&&typeof request==='object'?String(request.action||'').toUpperCase():'';" +
+            "var timeoutMs=(action==='PUBLISH_QDN_RESOURCE'||action==='DELETE_QDN_RESOURCE')?180000:30000;" +
+            "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},timeoutMs);" +
             "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +
             "window.parent.postMessage({type:'qortium:qdn-request',bridgeToken:bridgeToken,requestId:requestId,request:request},'*');" +
             "});}});" +

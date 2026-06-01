@@ -78,9 +78,9 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   },
   node: {
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
-    saveSettings: (request: { customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
+    saveSettings: (request: { apiKey?: string; customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
       ipcRenderer.invoke('node:saveSettings', request),
-    testConnection: (request: { customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
+    testConnection: (request: { apiKey?: string; customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
       ipcRenderer.invoke('node:testConnection', request),
     getStatus: () => ipcRenderer.invoke('node:getStatus'),
   },

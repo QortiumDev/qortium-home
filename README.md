@@ -52,6 +52,8 @@ more broadly.
 - Choose a separate selected wallet for each tab before navigating.
 - Show the active tab's selected wallet as an avatar or initial in the top bar.
 - Use in-session Back and Forward navigation history.
+- Approve QDN APP/WEBSITE publish and delete requests on desktop and Android
+  through the selected tab account when using a local node.
 - Build Linux x64 and arm64 AppImages, macOS DMGs, and a Windows x64 portable executable.
 - Build Android debug APKs plus release APK/AAB packages with Capacitor.
 - Package Linux, Windows, and macOS build resources with the Qortium Home app icon.
@@ -69,16 +71,17 @@ reachable node that can answer public QDN resource searches. Home does not send
 the local API key while using Previewnet network mode.
 
 Qortium Home does not yet expose chat send, name registration, or group join
-workflows. Desktop QDN apps can request QDN publish/delete actions through the
-account-aware `qdnRequest` bridge after a per-write user approval prompt.
+workflows. Desktop and Android QDN apps can request QDN publish/delete actions
+through the account-aware `qdnRequest` bridge after a per-write user approval
+prompt when the selected node is local and has a saved API key.
 
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
 `qdnRequest` bridge for read-only node and QDN lookups through Home's currently
 selected node. Desktop QDN apps and Android QDN apps can also request the
 selected tab account's public identity after a user approval prompt. The bridge
-accepts explicit object requests only; Android remains read-only, and Android
-APP/WEBSITE bridge injection is limited to Home-owned tokenized iframe loads.
+accepts explicit object requests only, and Android APP/WEBSITE bridge injection
+is limited to Home-owned tokenized iframe loads.
 
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_NAMES`, `GET_BALANCE`,
@@ -86,11 +89,12 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
 `SEARCH_QDN_RESOURCES`, `GET_SELECTED_ACCOUNT`, `IS_USING_PUBLIC_NODE`,
-`WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps also support
-`PUBLISH_QDN_RESOURCE` and `DELETE_QDN_RESOURCE`.
-Publishing uses a Home-owned file/folder picker, and each publish/delete request
-requires approval before Home signs and processes the transaction with the
-selected tab account.
+`WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
+APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE` and
+`DELETE_QDN_RESOURCE`. Publishing uses a Home-owned file/folder picker on
+desktop and a Home-owned single-file native picker on Android. Each
+publish/delete request requires approval before Home signs and processes the
+transaction with the selected tab account.
 
 `FETCH_NODE_API` accepts path-only requests such as `/admin/status` and only
 allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
@@ -104,8 +108,7 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 - Local-node write workflows for chat send, name registration, and group join.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
-- Android signing credential setup and Android account-backed QDN write
-  approvals.
+- Android signing credential setup.
 - Code signing and release verification for production builds.
 
 ## Development Setup
@@ -245,8 +248,9 @@ points the app at the host's local Previewnet node through
 backup export through the native wallet backup bridge, then verifies strict
 `qdnRequest` injection, `SHOW_ACTIONS`, read-only node API GET/HEAD calls,
 structured QDN resource status/properties/metadata/URL/fetch calls, resource
-list/search calls, and selected-account approval/deny/no-account flows with the
-ignored preview account file at
+list/search calls, selected-account approval/deny/no-account flows, and
+account-backed QDN publish/delete approve, deny, missing-API-key, non-local-node,
+and no-account write paths with ignored preview account material at
 `~/git/qortium/preview/secrets/initial-minting-accounts.json`. It also verifies
 rejected legacy, malformed, write-method, and oversize node API requests, and
 that un-tokened Android APP render pages do not receive the Home-owned
@@ -373,7 +377,10 @@ still choose a custom LAN or remote node URL. Android can open file-style QDN
 resources through the native Android chooser, load existing encrypted wallet
 JSON files into app-private storage, create new encrypted wallets only after a
 backup file is saved through Android's document picker, and export saved
-encrypted wallet backups again later.
+encrypted wallet backups again later. Android QDN APP/WEBSITE pages can also
+request single-file QDN publish/delete writes after approval when the user has a
+local selected node, an unlocked selected account, and the local node API key
+saved in app-private node settings.
 
 Desktop still defaults to a local node at `http://127.0.0.1:24891`, but users
 without a local node can also choose Previewnet network discovery from the node

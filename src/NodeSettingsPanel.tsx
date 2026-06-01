@@ -1,6 +1,7 @@
 import { Check, RefreshCw } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
+import { isNativePlatform } from './platform';
 
 type ConfigMessage = {
   kind: 'error' | 'success';
@@ -21,8 +22,9 @@ function formatError(error: unknown) {
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
-function getNodeSettingsRequest(mode: QortiumNodeSettingsMode, customUrl: string) {
+function getNodeSettingsRequest(mode: QortiumNodeSettingsMode, customUrl: string, apiKey: string) {
   return {
+    apiKey: apiKey.trim() || undefined,
     mode,
     customUrl: customUrl.trim() || undefined,
   };
@@ -47,13 +49,16 @@ export function NodeSettingsPanel({
 }: NodeSettingsPanelProps) {
   const [mode, setMode] = useState<QortiumNodeSettingsMode>(nodeSettings.mode);
   const [customUrl, setCustomUrl] = useState(nodeSettings.customUrl);
+  const [apiKey, setApiKey] = useState(nodeSettings.apiKey);
   const [configMessage, setConfigMessage] = useState<ConfigMessage>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const showApiKeyField = isNativePlatform() && mode !== 'network';
 
   useEffect(() => {
     setMode(nodeSettings.mode);
     setCustomUrl(nodeSettings.customUrl);
+    setApiKey(nodeSettings.apiKey);
   }, [nodeSettings]);
 
   async function handleTestConnection() {
@@ -61,7 +66,7 @@ export function NodeSettingsPanel({
     setConfigMessage(null);
 
     try {
-      const result = await window.qortiumHome.node.testConnection(getNodeSettingsRequest(mode, customUrl));
+      const result = await window.qortiumHome.node.testConnection(getNodeSettingsRequest(mode, customUrl, apiKey));
 
       if (result.ok) {
         onResolvedNodeApiUrl(result.nodeApiUrl);
@@ -87,7 +92,7 @@ export function NodeSettingsPanel({
     setConfigMessage(null);
 
     try {
-      const settings = await onSaveNodeSettings(getNodeSettingsRequest(mode, customUrl));
+      const settings = await onSaveNodeSettings(getNodeSettingsRequest(mode, customUrl, apiKey));
 
       onResolvedNodeApiUrl(settings.nodeApiUrl);
       setConfigMessage({
@@ -129,6 +134,9 @@ export function NodeSettingsPanel({
             value={mode}
             onChange={(event) => {
               setMode(event.target.value as QortiumNodeSettingsMode);
+              if (event.target.value === 'network') {
+                setApiKey('');
+              }
               setConfigMessage(null);
             }}
           >
@@ -168,6 +176,23 @@ export function NodeSettingsPanel({
             <span>{nodeSettings.localUrl}</span>
           </p>
         )}
+
+        {showApiKeyField ? (
+          <label className="field">
+            <span className="field__label">API key</span>
+            <input
+              autoComplete="off"
+              className="field__input"
+              spellCheck={false}
+              type="password"
+              value={apiKey}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                setConfigMessage(null);
+              }}
+            />
+          </label>
+        ) : null}
 
         <div className="node-settings__actions">
           <button

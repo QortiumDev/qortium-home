@@ -56,6 +56,7 @@ type QortiumAccountsCapabilities = {
 type QortiumNodeSettingsMode = 'custom' | 'local' | 'network';
 
 type QortiumNodeSettings = {
+  apiKey: string;
   customUrl: string;
   localUrl: string;
   mode: QortiumNodeSettingsMode;
@@ -65,6 +66,7 @@ type QortiumNodeSettings = {
 };
 
 type QortiumNodeSettingsRequest = {
+  apiKey?: string;
   customUrl?: string;
   mode: QortiumNodeSettingsMode;
 };
