@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - security: avoid localStorage api key flow
+
+Adjusted fallback node settings storage so native API-key persistence uses Capacitor Preferences directly, while browser fallback storage continues to save only non-secret node settings. This removes the remaining CodeQL path that could connect a saved node API key to localStorage.
+
 ### 2026-06-01 - security: fix CodeQL scanning alerts
 
 Adjusted the checked-in CodeQL workflow and the alerting code paths it found. Java/Kotlin analysis now prepares the Android build before scanning and then traces Home's own Android Java compile step, browser fallback node settings no longer save API keys to local storage, and QDN smoke scripts avoid printing environment-derived values or raw failure messages.

@@ -822,7 +822,7 @@ async function readNodeSettings() {
 
 async function writeNodeSettings(settings: StoredNodeSettings) {
   if (isNativePlatform()) {
-    await setStoredValue(NODE_SETTINGS_KEY, JSON.stringify(settings));
+    await Preferences.set({ key: NODE_SETTINGS_KEY, value: JSON.stringify(settings) });
     return;
   }
 
