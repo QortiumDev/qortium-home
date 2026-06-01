@@ -50,6 +50,10 @@ type NodeConnection = {
 
 let discoveryCache: DiscoveryCache | null = null;
 
+function getNetworkRestrictionMessage() {
+  return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
+}
+
 function getString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -466,6 +470,49 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Unable to reach the configured node.';
 }
 
+function getProtectedNodeApiKey(settings: NodeSettings) {
+  if (!settings.apiKey) {
+    throw new Error('Qortium node API key was not found.');
+  }
+
+  return settings.apiKey;
+}
+
+async function requestProtectedNodeJson(
+  settings: NodeSettings,
+  pathname: string,
+  method: 'GET' | 'POST',
+  fallbackMessage: string,
+) {
+  if (settings.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = getProtectedNodeApiKey(settings);
+  let response: Response;
+
+  try {
+    response = await fetch(`${nodeApiUrl}${pathname}`, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'X-API-KEY': apiKey,
+      },
+    });
+  } catch {
+    throw new Error(`Qortium node is unavailable at ${nodeApiUrl}.`);
+  }
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(text || fallbackMessage);
+  }
+
+  return text ? (JSON.parse(text) as unknown) : null;
+}
+
 async function fetchNodeStatus(nodeApiUrl: string) {
   let response: Response;
 
@@ -522,6 +569,24 @@ async function testNodeSettings(settings: NodeSettings) {
   }
 }
 
+function checkCoreUpdateStatus() {
+  return requestProtectedNodeJson(
+    readNodeSettings(),
+    '/admin/update',
+    'GET',
+    'Core on-chain update check failed.',
+  );
+}
+
+function installCoreUpdate() {
+  return requestProtectedNodeJson(
+    readNodeSettings(),
+    '/admin/update',
+    'POST',
+    'Core on-chain update install request failed.',
+  );
+}
+
 export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<NodeConnection> {
   const settings = readNodeSettings();
 
@@ -537,6 +602,14 @@ export async function getNodeApiUrl(forceDiscoveryRefresh = false) {
 
 export function registerNodeSettingsIpcHandlers() {
   ipcMain.handle('node:getSettings', () => getNodeSettingsSnapshot());
+
+  ipcMain.handle('node:checkCoreUpdate', () => {
+    return checkCoreUpdateStatus();
+  });
+
+  ipcMain.handle('node:installCoreUpdate', () => {
+    return installCoreUpdate();
+  });
 
   ipcMain.handle('node:saveSettings', async (_event, request: NodeSettingsRequest) => {
     const settings = normalizeNodeSettingsRequest(request);

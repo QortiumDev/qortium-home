@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - app: add on-chain core update status
+
+Added on-chain QDN Core update status to Home's dashboard. When a selected local or trusted custom node has an API key saved, Home now checks Core's approved `/admin/update` status, shows whether an approved update is available, explains when Core auto-update mode will install it automatically, and offers a manual approved-update install action when Core is not already set to automatic install mode.
+
 ### 2026-05-31 - app: add qdn direct chat bridge actions
 
 Added QDN direct private chat bridge actions for APP/WEBSITE pages in Home. QDN apps on desktop and Android can now send direct private chat messages through the existing chat-send request shape, list active direct private chats, and search direct private chat history using Core-managed direct-message helpers while Home keeps account private keys and signing authority outside the app.

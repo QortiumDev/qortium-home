@@ -406,6 +406,11 @@ settings menu. The first managed Core flow checks GitHub releases for the
 current `qortium-preview.zip` prerelease asset, installs it under Qortium Home's
 app data folder, can install a managed Java 17 runtime when needed, and runs the
 bundled preview start and stop scripts.
+When a local or trusted custom Core node is selected with an API key saved, the
+dashboard also checks Core's approved on-chain/QDN update status through
+`/admin/update`. If Core reports an approved update and its auto-update mode is
+`INSTALL`, Home shows that Core will install it automatically; otherwise Home
+offers a manual approved-update install action.
 
 ## QDN Preview Test Data
 

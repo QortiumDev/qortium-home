@@ -1,5 +1,5 @@
 import { Download, ExternalLink, FolderOpen, Play, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
   getOpenDownloadedFileLabel,
@@ -40,12 +40,218 @@ type LocalNodeStatus =
       state: 'unavailable';
     };
 
+type OnChainCoreUpdateState =
+  | {
+      state: 'loading';
+    }
+  | {
+      message: string;
+      state: 'unavailable';
+    }
+  | {
+      state: 'available';
+      status: QortiumCoreOnChainUpdateStatus;
+    }
+  | {
+      status?: QortiumCoreOnChainUpdateStatus;
+      state: 'installing';
+    };
+
 function formatLocalNodeError(error: unknown) {
   if (!(error instanceof Error)) {
     return 'Local node was not detected.';
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
+}
+
+function formatCoreAdminError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return 'Unable to check approved on-chain Core updates.';
+  }
+
+  return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
+}
+
+function getOnChainCoreUpdateUnavailableMessage(nodeSettings: QortiumNodeSettings) {
+  if (nodeSettings.mode === 'network') {
+    return 'Requires a local Core or trusted custom node with API key.';
+  }
+
+  if (!nodeSettings.apiKey) {
+    return 'Save the node API key to check approved on-chain Core updates.';
+  }
+
+  return null;
+}
+
+function formatAutoUpdateMode(value: string | null | undefined) {
+  switch (value) {
+    case 'INSTALL':
+      return 'Automatic install';
+    case 'NOTIFY':
+      return 'Notify';
+    case 'CHECK_ONLY':
+      return 'Check only';
+    case 'OFF':
+      return 'Off';
+    default:
+      return value || 'Unknown';
+  }
+}
+
+function formatCommitHash(value: string | null | undefined) {
+  if (!value) {
+    return '';
+  }
+
+  return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function getOnChainQdnResourceLabel(status: QortiumCoreOnChainUpdateStatus) {
+  const service = status.qdnService || status.binaryService || '';
+  const name = status.qdnName || status.binaryName || '';
+  const identifier = status.qdnIdentifier || status.binaryIdentifier || '';
+
+  if (!service || !name) {
+    return '';
+  }
+
+  return `${service}/${name}${identifier ? `/${identifier}` : ''}`;
+}
+
+function getOnChainQdnStatusLabel(status: QortiumCoreOnChainUpdateStatus) {
+  const resourceStatus = status.binaryResourceStatus || '';
+  const percent =
+    typeof status.binaryResourcePercentLoaded === 'number'
+      ? Math.max(0, Math.min(100, Math.round(status.binaryResourcePercentLoaded)))
+      : null;
+
+  if (!resourceStatus && percent === null) {
+    return '';
+  }
+
+  return percent === null ? resourceStatus : `${resourceStatus || 'Loading'} ${percent}%`;
+}
+
+function getOnChainCoreUpdateStatusText(updateState: OnChainCoreUpdateState) {
+  if (updateState.state === 'loading') {
+    return 'Checking approved on-chain Core update.';
+  }
+
+  if (updateState.state === 'installing') {
+    return 'Starting approved on-chain Core update.';
+  }
+
+  if (updateState.state === 'unavailable') {
+    return updateState.message;
+  }
+
+  const { status } = updateState;
+
+  if (status.updateAvailable) {
+    if (status.installStarted) {
+      return 'Approved Core update install has been scheduled.';
+    }
+
+    if (status.autoUpdateMode === 'INSTALL') {
+      return 'Approved Core update available; Core auto-update will install it.';
+    }
+
+    if (status.installing) {
+      return 'Approved Core update install is in progress.';
+    }
+
+    if (status.downloadStarted) {
+      return 'Approved Core update data is downloading from QDN.';
+    }
+
+    return 'Approved Core update available.';
+  }
+
+  return status.message || 'No approved on-chain Core update is available.';
+}
+
+function getOnChainCoreUpdateSummary(updateState: OnChainCoreUpdateState) {
+  if (updateState.state !== 'available' || !updateState.status.updateAvailable) {
+    return '';
+  }
+
+  if (updateState.status.installStarted) {
+    return 'Approved Core update install has been scheduled.';
+  }
+
+  if (updateState.status.autoUpdateMode === 'INSTALL') {
+    return 'Approved Core update available. Core auto-update is enabled and will install it automatically.';
+  }
+
+  if (updateState.status.installing) {
+    return 'Approved Core update install is in progress.';
+  }
+
+  return 'Approved Core update available.';
+}
+
+function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
+  const [status, setStatus] = useState<OnChainCoreUpdateState>({ state: 'loading' });
+
+  const refreshStatus = useCallback(async () => {
+    const unavailableMessage = getOnChainCoreUpdateUnavailableMessage(nodeSettings);
+
+    if (unavailableMessage) {
+      setStatus({
+        message: unavailableMessage,
+        state: 'unavailable',
+      });
+      return;
+    }
+
+    setStatus({ state: 'loading' });
+
+    try {
+      setStatus({
+        state: 'available',
+        status: await window.qortiumHome.node.checkCoreUpdate(),
+      });
+    } catch (error) {
+      setStatus({
+        message: formatCoreAdminError(error),
+        state: 'unavailable',
+      });
+    }
+  }, [nodeSettings.apiKey, nodeSettings.mode, nodeSettings.nodeApiUrl]);
+
+  const installUpdate = useCallback(async () => {
+    const currentStatus = status.state === 'available' ? status.status : undefined;
+
+    setStatus({
+      state: 'installing',
+      status: currentStatus,
+    });
+
+    try {
+      setStatus({
+        state: 'available',
+        status: await window.qortiumHome.node.installCoreUpdate(),
+      });
+    } catch (error) {
+      setStatus({
+        message: formatCoreAdminError(error),
+        state: 'unavailable',
+      });
+    }
+  }, [status]);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  return {
+    installUpdate,
+    isBusy: status.state === 'loading' || status.state === 'installing',
+    refreshStatus,
+    status,
+  };
 }
 
 function useLocalNodeStatus({
@@ -169,15 +375,23 @@ function getLocalNodeStatusText(status: LocalNodeStatus, localUrl: string) {
 
 function getCoreStatusText({
   localNodeStatus,
+  onChainCoreUpdate,
   prereleaseUpdateAvailable,
   stableUpdateAvailable,
   status,
 }: {
   localNodeStatus: LocalNodeStatus;
+  onChainCoreUpdate: OnChainCoreUpdateState;
   prereleaseUpdateAvailable: boolean;
   stableUpdateAvailable: boolean;
   status: QortiumCoreStatus | null;
 }) {
+  const onChainUpdateSummary = getOnChainCoreUpdateSummary(onChainCoreUpdate);
+
+  if (onChainUpdateSummary) {
+    return onChainUpdateSummary;
+  }
+
   if (!status) {
     return 'Checking managed Core.';
   }
@@ -208,11 +422,13 @@ function getCoreStatusText({
 function getCoreRows({
   localNodeStatus,
   nodeSettings,
+  onChainCoreUpdate,
   releases,
   status,
 }: {
   localNodeStatus: LocalNodeStatus;
   nodeSettings: QortiumNodeSettings;
+  onChainCoreUpdate: OnChainCoreUpdateState;
   releases: QortiumCoreReleases | null;
   status: QortiumCoreStatus | null;
 }) {
@@ -222,7 +438,28 @@ function getCoreRows({
     { label: 'Core', value: status?.installed?.tagName ?? 'Not installed' },
     { label: 'Java', value: formatJava(status?.java ?? null) },
     { label: 'Runtime', value: status?.runtime.running ? 'Running' : status ? 'Stopped' : 'Checking' },
+    { label: 'On-chain update', value: getOnChainCoreUpdateStatusText(onChainCoreUpdate) },
   ];
+
+  if (onChainCoreUpdate.state === 'available') {
+    const onChainStatus = onChainCoreUpdate.status;
+    const qdnResourceLabel = getOnChainQdnResourceLabel(onChainStatus);
+    const qdnStatusLabel = getOnChainQdnStatusLabel(onChainStatus);
+
+    rows.push({ label: 'Core auto-update', value: formatAutoUpdateMode(onChainStatus.autoUpdateMode) });
+
+    if (onChainStatus.updateAvailable && onChainStatus.commitHash) {
+      rows.push({ label: 'Approved commit', value: formatCommitHash(onChainStatus.commitHash) });
+    }
+
+    if (qdnResourceLabel) {
+      rows.push({ label: 'Approved QDN', value: qdnResourceLabel });
+    }
+
+    if (qdnStatusLabel) {
+      rows.push({ label: 'QDN status', value: qdnStatusLabel });
+    }
+  }
 
   if (releases?.stable.available) {
     rows.push({ label: 'Stable', value: releases.stable.tagName });
@@ -256,7 +493,14 @@ function ManagedCoreDashboardCard({
     nodeSettings,
     onResolvedNodeApiUrl,
   });
+  const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings);
   const localNodeUnavailable = localNode.status.state === 'unavailable';
+  const onChainStatus =
+    onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
+  const showOnChainInstallAction =
+    !!onChainStatus?.updateAvailable &&
+    onChainStatus.autoUpdateMode !== 'INSTALL' &&
+    !onChainStatus.installStarted;
   const showJavaAction = coreManager.canInstallJava;
   const showPrereleaseAction =
     coreManager.canInstallPrerelease &&
@@ -270,13 +514,15 @@ function ManagedCoreDashboardCard({
       getCoreRows({
         localNodeStatus: localNode.status,
         nodeSettings,
+        onChainCoreUpdate: onChainCoreUpdate.status,
         releases: coreManager.releases,
         status: coreManager.status,
       }),
-    [coreManager.releases, coreManager.status, localNode.status, nodeSettings],
+    [coreManager.releases, coreManager.status, localNode.status, nodeSettings, onChainCoreUpdate.status],
   );
   const summary = getCoreStatusText({
     localNodeStatus: localNode.status,
+    onChainCoreUpdate: onChainCoreUpdate.status,
     prereleaseUpdateAvailable: coreManager.prereleaseUpdateAvailable,
     stableUpdateAvailable: coreManager.stableUpdateAvailable,
     status: coreManager.status,
@@ -292,12 +538,13 @@ function ManagedCoreDashboardCard({
         <h2 className="dashboard-card__title">Local Node</h2>
         <button
           className="icon-button dashboard-card__refresh"
-          disabled={coreManager.isBusy}
+          disabled={coreManager.isBusy || onChainCoreUpdate.isBusy}
           title="Refresh local node and Core status"
           type="button"
           onClick={() => {
             void localNode.refreshLocalNodeStatus();
             void coreManager.refreshStatus();
+            void onChainCoreUpdate.refreshStatus();
           }}
         >
           <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
@@ -330,6 +577,19 @@ function ManagedCoreDashboardCard({
       ) : null}
 
       <div className="dashboard-card__actions">
+        {showOnChainInstallAction ? (
+          <button
+            className="button"
+            disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainStatus?.installing}
+            type="button"
+            onClick={onChainCoreUpdate.installUpdate}
+          >
+            <Download aria-hidden="true" size={18} strokeWidth={2} />
+            {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
+              ? 'Installing approved update'
+              : 'Install approved update'}
+          </button>
+        ) : null}
         {showJavaAction ? (
           <button
             className="button button--secondary"

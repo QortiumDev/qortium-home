@@ -83,6 +83,52 @@ type QortiumNodeStatusResult =
       ok: false;
     };
 
+type QortiumCoreAutoUpdateMode = 'CHECK_ONLY' | 'INSTALL' | 'NOTIFY' | 'OFF' | string;
+
+type QortiumCoreOnChainUpdateStatus = {
+  activeDownloadPeerCount?: number | null;
+  autoUpdateMode?: QortiumCoreAutoUpdateMode;
+  binaryBlockHeight?: number | null;
+  binaryCreatorAddress?: string | null;
+  binaryIdentifier?: string | null;
+  binaryMethod?: string | null;
+  binaryName?: string | null;
+  binaryResourceLocalChunkCount?: number | null;
+  binaryResourcePercentLoaded?: number | null;
+  binaryResourceStatus?: string | null;
+  binaryResourceTotalChunkCount?: number | null;
+  binaryService?: string | null;
+  binarySignature?: string | null;
+  blockchainHeight?: number | null;
+  commitHash?: string | null;
+  currentBuildTimestamp?: number;
+  devGroupIds?: number[] | null;
+  downloadLastProgressAge?: number | null;
+  downloadLastProgressTimestamp?: number | null;
+  downloadRetryCount?: number | null;
+  downloadStalled?: boolean | null;
+  downloadStarted?: boolean;
+  downloadStartedTimestamp?: number | null;
+  installStarted?: boolean;
+  installing?: boolean;
+  manifestApprovalHeight?: number | null;
+  manifestApprovalStatus?: string | null;
+  manifestBlockHeight?: number | null;
+  manifestCreatorAddress?: string | null;
+  manifestSignature?: string | null;
+  manifestTxGroupId?: number | null;
+  message?: string | null;
+  nextRetryTimestamp?: number | null;
+  qdnEnabled?: boolean;
+  qdnIdentifier?: string | null;
+  qdnName?: string | null;
+  qdnPath?: string | null;
+  qdnService?: string | null;
+  status?: string | null;
+  updateAvailable?: boolean;
+  updateTimestamp?: number | null;
+};
+
 type QortiumCoreChannel = 'prerelease' | 'stable';
 
 type QortiumCoreReleaseAsset = {
@@ -440,7 +486,9 @@ interface Window {
       onCommand: (callback: (command: QortiumHomeMenuCommand) => void) => () => void;
     };
     node: {
+      checkCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       getSettings: () => Promise<QortiumNodeSettings>;
+      installCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       saveSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
       testConnection: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeStatusResult>;
       getStatus: () => Promise<QortiumNodeStatusResult>;

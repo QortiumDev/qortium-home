@@ -3050,6 +3050,51 @@ async function testNodeSettings(settings: StoredNodeSettings): Promise<QortiumNo
   }
 }
 
+function normalizeCoreOnChainUpdateStatus(value: unknown): QortiumCoreOnChainUpdateStatus {
+  return isRecord(value) ? value : {};
+}
+
+async function requestCoreOnChainUpdate(method: 'GET' | 'POST'): Promise<QortiumCoreOnChainUpdateStatus> {
+  const settings = await readNodeSettings();
+
+  if (settings.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = getNodeApiKey(settings);
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}/admin/update`,
+      method,
+      headers: {
+        Accept: 'application/json',
+        'X-API-KEY': apiKey,
+      },
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const responseBody = stringifyResponseData(response.data).trim();
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      responseBody ||
+        (method === 'POST'
+          ? 'Core on-chain update install request failed.'
+          : 'Core on-chain update check failed.'),
+    );
+  }
+
+  return normalizeCoreOnChainUpdateStatus(parseResponseData(responseBody, getContentType(response)));
+}
+
 async function requestConfiguredNode(
   settings: StoredNodeSettings,
   pathname: string,
@@ -4055,8 +4100,14 @@ function createFallbackApi(): PlatformApi {
       },
     },
     node: {
+      async checkCoreUpdate() {
+        return requestCoreOnChainUpdate('GET');
+      },
       async getSettings() {
         return getNodeSettingsSnapshot(await readNodeSettings());
+      },
+      async installCoreUpdate() {
+        return requestCoreOnChainUpdate('POST');
       },
       async saveSettings(request) {
         const settings = normalizeNodeSettingsRequest(request);
