@@ -10,7 +10,7 @@ import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
 import { ensurePreviewApiKey } from './local-api-key.js';
 
-const CORE_REPOSITORY = 'QuickMythril/qortium';
+const CORE_REPOSITORY = 'QortiumDev/qortium-core';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
 const GITHUB_USER_AGENT = 'QortiumHome/1.0';
 const MANAGED_CORE_DIR = 'managed-core';

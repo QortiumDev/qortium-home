@@ -6,7 +6,7 @@ Android should continue to use existing nodes and Previewnet network discovery.
 
 ## First Implementation
 
-- Discover Qortium Core releases from `QuickMythril/qortium` on GitHub.
+- Discover Qortium Core releases from `QortiumDev/qortium-core` on GitHub.
 - Show the latest stable release when one exists.
 - Show the latest prerelease when one exists.
 - Install the selected release only after an explicit user action.

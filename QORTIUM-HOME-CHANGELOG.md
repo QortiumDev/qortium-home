@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - repo: move GitHub defaults to QortiumDev
+
+Moved Qortium Home's GitHub defaults to the QortiumDev organization. Home now checks Qortium Core release assets from `QortiumDev/qortium-core`, uses `QortiumDev/qortium-home` for app update and release-helper defaults, and documents the new repository ownership for managed Core and Home release workflows.
+
 ### 2026-06-01 - app: avoid stale local core api keys
 
 Fixed local Core API key selection when Home is running beside an already-started local Core that was not launched from the managed Core folder. Home now detects the running local Core API key on Linux, avoids trusting a stale managed Core key when a different local Core owns the API port, and updates saved node settings to match the running node instead of sending an invalid key.

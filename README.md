@@ -357,7 +357,8 @@ approval cases. To run one case directly, pass
 `--scenario=<name>` to `scripts/smoke-desktop-qdn-write.mjs`.
 
 Release artifacts are written to `dist-release/`. Generated build output should
-not be committed to git.
+not be committed to git. The release checker and publisher default to the public
+`QortiumDev/qortium-home` GitHub repository.
 
 The current Windows executable is a portable self-extracting build, not an
 installer. It is unsigned and may show Windows SmartScreen warnings.
@@ -402,10 +403,10 @@ calls; network discovery is intended for public read-only browsing and direct
 inspection of public `GET` endpoints.
 
 Desktop can also manage a local Qortium Core Previewnet install from the node
-settings menu. The first managed Core flow checks GitHub releases for the
-current `qortium-preview.zip` prerelease asset, installs it under Qortium Home's
-app data folder, can install a managed Java 17 runtime when needed, and runs the
-bundled preview start and stop scripts.
+settings menu. The first managed Core flow checks `QortiumDev/qortium-core`
+GitHub releases for the current `qortium-preview.zip` prerelease asset,
+installs it under Qortium Home's app data folder, can install a managed Java 17
+runtime when needed, and runs the bundled preview start and stop scripts.
 When a local or trusted custom Core node is selected with an API key available,
 the dashboard also checks Core's approved on-chain/QDN update status through
 `/admin/update`. For Home-managed local Core installs, Home reads or creates the

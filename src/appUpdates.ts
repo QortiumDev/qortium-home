@@ -1,4 +1,4 @@
-const HOME_REPOSITORY = 'QuickMythril/qortium-home';
+const HOME_REPOSITORY = 'QortiumDev/qortium-home';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${HOME_REPOSITORY}`;
 const GITHUB_ACCEPT_HEADER = 'application/vnd.github+json';
 
