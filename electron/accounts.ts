@@ -672,6 +672,7 @@ export function getAccountSigningKey(accountId: string) {
   return {
     address,
     privateKey58: base58Encode(privateKey),
+    publicKey58: base58Encode(keyPair.publicKey),
   };
 }
 

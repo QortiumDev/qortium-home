@@ -996,7 +996,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
         }
 
         const actions = await evaluate(qdnClient, "window.qdnRequest({ action: 'SHOW_ACTIONS' })");
-        for (const action of ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE']) {
+        for (const action of ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE', 'JOIN_GROUP', 'SEND_CHAT_MESSAGE']) {
           if (!Array.isArray(actions) || !actions.includes(action)) {
             fail(`SHOW_ACTIONS did not include ${action}.`);
           }

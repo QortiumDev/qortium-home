@@ -265,13 +265,31 @@ function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']
       return 'Publish QDN Resource';
     case 'DELETE_QDN_RESOURCE':
       return 'Delete QDN Resource';
+    case 'JOIN_GROUP':
+      return 'Join Group';
+    case 'SEND_CHAT_MESSAGE':
+      return 'Send Chat Message';
+    case 'READ_PRIVATE_GROUP_CHAT':
+      return 'Read Private Group Chat';
     default:
       return 'QDN Write';
   }
 }
 
 function getQdnWriteResourceLabel(resource: QortiumQdnWriteApprovalRequest['resource']) {
+  if (!resource) {
+    return '';
+  }
+
   return `${resource.service}/${resource.name}${resource.identifier ? `/${resource.identifier}` : ''}`;
+}
+
+function getQdnWriteGroupLabel(request: QortiumQdnWriteApprovalRequest) {
+  if (typeof request.groupId !== 'number') {
+    return '';
+  }
+
+  return request.groupName ? `${request.groupName} (${request.groupId})` : String(request.groupId);
 }
 
 function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
@@ -291,7 +309,7 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
         role="dialog"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2 className="unlock-dialog__title">Approve Write</h2>
+        <h2 className="unlock-dialog__title">Approve Request</h2>
         <p className="unlock-dialog__account">{request.accountName || 'Selected account'}</p>
         <p className="unlock-dialog__address">{request.address}</p>
         <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
@@ -300,10 +318,30 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             <dt>Action</dt>
             <dd>{getQdnWriteActionLabel(request.action)}</dd>
           </div>
-          <div>
-            <dt>Resource</dt>
-            <dd>{getQdnWriteResourceLabel(request.resource)}</dd>
-          </div>
+          {request.resource ? (
+            <div>
+              <dt>Resource</dt>
+              <dd>{getQdnWriteResourceLabel(request.resource)}</dd>
+            </div>
+          ) : null}
+          {typeof request.groupId === 'number' ? (
+            <div>
+              <dt>Group</dt>
+              <dd>{getQdnWriteGroupLabel(request)}</dd>
+            </div>
+          ) : null}
+          {request.chatMessagePreview ? (
+            <div>
+              <dt>Message</dt>
+              <dd>{request.chatMessagePreview}</dd>
+            </div>
+          ) : null}
+          {request.permissionScope === 'session' ? (
+            <div>
+              <dt>Scope</dt>
+              <dd>This tab session</dd>
+            </div>
+          ) : null}
           {request.sourceName ? (
             <div>
               <dt>{request.sourceKind === 'directory' ? 'Folder' : 'File'}</dt>

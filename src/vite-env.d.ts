@@ -371,14 +371,23 @@ type QortiumQdnAccountReadApprovalRequest = {
 
 type QortiumQdnWriteApprovalRequest = {
   accountName: string | null;
-  action: 'PUBLISH_QDN_RESOURCE' | 'DELETE_QDN_RESOURCE';
+  action:
+    | 'PUBLISH_QDN_RESOURCE'
+    | 'DELETE_QDN_RESOURCE'
+    | 'JOIN_GROUP'
+    | 'SEND_CHAT_MESSAGE'
+    | 'READ_PRIVATE_GROUP_CHAT';
   address: string;
+  chatMessagePreview: string | null;
+  groupId: number | null;
+  groupName: string | null;
   id: string;
+  permissionScope: 'single-request' | 'session';
   resource: {
     identifier: string | null;
     name: string;
     service: string;
-  };
+  } | null;
   resourceUrl: string;
   sourceKind: 'directory' | 'file' | null;
   sourceName: string | null;

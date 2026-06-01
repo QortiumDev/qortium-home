@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add qdn chat bridge actions
+
+Added QDN group and chat actions for APP/WEBSITE pages in Home. QDN apps on desktop and Android can now list and search groups, read group chat data through the selected node, request per-transaction group joins, send group chat messages with a session approval for the current tab account, and read encrypted closed-group chat through Core's private group chat endpoints without exposing generic signing or direct-message key handling to the app.
+
 ### 2026-05-31 - app: include core script output in errors
 
 Improved managed Core start and stop diagnostics. When a Core launcher script fails, Home now includes both normal output and error output in the shown failure message, so Windows PowerShell script details written with normal output are no longer hidden behind a generic exit-code error.

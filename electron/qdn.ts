@@ -21,7 +21,45 @@ const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
+const QDN_CHAT_ACTIONS = ['JOIN_GROUP', 'SEND_CHAT_MESSAGE'] as const;
+const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+] as const;
 const QDN_WRITE_SMOKE_ROLE = 'local';
+const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const QDN_APP_BRIDGE_ACTIONS = [
+  'FETCH_NODE_API',
+  'FETCH_QDN_RESOURCE',
+  'GET_ACCOUNT_DATA',
+  'GET_ACCOUNT_GROUPS',
+  'GET_ACCOUNT_NAMES',
+  'GET_ACTIVE_CHATS',
+  'GET_BALANCE',
+  'GET_GROUP',
+  'GET_GROUP_MEMBERS',
+  'GET_NAME_DATA',
+  'GET_NODE_INFO',
+  'GET_NODE_STATUS',
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'GET_SELECTED_ACCOUNT',
+  'GET_QDN_RESOURCE_METADATA',
+  'GET_QDN_RESOURCE_PROPERTIES',
+  'GET_QDN_RESOURCE_STATUS',
+  'GET_QDN_RESOURCE_URL',
+  'IS_USING_PUBLIC_NODE',
+  'LIST_GROUPS',
+  'LIST_QDN_RESOURCES',
+  ...QDN_WRITE_ACTIONS,
+  ...QDN_CHAT_ACTIONS,
+  'SEARCH_CHAT_MESSAGES',
+  'SEARCH_GROUPS',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+  'SEARCH_QDN_RESOURCES',
+  'WHICH_UI',
+  'SHOW_ACTIONS',
+] as const;
 const PUBLIC_QDN_SERVICES = new Set([
   'APP',
   'WEBSITE',
@@ -108,6 +146,9 @@ type QdnResourceRequest = {
 };
 
 type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
+type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
+type QdnWriteApprovalAction = QdnWriteAction | QdnChatAction | 'READ_PRIVATE_GROUP_CHAT';
+type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'READ_PRIVATE_GROUP_CHAT';
 
 type QdnWriteResourceRequest = {
   category?: string;
@@ -150,7 +191,26 @@ type QdnWriteContext = {
   signer: QdnWriteSigner;
 };
 
+type QdnChatContext = {
+  accountId: string;
+  apiKey: string;
+  connection: NodeConnection;
+  privateKey58: string;
+  profile: QdnWriteProfile;
+  publicKey58: string;
+};
+
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
+
+type QdnWriteApprovalDetails = {
+  action: QdnWriteApprovalAction;
+  chatMessagePreview?: string;
+  groupId?: number;
+  groupName?: string | null;
+  permissionScope?: 'single-request' | 'session';
+  resource?: QdnWriteResourceRequest;
+  source?: QdnWriteSourceSelection;
+};
 
 type NodeApiFetchResult = {
   body: string;
@@ -176,6 +236,7 @@ type PendingAccountReadApproval = {
 };
 
 const approvedAccountReadRequests = new Set<string>();
+const approvedQdnChatPermissions = new Set<string>();
 const pendingAccountReadApprovals = new Map<string, PendingAccountReadApproval>();
 const pendingQdnWriteApprovals = new Map<string, PendingAccountReadApproval>();
 
@@ -237,6 +298,20 @@ function getAccountReadApprovalCacheKey(context: QdnViewContext, accountId: stri
   ].join('\n');
 }
 
+function getQdnChatPermissionCacheKey(
+  context: QdnViewContext,
+  accountId: string,
+  action: QdnChatPermissionAction,
+) {
+  return [
+    context.windowId,
+    context.tabId,
+    context.currentUrl ?? '',
+    accountId,
+    action,
+  ].join('\n');
+}
+
 async function requestAccountReadApproval(
   context: QdnViewContext,
   profile: Awaited<ReturnType<typeof getAccountProfile>>,
@@ -295,9 +370,7 @@ async function requestAccountReadApproval(
 async function requestQdnWriteApproval(
   context: QdnViewContext,
   profile: Awaited<ReturnType<typeof getAccountProfile>>,
-  action: QdnWriteAction,
-  resource: QdnWriteResourceRequest,
-  source?: QdnWriteSourceSelection,
+  details: QdnWriteApprovalDetails,
 ) {
   const hostWindow = getQdnViewHostWindow(context);
 
@@ -329,23 +402,50 @@ async function requestQdnWriteApproval(
     hostWindow.once('closed', handleWindowClosed);
     hostWindow.webContents.send('qdn-app:write-request', {
       accountName: profile.name,
-      action,
+      action: details.action,
       address: profile.address,
+      chatMessagePreview: details.chatMessagePreview ?? null,
+      groupId: typeof details.groupId === 'number' ? details.groupId : null,
+      groupName: details.groupName ?? null,
       id: requestId,
-      resource: {
-        identifier: resource.identifier ?? null,
-        name: resource.name,
-        service: resource.service,
-      },
+      permissionScope: details.permissionScope ?? 'single-request',
+      resource: details.resource
+        ? {
+            identifier: details.resource.identifier ?? null,
+            name: details.resource.name,
+            service: details.resource.service,
+          }
+        : null,
       resourceUrl: context.currentUrl ?? 'QDN app',
-      sourceKind: source?.kind ?? null,
-      sourceName: source?.displayName ?? null,
+      sourceKind: details.source?.kind ?? null,
+      sourceName: details.source?.displayName ?? null,
     });
   });
 
   if (!approved) {
     throw new Error('QDN write request was denied.');
   }
+}
+
+async function requestQdnChatPermissionApproval(
+  context: QdnViewContext,
+  profile: Awaited<ReturnType<typeof getAccountProfile>>,
+  action: QdnChatPermissionAction,
+  details: Omit<QdnWriteApprovalDetails, 'action' | 'permissionScope'>,
+) {
+  const cacheKey = getQdnChatPermissionCacheKey(context, profile.accountId, action);
+
+  if (approvedQdnChatPermissions.has(cacheKey)) {
+    return;
+  }
+
+  await requestQdnWriteApproval(context, profile, {
+    ...details,
+    action,
+    permissionScope: 'session',
+  });
+
+  approvedQdnChatPermissions.add(cacheKey);
 }
 
 async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
@@ -495,6 +595,22 @@ function getNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function getInteger(value: unknown) {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    return value;
+  }
+
+  const stringValue = getString(value);
+
+  if (/^-?\d+$/.test(stringValue)) {
+    const parsedValue = Number(stringValue);
+
+    return Number.isSafeInteger(parsedValue) ? parsedValue : undefined;
+  }
+
+  return undefined;
+}
+
 function getBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : undefined;
 }
@@ -521,6 +637,99 @@ function getRequiredRequestString(request: QdnAppRequest, key: string, label: st
   }
 
   return value;
+}
+
+function getRequiredGroupId(request: QdnAppRequest, minimumValue = 0) {
+  const groupId = getInteger(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+
+  if (typeof groupId !== 'number' || groupId < minimumValue) {
+    throw new Error(
+      minimumValue > 0
+        ? 'Group id must be a positive integer.'
+        : 'Group id must be a non-negative integer.',
+    );
+  }
+
+  return groupId;
+}
+
+function getOptionalBase58RequestString(request: QdnAppRequest, key: string) {
+  const value = getString(getRequestValue(request, key));
+
+  return value || undefined;
+}
+
+function base58Encode(buffer: Uint8Array) {
+  if (buffer.length === 0) {
+    return '';
+  }
+
+  const digits = [0];
+
+  for (const byte of buffer) {
+    for (let index = 0; index < digits.length; index += 1) {
+      digits[index] <<= 8;
+    }
+
+    digits[0] += byte;
+
+    let carry = 0;
+
+    for (let index = 0; index < digits.length; index += 1) {
+      digits[index] += carry;
+      carry = (digits[index] / 58) | 0;
+      digits[index] %= 58;
+    }
+
+    while (carry) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+
+  for (let index = 0; buffer[index] === 0 && index < buffer.length - 1; index += 1) {
+    digits.push(0);
+  }
+
+  return digits
+    .reverse()
+    .map((digit) => BASE58_ALPHABET[digit])
+    .join('');
+}
+
+function encodeChatTextData(message: string) {
+  return base58Encode(Buffer.from(message, 'utf8'));
+}
+
+function getChatMessageText(request: QdnAppRequest) {
+  const message =
+    getString(getRequestValue(request, 'message')) || getString(getRequestValue(request, 'data'));
+
+  if (!message) {
+    throw new Error('Chat message is required.');
+  }
+
+  const byteLength = Buffer.byteLength(message, 'utf8');
+
+  if (byteLength > QDN_CHAT_MESSAGE_MAX_BYTES) {
+    throw new Error(
+      `Chat message exceeds the ${QDN_CHAT_MESSAGE_MAX_BYTES.toLocaleString()} byte limit.`,
+    );
+  }
+
+  return message;
+}
+
+function getChatMessagePreview(message: string) {
+  return message.length > 120 ? `${message.slice(0, 117)}...` : message;
+}
+
+function assertGroupChatOnlyRequest(request: QdnAppRequest) {
+  for (const key of ['recipient', 'recipientAddress', 'recipientPublicKey']) {
+    if (getString(getRequestValue(request, key))) {
+      throw new Error('Direct chat is not supported yet. Use group chat requests for now.');
+    }
+  }
 }
 
 function getAuthorizeRequest(value: QdnAuthorizeResourceRequest) {
@@ -1047,10 +1256,11 @@ async function signAndProcessTransaction(
   apiKey: string,
   privateKey58: string,
   rawUnsignedBytes58: string,
+  computePath = '/arbitrary/compute',
 ) {
   const rawUnsignedWithNonce = await postLocalNodeText(
     connection,
-    '/arbitrary/compute',
+    computePath,
     rawUnsignedBytes58,
     apiKey,
     'QDN transaction nonce computation failed.',
@@ -1235,6 +1445,70 @@ function getQdnWritePrivateKey(writeContext: QdnWriteContext) {
   return getAccountSigningKey(writeContext.signer.accountId).privateKey58;
 }
 
+async function getQdnChatContext(context: QdnViewContext | null): Promise<QdnChatContext> {
+  const accountId = getQdnWriteAccountId(context);
+  const connection = await getNodeConnection();
+
+  assertLocalWriteConnection(connection);
+  assertAccountUnlocked(accountId);
+
+  const apiKey = getNodeApiKey();
+  const profile = await getAccountProfile(accountId);
+  const signingKey = getAccountSigningKey(accountId);
+
+  return {
+    accountId,
+    apiKey,
+    connection,
+    privateKey58: signingKey.privateKey58,
+    profile,
+    publicKey58: signingKey.publicKey58,
+  };
+}
+
+async function fetchLocalNodeApiPayload(
+  connection: NodeConnection,
+  apiPath: string,
+  fallbackMessage: string,
+) {
+  const response = await fetchNode(apiPath, {}, connection.nodeApiUrl);
+  const result = await readNodeApiResponse(response, connection, QDN_APP_DEFAULT_MAX_BYTES);
+
+  if (!result.ok) {
+    throw new Error(result.body || fallbackMessage);
+  }
+
+  return result.data;
+}
+
+async function getGroupDataForChat(connection: NodeConnection, groupId: number) {
+  if (groupId === 0) {
+    return null;
+  }
+
+  return fetchLocalNodeApiPayload(
+    connection,
+    `/groups/${encodeURIComponent(String(groupId))}`,
+    'Group lookup failed.',
+  );
+}
+
+function getGroupName(groupData: unknown) {
+  if (!isRecord(groupData)) {
+    return null;
+  }
+
+  return getString(groupData.groupName) || getString(groupData.name) || null;
+}
+
+function isOpenGroupData(groupData: unknown) {
+  return !isRecord(groupData) || groupData.isOpen !== false;
+}
+
+function parseLocalPostData(result: Awaited<ReturnType<typeof postLocalNodeText>>) {
+  return parseResponseData(result.body, result.contentType);
+}
+
 async function publishQdnResourceForApp(
   request: QdnAppRequest,
   context: QdnViewContext | null,
@@ -1251,9 +1525,11 @@ async function publishQdnResourceForApp(
   await requestQdnWriteApproval(
     context as QdnViewContext,
     writeContext.profile,
-    'PUBLISH_QDN_RESOURCE',
-    resource,
-    source,
+    {
+      action: 'PUBLISH_QDN_RESOURCE',
+      resource,
+      source,
+    },
   );
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
@@ -1297,8 +1573,10 @@ async function deleteQdnResourceForApp(
   await requestQdnWriteApproval(
     context as QdnViewContext,
     writeContext.profile,
-    'DELETE_QDN_RESOURCE',
-    resource,
+    {
+      action: 'DELETE_QDN_RESOURCE',
+      resource,
+    },
   );
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
@@ -1329,6 +1607,212 @@ async function deleteQdnResourceForApp(
       service: resource.service,
     },
   };
+}
+
+async function joinGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const chatContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(chatContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, chatContext.profile, {
+    action: 'JOIN_GROUP',
+    groupId,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    chatContext.connection,
+    '/groups/join',
+    JSON.stringify({
+      type: 'JOIN_GROUP',
+      timestamp: Date.now(),
+      txGroupId: 0,
+      fee: 0,
+      joinerPublicKey: chatContext.publicKey58,
+      groupId,
+    }),
+    chatContext.apiKey,
+    'Join group transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await signAndProcessTransaction(
+    chatContext.connection,
+    chatContext.apiKey,
+    chatContext.privateKey58,
+    unsignedTransaction.body,
+    '/transactions/mempow/compute',
+  );
+
+  return {
+    accepted: true,
+    action: 'JOIN_GROUP',
+    groupId,
+    groupName,
+    result: processedTransaction.data,
+  };
+}
+
+async function sendPublicGroupChatMessage(
+  chatContext: QdnChatContext,
+  groupId: number,
+  message: string,
+  chatReference?: string,
+) {
+  const unsignedTransaction = await postLocalNodeText(
+    chatContext.connection,
+    '/chat',
+    JSON.stringify({
+      type: 'CHAT',
+      timestamp: Date.now(),
+      txGroupId: groupId,
+      fee: 0,
+      senderPublicKey: chatContext.publicKey58,
+      chatReference,
+      data: encodeChatTextData(message),
+      isText: true,
+      isEncrypted: false,
+    }),
+    chatContext.apiKey,
+    'Chat transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await signAndProcessTransaction(
+    chatContext.connection,
+    chatContext.apiKey,
+    chatContext.privateKey58,
+    unsignedTransaction.body,
+    '/chat/compute',
+  );
+
+  return processedTransaction.data;
+}
+
+async function sendPrivateGroupChatMessage(
+  chatContext: QdnChatContext,
+  groupId: number,
+  message: string,
+  chatReference?: string,
+) {
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/group/send',
+    JSON.stringify({
+      senderPrivateKey: chatContext.privateKey58,
+      groupId,
+      data: encodeChatTextData(message),
+      isText: true,
+      chatReference,
+    }),
+    chatContext.apiKey,
+    'Private group chat send failed.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
+async function sendChatMessageForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  assertGroupChatOnlyRequest(request);
+
+  const groupId = getRequiredGroupId(request);
+  const message = getChatMessageText(request);
+  const chatReference = getOptionalBase58RequestString(request, 'chatReference');
+  const chatContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(chatContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+  const isOpenGroup = groupId === 0 || isOpenGroupData(groupData);
+
+  await requestQdnChatPermissionApproval(
+    context as QdnViewContext,
+    chatContext.profile,
+    'SEND_CHAT_MESSAGE',
+    {
+      chatMessagePreview: getChatMessagePreview(message),
+      groupId,
+      groupName,
+    },
+  );
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const result = isOpenGroup
+    ? await sendPublicGroupChatMessage(chatContext, groupId, message, chatReference)
+    : await sendPrivateGroupChatMessage(chatContext, groupId, message, chatReference);
+
+  return {
+    accepted: true,
+    action: 'SEND_CHAT_MESSAGE',
+    encrypted: !isOpenGroup,
+    groupId,
+    groupName,
+    result,
+  };
+}
+
+async function getPrivateGroupActiveChatsForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const chatContext = await getQdnChatContext(context);
+
+  await requestQdnChatPermissionApproval(
+    context as QdnViewContext,
+    chatContext.profile,
+    'READ_PRIVATE_GROUP_CHAT',
+    {
+      groupName: 'All closed groups',
+    },
+  );
+
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/group/active',
+    JSON.stringify({
+      recipientPrivateKey: chatContext.privateKey58,
+      encoding: getString(getRequestValue(request, 'encoding')) || undefined,
+    }),
+    chatContext.apiKey,
+    'Private group active chat lookup failed.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
+async function searchPrivateGroupChatMessagesForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const chatContext = await getQdnChatContext(context);
+  const groupId = getRequiredGroupId(request, 1);
+  const groupData = await getGroupDataForChat(chatContext.connection, groupId);
+
+  await requestQdnChatPermissionApproval(
+    context as QdnViewContext,
+    chatContext.profile,
+    'READ_PRIVATE_GROUP_CHAT',
+    {
+      groupId,
+      groupName: getGroupName(groupData),
+    },
+  );
+
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/group/messages',
+    JSON.stringify(buildPrivateGroupChatMessagesBody(request, chatContext.privateKey58)),
+    chatContext.apiKey,
+    'Private group chat message lookup failed.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
 }
 
 function getQdnAppResourceRequest(request: QdnAppRequest) {
@@ -1471,6 +1955,157 @@ function buildQdnResourcesPath(request: QdnAppRequest, pathBase: string) {
   return `${pathBase}${queryString ? `?${queryString}` : ''}`;
 }
 
+function appendRequestQueryFields(
+  queryParams: URLSearchParams,
+  request: QdnAppRequest,
+  queryFields: Record<string, string>,
+) {
+  for (const [requestKey, queryKey] of Object.entries(queryFields)) {
+    appendQueryValue(queryParams, queryKey, getRequestValue(request, requestKey));
+  }
+}
+
+function buildGroupsPath(request: QdnAppRequest) {
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/groups${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildSearchGroupsPath(request: QdnAppRequest) {
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    limit: 'limit',
+    offset: 'offset',
+    prefixOnly: 'prefixOnly',
+    query: 'query',
+    reverse: 'reverse',
+    visibility: 'visibility',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/groups/search${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildGroupMembersPath(request: QdnAppRequest) {
+  const groupId = getRequiredGroupId(request, 1);
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    limit: 'limit',
+    offset: 'offset',
+    onlyAdmins: 'onlyAdmins',
+    reverse: 'reverse',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/groups/members/${encodeURIComponent(String(groupId))}${queryString ? `?${queryString}` : ''}`;
+}
+
+async function getAddressForQdnRequest(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  label: string,
+) {
+  const requestedAddress = getString(getRequestValue(request, 'address'));
+
+  if (requestedAddress) {
+    return requestedAddress;
+  }
+
+  const selectedAccount = await getSelectedAccountForQdnApp(context);
+
+  if (!selectedAccount.address) {
+    throw new Error(`${label} is required.`);
+  }
+
+  return selectedAccount.address;
+}
+
+async function buildAccountGroupsPath(request: QdnAppRequest, context: QdnViewContext | null) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    adminOnly: 'adminOnly',
+    ownerOnly: 'ownerOnly',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/groups/member/${encodeURIComponent(address)}${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildSearchChatMessagesPath(request: QdnAppRequest) {
+  const queryParams = new URLSearchParams();
+  const groupId = getInteger(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+
+  if (typeof groupId === 'number') {
+    if (groupId < 0) {
+      throw new Error('Group id must be a non-negative integer.');
+    }
+
+    queryParams.set('txGroupId', String(groupId));
+  }
+
+  appendRequestQueryFields(queryParams, request, {
+    after: 'after',
+    before: 'before',
+    chatReference: 'chatreference',
+    encoding: 'encoding',
+    hasChatReference: 'haschatreference',
+    involving: 'involving',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+    sender: 'sender',
+  });
+
+  return `/chat/messages?${queryParams.toString()}`;
+}
+
+async function buildActiveChatsPath(request: QdnAppRequest, context: QdnViewContext | null) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    encoding: 'encoding',
+    hasChatReference: 'haschatreference',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/chat/active/${encodeURIComponent(address)}${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildPrivateGroupChatMessagesBody(request: QdnAppRequest, privateKey58: string) {
+  const chatReference = getOptionalBase58RequestString(request, 'chatReference');
+
+  return {
+    recipientPrivateKey: privateKey58,
+    groupId: getRequiredGroupId(request, 1),
+    before: getInteger(getRequestValue(request, 'before')),
+    after: getInteger(getRequestValue(request, 'after')),
+    chatReference,
+    hasChatReference: getBoolean(getRequestValue(request, 'hasChatReference')),
+    sender: getString(getRequestValue(request, 'sender')) || undefined,
+    encoding: getString(getRequestValue(request, 'encoding')) || undefined,
+    limit: getInteger(getRequestValue(request, 'limit')),
+    offset: getInteger(getRequestValue(request, 'offset')),
+    reverse: getBoolean(getRequestValue(request, 'reverse')),
+  };
+}
+
 async function getQdnResourceUrl(request: QdnAppRequest) {
   const resource = getQdnAppResourceRequest(request);
   const status = await fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
@@ -1535,6 +2170,9 @@ async function handleQdnAppRequest(
         request,
       );
 
+    case 'GET_ACCOUNT_GROUPS':
+      return fetchNodeApiPayload(await buildAccountGroupsPath(request, context), request);
+
     case 'GET_ACCOUNT_NAMES':
       return fetchNodeApiPayload(
         `/names/address/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
@@ -1549,6 +2187,15 @@ async function handleQdnAppRequest(
         `/addresses/balance/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
         request,
       );
+
+    case 'GET_GROUP':
+      return fetchNodeApiPayload(
+        `/groups/${encodeURIComponent(String(getRequiredGroupId(request, 1)))}`,
+        request,
+      );
+
+    case 'GET_GROUP_MEMBERS':
+      return fetchNodeApiPayload(buildGroupMembersPath(request), request);
 
     case 'GET_NAME_DATA':
       return fetchNodeApiPayload(
@@ -1577,11 +2224,35 @@ async function handleQdnAppRequest(
     case 'SEARCH_QDN_RESOURCES':
       return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources/search'), request);
 
+    case 'LIST_GROUPS':
+      return fetchNodeApiPayload(buildGroupsPath(request), request);
+
+    case 'SEARCH_GROUPS':
+      return fetchNodeApiPayload(buildSearchGroupsPath(request), request);
+
+    case 'SEARCH_CHAT_MESSAGES':
+      return fetchNodeApiPayload(buildSearchChatMessagesPath(request), request);
+
+    case 'GET_ACTIVE_CHATS':
+      return fetchNodeApiPayload(await buildActiveChatsPath(request, context), request);
+
+    case 'GET_PRIVATE_GROUP_ACTIVE_CHATS':
+      return getPrivateGroupActiveChatsForApp(request, context);
+
+    case 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES':
+      return searchPrivateGroupChatMessagesForApp(request, context);
+
     case 'PUBLISH_QDN_RESOURCE':
       return publishQdnResourceForApp(request, context, sender);
 
     case 'DELETE_QDN_RESOURCE':
       return deleteQdnResourceForApp(request, context, sender);
+
+    case 'JOIN_GROUP':
+      return joinGroupForApp(request, context, sender);
+
+    case 'SEND_CHAT_MESSAGE':
+      return sendChatMessageForApp(request, context, sender);
 
     case 'IS_USING_PUBLIC_NODE': {
       const connection = await getNodeConnection();
@@ -1593,27 +2264,7 @@ async function handleQdnAppRequest(
       return 'QORTIUM_HOME_ELECTRON';
 
     case 'SHOW_ACTIONS':
-      return [
-        'FETCH_NODE_API',
-        'FETCH_QDN_RESOURCE',
-        'GET_ACCOUNT_DATA',
-        'GET_ACCOUNT_NAMES',
-        'GET_BALANCE',
-        'GET_NAME_DATA',
-        'GET_NODE_INFO',
-        'GET_NODE_STATUS',
-        'GET_SELECTED_ACCOUNT',
-        'GET_QDN_RESOURCE_METADATA',
-        'GET_QDN_RESOURCE_PROPERTIES',
-        'GET_QDN_RESOURCE_STATUS',
-        'GET_QDN_RESOURCE_URL',
-        'IS_USING_PUBLIC_NODE',
-        'LIST_QDN_RESOURCES',
-        ...QDN_WRITE_ACTIONS,
-        'SEARCH_QDN_RESOURCES',
-        'WHICH_UI',
-        'SHOW_ACTIONS',
-      ];
+      return [...QDN_APP_BRIDGE_ACTIONS];
 
     default:
       throw new Error(`${action || 'This'} QDN app request is not supported yet.`);

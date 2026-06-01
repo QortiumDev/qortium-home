@@ -1645,15 +1645,26 @@ async function runBridgeAssertions(client, contextId) {
     'FETCH_NODE_API',
     'GET_NODE_INFO',
     'GET_NODE_STATUS',
+    'GET_ACCOUNT_GROUPS',
+    'GET_ACTIVE_CHATS',
+    'GET_GROUP',
+    'GET_GROUP_MEMBERS',
     'GET_SELECTED_ACCOUNT',
     'GET_QDN_RESOURCE_METADATA',
     'GET_QDN_RESOURCE_PROPERTIES',
     'GET_QDN_RESOURCE_STATUS',
     'GET_QDN_RESOURCE_URL',
+    'GET_PRIVATE_GROUP_ACTIVE_CHATS',
     'FETCH_QDN_RESOURCE',
+    'LIST_GROUPS',
     'LIST_QDN_RESOURCES',
+    'JOIN_GROUP',
     'PUBLISH_QDN_RESOURCE',
     'DELETE_QDN_RESOURCE',
+    'SEND_CHAT_MESSAGE',
+    'SEARCH_CHAT_MESSAGES',
+    'SEARCH_GROUPS',
+    'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
     'SEARCH_QDN_RESOURCES',
     'IS_USING_PUBLIC_NODE',
     'WHICH_UI',
@@ -1761,6 +1772,41 @@ async function runBridgeAssertions(client, contextId) {
     service: 'APP',
   });
   assertFixtureResource(searchedResources, 'APP', appIdentifier, 'SEARCH_QDN_RESOURCES');
+
+  const groups = await runQdnRequest(client, contextId, {
+    action: 'LIST_GROUPS',
+    limit: 1,
+  });
+  assert(Array.isArray(groups) && groups.length > 0, 'LIST_GROUPS did not return a group.');
+
+  const groupId = groups[0]?.groupId;
+  assert(Number.isInteger(groupId) && groupId > 0, 'LIST_GROUPS returned a group without a valid groupId.');
+
+  const group = await runQdnRequest(client, contextId, {
+    action: 'GET_GROUP',
+    groupId,
+  });
+  assert(group?.groupId === groupId, 'GET_GROUP returned an unexpected group.');
+
+  const members = await runQdnRequest(client, contextId, {
+    action: 'GET_GROUP_MEMBERS',
+    groupId,
+    limit: 1,
+  });
+  assert(typeof members?.memberCount === 'number', 'GET_GROUP_MEMBERS returned an unexpected payload.');
+
+  const groupSearch = await runQdnRequest(client, contextId, {
+    action: 'SEARCH_GROUPS',
+    limit: 1,
+  });
+  assert(Array.isArray(groupSearch), 'SEARCH_GROUPS did not return an array.');
+
+  const chatMessages = await runQdnRequest(client, contextId, {
+    action: 'SEARCH_CHAT_MESSAGES',
+    groupId,
+    limit: 1,
+  });
+  assert(Array.isArray(chatMessages), 'SEARCH_CHAT_MESSAGES did not return an array.');
 
   const isUsingPublicNode = await runQdnRequest(client, contextId, { action: 'IS_USING_PUBLIC_NODE' });
   assert(isUsingPublicNode === false, 'IS_USING_PUBLIC_NODE should be false for the Android smoke custom node.');
