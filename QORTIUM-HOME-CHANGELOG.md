@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - ci: add Dependabot version updates
+
+Added Dependabot version update configuration for Qortium Home. Dependabot will now check the root npm dependencies and future GitHub Actions workflows weekly against the `main` branch while skipping semver-major update PRs at first, and the Android Gradle setup remains intentionally deferred until its generated Capacitor version layout can be covered cleanly.
+
 ### 2026-06-01 - repo: move GitHub defaults to QortiumDev
 
 Moved Qortium Home's GitHub defaults to the QortiumDev organization. Home now checks Qortium Core release assets from `QortiumDev/qortium-core`, uses `QortiumDev/qortium-home` for app update and release-helper defaults, and documents the new repository ownership for managed Core and Home release workflows.
