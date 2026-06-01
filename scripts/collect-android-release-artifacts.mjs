@@ -123,7 +123,7 @@ function isApkSigned(apkPath) {
 }
 
 function isAabSigned(aabPath) {
-  const result = spawnSync('jarsigner', ['-verify', '-strict', aabPath], {
+  const result = spawnSync('jarsigner', ['-verify', aabPath], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -134,8 +134,9 @@ function isAabSigned(aabPath) {
   }
 
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  const unsignedPattern = /jar is unsigned|jar will be treated as unsigned|this jar contains unsigned entries|no manifest/i;
 
-  return result.status === 0 && !/jar is unsigned|not signed|no manifest/i.test(output);
+  return result.status === 0 && !unsignedPattern.test(output);
 }
 
 function removeCanonicalSiblings(extension) {

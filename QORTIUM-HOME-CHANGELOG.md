@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-01 - release: prepare home preview 7
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.7` with Android `versionCode` 8, and adjusted Android release artifact collection so a `jarsigner`-verified release AAB signed by the local Qortium Home release key is collected as a signed artifact for the next QortiumDev prerelease target.
+
 ### 2026-06-01 - build: reduce tooling warning noise
 
 Reduced repeated local tooling warning noise by approving only the known npm install scripts needed by Electron and esbuild, and by raising Vite's chunk warning threshold to match Qortium Home's current Electron-first bundle size. Future new install scripts and genuinely larger bundle growth should now stand out more clearly.
