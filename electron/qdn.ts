@@ -26,6 +26,10 @@ const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
 ] as const;
+const QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS = [
+  'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+] as const;
 const QDN_WRITE_SMOKE_ROLE = 'local';
 const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -42,7 +46,6 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'GET_NAME_DATA',
   'GET_NODE_INFO',
   'GET_NODE_STATUS',
-  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
   'GET_SELECTED_ACCOUNT',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
@@ -53,9 +56,10 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'LIST_QDN_RESOURCES',
   ...QDN_WRITE_ACTIONS,
   ...QDN_CHAT_ACTIONS,
+  ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
+  ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_GROUPS',
-  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
   'SEARCH_QDN_RESOURCES',
   'WHICH_UI',
   'SHOW_ACTIONS',
@@ -147,8 +151,15 @@ type QdnResourceRequest = {
 
 type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
-type QdnWriteApprovalAction = QdnWriteAction | QdnChatAction | 'READ_PRIVATE_GROUP_CHAT';
-type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'READ_PRIVATE_GROUP_CHAT';
+type QdnWriteApprovalAction =
+  | QdnWriteAction
+  | QdnChatAction
+  | 'READ_PRIVATE_GROUP_CHAT'
+  | 'READ_PRIVATE_DIRECT_CHAT';
+type QdnChatPermissionAction =
+  | 'SEND_CHAT_MESSAGE'
+  | 'READ_PRIVATE_GROUP_CHAT'
+  | 'READ_PRIVATE_DIRECT_CHAT';
 
 type QdnWriteResourceRequest = {
   category?: string;
@@ -208,6 +219,7 @@ type QdnWriteApprovalDetails = {
   groupId?: number;
   groupName?: string | null;
   permissionScope?: 'single-request' | 'session';
+  recipientAddress?: string;
   resource?: QdnWriteResourceRequest;
   source?: QdnWriteSourceSelection;
 };
@@ -409,6 +421,7 @@ async function requestQdnWriteApproval(
       groupName: details.groupName ?? null,
       id: requestId,
       permissionScope: details.permissionScope ?? 'single-request',
+      recipientAddress: details.recipientAddress ?? null,
       resource: details.resource
         ? {
             identifier: details.resource.identifier ?? null,
@@ -724,12 +737,67 @@ function getChatMessagePreview(message: string) {
   return message.length > 120 ? `${message.slice(0, 117)}...` : message;
 }
 
-function assertGroupChatOnlyRequest(request: QdnAppRequest) {
-  for (const key of ['recipient', 'recipientAddress', 'recipientPublicKey']) {
-    if (getString(getRequestValue(request, key))) {
-      throw new Error('Direct chat is not supported yet. Use group chat requests for now.');
+type QdnChatMessageTarget =
+  | {
+      groupId: number;
+      kind: 'group';
+    }
+  | {
+      kind: 'direct';
+      recipientAddress: string;
+    };
+
+function hasRequestValue(request: QdnAppRequest, key: string) {
+  const value = getRequestValue(request, key);
+
+  return typeof value !== 'undefined' && value !== null;
+}
+
+function getDirectChatRecipientAddress(request: QdnAppRequest) {
+  for (const key of ['destinationAddress', 'recipient', 'recipientAddress']) {
+    const value = getString(getRequestValue(request, key));
+
+    if (value) {
+      return value;
     }
   }
+
+  if (getString(getRequestValue(request, 'recipientPublicKey'))) {
+    throw new Error('Direct private chat requires a recipient address, not a recipient public key.');
+  }
+
+  return '';
+}
+
+function getDirectChatOtherAddress(request: QdnAppRequest) {
+  const otherAddress = getString(getRequestValue(request, 'otherAddress')) || getDirectChatRecipientAddress(request);
+
+  if (!otherAddress) {
+    throw new Error('Other direct chat participant address is required.');
+  }
+
+  return otherAddress;
+}
+
+function getChatMessageTarget(request: QdnAppRequest): QdnChatMessageTarget {
+  const hasGroupTarget = hasRequestValue(request, 'groupId') || hasRequestValue(request, 'txGroupId');
+  const recipientAddress = getDirectChatRecipientAddress(request);
+
+  if (hasGroupTarget && recipientAddress) {
+    throw new Error('Chat message request must target either a group or a direct recipient, not both.');
+  }
+
+  if (recipientAddress) {
+    return {
+      kind: 'direct',
+      recipientAddress,
+    };
+  }
+
+  return {
+    kind: 'group',
+    groupId: getRequiredGroupId(request),
+  };
 }
 
 function getAuthorizeRequest(value: QdnAuthorizeResourceRequest) {
@@ -1719,17 +1787,71 @@ async function sendPrivateGroupChatMessage(
   return parseLocalPostData(result);
 }
 
+async function sendDirectPrivateChatMessage(
+  chatContext: QdnChatContext,
+  recipientAddress: string,
+  message: string,
+  chatReference?: string,
+) {
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/direct/send',
+    JSON.stringify({
+      senderPrivateKey: chatContext.privateKey58,
+      recipient: recipientAddress,
+      data: encodeChatTextData(message),
+      isText: true,
+      chatReference,
+    }),
+    chatContext.apiKey,
+    'Direct private chat send failed.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
 async function sendChatMessageForApp(
   request: QdnAppRequest,
   context: QdnViewContext | null,
   sender: WebContents,
 ) {
-  assertGroupChatOnlyRequest(request);
-
-  const groupId = getRequiredGroupId(request);
+  const target = getChatMessageTarget(request);
   const message = getChatMessageText(request);
   const chatReference = getOptionalBase58RequestString(request, 'chatReference');
   const chatContext = await getQdnChatContext(context);
+
+  if (target.kind === 'direct') {
+    await requestQdnChatPermissionApproval(
+      context as QdnViewContext,
+      chatContext.profile,
+      'SEND_CHAT_MESSAGE',
+      {
+        chatMessagePreview: getChatMessagePreview(message),
+        recipientAddress: target.recipientAddress,
+      },
+    );
+
+    assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+    const result = await sendDirectPrivateChatMessage(
+      chatContext,
+      target.recipientAddress,
+      message,
+      chatReference,
+    );
+
+    return {
+      accepted: true,
+      action: 'SEND_CHAT_MESSAGE',
+      direct: true,
+      encrypted: true,
+      recipientAddress: target.recipientAddress,
+      result,
+    };
+  }
+
+  const groupId = target.groupId;
   const groupData = await getGroupDataForChat(chatContext.connection, groupId);
   const groupName = getGroupName(groupData);
   const isOpenGroup = groupId === 0 || isOpenGroupData(groupData);
@@ -1809,6 +1931,57 @@ async function searchPrivateGroupChatMessagesForApp(request: QdnAppRequest, cont
     JSON.stringify(buildPrivateGroupChatMessagesBody(request, chatContext.privateKey58)),
     chatContext.apiKey,
     'Private group chat message lookup failed.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
+async function getPrivateDirectActiveChatsForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const chatContext = await getQdnChatContext(context);
+
+  await requestQdnChatPermissionApproval(
+    context as QdnViewContext,
+    chatContext.profile,
+    'READ_PRIVATE_DIRECT_CHAT',
+    {},
+  );
+
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/direct/active',
+    JSON.stringify({
+      accountPrivateKey: chatContext.privateKey58,
+      encoding: getString(getRequestValue(request, 'encoding')) || undefined,
+      hasChatReference: getBoolean(getRequestValue(request, 'hasChatReference')),
+    }),
+    chatContext.apiKey,
+    'Direct private active chat lookup failed.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
+async function searchPrivateDirectChatMessagesForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const chatContext = await getQdnChatContext(context);
+  const otherAddress = getDirectChatOtherAddress(request);
+
+  await requestQdnChatPermissionApproval(
+    context as QdnViewContext,
+    chatContext.profile,
+    'READ_PRIVATE_DIRECT_CHAT',
+    {
+      recipientAddress: otherAddress,
+    },
+  );
+
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/direct/messages',
+    JSON.stringify(buildPrivateDirectChatMessagesBody(request, chatContext.privateKey58, otherAddress)),
+    chatContext.apiKey,
+    'Direct private chat message lookup failed.',
     'application/json',
   );
 
@@ -2106,6 +2279,28 @@ function buildPrivateGroupChatMessagesBody(request: QdnAppRequest, privateKey58:
   };
 }
 
+function buildPrivateDirectChatMessagesBody(
+  request: QdnAppRequest,
+  privateKey58: string,
+  otherAddress: string,
+) {
+  const chatReference = getOptionalBase58RequestString(request, 'chatReference');
+
+  return {
+    accountPrivateKey: privateKey58,
+    otherAddress,
+    before: getInteger(getRequestValue(request, 'before')),
+    after: getInteger(getRequestValue(request, 'after')),
+    chatReference,
+    hasChatReference: getBoolean(getRequestValue(request, 'hasChatReference')),
+    sender: getString(getRequestValue(request, 'sender')) || undefined,
+    encoding: getString(getRequestValue(request, 'encoding')) || undefined,
+    limit: getInteger(getRequestValue(request, 'limit')),
+    offset: getInteger(getRequestValue(request, 'offset')),
+    reverse: getBoolean(getRequestValue(request, 'reverse')),
+  };
+}
+
 async function getQdnResourceUrl(request: QdnAppRequest) {
   const resource = getQdnAppResourceRequest(request);
   const status = await fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
@@ -2236,8 +2431,14 @@ async function handleQdnAppRequest(
     case 'GET_ACTIVE_CHATS':
       return fetchNodeApiPayload(await buildActiveChatsPath(request, context), request);
 
+    case 'GET_PRIVATE_DIRECT_ACTIVE_CHATS':
+      return getPrivateDirectActiveChatsForApp(request, context);
+
     case 'GET_PRIVATE_GROUP_ACTIVE_CHATS':
       return getPrivateGroupActiveChatsForApp(request, context);
+
+    case 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES':
+      return searchPrivateDirectChatMessagesForApp(request, context);
 
     case 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES':
       return searchPrivateGroupChatMessagesForApp(request, context);

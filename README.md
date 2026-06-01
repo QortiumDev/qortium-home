@@ -96,14 +96,16 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE` and
 `DELETE_QDN_RESOURCE`, `JOIN_GROUP`, `SEND_CHAT_MESSAGE`,
-`GET_PRIVATE_GROUP_ACTIVE_CHATS`, and `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`.
+`GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
+`GET_PRIVATE_DIRECT_ACTIVE_CHATS`, and
+`SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
 Publishing uses a Home-owned file/folder picker on desktop and a Home-owned
 single-file native picker on Android. Publish/delete and join requests require
 per-request approval before Home signs and processes the transaction with the
 selected tab account. Chat sends and private closed-group reads use a
-session-scoped approval for the current tab and selected account; direct/private
-DM workflows are intentionally left out until Core exposes a Qortium-native
-direct chat helper.
+session-scoped approval for the current tab and selected account; direct private
+chat sends and reads use Core-managed direct-message helpers so QDN apps never
+receive wallet private keys or generic signing capability.
 
 `FETCH_NODE_API` accepts path-only requests such as `/admin/status` and only
 allows `GET` or `HEAD`. Full external URLs, legacy aliases such as

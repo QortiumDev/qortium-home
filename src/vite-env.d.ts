@@ -376,13 +376,15 @@ type QortiumQdnWriteApprovalRequest = {
     | 'DELETE_QDN_RESOURCE'
     | 'JOIN_GROUP'
     | 'SEND_CHAT_MESSAGE'
-    | 'READ_PRIVATE_GROUP_CHAT';
+    | 'READ_PRIVATE_GROUP_CHAT'
+    | 'READ_PRIVATE_DIRECT_CHAT';
   address: string;
   chatMessagePreview: string | null;
   groupId: number | null;
   groupName: string | null;
   id: string;
   permissionScope: 'single-request' | 'session';
+  recipientAddress: string | null;
   resource: {
     identifier: string | null;
     name: string;

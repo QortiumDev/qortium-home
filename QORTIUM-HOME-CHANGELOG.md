@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add qdn direct chat bridge actions
+
+Added QDN direct private chat bridge actions for APP/WEBSITE pages in Home. QDN apps on desktop and Android can now send direct private chat messages through the existing chat-send request shape, list active direct private chats, and search direct private chat history using Core-managed direct-message helpers while Home keeps account private keys and signing authority outside the app.
+
 ### 2026-05-31 - app: add qdn chat bridge actions
 
 Added QDN group and chat actions for APP/WEBSITE pages in Home. QDN apps on desktop and Android can now list and search groups, read group chat data through the selected node, request per-transaction group joins, send group chat messages with a session approval for the current tab account, and read encrypted closed-group chat through Core's private group chat endpoints without exposing generic signing or direct-message key handling to the app.

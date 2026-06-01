@@ -271,6 +271,8 @@ function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']
       return 'Send Chat Message';
     case 'READ_PRIVATE_GROUP_CHAT':
       return 'Read Private Group Chat';
+    case 'READ_PRIVATE_DIRECT_CHAT':
+      return 'Read Direct Private Chat';
     default:
       return 'QDN Write';
   }
@@ -328,6 +330,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             <div>
               <dt>Group</dt>
               <dd>{getQdnWriteGroupLabel(request)}</dd>
+            </div>
+          ) : null}
+          {request.recipientAddress ? (
+            <div>
+              <dt>Recipient</dt>
+              <dd>{request.recipientAddress}</dd>
             </div>
           ) : null}
           {request.chatMessagePreview ? (
