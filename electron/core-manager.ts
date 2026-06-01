@@ -982,7 +982,7 @@ async function runScript(
   env?: NodeJS.ProcessEnv,
 ) {
   return new Promise<void>((resolve, reject) => {
-    let stderr = '';
+    let output = '';
     const child =
       process.platform === 'win32'
         ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${command}" ${args.join(' ')}`], {
@@ -996,8 +996,11 @@ async function runScript(
             windowsHide: true,
           });
 
+    child.stdout.on('data', (chunk: Buffer) => {
+      output += chunk.toString();
+    });
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
+      output += chunk.toString();
     });
     child.on('error', reject);
     child.on('close', (code) => {
@@ -1006,7 +1009,7 @@ async function runScript(
         return;
       }
 
-      reject(new Error(stderr.trim() || `${path.basename(command)} exited with code ${code}.`));
+      reject(new Error(output.trim() || `${path.basename(command)} exited with code ${code}.`));
     });
   });
 }

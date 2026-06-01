@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: include core script output in errors
+
+Improved managed Core start and stop diagnostics. When a Core launcher script fails, Home now includes both normal output and error output in the shown failure message, so Windows PowerShell script details written with normal output are no longer hidden behind a generic exit-code error.
+
 ### 2026-05-31 - release: prepare home preview 6
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.6` so the latest desktop and Android QDN bridge, wallet, media, update handoff, and release packaging changes can be published as the next prerelease target, starting with the Windows x64 portable executable for tester verification.
