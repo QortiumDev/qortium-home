@@ -18,11 +18,11 @@ more broadly.
 
 ## Current Features
 
-- Create a new encrypted wallet backup file.
+- Create a new encrypted wallet backup file on desktop and Android.
 - Load encrypted Qortium wallet files.
 - Save loaded wallet metadata in the local Electron app data folder.
-- Load encrypted wallet JSON files on Android and keep saved Android wallet
-  metadata in app-private storage.
+- Load encrypted wallet JSON files on Android, export encrypted Android wallet
+  backups, and keep saved Android wallet metadata in app-private storage.
 - Keep wallets locked after restart and unlocked only for the current session.
 - Select, unlock, lock, and remove saved wallets.
 - Show node status for the configured node, including sync phase, target
@@ -104,8 +104,8 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 - Local-node write workflows for chat send, name registration, and group join.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
-- Android signing credential setup, Android wallet creation/backups, and
-  Android account-backed QDN write approvals.
+- Android signing credential setup and Android account-backed QDN write
+  approvals.
 - Code signing and release verification for production builds.
 
 ## Development Setup
@@ -241,14 +241,16 @@ when one is present, or starts the `qortium_home_api36` AVD in headless mode.
 Set `ANDROID_AVD_HOME`, `QORTIUM_HOME_ANDROID_AVD`, or
 `QORTIUM_HOME_KEEP_ANDROID_EMULATOR=1` to override those defaults. The command
 points the app at the host's local Previewnet node through
-`http://10.0.2.2:24891`, then verifies strict `qdnRequest` injection,
-`SHOW_ACTIONS`, read-only node API GET/HEAD calls, structured QDN resource
-status/properties/metadata/URL/fetch calls, resource list/search calls, and
-selected-account approval/deny/no-account flows with the ignored preview account
-file at `~/git/qortium/preview/secrets/initial-minting-accounts.json`. It also
-verifies rejected legacy, malformed, write-method, and oversize node API
-requests, and that un-tokened Android APP render pages do not receive the
-Home-owned `qdnRequest` bridge. Set `QORTIUM_HOME_ANDROID_NODE_API_URL`,
+`http://10.0.2.2:24891`, first verifies Android wallet creation and encrypted
+backup export through the native wallet backup bridge, then verifies strict
+`qdnRequest` injection, `SHOW_ACTIONS`, read-only node API GET/HEAD calls,
+structured QDN resource status/properties/metadata/URL/fetch calls, resource
+list/search calls, and selected-account approval/deny/no-account flows with the
+ignored preview account file at
+`~/git/qortium/preview/secrets/initial-minting-accounts.json`. It also verifies
+rejected legacy, malformed, write-method, and oversize node API requests, and
+that un-tokened Android APP render pages do not receive the Home-owned
+`qdnRequest` bridge. Set `QORTIUM_HOME_ANDROID_NODE_API_URL`,
 `QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH`, or `QORTIUM_HOME_SMOKE_ACCOUNT_ROLE` to
 override those defaults.
 
@@ -368,9 +370,10 @@ converts discovered peer addresses to candidate API URLs, and uses a reachable
 node for read-only QDN/API browsing. Candidate nodes are preferred when they
 answer both `/admin/status` and a public QDN resource-search probe. Users can
 still choose a custom LAN or remote node URL. Android can open file-style QDN
-resources through the native Android chooser, and can load existing encrypted
-wallet JSON files into app-private storage. Android wallet creation and backup
-export are intentionally still deferred until the mobile backup flow is ready.
+resources through the native Android chooser, load existing encrypted wallet
+JSON files into app-private storage, create new encrypted wallets only after a
+backup file is saved through Android's document picker, and export saved
+encrypted wallet backups again later.
 
 Desktop still defaults to a local node at `http://127.0.0.1:24891`, but users
 without a local node can also choose Previewnet network discovery from the node

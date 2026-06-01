@@ -1,4 +1,4 @@
-import { Lock, Unlock, X } from 'lucide-react';
+import { Download, Lock, Unlock, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { isNativePlatform } from './platform';
 
@@ -78,14 +78,17 @@ export function AccountsPanel({
   const [unlockingAccountId, setUnlockingAccountId] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [accountError, setAccountError] = useState('');
+  const [accountNotice, setAccountNotice] = useState('');
   const [unlockError, setUnlockError] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [isExportingWallet, setIsExportingWallet] = useState(false);
   const [removingAccountId, setRemovingAccountId] = useState<string | null>(null);
   const [removePassword, setRemovePassword] = useState('');
   const [removeError, setRemoveError] = useState('');
   const [isRemovingAccount, setIsRemovingAccount] = useState(false);
   const [accountsCapabilities, setAccountsCapabilities] = useState<QortiumAccountsCapabilities | null>(null);
   const canCreateWallet = accountsCapabilities?.canCreateWallet ?? !isNativePlatform();
+  const canExportWalletFile = accountsCapabilities?.canExportWalletFile ?? false;
   const canLoadWalletFile = accountsCapabilities?.canLoadWalletFile ?? true;
 
   useEffect(() => {
@@ -123,6 +126,7 @@ export function AccountsPanel({
 
   function openCreateDialog() {
     setAccountError('');
+    setAccountNotice('');
     setCreateError('');
     setNewWalletName('');
     setNewWalletPassword('');
@@ -199,6 +203,7 @@ export function AccountsPanel({
 
   async function handleLoadWallet() {
     setAccountError('');
+    setAccountNotice('');
     setLoadNameError('');
     setIsLoadingWallet(true);
 
@@ -277,6 +282,7 @@ export function AccountsPanel({
 
   async function handleActiveAccountChange(accountId: string) {
     setAccountError('');
+    setAccountNotice('');
 
     try {
       const nextAccountsState = await window.qortiumHome.accounts.setActiveAccount(accountId);
@@ -294,6 +300,7 @@ export function AccountsPanel({
     }
 
     setAccountError('');
+    setAccountNotice('');
 
     if (!activeAccount.isUnlocked) {
       setPassword('');
@@ -306,6 +313,28 @@ export function AccountsPanel({
       onAccountsStateChange(await window.qortiumHome.accounts.lockWallet(activeAccount.id));
     } catch (error) {
       setAccountError(formatError(error));
+    }
+  }
+
+  async function handleExportWallet() {
+    if (!activeAccount) {
+      return;
+    }
+
+    setAccountError('');
+    setAccountNotice('');
+    setIsExportingWallet(true);
+
+    try {
+      const result = await window.qortiumHome.accounts.exportWallet(activeAccount.id);
+
+      if (!result.canceled) {
+        setAccountNotice(`Saved wallet backup as ${result.fileName}.`);
+      }
+    } catch (error) {
+      setAccountError(formatError(error));
+    } finally {
+      setIsExportingWallet(false);
     }
   }
 
@@ -347,6 +376,7 @@ export function AccountsPanel({
     }
 
     setAccountError('');
+    setAccountNotice('');
     setRemoveError('');
     setRemovePassword('');
     setRemovingAccountId(activeAccount.id);
@@ -438,28 +468,42 @@ export function AccountsPanel({
                 </option>
               ))}
             </select>
-            <button
-              aria-label={activeAccount?.isUnlocked ? 'Lock selected wallet' : 'Unlock selected wallet'}
-              className={`icon-button account-selector__lock-button${
-                activeAccount?.isUnlocked ? ' account-selector__lock-button--unlocked' : ''
-              }`}
-              disabled={!activeAccount}
-              title={activeAccount?.isUnlocked ? 'Lock selected wallet' : 'Unlock selected wallet'}
-              type="button"
-              onClick={handleLockToggle}
-            >
-              {activeAccount?.isUnlocked ? <Unlock size={20} /> : <Lock size={20} />}
-            </button>
-            <button
-              aria-label="Remove selected wallet"
-              className="icon-button account-selector__remove-button"
-              disabled={!activeAccount || isRemovingAccount}
-              title="Remove selected wallet"
-              type="button"
-              onClick={openRemoveDialog}
-            >
-              <X size={20} />
-            </button>
+            <div className="account-selector__buttons">
+              {canExportWalletFile ? (
+                <button
+                  aria-label="Export selected wallet backup"
+                  className="icon-button account-selector__export-button"
+                  disabled={!activeAccount || isExportingWallet}
+                  title="Export selected wallet backup"
+                  type="button"
+                  onClick={handleExportWallet}
+                >
+                  <Download size={20} />
+                </button>
+              ) : null}
+              <button
+                aria-label={activeAccount?.isUnlocked ? 'Lock selected wallet' : 'Unlock selected wallet'}
+                className={`icon-button account-selector__lock-button${
+                  activeAccount?.isUnlocked ? ' account-selector__lock-button--unlocked' : ''
+                }`}
+                disabled={!activeAccount}
+                title={activeAccount?.isUnlocked ? 'Lock selected wallet' : 'Unlock selected wallet'}
+                type="button"
+                onClick={handleLockToggle}
+              >
+                {activeAccount?.isUnlocked ? <Unlock size={20} /> : <Lock size={20} />}
+              </button>
+              <button
+                aria-label="Remove selected wallet"
+                className="icon-button account-selector__remove-button"
+                disabled={!activeAccount || isRemovingAccount}
+                title="Remove selected wallet"
+                type="button"
+                onClick={openRemoveDialog}
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
           {activeAccount ? (
             <p className="account-selector__address" aria-label="Selected wallet address">
@@ -471,6 +515,9 @@ export function AccountsPanel({
 
       {visibleAccountError ? (
         <p className="accounts-panel__message accounts-panel__message--error">{visibleAccountError}</p>
+      ) : null}
+      {accountNotice ? (
+        <p className="accounts-panel__message">{accountNotice}</p>
       ) : null}
 
       {isCreateDialogOpen ? (

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     list: () => ipcRenderer.invoke('accounts:list'),
     getCapabilities: () => Promise.resolve({
       canCreateWallet: true,
+      canExportWalletFile: false,
       canLoadWalletFile: true,
     }),
     getProfile: (accountId: string) => ipcRenderer.invoke('accounts:getProfile', accountId),
@@ -15,6 +16,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('accounts:saveLoadedWallet', token, name),
     createWallet: (name: string, password: string) =>
       ipcRenderer.invoke('accounts:createWallet', name, password),
+    exportWallet: () => Promise.reject(new Error('Wallet export is only available in the Android app right now.')),
     setActiveAccount: (accountId: string) =>
       ipcRenderer.invoke('accounts:setActiveAccount', accountId),
     unlockWallet: (accountId: string, password: string) =>

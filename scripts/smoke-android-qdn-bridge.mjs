@@ -615,6 +615,130 @@ async function clearAndroidAccount(client) {
   });
 }
 
+async function runWalletBackupAssertions(client) {
+  await waitUntil('Qortium Home accounts API', appTimeoutMs, async () => {
+    const result = await client.send('Runtime.evaluate', {
+      expression: "typeof window.qortiumHome?.accounts?.createWallet === 'function'",
+      returnByValue: true,
+    });
+
+    return result.result?.value === true;
+  });
+  await waitForCapacitorPreferences(client);
+
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      (async () => {
+        const originalNativePromise = window.Capacitor.nativePromise.bind(window.Capacitor);
+        const backupCalls = [];
+        window.Capacitor.nativePromise = (pluginName, methodName, options) => {
+          if (pluginName === 'WalletBackup' && methodName === 'saveWallet') {
+            backupCalls.push(options);
+            return Promise.resolve({
+              canceled: false,
+              fileName: options.fileName,
+              uri: 'smoke://wallet-backup/' + backupCalls.length
+            });
+          }
+
+          return originalNativePromise(pluginName, methodName, options);
+        };
+
+        try {
+          await window.Capacitor.Plugins.Preferences.remove({ key: ${JSON.stringify(walletStoreKey)} });
+          const created = await window.qortiumHome.accounts.createWallet(
+            'Android Smoke Created',
+            'android-smoke-password'
+          );
+
+          if (created.canceled) {
+            return { ok: false, message: 'Android wallet creation was canceled.' };
+          }
+
+          const account = created.accounts.find((item) => item.id === created.activeAccountId);
+
+          if (!account) {
+            return { ok: false, message: 'Created wallet was not active.' };
+          }
+
+          if (!account.isUnlocked) {
+            return { ok: false, message: 'Created wallet was not unlocked.' };
+          }
+
+          if (backupCalls.length !== 1) {
+            return { ok: false, message: 'Wallet creation did not save exactly one backup.' };
+          }
+
+          const createBackup = JSON.parse(backupCalls[0].content);
+
+          if (createBackup.address0 !== account.address) {
+            return { ok: false, message: 'Created backup address did not match the account.' };
+          }
+
+          for (const field of ['address0', 'encryptedSeed', 'iv', 'kdfThreads', 'mac', 'salt', 'version']) {
+            if (!createBackup[field]) {
+              return { ok: false, message: 'Created backup is missing ' + field + '.' };
+            }
+          }
+
+          const exported = await window.qortiumHome.accounts.exportWallet(account.id);
+
+          if (exported.canceled) {
+            return { ok: false, message: 'Android wallet export was canceled.' };
+          }
+
+          if (backupCalls.length !== 2) {
+            return { ok: false, message: 'Wallet export did not save exactly one backup.' };
+          }
+
+          const exportBackup = JSON.parse(backupCalls[1].content);
+
+          if (exportBackup.address0 !== account.address) {
+            return { ok: false, message: 'Exported backup address did not match the account.' };
+          }
+
+          if (exportBackup.encryptedSeed !== createBackup.encryptedSeed) {
+            return { ok: false, message: 'Exported backup did not match the saved wallet.' };
+          }
+
+          return {
+            ok: true,
+            address: account.address,
+            createFileName: backupCalls[0].fileName,
+            exportFileName: exported.fileName
+          };
+        } catch (error) {
+          return { ok: false, message: String(error && error.message || error) };
+        } finally {
+          window.Capacitor.nativePromise = originalNativePromise;
+          await window.Capacitor.Plugins.Preferences.remove({ key: ${JSON.stringify(walletStoreKey)} });
+        }
+      })()
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Android wallet backup smoke assertions failed.');
+  }
+
+  await client.send('Runtime.evaluate', {
+    expression: 'window.location.reload()',
+    returnByValue: true,
+  });
+
+  await waitUntil('wallet backup smoke reload', appTimeoutMs, async () => {
+    const probe = await client.send('Runtime.evaluate', {
+      expression: "typeof window.qortiumHome?.accounts?.createWallet === 'function'",
+      returnByValue: true,
+    });
+
+    return probe.result?.value === true;
+  });
+}
+
 function getFixtureAddressWithQuery(label) {
   return `${fixtureAddress}/?identity=${encodeURIComponent(label)}`;
 }
@@ -1181,6 +1305,7 @@ async function main() {
       try {
         await client.send('Page.enable');
         await client.send('Runtime.enable');
+        await runWalletBackupAssertions(client);
         await configureSmokeNode(client);
         await seedAndroidAccount(client, account);
         await navigateToFixture(client);

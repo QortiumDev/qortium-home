@@ -61,10 +61,10 @@ const nacl = requireFromElectron('tweetnacl') as {
 
 const WALLETS_FILE = 'wallets.json';
 const WALLET_STORE_VERSION = 1;
-const QORTAL_WALLET_VERSION = 2;
+const QORTIUM_WALLET_VERSION = 2;
 const KDF_THREAD_COUNT = 16;
 const WALLET_SEED_BYTES = 64;
-const QORTAL_ADDRESS_VERSION = 58;
+const QORTIUM_ADDRESS_VERSION = 58;
 const STATIC_SALT = '4ghkVQExoneGqZqHTMMhhFfxXsVg2A75QeS1HCM5KAih';
 const STATIC_BCRYPT_SALT = '$2a$11$IxVE941tXVUD4cW0TNVm.O';
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -406,7 +406,7 @@ function deriveAddressSeed(seed: Uint8Array, nonce = 0) {
 
 function publicKeyToAddress(publicKey: Uint8Array) {
   const publicKeyHash = ripemd160(sha256(publicKey));
-  const versionedHash = appendBuffer([QORTAL_ADDRESS_VERSION], publicKeyHash);
+  const versionedHash = appendBuffer([QORTIUM_ADDRESS_VERSION], publicKeyHash);
   const checksum = sha256(sha256(versionedHash)).slice(0, 4);
 
   return base58Encode(appendBuffer(versionedHash, checksum));
@@ -434,7 +434,7 @@ async function encryptWalletSeed(seed: Uint8Array, password: string): Promise<En
     encryptedSeed: base58Encode(encryptedSeed),
     salt: base58Encode(salt),
     iv: base58Encode(iv),
-    version: QORTAL_WALLET_VERSION,
+    version: QORTIUM_WALLET_VERSION,
     mac: base58Encode(mac),
     kdfThreads: KDF_THREAD_COUNT,
   };

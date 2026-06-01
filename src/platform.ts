@@ -3,6 +3,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { AES_CBC, HmacSha512, Sha512, bytes_to_base64 } from 'asmcrypto.js';
 import bcrypt from 'bcryptjs';
+import nacl from 'tweetnacl';
 import packageJson from '../package.json';
 import { PUBLIC_QDN_SERVICES } from './qdn';
 
@@ -25,7 +26,10 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const DISCOVERY_TIMEOUT_MS = 5_000;
 const DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
 const WALLET_STORE_VERSION = 1;
+const QORTIUM_WALLET_VERSION = 2;
 const KDF_THREAD_COUNT = 16;
+const WALLET_SEED_BYTES = 64;
+const QORTIUM_ADDRESS_VERSION = 58;
 const STATIC_SALT = '4ghkVQExoneGqZqHTMMhhFfxXsVg2A75QeS1HCM5KAih';
 const STATIC_BCRYPT_SALT = '$2a$11$IxVE941tXVUD4cW0TNVm.O';
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -117,6 +121,10 @@ type QdnFileOpenerPlugin = {
   openFile: (request: { filePath: string; mimeType?: string }) => Promise<{ opened?: boolean }>;
 };
 
+type WalletBackupPlugin = {
+  saveWallet: (request: { content: string; fileName: string }) => Promise<QortiumWalletBackupResult>;
+};
+
 type NativeHttpBlobUrlRequest = {
   contentType?: string;
   readTimeoutMs?: number;
@@ -152,6 +160,7 @@ type PendingAccountReadApproval = {
 
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
 const QdnFileOpener = registerPlugin<QdnFileOpenerPlugin>('QdnFileOpener');
+const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
 const qdnAccountReadListeners = new Set<(request: QortiumQdnAccountReadApprovalRequest) => void>();
@@ -340,6 +349,10 @@ function sanitizeFilename(value: string, fallback: string) {
   return sanitized.slice(0, 180) || fallback;
 }
 
+function ensureJsonFilename(fileName: string) {
+  return /\.json$/i.test(fileName) ? fileName : `${fileName}.json`;
+}
+
 function normalizeUpdateDigest(value: string | null) {
   const digest = getString(value).toLowerCase();
 
@@ -404,6 +417,12 @@ function arrayBufferToBase64(value: ArrayBuffer) {
   }
 
   return window.btoa(binary);
+}
+
+async function sha256(data: Uint8Array) {
+  const digestData = new Uint8Array(data);
+
+  return new Uint8Array(await window.crypto.subtle.digest('SHA-256', digestData.buffer));
 }
 
 async function hashBase64(value: string) {
@@ -891,6 +910,168 @@ function sha512(data: Uint8Array) {
   return result;
 }
 
+function rotateLeft32(value: number, bits: number) {
+  return ((value << bits) | (value >>> (32 - bits))) >>> 0;
+}
+
+function ripemd160Round(index: number, x: number, y: number, z: number) {
+  if (index < 16) {
+    return (x ^ y ^ z) >>> 0;
+  }
+
+  if (index < 32) {
+    return ((x & y) | (~x & z)) >>> 0;
+  }
+
+  if (index < 48) {
+    return ((x | ~y) ^ z) >>> 0;
+  }
+
+  if (index < 64) {
+    return ((x & z) | (y & ~z)) >>> 0;
+  }
+
+  return (x ^ (y | ~z)) >>> 0;
+}
+
+function ripemd160LeftConstant(index: number) {
+  if (index < 16) return 0x00000000;
+  if (index < 32) return 0x5a827999;
+  if (index < 48) return 0x6ed9eba1;
+  if (index < 64) return 0x8f1bbcdc;
+  return 0xa953fd4e;
+}
+
+function ripemd160RightConstant(index: number) {
+  if (index < 16) return 0x50a28be6;
+  if (index < 32) return 0x5c4dd124;
+  if (index < 48) return 0x6d703ef3;
+  if (index < 64) return 0x7a6d76e9;
+  return 0x00000000;
+}
+
+function ripemd160(data: Uint8Array) {
+  const leftOrder = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8,
+    3, 10, 14, 4, 9, 15, 8, 1, 2, 7, 0, 6, 13, 11, 5, 12,
+    1, 9, 11, 10, 0, 8, 12, 4, 13, 3, 7, 15, 14, 5, 6, 2,
+    4, 0, 5, 9, 7, 12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13,
+  ];
+  const rightOrder = [
+    5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12,
+    6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2,
+    15, 5, 1, 3, 7, 14, 6, 9, 11, 8, 12, 2, 10, 0, 4, 13,
+    8, 6, 4, 1, 3, 11, 15, 0, 5, 12, 2, 13, 9, 7, 10, 14,
+    12, 15, 10, 4, 1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11,
+  ];
+  const leftShifts = [
+    11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8,
+    7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12,
+    11, 13, 6, 7, 14, 9, 13, 15, 14, 8, 13, 6, 5, 12, 7, 5,
+    11, 12, 14, 15, 14, 15, 9, 8, 9, 14, 5, 6, 8, 6, 5, 12,
+    9, 15, 5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6,
+  ];
+  const rightShifts = [
+    8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6,
+    9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11,
+    9, 7, 15, 11, 8, 6, 6, 14, 12, 13, 5, 14, 13, 13, 7, 5,
+    15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8,
+    8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11,
+  ];
+  let paddedLength = data.length + 1;
+
+  while (paddedLength % 64 !== 56) {
+    paddedLength += 1;
+  }
+
+  const padded = new Uint8Array(paddedLength + 8);
+  const bitLength = BigInt(data.length) * 8n;
+
+  padded.set(data);
+  padded[data.length] = 0x80;
+
+  for (let index = 0; index < 8; index += 1) {
+    padded[paddedLength + index] = Number((bitLength >> BigInt(index * 8)) & 0xffn);
+  }
+
+  let h0 = 0x67452301;
+  let h1 = 0xefcdab89;
+  let h2 = 0x98badcfe;
+  let h3 = 0x10325476;
+  let h4 = 0xc3d2e1f0;
+
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    const words = Array.from({ length: 16 }, (_value, index) => {
+      const wordOffset = offset + index * 4;
+
+      return (
+        padded[wordOffset] |
+        (padded[wordOffset + 1] << 8) |
+        (padded[wordOffset + 2] << 16) |
+        (padded[wordOffset + 3] << 24)
+      ) >>> 0;
+    });
+    let leftA = h0;
+    let leftB = h1;
+    let leftC = h2;
+    let leftD = h3;
+    let leftE = h4;
+    let rightA = h0;
+    let rightB = h1;
+    let rightC = h2;
+    let rightD = h3;
+    let rightE = h4;
+
+    for (let index = 0; index < 80; index += 1) {
+      const leftTemp = (
+        rotateLeft32(
+          (leftA + ripemd160Round(index, leftB, leftC, leftD) + words[leftOrder[index]] + ripemd160LeftConstant(index)) >>> 0,
+          leftShifts[index],
+        ) + leftE
+      ) >>> 0;
+      const rightTemp = (
+        rotateLeft32(
+          (rightA + ripemd160Round(79 - index, rightB, rightC, rightD) + words[rightOrder[index]] + ripemd160RightConstant(index)) >>> 0,
+          rightShifts[index],
+        ) + rightE
+      ) >>> 0;
+
+      leftA = leftE;
+      leftE = leftD;
+      leftD = rotateLeft32(leftC, 10);
+      leftC = leftB;
+      leftB = leftTemp;
+
+      rightA = rightE;
+      rightE = rightD;
+      rightD = rotateLeft32(rightC, 10);
+      rightC = rightB;
+      rightB = rightTemp;
+    }
+
+    const nextH0 = (h1 + leftC + rightD) >>> 0;
+
+    h1 = (h2 + leftD + rightE) >>> 0;
+    h2 = (h3 + leftE + rightA) >>> 0;
+    h3 = (h4 + leftA + rightB) >>> 0;
+    h4 = (h0 + leftB + rightC) >>> 0;
+    h0 = nextH0;
+  }
+
+  const result = new Uint8Array(20);
+  const words = [h0, h1, h2, h3, h4];
+
+  for (let index = 0; index < words.length; index += 1) {
+    result[index * 4] = words[index] & 0xff;
+    result[index * 4 + 1] = (words[index] >>> 8) & 0xff;
+    result[index * 4 + 2] = (words[index] >>> 16) & 0xff;
+    result[index * 4 + 3] = (words[index] >>> 24) & 0xff;
+  }
+
+  return result;
+}
+
 async function computeKdfPart(password: string, nonce: number) {
   const hash = sha512(stringToUtf8Array(`${STATIC_SALT}${password}${nonce}`));
   const hashBase64 = bytes_to_base64(hash);
@@ -904,6 +1085,83 @@ async function deriveWalletKey(password: string) {
   );
 
   return sha512(stringToUtf8Array(`${STATIC_SALT}${parts.reduce((combined, part) => combined + part)}`));
+}
+
+function getRandomBytes(length: number) {
+  const bytes = new Uint8Array(length);
+
+  window.crypto.getRandomValues(bytes);
+
+  return bytes;
+}
+
+function appendBuffer(first: Uint8Array | number[], second: Uint8Array | number[]) {
+  const firstBuffer = new Uint8Array(first);
+  const secondBuffer = new Uint8Array(second);
+  const nextBuffer = new Uint8Array(firstBuffer.byteLength + secondBuffer.byteLength);
+
+  nextBuffer.set(firstBuffer, 0);
+  nextBuffer.set(secondBuffer, firstBuffer.byteLength);
+
+  return nextBuffer;
+}
+
+function int32ToBytes(value: number) {
+  return [24, 16, 8, 0].map((shift) => (value >>> shift) & 0xff);
+}
+
+function deriveAddressSeed(seed: Uint8Array, nonce = 0) {
+  const nonceBytes = int32ToBytes(nonce);
+  const nonceSeed = appendBuffer(appendBuffer(nonceBytes, seed), nonceBytes);
+  const firstHash = sha512(nonceSeed);
+
+  return sha512(appendBuffer(firstHash, nonceSeed)).slice(0, 32);
+}
+
+async function publicKeyToAddress(publicKey: Uint8Array) {
+  const publicKeyHash = ripemd160(await sha256(publicKey));
+  const versionedHash = appendBuffer([QORTIUM_ADDRESS_VERSION], publicKeyHash);
+  const checksum = (await sha256(await sha256(versionedHash))).slice(0, 4);
+
+  return base58Encode(appendBuffer(versionedHash, checksum));
+}
+
+async function deriveAddress(seed: Uint8Array) {
+  const addressSeed = deriveAddressSeed(seed);
+  const keyPair = nacl.sign.keyPair.fromSeed(addressSeed);
+
+  return publicKeyToAddress(keyPair.publicKey);
+}
+
+async function encryptWalletSeed(seed: Uint8Array, password: string): Promise<EncryptedWallet> {
+  const address = await deriveAddress(seed);
+  const iv = getRandomBytes(16);
+  const salt = getRandomBytes(32);
+  const key = await deriveWalletKey(password);
+  const encryptionKey = key.slice(0, 32);
+  const macKey = key.slice(32, 63);
+  const encryptedSeedResult = AES_CBC.encrypt(seed, encryptionKey, false, iv);
+
+  if (!encryptedSeedResult) {
+    throw new Error('Unable to encrypt wallet seed.');
+  }
+
+  const encryptedSeed = new Uint8Array(encryptedSeedResult);
+  const mac = new HmacSha512(macKey).process(encryptedSeed).finish().result;
+
+  if (!mac) {
+    throw new Error('Unable to authenticate wallet seed.');
+  }
+
+  return {
+    address0: address,
+    encryptedSeed: base58Encode(encryptedSeed),
+    salt: base58Encode(salt),
+    iv: base58Encode(iv),
+    version: QORTIUM_WALLET_VERSION,
+    mac: base58Encode(mac),
+    kdfThreads: KDF_THREAD_COUNT,
+  };
 }
 
 async function decryptWalletSeed(password: string, wallet: EncryptedWallet) {
@@ -1121,6 +1379,120 @@ async function saveLoadedWallet(token: string, name: string) {
   return toAccountsState(store);
 }
 
+function formatWalletBackupJson(wallet: EncryptedWallet) {
+  return `${JSON.stringify(wallet, null, 2)}\n`;
+}
+
+function getWalletBackupFilename(walletName: string, wallet: EncryptedWallet) {
+  return ensureJsonFilename(`${sanitizeFilename(walletName, 'wallet')}_${wallet.address0}`);
+}
+
+function normalizeWalletBackupResult(value: unknown, fallbackFileName: string): QortiumWalletBackupResult {
+  if (!isRecord(value)) {
+    throw new Error('Wallet backup did not return a valid result.');
+  }
+
+  if (value.canceled === true) {
+    return {
+      canceled: true,
+    };
+  }
+
+  const fileName = getString(value.fileName) || fallbackFileName;
+
+  return {
+    canceled: false,
+    fileName,
+    uri: getString(value.uri) || undefined,
+  };
+}
+
+async function saveWalletBackup(wallet: EncryptedWallet, fileName: string) {
+  const backupFileName = ensureJsonFilename(sanitizeFilename(fileName, 'wallet.json'));
+  const result = await WalletBackup.saveWallet({
+    content: formatWalletBackupJson(wallet),
+    fileName: backupFileName,
+  });
+
+  return normalizeWalletBackupResult(result, backupFileName);
+}
+
+async function createWallet(name: string, password: string): Promise<QortiumCreateWalletResult> {
+  const initialStore = await readWalletStore();
+  const initialWalletName = assertValidWalletName(name, initialStore);
+
+  if (!password) {
+    throw new Error('Enter the wallet password.');
+  }
+
+  const seed = getRandomBytes(WALLET_SEED_BYTES);
+  let shouldWipeSeed = true;
+
+  try {
+    const encryptedWallet = await encryptWalletSeed(seed, password);
+    const backupResult = await saveWalletBackup(
+      encryptedWallet,
+      getWalletBackupFilename(initialWalletName, encryptedWallet),
+    );
+
+    if (backupResult.canceled) {
+      return {
+        canceled: true,
+        ...toAccountsState(await readWalletStore()),
+      };
+    }
+
+    const id = getWalletId(encryptedWallet);
+    const store = await readWalletStore();
+    const walletName = assertValidWalletName(initialWalletName, store, id);
+    const existingWallet = store.wallets.find((wallet) => wallet.id === id);
+    const now = new Date().toISOString();
+    const nextWallet: StoredWallet = {
+      id,
+      label: walletName,
+      address: encryptedWallet.address0,
+      sourceFilename: backupResult.fileName,
+      encryptedWallet,
+      createdAt: existingWallet?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const existingWalletIndex = store.wallets.findIndex((wallet) => wallet.id === id);
+
+    if (existingWalletIndex >= 0) {
+      store.wallets[existingWalletIndex] = nextWallet;
+    } else {
+      store.wallets.push(nextWallet);
+    }
+
+    store.activeAccountId = id;
+    unlockedWalletSeeds.set(id, seed);
+    shouldWipeSeed = false;
+    await writeWalletStore(store);
+
+    return {
+      canceled: false,
+      ...toAccountsState(store),
+    };
+  } finally {
+    if (shouldWipeSeed) {
+      seed.fill(0);
+    }
+  }
+}
+
+async function exportWallet(accountId: string) {
+  const store = await readWalletStore();
+  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
+
+  if (!wallet) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  const suggestedFilename = wallet.sourceFilename || getWalletBackupFilename(wallet.label, wallet.encryptedWallet);
+
+  return saveWalletBackup(wallet.encryptedWallet, suggestedFilename);
+}
+
 async function setActiveAccount(accountId: string) {
   const store = await readWalletStore();
 
@@ -1335,16 +1707,16 @@ function createStoredAccountsApi(): PlatformApi['accounts'] {
   return {
     list: async () => toAccountsState(await readWalletStore()),
     getCapabilities: async () => ({
-      canCreateWallet: false,
+      canCreateWallet: true,
+      canExportWalletFile: true,
       canLoadWalletFile: true,
     }),
     getProfile: (accountId) => getAccountProfile(accountId),
     selectWalletFile,
     discardLoadedWallet: async (token) => discardLoadedWallet(token),
     saveLoadedWallet,
-    createWallet: async () => {
-      throw new Error('Creating wallets on Android will be added after the mobile backup flow is ready.');
-    },
+    createWallet,
+    exportWallet,
     setActiveAccount,
     unlockWallet,
     lockWallet,
@@ -2331,6 +2703,7 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
     list: async () => emptyState,
     getCapabilities: async () => ({
       canCreateWallet: false,
+      canExportWalletFile: false,
       canLoadWalletFile: false,
     }),
     getProfile: async (accountId) => ({
@@ -2344,6 +2717,7 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
     discardLoadedWallet: async () => undefined,
     saveLoadedWallet: async () => unsupported(),
     createWallet: async () => unsupported(),
+    exportWallet: async () => unsupported(),
     setActiveAccount: async () => emptyState,
     unlockWallet: async () => emptyState,
     lockWallet: async () => emptyState,

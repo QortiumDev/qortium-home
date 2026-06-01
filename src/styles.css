@@ -388,10 +388,15 @@ h1 {
 
 .account-selector__control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px 42px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   width: 100%;
+}
+
+.account-selector__buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .account-selector__select {
@@ -413,6 +418,10 @@ h1 {
 
 .account-selector__lock-button {
   color: #e4c06d;
+}
+
+.account-selector__export-button {
+  color: #8bb8ef;
 }
 
 .account-selector__lock-button--unlocked {

@@ -85,9 +85,10 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   workflows on local or user-controlled nodes.
 - The first Android scaffold uses Capacitor, shares the React UI, and starts with node settings/status plus read-only QDN/API browsing.
 - Android can load existing encrypted wallet JSON files through the WebView file
-  picker, stores encrypted wallet metadata in app-private Preferences storage,
-  and keeps decrypted seed material in renderer memory only for the current app
-  session.
+  picker, create new encrypted wallets after saving a backup through Android's
+  document picker, export saved encrypted wallet backups, store encrypted wallet
+  metadata in app-private Preferences storage, and keep decrypted seed material
+  in renderer memory only for the current app session.
 - Android APP and WEBSITE pages can request the selected tab account's public
   identity after an explicit session-only user approval prompt.
 - Android can open downloaded file-style QDN resources through the native Android chooser from Home's private app data.
@@ -205,7 +206,6 @@ Qortium Home should maintain a human-readable change log, following the pattern 
 - Running Qortium Core locally inside the Android APK for the initial version.
 - Chat send, name registration, and group join in the public preview browser surface.
 - Android QDN publish/delete writes until Android wallet/account signing exists.
-- Android wallet creation and backup export until the mobile backup flow is ready.
 
 ## Open Questions
 

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-05-31 - app: add android wallet backup creation
+
+Added Android wallet creation and backup export. Android now creates encrypted wallets only after the user saves the backup JSON through the native document picker, starts the newly created wallet unlocked for the current app session, lets users export the selected saved encrypted wallet backup later, and expands the Android QDN bridge smoke test to verify the wallet backup JSON and export path before the existing QDN app assertions run.
+
 ### 2026-05-31 - app: add android selected-account qdnrequest
 
 Added Android selected-account support for QDN apps. Android APP and WEBSITE frames can now call `GET_SELECTED_ACCOUNT` through the tokenized `qdnRequest` bridge, Home shows the same public-account approval dialog used by desktop, approvals are cached only for the current frame session, deny and no-account cases are rejected cleanly, and the Android QDN bridge smoke test now seeds the ignored preview account to verify the account approval flow.

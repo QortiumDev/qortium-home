@@ -37,8 +37,19 @@ type QortiumCreateWalletResult = QortiumAccountsState & {
   canceled: boolean;
 };
 
+type QortiumWalletBackupResult =
+  | {
+      canceled: true;
+    }
+  | {
+      canceled: false;
+      fileName: string;
+      uri?: string;
+    };
+
 type QortiumAccountsCapabilities = {
   canCreateWallet: boolean;
+  canExportWalletFile: boolean;
   canLoadWalletFile: boolean;
 };
 
@@ -381,6 +392,7 @@ interface Window {
       discardLoadedWallet: (token: string) => Promise<void>;
       saveLoadedWallet: (token: string, name: string) => Promise<QortiumAccountsState>;
       createWallet: (name: string, password: string) => Promise<QortiumCreateWalletResult>;
+      exportWallet: (accountId: string) => Promise<QortiumWalletBackupResult>;
       setActiveAccount: (accountId: string) => Promise<QortiumAccountsState>;
       unlockWallet: (accountId: string, password: string) => Promise<QortiumAccountsState>;
       lockWallet: (accountId: string) => Promise<QortiumAccountsState>;
