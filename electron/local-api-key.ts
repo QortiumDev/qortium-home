@@ -1,5 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 
 const API_KEY_FILE = 'apikey.txt';
@@ -9,6 +17,10 @@ type PreviewApiKeyResult = {
   apiKey: string;
   created: boolean;
   path: string;
+};
+
+type RunningCoreApiKeyResult = PreviewApiKeyResult & {
+  pid: number;
 };
 
 function encodeBase58(bytes: Uint8Array) {
@@ -89,6 +101,83 @@ export function readPreviewApiKey(previewPath: string): PreviewApiKeyResult | nu
   } catch {
     return null;
   }
+}
+
+function getQortiumCoreProcessSettingsPath(args: string[]) {
+  const jarIndex = args.findIndex((arg) => arg === '-jar');
+  const jarPath = jarIndex >= 0 ? args[jarIndex + 1] ?? '' : '';
+  const settingsPath = jarIndex >= 0 ? args[jarIndex + 2] ?? '' : '';
+  const jarName = path.basename(jarPath).toLowerCase();
+
+  if (!jarName.startsWith('qortium') || !jarName.endsWith('.jar')) {
+    return null;
+  }
+
+  return settingsPath || null;
+}
+
+function getConfiguredApiKeyDirectory(settingsPath: string, cwd: string) {
+  try {
+    const resolvedSettingsPath = path.isAbsolute(settingsPath)
+      ? settingsPath
+      : path.resolve(cwd, settingsPath);
+    const parsedSettings: unknown = JSON.parse(readFileSync(resolvedSettingsPath, 'utf8'));
+
+    if (parsedSettings && typeof parsedSettings === 'object') {
+      const apiKeyPath = (parsedSettings as { apiKeyPath?: unknown }).apiKeyPath;
+
+      if (typeof apiKeyPath === 'string' && apiKeyPath.trim()) {
+        return path.isAbsolute(apiKeyPath) ? apiKeyPath : path.resolve(cwd, apiKeyPath);
+      }
+    }
+  } catch {
+    return cwd;
+  }
+
+  return cwd;
+}
+
+export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
+  if (process.platform !== 'linux') {
+    return null;
+  }
+
+  const apiKeys = new Map<string, RunningCoreApiKeyResult>();
+
+  for (const entry of readdirSync('/proc', { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) {
+      continue;
+    }
+
+    const pid = Number(entry.name);
+
+    try {
+      const procPath = path.join('/proc', entry.name);
+      const args = readFileSync(path.join(procPath, 'cmdline'), 'utf8')
+        .split('\0')
+        .filter(Boolean);
+      const settingsPath = getQortiumCoreProcessSettingsPath(args);
+
+      if (!settingsPath) {
+        continue;
+      }
+
+      const cwd = readlinkSync(path.join(procPath, 'cwd'));
+      const apiKeyDirectory = getConfiguredApiKeyDirectory(settingsPath, cwd);
+      const apiKey = readPreviewApiKey(apiKeyDirectory);
+
+      if (apiKey) {
+        apiKeys.set(apiKey.path, {
+          ...apiKey,
+          pid,
+        });
+      }
+    } catch {
+      // Processes can exit while /proc is being scanned.
+    }
+  }
+
+  return apiKeys.size === 1 ? [...apiKeys.values()][0] : null;
 }
 
 export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {

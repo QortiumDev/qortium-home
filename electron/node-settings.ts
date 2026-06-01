@@ -1,8 +1,12 @@
 import { app, ipcMain } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { getManagedCorePreviewPath } from './core-manager.js';
-import { ensurePreviewApiKey, readPreviewApiKey } from './local-api-key.js';
+import { getManagedCorePreviewPath, isManagedCoreRuntimeRunning } from './core-manager.js';
+import {
+  ensurePreviewApiKey,
+  readPreviewApiKey,
+  readRunningLocalCoreApiKey,
+} from './local-api-key.js';
 
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_SETTINGS_FILE = 'node-settings.json';
@@ -191,19 +195,61 @@ async function resolveLocalApiKey(
   settings: NodeSettings,
   options: LocalApiKeyResolutionOptions,
 ): Promise<NodeSettings> {
-  if (settings.mode !== 'local' || settings.apiKey || hasExplicitLocalNodeApiUrl()) {
+  if (settings.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
     return settings;
   }
 
   const previewPath = await getManagedCorePreviewPath();
+  const managedCoreApiKey = previewPath ? readPreviewApiKey(previewPath) : null;
+  const runningCoreApiKey = readRunningLocalCoreApiKey();
+  const managedRuntimeRunning = await isManagedCoreRuntimeRunning();
 
-  if (!previewPath) {
+  if (settings.apiKey) {
+    if (runningCoreApiKey && runningCoreApiKey.apiKey !== settings.apiKey) {
+      const resolvedSettings = {
+        ...settings,
+        apiKey: runningCoreApiKey.apiKey,
+      };
+
+      writeNodeSettings(resolvedSettings);
+
+      return resolvedSettings;
+    }
+
+    if (
+      managedCoreApiKey?.apiKey === settings.apiKey &&
+      !managedRuntimeRunning &&
+      (!runningCoreApiKey || runningCoreApiKey.apiKey !== settings.apiKey)
+    ) {
+      const resolvedSettings = {
+        ...settings,
+        apiKey: '',
+      };
+
+      writeNodeSettings(resolvedSettings);
+
+      return resolvedSettings;
+    }
+
     return settings;
   }
 
-  const apiKeyResult = options.createIfMissing
-    ? ensurePreviewApiKey(previewPath)
-    : readPreviewApiKey(previewPath);
+  if (runningCoreApiKey) {
+    const resolvedSettings = {
+      ...settings,
+      apiKey: runningCoreApiKey.apiKey,
+    };
+
+    writeNodeSettings(resolvedSettings);
+
+    return resolvedSettings;
+  }
+
+  if (!previewPath || !managedRuntimeRunning) {
+    return settings;
+  }
+
+  const apiKeyResult = options.createIfMissing ? ensurePreviewApiKey(previewPath) : managedCoreApiKey;
 
   if (!apiKeyResult?.apiKey) {
     return settings;

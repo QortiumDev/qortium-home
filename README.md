@@ -410,7 +410,9 @@ When a local or trusted custom Core node is selected with an API key available,
 the dashboard also checks Core's approved on-chain/QDN update status through
 `/admin/update`. For Home-managed local Core installs, Home reads or creates the
 managed `apikey.txt` automatically and saves it in node settings. Custom nodes
-can save their own API key in node settings. If Core reports an approved update
+can save their own API key in node settings. On Linux, Home can also detect the
+`apikey.txt` for an already-running local Core process so it does not send a
+managed Core key to a different local Core. If Core reports an approved update
 and its auto-update mode is `INSTALL`, Home shows that Core will install it
 automatically; otherwise Home offers a manual approved-update install action.
 

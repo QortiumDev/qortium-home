@@ -210,6 +210,10 @@ function getCoreLogPaths(previewPath: string): CoreLogPaths {
   return logPaths;
 }
 
+function getRunPidPath(previewPath: string) {
+  return path.join(previewPath, 'run.pid');
+}
+
 function sanitizePathSegment(value: string) {
   return value.replace(/[^a-z0-9._-]/gi, '_') || 'core';
 }
@@ -432,6 +436,35 @@ async function readInstalledCore(): Promise<InstalledCore | null> {
 
 export async function getManagedCorePreviewPath() {
   return (await readInstalledCore())?.previewPath ?? null;
+}
+
+function isPidRunning(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (
+      error instanceof Error &&
+      'code' in error &&
+      (error as NodeJS.ErrnoException).code === 'EPERM'
+    );
+  }
+}
+
+export async function isManagedCoreRuntimeRunning() {
+  const installedCore = await readInstalledCore();
+
+  if (!installedCore) {
+    return false;
+  }
+
+  try {
+    const pid = Number((await readFile(getRunPidPath(installedCore.previewPath), 'utf8')).trim());
+
+    return Number.isInteger(pid) && pid > 0 && isPidRunning(pid);
+  } catch {
+    return false;
+  }
 }
 
 async function writeInstalledCore(installedCore: InstalledCore) {
