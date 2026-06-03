@@ -57,7 +57,7 @@
     "bcryptjs": "2.4.3",
     "extract-zip": "^2.0.1",
     "lucide-react": "^1.17.0",
-    "react": "^19.2.0",
+    "react": "^19.2.7",
     "react-dom": "^19.2.0",
     "tar": "^7.5.15",
     "tweetnacl": "1.0.3"
@@ -65,7 +65,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",
     "@types/node": "^24.10.1",
-    "@types/react": "^19.2.6",
+    "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "concurrently": "^9.2.1",
