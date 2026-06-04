@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-04 - app: avoid duplicate on-chain core update installs
+
+Changed the dashboard's approved on-chain Core update handling so Home keeps polling Core while a QDN download, retry, or install is active, and stops showing another manual install button during that active attempt. This makes the UI follow Core's `/admin/update` retry state instead of encouraging repeated install clicks while the same approved update data is still being downloaded.
+
 ### 2026-06-01 - release: prepare home preview 7
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.7` with Android `versionCode` 8, and adjusted Android release artifact collection so a `jarsigner`-verified release AAB signed by the local Qortium Home release key is collected as a signed artifact for the next QortiumDev prerelease target.

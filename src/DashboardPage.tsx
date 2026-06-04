@@ -57,6 +57,9 @@ type OnChainCoreUpdateState =
       state: 'installing';
     };
 
+const ON_CHAIN_CORE_UPDATE_POLL_INTERVAL_MS = 5000;
+const ACTIVE_ON_CHAIN_QDN_RESOURCE_STATUSES = new Set(['BUILDING', 'DOWNLOADING']);
+
 function formatLocalNodeError(error: unknown) {
   if (!(error instanceof Error)) {
     return 'Local node was not detected.';
@@ -134,6 +137,32 @@ function getOnChainQdnStatusLabel(status: QortiumCoreOnChainUpdateStatus) {
   return percent === null ? resourceStatus : `${resourceStatus || 'Loading'} ${percent}%`;
 }
 
+function normalizeOnChainUpdateStatusCode(value: string | null | undefined) {
+  return (value || '').toUpperCase();
+}
+
+function isOnChainQdnResourceActive(status: QortiumCoreOnChainUpdateStatus) {
+  const resourceStatus = normalizeOnChainUpdateStatusCode(status.binaryResourceStatus);
+
+  return ACTIVE_ON_CHAIN_QDN_RESOURCE_STATUSES.has(resourceStatus);
+}
+
+function isOnChainCoreUpdateAttemptActive(status: QortiumCoreOnChainUpdateStatus) {
+  const statusCode = normalizeOnChainUpdateStatusCode(status.status);
+
+  return (
+    !!status.installStarted ||
+    !!status.installing ||
+    statusCode === 'DOWNLOAD_STARTED' ||
+    statusCode === 'INSTALL_IN_PROGRESS' ||
+    typeof status.nextRetryTimestamp === 'number'
+  );
+}
+
+function shouldPollOnChainCoreUpdateStatus(status: QortiumCoreOnChainUpdateStatus) {
+  return !!status.updateAvailable && (isOnChainCoreUpdateAttemptActive(status) || isOnChainQdnResourceActive(status));
+}
+
 function getOnChainCoreUpdateStatusText(updateState: OnChainCoreUpdateState) {
   if (updateState.state === 'loading') {
     return 'Checking approved on-chain Core update.';
@@ -154,16 +183,24 @@ function getOnChainCoreUpdateStatusText(updateState: OnChainCoreUpdateState) {
       return 'Approved Core update install has been scheduled.';
     }
 
-    if (status.autoUpdateMode === 'INSTALL') {
-      return 'Approved Core update available; Core auto-update will install it.';
-    }
-
     if (status.installing) {
       return 'Approved Core update install is in progress.';
     }
 
-    if (status.downloadStarted) {
+    if (isOnChainCoreUpdateAttemptActive(status)) {
       return 'Approved Core update data is downloading from QDN.';
+    }
+
+    if (status.autoUpdateMode === 'INSTALL') {
+      return 'Approved Core update available; Core auto-update will install it.';
+    }
+
+    if (isOnChainQdnResourceActive(status)) {
+      return 'Approved Core update data is downloading from QDN.';
+    }
+
+    if (status.downloadStarted) {
+      return 'Approved Core update data download was requested.';
     }
 
     return 'Approved Core update available.';
@@ -181,12 +218,24 @@ function getOnChainCoreUpdateSummary(updateState: OnChainCoreUpdateState) {
     return 'Approved Core update install has been scheduled.';
   }
 
-  if (updateState.status.autoUpdateMode === 'INSTALL') {
-    return 'Approved Core update available. Core auto-update is enabled and will install it automatically.';
-  }
-
   if (updateState.status.installing) {
     return 'Approved Core update install is in progress.';
+  }
+
+  if (isOnChainCoreUpdateAttemptActive(updateState.status)) {
+    return 'Approved Core update data is downloading from QDN. Core will retry the install when the data is local.';
+  }
+
+  if (isOnChainQdnResourceActive(updateState.status)) {
+    return 'Approved Core update data is downloading from QDN.';
+  }
+
+  if (updateState.status.downloadStarted) {
+    return 'Approved Core update data download was requested.';
+  }
+
+  if (updateState.status.autoUpdateMode === 'INSTALL') {
+    return 'Approved Core update available. Core auto-update is enabled and will install it automatically.';
   }
 
   return 'Approved Core update available.';
@@ -195,7 +244,7 @@ function getOnChainCoreUpdateSummary(updateState: OnChainCoreUpdateState) {
 function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
   const [status, setStatus] = useState<OnChainCoreUpdateState>({ state: 'loading' });
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = useCallback(async (options: { quiet?: boolean } = {}) => {
     const unavailableMessage = getOnChainCoreUpdateUnavailableMessage(nodeSettings);
 
     if (unavailableMessage) {
@@ -206,7 +255,9 @@ function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
       return;
     }
 
-    setStatus({ state: 'loading' });
+    if (!options.quiet) {
+      setStatus({ state: 'loading' });
+    }
 
     try {
       setStatus({
@@ -245,6 +296,20 @@ function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if (status.state !== 'available' || !shouldPollOnChainCoreUpdateStatus(status.status)) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshStatus({ quiet: true });
+    }, ON_CHAIN_CORE_UPDATE_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refreshStatus, status]);
 
   return {
     installUpdate,
@@ -497,10 +562,11 @@ function ManagedCoreDashboardCard({
   const localNodeUnavailable = localNode.status.state === 'unavailable';
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
+  const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
   const showOnChainInstallAction =
     !!onChainStatus?.updateAvailable &&
     onChainStatus.autoUpdateMode !== 'INSTALL' &&
-    !onChainStatus.installStarted;
+    !onChainInstallAttemptActive;
   const showJavaAction = coreManager.canInstallJava;
   const showPrereleaseAction =
     coreManager.canInstallPrerelease &&
@@ -580,7 +646,7 @@ function ManagedCoreDashboardCard({
         {showOnChainInstallAction ? (
           <button
             className="button"
-            disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainStatus?.installing}
+            disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainInstallAttemptActive}
             type="button"
             onClick={onChainCoreUpdate.installUpdate}
           >
