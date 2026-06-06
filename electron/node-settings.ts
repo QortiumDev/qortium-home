@@ -560,7 +560,7 @@ function getErrorMessage(error: unknown) {
 function getProtectedNodeApiKey(settings: NodeSettings) {
   if (!settings.apiKey) {
     if (settings.mode === 'local') {
-      throw new Error('Install managed Core or save the local node API key to check approved on-chain Core updates.');
+      throw new Error('Install or start Qortium Core, or save the local node API key to check approved on-chain Core updates.');
     }
 
     if (settings.mode === 'custom') {

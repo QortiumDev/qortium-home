@@ -1,19 +1,26 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
+import {
+  ensurePreviewApiKey,
+  readRunningLocalCoreApiKey,
+  type RunningCoreApiKeyResult,
+} from './local-api-key.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
 const GITHUB_USER_AGENT = 'QortiumHome/1.0';
 const MANAGED_CORE_DIR = 'managed-core';
-const MANAGED_CORE_RUNTIME_DIR = 'qortium-core';
+const CORE_DATA_DIR = 'qortium-core';
+const CORE_INSTALL_DIR = 'install';
+const CORE_RUNTIME_DIR = 'runtime';
 const CURRENT_CORE_FILE = 'current.json';
 const CURRENT_JAVA_FILE = 'current-java.json';
 const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
@@ -26,6 +33,20 @@ const MIN_JAVA_MAJOR_VERSION = 17;
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_API_BASE_URL = 'https://api.adoptium.net/v3/binary/latest';
 const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
+const RUNTIME_ENTRY_NAMES = [
+  'apikey.txt',
+  'db-preview',
+  'data-preview',
+  'qortium-backup-preview',
+  'qortal-backup-preview',
+  'qortium.log',
+  'run-error.log',
+  'run.log',
+  'run.pid',
+  'settings-preview-local.json',
+  'settings-preview-seed-local.json',
+  'settings-preview-seed-netcup-local.json',
+];
 
 type CoreChannel = 'prerelease' | 'stable';
 type JavaArchiveType = 'tar.gz' | 'zip';
@@ -135,9 +156,17 @@ type JavaStatus = {
   version: string | null;
 };
 
+type CoreRuntimeOwner = 'external' | 'home' | 'unknown';
+
 type CoreRuntimeStatus = {
+  apiKeyPath?: string;
+  jarPath?: string;
   localApiUrl: string;
+  owner: CoreRuntimeOwner;
+  pid?: number;
   running: boolean;
+  runtimePath?: string;
+  settingsPath?: string;
   status: unknown;
 };
 
@@ -172,6 +201,10 @@ function getNumber(value: unknown) {
 }
 
 function getCoreBasePath() {
+  return path.join(app.getPath('appData'), CORE_DATA_DIR);
+}
+
+function getLegacyCoreBasePath() {
   return path.join(app.getPath('userData'), MANAGED_CORE_DIR);
 }
 
@@ -179,12 +212,16 @@ function getCoreDownloadsPath() {
   return path.join(getCoreBasePath(), 'downloads');
 }
 
-function getCoreVersionsPath() {
-  return path.join(getCoreBasePath(), 'versions');
+function getCoreInstallPath() {
+  return path.join(getCoreBasePath(), CORE_INSTALL_DIR);
 }
 
 function getJavaBasePath() {
   return path.join(getCoreBasePath(), 'java');
+}
+
+function getLegacyJavaBasePath() {
+  return path.join(getLegacyCoreBasePath(), 'java');
 }
 
 function getJavaVersionsPath() {
@@ -195,8 +232,16 @@ function getCurrentCorePath() {
   return path.join(getCoreBasePath(), CURRENT_CORE_FILE);
 }
 
+function getLegacyCurrentCorePath() {
+  return path.join(getLegacyCoreBasePath(), CURRENT_CORE_FILE);
+}
+
 function getCurrentJavaPath() {
   return path.join(getJavaBasePath(), CURRENT_JAVA_FILE);
+}
+
+function getLegacyCurrentJavaPath() {
+  return path.join(getLegacyJavaBasePath(), CURRENT_JAVA_FILE);
 }
 
 function getCoreRuntimePath() {
@@ -204,7 +249,7 @@ function getCoreRuntimePath() {
     return path.resolve(CORE_RUNTIME_DIR_OVERRIDE);
   }
 
-  return path.join(app.getPath('appData'), MANAGED_CORE_RUNTIME_DIR);
+  return path.join(getCoreBasePath(), CORE_RUNTIME_DIR);
 }
 
 function getCoreLogPaths(runtimePath: string): CoreLogPaths {
@@ -222,6 +267,84 @@ function getCoreLogPaths(runtimePath: string): CoreLogPaths {
 
 function getRunPidPath(runtimePath: string) {
   return path.join(runtimePath, 'run.pid');
+}
+
+function normalizeFilesystemPath(value: string) {
+  return path.resolve(value);
+}
+
+function isPathWithinPath(candidatePath: string, parentPath: string) {
+  const relativePath = path.relative(normalizeFilesystemPath(parentPath), normalizeFilesystemPath(candidatePath));
+
+  return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function isRunningCoreWithinPath(runningCore: RunningCoreApiKeyResult, parentPath: string) {
+  return [runningCore.apiKeyDirectory, runningCore.cwd, runningCore.jarPath, runningCore.settingsPath].some((candidate) =>
+    isPathWithinPath(candidate, parentPath),
+  );
+}
+
+function getRuntimeEntryConflictPath(entryName: string) {
+  return path.join(
+    getCoreRuntimePath(),
+    'migration-conflicts',
+    sanitizePathSegment(new Date().toISOString()),
+    entryName,
+  );
+}
+
+async function movePath(sourcePath: string, destinationPath: string) {
+  await mkdir(path.dirname(destinationPath), { recursive: true });
+
+  try {
+    await rename(sourcePath, destinationPath);
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EXDEV') {
+      throw error;
+    }
+
+    await cp(sourcePath, destinationPath, { recursive: true });
+    await rm(sourcePath, { recursive: true, force: true });
+  }
+}
+
+async function movePathReplacingDestination(sourcePath: string, destinationPath: string) {
+  await rm(destinationPath, { recursive: true, force: true });
+  await movePath(sourcePath, destinationPath);
+}
+
+async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
+  if (!existsSync(sourcePath) || normalizeFilesystemPath(sourcePath) === normalizeFilesystemPath(destinationPath)) {
+    return;
+  }
+
+  await mkdir(destinationPath, { recursive: true });
+
+  for (const entryName of RUNTIME_ENTRY_NAMES) {
+    const sourceEntryPath = path.join(sourcePath, entryName);
+
+    if (!existsSync(sourceEntryPath)) {
+      continue;
+    }
+
+    const destinationEntryPath = path.join(destinationPath, entryName);
+
+    if (existsSync(destinationEntryPath)) {
+      await movePath(sourceEntryPath, getRuntimeEntryConflictPath(entryName));
+      continue;
+    }
+
+    await movePath(sourceEntryPath, destinationEntryPath);
+  }
+}
+
+function relocateChildPath(sourcePath: string, sourceBasePath: string, destinationBasePath: string) {
+  if (!isPathWithinPath(sourcePath, sourceBasePath)) {
+    return path.join(destinationBasePath, path.basename(sourcePath));
+  }
+
+  return path.join(destinationBasePath, path.relative(sourceBasePath, sourcePath));
 }
 
 function sanitizePathSegment(value: string) {
@@ -392,7 +515,7 @@ async function checkReleases() {
   };
 }
 
-function parseInstalledCore(value: unknown): InstalledCore | null {
+function parseInstalledCore(value: unknown, fallbackRuntimePath = getCoreRuntimePath()): InstalledCore | null {
   if (!isObject(value)) {
     return null;
   }
@@ -402,7 +525,7 @@ function parseInstalledCore(value: unknown): InstalledCore | null {
   const previewPath = getString(installedCore.previewPath);
   const jarPath = getString(installedCore.jarPath);
   const tagName = getString(installedCore.tagName);
-  const runtimePath = getString(installedCore.runtimePath) || getCoreRuntimePath();
+  const runtimePath = getString(installedCore.runtimePath) || fallbackRuntimePath;
 
   if (!installPath || !previewPath || !jarPath || !tagName) {
     return null;
@@ -426,10 +549,13 @@ function parseInstalledCore(value: unknown): InstalledCore | null {
   };
 }
 
-async function readInstalledCore(): Promise<InstalledCore | null> {
+async function readInstalledCoreMetadata(
+  currentCorePath = getCurrentCorePath(),
+  fallbackRuntimePath = getCoreRuntimePath(),
+): Promise<InstalledCore | null> {
   try {
-    const parsedCore: unknown = JSON.parse(await readFile(getCurrentCorePath(), 'utf8'));
-    const installedCore = parseInstalledCore(parsedCore);
+    const parsedCore: unknown = JSON.parse(await readFile(currentCorePath, 'utf8'));
+    const installedCore = parseInstalledCore(parsedCore, fallbackRuntimePath);
 
     if (
       installedCore &&
@@ -444,6 +570,12 @@ async function readInstalledCore(): Promise<InstalledCore | null> {
   }
 
   return null;
+}
+
+async function readInstalledCore(): Promise<InstalledCore | null> {
+  await ensureCoreLayout();
+
+  return await readInstalledCoreMetadata();
 }
 
 export async function getManagedCorePreviewPath() {
@@ -474,18 +606,194 @@ export async function isManagedCoreRuntimeRunning() {
     return false;
   }
 
-  try {
-    const pid = Number((await readFile(getRunPidPath(installedCore.runtimePath), 'utf8')).trim());
-
-    return Number.isInteger(pid) && pid > 0 && isPidRunning(pid);
-  } catch {
-    return false;
-  }
+  return await isInstalledCoreRuntimeRunning(installedCore);
 }
 
 async function writeInstalledCore(installedCore: InstalledCore) {
   await mkdir(getCoreBasePath(), { recursive: true });
   await writeFile(getCurrentCorePath(), `${JSON.stringify(installedCore, null, 2)}\n`, 'utf8');
+}
+
+function getRawRuntimePath(value: unknown) {
+  return isObject(value) ? getString((value as { runtimePath?: unknown }).runtimePath) : '';
+}
+
+function relocateInstalledCore(installedCore: InstalledCore, sourceInstallPath: string): InstalledCore {
+  const installPath = getCoreInstallPath();
+  const runtimePath = getCoreRuntimePath();
+
+  return {
+    ...installedCore,
+    installPath,
+    jarPath: relocateChildPath(installedCore.jarPath, sourceInstallPath, installPath),
+    logPaths: getCoreLogPaths(runtimePath),
+    previewPath: relocateChildPath(installedCore.previewPath, sourceInstallPath, installPath),
+    runtimePath,
+  };
+}
+
+function relocateInstalledJava(installedJava: ManagedJava, sourceJavaBasePath: string): ManagedJava {
+  const javaBasePath = getJavaBasePath();
+
+  return {
+    ...installedJava,
+    installPath: relocateChildPath(installedJava.installPath, sourceJavaBasePath, javaBasePath),
+    javaPath: relocateChildPath(installedJava.javaPath, sourceJavaBasePath, javaBasePath),
+  };
+}
+
+async function stopLegacyInstalledCore(installedCore: InstalledCore, runtimePath: string) {
+  const stopScript = getStopScript(installedCore.previewPath);
+
+  if (!existsSync(stopScript)) {
+    throw new Error(
+      withCoreLogPaths(
+        `The legacy Core release is running but its preview stop script was not found at ${stopScript}.`,
+        getCoreLogPaths(runtimePath),
+      ),
+    );
+  }
+
+  publishProgress({
+    action: 'stopping',
+    kind: 'info',
+    message: 'Stopping the old Home-created Qortium Core before migration.',
+    percent: 5,
+  });
+
+  try {
+    await runScript(stopScript, [`--runtime-dir=${runtimePath}`], installedCore.previewPath);
+    await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
+  } catch (error) {
+    throw new Error(withCoreLogPaths(getErrorMessage(error), getCoreLogPaths(runtimePath)));
+  }
+}
+
+async function migrateLegacyJavaLayout() {
+  const installedJava = await readInstalledJavaMetadata();
+
+  if (installedJava || !existsSync(getLegacyCurrentJavaPath())) {
+    return;
+  }
+
+  const legacyJava = await readInstalledJavaMetadata(getLegacyCurrentJavaPath());
+
+  if (!legacyJava || !existsSync(getLegacyJavaBasePath())) {
+    return;
+  }
+
+  if (!existsSync(getJavaBasePath())) {
+    await movePath(getLegacyJavaBasePath(), getJavaBasePath());
+  }
+
+  const migratedJava = relocateInstalledJava(legacyJava, getLegacyJavaBasePath());
+
+  if (existsSync(migratedJava.installPath) && existsSync(migratedJava.javaPath)) {
+    await writeInstalledJava(migratedJava);
+  }
+}
+
+async function cleanupLegacyCoreBaseIfMigrated() {
+  const legacyCoreBasePath = getLegacyCoreBasePath();
+
+  if (!existsSync(legacyCoreBasePath) || !(await readInstalledCoreMetadata())) {
+    return;
+  }
+
+  const runningCore = readRunningLocalCoreApiKey();
+
+  if (runningCore && isRunningCoreWithinPath(runningCore, legacyCoreBasePath)) {
+    return;
+  }
+
+  await rm(legacyCoreBasePath, { recursive: true, force: true });
+}
+
+async function migrateLegacyCoreLayout() {
+  const installedCore = await readInstalledCoreMetadata();
+  const legacyCoreBasePath = getLegacyCoreBasePath();
+
+  if (!existsSync(legacyCoreBasePath)) {
+    return;
+  }
+
+  if (installedCore) {
+    await cleanupLegacyCoreBaseIfMigrated();
+    return;
+  }
+
+  let parsedLegacyCore: unknown;
+
+  try {
+    parsedLegacyCore = JSON.parse(await readFile(getLegacyCurrentCorePath(), 'utf8'));
+  } catch {
+    return;
+  }
+
+  const legacyCore = parseInstalledCore(parsedLegacyCore, getCoreRuntimePath());
+
+  if (!legacyCore) {
+    return;
+  }
+
+  const legacyRuntimePath = getRawRuntimePath(parsedLegacyCore) || legacyCore.previewPath;
+  const runningCore = readRunningLocalCoreApiKey();
+  const legacyRuntimePid = await readRuntimePid(legacyRuntimePath);
+
+  if (
+    (runningCore && isRunningCoreWithinPath(runningCore, legacyCoreBasePath)) ||
+    (legacyRuntimePid !== null && isPidRunning(legacyRuntimePid))
+  ) {
+    await stopLegacyInstalledCore(legacyCore, legacyRuntimePath);
+  }
+
+  const sourceInstallPath = legacyCore.installPath;
+  const migratedCore = relocateInstalledCore(legacyCore, sourceInstallPath);
+
+  await movePathReplacingDestination(sourceInstallPath, migratedCore.installPath);
+  await chmodPreviewScripts(migratedCore.previewPath);
+  await moveRuntimeEntries(getCoreBasePath(), migratedCore.runtimePath);
+  await moveRuntimeEntries(legacyRuntimePath, migratedCore.runtimePath);
+  await moveRuntimeEntries(migratedCore.previewPath, migratedCore.runtimePath);
+  await writeInstalledCore(migratedCore);
+
+  if (await readInstalledCoreMetadata()) {
+    await cleanupLegacyCoreBaseIfMigrated();
+  }
+}
+
+async function migrateRootRuntimeEntriesIfSafe() {
+  const runningCore = readRunningLocalCoreApiKey();
+
+  if (
+    runningCore &&
+    isPathWithinPath(runningCore.apiKeyDirectory, getCoreBasePath()) &&
+    !isPathWithinPath(runningCore.apiKeyDirectory, getCoreRuntimePath())
+  ) {
+    return;
+  }
+
+  await moveRuntimeEntries(getCoreBasePath(), getCoreRuntimePath());
+}
+
+let coreLayoutMigrationPromise: Promise<void> | null = null;
+
+async function migrateCoreLayout() {
+  await mkdir(getCoreBasePath(), { recursive: true });
+  await migrateLegacyJavaLayout();
+  await migrateLegacyCoreLayout();
+  await migrateRootRuntimeEntriesIfSafe();
+}
+
+async function ensureCoreLayout() {
+  if (!coreLayoutMigrationPromise) {
+    coreLayoutMigrationPromise = migrateCoreLayout().catch((error) => {
+      coreLayoutMigrationPromise = null;
+      throw error;
+    });
+  }
+
+  await coreLayoutMigrationPromise;
 }
 
 function getJavaPlatform(): JavaPlatform | null {
@@ -562,9 +870,9 @@ function parseInstalledJava(value: unknown): ManagedJava | null {
   };
 }
 
-async function readInstalledJava(): Promise<ManagedJava | null> {
+async function readInstalledJavaMetadata(currentJavaPath = getCurrentJavaPath()): Promise<ManagedJava | null> {
   try {
-    const parsedJava: unknown = JSON.parse(await readFile(getCurrentJavaPath(), 'utf8'));
+    const parsedJava: unknown = JSON.parse(await readFile(currentJavaPath, 'utf8'));
     const installedJava = parseInstalledJava(parsedJava);
 
     if (installedJava && existsSync(installedJava.installPath) && existsSync(installedJava.javaPath)) {
@@ -575,6 +883,12 @@ async function readInstalledJava(): Promise<ManagedJava | null> {
   }
 
   return null;
+}
+
+async function readInstalledJava(): Promise<ManagedJava | null> {
+  await ensureCoreLayout();
+
+  return await readInstalledJavaMetadata();
 }
 
 async function writeInstalledJava(installedJava: ManagedJava) {
@@ -683,6 +997,7 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
     if (!response.ok) {
       return {
         localApiUrl: LOCAL_CORE_API_URL,
+        owner: 'unknown',
         running: false,
         status: text,
       };
@@ -690,12 +1005,14 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
 
     return {
       localApiUrl: LOCAL_CORE_API_URL,
+      owner: 'unknown',
       running: true,
       status: text ? (JSON.parse(text) as unknown) : null,
     };
   } catch {
     return {
       localApiUrl: LOCAL_CORE_API_URL,
+      owner: 'unknown',
       running: false,
       status: null,
     };
@@ -704,18 +1021,81 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
   }
 }
 
+async function readRuntimePid(runtimePath: string) {
+  try {
+    const pid = Number((await readFile(getRunPidPath(runtimePath), 'utf8')).trim());
+
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readInstalledCoreRuntimePid(installedCore: InstalledCore) {
+  return await readRuntimePid(installedCore.runtimePath);
+}
+
+async function isInstalledCoreRuntimeRunning(installedCore: InstalledCore) {
+  const pid = await readInstalledCoreRuntimePid(installedCore);
+
+  return pid !== null && isPidRunning(pid);
+}
+
+async function resolveRuntimeStatusOwner(
+  runtime: CoreRuntimeStatus,
+  installedCore: InstalledCore | null,
+): Promise<CoreRuntimeStatus> {
+  if (!runtime.running) {
+    return runtime;
+  }
+
+  const runningCore = readRunningLocalCoreApiKey();
+
+  if (runningCore) {
+    const owner: CoreRuntimeOwner =
+      installedCore &&
+      (isPathWithinPath(runningCore.apiKeyDirectory, installedCore.runtimePath) ||
+        isPathWithinPath(runningCore.jarPath, installedCore.installPath))
+        ? 'home'
+        : 'external';
+
+    return {
+      ...runtime,
+      apiKeyPath: runningCore.path,
+      jarPath: runningCore.jarPath,
+      owner,
+      pid: runningCore.pid,
+      runtimePath: runningCore.apiKeyDirectory,
+      settingsPath: runningCore.settingsPath,
+    };
+  }
+
+  if (installedCore && (await isInstalledCoreRuntimeRunning(installedCore))) {
+    return {
+      ...runtime,
+      owner: 'home',
+      runtimePath: installedCore.runtimePath,
+    };
+  }
+
+  return runtime;
+}
+
 async function getStatus(): Promise<CoreStatus> {
+  await ensureCoreLayout();
+
   const [installed, java, runtime] = await Promise.all([
-    readInstalledCore(),
+    readInstalledCoreMetadata(),
     getJavaStatus(),
     fetchLocalCoreStatus(),
   ]);
+  const resolvedRuntime = await resolveRuntimeStatusOwner(runtime, installed);
 
   return {
     supported: process.platform === 'linux' || process.platform === 'darwin' || process.platform === 'win32',
     installed,
     java,
-    runtime,
+    runtime: resolvedRuntime,
   };
 }
 
@@ -866,6 +1246,8 @@ async function extractJavaArchive(
 }
 
 async function installJava() {
+  await ensureCoreLayout();
+
   const javaPlatform = getJavaPlatform();
 
   if (!javaPlatform) {
@@ -968,6 +1350,8 @@ function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
 }
 
 async function installCore(request: CoreInstallRequest) {
+  await ensureCoreLayout();
+
   const channel = normalizeInstallRequest(request);
   const releases = await checkReleases();
   const release = releases[channel];
@@ -976,49 +1360,71 @@ async function installCore(request: CoreInstallRequest) {
     throw new Error(release.message);
   }
 
-  const versionPath = path.join(getCoreVersionsPath(), sanitizePathSegment(release.tagName));
+  const existingCore = await readInstalledCoreMetadata();
+
+  if (existingCore?.tagName === release.tagName) {
+    return await getStatus();
+  }
+
+  const stagingPath = path.join(
+    getCoreBasePath(),
+    sanitizePathSegment(`_install-staging-${Date.now()}-${release.tagName}`),
+  );
   const downloadPath = path.join(
     getCoreDownloadsPath(),
     `${sanitizePathSegment(release.tagName)}-${sanitizePathSegment(release.asset.name)}`,
   );
 
   await mkdir(getCoreDownloadsPath(), { recursive: true });
-  await rm(versionPath, { recursive: true, force: true });
-  await mkdir(versionPath, { recursive: true });
+  await rm(stagingPath, { recursive: true, force: true });
+  await mkdir(stagingPath, { recursive: true });
 
-  await downloadFile(release.asset, downloadPath);
+  try {
+    await downloadFile(release.asset, downloadPath);
 
-  publishProgress({
-    action: 'extracting',
-    kind: 'info',
-    message: `Extracting ${release.asset.name}.`,
-    percent: 0,
-  });
-  await extract(downloadPath, { dir: versionPath });
-  await rm(downloadPath, { force: true });
+    publishProgress({
+      action: 'extracting',
+      kind: 'info',
+      message: `Extracting ${release.asset.name}.`,
+      percent: 0,
+    });
+    await extract(downloadPath, { dir: stagingPath });
 
-  const corePaths = await findExtractedCorePaths(versionPath);
+    const extractedCorePaths = await findExtractedCorePaths(stagingPath);
 
-  await chmodPreviewScripts(corePaths.previewPath);
+    await movePathReplacingDestination(extractedCorePaths.installPath, getCoreInstallPath());
 
-  const installedCore: InstalledCore = {
-    assetName: release.asset.name,
-    assetSize: release.asset.size,
-    channel: release.channel,
-    digest: release.asset.digest,
-    downloadUrl: release.asset.downloadUrl,
-    htmlUrl: release.htmlUrl,
-    installPath: corePaths.installPath,
-    installedAt: new Date().toISOString(),
-    jarPath: corePaths.jarPath,
-    logPaths: getCoreLogPaths(getCoreRuntimePath()),
-    name: release.name,
-    previewPath: corePaths.previewPath,
-    runtimePath: getCoreRuntimePath(),
-    tagName: release.tagName,
-  };
+    const installPath = getCoreInstallPath();
+    const previewPath = path.join(installPath, path.relative(extractedCorePaths.installPath, extractedCorePaths.previewPath));
+    const jarPath = path.join(installPath, path.relative(extractedCorePaths.installPath, extractedCorePaths.jarPath));
 
-  await writeInstalledCore(installedCore);
+    await chmodPreviewScripts(previewPath);
+
+    const installedCore: InstalledCore = {
+      assetName: release.asset.name,
+      assetSize: release.asset.size,
+      channel: release.channel,
+      digest: release.asset.digest,
+      downloadUrl: release.asset.downloadUrl,
+      htmlUrl: release.htmlUrl,
+      installPath,
+      installedAt: new Date().toISOString(),
+      jarPath,
+      logPaths: getCoreLogPaths(getCoreRuntimePath()),
+      name: release.name,
+      previewPath,
+      runtimePath: getCoreRuntimePath(),
+      tagName: release.tagName,
+    };
+
+    await writeInstalledCore(installedCore);
+  } catch (error) {
+    await rm(stagingPath, { recursive: true, force: true });
+    throw error;
+  } finally {
+    await rm(downloadPath, { force: true });
+    await rm(stagingPath, { recursive: true, force: true });
+  }
 
   publishProgress({
     action: 'idle',
@@ -1120,7 +1526,7 @@ async function startCore() {
     throw new Error('Java 17 or newer is required before Qortium Core can start.');
   }
 
-  const currentRuntime = await fetchLocalCoreStatus();
+  const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 
   if (currentRuntime.running) {
     return await getStatus();
@@ -1144,6 +1550,7 @@ async function startCore() {
     percent: 5,
   });
   try {
+    ensurePreviewApiKey(installedCore.runtimePath);
     await runScript(
       startScript,
       ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
@@ -1169,13 +1576,17 @@ async function stopCore() {
   const installedCore = await readInstalledCore();
 
   if (!installedCore) {
-    throw new Error('No managed Qortium Core install was found.');
+    throw new Error('No Qortium Core install was found.');
   }
 
-  const currentRuntime = await fetchLocalCoreStatus();
+  const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 
   if (!currentRuntime.running) {
     return await getStatus();
+  }
+
+  if (currentRuntime.owner === 'external') {
+    throw new Error('The local Qortium Core was started outside Home. Stop it from the launcher or terminal that started it.');
   }
 
   const stopScript = getStopScript(installedCore.previewPath);

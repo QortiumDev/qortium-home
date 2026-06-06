@@ -47,7 +47,7 @@ function getApiKeyHint(mode: QortiumNodeSettingsMode) {
     return 'Used for protected admin calls on this custom node.';
   }
 
-  return 'Home detects this from managed Core when available.';
+  return 'Home detects this from the active local Core when available.';
 }
 
 export function NodeSettingsPanel({

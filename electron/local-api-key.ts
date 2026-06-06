@@ -19,8 +19,12 @@ type PreviewApiKeyResult = {
   path: string;
 };
 
-type RunningCoreApiKeyResult = PreviewApiKeyResult & {
+export type RunningCoreApiKeyResult = PreviewApiKeyResult & {
+  apiKeyDirectory: string;
+  cwd: string;
+  jarPath: string;
   pid: number;
+  settingsPath: string;
 };
 
 function encodeBase58(bytes: Uint8Array) {
@@ -103,7 +107,7 @@ export function readPreviewApiKey(previewPath: string): PreviewApiKeyResult | nu
   }
 }
 
-function getQortiumCoreProcessSettingsPath(args: string[]) {
+function getQortiumCoreProcessPaths(args: string[], cwd: string) {
   const jarIndex = args.findIndex((arg) => arg === '-jar');
   const jarPath = jarIndex >= 0 ? args[jarIndex + 1] ?? '' : '';
   const settingsPath = jarIndex >= 0 ? args[jarIndex + 2] ?? '' : '';
@@ -113,15 +117,19 @@ function getQortiumCoreProcessSettingsPath(args: string[]) {
     return null;
   }
 
-  return settingsPath || null;
+  if (!settingsPath) {
+    return null;
+  }
+
+  return {
+    jarPath: path.isAbsolute(jarPath) ? jarPath : path.resolve(cwd, jarPath),
+    settingsPath: path.isAbsolute(settingsPath) ? settingsPath : path.resolve(cwd, settingsPath),
+  };
 }
 
 function getConfiguredApiKeyDirectory(settingsPath: string, cwd: string) {
   try {
-    const resolvedSettingsPath = path.isAbsolute(settingsPath)
-      ? settingsPath
-      : path.resolve(cwd, settingsPath);
-    const parsedSettings: unknown = JSON.parse(readFileSync(resolvedSettingsPath, 'utf8'));
+    const parsedSettings: unknown = JSON.parse(readFileSync(settingsPath, 'utf8'));
 
     if (parsedSettings && typeof parsedSettings === 'object') {
       const apiKeyPath = (parsedSettings as { apiKeyPath?: unknown }).apiKeyPath;
@@ -156,20 +164,24 @@ export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
       const args = readFileSync(path.join(procPath, 'cmdline'), 'utf8')
         .split('\0')
         .filter(Boolean);
-      const settingsPath = getQortiumCoreProcessSettingsPath(args);
+      const cwd = readlinkSync(path.join(procPath, 'cwd'));
+      const coreProcessPaths = getQortiumCoreProcessPaths(args, cwd);
 
-      if (!settingsPath) {
+      if (!coreProcessPaths) {
         continue;
       }
 
-      const cwd = readlinkSync(path.join(procPath, 'cwd'));
-      const apiKeyDirectory = getConfiguredApiKeyDirectory(settingsPath, cwd);
+      const apiKeyDirectory = getConfiguredApiKeyDirectory(coreProcessPaths.settingsPath, cwd);
       const apiKey = readPreviewApiKey(apiKeyDirectory);
 
       if (apiKey) {
         apiKeys.set(apiKey.path, {
           ...apiKey,
+          apiKeyDirectory,
+          cwd,
+          jarPath: coreProcessPaths.jarPath,
           pid,
+          settingsPath: coreProcessPaths.settingsPath,
         });
       }
     } catch {

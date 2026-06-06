@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: consolidate core install folders
+
+Changed desktop Core management so Home keeps one Home-created Core install under the stable `qortium-core` app-data folder instead of creating version-specific installs under `qortium-home`. Home now migrates the old `qortium-home/managed-core` install into `qortium-core/install`, moves mutable Core data into `qortium-core/runtime`, keeps API-key and database files across Core updates, detects already-running external local Core processes before managing files, and deletes old duplicate Home-created Core folders only after the new metadata validates.
+
 ### 2026-06-06 - app: fix address suggestions and QDN archive fallback
 
 Changed the Home address bar so keyboard navigation moves focus onto autocomplete suggestion rows, making the selected suggestion visible and usable with arrow keys. QDN resource URLs no longer add a trailing slash when no file path is present, and archive-backed APP/WEBSITE resources now fall back to the ready/download view instead of reporting a missing iframe file when Core cannot render the archive directly.
