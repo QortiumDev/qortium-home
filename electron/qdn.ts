@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { assertAccountUnlocked, getAccountProfile, getAccountSigningKey } from './accounts.js';
 import { getNodeConnection } from './node-settings.js';
+import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
 
 const PREVIEW_API_KEY_PATH = path.join(os.homedir(), 'git', 'qortium', 'preview', 'apikey.txt');
@@ -18,6 +19,7 @@ const PREVIEW_ACCOUNTS_PATH = path.join(
 );
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
+const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
@@ -300,6 +302,10 @@ function getQdnViewHostWindow(context: QdnViewContext) {
   ) ?? null;
 }
 
+function getQdnViewResourceUrl(context: QdnViewContext) {
+  return context.resourceUrl ?? context.currentUrl ?? 'QDN app';
+}
+
 function getAccountReadApprovalCacheKey(context: QdnViewContext, accountId: string) {
   return [
     context.windowId,
@@ -368,7 +374,7 @@ async function requestAccountReadApproval(
       avatarUrl: profile.avatarUrl,
       id: requestId,
       name: profile.name,
-      resourceUrl: context.currentUrl ?? 'QDN app',
+      resourceUrl: getQdnViewResourceUrl(context),
     });
   });
 
@@ -429,7 +435,7 @@ async function requestQdnWriteApproval(
             service: details.resource.service,
           }
         : null,
-      resourceUrl: context.currentUrl ?? 'QDN app',
+      resourceUrl: getQdnViewResourceUrl(context),
       sourceKind: details.source?.kind ?? null,
       sourceName: details.source?.displayName ?? null,
     });
@@ -2633,6 +2639,19 @@ export function registerQdnIpcHandlers() {
       contentType,
       tooLarge: false,
     };
+  });
+
+  ipcMain.handle('qdn:prepareArchiveRender', async (_event, request: QdnRawResourceRequest) => {
+    const resource = getRawResourceRequest(request);
+
+    if (!ARCHIVE_RENDER_SERVICES.has(resource.service)) {
+      throw new Error('Only QDN APP and WEBSITE archives can be rendered inline.');
+    }
+
+    const response = await fetchConfiguredRawResource(resource);
+    const archiveBuffer = Buffer.from(await response.arrayBuffer());
+
+    return prepareQdnArchiveRender(resource, archiveBuffer);
   });
 
   ipcMain.handle('qdn:downloadResource', async (event, request: QdnRawResourceRequest) => {

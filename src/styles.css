@@ -883,11 +883,22 @@ h1 {
   cursor: pointer;
 }
 
-.top-bar__address-suggestion:hover,
-.top-bar__address-suggestion:focus-visible,
-.top-bar__address-suggestion--active {
+.top-bar__address-suggestion:hover {
   background: #202727;
   border-color: #536363;
+}
+
+.top-bar__address-suggestion:focus,
+.top-bar__address-suggestion[aria-selected="true"],
+.top-bar__address-suggestion--active {
+  color: #f4f0e8;
+  background: #263232;
+  border-color: #87d99b;
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(135 217 155 / 20%);
+}
+
+.top-bar__address-suggestion:focus-visible {
   outline: none;
 }
 

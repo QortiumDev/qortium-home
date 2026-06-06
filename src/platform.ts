@@ -4258,6 +4258,9 @@ function createFallbackApi(): PlatformApi {
           tooLarge: false,
         };
       },
+      async prepareArchiveRender() {
+        throw new Error('Inline archive app rendering is only available in the desktop app right now.');
+      },
       async downloadResource(request) {
         if (!isAndroid()) {
           throw new Error('Saving QDN downloads is only available in the desktop app and Android app.');
