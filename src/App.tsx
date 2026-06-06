@@ -806,6 +806,14 @@ export function App() {
     navigateToRoute(SETTINGS_ROUTE);
   }
 
+  function browseQdn() {
+    const parsedUrl = parseAppAddress('qdn://');
+
+    if (parsedUrl.success) {
+      navigateToRoute(parsedUrl.route);
+    }
+  }
+
   function addClosedTabToHistory(currentClosedTabs: ClosedBrowserTab[], tab: BrowserTab) {
     return addClosedTabsToHistory(currentClosedTabs, [tab]);
   }
@@ -1479,6 +1487,7 @@ export function App() {
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
+        onAccountsStateChange={handleAccountsStateChange}
         onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
         onSelectTab={selectTab}
         nodeSettings={nodeSettings}
@@ -1521,6 +1530,7 @@ export function App() {
             coreManager={coreManager}
             isLoadingAccounts={isLoadingAccounts}
             onChainCoreUpdate={onChainCoreUpdate}
+            onBrowseQdn={browseQdn}
             selectedAccountId={activeTab.accountId}
             onAccountsStateChange={handleAccountsStateChange}
             onSelectedAccountChange={updateActiveTabAccount}

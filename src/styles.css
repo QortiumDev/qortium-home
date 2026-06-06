@@ -203,6 +203,12 @@ h1 {
   min-width: 0;
 }
 
+.dashboard-page__primary-action {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
 .dashboard-page__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1064,11 +1070,24 @@ h1 {
   min-width: 40px;
   height: 40px;
   place-items: center;
+  padding: 0;
   overflow: hidden;
   color: #f4f0e8;
   background: #202727;
   border: 1px solid #344141;
   border-radius: 999px;
+  cursor: pointer;
+}
+
+.account-chip:hover,
+.account-chip:focus-visible {
+  background: #283131;
+  border-color: #536363;
+  outline: none;
+}
+
+.account-chip--unlocked {
+  border-color: #87d99b;
 }
 
 .account-chip__avatar {
@@ -1087,6 +1106,88 @@ h1 {
   font-weight: 700;
   line-height: 1;
   background: #87d99b;
+}
+
+.account-menu {
+  position: relative;
+  z-index: 10;
+}
+
+.account-menu__popover {
+  width: min(360px, calc(100vw - 40px));
+}
+
+.account-menu__content {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.account-menu__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.account-menu__identity {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-menu__identity strong,
+.account-menu__identity span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu__identity strong {
+  font-weight: 650;
+}
+
+.account-menu__identity span,
+.account-menu__message {
+  color: #a9b6b6;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.account-menu__address {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #a9b6b6;
+  font-family:
+    "Illinois Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.account-menu__message {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-menu__message--error {
+  color: #ef8b84;
+}
+
+.account-menu__unlock {
+  display: grid;
+  gap: 12px;
+}
+
+.account-menu__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 }
 
 .top-bar__error {

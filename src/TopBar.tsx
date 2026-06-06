@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Plus, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Lock, Plus, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NodeStatusButton } from './NodeStatusButton';
@@ -26,6 +26,7 @@ type TopBarProps = {
   onGoForward: () => void;
   onGoToHistoryIndex: (index: number) => void;
   onMoveTabToNewWindow?: (tabId: string) => void;
+  onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onNavigate: (route: AppRoute) => void;
   onOpenSettings: () => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
@@ -146,15 +147,29 @@ function getAccountTooltip(account: QortiumAccountSummary, profile: QortiumAccou
   ].filter(Boolean).join('\n');
 }
 
+function formatAccountActionError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return 'Account action failed.';
+  }
+
+  return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
+}
+
 function AccountChip({
   account,
   nodeApiUrl,
+  onAccountsStateChange,
 }: {
   account: QortiumAccountSummary | null;
   nodeApiUrl: string;
+  onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
 }) {
   const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
   const [hasAvatarError, setHasAvatarError] = useState(false);
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const [password, setPassword] = useState('');
+  const [accountError, setAccountError] = useState('');
 
   useEffect(() => {
     let isDisposed = false;
@@ -185,35 +200,163 @@ function AccountChip({
     };
   }, [account, nodeApiUrl]);
 
-  if (!account) {
-    return null;
+  useEffect(() => {
+    setIsUnlocking(false);
+    setIsBusy(false);
+    setPassword('');
+    setAccountError('');
+  }, [account?.id]);
+
+  async function handleLockToggle() {
+    if (!account || isBusy) {
+      return;
+    }
+
+    setAccountError('');
+
+    if (!account.isUnlocked) {
+      setPassword('');
+      setIsUnlocking(true);
+      return;
+    }
+
+    setIsBusy(true);
+
+    try {
+      onAccountsStateChange(await window.qortiumHome.accounts.lockWallet(account.id));
+    } catch (error) {
+      setAccountError(formatAccountActionError(error));
+    } finally {
+      setIsBusy(false);
+    }
   }
 
-  const displayName = profile?.name ?? account.label;
+  async function handleUnlockSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!account || isBusy) {
+      return;
+    }
+
+    if (!password) {
+      setAccountError('Enter the wallet password.');
+      return;
+    }
+
+    setAccountError('');
+    setIsBusy(true);
+
+    try {
+      onAccountsStateChange(await window.qortiumHome.accounts.unlockWallet(account.id, password));
+      setIsUnlocking(false);
+      setPassword('');
+    } catch (error) {
+      setAccountError(formatAccountActionError(error));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  const displayName = profile?.name ?? account?.label ?? 'No account';
+  const statusLabel = account?.isUnlocked ? 'Unlocked' : account ? 'Locked' : 'No account selected';
   const avatarUrl = profile?.avatarUrl;
   const showAvatar = !!avatarUrl && !hasAvatarError;
 
   return (
-    <div
-      className="account-chip"
-      title={getAccountTooltip(account, profile)}
-      aria-label="Selected tab account"
-    >
-      {showAvatar ? (
-        <img
-          className="account-chip__avatar"
-          src={avatarUrl}
-          alt=""
-          aria-hidden="true"
-          onError={() => setHasAvatarError(true)}
-        />
-      ) : (
-        <span className="account-chip__fallback" aria-hidden="true">
-          {getDisplayInitial(displayName)}
-        </span>
+    <Popover
+      className="account-menu"
+      contentClassName="account-menu__popover"
+      contentId="top-bar-account-menu"
+      contentLabel="Account"
+      renderTrigger={({ contentId, isOpen, toggle }) => (
+        <button
+          className={`account-chip${account?.isUnlocked ? ' account-chip--unlocked' : ''}`}
+          title={account ? getAccountTooltip(account, profile) : 'No account selected'}
+          type="button"
+          aria-controls={isOpen ? contentId : undefined}
+          aria-expanded={isOpen}
+          aria-haspopup="dialog"
+          aria-label="Account"
+          onClick={toggle}
+        >
+          {showAvatar ? (
+            <img
+              className="account-chip__avatar"
+              src={avatarUrl}
+              alt=""
+              aria-hidden="true"
+              onError={() => setHasAvatarError(true)}
+            />
+          ) : (
+            <span className="account-chip__fallback" aria-hidden="true">
+              {getDisplayInitial(displayName)}
+            </span>
+          )}
+          <span className="sr-only">{displayName}</span>
+        </button>
       )}
-      <span className="sr-only">{displayName}</span>
-    </div>
+    >
+      <div className="account-menu__content">
+        <div className="account-menu__header">
+          <div className="account-menu__identity">
+            <strong>{displayName}</strong>
+            <span>{statusLabel}</span>
+          </div>
+        </div>
+
+        {account ? (
+          <p className="account-menu__address">{account.address}</p>
+        ) : (
+          <p className="account-menu__message">Select a wallet on the Dashboard to use account actions.</p>
+        )}
+
+        {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
+
+        {account && isUnlocking ? (
+          <form className="account-menu__unlock" onSubmit={handleUnlockSubmit}>
+            <label className="field">
+              <span className="field__label">Password</span>
+              <input
+                autoFocus
+                className="field__input"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+            <div className="account-menu__actions">
+              <button
+                className="button button--secondary"
+                disabled={isBusy}
+                type="button"
+                onClick={() => {
+                  setIsUnlocking(false);
+                  setPassword('');
+                  setAccountError('');
+                }}
+              >
+                Cancel
+              </button>
+              <button className="button" disabled={isBusy} type="submit">
+                <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+                {isBusy ? 'Unlocking' : 'Unlock'}
+              </button>
+            </div>
+          </form>
+        ) : account ? (
+          <div className="account-menu__actions">
+            <button className="button" disabled={isBusy} type="button" onClick={handleLockToggle}>
+              {account.isUnlocked ? (
+                <Lock aria-hidden="true" size={18} strokeWidth={2} />
+              ) : (
+                <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+              )}
+              {isBusy ? 'Updating' : account.isUnlocked ? 'Lock' : 'Unlock'}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </Popover>
   );
 }
 
@@ -763,6 +906,7 @@ export function TopBar({
   onGoForward,
   onGoToHistoryIndex,
   onMoveTabToNewWindow,
+  onAccountsStateChange,
   onNavigate,
   onOpenSettings,
   onReorderTab,
@@ -1021,7 +1165,11 @@ export function TopBar({
         ) : null}
         {addressError ? <p className="top-bar__error">{addressError}</p> : null}
       </form>
-      <AccountChip account={activeAccount} nodeApiUrl={nodeSettings.nodeApiUrl} />
+      <AccountChip
+        account={activeAccount}
+        nodeApiUrl={nodeSettings.nodeApiUrl}
+        onAccountsStateChange={onAccountsStateChange}
+      />
       <NodeStatusButton
         nodeSettings={nodeSettings}
         onOpenSettings={onOpenSettings}
