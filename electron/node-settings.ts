@@ -1,9 +1,8 @@
 import { app, ipcMain } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { getManagedCorePreviewPath, isManagedCoreRuntimeRunning } from './core-manager.js';
+import { getManagedCoreRuntimePath, isManagedCoreRuntimeRunning } from './core-manager.js';
 import {
-  ensurePreviewApiKey,
   readPreviewApiKey,
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
@@ -52,10 +51,6 @@ type DiscoveryCache = {
 type NodeConnection = {
   mode: NodeSettingsMode;
   nodeApiUrl: string;
-};
-
-type LocalApiKeyResolutionOptions = {
-  createIfMissing: boolean;
 };
 
 let discoveryCache: DiscoveryCache | null = null;
@@ -191,16 +186,13 @@ function writeNodeSettings(settings: NodeSettings) {
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 }
 
-async function resolveLocalApiKey(
-  settings: NodeSettings,
-  options: LocalApiKeyResolutionOptions,
-): Promise<NodeSettings> {
+async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings> {
   if (settings.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
     return settings;
   }
 
-  const previewPath = await getManagedCorePreviewPath();
-  const managedCoreApiKey = previewPath ? readPreviewApiKey(previewPath) : null;
+  const runtimePath = await getManagedCoreRuntimePath();
+  const managedCoreApiKey = runtimePath ? readPreviewApiKey(runtimePath) : null;
   const runningCoreApiKey = readRunningLocalCoreApiKey();
   const managedRuntimeRunning = await isManagedCoreRuntimeRunning();
 
@@ -209,6 +201,17 @@ async function resolveLocalApiKey(
       const resolvedSettings = {
         ...settings,
         apiKey: runningCoreApiKey.apiKey,
+      };
+
+      writeNodeSettings(resolvedSettings);
+
+      return resolvedSettings;
+    }
+
+    if (managedRuntimeRunning && managedCoreApiKey && managedCoreApiKey.apiKey !== settings.apiKey) {
+      const resolvedSettings = {
+        ...settings,
+        apiKey: managedCoreApiKey.apiKey,
       };
 
       writeNodeSettings(resolvedSettings);
@@ -245,19 +248,13 @@ async function resolveLocalApiKey(
     return resolvedSettings;
   }
 
-  if (!previewPath || !managedRuntimeRunning) {
-    return settings;
-  }
-
-  const apiKeyResult = options.createIfMissing ? ensurePreviewApiKey(previewPath) : managedCoreApiKey;
-
-  if (!apiKeyResult?.apiKey) {
+  if (!runtimePath || !managedRuntimeRunning || !managedCoreApiKey?.apiKey) {
     return settings;
   }
 
   const resolvedSettings = {
     ...settings,
-    apiKey: apiKeyResult.apiKey,
+    apiKey: managedCoreApiKey.apiKey,
   };
 
   writeNodeSettings(resolvedSettings);
@@ -537,7 +534,7 @@ async function resolveNodeApiUrl(settings: NodeSettings, forceDiscoveryRefresh =
 }
 
 async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
-  settings = await resolveLocalApiKey(settings, { createIfMissing: true });
+  settings = await resolveLocalApiKey(settings);
 
   let nodeApiUrl = getFallbackNodeApiUrl(settings);
 
@@ -586,7 +583,7 @@ async function requestProtectedNodeJson(
     throw new Error(getNetworkRestrictionMessage());
   }
 
-  const resolvedSettings = await resolveLocalApiKey(settings, { createIfMissing: true });
+  const resolvedSettings = await resolveLocalApiKey(settings);
   const nodeApiUrl = await resolveNodeApiUrl(resolvedSettings);
   const apiKey = getProtectedNodeApiKey(resolvedSettings);
   let response: Response;

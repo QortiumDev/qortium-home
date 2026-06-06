@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: keep managed core runtime persistent
+
+Changed desktop managed Core so Home keeps the installed release files and Core runtime data in separate folders. Home now stores its own data under the `qortium-home` app-data folder, launches managed Core with a stable `qortium-core` runtime directory, reads Core logs and `apikey.txt` from that runtime directory, and disables repeat Core install actions when the installed release is already current. This keeps Core database, QDN data, PID, logs, and API-key state from being recreated every time Home installs or updates a Core release.
+
 ### 2026-06-04 - app: avoid duplicate on-chain core update installs
 
 Changed the dashboard's approved on-chain Core update handling so Home keeps polling Core while a QDN download, retry, or install is active, and stops showing another manual install button during that active attempt. This makes the UI follow Core's `/admin/update` retry state instead of encouraging repeated install clicks while the same approved update data is still being downloaded.

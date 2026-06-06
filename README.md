@@ -406,11 +406,14 @@ Desktop can also manage a local Qortium Core Previewnet install from the node
 settings menu. The first managed Core flow checks `QortiumDev/qortium-core`
 GitHub releases for the current `qortium-preview.zip` prerelease asset,
 installs it under Qortium Home's app data folder, can install a managed Java 17
-runtime when needed, and runs the bundled preview start and stop scripts.
+runtime when needed, and runs the bundled preview start and stop scripts. Home
+keeps its own desktop data under `qortium-home` by default, while managed Core
+runtime files live under a stable `qortium-core` app-data folder so Core updates
+do not recreate the chain database, QDN data, logs, PID file, or API key.
 When a local or trusted custom Core node is selected with an API key available,
 the dashboard also checks Core's approved on-chain/QDN update status through
-`/admin/update`. For Home-managed local Core installs, Home reads or creates the
-managed `apikey.txt` automatically and saves it in node settings. Custom nodes
+`/admin/update`. For Home-managed local Core installs, Home reads the managed
+runtime `apikey.txt` automatically and saves it in node settings. Custom nodes
 can save their own API key in node settings. On Linux, Home can also detect the
 `apikey.txt` for an already-running local Core process so it does not send a
 managed Core key to a different local Core. If Core reports an approved update

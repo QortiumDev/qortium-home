@@ -178,6 +178,7 @@ type QortiumInstalledCore = {
   logPaths: QortiumCoreLogPaths;
   name: string;
   previewPath: string;
+  runtimePath: string;
   tagName: string;
 };
 

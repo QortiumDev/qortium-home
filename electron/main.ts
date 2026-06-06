@@ -7,7 +7,7 @@ import {
   type MenuItemConstructorOptions,
   type Rectangle,
 } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerAccountIpcHandlers } from './accounts.js';
@@ -26,10 +26,38 @@ const WINDOW_STATE_FILE = 'window-state.json';
 const WINDOW_STATE_SAVE_DELAY_MS = 250;
 const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
+const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
+
+function migrateUserDataPath(sourcePath: string, targetPath: string) {
+  const source = path.resolve(sourcePath);
+  const target = path.resolve(targetPath);
+
+  if (source === target || !existsSync(source) || existsSync(target)) {
+    return;
+  }
+
+  mkdirSync(path.dirname(target), { recursive: true });
+
+  try {
+    renameSync(source, target);
+  } catch (renameError) {
+    try {
+      cpSync(source, target, { recursive: true });
+    } catch (copyError) {
+      console.warn('Unable to migrate Qortium Home user data directory.', renameError, copyError);
+    }
+  }
+}
 
 if (USER_DATA_DIR_OVERRIDE) {
   app.setPath('userData', path.resolve(USER_DATA_DIR_OVERRIDE));
+} else {
+  const legacyUserDataPath = app.getPath('userData');
+  const homeUserDataPath = path.join(app.getPath('appData'), USER_DATA_DIR_NAME);
+
+  migrateUserDataPath(legacyUserDataPath, homeUserDataPath);
+  app.setPath('userData', homeUserDataPath);
 }
 
 type WindowState = {

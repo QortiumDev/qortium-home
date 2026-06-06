@@ -12,7 +12,8 @@ Android should continue to use existing nodes and Previewnet network discovery.
 - Install the selected release only after an explicit user action.
 - Support the current release asset shape: `qortium-preview.zip`.
 - Extract the release into a Qortium Home managed folder under Electron
-  `app.getPath('userData')`.
+  `app.getPath('userData')`, which Home sets to a `qortium-home` app-data
+  folder by default.
 - Record installed release metadata in the managed folder.
 - Detect Java 17 or newer from Qortium Home's managed Java runtime first, then
   from the user's system Java.
@@ -20,6 +21,8 @@ Android should continue to use existing nodes and Previewnet network discovery.
 - Install Java into Qortium Home app data, not system folders.
 - Start the managed Core by running the release's bundled preview start script.
 - Stop the managed Core by running the release's bundled preview stop script.
+- Keep Core database, QDN data, logs, PID, and API-key files under a stable
+  `qortium-core` runtime folder outside extracted release folders.
 - When the managed Core starts and `http://127.0.0.1:24891/admin/status` is
   reachable, switch Qortium Home's node mode to the local node.
 - Show the expected preview log paths in the UI and include them in launch
@@ -31,23 +34,38 @@ The managed Core folder should stay isolated from source checkouts and manually
 installed Qortium Core folders. The intended layout is:
 
 ```text
-Qortium Home app data/
-  managed-core/
-    downloads/
-    java/
-      current-java.json
+Electron app data root/
+  qortium-home/
+    managed-core/
+      downloads/
+      java/
+        current-java.json
+        versions/
+          temurin-17-<version>-<platform>-<arch>/
       versions/
-        temurin-17-<version>-<platform>-<arch>/
-    versions/
-      v1.0.0-preview.1/
-        qortium-preview/
-          qortium.jar
-          preview/
-    current.json
+        v1.0.0-preview.1/
+          qortium-preview/
+            qortium.jar
+            preview/
+      current.json
 ```
 
 `current.json` should identify the selected installed release, install path,
-asset name, download URL, digest when available, and install time.
+asset name, download URL, digest when available, install time, and runtime path.
+
+The managed Core runtime is a sibling app-data folder rather than a release
+subdirectory:
+
+```text
+Electron app data root/
+  qortium-core/
+    apikey.txt
+    run.pid
+    run.log
+    qortium.log
+    db-preview/
+    data-preview/
+```
 
 `java/current-java.json` should identify the selected managed Java runtime,
 including distribution, version, platform, architecture, download URL, install
@@ -58,22 +76,23 @@ path, executable path, and install time.
 The first pass should run Previewnet participant mode and let the bundled
 preview launcher auto-detect whether the local environment supports the normal
 GUI/tray path or needs Java headless mode. For the current release zip, Qortium
-Home should use:
+Home should pass the stable runtime directory to the bundled scripts:
 
-- Linux/macOS: `preview/start.sh --participant`
-- Windows: `preview/start.bat --participant`
-- Linux/macOS stop: `preview/stop.sh`
-- Windows stop: `preview/stop.bat`
+- Linux/macOS: `preview/start.sh --participant --runtime-dir=<qortium-core>`
+- Windows: `preview/start.bat --participant --runtime-dir=<qortium-core>`
+- Linux/macOS stop: `preview/stop.sh --runtime-dir=<qortium-core>`
+- Windows stop: `preview/stop.bat --runtime-dir=<qortium-core>`
 
 The UI should report Java availability and source, installed Core status,
-running status, current local API URL, preview log paths, and
+running status, current local API URL, runtime path, preview log paths, and
 install/start/stop progress.
 
-The current preview launcher writes:
+The managed runtime folder owns:
 
-- Core app log: `preview/qortium.log`
-- Launcher/stdout log: `preview/run.log`
-- Windows stderr log: `preview/run-error.log`
+- Core app log: `qortium-core/qortium.log`
+- Launcher/stdout log: `qortium-core/run.log`
+- Windows stderr log: `qortium-core/run-error.log`
+- API key: `qortium-core/apikey.txt`
 
 Qortium Home should use Eclipse Temurin / Adoptium Java 17 GA JRE archives for
 the managed runtime. Linux and macOS archives are `.tar.gz`; Windows archives
