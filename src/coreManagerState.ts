@@ -136,6 +136,13 @@ export function getCoreReleaseActionLabel({
 }
 
 function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCoreReleases | null) {
+  const installedVersion = status?.installed?.tagName ?? '';
+  const installedChannel = status?.installed?.channel;
+  const release = installedChannel
+    ? releases?.[installedChannel]
+    : releases?.prerelease.available
+      ? releases.prerelease
+      : releases?.stable;
   const rows = [
     {
       label: SETTINGS_TEXT.labels.version,
@@ -146,40 +153,12 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
     { label: SETTINGS_TEXT.labels.localApi, value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
   ];
 
-  if (status?.installed?.logPaths) {
-    rows.push(
-      {
-        label: SETTINGS_TEXT.labels.runtimeDirectory,
-        path: status.installed.runtimePath,
-        value: status.installed.runtimePath,
-      },
-      {
-        label: SETTINGS_TEXT.labels.coreLog,
-        path: status.installed.logPaths.appLogPath,
-        value: status.installed.logPaths.appLogPath,
-      },
-      {
-        label: SETTINGS_TEXT.labels.runLog,
-        path: status.installed.logPaths.launcherLogPath,
-        value: status.installed.logPaths.launcherLogPath,
-      },
-    );
-
-    if (status.installed.logPaths.windowsErrorLogPath) {
-      rows.push({
-        label: SETTINGS_TEXT.labels.errorLog,
-        path: status.installed.logPaths.windowsErrorLogPath,
-        value: status.installed.logPaths.windowsErrorLogPath,
-      });
-    }
-  }
-
-  if (releases?.stable.available) {
-    rows.push({ label: SETTINGS_TEXT.channels.stable, value: getReleaseLabel(releases.stable) });
-  }
-
-  if (releases?.prerelease.available) {
-    rows.push({ label: SETTINGS_TEXT.channels.prerelease, value: getReleaseLabel(releases.prerelease) });
+  if (
+    release?.available &&
+    installedVersion &&
+    isCoreReleaseUpdateAvailable(release, status?.installed)
+  ) {
+    rows.push({ label: SETTINGS_TEXT.labels.latest, value: getReleaseLabel(release) });
   }
 
   return rows;
@@ -413,3 +392,5 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
     stopCore,
   };
 }
+
+export type CoreManagerState = ReturnType<typeof useCoreManager>;

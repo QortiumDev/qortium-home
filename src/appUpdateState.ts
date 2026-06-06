@@ -96,7 +96,7 @@ function getUpdateDetailRows({
     rows.push({ label: 'Latest', value: result.release.tagName });
   }
 
-  if (result?.asset) {
+  if (result?.status === 'available' && result.asset) {
     rows.push(
       { label: 'Asset', value: result.asset.name },
       { label: 'Size', value: formatBytes(result.asset.size) },
@@ -369,3 +369,5 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     updateAvailable,
   };
 }
+
+export type AppUpdatesState = ReturnType<typeof useAppUpdates>;

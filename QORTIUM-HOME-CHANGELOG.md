@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: reduce settings redundancy and preserve page state
+
+Changed Dashboard and Settings so Core and Home update checks share one app-level
+state instead of restarting when tabs are switched. Settings now preserves
+section expansion, removes duplicate node/Core/Home fields, links Core and Home
+versions consistently, hides matching latest releases and current-build asset
+details, and keeps the browser tab bar and address bar fixed while the page
+content scrolls internally.
+
 ### 2026-06-06 - app: clean up settings update workflows
 
 Changed Settings into expandable sections with Node Settings open by default

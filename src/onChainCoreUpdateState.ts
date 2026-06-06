@@ -98,10 +98,15 @@ export function getOnChainCoreUpdateSummary(updateState: OnChainCoreUpdateState)
   return 'Approved Core update available.';
 }
 
-export function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
+export function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings | null) {
   const [status, setStatus] = useState<OnChainCoreUpdateState>({ state: 'loading' });
 
   const refreshStatus = useCallback(async (options: { quiet?: boolean } = {}) => {
+    if (!nodeSettings) {
+      setStatus({ state: 'loading' });
+      return;
+    }
+
     const unavailableMessage = getOnChainCoreUpdateUnavailableMessage(nodeSettings);
 
     if (unavailableMessage) {
@@ -127,7 +132,7 @@ export function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
         state: 'unavailable',
       });
     }
-  }, [nodeSettings.apiKey, nodeSettings.mode, nodeSettings.nodeApiUrl]);
+  }, [nodeSettings?.apiKey, nodeSettings?.mode, nodeSettings?.nodeApiUrl]);
 
   const installUpdate = useCallback(async () => {
     const currentStatus = status.state === 'available' ? status.status : undefined;
@@ -175,3 +180,5 @@ export function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
     status,
   };
 }
+
+export type OnChainCoreUpdateController = ReturnType<typeof useOnChainCoreUpdate>;

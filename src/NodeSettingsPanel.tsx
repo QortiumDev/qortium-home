@@ -11,7 +11,9 @@ type ConfigMessage = {
 } | null;
 
 type NodeSettingsPanelProps = {
+  isExpanded: boolean;
   nodeSettings: QortiumNodeSettings;
+  onExpandedChange: (isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 };
@@ -44,6 +46,14 @@ function formatMode(mode: QortiumNodeSettingsMode) {
   return 'Local node';
 }
 
+function getNodeSettingsSummary(nodeSettings: QortiumNodeSettings) {
+  if (nodeSettings.mode === 'network') {
+    return formatMode(nodeSettings.mode);
+  }
+
+  return nodeSettings.nodeApiUrl;
+}
+
 function getApiKeyHint(mode: QortiumNodeSettingsMode) {
   if (mode === 'custom') {
     return 'Used for protected admin calls on this custom node.';
@@ -53,7 +63,9 @@ function getApiKeyHint(mode: QortiumNodeSettingsMode) {
 }
 
 export function NodeSettingsPanel({
+  isExpanded,
   nodeSettings,
+  onExpandedChange,
   onResolvedNodeApiUrl,
   onSaveNodeSettings,
 }: NodeSettingsPanelProps) {
@@ -122,24 +134,15 @@ export function NodeSettingsPanel({
   return (
     <SettingsSection
       defaultExpanded
-      summary={formatMode(nodeSettings.mode)}
+      isExpanded={isExpanded}
+      summary={getNodeSettingsSummary(nodeSettings)}
       title={SETTINGS_TEXT.sections.nodeSettings}
+      onExpandedChange={onExpandedChange}
     >
       <div className="node-settings">
-      <dl className="detail-list node-settings__details">
-        <div className="detail-list__row">
-          <dt className="detail-list__label">{SETTINGS_TEXT.labels.currentNode}</dt>
-          <dd className="detail-list__value">{nodeSettings.nodeApiUrl}</dd>
-        </div>
-        <div className="detail-list__row">
-          <dt className="detail-list__label">{SETTINGS_TEXT.labels.mode}</dt>
-          <dd className="detail-list__value">{formatMode(nodeSettings.mode)}</dd>
-        </div>
-      </dl>
-
       <form className="node-settings__form" onSubmit={handleSave}>
         <label className="field">
-          <span className="field__label">Node</span>
+          <span className="field__label">{SETTINGS_TEXT.labels.node}</span>
           <select
             className="field__input"
             value={mode}
@@ -176,14 +179,14 @@ export function NodeSettingsPanel({
           </label>
         ) : mode === 'network' ? (
           <p className="node-settings__preset">
-            <span>Network</span>
+            <span>{SETTINGS_TEXT.labels.endpoint}</span>
             <span>
               Public read-only browsing through {nodeSettings.networkSeedUrls.length.toLocaleString()} seeds
             </span>
           </p>
         ) : (
           <p className="node-settings__preset">
-            <span>Local</span>
+            <span>{SETTINGS_TEXT.labels.endpoint}</span>
             <span>{nodeSettings.localUrl}</span>
           </p>
         )}
