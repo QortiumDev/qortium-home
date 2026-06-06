@@ -404,20 +404,22 @@ calls; network discovery is intended for public read-only browsing and direct
 inspection of public `GET` endpoints.
 
 Desktop can also manage a local Qortium Core Previewnet install from the node
-settings menu. The first managed Core flow checks `QortiumDev/qortium-core`
+settings menu. The first Core management flow checks `QortiumDev/qortium-core`
 GitHub releases for the current `qortium-preview.zip` prerelease asset,
-installs it under Qortium Home's app data folder, can install a managed Java 17
-runtime when needed, and runs the bundled preview start and stop scripts. Home
-keeps its own desktop data under `qortium-home` by default, while managed Core
-runtime files live under a stable `qortium-core` app-data folder so Core updates
-do not recreate the chain database, QDN data, logs, PID file, or API key.
+installs it under the stable `qortium-core` app-data folder, can install a
+managed Java 17 runtime when needed, and runs the bundled preview start and stop
+scripts. Home keeps its own desktop data under `qortium-home` by default, while
+Core release files, install metadata, downloads, Java, and runtime files live
+under `qortium-core`. Core updates replace only `qortium-core/install`, leaving
+`qortium-core/runtime` intact so they do not recreate the chain database, QDN
+data, logs, PID file, or API key.
 When a local or trusted custom Core node is selected with an API key available,
 the dashboard also checks Core's approved on-chain/QDN update status through
-`/admin/update`. For Home-managed local Core installs, Home reads the managed
+`/admin/update`. For Home-created local Core installs, Home reads the Core
 runtime `apikey.txt` automatically and saves it in node settings. Custom nodes
 can save their own API key in node settings. On Linux, Home can also detect the
 `apikey.txt` for an already-running local Core process so it does not send a
-managed Core key to a different local Core. If Core reports an approved update
+stale Core key to a different local Core. If Core reports an approved update
 and its auto-update mode is `INSTALL`, Home shows that Core will install it
 automatically; otherwise Home offers a manual approved-update install action.
 

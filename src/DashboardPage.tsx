@@ -458,15 +458,19 @@ function getCoreStatusText({
   }
 
   if (!status) {
-    return 'Checking managed Core.';
+    return 'Checking Qortium Core.';
   }
 
   if (!status.supported) {
-    return 'Managed Core is not available for this platform.';
+    return 'Qortium Core management is not available for this platform.';
   }
 
   if (!status.java.available) {
     return 'Java is missing or unsupported.';
+  }
+
+  if (!status.installed && status.runtime.running) {
+    return 'Qortium Core is running.';
   }
 
   if (!status.installed) {
@@ -500,7 +504,10 @@ function getCoreRows({
   const rows = [
     { label: 'Node mode', value: nodeSettings.mode === 'local' ? 'Local node' : 'Not local' },
     { label: 'Local node', value: getLocalNodeStatusText(localNodeStatus, nodeSettings.localUrl) },
-    { label: 'Core', value: status?.installed?.tagName ?? 'Not installed' },
+    {
+      label: 'Core',
+      value: status?.installed?.tagName ?? (status?.runtime.running ? 'Detected' : 'Not installed'),
+    },
     { label: 'Java', value: formatJava(status?.java ?? null) },
     { label: 'Runtime', value: status?.runtime.running ? 'Running' : status ? 'Stopped' : 'Checking' },
     { label: 'On-chain update', value: getOnChainCoreUpdateStatusText(onChainCoreUpdate) },

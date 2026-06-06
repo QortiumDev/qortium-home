@@ -23,9 +23,9 @@ export function CoreManagerPanel({
   }
 
   return (
-    <section className="core-manager" aria-label="Managed Core">
+    <section className="core-manager" aria-label="Qortium Core">
       <div className="core-manager__header">
-        <h2 className="core-manager__title">Managed Core</h2>
+        <h2 className="core-manager__title">Qortium Core</h2>
         <button
           className="icon-button core-manager__refresh"
           disabled={coreManager.isBusy}

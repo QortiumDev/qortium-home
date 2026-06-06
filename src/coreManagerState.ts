@@ -135,7 +135,10 @@ export function getCoreReleaseActionLabel({
 
 function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCoreReleases | null) {
   const rows = [
-    { label: 'Core', value: formatInstalledCore(status?.installed ?? null) },
+    {
+      label: 'Core',
+      value: status?.installed ? formatInstalledCore(status.installed) : status?.runtime.running ? 'Detected' : 'Not installed',
+    },
     { label: 'Java', value: formatJava(status?.java ?? null) },
     { label: 'Runtime', value: formatRuntime(status?.runtime ?? null) },
     { label: 'Local API', value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
@@ -217,7 +220,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
   const canInstallStable = !!releases?.stable.available;
   const canInstallJava = !!status && !status.java.available && status.supported;
   const canStart = !!status?.installed && !!status.java.available && !status.runtime.running;
-  const canStop = !!status?.installed && !!status.runtime.running;
+  const canStop = !!status?.installed && !!status.runtime.running && status.runtime.owner !== 'external';
   const stableUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.stable, status?.installed);
   const prereleaseUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.prerelease, status?.installed);
   const canInstallOrUpdatePrerelease =

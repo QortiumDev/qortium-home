@@ -11,60 +11,76 @@ Android should continue to use existing nodes and Previewnet network discovery.
 - Show the latest prerelease when one exists.
 - Install the selected release only after an explicit user action.
 - Support the current release asset shape: `qortium-preview.zip`.
-- Extract the release into a Qortium Home managed folder under Electron
-  `app.getPath('userData')`, which Home sets to a `qortium-home` app-data
-  folder by default.
-- Record installed release metadata in the managed folder.
+- Extract the release into a single Core install folder under Electron
+  `app.getPath('appData')/qortium-core`.
+- Record installed release metadata in the Core app-data folder.
 - Detect Java 17 or newer from Qortium Home's managed Java runtime first, then
   from the user's system Java.
 - Offer an explicit Java install action when Java 17 or newer is missing.
-- Install Java into Qortium Home app data, not system folders.
-- Start the managed Core by running the release's bundled preview start script.
-- Stop the managed Core by running the release's bundled preview stop script.
+- Install Java into the `qortium-core` app-data folder, not system folders.
+- Start the Home-created Core by running the release's bundled preview start
+  script.
+- Stop the Home-created Core by running the release's bundled preview stop
+  script.
 - Keep Core database, QDN data, logs, PID, and API-key files under a stable
-  `qortium-core` runtime folder outside extracted release folders.
-- When the managed Core starts and `http://127.0.0.1:24891/admin/status` is
+  `qortium-core/runtime` folder outside extracted release folders.
+- When the Home-created Core starts and `http://127.0.0.1:24891/admin/status` is
   reachable, switch Qortium Home's node mode to the local node.
 - Show the expected preview log paths in the UI and include them in launch
   errors when start or stop commands fail.
 
-## Managed Folder
+## Core Folder
 
-The managed Core folder should stay isolated from source checkouts and manually
-installed Qortium Core folders. The intended layout is:
+The Home-created Core folder should stay isolated from source checkouts and
+manually installed Qortium Core folders. The intended layout is:
 
 ```text
 Electron app data root/
-  qortium-home/
-    managed-core/
-      downloads/
-      java/
-        current-java.json
-        versions/
-          temurin-17-<version>-<platform>-<arch>/
+  qortium-core/
+    current.json
+    downloads/
+    install/
+      qortium.jar
+      preview/
+    java/
+      current-java.json
       versions/
-        v1.0.0-preview.1/
-          qortium-preview/
-            qortium.jar
-            preview/
-      current.json
+        temurin-17-<version>-<platform>-<arch>/
+    runtime/
+      apikey.txt
+      run.pid
+      run.log
+      qortium.log
+      db-preview/
+      data-preview/
 ```
 
 `current.json` should identify the selected installed release, install path,
 asset name, download URL, digest when available, install time, and runtime path.
 
-The managed Core runtime is a sibling app-data folder rather than a release
-subdirectory:
+`current.json` points at `qortium-core/install` and
+`qortium-core/runtime`. Updating Core replaces the single install folder, not
+the runtime folder.
+
+Legacy Home-created installs under `qortium-home/managed-core` should migrate
+into this layout. If a local Core process is already running from a source
+checkout or another external folder, Home should use that local API and key as
+they are. If a Core process is running from the old Home-created folder, Home
+should stop that process before moving its install and runtime files, and should
+only delete old duplicate version folders after the new metadata validates.
+
+The Core runtime remains outside the extracted release files:
 
 ```text
 Electron app data root/
   qortium-core/
-    apikey.txt
-    run.pid
-    run.log
-    qortium.log
-    db-preview/
-    data-preview/
+    runtime/
+      apikey.txt
+      run.pid
+      run.log
+      qortium.log
+      db-preview/
+      data-preview/
 ```
 
 `java/current-java.json` should identify the selected managed Java runtime,
@@ -78,28 +94,28 @@ preview launcher auto-detect whether the local environment supports the normal
 GUI/tray path or needs Java headless mode. For the current release zip, Qortium
 Home should pass the stable runtime directory to the bundled scripts:
 
-- Linux/macOS: `preview/start.sh --participant --runtime-dir=<qortium-core>`
-- Windows: `preview/start.bat --participant --runtime-dir=<qortium-core>`
-- Linux/macOS stop: `preview/stop.sh --runtime-dir=<qortium-core>`
-- Windows stop: `preview/stop.bat --runtime-dir=<qortium-core>`
+- Linux/macOS: `preview/start.sh --participant --runtime-dir=<qortium-core/runtime>`
+- Windows: `preview/start.bat --participant --runtime-dir=<qortium-core/runtime>`
+- Linux/macOS stop: `preview/stop.sh --runtime-dir=<qortium-core/runtime>`
+- Windows stop: `preview/stop.bat --runtime-dir=<qortium-core/runtime>`
 
 The UI should report Java availability and source, installed Core status,
 running status, current local API URL, runtime path, preview log paths, and
 install/start/stop progress.
 
-The managed runtime folder owns:
+The Core runtime folder owns:
 
-- Core app log: `qortium-core/qortium.log`
-- Launcher/stdout log: `qortium-core/run.log`
-- Windows stderr log: `qortium-core/run-error.log`
-- API key: `qortium-core/apikey.txt`
+- Core app log: `qortium-core/runtime/qortium.log`
+- Launcher/stdout log: `qortium-core/runtime/run.log`
+- Windows stderr log: `qortium-core/runtime/run-error.log`
+- API key: `qortium-core/runtime/apikey.txt`
 
 Qortium Home should use Eclipse Temurin / Adoptium Java 17 GA JRE archives for
 the managed runtime. Linux and macOS archives are `.tar.gz`; Windows archives
 are `.zip`. The first supported desktop targets are Linux x64, Linux arm64,
 macOS x64, macOS arm64, and Windows x64.
 
-When starting or stopping managed Core, Qortium Home should prepend the managed
+When starting or stopping Home-created Core, Qortium Home should prepend the managed
 Java runtime's `bin` directory to `PATH` when available. This lets the bundled
 preview scripts keep calling `java` normally while still preferring the managed
 runtime over system Java.
@@ -107,6 +123,5 @@ runtime over system Java.
 ## Deferred Work
 
 - Stable/mainnet Core profile selection.
-- Multiple installed Core versions with rollback UI.
 - Core bootstrap, database deletion, API key reset, and log viewer controls.
 - Release signatures beyond GitHub-provided asset digest verification.

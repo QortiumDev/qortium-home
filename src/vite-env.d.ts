@@ -191,8 +191,14 @@ type QortiumCoreJavaStatus = {
 };
 
 type QortiumCoreRuntimeStatus = {
+  apiKeyPath?: string;
+  jarPath?: string;
   localApiUrl: string;
+  owner: 'external' | 'home' | 'unknown';
+  pid?: number;
   running: boolean;
+  runtimePath?: string;
+  settingsPath?: string;
   status: unknown;
 };
 
