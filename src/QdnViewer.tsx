@@ -225,13 +225,31 @@ function isArchiveResourceProperties(properties: QdnResourceProperties | undefin
 }
 
 function getLoadedViewerKind(resource: QdnResource, properties: QdnResourceProperties | undefined) {
-  const viewerKind = getQdnViewerKind(resource.service);
+  return getQdnViewerKind(resource.service);
+}
 
-  if (viewerKind === 'iframe' && isArchiveResourceProperties(properties)) {
-    return 'download';
-  }
+function shouldUseArchiveRenderUrl(
+  resource: QdnResource,
+  properties: QdnResourceProperties | undefined,
+  viewerKind: QdnViewerKind,
+) {
+  return (
+    !isNativePlatform() &&
+    viewerKind === 'iframe' &&
+    isArchiveResourceProperties(properties) &&
+    (resource.service === 'APP' || resource.service === 'WEBSITE')
+  );
+}
 
-  return viewerKind;
+async function prepareArchiveRenderUrl(resource: QdnResource) {
+  const result = await window.qortiumHome.qdn.prepareArchiveRender({
+    service: resource.service,
+    name: resource.name,
+    identifier: resource.identifier,
+    path: resource.path,
+  });
+
+  return result.renderUrl;
 }
 
 async function writeClipboardText(value: string) {
@@ -424,13 +442,15 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
       const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
       const viewerKind = getLoadedViewerKind(resource, properties);
       const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl);
+      const useArchiveRenderUrl = shouldUseArchiveRenderUrl(resource, properties, viewerKind);
       const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
+      let renderUrl = directRenderUrl;
 
-      if (viewerKind === 'iframe' || (viewerKind === 'image' && !useBlobRenderUrl)) {
+      if (useArchiveRenderUrl) {
+        renderUrl = await prepareArchiveRenderUrl(resource);
+      } else if (viewerKind === 'iframe' || (viewerKind === 'image' && !useBlobRenderUrl)) {
         await verifyRenderUrl(directRenderUrl, abortController.signal);
       }
-
-      let renderUrl = directRenderUrl;
 
       if (useBlobRenderUrl) {
         renderUrl = await createBlobRenderUrl({
@@ -1031,6 +1051,7 @@ function QdnIsolatedFrameContent({
           bounds,
           nodeApiUrl,
           renderUrl: loadedResource.renderUrl,
+          resourceUrl: resource.displayUrl,
           tabId,
         });
 

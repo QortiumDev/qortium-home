@@ -106,6 +106,12 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       path?: string;
       service: string;
     }) => ipcRenderer.invoke('qdn:fetchResourceText', request),
+    prepareArchiveRender: (request: {
+      identifier?: string;
+      name: string;
+      path?: string;
+      service: string;
+    }) => ipcRenderer.invoke('qdn:prepareArchiveRender', request),
     downloadResource: (request: {
       identifier?: string;
       name: string;

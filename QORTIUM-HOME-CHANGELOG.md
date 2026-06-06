@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: render QDN archive apps inline
+
+Changed desktop QDN APP and WEBSITE archive loading so Home can fetch the archive, extract it into a managed render cache, and load the app's `index.html` directly in the embedded QDN view. Archive-backed apps now render in Home instead of falling back to the download/copy resource view, while approval prompts still show the original QDN resource URL.
+
 ### 2026-06-06 - app: consolidate core install folders
 
 Changed desktop Core management so Home keeps one Home-created Core install under the stable `qortium-core` app-data folder instead of creating version-specific installs under `qortium-home`. Home now migrates the old `qortium-home/managed-core` install into `qortium-core/install`, moves mutable Core data into `qortium-core/runtime`, keeps API-key and database files across Core updates, detects already-running external local Core processes before managing files, and deletes old duplicate Home-created Core folders only after the new metadata validates.

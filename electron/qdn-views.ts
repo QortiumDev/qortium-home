@@ -8,6 +8,7 @@ import {
 } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
 
 const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
@@ -17,6 +18,7 @@ type QdnViewEntry = {
   accountId: string | null;
   currentUrl: string | null;
   nodeOrigin: string;
+  resourceUrl: string | null;
   tabId: string;
   view: WebContentsView;
   window: BrowserWindow;
@@ -27,6 +29,7 @@ type SanitizedShowRequest = {
   bounds: Rectangle;
   nodeOrigin: string;
   renderUrl: string;
+  resourceUrl: string | null;
   tabId: string;
 };
 
@@ -42,6 +45,7 @@ export type QdnViewContext = {
   accountId: string | null;
   currentUrl: string | null;
   nodeOrigin: string;
+  resourceUrl: string | null;
   tabId: string;
   windowId: number;
 };
@@ -88,6 +92,28 @@ function sanitizeOptionalAccountId(value: unknown) {
   }
 
   return accountId;
+}
+
+function sanitizeOptionalResourceUrl(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('Resource URL must be a string.');
+  }
+
+  const resourceUrl = value.trim();
+
+  if (!resourceUrl) {
+    return null;
+  }
+
+  if (resourceUrl.length > 2_000) {
+    throw new Error('Resource URL is too long.');
+  }
+
+  return resourceUrl;
 }
 
 function getRequiredNumber(value: unknown, label: string) {
@@ -143,6 +169,10 @@ function getRenderService(url: URL) {
 }
 
 function isAllowedRenderUrlForOrigin(rawUrl: string, nodeOrigin: string) {
+  if (isManagedQdnArchiveRenderUrl(rawUrl)) {
+    return true;
+  }
+
   let url: URL;
 
   try {
@@ -166,6 +196,10 @@ function isAllowedRenderUrlForOrigin(rawUrl: string, nodeOrigin: string) {
 }
 
 function sanitizeRenderUrl(value: unknown, nodeOrigin: string) {
+  if (typeof value === 'string' && isManagedQdnArchiveRenderUrl(value)) {
+    return new URL(value).toString();
+  }
+
   const url = getHttpUrl(value, 'QDN render URL');
 
   if (!isAllowedRenderUrlForOrigin(url.toString(), nodeOrigin)) {
@@ -187,6 +221,7 @@ function sanitizeShowRequest(value: unknown): SanitizedShowRequest {
     bounds: sanitizeBounds(value.bounds),
     nodeOrigin,
     renderUrl: sanitizeRenderUrl(value.renderUrl, nodeOrigin),
+    resourceUrl: sanitizeOptionalResourceUrl(value.resourceUrl),
     tabId: sanitizeTabId(value.tabId),
   };
 }
@@ -257,6 +292,7 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
           accountId: entry.accountId,
           currentUrl: entry.currentUrl,
           nodeOrigin: entry.nodeOrigin,
+          resourceUrl: entry.resourceUrl,
           tabId: entry.tabId,
           windowId,
         };
@@ -316,11 +352,13 @@ function createViewEntry(
   tabId: string,
   nodeOrigin: string,
   accountId: string | null,
+  resourceUrl: string | null,
 ): QdnViewEntry {
   const entry: QdnViewEntry = {
     accountId,
     currentUrl: null,
     nodeOrigin,
+    resourceUrl,
     tabId,
     view: new WebContentsView({
       webPreferences: {
@@ -386,6 +424,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
 
   if (existingEntry && existingEntry.nodeOrigin === request.nodeOrigin) {
     existingEntry.accountId = request.accountId;
+    existingEntry.resourceUrl = request.resourceUrl;
     return existingEntry;
   }
 
@@ -393,7 +432,13 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     destroyEntry(existingEntry);
   }
 
-  const entry = createViewEntry(window, request.tabId, request.nodeOrigin, request.accountId);
+  const entry = createViewEntry(
+    window,
+    request.tabId,
+    request.nodeOrigin,
+    request.accountId,
+    request.resourceUrl,
+  );
 
   windowViews.set(request.tabId, entry);
   watchWindow(window);

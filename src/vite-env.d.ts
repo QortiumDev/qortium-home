@@ -360,6 +360,10 @@ type QortiumQdnDownloadResult =
       size?: number;
     };
 
+type QortiumQdnArchiveRenderResult = {
+  renderUrl: string;
+};
+
 type QortiumQdnViewBounds = {
   height: number;
   width: number;
@@ -372,6 +376,7 @@ type QortiumQdnViewShowRequest = {
   bounds: QortiumQdnViewBounds;
   nodeApiUrl: string;
   renderUrl: string;
+  resourceUrl?: string;
   tabId: string;
 };
 
@@ -513,6 +518,9 @@ interface Window {
       fetchResourceText: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnTextResult>;
+      prepareArchiveRender: (
+        request: QortiumQdnRawResourceRequest,
+      ) => Promise<QortiumQdnArchiveRenderResult>;
       downloadResource: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnDownloadResult>;
