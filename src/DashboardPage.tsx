@@ -2,6 +2,7 @@ import { Download, ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
+import { compareAppVersions } from './appUpdates';
 import {
   getOpenDownloadedFileLabel,
   useAppUpdates,
@@ -217,15 +218,34 @@ function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
 }
 
 function getVersionReleaseUrl(version: string | null | undefined) {
+  const tagName = formatReleaseTag(version);
+
+  if (!tagName) {
+    return '';
+  }
+
+  return `${HOME_RELEASE_TAG_BASE_URL}/${encodeURIComponent(tagName)}`;
+}
+
+function formatReleaseTag(version: string | null | undefined) {
   const normalizedVersion = version?.trim();
 
   if (!normalizedVersion) {
     return '';
   }
 
-  const tagName = normalizedVersion.toLowerCase().startsWith('v') ? normalizedVersion : `v${normalizedVersion}`;
+  return normalizedVersion.toLowerCase().startsWith('v') ? normalizedVersion : `v${normalizedVersion}`;
+}
 
-  return `${HOME_RELEASE_TAG_BASE_URL}/${encodeURIComponent(tagName)}`;
+function areReleaseTagsEqual(first: string | null | undefined, second: string | null | undefined) {
+  const firstValue = first?.trim();
+  const secondValue = second?.trim();
+
+  if (!firstValue || !secondValue) {
+    return false;
+  }
+
+  return compareAppVersions(firstValue, secondValue) === 0;
 }
 
 function DashboardVersionValue({
@@ -394,6 +414,7 @@ function getCoreRows({
     status,
   });
   const latestRelease = releaseTarget?.release ?? null;
+  const installedVersion = status?.installed?.tagName ?? '';
   const rows: DashboardDetailRow[] = [
     {
       label: 'Status',
@@ -413,17 +434,16 @@ function getCoreRows({
         </DashboardVersionValue>
       ),
     },
-    {
-      label: 'Latest',
-      value: latestRelease ? (
-        <DashboardVersionValue releaseUrl={latestRelease.htmlUrl}>{latestRelease.tagName}</DashboardVersionValue>
-      ) : releases ? (
-        DASHBOARD_TEXT.unavailable
-      ) : (
-        DASHBOARD_TEXT.checking
-      ),
-    },
   ];
+
+  if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
+    rows.push({
+      label: 'Latest',
+      value: (
+        <DashboardVersionValue releaseUrl={latestRelease.htmlUrl}>{latestRelease.tagName}</DashboardVersionValue>
+      ),
+    });
+  }
 
   return rows;
 }
@@ -596,6 +616,7 @@ function getHomeDashboardStatusText(updates: ReturnType<typeof useAppUpdates>) {
 }
 
 function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
+  const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
   const rows: DashboardDetailRow[] = [
     {
       label: 'Status',
@@ -605,23 +626,22 @@ function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
       label: 'Version',
       value: (
         <DashboardVersionValue releaseUrl={getVersionReleaseUrl(updates.environment?.currentVersion)}>
-          {updates.environment?.currentVersion ?? DASHBOARD_TEXT.checking}
+          {currentReleaseTag || DASHBOARD_TEXT.checking}
         </DashboardVersionValue>
-      ),
-    },
-    {
-      label: 'Latest',
-      value: updates.result?.release ? (
-        <DashboardVersionValue releaseUrl={updates.result.release.htmlUrl}>
-          {updates.result.release.tagName}
-        </DashboardVersionValue>
-      ) : updates.isChecking ? (
-        DASHBOARD_TEXT.checking
-      ) : (
-        DASHBOARD_TEXT.unavailable
       ),
     },
   ];
+
+  if (updates.result?.release && !areReleaseTagsEqual(updates.result.release.tagName, currentReleaseTag)) {
+    rows.push({
+      label: 'Latest',
+      value: (
+        <DashboardVersionValue releaseUrl={updates.result.release.htmlUrl}>
+          {updates.result.release.tagName}
+        </DashboardVersionValue>
+      ),
+    });
+  }
 
   return rows;
 }
