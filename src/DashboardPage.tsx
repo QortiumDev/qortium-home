@@ -1,15 +1,12 @@
-import { Download, ExternalLink, FolderOpen, Play, RefreshCw } from 'lucide-react';
+import { Download, ExternalLink } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
   getOpenDownloadedFileLabel,
   useAppUpdates,
 } from './appUpdateState';
-import {
-  formatJava,
-  getCoreReleaseActionLabel,
-  useCoreManager,
-} from './coreManagerState';
+import { useCoreManager } from './coreManagerState';
 
 type DashboardPageProps = {
   accountsError: string;
@@ -42,6 +39,26 @@ type OnChainCoreUpdateState =
 
 const ON_CHAIN_CORE_UPDATE_POLL_INTERVAL_MS = 5000;
 const ACTIVE_ON_CHAIN_QDN_RESOURCE_STATUSES = new Set(['BUILDING', 'DOWNLOADING']);
+const HOME_RELEASE_TAG_BASE_URL = 'https://github.com/QortiumDev/qortium-home/releases/tag';
+const DASHBOARD_TEXT = {
+  checking: 'Checking',
+  detected: 'Detected',
+  downloaded: 'Downloaded',
+  downloading: 'Downloading',
+  javaRequired: 'Java required',
+  localCoreDetected: 'Local Core detected',
+  noCompatibleInstaller: 'No compatible installer',
+  notInstalled: 'Not installed',
+  unavailable: 'Unavailable',
+  unsupported: 'Unsupported',
+  upToDate: 'Up to date',
+  updateAvailable: 'Update available',
+};
+
+type DashboardDetailRow = {
+  label: string;
+  value: ReactNode;
+};
 
 function formatCoreAdminError(error: unknown) {
   if (!(error instanceof Error)) {
@@ -87,52 +104,6 @@ function isOnChainCoreUpdateAttemptActive(status: QortiumCoreOnChainUpdateStatus
 
 function shouldPollOnChainCoreUpdateStatus(status: QortiumCoreOnChainUpdateStatus) {
   return !!status.updateAvailable && (isOnChainCoreUpdateAttemptActive(status) || isOnChainQdnResourceActive(status));
-}
-
-function getOnChainCoreUpdateStatusText(updateState: OnChainCoreUpdateState) {
-  if (updateState.state === 'loading') {
-    return 'Checking approved on-chain Core update.';
-  }
-
-  if (updateState.state === 'installing') {
-    return 'Starting approved on-chain Core update.';
-  }
-
-  if (updateState.state === 'unavailable') {
-    return updateState.message;
-  }
-
-  const { status } = updateState;
-
-  if (status.updateAvailable) {
-    if (status.installStarted) {
-      return 'Approved Core update install has been scheduled.';
-    }
-
-    if (status.installing) {
-      return 'Approved Core update install is in progress.';
-    }
-
-    if (isOnChainCoreUpdateAttemptActive(status)) {
-      return 'Approved Core update data is downloading from QDN.';
-    }
-
-    if (status.autoUpdateMode === 'INSTALL') {
-      return 'Approved Core update available; Core auto-update will install it.';
-    }
-
-    if (isOnChainQdnResourceActive(status)) {
-      return 'Approved Core update data is downloading from QDN.';
-    }
-
-    if (status.downloadStarted) {
-      return 'Approved Core update data download was requested.';
-    }
-
-    return 'Approved Core update available.';
-  }
-
-  return status.message || 'No approved on-chain Core update is available.';
 }
 
 function getOnChainCoreUpdateSummary(updateState: OnChainCoreUpdateState) {
@@ -245,17 +216,115 @@ function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings) {
   };
 }
 
-function getCoreStatusText({
+function getVersionReleaseUrl(version: string | null | undefined) {
+  const normalizedVersion = version?.trim();
+
+  if (!normalizedVersion) {
+    return '';
+  }
+
+  const tagName = normalizedVersion.toLowerCase().startsWith('v') ? normalizedVersion : `v${normalizedVersion}`;
+
+  return `${HOME_RELEASE_TAG_BASE_URL}/${encodeURIComponent(tagName)}`;
+}
+
+function DashboardVersionValue({
+  children,
+  releaseUrl,
+}: {
+  children: string;
+  releaseUrl?: string;
+}) {
+  if (!releaseUrl) {
+    return <>{children}</>;
+  }
+
+  return (
+    <button
+      className="dashboard-card__version-link"
+      title={`Open ${children} release`}
+      type="button"
+      onClick={() => {
+        void window.qortiumHome.updates.openReleasePage(releaseUrl);
+      }}
+    >
+      <span>{children}</span>
+      <ExternalLink aria-hidden="true" size={13} strokeWidth={2} />
+    </button>
+  );
+}
+
+function getAvailableCoreRelease(
+  releases: QortiumCoreReleases | null,
+  channel: QortiumCoreChannel,
+): QortiumCoreReleaseSummary | null {
+  const release = releases?.[channel];
+
+  return release?.available ? release : null;
+}
+
+function getPreferredCoreReleaseTarget({
+  releases,
+  status,
+}: {
+  releases: QortiumCoreReleases | null;
+  status: QortiumCoreStatus | null;
+}) {
+  const installedChannel = status?.installed?.channel;
+
+  if (installedChannel) {
+    const installedChannelRelease = getAvailableCoreRelease(releases, installedChannel);
+
+    if (installedChannelRelease) {
+      return {
+        channel: installedChannel,
+        release: installedChannelRelease,
+      };
+    }
+  }
+
+  const prerelease = getAvailableCoreRelease(releases, 'prerelease');
+
+  if (prerelease) {
+    return {
+      channel: 'prerelease' as const,
+      release: prerelease,
+    };
+  }
+
+  const stable = getAvailableCoreRelease(releases, 'stable');
+
+  if (stable) {
+    return {
+      channel: 'stable' as const,
+      release: stable,
+    };
+  }
+
+  return null;
+}
+
+function getCoreDashboardStatusText({
+  coreMessage,
   onChainCoreUpdate,
   prereleaseUpdateAvailable,
   stableUpdateAvailable,
   status,
 }: {
+  coreMessage: ReturnType<typeof useCoreManager>['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
   prereleaseUpdateAvailable: boolean;
   stableUpdateAvailable: boolean;
   status: QortiumCoreStatus | null;
 }) {
+  if (coreMessage?.kind === 'error') {
+    return coreMessage.text;
+  }
+
+  if (onChainCoreUpdate.state === 'installing') {
+    return 'Starting approved Core update.';
+  }
+
   const onChainUpdateSummary = getOnChainCoreUpdateSummary(onChainCoreUpdate);
 
   if (onChainUpdateSummary) {
@@ -263,135 +332,98 @@ function getCoreStatusText({
   }
 
   if (!status) {
-    return 'Checking Qortium Core.';
+    return DASHBOARD_TEXT.checking;
   }
 
   if (!status.supported) {
-    return 'Qortium Core management is not available for this platform.';
+    return DASHBOARD_TEXT.unsupported;
   }
 
   if (!status.installed && status.runtime.running) {
-    return status.runtime.owner === 'external'
-      ? 'Qortium Core is running outside Home.'
-      : 'Qortium Core is running.';
-  }
-
-  if (!status.java.available) {
-    return 'Java is missing or unsupported.';
+    return DASHBOARD_TEXT.localCoreDetected;
   }
 
   if (!status.installed) {
-    return 'Qortium Core is not installed.';
+    return DASHBOARD_TEXT.notInstalled;
+  }
+
+  if (!status.java.available && !status.runtime.running) {
+    return DASHBOARD_TEXT.javaRequired;
   }
 
   if (stableUpdateAvailable || prereleaseUpdateAvailable) {
-    return 'Qortium Core update available.';
+    return DASHBOARD_TEXT.updateAvailable;
   }
 
-  return status.runtime.running ? 'Core is running.' : 'Core is installed but stopped.';
+  return DASHBOARD_TEXT.upToDate;
 }
 
-function getCoreInstallState(status: QortiumCoreStatus | null) {
+function getCoreVersionValue(status: QortiumCoreStatus | null) {
   if (!status) {
-    return 'Checking';
+    return DASHBOARD_TEXT.checking;
   }
 
   if (!status.supported) {
-    return 'Unavailable';
+    return DASHBOARD_TEXT.unavailable;
   }
 
   if (status.installed) {
     return status.installed.tagName;
   }
 
-  return status.runtime.running ? 'Detected' : 'Not installed';
-}
-
-function getCoreRuntimeState(status: QortiumCoreStatus | null) {
-  if (!status) {
-    return 'Checking';
-  }
-
-  if (status.runtime.running) {
-    return status.runtime.owner === 'external' ? 'Running outside Home' : 'Running';
-  }
-
-  return 'Stopped';
-}
-
-function getCoreReleaseState({
-  prereleaseUpdateAvailable,
-  releases,
-  stableUpdateAvailable,
-  status,
-}: {
-  prereleaseUpdateAvailable: boolean;
-  releases: QortiumCoreReleases | null;
-  stableUpdateAvailable: boolean;
-  status: QortiumCoreStatus | null;
-}) {
-  if (stableUpdateAvailable || prereleaseUpdateAvailable) {
-    return 'Update available';
-  }
-
-  if (status?.installed && releases) {
-    return 'Current';
-  }
-
-  if (!status?.installed && (releases?.stable.available || releases?.prerelease.available)) {
-    return 'Install available';
-  }
-
-  return releases ? 'Unavailable' : 'Checking';
-}
-
-function getCompactOnChainUpdateText(updateState: OnChainCoreUpdateState) {
-  if (updateState.state === 'available' && !updateState.status.updateAvailable) {
-    return '';
-  }
-
-  if (updateState.state === 'unavailable') {
-    return '';
-  }
-
-  return getOnChainCoreUpdateStatusText(updateState);
+  return status.runtime.running ? DASHBOARD_TEXT.detected : DASHBOARD_TEXT.notInstalled;
 }
 
 function getCoreRows({
+  coreMessage,
   onChainCoreUpdate,
   prereleaseUpdateAvailable,
   releases,
   stableUpdateAvailable,
   status,
 }: {
+  coreMessage: ReturnType<typeof useCoreManager>['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
   prereleaseUpdateAvailable: boolean;
   releases: QortiumCoreReleases | null;
   stableUpdateAvailable: boolean;
   status: QortiumCoreStatus | null;
-}) {
-  const rows = [
-    { label: 'Core', value: getCoreInstallState(status) },
-    { label: 'Runtime', value: getCoreRuntimeState(status) },
+}): DashboardDetailRow[] {
+  const releaseTarget = getPreferredCoreReleaseTarget({
+    releases,
+    status,
+  });
+  const latestRelease = releaseTarget?.release ?? null;
+  const rows: DashboardDetailRow[] = [
     {
-      label: 'Release',
-      value: getCoreReleaseState({
+      label: 'Status',
+      value: getCoreDashboardStatusText({
+        coreMessage,
+        onChainCoreUpdate,
         prereleaseUpdateAvailable,
-        releases,
         stableUpdateAvailable,
         status,
       }),
     },
+    {
+      label: 'Version',
+      value: (
+        <DashboardVersionValue releaseUrl={status?.installed?.htmlUrl}>
+          {getCoreVersionValue(status)}
+        </DashboardVersionValue>
+      ),
+    },
+    {
+      label: 'Latest',
+      value: latestRelease ? (
+        <DashboardVersionValue releaseUrl={latestRelease.htmlUrl}>{latestRelease.tagName}</DashboardVersionValue>
+      ) : releases ? (
+        DASHBOARD_TEXT.unavailable
+      ) : (
+        DASHBOARD_TEXT.checking
+      ),
+    },
   ];
-  const onChainUpdateText = getCompactOnChainUpdateText(onChainCoreUpdate);
-
-  if (onChainUpdateText) {
-    rows.push({ label: 'Approved update', value: onChainUpdateText });
-  }
-
-  if (status && !status.java.available && !status.runtime.running) {
-    rows.push({ label: 'Java', value: formatJava(status.java) });
-  }
 
   return rows;
 }
@@ -417,17 +449,32 @@ function ManagedCoreDashboardCard({
     !!onChainStatus?.updateAvailable &&
     onChainStatus.autoUpdateMode !== 'INSTALL' &&
     !onChainInstallAttemptActive;
-  const showJavaAction = coreManager.canInstallJava;
-  const showPrereleaseAction =
-    coreManager.canInstallPrerelease &&
-    (!coreManager.status?.installed || coreManager.prereleaseUpdateAvailable);
-  const showStableAction =
-    coreManager.canInstallStable &&
-    (!coreManager.status?.installed || coreManager.stableUpdateAvailable);
-  const showStartAction = coreManager.canStart;
+  const releaseTarget = getPreferredCoreReleaseTarget({
+    releases: coreManager.releases,
+    status: coreManager.status,
+  });
+  const releaseTargetUpdateAvailable =
+    releaseTarget?.channel === 'stable'
+      ? coreManager.stableUpdateAvailable
+      : releaseTarget?.channel === 'prerelease'
+        ? coreManager.prereleaseUpdateAvailable
+        : false;
+  const showReleaseUpdateAction =
+    !showOnChainInstallAction &&
+    !!coreManager.status?.installed &&
+    !!releaseTarget &&
+    releaseTargetUpdateAvailable;
+  const releaseTargetBusyAction =
+    releaseTarget?.channel === 'stable'
+      ? 'installing-stable'
+      : releaseTarget?.channel === 'prerelease'
+        ? 'installing-prerelease'
+        : null;
+  const hasAction = showOnChainInstallAction || showReleaseUpdateAction;
   const rows = useMemo(
     () =>
       getCoreRows({
+        coreMessage: coreManager.message,
         onChainCoreUpdate: onChainCoreUpdate.status,
         prereleaseUpdateAvailable: coreManager.prereleaseUpdateAvailable,
         releases: coreManager.releases,
@@ -435,6 +482,7 @@ function ManagedCoreDashboardCard({
         status: coreManager.status,
       }),
     [
+      coreManager.message,
       coreManager.prereleaseUpdateAvailable,
       coreManager.releases,
       coreManager.stableUpdateAvailable,
@@ -442,12 +490,6 @@ function ManagedCoreDashboardCard({
       onChainCoreUpdate.status,
     ],
   );
-  const summary = getCoreStatusText({
-    onChainCoreUpdate: onChainCoreUpdate.status,
-    prereleaseUpdateAvailable: coreManager.prereleaseUpdateAvailable,
-    stableUpdateAvailable: coreManager.stableUpdateAvailable,
-    status: coreManager.status,
-  });
 
   if (!coreManager.coreApi) {
     return null;
@@ -457,22 +499,7 @@ function ManagedCoreDashboardCard({
     <section className="dashboard-card dashboard-card--core" aria-label="Qortium Core">
       <div className="dashboard-card__header">
         <h2 className="dashboard-card__title">Qortium Core</h2>
-        <button
-          className="icon-button dashboard-card__refresh"
-          disabled={coreManager.isBusy || onChainCoreUpdate.isBusy}
-          title="Refresh Core status"
-          type="button"
-          onClick={() => {
-            void coreManager.refreshStatus();
-            void onChainCoreUpdate.refreshStatus();
-          }}
-        >
-          <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-          <span className="sr-only">Refresh Core status</span>
-        </button>
       </div>
-
-      <p className="dashboard-card__message">{summary}</p>
 
       <dl className="detail-list dashboard-card__details">
         {rows.map((row) => (
@@ -496,110 +523,105 @@ function ManagedCoreDashboardCard({
         </div>
       ) : null}
 
-      <div className="dashboard-card__actions">
-        {showOnChainInstallAction ? (
-          <button
-            className="button"
-            disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainInstallAttemptActive}
-            type="button"
-            onClick={onChainCoreUpdate.installUpdate}
-          >
-            <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
-              ? 'Installing approved update'
-              : 'Install approved update'}
-          </button>
-        ) : null}
-        {showJavaAction ? (
-          <button
-            className="button button--secondary"
-            disabled={coreManager.isBusy}
-            type="button"
-            onClick={coreManager.installJava}
-          >
-            <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {coreManager.busyAction === 'installing-java' ? 'Installing Java' : 'Install Java'}
-          </button>
-        ) : null}
-        {showPrereleaseAction ? (
-          <button
-            className="button button--secondary"
-            disabled={coreManager.isBusy}
-            type="button"
-            onClick={() => coreManager.installCore('prerelease')}
-          >
-            <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {getCoreReleaseActionLabel({
-              busyAction: coreManager.busyAction,
-              channel: 'prerelease',
-              installedCore: coreManager.status?.installed,
-              release: coreManager.releases?.prerelease,
-            })}
-          </button>
-        ) : null}
-        {showStableAction ? (
-          <button
-            className="button button--secondary"
-            disabled={coreManager.isBusy}
-            type="button"
-            onClick={() => coreManager.installCore('stable')}
-          >
-            <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {getCoreReleaseActionLabel({
-              busyAction: coreManager.busyAction,
-              channel: 'stable',
-              installedCore: coreManager.status?.installed,
-              release: coreManager.releases?.stable,
-            })}
-          </button>
-        ) : null}
-        {showStartAction ? (
-          <button
-            className="button"
-            disabled={coreManager.isBusy}
-            type="button"
-            onClick={coreManager.startCore}
-          >
-            <Play aria-hidden="true" size={18} strokeWidth={2} />
-            {coreManager.busyAction === 'starting' ? 'Starting' : 'Start'}
-          </button>
-        ) : null}
-      </div>
-
-      {coreManager.message ? (
-        <p className={`dashboard-card__message dashboard-card__message--${coreManager.message.kind}`}>
-          {coreManager.message.text}
-        </p>
+      {hasAction ? (
+        <div className="dashboard-card__actions">
+          {showOnChainInstallAction ? (
+            <button
+              className="button"
+              disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainInstallAttemptActive}
+              type="button"
+              onClick={onChainCoreUpdate.installUpdate}
+            >
+              <Download aria-hidden="true" size={18} strokeWidth={2} />
+              {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
+                ? 'Installing approved update'
+                : 'Install approved update'}
+            </button>
+          ) : null}
+          {showReleaseUpdateAction && releaseTarget ? (
+            <button
+              className="button"
+              disabled={coreManager.isBusy}
+              type="button"
+              onClick={() => coreManager.installCore(releaseTarget.channel)}
+            >
+              <Download aria-hidden="true" size={18} strokeWidth={2} />
+              {coreManager.busyAction === releaseTargetBusyAction ? 'Installing update' : 'Install update'}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
 }
 
+function getHomeDashboardStatusText(updates: ReturnType<typeof useAppUpdates>) {
+  if (updates.message?.kind === 'error') {
+    return updates.message.text;
+  }
+
+  if (updates.isDownloading) {
+    return DASHBOARD_TEXT.downloading;
+  }
+
+  if (updates.downloadedUpdate?.canOpen) {
+    return DASHBOARD_TEXT.downloaded;
+  }
+
+  if (updates.isChecking || !updates.environment) {
+    return DASHBOARD_TEXT.checking;
+  }
+
+  if (!updates.result) {
+    return DASHBOARD_TEXT.checking;
+  }
+
+  if (updates.result.status === 'available') {
+    return DASHBOARD_TEXT.updateAvailable;
+  }
+
+  if (updates.result.status === 'up-to-date') {
+    return DASHBOARD_TEXT.upToDate;
+  }
+
+  if (updates.result.status === 'no-compatible-asset') {
+    return DASHBOARD_TEXT.noCompatibleInstaller;
+  }
+
+  if (updates.result.status === 'unsupported') {
+    return DASHBOARD_TEXT.unsupported;
+  }
+
+  return updates.result.message || DASHBOARD_TEXT.unavailable;
+}
+
 function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
-  const rows = [
-    { label: 'Home', value: updates.environment?.currentVersion ?? 'Checking' },
+  const rows: DashboardDetailRow[] = [
     {
       label: 'Status',
-      value: updates.isDownloading
-        ? 'Downloading'
-        : updates.isChecking
-          ? 'Checking'
-          : updates.updateAvailable && updates.result?.release
-            ? `${updates.result.release.tagName} available`
-            : updates.result?.status === 'up-to-date'
-              ? 'Current'
-              : updates.environment
-                ? 'Ready'
-                : 'Checking',
+      value: getHomeDashboardStatusText(updates),
+    },
+    {
+      label: 'Version',
+      value: (
+        <DashboardVersionValue releaseUrl={getVersionReleaseUrl(updates.environment?.currentVersion)}>
+          {updates.environment?.currentVersion ?? DASHBOARD_TEXT.checking}
+        </DashboardVersionValue>
+      ),
+    },
+    {
+      label: 'Latest',
+      value: updates.result?.release ? (
+        <DashboardVersionValue releaseUrl={updates.result.release.htmlUrl}>
+          {updates.result.release.tagName}
+        </DashboardVersionValue>
+      ) : updates.isChecking ? (
+        DASHBOARD_TEXT.checking
+      ) : (
+        DASHBOARD_TEXT.unavailable
+      ),
     },
   ];
-
-  if (updates.downloadedUpdate) {
-    rows.push({
-      label: 'Downloaded',
-      value: updates.downloadedUpdate.canOpen ? 'Ready to open' : updates.downloadedUpdate.fileName,
-    });
-  }
 
   return rows;
 }
@@ -607,32 +629,16 @@ function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
 function HomeUpdateDashboardCard() {
   const updates = useAppUpdates({ autoCheck: true });
   const rows = getHomeUpdateRows(updates);
+  const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
+  const showDownloadAction =
+    !showDownloadedAction && updates.updateAvailable && !!updates.result?.asset && !!updates.result.release;
+  const hasAction = showDownloadAction || showDownloadedAction;
 
   return (
-    <section className="dashboard-card dashboard-card--updates" aria-label="Qortium Home updates">
+    <section className="dashboard-card dashboard-card--updates" aria-label="Qortium Home">
       <div className="dashboard-card__header">
-        <h2 className="dashboard-card__title">Home Updates</h2>
-        <button
-          className="icon-button dashboard-card__refresh"
-          disabled={updates.isChecking || !updates.environment}
-          title="Check for app updates"
-          type="button"
-          onClick={updates.checkForUpdates}
-        >
-          <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-          <span className="sr-only">Check for app updates</span>
-        </button>
+        <h2 className="dashboard-card__title">Qortium Home</h2>
       </div>
-
-      {updates.message ? (
-        <p className={`dashboard-card__message dashboard-card__message--${updates.message.kind}`}>
-          {updates.message.text}
-        </p>
-      ) : (
-        <p className="dashboard-card__message">
-          {updates.isChecking ? 'Checking Qortium Home releases.' : 'Preparing update check.'}
-        </p>
-      )}
 
       <dl className="detail-list dashboard-card__details">
         {rows.map((row) => (
@@ -643,61 +649,32 @@ function HomeUpdateDashboardCard() {
         ))}
       </dl>
 
-      <div className="dashboard-card__actions">
-        <button
-          className="button button--secondary"
-          disabled={updates.isChecking || updates.isDownloading || !updates.environment}
-          type="button"
-          onClick={updates.checkForUpdates}
-        >
-          <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-          {updates.isChecking ? 'Checking' : 'Check now'}
-        </button>
-        {updates.updateAvailable && updates.result?.asset && updates.result.release ? (
-          <button
-            className="button button--secondary"
-            disabled={updates.isChecking || updates.isDownloading}
-            type="button"
-            onClick={updates.downloadUpdate}
-          >
-            <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {updates.isDownloading ? 'Downloading' : 'Download update'}
-          </button>
-        ) : null}
-        {updates.downloadedUpdate?.canOpen ? (
-          <button
-            className="button button--secondary"
-            disabled={updates.isChecking || updates.isDownloading}
-            type="button"
-            onClick={updates.openDownloadedFile}
-          >
-            <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
-            {getOpenDownloadedFileLabel(updates.updatePlatform)}
-          </button>
-        ) : null}
-        {updates.downloadedUpdate?.canReveal ? (
-          <button
-            className="button button--secondary"
-            disabled={updates.isChecking || updates.isDownloading}
-            type="button"
-            onClick={updates.showDownloadedFile}
-          >
-            <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
-            Show file
-          </button>
-        ) : null}
-        {updates.releasePageUrl ? (
-          <button
-            className="button"
-            disabled={updates.isChecking || updates.isDownloading}
-            type="button"
-            onClick={updates.openReleasePage}
-          >
-            <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
-            Open release
-          </button>
-        ) : null}
-      </div>
+      {hasAction ? (
+        <div className="dashboard-card__actions">
+          {showDownloadAction ? (
+            <button
+              className="button"
+              disabled={updates.isChecking || updates.isDownloading}
+              type="button"
+              onClick={updates.downloadUpdate}
+            >
+              <Download aria-hidden="true" size={18} strokeWidth={2} />
+              {updates.isDownloading ? 'Downloading' : 'Download update'}
+            </button>
+          ) : null}
+          {showDownloadedAction ? (
+            <button
+              className="button"
+              disabled={updates.isChecking || updates.isDownloading}
+              type="button"
+              onClick={updates.openDownloadedFile}
+            >
+              <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
+              {getOpenDownloadedFileLabel(updates.updatePlatform)}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

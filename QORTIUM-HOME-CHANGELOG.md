@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: standardize dashboard release status
+
+Changed the Dashboard so Qortium Core and Qortium Home use matching titles,
+status/version/latest rows, and cleaner update actions. Version values now open
+their GitHub release pages when a release URL is known, update buttons only
+appear when an update flow is actually available, and the Core card now reports
+a separately running local Core as a local Core detection instead of saying it
+is running outside Home.
+
 ### 2026-06-06 - app: simplify dashboard status cards
 
 Changed the Dashboard so Qortium Core and Qortium Home update cards show compact state summaries and only the actions that are currently relevant. Detailed node configuration, Core install/runtime/log paths, release asset details, and update channel controls stay in Settings, while the top-bar node popup remains focused on current node health and sync status.
