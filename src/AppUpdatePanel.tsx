@@ -1,8 +1,8 @@
 import { Download, ExternalLink } from 'lucide-react';
 import {
+  type AppUpdatesState,
   formatBytes,
   getOpenDownloadedFileLabel,
-  useAppUpdates,
 } from './appUpdateState';
 import {
   areReleaseTagsEqual,
@@ -16,8 +16,22 @@ import {
 import { SettingsSection } from './SettingsSection';
 import { SETTINGS_TEXT } from './settingsText';
 
-function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
+type AppUpdatePanelProps = {
+  isExpanded: boolean;
+  onExpandedChange: (isExpanded: boolean) => void;
+  updates: AppUpdatesState;
+};
+
+function hasDistinctAvailableChannels(updates: AppUpdatesState) {
+  const stableTag = updates.results.stable?.release?.tagName;
+  const prereleaseTag = updates.results.prerelease?.release?.tagName;
+
+  return !!stableTag && !!prereleaseTag && !areReleaseTagsEqual(stableTag, prereleaseTag);
+}
+
+function getHomeUpdateRows(updates: AppUpdatesState) {
   const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
+  const showChannel = hasDistinctAvailableChannels(updates);
   const rows: DetailRow[] = [
     {
       label: SETTINGS_TEXT.labels.status,
@@ -37,7 +51,7 @@ function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
     },
   ];
 
-  if (updates.availableChannels.length > 1) {
+  if (showChannel) {
     rows.push({
       label: SETTINGS_TEXT.labels.channel,
       value: SETTINGS_TEXT.channels[updates.channel],
@@ -55,7 +69,7 @@ function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
     });
   }
 
-  if (updates.result?.asset) {
+  if (updates.updateAvailable && updates.result?.asset) {
     rows.push(
       { label: SETTINGS_TEXT.labels.size, value: formatBytes(updates.result.asset.size) },
       { label: SETTINGS_TEXT.labels.digest, value: updates.result.asset.digest ?? SETTINGS_TEXT.status.unavailable },
@@ -72,10 +86,13 @@ function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
   return rows;
 }
 
-export function AppUpdatePanel() {
-  const updates = useAppUpdates({ autoCheck: true });
+export function AppUpdatePanel({
+  isExpanded,
+  onExpandedChange,
+  updates,
+}: AppUpdatePanelProps) {
   const rows = getHomeUpdateRows(updates);
-  const showChannelSelect = updates.availableChannels.length > 1;
+  const showChannelSelect = hasDistinctAvailableChannels(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =
     !showDownloadedAction && updates.updateAvailable && !!updates.result?.asset && !!updates.result.release;
@@ -84,10 +101,12 @@ export function AppUpdatePanel() {
 
   return (
     <SettingsSection
+      isExpanded={isExpanded}
       isRefreshing={updates.isChecking}
       refreshLabel={SETTINGS_TEXT.actions.checkForUpdates}
       summary={summary}
       title={SETTINGS_TEXT.sections.qortiumHome}
+      onExpandedChange={onExpandedChange}
       onRefresh={updates.checkForUpdates}
     >
       <div className="app-updates">

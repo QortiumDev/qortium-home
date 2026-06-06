@@ -3,13 +3,13 @@ import { useMemo } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
   getOpenDownloadedFileLabel,
-  useAppUpdates,
+  type AppUpdatesState,
 } from './appUpdateState';
-import { useCoreManager } from './coreManagerState';
+import type { CoreManagerState } from './coreManagerState';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
-  useOnChainCoreUpdate,
+  type OnChainCoreUpdateController,
   type OnChainCoreUpdateState,
 } from './onChainCoreUpdateState';
 import {
@@ -29,12 +29,12 @@ import { SETTINGS_TEXT } from './settingsText';
 type DashboardPageProps = {
   accountsError: string;
   accountsState: QortiumAccountsState;
+  appUpdates: AppUpdatesState;
+  coreManager: CoreManagerState;
   isLoadingAccounts: boolean;
-  nodeSettings: QortiumNodeSettings;
+  onChainCoreUpdate: OnChainCoreUpdateController;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
-  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
-  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onSelectedAccountChange: (accountId: string | null) => void;
 };
 
@@ -45,7 +45,7 @@ function getCoreDashboardStatusText({
   stableUpdateAvailable,
   status,
 }: {
-  coreMessage: ReturnType<typeof useCoreManager>['message'];
+  coreMessage: CoreManagerState['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
   prereleaseUpdateAvailable: boolean;
   stableUpdateAvailable: boolean;
@@ -100,7 +100,7 @@ function getCoreRows({
   stableUpdateAvailable,
   status,
 }: {
-  coreMessage: ReturnType<typeof useCoreManager>['message'];
+  coreMessage: CoreManagerState['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
   prereleaseUpdateAvailable: boolean;
   releases: QortiumCoreReleases | null;
@@ -149,19 +149,12 @@ function getCoreRows({
 }
 
 function ManagedCoreDashboardCard({
-  nodeSettings,
-  onResolvedNodeApiUrl,
-  onSaveNodeSettings,
+  coreManager,
+  onChainCoreUpdate,
 }: {
-  nodeSettings: QortiumNodeSettings;
-  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
-  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+  coreManager: CoreManagerState;
+  onChainCoreUpdate: OnChainCoreUpdateController;
 }) {
-  const coreManager = useCoreManager({
-    onResolvedNodeApiUrl,
-    onSaveNodeSettings,
-  });
-  const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings);
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
   const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
@@ -265,7 +258,7 @@ function ManagedCoreDashboardCard({
   );
 }
 
-function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
+function getHomeUpdateRows(updates: AppUpdatesState) {
   const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
   const rows: DetailRow[] = [
     {
@@ -296,8 +289,7 @@ function getHomeUpdateRows(updates: ReturnType<typeof useAppUpdates>) {
   return rows;
 }
 
-function HomeUpdateDashboardCard() {
-  const updates = useAppUpdates({ autoCheck: true });
+function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
   const rows = getHomeUpdateRows(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =
@@ -345,11 +337,11 @@ function HomeUpdateDashboardCard() {
 export function DashboardPage({
   accountsError,
   accountsState,
+  appUpdates,
+  coreManager,
   isLoadingAccounts,
-  nodeSettings,
+  onChainCoreUpdate,
   onAccountsStateChange,
-  onResolvedNodeApiUrl,
-  onSaveNodeSettings,
   onSelectedAccountChange,
   selectedAccountId,
 }: DashboardPageProps) {
@@ -375,12 +367,11 @@ export function DashboardPage({
       <div className={`dashboard-page__grid${hasManagedCore ? '' : ' dashboard-page__grid--single'}`}>
         {hasManagedCore ? (
           <ManagedCoreDashboardCard
-            nodeSettings={nodeSettings}
-            onResolvedNodeApiUrl={onResolvedNodeApiUrl}
-            onSaveNodeSettings={onSaveNodeSettings}
+            coreManager={coreManager}
+            onChainCoreUpdate={onChainCoreUpdate}
           />
         ) : null}
-        <HomeUpdateDashboardCard />
+        <HomeUpdateDashboardCard updates={appUpdates} />
       </div>
     </div>
   );

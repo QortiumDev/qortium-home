@@ -1,32 +1,36 @@
 import { Download, Play, Square } from 'lucide-react';
 import { useMemo } from 'react';
-import { useCoreManager } from './coreManagerState';
+import { formatJava, formatRuntime, type CoreManagerState } from './coreManagerState';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
-  useOnChainCoreUpdate,
+  type OnChainCoreUpdateController,
 } from './onChainCoreUpdateState';
 import {
+  areReleaseTagsEqual,
   DetailList,
   getCoreReleaseBusyAction,
+  getCoreVersionValue,
   getPreferredCoreReleaseTarget,
+  LinkedValue,
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
 import { SETTINGS_TEXT } from './settingsText';
 
 type CoreManagerPanelProps = {
-  nodeSettings: QortiumNodeSettings;
-  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
-  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+  coreManager: CoreManagerState;
+  isExpanded: boolean;
+  onChainCoreUpdate: OnChainCoreUpdateController;
+  onExpandedChange: (isExpanded: boolean) => void;
 };
 
 function getCoreSettingsStatusText({
   coreManager,
   onChainCoreUpdate,
 }: {
-  coreManager: ReturnType<typeof useCoreManager>;
-  onChainCoreUpdate: ReturnType<typeof useOnChainCoreUpdate>;
+  coreManager: CoreManagerState;
+  onChainCoreUpdate: OnChainCoreUpdateController;
 }) {
   if (coreManager.message?.kind === 'error') {
     return coreManager.message.text;
@@ -66,24 +70,60 @@ function getCoreSettingsStatusText({
     return SETTINGS_TEXT.status.updateAvailable;
   }
 
-  return coreManager.status.runtime.running ? SETTINGS_TEXT.status.ready : SETTINGS_TEXT.status.stopped;
+  return coreManager.status.runtime.running ? SETTINGS_TEXT.status.upToDate : SETTINGS_TEXT.status.stopped;
 }
 
 function getCoreSettingsRows({
   coreManager,
   onChainCoreUpdate,
 }: {
-  coreManager: ReturnType<typeof useCoreManager>;
-  onChainCoreUpdate: ReturnType<typeof useOnChainCoreUpdate>;
+  coreManager: CoreManagerState;
+  onChainCoreUpdate: OnChainCoreUpdateController;
 }) {
   const statusText = getCoreSettingsStatusText({ coreManager, onChainCoreUpdate });
+  const releaseTarget = getPreferredCoreReleaseTarget({
+    releases: coreManager.releases,
+    status: coreManager.status,
+  });
+  const latestRelease = releaseTarget?.release ?? null;
+  const installedVersion = coreManager.status?.installed?.tagName ?? '';
   const rows: DetailRow[] = [
     {
       label: SETTINGS_TEXT.labels.status,
       value: statusText,
     },
-    ...coreManager.detailRows,
+    {
+      label: SETTINGS_TEXT.labels.version,
+      value: (
+        <LinkedValue url={coreManager.status?.installed?.htmlUrl}>
+          {getCoreVersionValue(coreManager.status)}
+        </LinkedValue>
+      ),
+    },
+    {
+      label: SETTINGS_TEXT.labels.java,
+      value: formatJava(coreManager.status?.java ?? null),
+    },
+    {
+      label: SETTINGS_TEXT.labels.runtime,
+      value: formatRuntime(coreManager.status?.runtime ?? null),
+    },
+    {
+      label: SETTINGS_TEXT.labels.localApi,
+      value: coreManager.status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891',
+    },
   ];
+
+  if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
+    rows.push({
+      label: SETTINGS_TEXT.labels.latest,
+      value: (
+        <LinkedValue url={latestRelease.htmlUrl}>
+          {latestRelease.tagName}
+        </LinkedValue>
+      ),
+    });
+  }
 
   if (onChainCoreUpdate.status.state === 'unavailable') {
     rows.push({
@@ -96,15 +136,11 @@ function getCoreSettingsRows({
 }
 
 export function CoreManagerPanel({
-  nodeSettings,
-  onResolvedNodeApiUrl,
-  onSaveNodeSettings,
+  coreManager,
+  isExpanded,
+  onChainCoreUpdate,
+  onExpandedChange,
 }: CoreManagerPanelProps) {
-  const coreManager = useCoreManager({
-    onResolvedNodeApiUrl,
-    onSaveNodeSettings,
-  });
-  const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings);
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
   const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
@@ -163,10 +199,12 @@ export function CoreManagerPanel({
 
   return (
     <SettingsSection
+      isExpanded={isExpanded}
       isRefreshing={coreManager.isBusy || onChainCoreUpdate.isBusy}
       refreshLabel={SETTINGS_TEXT.actions.checkForUpdates}
       summary={summary}
       title={SETTINGS_TEXT.sections.qortiumCore}
+      onExpandedChange={onExpandedChange}
       onRefresh={handleRefresh}
     >
       <div className="core-manager">

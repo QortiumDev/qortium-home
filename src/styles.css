@@ -80,10 +80,18 @@
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 button,
@@ -103,14 +111,18 @@ samp {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .app-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 h1 {
@@ -146,8 +158,13 @@ h1 {
   display: grid;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
   place-items: center;
   padding: 32px;
+}
+
+.app-shell > .app-main:only-child {
+  grid-row: 1 / -1;
 }
 
 .app-main--viewer {
@@ -157,12 +174,14 @@ h1 {
 
 .app-main--settings {
   place-items: start center;
-  overflow-y: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .app-main--dashboard {
   place-items: start center;
-  overflow-y: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .app-main--gesture-nav {

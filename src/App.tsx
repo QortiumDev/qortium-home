@@ -10,10 +10,13 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { ApiViewer } from './ApiViewer';
+import { useAppUpdates } from './appUpdateState';
+import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
+import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
-import { SettingsPage } from './SettingsPage';
+import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
 import { TopBar } from './TopBar';
 import { DASHBOARD_ROUTE, SETTINGS_ROUTE, parseAppAddress, type AppRoute } from './routes';
 
@@ -101,6 +104,11 @@ const NAVIGATION_SWIPE_MIN_DISTANCE_PX = 72;
 const NAVIGATION_SWIPE_MAX_VERTICAL_PX = 80;
 const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
 const NAVIGATION_SWIPE_VERTICAL_CANCEL_PX = 48;
+const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
+  core: false,
+  home: false,
+  node: true,
+};
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
   return !!accountId && accountsState.accounts.some((account) => account.id === accountId);
@@ -438,6 +446,7 @@ export function App() {
   const [qdnAccountReadRequests, setQdnAccountReadRequests] = useState<QortiumQdnAccountReadApprovalRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
@@ -694,6 +703,20 @@ export function App() {
       };
     });
   }, []);
+
+  const appUpdates = useAppUpdates({ autoCheck: true });
+  const coreManager = useCoreManager({
+    onResolvedNodeApiUrl: updateResolvedNodeApiUrl,
+    onSaveNodeSettings: saveNodeSettings,
+  });
+  const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings);
+
+  function updateSettingsSectionExpansion(sectionId: SettingsSectionId, isExpanded: boolean) {
+    setSettingsExpansion((currentExpansion) => ({
+      ...currentExpansion,
+      [sectionId]: isExpanded,
+    }));
+  }
 
   function updateActiveTab(updateTab: (tab: BrowserTab) => BrowserTab) {
     setTabState((currentTabState) => ({
@@ -1479,22 +1502,25 @@ export function App() {
           />
         ) : currentRoute.kind === 'settings' ? (
           <SettingsPage
-            key={routeRenderKey}
+            appUpdates={appUpdates}
+            coreManager={coreManager}
             nodeSettings={nodeSettings}
+            onChainCoreUpdate={onChainCoreUpdate}
             onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
+            onSectionExpansionChange={updateSettingsSectionExpansion}
             onSaveNodeSettings={saveNodeSettings}
+            sectionExpansion={settingsExpansion}
           />
         ) : currentRoute.kind === 'dashboard' ? (
           <DashboardPage
-            key={routeRenderKey}
             accountsError={accountsError}
             accountsState={accountsState}
+            appUpdates={appUpdates}
+            coreManager={coreManager}
             isLoadingAccounts={isLoadingAccounts}
-            nodeSettings={nodeSettings}
+            onChainCoreUpdate={onChainCoreUpdate}
             selectedAccountId={activeTab.accountId}
             onAccountsStateChange={handleAccountsStateChange}
-            onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
-            onSaveNodeSettings={saveNodeSettings}
             onSelectedAccountChange={updateActiveTabAccount}
           />
         ) : (

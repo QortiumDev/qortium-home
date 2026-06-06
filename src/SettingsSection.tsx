@@ -5,7 +5,9 @@ import { useState } from 'react';
 type SettingsSectionProps = {
   children: ReactNode;
   defaultExpanded?: boolean;
+  isExpanded?: boolean;
   isRefreshing?: boolean;
+  onExpandedChange?: (isExpanded: boolean) => void;
   onRefresh?: () => void;
   refreshLabel?: string;
   summary?: ReactNode;
@@ -15,13 +17,24 @@ type SettingsSectionProps = {
 export function SettingsSection({
   children,
   defaultExpanded = false,
+  isExpanded: controlledExpanded,
   isRefreshing = false,
+  onExpandedChange,
   onRefresh,
   refreshLabel,
   summary,
   title,
 }: SettingsSectionProps) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
+  const isExpanded = controlledExpanded ?? uncontrolledExpanded;
+
+  function setExpanded(nextExpanded: boolean) {
+    if (controlledExpanded === undefined) {
+      setUncontrolledExpanded(nextExpanded);
+    }
+
+    onExpandedChange?.(nextExpanded);
+  }
 
   return (
     <section className="settings-section" aria-label={title}>
@@ -30,7 +43,7 @@ export function SettingsSection({
           aria-expanded={isExpanded}
           className="settings-section__toggle"
           type="button"
-          onClick={() => setIsExpanded((currentValue) => !currentValue)}
+          onClick={() => setExpanded(!isExpanded)}
         >
           <ChevronDown
             aria-hidden="true"
