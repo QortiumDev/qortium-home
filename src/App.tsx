@@ -450,6 +450,7 @@ export function App() {
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
+  const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
@@ -468,6 +469,7 @@ export function App() {
   const activeQdnAccountReadRequest = qdnAccountReadRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnAccountReadRequest || !!activeQdnWriteRequest;
+  const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen;
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -1486,6 +1488,7 @@ export function App() {
         onMoveTabToNewWindow={window.qortiumHome.windows ? moveTabToNewWindow : undefined}
         onNavigate={navigateToRoute}
         onOpenSettings={openSettings}
+        onOverlayOpenChange={setIsTopBarOverlayOpen}
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
@@ -1510,7 +1513,7 @@ export function App() {
             nodeApiUrl={nodeSettings.nodeApiUrl}
             resource={currentRoute.resource}
             accountId={activeTab.accountId}
-            suspended={isQdnPermissionDialogActive}
+            suspended={isQdnViewSuspended}
             tabId={activeTab.id}
           />
         ) : currentRoute.kind === 'settings' ? (

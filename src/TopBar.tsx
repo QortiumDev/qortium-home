@@ -1,6 +1,6 @@
 import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Lock, Plus, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeStatusButton } from './NodeStatusButton';
 import { Popover } from './components/Popover';
 import type { AppRoute } from './routes';
@@ -29,6 +29,7 @@ type TopBarProps = {
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onNavigate: (route: AppRoute) => void;
   onOpenSettings: () => void;
+  onOverlayOpenChange?: (isOpen: boolean) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
@@ -55,6 +56,7 @@ type HistoryButtonProps = {
   historyEntries: AppRoute[];
   historyIndex: number;
   onJump: (index: number) => void;
+  onMenuOpenChange?: (isOpen: boolean) => void;
   onStep: () => void;
 };
 
@@ -159,10 +161,12 @@ function AccountChip({
   account,
   nodeApiUrl,
   onAccountsStateChange,
+  onMenuOpenChange,
 }: {
   account: QortiumAccountSummary | null;
   nodeApiUrl: string;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
+  onMenuOpenChange?: (isOpen: boolean) => void;
 }) {
   const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
   const [hasAvatarError, setHasAvatarError] = useState(false);
@@ -268,6 +272,7 @@ function AccountChip({
       contentClassName="account-menu__popover"
       contentId="top-bar-account-menu"
       contentLabel="Account"
+      onOpenChange={onMenuOpenChange}
       renderTrigger={({ contentId, isOpen, toggle }) => (
         <button
           className={`account-chip${account?.isUnlocked ? ' account-chip--unlocked' : ''}`}
@@ -384,6 +389,7 @@ function HistoryButton({
   historyEntries,
   historyIndex,
   onJump,
+  onMenuOpenChange,
   onStep,
 }: HistoryButtonProps) {
   const label = direction === 'back' ? 'Back' : 'Forward';
@@ -408,6 +414,7 @@ function HistoryButton({
       contentId={`top-bar-${direction}-history`}
       contentLabel={`${label} history`}
       contentRole="menu"
+      onOpenChange={onMenuOpenChange}
       renderTrigger={({ close, contentId, isOpen, open }) => (
         <button
           className="icon-button top-bar__history-button"
@@ -463,6 +470,7 @@ function BrowserTabs({
   onReloadTab,
   onReopenClosedTab,
   onSelectTab,
+  onMenuOpenChange,
   tabs,
 }: {
   activeTabId: string;
@@ -477,6 +485,7 @@ function BrowserTabs({
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
   onSelectTab: (tabId: string) => void;
+  onMenuOpenChange?: (isOpen: boolean) => void;
   tabs: BrowserTabSummary[];
 }) {
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
@@ -528,6 +537,16 @@ function BrowserTabs({
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    onMenuOpenChange?.(!!contextMenu);
+  }, [contextMenu, onMenuOpenChange]);
+
+  useEffect(() => {
+    return () => {
+      onMenuOpenChange?.(false);
+    };
+  }, [onMenuOpenChange]);
 
   function suppressNextTabClick(tabId: string) {
     suppressedClickTabIdRef.current = tabId;
@@ -909,6 +928,7 @@ export function TopBar({
   onAccountsStateChange,
   onNavigate,
   onOpenSettings,
+  onOverlayOpenChange,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
@@ -929,6 +949,28 @@ export function TopBar({
     addressSuggestionsOpen && addressSuggestions.length > 0
       ? addressSuggestions[activeAddressSuggestionIndex]
       : null;
+  const [overlayOpenById, setOverlayOpenById] = useState<Record<string, boolean>>({});
+  const setOverlayOpen = useCallback((overlayId: string, isOpen: boolean) => {
+    setOverlayOpenById((currentState) => {
+      if (currentState[overlayId] === isOpen) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        [overlayId]: isOpen,
+      };
+    });
+  }, []);
+  const setTabMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('tab-menu', isOpen), [setOverlayOpen]);
+  const setBackHistoryOpen = useCallback((isOpen: boolean) => setOverlayOpen('back-history', isOpen), [setOverlayOpen]);
+  const setForwardHistoryOpen = useCallback(
+    (isOpen: boolean) => setOverlayOpen('forward-history', isOpen),
+    [setOverlayOpen],
+  );
+  const setAccountMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('account-menu', isOpen), [setOverlayOpen]);
+  const setNodeMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('node-menu', isOpen), [setOverlayOpen]);
+  const isOverlayOpen = Object.values(overlayOpenById).some(Boolean);
 
   useEffect(() => {
     setAddressValue(currentRoute.displayUrl);
@@ -962,6 +1004,20 @@ export function TopBar({
       document.removeEventListener('keydown', closeAddressSuggestionsOnEscape);
     };
   }, [addressSuggestions.length, addressSuggestionsOpen]);
+
+  useEffect(() => {
+    setOverlayOpen('address-suggestions', addressSuggestionsOpen && addressSuggestions.length > 0);
+  }, [addressSuggestions.length, addressSuggestionsOpen, setOverlayOpen]);
+
+  useEffect(() => {
+    onOverlayOpenChange?.(isOverlayOpen);
+  }, [isOverlayOpen, onOverlayOpenChange]);
+
+  useEffect(() => {
+    return () => {
+      onOverlayOpenChange?.(false);
+    };
+  }, [onOverlayOpenChange]);
 
   function focusAddressSuggestion(index: number) {
     window.requestAnimationFrame(() => {
@@ -1023,6 +1079,7 @@ export function TopBar({
         onReloadTab={onReloadTab}
         onReopenClosedTab={onReopenClosedTab}
         onSelectTab={onSelectTab}
+        onMenuOpenChange={setTabMenuOpen}
       />
       <form className="top-bar__address-form" onSubmit={handleSubmit}>
         <HistoryButton
@@ -1031,6 +1088,7 @@ export function TopBar({
           historyEntries={historyEntries}
           historyIndex={historyIndex}
           onJump={onGoToHistoryIndex}
+          onMenuOpenChange={setBackHistoryOpen}
           onStep={onGoBack}
         />
         <HistoryButton
@@ -1039,6 +1097,7 @@ export function TopBar({
           historyEntries={historyEntries}
           historyIndex={historyIndex}
           onJump={onGoToHistoryIndex}
+          onMenuOpenChange={setForwardHistoryOpen}
           onStep={onGoForward}
         />
         <label className="sr-only" htmlFor="browser-address">
@@ -1169,9 +1228,11 @@ export function TopBar({
         account={activeAccount}
         nodeApiUrl={nodeSettings.nodeApiUrl}
         onAccountsStateChange={onAccountsStateChange}
+        onMenuOpenChange={setAccountMenuOpen}
       />
       <NodeStatusButton
         nodeSettings={nodeSettings}
+        onMenuOpenChange={setNodeMenuOpen}
         onOpenSettings={onOpenSettings}
         onResolvedNodeApiUrl={onResolvedNodeApiUrl}
       />

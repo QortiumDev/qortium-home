@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: keep top-bar overlays above QDN apps
+
+Changed top-bar popovers and address suggestions so they temporarily suspend
+the isolated QDN app view while the overlay is open. This keeps the node status
+panel, account menu, history menus, tab menu, and autocomplete suggestions
+visible and clickable above rendered QDN apps instead of being covered by the
+native app view layer.
+
 ### 2026-06-06 - app: add QDN group join approvals
 
 Changed the QDN app bridge so chat apps can read pending group join requests

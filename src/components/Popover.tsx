@@ -20,6 +20,7 @@ type PopoverProps = {
   contentId: string;
   contentLabel: string;
   contentRole?: 'dialog' | 'menu';
+  onOpenChange?: (isOpen: boolean) => void;
   renderTrigger: (props: PopoverTriggerProps) => ReactNode;
 };
 
@@ -30,10 +31,26 @@ export function Popover({
   contentId,
   contentLabel,
   contentRole = 'dialog',
+  onOpenChange,
   renderTrigger,
 }: PopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
+  useEffect(() => {
+    onOpenChangeRef.current?.(isOpen);
+
+    return () => {
+      if (isOpen) {
+        onOpenChangeRef.current?.(false);
+      }
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
