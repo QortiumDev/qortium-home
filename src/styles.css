@@ -256,6 +256,38 @@ h1 {
   gap: 8px;
 }
 
+.dashboard-card__version-link {
+  display: inline-flex;
+  min-width: 0;
+  padding: 0;
+  gap: 5px;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  color: #f4f0e8;
+  font: inherit;
+  text-align: right;
+  text-decoration: underline;
+  text-decoration-color: #6f8585;
+  text-underline-offset: 3px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.dashboard-card__version-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card__version-link:hover,
+.dashboard-card__version-link:focus-visible {
+  color: #87d99b;
+  text-decoration-color: currentcolor;
+}
+
 .dashboard-card__actions {
   display: flex;
   flex-wrap: wrap;
