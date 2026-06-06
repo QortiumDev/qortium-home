@@ -44,6 +44,7 @@ type QdnViewerProps = {
   accountId: string | null;
   nodeApiUrl: string;
   resource: QdnResource;
+  suspended?: boolean;
   tabId: string;
 };
 
@@ -996,12 +997,14 @@ function QdnIsolatedFrameContent({
   accountId,
   nodeApiUrl,
   resource,
+  suspended,
   tabId,
 }: {
   accountId: string | null;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   resource: QdnResource;
+  suspended: boolean;
   tabId: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1017,6 +1020,15 @@ function QdnIsolatedFrameContent({
     }
 
     const activeQdnViews = qdnViews;
+
+    if (suspended) {
+      void activeQdnViews.hide(tabId).catch((error) => {
+        console.warn('Unable to suspend isolated QDN view.', error);
+      });
+
+      return undefined;
+    }
+
     const initialContainer = container;
     let isDisposed = false;
     let animationFrameId = 0;
@@ -1088,7 +1100,7 @@ function QdnIsolatedFrameContent({
         console.warn('Unable to hide isolated QDN view.', error);
       });
     };
-  }, [accountId, loadedResource.renderUrl, nodeApiUrl, tabId]);
+  }, [accountId, loadedResource.renderUrl, nodeApiUrl, suspended, tabId]);
 
   return (
     <div
@@ -1211,12 +1223,14 @@ function QdnReadyContent({
   accountId,
   nodeApiUrl,
   resource,
+  suspended,
   tabId,
 }: {
   accountId: string | null;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   resource: QdnResource;
+  suspended: boolean;
   tabId: string;
 }) {
   if (loadedResource.viewerKind === 'iframe') {
@@ -1227,6 +1241,7 @@ function QdnReadyContent({
           accountId={accountId}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
+          suspended={suspended}
           tabId={tabId}
         />
       );
@@ -1274,7 +1289,7 @@ function QdnReadyContent({
   );
 }
 
-export function QdnViewer({ accountId, nodeApiUrl, resource, tabId }: QdnViewerProps) {
+export function QdnViewer({ accountId, nodeApiUrl, resource, suspended = false, tabId }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
@@ -1310,6 +1325,7 @@ export function QdnViewer({ accountId, nodeApiUrl, resource, tabId }: QdnViewerP
           accountId={accountId}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
+          suspended={suspended}
           tabId={tabId}
         />
       ) : (
