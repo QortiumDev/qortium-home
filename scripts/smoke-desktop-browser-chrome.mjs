@@ -464,6 +464,14 @@ async function runAddressSuggestionAssertions(client) {
     'ArrowDown did not move focus to the active suggestion.',
   );
 
+  await dispatchDomKey(client, 'Escape');
+  await waitUntil('address suggestions closed by Escape', appTimeoutMs, async () => {
+    const state = await getChromeState(client);
+
+    return state.suggestionsOpen === false && state.activeElementId === 'browser-address' ? state : null;
+  });
+
+  await setAddressValue(client, '');
   await setAddressValue(client, 'qdn');
   await waitUntil('qdn address suggestion reopened', appTimeoutMs, async () => {
     const state = await getChromeState(client);

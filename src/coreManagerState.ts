@@ -67,7 +67,15 @@ export function formatRuntime(runtime: QortiumCoreRuntimeStatus | null) {
     return 'Checking';
   }
 
+  if (runtime.blocked) {
+    return SETTINGS_TEXT.status.runtimeBlocked;
+  }
+
   return runtime.running ? 'Running' : 'Stopped';
+}
+
+export function getCoreRuntimeBlockedMessage(status: QortiumCoreStatus | null) {
+  return status?.runtime.blocked?.message ?? '';
 }
 
 export function getReleaseLabel(release: QortiumCoreReleaseSummary | undefined) {
@@ -153,6 +161,13 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
     { label: SETTINGS_TEXT.labels.localApi, value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
   ];
 
+  if (status?.runtime.blocked) {
+    rows.push({
+      label: SETTINGS_TEXT.labels.runtimeIssue,
+      value: status.runtime.blocked.message,
+    });
+  }
+
   if (
     release?.available &&
     installedVersion &&
@@ -213,17 +228,18 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
 
   const detailRows = useMemo(() => getCoreDetailRows(status, releases), [releases, status]);
   const progressPercent = getProgressPercent(progress);
+  const runtimeBlocked = !!status?.runtime.blocked;
   const canInstallPrerelease = !!releases?.prerelease.available;
   const canInstallStable = !!releases?.stable.available;
-  const canInstallJava = !!status && !status.java.available && status.supported;
-  const canStart = !!status?.installed && !!status.java.available && !status.runtime.running;
+  const canInstallJava = !!status && !runtimeBlocked && !status.java.available && status.supported;
+  const canStart = !!status?.installed && !runtimeBlocked && !!status.java.available && !status.runtime.running;
   const canStop = !!status?.installed && !!status.runtime.running && status.runtime.owner !== 'external';
   const stableUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.stable, status?.installed);
   const prereleaseUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.prerelease, status?.installed);
   const canInstallOrUpdatePrerelease =
-    canInstallPrerelease && (!status?.installed || prereleaseUpdateAvailable);
+    !runtimeBlocked && canInstallPrerelease && (!status?.installed || prereleaseUpdateAvailable);
   const canInstallOrUpdateStable =
-    canInstallStable && (!status?.installed || stableUpdateAvailable);
+    !runtimeBlocked && canInstallStable && (!status?.installed || stableUpdateAvailable);
 
   async function refreshStatus() {
     if (!coreApi) {

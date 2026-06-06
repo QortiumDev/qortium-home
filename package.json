@@ -39,6 +39,7 @@
     "smoke:android:qdn-media": "node scripts/smoke-android-qdn-media.mjs",
     "smoke:android:update-install": "node scripts/smoke-android-update-install.mjs",
     "smoke:desktop:browser-chrome": "node scripts/smoke-desktop-browser-chrome.mjs",
+    "smoke:desktop:core-runtime": "node scripts/smoke-desktop-core-runtime.mjs",
     "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
