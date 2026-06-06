@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: keep QDN permission dialogs visible
+
+Changed QDN app permission handling so Home temporarily hides the isolated QDN
+app view while account-share or write-approval dialogs are open. This keeps the
+Home dialog visible and clickable instead of letting the native QDN app view
+cover it, then restores the QDN app view after the permission flow closes.
+
 ### 2026-06-06 - app: surface and verify blocked core runtimes
 
 Changed Core status so Home reports a blocked runtime state when managed Core migration finds existing runtime data from a different Previewnet chain configuration. Dashboard and Settings now show the blocked runtime status, hide install/start actions that would fail again, and keep the detailed mismatch explanation in the Core details. Address suggestions now close reliably on Escape while the suggestion list is open. Added a desktop Core runtime smoke test that verifies legacy managed-Core migration preserves API key, database, QDN data, and runtime metadata, verifies mismatched chain data is not moved or deleted, and checks that same-version Home update downloads are rejected before any network download.

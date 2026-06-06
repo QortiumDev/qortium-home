@@ -465,6 +465,7 @@ export function App() {
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnAccountReadRequest = qdnAccountReadRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
+  const isQdnPermissionDialogActive = !!activeQdnAccountReadRequest || !!activeQdnWriteRequest;
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -1498,6 +1499,7 @@ export function App() {
             nodeApiUrl={nodeSettings.nodeApiUrl}
             resource={currentRoute.resource}
             accountId={activeTab.accountId}
+            suspended={isQdnPermissionDialogActive}
             tabId={activeTab.id}
           />
         ) : currentRoute.kind === 'settings' ? (
