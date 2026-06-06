@@ -34,8 +34,9 @@ more broadly.
 - Install a managed Java 17 runtime for desktop Core when system Java is
   missing.
 - Start and stop the managed desktop Previewnet Core.
-- Show managed Core preview log paths for `preview/qortium.log`,
-  `preview/run.log`, and the Windows `preview/run-error.log` when applicable.
+- Show managed Core runtime log paths for `qortium-core/qortium.log`,
+  `qortium-core/run.log`, and the Windows `qortium-core/run-error.log` when
+  applicable.
 - Browse QDN services, names, and resources from `qdn://` URLs.
 - Load `APP` and `WEBSITE` resources in an embedded viewer.
 - Load image-style QDN resources such as `IMAGE`, `THUMBNAIL`, and
@@ -52,9 +53,9 @@ more broadly.
 - Choose a separate selected wallet for each tab before navigating.
 - Show the active tab's selected wallet as an avatar or initial in the top bar.
 - Use in-session Back and Forward navigation history.
-- Approve QDN APP/WEBSITE publish, delete, group join, and group chat requests
-  on desktop and Android through the selected tab account when using a local
-  node.
+- Approve QDN APP/WEBSITE publish, delete, group join, group chat, and direct
+  private chat requests on desktop and Android through the selected tab account
+  when using a local node.
 - Build Linux x64 and arm64 AppImages, macOS DMGs, and a Windows x64 portable executable.
 - Build Android debug APKs plus release APK/AAB packages with Capacitor.
 - Package Linux, Windows, and macOS build resources with the Qortium Home app icon.
@@ -71,11 +72,11 @@ known peers, probes candidates for public QDN/read API support, and prefers a
 reachable node that can answer public QDN resource searches. Home does not send
 the local API key while using Previewnet network mode.
 
-Qortium Home does not yet expose name registration, direct chat, or generic
-transaction signing workflows. Desktop and Android QDN apps can request QDN
-publish/delete, group join, group chat send, and private closed-group chat read
-actions through the account-aware `qdnRequest` bridge after user approval when
-the selected node is local and has a saved API key.
+Qortium Home does not yet expose name registration, a first-party direct chat
+UI, or generic transaction signing workflows. Desktop and Android QDN apps can
+request QDN publish/delete, group join, group and direct private chat sends, and
+private group/direct chat reads through the account-aware `qdnRequest` bridge
+after user approval when the selected node is local and has a saved API key.
 
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
@@ -116,7 +117,7 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 - Additional derived addresses from the same wallet.
 - Additional `qdnRequest` approval prompts for generic signing and other
   write-style account actions.
-- Local-node write workflows for name registration and direct/private chat.
+- First-party local-node workflows for name registration and chat management.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
 - Android signing credential setup.
