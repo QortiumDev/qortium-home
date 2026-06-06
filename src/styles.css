@@ -858,9 +858,15 @@ h1 {
   color: #87d99b;
 }
 
+.top-bar__address-suggestions {
+  display: grid;
+  grid-column: 3 / 4;
+  gap: 4px;
+  min-width: 0;
+}
+
 .top-bar__address-suggestion {
   display: flex;
-  grid-column: 3 / 4;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
@@ -878,7 +884,8 @@ h1 {
 }
 
 .top-bar__address-suggestion:hover,
-.top-bar__address-suggestion:focus-visible {
+.top-bar__address-suggestion:focus-visible,
+.top-bar__address-suggestion--active {
   background: #202727;
   border-color: #536363;
   outline: none;

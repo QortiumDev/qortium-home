@@ -120,24 +120,22 @@ function getDisplayInitial(value: string) {
   return character ? character.toUpperCase() : '?';
 }
 
-function getAddressSchemeSuggestion(value: string) {
+function getAddressSchemeSuggestions(value: string) {
   const input = value.trim().toLowerCase();
 
   if (!input) {
-    return null;
+    return [];
   }
 
-  return (
-    ADDRESS_SCHEME_SUGGESTIONS.find((suggestion) => {
-      const suggestionValue = suggestion.value.toLowerCase();
-      const scheme = suggestionValue.slice(0, suggestionValue.indexOf(':'));
+  return ADDRESS_SCHEME_SUGGESTIONS.filter((suggestion) => {
+    const suggestionValue = suggestion.value.toLowerCase();
+    const scheme = suggestionValue.slice(0, suggestionValue.indexOf(':'));
 
-      return (
-        input !== suggestionValue &&
-        (suggestionValue.startsWith(input) || scheme.startsWith(input))
-      );
-    }) ?? null
-  );
+    return (
+      input !== suggestionValue &&
+      (suggestionValue.startsWith(input) || scheme.startsWith(input))
+    );
+  });
 }
 
 function getAccountTooltip(account: QortiumAccountSummary, profile: QortiumAccountProfile | null) {
@@ -775,26 +773,42 @@ export function TopBar({
 }: TopBarProps) {
   const [addressValue, setAddressValue] = useState('');
   const [addressError, setAddressError] = useState('');
-  const addressSuggestion = getAddressSchemeSuggestion(addressValue);
+  const [addressSuggestionIndex, setAddressSuggestionIndex] = useState(0);
+  const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(true);
+  const addressSuggestions = useMemo(() => getAddressSchemeSuggestions(addressValue), [addressValue]);
+  const activeAddressSuggestionIndex = addressSuggestions.length > 0
+    ? Math.min(addressSuggestionIndex, addressSuggestions.length - 1)
+    : -1;
+  const selectedAddressSuggestion =
+    addressSuggestionsOpen && addressSuggestions.length > 0
+      ? addressSuggestions[activeAddressSuggestionIndex]
+      : null;
 
   useEffect(() => {
     setAddressValue(currentRoute.displayUrl);
     setAddressError('');
+    setAddressSuggestionIndex(0);
+    setAddressSuggestionsOpen(false);
   }, [activeTabId, currentRoute]);
 
-  function applyAddressSuggestion() {
-    if (!addressSuggestion) {
+  useEffect(() => {
+    setAddressSuggestionIndex(0);
+  }, [addressValue]);
+
+  function applyAddressSuggestion(suggestion = selectedAddressSuggestion) {
+    if (!suggestion) {
       return;
     }
 
-    setAddressValue(addressSuggestion.value);
+    setAddressValue(suggestion.value);
     setAddressError('');
+    setAddressSuggestionsOpen(false);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (addressSuggestion) {
+    if (selectedAddressSuggestion) {
       applyAddressSuggestion();
       return;
     }
@@ -857,13 +871,48 @@ export function TopBar({
             placeholder="qdn://APP, core://admin/status, or home://dashboard"
             spellCheck={false}
             type="text"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="browser-address-suggestions"
+            aria-expanded={addressSuggestionsOpen && addressSuggestions.length > 0}
+            aria-activedescendant={
+              selectedAddressSuggestion ? `browser-address-suggestion-${activeAddressSuggestionIndex}` : undefined
+            }
             value={addressValue}
             onChange={(event) => {
               setAddressValue(event.target.value);
               setAddressError('');
+              setAddressSuggestionsOpen(true);
+            }}
+            onFocus={() => {
+              if (addressSuggestions.length > 0) {
+                setAddressSuggestionsOpen(true);
+              }
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Tab' && addressSuggestion) {
+              if (event.key === 'ArrowDown' && addressSuggestions.length > 0) {
+                event.preventDefault();
+                setAddressSuggestionsOpen(true);
+                setAddressSuggestionIndex((currentIndex) => (currentIndex + 1) % addressSuggestions.length);
+                return;
+              }
+
+              if (event.key === 'ArrowUp' && addressSuggestions.length > 0) {
+                event.preventDefault();
+                setAddressSuggestionsOpen(true);
+                setAddressSuggestionIndex(
+                  (currentIndex) => (currentIndex - 1 + addressSuggestions.length) % addressSuggestions.length,
+                );
+                return;
+              }
+
+              if (event.key === 'Escape' && addressSuggestionsOpen) {
+                event.preventDefault();
+                setAddressSuggestionsOpen(false);
+                return;
+              }
+
+              if ((event.key === 'Tab' || event.key === 'Enter') && selectedAddressSuggestion) {
                 event.preventDefault();
                 applyAddressSuggestion();
               }
@@ -874,16 +923,32 @@ export function TopBar({
           <ArrowRight aria-hidden="true" size={20} strokeWidth={2} />
           <span className="sr-only">Load address</span>
         </button>
-        {addressSuggestion ? (
-          <button
-            className="top-bar__address-suggestion"
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={applyAddressSuggestion}
+        {addressSuggestionsOpen && addressSuggestions.length > 0 ? (
+          <div
+            className="top-bar__address-suggestions"
+            id="browser-address-suggestions"
+            role="listbox"
           >
-            <span className="top-bar__address-suggestion-value">{addressSuggestion.value}</span>
-            <span className="top-bar__address-suggestion-label">{addressSuggestion.description}</span>
-          </button>
+            {addressSuggestions.map((suggestion, index) => (
+              <button
+                aria-selected={index === activeAddressSuggestionIndex}
+                className={[
+                  'top-bar__address-suggestion',
+                  index === activeAddressSuggestionIndex ? 'top-bar__address-suggestion--active' : '',
+                ].filter(Boolean).join(' ')}
+                id={`browser-address-suggestion-${index}`}
+                key={suggestion.value}
+                role="option"
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setAddressSuggestionIndex(index)}
+                onClick={() => applyAddressSuggestion(suggestion)}
+              >
+                <span className="top-bar__address-suggestion-value">{suggestion.value}</span>
+                <span className="top-bar__address-suggestion-label">{suggestion.description}</span>
+              </button>
+            ))}
+          </div>
         ) : null}
         {addressError ? <p className="top-bar__error">{addressError}</p> : null}
       </form>
