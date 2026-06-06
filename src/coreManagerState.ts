@@ -124,6 +124,11 @@ export function getCoreReleaseActionLabel({
   }
 
   const label = channel === 'stable' ? 'stable' : 'prerelease';
+  const comparison = getCoreReleaseComparison(release, installedCore);
+
+  if (comparison === 0) {
+    return `Current ${label}`;
+  }
 
   return isCoreReleaseUpdateAvailable(release, installedCore) ? `Update ${label}` : `Install ${label}`;
 }
@@ -138,6 +143,7 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
 
   if (status?.installed?.logPaths) {
     rows.push(
+      { label: 'Runtime dir', value: status.installed.runtimePath },
       { label: 'Core log', value: status.installed.logPaths.appLogPath },
       { label: 'Run log', value: status.installed.logPaths.launcherLogPath },
     );
@@ -214,6 +220,10 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
   const canStop = !!status?.installed && !!status.runtime.running;
   const stableUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.stable, status?.installed);
   const prereleaseUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.prerelease, status?.installed);
+  const canInstallOrUpdatePrerelease =
+    canInstallPrerelease && (!status?.installed || prereleaseUpdateAvailable);
+  const canInstallOrUpdateStable =
+    canInstallStable && (!status?.installed || stableUpdateAvailable);
 
   async function refreshStatus() {
     if (!coreApi) {
@@ -361,8 +371,8 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
   return {
     busyAction,
     canInstallJava,
-    canInstallPrerelease,
-    canInstallStable,
+    canInstallPrerelease: canInstallOrUpdatePrerelease,
+    canInstallStable: canInstallOrUpdateStable,
     canStart,
     canStop,
     coreApi,

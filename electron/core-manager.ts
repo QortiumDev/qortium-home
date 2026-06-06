@@ -8,12 +8,12 @@ import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
-import { ensurePreviewApiKey } from './local-api-key.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
 const GITHUB_USER_AGENT = 'QortiumHome/1.0';
 const MANAGED_CORE_DIR = 'managed-core';
+const MANAGED_CORE_RUNTIME_DIR = 'qortium-core';
 const CURRENT_CORE_FILE = 'current.json';
 const CURRENT_JAVA_FILE = 'current-java.json';
 const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
@@ -25,6 +25,7 @@ const POLL_INTERVAL_MS = 2_000;
 const MIN_JAVA_MAJOR_VERSION = 17;
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_API_BASE_URL = 'https://api.adoptium.net/v3/binary/latest';
+const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
 
 type CoreChannel = 'prerelease' | 'stable';
 type JavaArchiveType = 'tar.gz' | 'zip';
@@ -104,6 +105,7 @@ type InstalledCore = {
   logPaths: CoreLogPaths;
   name: string;
   previewPath: string;
+  runtimePath: string;
   tagName: string;
 };
 
@@ -197,21 +199,29 @@ function getCurrentJavaPath() {
   return path.join(getJavaBasePath(), CURRENT_JAVA_FILE);
 }
 
-function getCoreLogPaths(previewPath: string): CoreLogPaths {
+function getCoreRuntimePath() {
+  if (CORE_RUNTIME_DIR_OVERRIDE) {
+    return path.resolve(CORE_RUNTIME_DIR_OVERRIDE);
+  }
+
+  return path.join(app.getPath('appData'), MANAGED_CORE_RUNTIME_DIR);
+}
+
+function getCoreLogPaths(runtimePath: string): CoreLogPaths {
   const logPaths: CoreLogPaths = {
-    appLogPath: path.join(previewPath, 'qortium.log'),
-    launcherLogPath: path.join(previewPath, 'run.log'),
+    appLogPath: path.join(runtimePath, 'qortium.log'),
+    launcherLogPath: path.join(runtimePath, 'run.log'),
   };
 
   if (process.platform === 'win32') {
-    logPaths.windowsErrorLogPath = path.join(previewPath, 'run-error.log');
+    logPaths.windowsErrorLogPath = path.join(runtimePath, 'run-error.log');
   }
 
   return logPaths;
 }
 
-function getRunPidPath(previewPath: string) {
-  return path.join(previewPath, 'run.pid');
+function getRunPidPath(runtimePath: string) {
+  return path.join(runtimePath, 'run.pid');
 }
 
 function sanitizePathSegment(value: string) {
@@ -392,6 +402,7 @@ function parseInstalledCore(value: unknown): InstalledCore | null {
   const previewPath = getString(installedCore.previewPath);
   const jarPath = getString(installedCore.jarPath);
   const tagName = getString(installedCore.tagName);
+  const runtimePath = getString(installedCore.runtimePath) || getCoreRuntimePath();
 
   if (!installPath || !previewPath || !jarPath || !tagName) {
     return null;
@@ -407,9 +418,10 @@ function parseInstalledCore(value: unknown): InstalledCore | null {
     installPath,
     installedAt: getString(installedCore.installedAt),
     jarPath,
-    logPaths: getCoreLogPaths(previewPath),
+    logPaths: getCoreLogPaths(runtimePath),
     name: getString(installedCore.name) || tagName,
     previewPath,
+    runtimePath,
     tagName,
   };
 }
@@ -438,6 +450,10 @@ export async function getManagedCorePreviewPath() {
   return (await readInstalledCore())?.previewPath ?? null;
 }
 
+export async function getManagedCoreRuntimePath() {
+  return (await readInstalledCore())?.runtimePath ?? null;
+}
+
 function isPidRunning(pid: number) {
   try {
     process.kill(pid, 0);
@@ -459,7 +475,7 @@ export async function isManagedCoreRuntimeRunning() {
   }
 
   try {
-    const pid = Number((await readFile(getRunPidPath(installedCore.previewPath), 'utf8')).trim());
+    const pid = Number((await readFile(getRunPidPath(installedCore.runtimePath), 'utf8')).trim());
 
     return Number.isInteger(pid) && pid > 0 && isPidRunning(pid);
   } catch {
@@ -995,9 +1011,10 @@ async function installCore(request: CoreInstallRequest) {
     installPath: corePaths.installPath,
     installedAt: new Date().toISOString(),
     jarPath: corePaths.jarPath,
-    logPaths: getCoreLogPaths(corePaths.previewPath),
+    logPaths: getCoreLogPaths(getCoreRuntimePath()),
     name: release.name,
     previewPath: corePaths.previewPath,
+    runtimePath: getCoreRuntimePath(),
     tagName: release.tagName,
   };
 
@@ -1013,6 +1030,10 @@ async function installCore(request: CoreInstallRequest) {
   return await getStatus();
 }
 
+function quoteWindowsCommandArg(arg: string) {
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
 async function runScript(
   command: string,
   args: string[],
@@ -1023,7 +1044,7 @@ async function runScript(
     let output = '';
     const child =
       process.platform === 'win32'
-        ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${command}" ${args.join(' ')}`], {
+        ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${command}" ${args.map(quoteWindowsCommandArg).join(' ')}`], {
             cwd,
             env,
             windowsHide: true,
@@ -1116,8 +1137,6 @@ async function startCore() {
     );
   }
 
-  ensurePreviewApiKey(installedCore.previewPath);
-
   publishProgress({
     action: 'starting',
     kind: 'info',
@@ -1127,7 +1146,7 @@ async function startCore() {
   try {
     await runScript(
       startScript,
-      ['--participant'],
+      ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
     );
@@ -1179,7 +1198,7 @@ async function stopCore() {
   try {
     await runScript(
       stopScript,
-      [],
+      [`--runtime-dir=${installedCore.runtimePath}`],
       installedCore.previewPath,
       getJavaRuntimeEnv(await getJavaStatus()),
     );
