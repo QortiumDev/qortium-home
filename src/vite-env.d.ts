@@ -488,6 +488,9 @@ interface Window {
       openReleasePage: (url: string) => Promise<void>;
       showDownloadedFile: (filePath: string) => Promise<void>;
     };
+    system?: {
+      openPath: (filePath: string) => Promise<void>;
+    };
     windows?: {
       closeCurrentWindow: () => Promise<void>;
       getStartupPayload: () => Promise<QortiumHomeWindowStartupPayload | null>;

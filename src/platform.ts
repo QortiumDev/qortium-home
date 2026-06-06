@@ -4110,6 +4110,11 @@ function createFallbackApi(): PlatformApi {
         throw new Error('Showing downloaded update files is only available in the desktop app right now.');
       },
     },
+    system: {
+      async openPath() {
+        throw new Error('Opening local paths is only available in the desktop app right now.');
+      },
+    },
     node: {
       async checkCoreUpdate() {
         return requestCoreOnChainUpdate('GET');

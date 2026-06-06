@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { checkAppUpdates } from './appUpdates';
 
+const UPDATE_CHANNELS: QortiumAppUpdateChannel[] = ['stable', 'prerelease'];
+
 export type UpdateMessage = {
   kind: 'error' | 'success';
   text: string;
 } | null;
+
+type UpdateResultsByChannel = Partial<Record<QortiumAppUpdateChannel, QortiumAppUpdateCheckResult>>;
 
 export function formatUpdateError(error: unknown) {
   if (!(error instanceof Error)) {
@@ -73,13 +77,11 @@ export function getOpenDownloadedFileLabel(platform: QortiumAppUpdatePlatform | 
 }
 
 function getUpdateDetailRows({
-  channel,
   downloadedUpdate,
   environment,
   result,
   updatePlatform,
 }: {
-  channel: QortiumAppUpdateChannel;
   downloadedUpdate: QortiumAppUpdateDownloadResult | null;
   environment: QortiumAppUpdateEnvironment | null;
   result: QortiumAppUpdateCheckResult | null;
@@ -88,7 +90,6 @@ function getUpdateDetailRows({
   const rows = [
     { label: 'Current', value: environment?.currentVersion ?? 'Checking' },
     { label: 'Platform', value: environment?.platform.label ?? 'Checking' },
-    { label: 'Channel', value: channel === 'stable' ? 'Stable' : 'Prerelease' },
   ];
 
   if (result?.release) {
@@ -119,18 +120,54 @@ function getUpdateDetailRows({
   return rows;
 }
 
+function getResultChannels(results: UpdateResultsByChannel) {
+  return UPDATE_CHANNELS.filter((channel) => !!results[channel]?.release);
+}
+
+function getPreferredResultChannel({
+  currentChannel,
+  environment,
+  results,
+}: {
+  currentChannel: QortiumAppUpdateChannel;
+  environment: QortiumAppUpdateEnvironment;
+  results: UpdateResultsByChannel;
+}) {
+  if (results[currentChannel]?.release) {
+    return currentChannel;
+  }
+
+  const defaultChannel = getDefaultUpdateChannel(environment);
+
+  if (results[defaultChannel]?.release) {
+    return defaultChannel;
+  }
+
+  if (results.prerelease?.release) {
+    return 'prerelease';
+  }
+
+  if (results.stable?.release) {
+    return 'stable';
+  }
+
+  return currentChannel;
+}
+
 export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {}) {
   const [environment, setEnvironment] = useState<QortiumAppUpdateEnvironment | null>(null);
   const [channel, setChannelState] = useState<QortiumAppUpdateChannel>('stable');
-  const [result, setResult] = useState<QortiumAppUpdateCheckResult | null>(null);
+  const [results, setResults] = useState<UpdateResultsByChannel>({});
   const [downloadedUpdate, setDownloadedUpdate] = useState<QortiumAppUpdateDownloadResult | null>(null);
   const [message, setMessage] = useState<UpdateMessage>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const autoCheckKeyRef = useRef('');
+  const result = results[channel] ?? null;
   const releasePageUrl = getReleasePageUrl(result);
   const updatePlatform = result?.platform ?? environment?.platform;
   const updateAvailable = result?.status === 'available';
+  const availableChannels = useMemo(() => getResultChannels(results), [results]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -162,7 +199,6 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   const detailRows = useMemo(
     () =>
       getUpdateDetailRows({
-        channel,
         downloadedUpdate,
         environment,
         result,
@@ -181,13 +217,26 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     setMessage(null);
 
     try {
-      const nextResult = await checkAppUpdates(environment, channel);
+      const nextEntries = await Promise.all(
+        UPDATE_CHANNELS.map(async (nextChannel) => [
+          nextChannel,
+          await checkAppUpdates(environment, nextChannel),
+        ] as const),
+      );
+      const nextResults = Object.fromEntries(nextEntries) as UpdateResultsByChannel;
+      const nextChannel = getPreferredResultChannel({
+        currentChannel: channel,
+        environment,
+        results: nextResults,
+      });
+      const nextResult = nextResults[nextChannel] ?? null;
       const nextKind = getUpdateStatusKind(nextResult);
 
-      setResult(nextResult);
+      setResults(nextResults);
+      setChannelState(nextChannel);
       setMessage({
         kind: nextKind ?? 'error',
-        text: nextResult.message,
+        text: nextResult?.message ?? 'Unable to check Qortium Home releases.',
       });
     } catch (error) {
       setMessage({
@@ -204,7 +253,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
       return;
     }
 
-    const autoCheckKey = `${environment.currentVersion}:${environment.platform.os}:${environment.platform.arch}:${channel}`;
+    const autoCheckKey = `${environment.currentVersion}:${environment.platform.os}:${environment.platform.arch}`;
 
     if (autoCheckKeyRef.current === autoCheckKey) {
       return;
@@ -212,14 +261,15 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
 
     autoCheckKeyRef.current = autoCheckKey;
     void checkForUpdates();
-  }, [autoCheck, channel, environment]);
+  }, [autoCheck, environment]);
 
   function changeChannel(nextChannel: QortiumAppUpdateChannel) {
     setChannelState(nextChannel);
-    setResult(null);
     setDownloadedUpdate(null);
-    setMessage(null);
-    autoCheckKeyRef.current = '';
+    const nextResult = results[nextChannel] ?? null;
+    const nextKind = getUpdateStatusKind(nextResult);
+
+    setMessage(nextResult ? { kind: nextKind ?? 'error', text: nextResult.message } : null);
   }
 
   async function downloadUpdate() {
@@ -298,6 +348,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   }
 
   return {
+    availableChannels,
     channel,
     checkForUpdates,
     detailRows,
@@ -311,6 +362,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     openReleasePage,
     releasePageUrl,
     result,
+    results,
     setChannel: changeChannel,
     showDownloadedFile,
     updatePlatform,

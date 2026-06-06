@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     openReleasePage: (url: string) => ipcRenderer.invoke('updates:openReleasePage', url),
     showDownloadedFile: (filePath: string) => ipcRenderer.invoke('updates:showDownloadedFile', filePath),
   },
+  system: {
+    openPath: (filePath: string) => ipcRenderer.invoke('system:openPath', filePath),
+  },
   windows: {
     closeCurrentWindow: () => ipcRenderer.invoke('windows:closeCurrentWindow'),
     getStartupPayload: () => ipcRenderer.invoke('windows:getStartupPayload'),
