@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { compareAppVersions } from './appUpdates';
+import { SETTINGS_TEXT } from './settingsText';
 
 export type CoreMessage = {
   kind: 'error' | 'success';
@@ -22,6 +23,7 @@ type CoreManagerOptions = {
 
 export type DetailRow = {
   label: string;
+  path?: string;
   value: string;
 };
 
@@ -136,33 +138,49 @@ export function getCoreReleaseActionLabel({
 function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCoreReleases | null) {
   const rows = [
     {
-      label: 'Core',
+      label: SETTINGS_TEXT.labels.version,
       value: status?.installed ? formatInstalledCore(status.installed) : status?.runtime.running ? 'Detected' : 'Not installed',
     },
-    { label: 'Java', value: formatJava(status?.java ?? null) },
-    { label: 'Runtime', value: formatRuntime(status?.runtime ?? null) },
-    { label: 'Local API', value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
+    { label: SETTINGS_TEXT.labels.java, value: formatJava(status?.java ?? null) },
+    { label: SETTINGS_TEXT.labels.runtime, value: formatRuntime(status?.runtime ?? null) },
+    { label: SETTINGS_TEXT.labels.localApi, value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
   ];
 
   if (status?.installed?.logPaths) {
     rows.push(
-      { label: 'Runtime dir', value: status.installed.runtimePath },
-      { label: 'Core log', value: status.installed.logPaths.appLogPath },
-      { label: 'Run log', value: status.installed.logPaths.launcherLogPath },
+      {
+        label: SETTINGS_TEXT.labels.runtimeDirectory,
+        path: status.installed.runtimePath,
+        value: status.installed.runtimePath,
+      },
+      {
+        label: SETTINGS_TEXT.labels.coreLog,
+        path: status.installed.logPaths.appLogPath,
+        value: status.installed.logPaths.appLogPath,
+      },
+      {
+        label: SETTINGS_TEXT.labels.runLog,
+        path: status.installed.logPaths.launcherLogPath,
+        value: status.installed.logPaths.launcherLogPath,
+      },
     );
 
     if (status.installed.logPaths.windowsErrorLogPath) {
       rows.push({
-        label: 'Error log',
+        label: SETTINGS_TEXT.labels.errorLog,
+        path: status.installed.logPaths.windowsErrorLogPath,
         value: status.installed.logPaths.windowsErrorLogPath,
       });
     }
   }
 
-  rows.push(
-    { label: 'Stable', value: getReleaseLabel(releases?.stable) },
-    { label: 'Prerelease', value: getReleaseLabel(releases?.prerelease) },
-  );
+  if (releases?.stable.available) {
+    rows.push({ label: SETTINGS_TEXT.channels.stable, value: getReleaseLabel(releases.stable) });
+  }
+
+  if (releases?.prerelease.available) {
+    rows.push({ label: SETTINGS_TEXT.channels.prerelease, value: getReleaseLabel(releases.prerelease) });
+  }
 
   return rows;
 }

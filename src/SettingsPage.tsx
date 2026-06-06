@@ -26,6 +26,7 @@ export function SettingsPage({
           onSaveNodeSettings={onSaveNodeSettings}
         />
         <CoreManagerPanel
+          nodeSettings={nodeSettings}
           onResolvedNodeApiUrl={onResolvedNodeApiUrl}
           onSaveNodeSettings={onSaveNodeSettings}
         />

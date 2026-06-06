@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: clean up settings update workflows
+
+Changed Settings into expandable sections with Node Settings open by default
+and Qortium Core and Qortium Home collapsed by default. Core and Home update
+status now share common labels, version-link rendering, and update action
+rules; Settings can handle approved on-chain Core updates, Core uses
+context-sensitive install/start/stop buttons, Home checks stable and
+prerelease releases together, and local Core runtime/log paths can be opened
+directly from Settings.
+
 ### 2026-06-06 - app: hide matching dashboard latest versions
 
 Changed the Dashboard so the Latest row only appears when the checked release

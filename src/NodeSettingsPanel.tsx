@@ -2,6 +2,8 @@ import { Check, RefreshCw } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { isNativePlatform } from './platform';
+import { SettingsSection } from './SettingsSection';
+import { SETTINGS_TEXT } from './settingsText';
 
 type ConfigMessage = {
   kind: 'error' | 'success';
@@ -118,18 +120,19 @@ export function NodeSettingsPanel({
   }
 
   return (
-    <section className="node-settings" aria-label="Node settings">
-      <div className="node-settings__header">
-        <h2 className="node-settings__title">Node Settings</h2>
-      </div>
-
+    <SettingsSection
+      defaultExpanded
+      summary={formatMode(nodeSettings.mode)}
+      title={SETTINGS_TEXT.sections.nodeSettings}
+    >
+      <div className="node-settings">
       <dl className="detail-list node-settings__details">
         <div className="detail-list__row">
-          <dt className="detail-list__label">Current node</dt>
+          <dt className="detail-list__label">{SETTINGS_TEXT.labels.currentNode}</dt>
           <dd className="detail-list__value">{nodeSettings.nodeApiUrl}</dd>
         </div>
         <div className="detail-list__row">
-          <dt className="detail-list__label">Mode</dt>
+          <dt className="detail-list__label">{SETTINGS_TEXT.labels.mode}</dt>
           <dd className="detail-list__value">{formatMode(nodeSettings.mode)}</dd>
         </div>
       </dl>
@@ -211,11 +214,11 @@ export function NodeSettingsPanel({
             onClick={handleTestConnection}
           >
             <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-            {isTesting ? 'Testing' : 'Test'}
+            {isTesting ? SETTINGS_TEXT.actions.testing : SETTINGS_TEXT.actions.test}
           </button>
           <button className="button" disabled={isSaving || isTesting} type="submit">
             <Check aria-hidden="true" size={18} strokeWidth={2} />
-            {isSaving ? 'Saving' : 'Save'}
+            {isSaving ? SETTINGS_TEXT.actions.saving : SETTINGS_TEXT.actions.save}
           </button>
         </div>
 
@@ -225,6 +228,7 @@ export function NodeSettingsPanel({
           </p>
         ) : null}
       </form>
-    </section>
+      </div>
+    </SettingsSection>
   );
 }
