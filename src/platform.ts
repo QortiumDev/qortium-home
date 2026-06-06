@@ -42,7 +42,7 @@ const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_WRITE_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
-const QDN_CHAT_ACTIONS = ['JOIN_GROUP', 'SEND_CHAT_MESSAGE'] as const;
+const QDN_CHAT_ACTIONS = ['APPROVE_GROUP_JOIN_REQUEST', 'JOIN_GROUP', 'SEND_CHAT_MESSAGE'] as const;
 const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
@@ -56,10 +56,13 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'FETCH_QDN_RESOURCE',
   'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_GROUPS',
+  'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
   'GET_ACTIVE_CHATS',
+  'GET_ADMIN_GROUP_JOIN_REQUESTS',
   'GET_BALANCE',
   'GET_GROUP',
+  'GET_GROUP_JOIN_REQUESTS',
   'GET_GROUP_MEMBERS',
   'GET_NAME_DATA',
   'GET_NODE_INFO',
@@ -1036,6 +1039,16 @@ function base58Decode(value: string) {
   }
 
   return new Uint8Array(bytes.reverse());
+}
+
+function getSignedTransactionSignature(signedTransactionBytes58: string) {
+  const signedTransactionBytes = base58Decode(signedTransactionBytes58);
+
+  if (signedTransactionBytes.length < 64) {
+    throw new Error('Signed transaction did not contain a signature.');
+  }
+
+  return base58Encode(signedTransactionBytes.slice(-64));
 }
 
 function stringToUtf8Array(value: string) {
@@ -2225,6 +2238,8 @@ async function signAndProcessTransaction(
   return {
     body: processedTransaction.body,
     data: parseResponseData(processedTransaction.body, processedTransaction.contentType),
+    signature: getSignedTransactionSignature(signedTransaction.body),
+    signedTransactionBytes: signedTransaction.body,
   };
 }
 
@@ -2381,6 +2396,59 @@ async function joinGroupForApp(request: QdnAppRequest, context: QdnAppRequestCon
     groupId,
     groupName,
     result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function approveGroupJoinRequestForApp(
+  request: QdnAppRequest,
+  context: QdnAppRequestContext | undefined,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const invitee = getRequiredAddressRequestString(request, 'joiner', 'Joiner address');
+  const writeContext = await getQdnWriteContext(context);
+  const groupData = await getGroupDataForChat(writeContext.nodeApiUrl, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'APPROVE_GROUP_JOIN_REQUEST',
+    groupId,
+    groupName,
+    recipientAddress: invitee,
+    permissionScope: 'single-request',
+  });
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/groups/invite',
+    JSON.stringify({
+      type: 'GROUP_INVITE',
+      timestamp: Date.now(),
+      txGroupId: 0,
+      fee: 0,
+      adminPublicKey: writeContext.publicKey58,
+      groupId,
+      invitee,
+      timeToLive: 0,
+    }),
+    writeContext.apiKey,
+    'Group invite transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await signAndProcessTransaction(
+    writeContext,
+    unsignedTransaction.body,
+    '/transactions/mempow/compute',
+  );
+
+  return {
+    accepted: true,
+    action: 'APPROVE_GROUP_JOIN_REQUEST',
+    groupId,
+    groupName,
+    invitee,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
   };
 }
 
@@ -2535,14 +2603,7 @@ async function getPrivateGroupActiveChatsForApp(
 ) {
   const writeContext = await getQdnWriteContext(context);
 
-  await requestQdnChatPermissionApproval(
-    context as QdnAppRequestContext,
-    writeContext.profile,
-    'READ_PRIVATE_GROUP_CHAT',
-    {
-      groupName: 'All closed groups',
-    },
-  );
+  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -2565,17 +2626,8 @@ async function searchPrivateGroupChatMessagesForApp(
 ) {
   const writeContext = await getQdnWriteContext(context);
   const groupId = getRequiredGroupId(request, 1);
-  const groupData = await getGroupDataForChat(writeContext.nodeApiUrl, groupId);
 
-  await requestQdnChatPermissionApproval(
-    context as QdnAppRequestContext,
-    writeContext.profile,
-    'READ_PRIVATE_GROUP_CHAT',
-    {
-      groupId,
-      groupName: getGroupName(groupData),
-    },
-  );
+  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -2595,12 +2647,7 @@ async function getPrivateDirectActiveChatsForApp(
 ) {
   const writeContext = await getQdnWriteContext(context);
 
-  await requestQdnChatPermissionApproval(
-    context as QdnAppRequestContext,
-    writeContext.profile,
-    'READ_PRIVATE_DIRECT_CHAT',
-    {},
-  );
+  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -2625,14 +2672,7 @@ async function searchPrivateDirectChatMessagesForApp(
   const writeContext = await getQdnWriteContext(context);
   const otherAddress = getDirectChatOtherAddress(request);
 
-  await requestQdnChatPermissionApproval(
-    context as QdnAppRequestContext,
-    writeContext.profile,
-    'READ_PRIVATE_DIRECT_CHAT',
-    {
-      recipientAddress: otherAddress,
-    },
-  );
+  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -3233,6 +3273,16 @@ function getChatMessageText(request: QdnAppRequest) {
   return message;
 }
 
+function getRequiredAddressRequestString(request: QdnAppRequest, key: string, label: string) {
+  const address = getRequiredRequestString(request, key, label);
+
+  if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(address)) {
+    throw new Error(`${label} must be a Qortium address.`);
+  }
+
+  return address;
+}
+
 function getChatMessagePreview(message: string) {
   return message.length > 120 ? `${message.slice(0, 117)}...` : message;
 }
@@ -3738,6 +3788,22 @@ function buildGroupMembersPath(request: QdnAppRequest) {
   return `/groups/members/${encodeURIComponent(String(groupId))}${queryString ? `?${queryString}` : ''}`;
 }
 
+function buildGroupJoinRequestsPath(request: QdnAppRequest) {
+  return `/groups/joinrequests/${encodeURIComponent(String(getRequiredGroupId(request, 1)))}`;
+}
+
+async function buildAccountGroupJoinRequestsPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+
+  return `/groups/joinrequests/address/${encodeURIComponent(address)}`;
+}
+
+async function buildAdminGroupJoinRequestsPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+
+  return `/groups/joinrequests/admin/${encodeURIComponent(address)}`;
+}
+
 async function getAddressForQdnRequest(
   request: QdnAppRequest,
   context: QdnAppRequestContext | undefined,
@@ -3918,6 +3984,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'GET_ACCOUNT_GROUPS':
       return fetchNodeApiPayload(await buildAccountGroupsPath(request, context), request);
 
+    case 'GET_ACCOUNT_GROUP_JOIN_REQUESTS':
+      return fetchNodeApiPayload(await buildAccountGroupJoinRequestsPath(request, context), request);
+
     case 'GET_ACCOUNT_NAMES':
       return fetchNodeApiPayload(
         `/names/address/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
@@ -3938,6 +4007,12 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
         `/groups/${encodeURIComponent(String(getRequiredGroupId(request, 1)))}`,
         request,
       );
+
+    case 'GET_ADMIN_GROUP_JOIN_REQUESTS':
+      return fetchNodeApiPayload(await buildAdminGroupJoinRequestsPath(request, context), request);
+
+    case 'GET_GROUP_JOIN_REQUESTS':
+      return fetchNodeApiPayload(buildGroupJoinRequestsPath(request), request);
 
     case 'GET_GROUP_MEMBERS':
       return fetchNodeApiPayload(buildGroupMembersPath(request), request);
@@ -4001,6 +4076,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'JOIN_GROUP':
       return joinGroupForApp(request, context);
+
+    case 'APPROVE_GROUP_JOIN_REQUEST':
+      return approveGroupJoinRequestForApp(request, context);
 
     case 'SEND_CHAT_MESSAGE':
       return sendChatMessageForApp(request, context);

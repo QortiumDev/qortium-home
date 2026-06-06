@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: add QDN group join approvals
+
+Changed the QDN app bridge so chat apps can read pending group join requests
+for the selected account and group admins, approve a private-group join request
+through the Core group-invite transaction path, and receive transaction
+signatures for group join and approval actions so apps can track confirmation.
+Private group and direct chat read requests now reuse the existing account-share
+approval instead of opening repeated write-style permission prompts for
+read-only message checks.
+
 ### 2026-06-06 - app: add account menu and QDN browse action
 
 Changed the Dashboard to show a centered Browse QDN button above wallet

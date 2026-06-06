@@ -999,6 +999,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
         for (const action of [
           'PUBLISH_QDN_RESOURCE',
           'DELETE_QDN_RESOURCE',
+          'APPROVE_GROUP_JOIN_REQUEST',
           'JOIN_GROUP',
           'SEND_CHAT_MESSAGE',
           'GET_PRIVATE_DIRECT_ACTIVE_CHATS',

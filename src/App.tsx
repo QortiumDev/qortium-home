@@ -273,6 +273,8 @@ function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']
       return 'Publish QDN Resource';
     case 'DELETE_QDN_RESOURCE':
       return 'Delete QDN Resource';
+    case 'APPROVE_GROUP_JOIN_REQUEST':
+      return 'Approve Group Join Request';
     case 'JOIN_GROUP':
       return 'Join Group';
     case 'SEND_CHAT_MESSAGE':
