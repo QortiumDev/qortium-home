@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: hide matching dashboard latest versions
+
+Changed the Dashboard so the Latest row only appears when the checked release
+differs from the current Core or Home version. Qortium Home now displays its
+current version as the same `v`-prefixed release tag used by GitHub releases, so
+the Core and Home version fields use consistent tag formatting.
+
 ### 2026-06-06 - app: standardize dashboard release status
 
 Changed the Dashboard so Qortium Core and Qortium Home use matching titles,
