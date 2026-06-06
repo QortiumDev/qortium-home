@@ -775,6 +775,8 @@ export function TopBar({
   const [addressError, setAddressError] = useState('');
   const [addressSuggestionIndex, setAddressSuggestionIndex] = useState(0);
   const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(true);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const addressSuggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const addressSuggestions = useMemo(() => getAddressSchemeSuggestions(addressValue), [addressValue]);
   const activeAddressSuggestionIndex = addressSuggestions.length > 0
     ? Math.min(addressSuggestionIndex, addressSuggestions.length - 1)
@@ -794,6 +796,20 @@ export function TopBar({
   useEffect(() => {
     setAddressSuggestionIndex(0);
   }, [addressValue]);
+
+  function focusAddressSuggestion(index: number) {
+    window.requestAnimationFrame(() => {
+      addressSuggestionRefs.current[index]?.focus();
+    });
+  }
+
+  function moveAddressSuggestionFocus(index: number) {
+    const nextIndex = Math.max(0, Math.min(index, addressSuggestions.length - 1));
+
+    setAddressSuggestionsOpen(true);
+    setAddressSuggestionIndex(nextIndex);
+    focusAddressSuggestion(nextIndex);
+  }
 
   function applyAddressSuggestion(suggestion = selectedAddressSuggestion) {
     if (!suggestion) {
@@ -878,6 +894,7 @@ export function TopBar({
             aria-activedescendant={
               selectedAddressSuggestion ? `browser-address-suggestion-${activeAddressSuggestionIndex}` : undefined
             }
+            ref={addressInputRef}
             value={addressValue}
             onChange={(event) => {
               setAddressValue(event.target.value);
@@ -892,17 +909,13 @@ export function TopBar({
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown' && addressSuggestions.length > 0) {
                 event.preventDefault();
-                setAddressSuggestionsOpen(true);
-                setAddressSuggestionIndex((currentIndex) => (currentIndex + 1) % addressSuggestions.length);
+                moveAddressSuggestionFocus(addressSuggestionsOpen ? activeAddressSuggestionIndex : 0);
                 return;
               }
 
               if (event.key === 'ArrowUp' && addressSuggestions.length > 0) {
                 event.preventDefault();
-                setAddressSuggestionsOpen(true);
-                setAddressSuggestionIndex(
-                  (currentIndex) => (currentIndex - 1 + addressSuggestions.length) % addressSuggestions.length,
-                );
+                moveAddressSuggestionFocus(addressSuggestions.length - 1);
                 return;
               }
 
@@ -938,10 +951,44 @@ export function TopBar({
                 ].filter(Boolean).join(' ')}
                 id={`browser-address-suggestion-${index}`}
                 key={suggestion.value}
+                ref={(element) => {
+                  addressSuggestionRefs.current[index] = element;
+                }}
                 role="option"
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setAddressSuggestionIndex(index)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    moveAddressSuggestionFocus((index + 1) % addressSuggestions.length);
+                    return;
+                  }
+
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+
+                    if (index === 0) {
+                      addressInputRef.current?.focus();
+                      return;
+                    }
+
+                    moveAddressSuggestionFocus(index - 1);
+                    return;
+                  }
+
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setAddressSuggestionsOpen(false);
+                    addressInputRef.current?.focus();
+                    return;
+                  }
+
+                  if (event.key === 'Tab') {
+                    event.preventDefault();
+                    applyAddressSuggestion(suggestion);
+                  }
+                }}
                 onClick={() => applyAddressSuggestion(suggestion)}
               >
                 <span className="top-bar__address-suggestion-value">{suggestion.value}</span>

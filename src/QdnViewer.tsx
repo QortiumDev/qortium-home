@@ -217,6 +217,23 @@ function getTextPreviewLabel(resource: QdnResource, mimeType: string, formattedA
   return 'Text';
 }
 
+function isArchiveResourceProperties(properties: QdnResourceProperties | undefined) {
+  const filename = properties?.filename ?? '';
+  const mimeType = properties?.mimeType ?? '';
+
+  return /\.zip$/i.test(filename) || /\bzip\b/i.test(mimeType);
+}
+
+function getLoadedViewerKind(resource: QdnResource, properties: QdnResourceProperties | undefined) {
+  const viewerKind = getQdnViewerKind(resource.service);
+
+  if (viewerKind === 'iframe' && isArchiveResourceProperties(properties)) {
+    return 'download';
+  }
+
+  return viewerKind;
+}
+
 async function writeClipboardText(value: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -404,7 +421,8 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
     }
 
     async function setReadyState(status: QdnResourceStatus) {
-      const viewerKind = getQdnViewerKind(resource.service);
+      const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
+      const viewerKind = getLoadedViewerKind(resource, properties);
       const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl);
       const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
 
@@ -412,7 +430,6 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
         await verifyRenderUrl(directRenderUrl, abortController.signal);
       }
 
-      const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
       let renderUrl = directRenderUrl;
 
       if (useBlobRenderUrl) {
