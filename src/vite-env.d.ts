@@ -444,6 +444,7 @@ type QortiumQdnWriteApprovalRequest = {
   action:
     | 'PUBLISH_QDN_RESOURCE'
     | 'DELETE_QDN_RESOURCE'
+    | 'APPROVE_GROUP_JOIN_REQUEST'
     | 'JOIN_GROUP'
     | 'SEND_CHAT_MESSAGE'
     | 'READ_PRIVATE_GROUP_CHAT'
