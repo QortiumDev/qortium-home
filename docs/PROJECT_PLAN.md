@@ -62,7 +62,7 @@ Qortium Home is intended to be a simple, focused, Qortium-native UI for account 
   - Install a managed Java 17 runtime on desktop when Java is missing.
   - Install or set up what is needed for the downloaded Core.
   - Run scripts included with the Core to start and stop it.
-  - Show managed Core preview log paths for launch troubleshooting.
+  - Show managed Core runtime log paths for launch troubleshooting.
   - Show node status, including whether the node is connected, whether it has
     peers, sync phase, target height, remaining blocks, and sync percent.
 - Initial node connection options:

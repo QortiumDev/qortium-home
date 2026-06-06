@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - docs: refresh managed core and bridge notes
+
+Updated the public Home documentation so the current feature list uses the persistent `qortium-core` runtime log paths and describes the QDN app bridge chat support consistently. The preview limits and project plan now distinguish missing first-party direct chat UI from the QDN app direct/private chat bridge actions that Home already supports.
+
 ### 2026-06-06 - app: add address suggestion keyboard navigation
 
 Changed the Home address bar suggestions so keyboard users can move through matching suggestions with the up and down arrows, accept the active suggestion with Enter or Tab, and close the suggestion list with Escape. The suggestion list now exposes active selection state for assistive technology while keeping mouse selection behavior available.
