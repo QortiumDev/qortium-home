@@ -35,6 +35,7 @@ type DetailRow = {
 
 type NodeStatusButtonProps = {
   nodeSettings: QortiumNodeSettings;
+  onMenuOpenChange?: (isOpen: boolean) => void;
   onOpenSettings: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
 };
@@ -168,6 +169,7 @@ function formatSyncPhase(syncPhase: null | string | undefined) {
 
 export function NodeStatusButton({
   nodeSettings,
+  onMenuOpenChange,
   onOpenSettings,
   onResolvedNodeApiUrl,
 }: NodeStatusButtonProps) {
@@ -262,6 +264,7 @@ export function NodeStatusButton({
       contentClassName="node-status__popover"
       contentId={popoverId}
       contentLabel="Node status"
+      onOpenChange={onMenuOpenChange}
       renderTrigger={({ contentId, isOpen, toggle }) => (
         <button
           type="button"
