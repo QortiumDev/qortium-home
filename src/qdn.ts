@@ -243,7 +243,7 @@ function buildQdnWildcardNameUrl(name: string) {
 export function buildQdnDisplayUrl(resource: Omit<QdnResource, 'displayUrl'>) {
   return `qdn://${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
     resource.identifier ?? 'default',
-  )}${encodeDisplayPath(resource.path)}`;
+  )}${resource.path ? encodeDisplayPath(resource.path) : ''}`;
 }
 
 export function parseQdnUrl(value: string): QdnParseResult {
