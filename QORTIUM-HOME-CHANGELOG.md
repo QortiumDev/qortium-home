@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: add account menu and QDN browse action
+
+Changed the Dashboard to show a centered Browse QDN button above wallet
+management. The top-bar account indicator now opens an account menu with wallet
+status, address, and a context-sensitive lock or unlock action, while preserving
+the existing node-status menu beside it.
+
 ### 2026-06-06 - app: keep QDN permission dialogs visible
 
 Changed QDN app permission handling so Home temporarily hides the isolated QDN

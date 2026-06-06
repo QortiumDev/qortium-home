@@ -11,6 +11,8 @@ export type DetailRow = {
   value: ReactNode;
 };
 
+type AvailableCoreReleaseSummary = Extract<QortiumCoreReleaseSummary, { available: true }>;
+
 export function formatReleaseTag(version: string | null | undefined) {
   const normalizedVersion = version?.trim();
 
@@ -116,7 +118,7 @@ export function DetailList({
 export function getAvailableCoreRelease(
   releases: QortiumCoreReleases | null,
   channel: QortiumCoreChannel,
-): QortiumCoreReleaseSummary | null {
+): AvailableCoreReleaseSummary | null {
   const release = releases?.[channel];
 
   return release?.available ? release : null;

@@ -1,4 +1,4 @@
-import { Download, ExternalLink } from 'lucide-react';
+import { Download, ExternalLink, Globe2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
@@ -33,6 +33,7 @@ type DashboardPageProps = {
   coreManager: CoreManagerState;
   isLoadingAccounts: boolean;
   onChainCoreUpdate: OnChainCoreUpdateController;
+  onBrowseQdn: () => void;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onSelectedAccountChange: (accountId: string | null) => void;
@@ -354,6 +355,7 @@ export function DashboardPage({
   coreManager,
   isLoadingAccounts,
   onChainCoreUpdate,
+  onBrowseQdn,
   onAccountsStateChange,
   onSelectedAccountChange,
   selectedAccountId,
@@ -365,6 +367,13 @@ export function DashboardPage({
       <header className="dashboard-page__header">
         <h1>Dashboard</h1>
       </header>
+
+      <div className="dashboard-page__primary-action">
+        <button className="button" type="button" onClick={onBrowseQdn}>
+          <Globe2 aria-hidden="true" size={18} strokeWidth={2} />
+          Browse QDN
+        </button>
+      </div>
 
       <section className="dashboard-card dashboard-card--accounts" aria-label="Accounts">
         <AccountsPanel
