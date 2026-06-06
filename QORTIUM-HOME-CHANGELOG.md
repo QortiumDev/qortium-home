@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: harden core runtime and update guards
+
+Changed managed Core migration and startup so Home records the installed Core release's Previewnet chain identity beside the persistent runtime data and refuses to reuse that runtime when a different chain configuration is detected. Protected local Core admin calls now refresh the local API key and retry once after an invalid-key response, Home update downloads reject current or older releases in the backend as well as the UI, and a desktop browser-chrome smoke test now covers address-bar suggestion highlighting plus common tab, history, reload, and address-focus shortcuts.
+
 ### 2026-06-06 - app: reduce settings redundancy and preserve page state
 
 Changed Dashboard and Settings so Core and Home update checks share one app-level
