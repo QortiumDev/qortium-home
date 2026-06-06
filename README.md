@@ -29,14 +29,14 @@ more broadly.
   height, blocks remaining, sync percent, and peer counts when Core provides
   them.
 - Switch between a local node, Previewnet network discovery, and one saved custom node.
-- Install the latest Qortium Core prerelease from GitHub into a desktop managed
+- Install the latest Qortium Core prerelease from GitHub into a desktop Core
   app-data folder.
-- Install a managed Java 17 runtime for desktop Core when system Java is
+- Install a Home-managed Java 17 runtime for desktop Core when system Java is
   missing.
-- Start and stop the managed desktop Previewnet Core.
-- Show managed Core runtime log paths for `qortium-core/qortium.log`,
-  `qortium-core/run.log`, and the Windows `qortium-core/run-error.log` when
-  applicable.
+- Start and stop the Home-created desktop Previewnet Core.
+- Show Core runtime log paths for `qortium-core/runtime/qortium.log`,
+  `qortium-core/runtime/run.log`, and the Windows
+  `qortium-core/runtime/run-error.log` when applicable.
 - Browse QDN services, names, and resources from `qdn://` URLs.
 - Load `APP` and `WEBSITE` resources in an embedded viewer.
 - Load image-style QDN resources such as `IMAGE`, `THUMBNAIL`, and
