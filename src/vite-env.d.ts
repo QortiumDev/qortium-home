@@ -192,6 +192,18 @@ type QortiumCoreJavaStatus = {
 
 type QortiumCoreRuntimeStatus = {
   apiKeyPath?: string;
+  blocked?: {
+    blockedAt: string;
+    currentCoreTagName: string;
+    currentNetworkId: string;
+    currentPreviewChainSha256: string;
+    existingCoreTagName: string;
+    existingNetworkId: string;
+    existingPreviewChainSha256: string;
+    markerPath: string;
+    message: string;
+    runtimePath: string;
+  };
   jarPath?: string;
   localApiUrl: string;
   owner: 'external' | 'home' | 'unknown';

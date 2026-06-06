@@ -161,8 +161,22 @@ type JavaStatus = {
 
 type CoreRuntimeOwner = 'external' | 'home' | 'unknown';
 
+type CoreRuntimeBlockedStatus = {
+  blockedAt: string;
+  currentCoreTagName: string;
+  currentNetworkId: string;
+  currentPreviewChainSha256: string;
+  existingCoreTagName: string;
+  existingNetworkId: string;
+  existingPreviewChainSha256: string;
+  markerPath: string;
+  message: string;
+  runtimePath: string;
+};
+
 type CoreRuntimeStatus = {
   apiKeyPath?: string;
+  blocked?: CoreRuntimeBlockedStatus;
   jarPath?: string;
   localApiUrl: string;
   owner: CoreRuntimeOwner;
@@ -505,6 +519,53 @@ async function writeRuntimeMigrationBlocked(
     )}\n`,
     'utf8',
   );
+}
+
+async function readRuntimeMigrationBlocked(runtimePath: string): Promise<CoreRuntimeBlockedStatus | null> {
+  const markerPath = getRuntimeMigrationBlockedPath(runtimePath);
+
+  if (!existsSync(markerPath)) {
+    return null;
+  }
+
+  try {
+    const parsedMarker: unknown = JSON.parse(await readFile(markerPath, 'utf8'));
+
+    if (!isObject(parsedMarker)) {
+      return null;
+    }
+
+    const current = isObject(parsedMarker.current) ? parsedMarker.current : {};
+    const existing = isObject(parsedMarker.existing) ? parsedMarker.existing : {};
+
+    return {
+      blockedAt: getString(parsedMarker.blockedAt),
+      currentCoreTagName: getString(current.coreTagName),
+      currentNetworkId: getString(current.networkId),
+      currentPreviewChainSha256: getString(current.previewChainSha256),
+      existingCoreTagName: getString(existing.coreTagName),
+      existingNetworkId: getString(existing.networkId),
+      existingPreviewChainSha256: getString(existing.previewChainSha256),
+      markerPath,
+      message:
+        getString(parsedMarker.message) ||
+        'Qortium Core runtime data needs a reset or manual migration before this Core release can use it.',
+      runtimePath,
+    };
+  } catch {
+    return {
+      blockedAt: '',
+      currentCoreTagName: '',
+      currentNetworkId: '',
+      currentPreviewChainSha256: '',
+      existingCoreTagName: '',
+      existingNetworkId: '',
+      existingPreviewChainSha256: '',
+      markerPath,
+      message: 'Qortium Core runtime data needs a reset or manual migration before this Core release can use it.',
+      runtimePath,
+    };
+  }
 }
 
 async function ensureRuntimeChainCompatible(
@@ -1163,8 +1224,9 @@ function detectJavaVersion(command = 'java', source: JavaSource = 'system'): Pro
   });
 }
 
-async function getJavaStatus(): Promise<JavaStatus> {
-  const installedJava = await readInstalledJava();
+async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<JavaStatus> {
+  const installedJava =
+    options.ensureLayout === false ? await readInstalledJavaMetadata() : await readInstalledJava();
   let managedStatus: JavaStatus | null = null;
 
   if (installedJava) {
@@ -1306,20 +1368,37 @@ async function resolveRuntimeStatusOwner(
 }
 
 async function getStatus(): Promise<CoreStatus> {
-  await ensureCoreLayout();
+  let blockedRuntime: CoreRuntimeBlockedStatus | null = null;
+
+  try {
+    await ensureCoreLayout();
+  } catch (error) {
+    blockedRuntime = await readRuntimeMigrationBlocked(getCoreRuntimePath());
+
+    if (!blockedRuntime) {
+      throw error;
+    }
+  }
 
   const [installed, java, runtime] = await Promise.all([
     readInstalledCoreMetadata(),
-    getJavaStatus(),
+    getJavaStatus({ ensureLayout: !blockedRuntime }),
     fetchLocalCoreStatus(),
   ]);
   const resolvedRuntime = await resolveRuntimeStatusOwner(runtime, installed);
+  const runtimeBlocked = blockedRuntime ?? (await readRuntimeMigrationBlocked(getCoreRuntimePath()));
 
   return {
     supported: process.platform === 'linux' || process.platform === 'darwin' || process.platform === 'win32',
     installed,
     java,
-    runtime: resolvedRuntime,
+    runtime: runtimeBlocked
+      ? {
+          ...resolvedRuntime,
+          blocked: runtimeBlocked,
+          runtimePath: runtimeBlocked.runtimePath,
+        }
+      : resolvedRuntime,
   };
 }
 

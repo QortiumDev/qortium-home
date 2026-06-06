@@ -67,7 +67,9 @@ the runtime folder.
 `networkId` and `previewchain.json` SHA-256 identity. Home should refuse to
 reuse an existing runtime when that identity differs from the installed Core
 release, and should leave the runtime data in place for an explicit reset or
-manual migration decision.
+manual migration decision. When that happens, Home writes
+`runtime/runtime-migration-blocked.json` and reports the runtime as blocked in
+Core status instead of offering another install/start action.
 
 Legacy Home-created installs under `qortium-home/managed-core` should migrate
 into this layout. If a local Core process is already running from a source

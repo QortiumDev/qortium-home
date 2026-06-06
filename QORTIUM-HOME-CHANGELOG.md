@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: surface and verify blocked core runtimes
+
+Changed Core status so Home reports a blocked runtime state when managed Core migration finds existing runtime data from a different Previewnet chain configuration. Dashboard and Settings now show the blocked runtime status, hide install/start actions that would fail again, and keep the detailed mismatch explanation in the Core details. Address suggestions now close reliably on Escape while the suggestion list is open. Added a desktop Core runtime smoke test that verifies legacy managed-Core migration preserves API key, database, QDN data, and runtime metadata, verifies mismatched chain data is not moved or deleted, and checks that same-version Home update downloads are rejected before any network download.
+
 ### 2026-06-06 - app: harden core runtime and update guards
 
 Changed managed Core migration and startup so Home records the installed Core release's Previewnet chain identity beside the persistent runtime data and refuses to reuse that runtime when a different chain configuration is detected. Protected local Core admin calls now refresh the local API key and retry once after an invalid-key response, Home update downloads reject current or older releases in the backend as well as the UI, and a desktop browser-chrome smoke test now covers address-bar suggestion highlighting plus common tab, history, reload, and address-focus shortcuts.

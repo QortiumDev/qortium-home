@@ -797,6 +797,28 @@ export function TopBar({
     setAddressSuggestionIndex(0);
   }, [addressValue]);
 
+  useEffect(() => {
+    if (!addressSuggestionsOpen || addressSuggestions.length === 0) {
+      return undefined;
+    }
+
+    function closeAddressSuggestionsOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      event.preventDefault();
+      setAddressSuggestionsOpen(false);
+      addressInputRef.current?.focus();
+    }
+
+    document.addEventListener('keydown', closeAddressSuggestionsOnEscape);
+
+    return () => {
+      document.removeEventListener('keydown', closeAddressSuggestionsOnEscape);
+    };
+  }, [addressSuggestions.length, addressSuggestionsOpen]);
+
   function focusAddressSuggestion(index: number) {
     window.requestAnimationFrame(() => {
       addressSuggestionRefs.current[index]?.focus();

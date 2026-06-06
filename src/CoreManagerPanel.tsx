@@ -1,6 +1,11 @@
 import { Download, Play, Square } from 'lucide-react';
 import { useMemo } from 'react';
-import { formatJava, formatRuntime, type CoreManagerState } from './coreManagerState';
+import {
+  formatJava,
+  formatRuntime,
+  getCoreRuntimeBlockedMessage,
+  type CoreManagerState,
+} from './coreManagerState';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
@@ -48,6 +53,10 @@ function getCoreSettingsStatusText({
 
   if (!coreManager.status) {
     return SETTINGS_TEXT.status.checking;
+  }
+
+  if (coreManager.status.runtime.blocked) {
+    return SETTINGS_TEXT.status.runtimeBlocked;
   }
 
   if (!coreManager.status.supported) {
@@ -113,6 +122,15 @@ function getCoreSettingsRows({
       value: coreManager.status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891',
     },
   ];
+
+  const runtimeBlockedMessage = getCoreRuntimeBlockedMessage(coreManager.status);
+
+  if (runtimeBlockedMessage) {
+    rows.push({
+      label: SETTINGS_TEXT.labels.runtimeIssue,
+      value: runtimeBlockedMessage,
+    });
+  }
 
   if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
     rows.push({

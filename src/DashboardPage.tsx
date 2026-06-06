@@ -5,7 +5,7 @@ import {
   getOpenDownloadedFileLabel,
   type AppUpdatesState,
 } from './appUpdateState';
-import type { CoreManagerState } from './coreManagerState';
+import { getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
@@ -67,6 +67,10 @@ function getCoreDashboardStatusText({
 
   if (!status) {
     return SETTINGS_TEXT.status.checking;
+  }
+
+  if (status.runtime.blocked) {
+    return SETTINGS_TEXT.status.runtimeBlocked;
   }
 
   if (!status.supported) {
@@ -133,6 +137,15 @@ function getCoreRows({
       ),
     },
   ];
+
+  const runtimeBlockedMessage = getCoreRuntimeBlockedMessage(status);
+
+  if (runtimeBlockedMessage) {
+    rows.push({
+      label: SETTINGS_TEXT.labels.runtimeIssue,
+      value: runtimeBlockedMessage,
+    });
+  }
 
   if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
     rows.push({
