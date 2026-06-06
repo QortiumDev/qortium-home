@@ -573,19 +573,48 @@ function getProtectedNodeApiKey(settings: NodeSettings) {
   return settings.apiKey;
 }
 
-async function requestProtectedNodeJson(
+function isInvalidApiKeyResponse(response: Response, text: string) {
+  if (response.status === 401 || response.status === 403) {
+    return true;
+  }
+
+  if (text.toLowerCase().includes('api key invalid')) {
+    return true;
+  }
+
+  try {
+    const parsedError: unknown = JSON.parse(text);
+
+    return !!parsedError && typeof parsedError === 'object' && Number((parsedError as { error?: unknown }).error) === 4;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshLocalApiKey(settings: NodeSettings) {
+  if (settings.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
+    return settings;
+  }
+
+  const refreshedSettings = await resolveLocalApiKey({
+    ...settings,
+    apiKey: '',
+  });
+
+  if (!refreshedSettings.apiKey && settings.apiKey) {
+    writeNodeSettings(refreshedSettings);
+  }
+
+  return refreshedSettings;
+}
+
+async function fetchProtectedNodeResponse(
   settings: NodeSettings,
   pathname: string,
   method: 'GET' | 'POST',
-  fallbackMessage: string,
 ) {
-  if (settings.mode === 'network') {
-    throw new Error(getNetworkRestrictionMessage());
-  }
-
-  const resolvedSettings = await resolveLocalApiKey(settings);
-  const nodeApiUrl = await resolveNodeApiUrl(resolvedSettings);
-  const apiKey = getProtectedNodeApiKey(resolvedSettings);
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = getProtectedNodeApiKey(settings);
   let response: Response;
 
   try {
@@ -600,13 +629,43 @@ async function requestProtectedNodeJson(
     throw new Error(`Qortium node is unavailable at ${nodeApiUrl}.`);
   }
 
-  const text = await response.text();
+  return {
+    nodeApiUrl,
+    response,
+    text: await response.text(),
+  };
+}
 
-  if (!response.ok) {
-    throw new Error(text || fallbackMessage);
+async function requestProtectedNodeJson(
+  settings: NodeSettings,
+  pathname: string,
+  method: 'GET' | 'POST',
+  fallbackMessage: string,
+) {
+  if (settings.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
   }
 
-  return text ? (JSON.parse(text) as unknown) : null;
+  const resolvedSettings = await resolveLocalApiKey(settings);
+  let result = await fetchProtectedNodeResponse(resolvedSettings, pathname, method);
+
+  if (
+    !result.response.ok &&
+    resolvedSettings.mode === 'local' &&
+    isInvalidApiKeyResponse(result.response, result.text)
+  ) {
+    const refreshedSettings = await refreshLocalApiKey(resolvedSettings);
+
+    if (refreshedSettings.apiKey && refreshedSettings.apiKey !== resolvedSettings.apiKey) {
+      result = await fetchProtectedNodeResponse(refreshedSettings, pathname, method);
+    }
+  }
+
+  if (!result.response.ok) {
+    throw new Error(result.text || fallbackMessage);
+  }
+
+  return result.text ? (JSON.parse(result.text) as unknown) : null;
 }
 
 async function fetchNodeStatus(nodeApiUrl: string) {

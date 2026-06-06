@@ -21,8 +21,11 @@ const MANAGED_CORE_DIR = 'managed-core';
 const CORE_DATA_DIR = 'qortium-core';
 const CORE_INSTALL_DIR = 'install';
 const CORE_RUNTIME_DIR = 'runtime';
+const CORE_CHAIN_FILE = 'previewchain.json';
 const CURRENT_CORE_FILE = 'current.json';
 const CURRENT_JAVA_FILE = 'current-java.json';
+const RUNTIME_CHAIN_FILE = 'runtime-chain.json';
+const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
 const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
 const LOCAL_CORE_STATUS_PATH = '/admin/status';
 const START_TIMEOUT_MS = 120_000;
@@ -177,6 +180,20 @@ type CoreStatus = {
   supported: boolean;
 };
 
+type CoreRuntimeChainIdentity = {
+  networkId: string;
+  previewChainPath: string;
+  previewChainSha256: string;
+};
+
+type CoreRuntimeChainMetadata = {
+  coreTagName: string;
+  networkId: string;
+  previewChainSha256: string;
+  recordedAt: string;
+  version: 1;
+};
+
 type CoreProgress = {
   action: 'checking' | 'downloading' | 'extracting' | 'idle' | 'starting' | 'stopping';
   kind: 'error' | 'info' | 'success';
@@ -269,6 +286,14 @@ function getRunPidPath(runtimePath: string) {
   return path.join(runtimePath, 'run.pid');
 }
 
+function getRuntimeChainPath(runtimePath: string) {
+  return path.join(runtimePath, RUNTIME_CHAIN_FILE);
+}
+
+function getRuntimeMigrationBlockedPath(runtimePath: string) {
+  return path.join(runtimePath, RUNTIME_MIGRATION_BLOCKED_FILE);
+}
+
 function normalizeFilesystemPath(value: string) {
   return path.resolve(value);
 }
@@ -337,6 +362,185 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
 
     await movePath(sourceEntryPath, destinationEntryPath);
   }
+}
+
+async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRuntimeChainIdentity> {
+  const previewChainPath = path.join(previewPath, CORE_CHAIN_FILE);
+  let previewChainBytes: Buffer;
+
+  try {
+    previewChainBytes = await readFile(previewChainPath);
+  } catch {
+    throw new Error(`The installed Core release is missing ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+  }
+
+  let networkId = 'unknown';
+
+  try {
+    const parsedChain: unknown = JSON.parse(previewChainBytes.toString('utf8'));
+
+    if (isObject(parsedChain)) {
+      networkId = getString(parsedChain.networkId) || networkId;
+    }
+  } catch {
+    throw new Error(`The installed Core release has an invalid ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+  }
+
+  return {
+    networkId,
+    previewChainPath,
+    previewChainSha256: `sha256:${createHash('sha256').update(previewChainBytes).digest('hex')}`,
+  };
+}
+
+function parseRuntimeChainMetadata(value: unknown): CoreRuntimeChainMetadata | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const networkId = getString(value.networkId);
+  const previewChainSha256 = getString(value.previewChainSha256);
+
+  if (!networkId || !previewChainSha256) {
+    return null;
+  }
+
+  return {
+    coreTagName: getString(value.coreTagName),
+    networkId,
+    previewChainSha256,
+    recordedAt: getString(value.recordedAt),
+    version: 1,
+  };
+}
+
+async function readRuntimeChainMetadata(runtimePath: string): Promise<CoreRuntimeChainMetadata | null> {
+  const metadataPath = getRuntimeChainPath(runtimePath);
+
+  if (!existsSync(metadataPath)) {
+    return null;
+  }
+
+  let parsedMetadata: unknown;
+
+  try {
+    parsedMetadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+  } catch {
+    throw new Error(`Core runtime chain metadata is invalid at ${metadataPath}.`);
+  }
+
+  const metadata = parseRuntimeChainMetadata(parsedMetadata);
+
+  if (!metadata) {
+    throw new Error(`Core runtime chain metadata is incomplete at ${metadataPath}.`);
+  }
+
+  return metadata;
+}
+
+async function writeRuntimeChainMetadata(
+  runtimePath: string,
+  coreTagName: string,
+  identity: CoreRuntimeChainIdentity,
+) {
+  const metadata: CoreRuntimeChainMetadata = {
+    coreTagName,
+    networkId: identity.networkId,
+    previewChainSha256: identity.previewChainSha256,
+    recordedAt: new Date().toISOString(),
+    version: 1,
+  };
+
+  await mkdir(runtimePath, { recursive: true });
+  await writeFile(getRuntimeChainPath(runtimePath), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+}
+
+function isRuntimeChainMetadataMatch(
+  metadata: CoreRuntimeChainMetadata,
+  identity: CoreRuntimeChainIdentity,
+) {
+  return metadata.networkId === identity.networkId && metadata.previewChainSha256 === identity.previewChainSha256;
+}
+
+function getRuntimeChainMismatchMessage(
+  metadata: CoreRuntimeChainMetadata,
+  coreTagName: string,
+  identity: CoreRuntimeChainIdentity,
+) {
+  return [
+    'Qortium Core runtime data was created for a different Previewnet chain configuration.',
+    'Home will not reuse the existing database automatically.',
+    `Existing runtime: ${metadata.networkId} ${metadata.previewChainSha256}.`,
+    `Installed Core ${coreTagName}: ${identity.networkId} ${identity.previewChainSha256}.`,
+    'Move or reset the existing Core runtime data before starting this Core release.',
+  ].join(' ');
+}
+
+async function writeRuntimeMigrationBlocked(
+  runtimePath: string,
+  metadata: CoreRuntimeChainMetadata,
+  coreTagName: string,
+  identity: CoreRuntimeChainIdentity,
+) {
+  const message = getRuntimeChainMismatchMessage(metadata, coreTagName, identity);
+
+  await mkdir(runtimePath, { recursive: true });
+  await writeFile(
+    getRuntimeMigrationBlockedPath(runtimePath),
+    `${JSON.stringify(
+      {
+        blockedAt: new Date().toISOString(),
+        current: {
+          coreTagName,
+          networkId: identity.networkId,
+          previewChainPath: identity.previewChainPath,
+          previewChainSha256: identity.previewChainSha256,
+        },
+        existing: metadata,
+        message,
+        version: 1,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+}
+
+async function ensureRuntimeChainCompatible(
+  runtimePath: string,
+  coreTagName: string,
+  identity: CoreRuntimeChainIdentity,
+  options: { recordIfMissing?: boolean } = {},
+) {
+  const metadata = await readRuntimeChainMetadata(runtimePath);
+
+  if (metadata) {
+    if (!isRuntimeChainMetadataMatch(metadata, identity)) {
+      await writeRuntimeMigrationBlocked(runtimePath, metadata, coreTagName, identity);
+      throw new Error(getRuntimeChainMismatchMessage(metadata, coreTagName, identity));
+    }
+
+    await rm(getRuntimeMigrationBlockedPath(runtimePath), { force: true });
+    return;
+  }
+
+  if (options.recordIfMissing) {
+    await writeRuntimeChainMetadata(runtimePath, coreTagName, identity);
+  }
+
+  await rm(getRuntimeMigrationBlockedPath(runtimePath), { force: true });
+}
+
+async function ensureInstalledCoreRuntimeChain(
+  installedCore: InstalledCore,
+  options: { recordIfMissing?: boolean } = {},
+) {
+  const identity = await readCoreRuntimeChainIdentity(installedCore.previewPath);
+
+  await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, identity, options);
+
+  return identity;
 }
 
 function relocateChildPath(sourcePath: string, sourceBasePath: string, destinationBasePath: string) {
@@ -749,6 +953,9 @@ async function migrateLegacyCoreLayout() {
 
   const sourceInstallPath = legacyCore.installPath;
   const migratedCore = relocateInstalledCore(legacyCore, sourceInstallPath);
+  const runtimeIdentity = await readCoreRuntimeChainIdentity(legacyCore.previewPath);
+
+  await ensureRuntimeChainCompatible(migratedCore.runtimePath, migratedCore.tagName, runtimeIdentity);
 
   await movePathReplacingDestination(sourceInstallPath, migratedCore.installPath);
   await chmodPreviewScripts(migratedCore.previewPath);
@@ -756,13 +963,16 @@ async function migrateLegacyCoreLayout() {
   await moveRuntimeEntries(legacyRuntimePath, migratedCore.runtimePath);
   await moveRuntimeEntries(migratedCore.previewPath, migratedCore.runtimePath);
   await writeInstalledCore(migratedCore);
+  await ensureRuntimeChainCompatible(migratedCore.runtimePath, migratedCore.tagName, runtimeIdentity, {
+    recordIfMissing: true,
+  });
 
   if (await readInstalledCoreMetadata()) {
     await cleanupLegacyCoreBaseIfMigrated();
   }
 }
 
-async function migrateRootRuntimeEntriesIfSafe() {
+async function migrateRootRuntimeEntriesIfSafe(installedCore: InstalledCore | null) {
   const runningCore = readRunningLocalCoreApiKey();
 
   if (
@@ -773,7 +983,15 @@ async function migrateRootRuntimeEntriesIfSafe() {
     return;
   }
 
+  const runtimeIdentity = installedCore ? await ensureInstalledCoreRuntimeChain(installedCore) : null;
+
   await moveRuntimeEntries(getCoreBasePath(), getCoreRuntimePath());
+
+  if (installedCore && runtimeIdentity) {
+    await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, runtimeIdentity, {
+      recordIfMissing: true,
+    });
+  }
 }
 
 let coreLayoutMigrationPromise: Promise<void> | null = null;
@@ -782,7 +1000,13 @@ async function migrateCoreLayout() {
   await mkdir(getCoreBasePath(), { recursive: true });
   await migrateLegacyJavaLayout();
   await migrateLegacyCoreLayout();
-  await migrateRootRuntimeEntriesIfSafe();
+  const installedCore = await readInstalledCoreMetadata();
+
+  await migrateRootRuntimeEntriesIfSafe(installedCore);
+
+  if (installedCore) {
+    await ensureInstalledCoreRuntimeChain(installedCore, { recordIfMissing: true });
+  }
 }
 
 async function ensureCoreLayout() {
@@ -1391,6 +1615,9 @@ async function installCore(request: CoreInstallRequest) {
     await extract(downloadPath, { dir: stagingPath });
 
     const extractedCorePaths = await findExtractedCorePaths(stagingPath);
+    const runtimeIdentity = await readCoreRuntimeChainIdentity(extractedCorePaths.previewPath);
+
+    await ensureRuntimeChainCompatible(getCoreRuntimePath(), release.tagName, runtimeIdentity);
 
     await movePathReplacingDestination(extractedCorePaths.installPath, getCoreInstallPath());
 
@@ -1418,6 +1645,9 @@ async function installCore(request: CoreInstallRequest) {
     };
 
     await writeInstalledCore(installedCore);
+    await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, runtimeIdentity, {
+      recordIfMissing: true,
+    });
   } catch (error) {
     await rm(stagingPath, { recursive: true, force: true });
     throw error;
@@ -1531,6 +1761,8 @@ async function startCore() {
   if (currentRuntime.running) {
     return await getStatus();
   }
+
+  await ensureInstalledCoreRuntimeChain(installedCore, { recordIfMissing: true });
 
   const startScript = getStartScript(installedCore.previewPath);
 

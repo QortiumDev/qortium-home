@@ -47,6 +47,7 @@ Electron app data root/
       versions/
         temurin-17-<version>-<platform>-<arch>/
     runtime/
+      runtime-chain.json
       apikey.txt
       run.pid
       run.log
@@ -62,6 +63,12 @@ asset name, download URL, digest when available, install time, and runtime path.
 `qortium-core/runtime`. Updating Core replaces the single install folder, not
 the runtime folder.
 
+`runtime/runtime-chain.json` records the installed release's Previewnet
+`networkId` and `previewchain.json` SHA-256 identity. Home should refuse to
+reuse an existing runtime when that identity differs from the installed Core
+release, and should leave the runtime data in place for an explicit reset or
+manual migration decision.
+
 Legacy Home-created installs under `qortium-home/managed-core` should migrate
 into this layout. If a local Core process is already running from a source
 checkout or another external folder, Home should use that local API and key as
@@ -75,6 +82,7 @@ The Core runtime remains outside the extracted release files:
 Electron app data root/
   qortium-core/
     runtime/
+      runtime-chain.json
       apikey.txt
       run.pid
       run.log

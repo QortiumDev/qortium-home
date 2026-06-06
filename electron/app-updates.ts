@@ -21,6 +21,13 @@ type AppUpdateDownloadRequest = {
   releaseTag?: unknown;
 };
 
+type ParsedVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: Array<number | string>;
+};
+
 const APP_UPDATES_DIR = 'app-updates';
 const GITHUB_USER_AGENT = 'QortiumHome/1.0';
 
@@ -64,6 +71,103 @@ function normalizeDigest(value: unknown) {
   const digest = getString(value).toLowerCase();
 
   return /^sha256:[a-f0-9]{64}$/.test(digest) ? digest : null;
+}
+
+function parseVersion(value: string): ParsedVersion | null {
+  const normalizedValue = value.trim().replace(/^v/i, '').split('+')[0];
+  const versionMatch = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(normalizedValue);
+
+  if (!versionMatch) {
+    return null;
+  }
+
+  return {
+    major: Number.parseInt(versionMatch[1], 10),
+    minor: Number.parseInt(versionMatch[2], 10),
+    patch: Number.parseInt(versionMatch[3], 10),
+    prerelease: versionMatch[4]
+      ? versionMatch[4].split('.').map((part) => (/^\d+$/.test(part) ? Number.parseInt(part, 10) : part))
+      : [],
+  };
+}
+
+function compareIdentifiers(first: number | string, second: number | string) {
+  if (typeof first === 'number' && typeof second === 'number') {
+    return Math.sign(first - second);
+  }
+
+  if (typeof first === 'number') {
+    return -1;
+  }
+
+  if (typeof second === 'number') {
+    return 1;
+  }
+
+  return Math.sign(first.localeCompare(second));
+}
+
+function compareAppVersions(firstValue: string, secondValue: string) {
+  const first = parseVersion(firstValue);
+  const second = parseVersion(secondValue);
+
+  if (!first || !second) {
+    return null;
+  }
+
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    if (first[key] !== second[key]) {
+      return Math.sign(first[key] - second[key]);
+    }
+  }
+
+  if (first.prerelease.length === 0 && second.prerelease.length === 0) {
+    return 0;
+  }
+
+  if (first.prerelease.length === 0) {
+    return 1;
+  }
+
+  if (second.prerelease.length === 0) {
+    return -1;
+  }
+
+  const identifierCount = Math.max(first.prerelease.length, second.prerelease.length);
+
+  for (let index = 0; index < identifierCount; index += 1) {
+    const firstIdentifier = first.prerelease[index];
+    const secondIdentifier = second.prerelease[index];
+
+    if (firstIdentifier === undefined) {
+      return -1;
+    }
+
+    if (secondIdentifier === undefined) {
+      return 1;
+    }
+
+    const comparison = compareIdentifiers(firstIdentifier, secondIdentifier);
+
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+
+  return 0;
+}
+
+function assertUpdateIsNewer(releaseTag: string) {
+  const currentVersion = app.getVersion();
+  const comparison = compareAppVersions(releaseTag, currentVersion);
+
+  if (comparison === null) {
+    throw new Error(`Unable to compare update release ${releaseTag} with current version ${currentVersion}.`);
+  }
+
+  if (comparison <= 0) {
+    throw new Error(`Qortium Home ${currentVersion} is already current.`);
+  }
 }
 
 function normalizeDownloadAsset(value: unknown): AppUpdateAsset {
@@ -174,6 +278,9 @@ async function openExternalUrl(value: unknown) {
 
 async function downloadAsset(request: AppUpdateDownloadRequest) {
   const normalizedRequest = normalizeDownloadRequest(request);
+
+  assertUpdateIsNewer(normalizedRequest.releaseTag);
+
   const releasePath = path.join(getAppUpdatesPath(), sanitizePathSegment(normalizedRequest.releaseTag, 'release'));
   const fileName = sanitizePathSegment(normalizedRequest.asset.name, 'update');
   const finalPath = path.join(releasePath, fileName);

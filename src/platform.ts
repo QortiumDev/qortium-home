@@ -5,6 +5,7 @@ import { AES_CBC, HmacSha512, Sha512, bytes_to_base64 } from 'asmcrypto.js';
 import bcrypt from 'bcryptjs';
 import nacl from 'tweetnacl';
 import packageJson from '../package.json';
+import { compareAppVersions } from './appUpdates';
 import { PUBLIC_QDN_SERVICES } from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
@@ -482,6 +483,19 @@ function normalizeUpdateDownloadRequest(value: QortiumAppUpdateDownloadRequest) 
   };
 }
 
+function assertFallbackUpdateIsNewer(releaseTag: string) {
+  const currentVersion = packageJson.version;
+  const comparison = compareAppVersions(releaseTag, currentVersion);
+
+  if (comparison === null) {
+    throw new Error(`Unable to compare update release ${releaseTag} with current version ${currentVersion}.`);
+  }
+
+  if (comparison <= 0) {
+    throw new Error(`Qortium Home ${currentVersion} is already current.`);
+  }
+}
+
 function bytesToHex(bytes: ArrayBuffer) {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -549,6 +563,9 @@ async function downloadUpdateAsset(request: QortiumAppUpdateDownloadRequest) {
   }
 
   const normalizedRequest = normalizeUpdateDownloadRequest(request);
+
+  assertFallbackUpdateIsNewer(normalizedRequest.releaseTag);
+
   const base64Asset = await fetchAssetAsBase64(normalizedRequest.asset);
   const digest = await hashBase64(base64Asset);
 
