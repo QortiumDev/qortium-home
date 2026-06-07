@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - fix: simplify QDN resource loading authorization
+
+Changed QDN resource loading so Home shows a plain loading message instead of
+surfacing the internal render authorization step. Home also now sends only the
+single Core render authorization that the current render endpoints check,
+removing the extra identifier-specific authorization request before APP and
+WEBSITE resources load.
+
 ### 2026-06-07 - fix: use resolved Core API keys for QDN workflows
 
 Changed desktop QDN authorization, publish, delete, group, name, and chat
