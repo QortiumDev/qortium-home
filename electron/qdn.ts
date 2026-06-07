@@ -22,8 +22,22 @@ const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const QDN_ACCOUNT_READ_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
-const QDN_WRITE_ACTIONS = ['PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
-const QDN_CHAT_ACTIONS = ['APPROVE_GROUP_JOIN_REQUEST', 'JOIN_GROUP', 'SEND_CHAT_MESSAGE'] as const;
+const QDN_WRITE_ACTIONS = ['PUBLISH_MULTIPLE_QDN_RESOURCES', 'PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
+const QDN_GROUP_ACTIONS = [
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'INVITE_TO_GROUP',
+  'JOIN_GROUP',
+  'LEAVE_GROUP',
+  'UPDATE_GROUP',
+] as const;
+const QDN_NAME_ACTIONS = [
+  'BUY_NAME',
+  'CANCEL_SELL_NAME',
+  'REGISTER_NAME',
+  'SELL_NAME',
+  'UPDATE_NAME',
+] as const;
+const QDN_CHAT_ACTIONS = ['SEND_CHAT_MESSAGE'] as const;
 const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
@@ -60,6 +74,8 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
   ...QDN_WRITE_ACTIONS,
+  ...QDN_GROUP_ACTIONS,
+  ...QDN_NAME_ACTIONS,
   ...QDN_CHAT_ACTIONS,
   ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
   ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,
@@ -155,9 +171,13 @@ type QdnResourceRequest = {
 };
 
 type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
+type QdnGroupAction = (typeof QDN_GROUP_ACTIONS)[number];
+type QdnNameAction = (typeof QDN_NAME_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
+  | QdnGroupAction
+  | QdnNameAction
   | QdnChatAction
   | 'READ_PRIVATE_GROUP_CHAT'
   | 'READ_PRIVATE_DIRECT_CHAT';
@@ -178,9 +198,12 @@ type QdnWriteResourceRequest = {
 };
 
 type QdnWriteSourceSelection = {
+  dataBase64?: string;
   displayName: string;
-  kind: 'directory' | 'file';
-  path: string;
+  filename?: string;
+  kind: 'data' | 'directory' | 'file';
+  path?: string;
+  size?: number;
 };
 
 type QdnWriteProfile = {
@@ -220,12 +243,15 @@ type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
 
 type QdnWriteApprovalDetails = {
   action: QdnWriteApprovalAction;
+  amount?: number | string;
   chatMessagePreview?: string;
   groupId?: number;
   groupName?: string | null;
+  name?: string;
   permissionScope?: 'single-request' | 'session';
   recipientAddress?: string;
   resource?: QdnWriteResourceRequest;
+  resourceCount?: number;
   source?: QdnWriteSourceSelection;
 };
 
@@ -428,10 +454,12 @@ async function requestQdnWriteApproval(
       accountName: profile.name,
       action: details.action,
       address: profile.address,
+      amount: typeof details.amount === 'undefined' ? null : String(details.amount),
       chatMessagePreview: details.chatMessagePreview ?? null,
       groupId: typeof details.groupId === 'number' ? details.groupId : null,
       groupName: details.groupName ?? null,
       id: requestId,
+      name: details.name ?? null,
       permissionScope: details.permissionScope ?? 'single-request',
       recipientAddress: details.recipientAddress ?? null,
       resource: details.resource
@@ -441,6 +469,7 @@ async function requestQdnWriteApproval(
             service: details.resource.service,
           }
         : null,
+      resourceCount: details.resourceCount ?? null,
       resourceUrl: getQdnViewResourceUrl(context),
       sourceKind: details.source?.kind ?? null,
       sourceName: details.source?.displayName ?? null,
@@ -799,11 +828,21 @@ function getChatMessageText(request: QdnAppRequest) {
 function getRequiredAddressRequestString(request: QdnAppRequest, key: string, label: string) {
   const address = getRequiredRequestString(request, key, label);
 
+  return assertQortiumAddress(address, label);
+}
+
+function assertQortiumAddress(address: string, label: string) {
   if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(address)) {
     throw new Error(`${label} must be a Qortium address.`);
   }
 
   return address;
+}
+
+function getOptionalAddressRequestString(request: QdnAppRequest, label: string, ...keys: string[]) {
+  const address = getOptionalStringRequestValue(request, ...keys);
+
+  return address ? assertQortiumAddress(address, label) : '';
 }
 
 function getChatMessagePreview(message: string) {
@@ -924,6 +963,20 @@ function getRequestTags(value: unknown) {
   return tag ? [tag] : [];
 }
 
+function getQdnWriteTags(request: QdnAppRequest) {
+  const tags = getRequestTags(getRequestValue(request, 'tags'));
+
+  for (let index = 1; index <= 5; index += 1) {
+    const tag = getString(getRequestValue(request, `tag${index}`));
+
+    if (tag) {
+      tags.push(tag);
+    }
+  }
+
+  return [...new Set(tags)].slice(0, 5);
+}
+
 function getRequestFee(value: unknown) {
   const fee = getNumber(value);
 
@@ -936,6 +989,125 @@ function getRequestFee(value: unknown) {
   }
 
   return fee;
+}
+
+function getTransactionFee(request: QdnAppRequest) {
+  return getRequestFee(getRequestValue(request, 'fee')) ?? 0;
+}
+
+function getTransactionGroupId(request: QdnAppRequest, fallback = 0) {
+  const txGroupId = getInteger(getRequestValue(request, 'txGroupId') ?? getRequestValue(request, 'feeGroupId'));
+
+  if (typeof txGroupId === 'undefined') {
+    return fallback;
+  }
+
+  if (txGroupId < 0) {
+    throw new Error('Transaction group id must be a non-negative integer.');
+  }
+
+  return txGroupId;
+}
+
+function getRequiredAmountValue(request: QdnAppRequest, key: string, label: string) {
+  const value = getRequestValue(request, key);
+
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+
+  const stringValue = getString(value);
+
+  if (/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(stringValue)) {
+    return stringValue;
+  }
+
+  throw new Error(`${label} must be a non-negative amount with up to 8 decimal places.`);
+}
+
+function getOptionalBooleanRequestValue(request: QdnAppRequest, ...keys: string[]) {
+  for (const key of keys) {
+    const value = getBoolean(getRequestValue(request, key));
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function getOptionalIntegerRequestValue(request: QdnAppRequest, minimumValue: number, ...keys: string[]) {
+  for (const key of keys) {
+    const value = getInteger(getRequestValue(request, key));
+
+    if (typeof value === 'undefined') {
+      continue;
+    }
+
+    if (value < minimumValue) {
+      throw new Error(`${key} must be at least ${minimumValue}.`);
+    }
+
+    return value;
+  }
+
+  return undefined;
+}
+
+function getOptionalStringRequestValue(request: QdnAppRequest, ...keys: string[]) {
+  for (const key of keys) {
+    const value = getString(getRequestValue(request, key));
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function getRequiredNameRequestString(request: QdnAppRequest) {
+  return getRequiredRequestString(request, 'name', 'Name');
+}
+
+function getInlinePublishData(request: QdnAppRequest) {
+  return getString(getRequestValue(request, 'data64')) || getString(getRequestValue(request, 'base64'));
+}
+
+function getInlinePublishSource(request: QdnAppRequest): QdnWriteSourceSelection | null {
+  const dataBase64 = getInlinePublishData(request);
+
+  if (!dataBase64) {
+    return null;
+  }
+
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(dataBase64) || dataBase64.length % 4 !== 0) {
+    throw new Error('QDN publish data must be valid base64.');
+  }
+
+  const filename = sanitizeFilename(getString(getRequestValue(request, 'filename')) || 'qdn-resource');
+  const size = Buffer.from(dataBase64, 'base64').byteLength;
+
+  if (size > QDN_APP_MAX_BYTES_LIMIT) {
+    throw new Error(
+      `QDN publish data exceeds the ${QDN_APP_MAX_BYTES_LIMIT.toLocaleString()} byte limit.`,
+    );
+  }
+
+  return {
+    dataBase64,
+    displayName: filename,
+    filename,
+    kind: 'data',
+    size,
+  };
+}
+
+function isInlineQdnWriteSource(
+  source: QdnWriteSourceSelection,
+): source is QdnWriteSourceSelection & { dataBase64: string; kind: 'data' } {
+  return source.kind === 'data' && typeof source.dataBase64 === 'string';
 }
 
 function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
@@ -960,10 +1132,29 @@ function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceReq
     identifier: identifier || undefined,
     title: title || undefined,
     description: description || undefined,
-    tags: getRequestTags(getRequestValue(request, 'tags')),
+    tags: getQdnWriteTags(request),
     category: category || undefined,
     fee: getRequestFee(getRequestValue(request, 'fee')),
   };
+}
+
+function getQdnWriteResourceRequests(request: QdnAppRequest) {
+  const resources = getRequestValue(request, 'resources');
+
+  if (!Array.isArray(resources) || resources.length === 0) {
+    throw new Error('QDN publish resources must be a non-empty array.');
+  }
+
+  return resources.map((resource, index) => {
+    if (!isRecord(resource)) {
+      throw new Error(`QDN publish resource ${index + 1} must be an object.`);
+    }
+
+    return {
+      resource: getQdnWriteResourceRequest(resource as QdnAppRequest),
+      source: getInlinePublishSource(resource as QdnAppRequest),
+    };
+  });
 }
 
 function splitPathAndQuery(resourcePath: string) {
@@ -1457,6 +1648,20 @@ function buildQdnPublishPath(resource: QdnWriteResourceRequest) {
   }`;
 }
 
+function buildQdnPublishBase64Path(resource: QdnWriteResourceRequest, source: QdnWriteSourceSelection) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource);
+  appendQueryValue(queryParams, 'filename', source.filename);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/base64${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
 function buildQdnDeletePath(resource: QdnWriteResourceRequest) {
   const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
   const queryParams = new URLSearchParams();
@@ -1636,12 +1841,78 @@ async function getGroupDataForChat(connection: NodeConnection, groupId: number) 
   );
 }
 
+async function getNameDataForApp(connection: NodeConnection, name: string) {
+  return fetchLocalNodeApiPayload(
+    connection,
+    `/names/${encodeURIComponent(name)}`,
+    'Name lookup failed.',
+  );
+}
+
 function getGroupName(groupData: unknown) {
   if (!isRecord(groupData)) {
     return null;
   }
 
   return getString(groupData.groupName) || getString(groupData.name) || null;
+}
+
+function getGroupDescription(groupData: unknown) {
+  if (!isRecord(groupData)) {
+    return '';
+  }
+
+  return getString(groupData.description);
+}
+
+function getGroupApprovalThreshold(groupData: unknown) {
+  if (!isRecord(groupData)) {
+    return 'NONE';
+  }
+
+  return getString(groupData.approvalThreshold) || 'NONE';
+}
+
+function getGroupCreationGroupId(groupData: unknown) {
+  if (!isRecord(groupData)) {
+    return 0;
+  }
+
+  return getInteger(groupData.creationGroupId) ?? 0;
+}
+
+function getGroupDelay(groupData: unknown, key: 'maximumBlockDelay' | 'minimumBlockDelay', fallback: number) {
+  if (!isRecord(groupData)) {
+    return fallback;
+  }
+
+  return getInteger(groupData[key]) ?? fallback;
+}
+
+function getNameCreationGroupId(nameData: unknown) {
+  if (!isRecord(nameData)) {
+    return 0;
+  }
+
+  return getInteger(nameData.creationGroupId) ?? 0;
+}
+
+function getNameSaleAmount(nameData: unknown) {
+  if (!isRecord(nameData) || typeof nameData.salePrice === 'undefined' || nameData.salePrice === null) {
+    return undefined;
+  }
+
+  return typeof nameData.salePrice === 'number' || typeof nameData.salePrice === 'string'
+    ? nameData.salePrice
+    : undefined;
+}
+
+function getNameOwnerAddress(nameData: unknown) {
+  if (!isRecord(nameData)) {
+    return '';
+  }
+
+  return getString(nameData.owner);
 }
 
 function isOpenGroupData(groupData: unknown) {
@@ -1659,7 +1930,7 @@ async function publishQdnResourceForApp(
 ) {
   const resource = getQdnWriteResourceRequest(request);
   const writeContext = await getQdnWriteContext(context, resource);
-  const source = await selectQdnPublishSource(context as QdnViewContext);
+  const source = getInlinePublishSource(request) ?? (await selectQdnPublishSource(context as QdnViewContext));
 
   if (!source) {
     throw new Error('QDN publish was canceled.');
@@ -1679,10 +1950,13 @@ async function publishQdnResourceForApp(
 
   const apiKey = getNodeApiKey();
   const privateKey58 = getQdnWritePrivateKey(writeContext);
+  const inlineSource = isInlineQdnWriteSource(source) ? source : null;
+  const publishPath = inlineSource ? buildQdnPublishBase64Path(resource, inlineSource) : buildQdnPublishPath(resource);
+  const publishBody = inlineSource ? inlineSource.dataBase64 : source.path ?? '';
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
-    buildQdnPublishPath(resource),
-    source.path,
+    publishPath,
+    publishBody,
     apiKey,
     'QDN publish transaction build failed.',
   );
@@ -1702,6 +1976,104 @@ async function publishQdnResourceForApp(
       name: resource.name,
       service: resource.service,
     },
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function publishMultipleQdnResourcesForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const resources = getQdnWriteResourceRequests(request);
+
+  if (resources.some((entry) => !entry.source)) {
+    throw new Error('PUBLISH_MULTIPLE_QDN_RESOURCES requires base64 data for each resource.');
+  }
+
+  const approvalResource = resources.length === 1 ? resources[0].resource : undefined;
+  const writeContext = await getQdnWriteContext(context, approvalResource ?? resources[0].resource);
+
+  await requestQdnWriteApproval(
+    context as QdnViewContext,
+    writeContext.profile,
+    {
+      action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+      resource: approvalResource,
+      resourceCount: resources.length,
+      source: {
+        displayName: `${resources.length} resources`,
+        kind: 'data',
+      },
+    },
+  );
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const apiKey = getNodeApiKey();
+  const privateKey58 = getQdnWritePrivateKey(writeContext);
+  const published: Array<{
+    result: unknown;
+    resource: {
+      identifier: string | null;
+      name: string;
+      service: string;
+    };
+    transactionSignature: string;
+  }> = [];
+  const failures: Array<{
+    error: string;
+    resource: {
+      identifier: string | null;
+      name: string;
+      service: string;
+    };
+  }> = [];
+
+  for (const entry of resources) {
+    const source = entry.source as QdnWriteSourceSelection;
+
+    try {
+      const unsignedTransaction = await postLocalNodeText(
+        writeContext.connection,
+        buildQdnPublishBase64Path(entry.resource, source),
+        source.dataBase64 ?? '',
+        apiKey,
+        'QDN publish transaction build failed.',
+      );
+      const processedTransaction = await signAndProcessTransaction(
+        writeContext.connection,
+        apiKey,
+        privateKey58,
+        unsignedTransaction.body,
+      );
+
+      published.push({
+        result: processedTransaction.data,
+        resource: {
+          identifier: entry.resource.identifier ?? null,
+          name: entry.resource.name,
+          service: entry.resource.service,
+        },
+        transactionSignature: processedTransaction.signature,
+      });
+    } catch (error) {
+      failures.push({
+        error: error instanceof Error ? error.message : 'QDN publish failed.',
+        resource: {
+          identifier: entry.resource.identifier ?? null,
+          name: entry.resource.name,
+          service: entry.resource.service,
+        },
+      });
+    }
+  }
+
+  return {
+    accepted: true,
+    action: 'PUBLISH_MULTIPLE_QDN_RESOURCES',
+    failures,
+    published,
   };
 }
 
@@ -1857,6 +2229,447 @@ async function approveGroupJoinRequestForApp(
     groupName,
     invitee,
     result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function processQdnAccountTransaction(
+  writeContext: QdnChatContext,
+  unsignedTransaction: Awaited<ReturnType<typeof postLocalNodeText>>,
+) {
+  return signAndProcessTransaction(
+    writeContext.connection,
+    writeContext.apiKey,
+    writeContext.privateKey58,
+    unsignedTransaction.body,
+    '/transactions/mempow/compute',
+  );
+}
+
+async function inviteToGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const invitee = getOptionalAddressRequestString(
+    request,
+    'Invitee address',
+    'invitee',
+    'recipientAddress',
+    'recipient',
+  );
+  const timeToLive = getOptionalIntegerRequestValue(request, 0, 'timeToLive', 'ttl') ?? 0;
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  if (!invitee) {
+    throw new Error('Invitee address is required.');
+  }
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'INVITE_TO_GROUP',
+    groupId,
+    groupName,
+    recipientAddress: invitee,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/invite',
+    JSON.stringify({
+      type: 'GROUP_INVITE',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      adminPublicKey: writeContext.publicKey58,
+      groupId,
+      invitee,
+      timeToLive,
+    }),
+    writeContext.apiKey,
+    'Group invite transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'INVITE_TO_GROUP',
+    groupId,
+    groupName,
+    invitee,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function leaveGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'LEAVE_GROUP',
+    groupId,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/leave',
+    JSON.stringify({
+      type: 'LEAVE_GROUP',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      leaverPublicKey: writeContext.publicKey58,
+      groupId,
+    }),
+    writeContext.apiKey,
+    'Leave group transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'LEAVE_GROUP',
+    groupId,
+    groupName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function updateGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+  const newName = getOptionalStringRequestValue(request, 'newName', 'groupName');
+  const newDescription =
+    getOptionalStringRequestValue(request, 'newDescription', 'description') || getGroupDescription(groupData);
+  const newIsOpen =
+    getOptionalBooleanRequestValue(request, 'newIsOpen', 'isOpen') ??
+    (isRecord(groupData) && typeof groupData.isOpen === 'boolean' ? groupData.isOpen : true);
+  const newApprovalThreshold =
+    getOptionalStringRequestValue(request, 'newApprovalThreshold', 'approvalThreshold') ||
+    getGroupApprovalThreshold(groupData);
+  const newMinimumBlockDelay =
+    getOptionalIntegerRequestValue(request, 0, 'newMinimumBlockDelay', 'minimumBlockDelay') ??
+    getGroupDelay(groupData, 'minimumBlockDelay', 0);
+  const newMaximumBlockDelay =
+    getOptionalIntegerRequestValue(request, 1, 'newMaximumBlockDelay', 'maximumBlockDelay') ??
+    getGroupDelay(groupData, 'maximumBlockDelay', Math.max(1, newMinimumBlockDelay));
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'UPDATE_GROUP',
+    groupId,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/update',
+    JSON.stringify({
+      type: 'UPDATE_GROUP',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request, getGroupCreationGroupId(groupData)),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      groupId,
+      newName,
+      newDescription,
+      newIsOpen,
+      newApprovalThreshold,
+      newMinimumBlockDelay,
+      newMaximumBlockDelay,
+    }),
+    writeContext.apiKey,
+    'Update group transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'UPDATE_GROUP',
+    groupId,
+    groupName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function registerNameForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const name = getRequiredNameRequestString(request);
+  const data = getString(getRequestValue(request, 'data')) || getString(getRequestValue(request, 'nameData'));
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'REGISTER_NAME',
+    name,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/names/register',
+    JSON.stringify({
+      type: 'REGISTER_NAME',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      registrantPublicKey: writeContext.publicKey58,
+      name,
+      data,
+    }),
+    writeContext.apiKey,
+    'Register name transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'REGISTER_NAME',
+    name,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function updateNameForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const name = getRequiredNameRequestString(request);
+  const writeContext = await getQdnChatContext(context);
+  const nameData = await getNameDataForApp(writeContext.connection, name);
+  const newName = getString(getRequestValue(request, 'newName'));
+  const newData =
+    getString(getRequestValue(request, 'newData')) ||
+    getString(getRequestValue(request, 'data')) ||
+    getString(getRequestValue(request, 'nameData'));
+  const primary = getOptionalBooleanRequestValue(request, 'primary', 'isPrimary');
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'UPDATE_NAME',
+    name,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/names/update',
+    JSON.stringify({
+      type: 'UPDATE_NAME',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request, getNameCreationGroupId(nameData)),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      name,
+      newName,
+      newData,
+      primary,
+    }),
+    writeContext.apiKey,
+    'Update name transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'UPDATE_NAME',
+    name,
+    newName: newName || null,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function sellNameForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const name = getRequiredNameRequestString(request);
+  const amount = getRequiredAmountValue(request, 'amount', 'Name sale amount');
+  const recipient = getOptionalAddressRequestString(request, 'Recipient address', 'recipient', 'recipientAddress');
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'SELL_NAME',
+    amount,
+    name,
+    permissionScope: 'single-request',
+    recipientAddress: recipient || undefined,
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/names/sell',
+    JSON.stringify({
+      type: 'SELL_NAME',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      name,
+      amount,
+      recipient: recipient || undefined,
+    }),
+    writeContext.apiKey,
+    'Sell name transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'SELL_NAME',
+    amount,
+    name,
+    recipient: recipient || null,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function cancelSellNameForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const name = getRequiredNameRequestString(request);
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'CANCEL_SELL_NAME',
+    name,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/names/sell/cancel',
+    JSON.stringify({
+      type: 'CANCEL_SELL_NAME',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      name,
+    }),
+    writeContext.apiKey,
+    'Cancel name sale transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'CANCEL_SELL_NAME',
+    name,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function buyNameForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const name = getRequiredNameRequestString(request);
+  const writeContext = await getQdnChatContext(context);
+  const nameData = await getNameDataForApp(writeContext.connection, name);
+  const seller = getString(getRequestValue(request, 'seller')) || getNameOwnerAddress(nameData);
+  const amount =
+    typeof getRequestValue(request, 'amount') === 'undefined'
+      ? getNameSaleAmount(nameData)
+      : getRequiredAmountValue(request, 'amount', 'Name purchase amount');
+
+  if (!seller) {
+    throw new Error('Name seller address is required.');
+  }
+
+  assertQortiumAddress(seller, 'Seller address');
+
+  if (typeof amount === 'undefined') {
+    throw new Error('Name purchase amount is required.');
+  }
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'BUY_NAME',
+    amount,
+    name,
+    permissionScope: 'single-request',
+    recipientAddress: seller,
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/names/buy',
+    JSON.stringify({
+      type: 'BUY_NAME',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      buyerPublicKey: writeContext.publicKey58,
+      name,
+      amount,
+      seller,
+    }),
+    writeContext.apiKey,
+    'Buy name transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'BUY_NAME',
+    amount,
+    name,
+    result: processedTransaction.data,
+    seller,
     transactionSignature: processedTransaction.signature,
   };
 }
@@ -2481,10 +3294,7 @@ async function handleQdnAppRequest(
       return fetchNodeApiPayload('/admin/status', request);
 
     case 'GET_ACCOUNT_DATA':
-      return fetchNodeApiPayload(
-        `/addresses/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
-        request,
-      );
+      return fetchNodeApiPayload(`/addresses/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
 
     case 'GET_ACCOUNT_GROUPS':
       return fetchNodeApiPayload(await buildAccountGroupsPath(request, context), request);
@@ -2493,19 +3303,13 @@ async function handleQdnAppRequest(
       return fetchNodeApiPayload(await buildAccountGroupJoinRequestsPath(request, context), request);
 
     case 'GET_ACCOUNT_NAMES':
-      return fetchNodeApiPayload(
-        `/names/address/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
-        request,
-      );
+      return fetchNodeApiPayload(`/names/address/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
 
     case 'GET_SELECTED_ACCOUNT':
       return getSelectedAccountForQdnApp(context);
 
     case 'GET_BALANCE':
-      return fetchNodeApiPayload(
-        `/addresses/balance/${encodeURIComponent(getRequiredRequestString(request, 'address', 'Address'))}`,
-        request,
-      );
+      return fetchNodeApiPayload(`/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
 
     case 'GET_GROUP':
       return fetchNodeApiPayload(
@@ -2576,6 +3380,9 @@ async function handleQdnAppRequest(
     case 'PUBLISH_QDN_RESOURCE':
       return publishQdnResourceForApp(request, context, sender);
 
+    case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
+      return publishMultipleQdnResourcesForApp(request, context, sender);
+
     case 'DELETE_QDN_RESOURCE':
       return deleteQdnResourceForApp(request, context, sender);
 
@@ -2584,6 +3391,30 @@ async function handleQdnAppRequest(
 
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return approveGroupJoinRequestForApp(request, context, sender);
+
+    case 'INVITE_TO_GROUP':
+      return inviteToGroupForApp(request, context, sender);
+
+    case 'LEAVE_GROUP':
+      return leaveGroupForApp(request, context, sender);
+
+    case 'UPDATE_GROUP':
+      return updateGroupForApp(request, context, sender);
+
+    case 'REGISTER_NAME':
+      return registerNameForApp(request, context, sender);
+
+    case 'UPDATE_NAME':
+      return updateNameForApp(request, context, sender);
+
+    case 'SELL_NAME':
+      return sellNameForApp(request, context, sender);
+
+    case 'CANCEL_SELL_NAME':
+      return cancelSellNameForApp(request, context, sender);
+
+    case 'BUY_NAME':
+      return buyNameForApp(request, context, sender);
 
     case 'SEND_CHAT_MESSAGE':
       return sendChatMessageForApp(request, context, sender);

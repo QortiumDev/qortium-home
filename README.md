@@ -72,11 +72,12 @@ known peers, probes candidates for public QDN/read API support, and prefers a
 reachable node that can answer public QDN resource searches. Home does not send
 the local API key while using Previewnet network mode.
 
-Qortium Home does not yet expose name registration, a first-party direct chat
-UI, or generic transaction signing workflows. Desktop and Android QDN apps can
-request QDN publish/delete, group join, group and direct private chat sends, and
-private group/direct chat reads through the account-aware `qdnRequest` bridge
-after user approval when the selected node is local and has a saved API key.
+Qortium Home does not yet expose a first-party direct chat UI or generic
+transaction signing workflows. Desktop and Android QDN apps can request QDN
+publish/delete, group membership and maintenance actions, name management,
+group and direct private chat sends, and private group/direct chat reads through
+the account-aware `qdnRequest` bridge after user approval when the selected node
+is local and has a saved API key.
 
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
@@ -88,20 +89,27 @@ is limited to Home-owned tokenized iframe loads.
 
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
-`GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`, `GET_BALANCE`, `GET_GROUP`,
-`GET_GROUP_MEMBERS`, `GET_NAME_DATA`, `LIST_GROUPS`, `SEARCH_GROUPS`,
-`SEARCH_CHAT_MESSAGES`, `GET_QDN_RESOURCE_METADATA`,
+`GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,
+`GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_BALANCE`, `GET_GROUP`,
+`GET_GROUP_JOIN_REQUESTS`, `GET_GROUP_MEMBERS`, `GET_NAME_DATA`,
+`LIST_GROUPS`, `SEARCH_GROUPS`, `SEARCH_CHAT_MESSAGES`,
+`GET_QDN_RESOURCE_METADATA`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
 `SEARCH_QDN_RESOURCES`, `GET_SELECTED_ACCOUNT`, `IS_USING_PUBLIC_NODE`,
 `WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
-APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE` and
-`DELETE_QDN_RESOURCE`, `JOIN_GROUP`, `SEND_CHAT_MESSAGE`,
+APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
+`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
+`APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
+`UPDATE_GROUP`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
+`CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, and
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
-Publishing uses a Home-owned file/folder picker on desktop and a Home-owned
-single-file native picker on Android. Publish/delete and join requests require
+Single-resource publishing can use inline `data64`/`base64` payloads or a
+Home-owned file/folder picker on desktop and a Home-owned single-file native
+picker on Android. Multiple-resource publishing requires inline base64 data for
+each resource. Publish/delete, group, and name write requests require
 per-request approval before Home signs and processes the transaction with the
 selected tab account. Chat sends and private closed-group reads use a
 session-scoped approval for the current tab and selected account; direct private
@@ -117,7 +125,7 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 - Additional derived addresses from the same wallet.
 - Additional `qdnRequest` approval prompts for generic signing and other
   write-style account actions.
-- First-party local-node workflows for name registration and chat management.
+- First-party local-node workflows for chat management.
 - Service-specific viewers for more QDN service types.
 - Stable/mainnet Core profile selection and richer Core maintenance controls.
 - Android signing credential setup.

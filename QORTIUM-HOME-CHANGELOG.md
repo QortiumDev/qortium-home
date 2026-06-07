@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - app: add QDN name and group write actions
+
+Changed the QDN app bridge so QDN apps can use `qdnRequest` for name
+management, group invites/leaves/updates, and multiple inline QDN publishes
+without adding legacy request aliases. The approval prompt now shows the
+relevant name, amount, resource count, group, recipient, and source details
+before Home signs and processes these account-scoped transactions.
+
 ### 2026-06-06 - app: keep top-bar overlays above QDN apps
 
 Changed top-bar popovers and address suggestions so they temporarily suspend

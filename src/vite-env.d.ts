@@ -442,18 +442,29 @@ type QortiumQdnAccountReadApprovalRequest = {
 type QortiumQdnWriteApprovalRequest = {
   accountName: string | null;
   action:
+    | 'PUBLISH_MULTIPLE_QDN_RESOURCES'
     | 'PUBLISH_QDN_RESOURCE'
     | 'DELETE_QDN_RESOURCE'
     | 'APPROVE_GROUP_JOIN_REQUEST'
+    | 'INVITE_TO_GROUP'
     | 'JOIN_GROUP'
+    | 'LEAVE_GROUP'
+    | 'UPDATE_GROUP'
+    | 'BUY_NAME'
+    | 'CANCEL_SELL_NAME'
+    | 'REGISTER_NAME'
+    | 'SELL_NAME'
+    | 'UPDATE_NAME'
     | 'SEND_CHAT_MESSAGE'
     | 'READ_PRIVATE_GROUP_CHAT'
     | 'READ_PRIVATE_DIRECT_CHAT';
   address: string;
+  amount: string | null;
   chatMessagePreview: string | null;
   groupId: number | null;
   groupName: string | null;
   id: string;
+  name: string | null;
   permissionScope: 'single-request' | 'session';
   recipientAddress: string | null;
   resource: {
@@ -461,8 +472,9 @@ type QortiumQdnWriteApprovalRequest = {
     name: string;
     service: string;
   } | null;
+  resourceCount: number | null;
   resourceUrl: string;
-  sourceKind: 'directory' | 'file' | null;
+  sourceKind: 'data' | 'directory' | 'file' | null;
   sourceName: string | null;
 };
 
