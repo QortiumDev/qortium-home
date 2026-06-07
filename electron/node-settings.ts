@@ -49,7 +49,7 @@ type DiscoveryCache = {
   nodeApiUrl: string;
 };
 
-type NodeConnection = {
+export type NodeConnection = {
   apiKey?: string;
   mode: NodeSettingsMode;
   nodeApiUrl: string;
@@ -626,7 +626,7 @@ function getProtectedNodeApiKey(settings: NodeSettings) {
   return apiKey;
 }
 
-function isInvalidApiKeyResponse(response: Response, text: string) {
+export function isInvalidApiKeyResponse(response: Response, text: string) {
   if (response.status === 401 || response.status === 403) {
     return true;
   }
@@ -659,6 +659,29 @@ async function refreshLocalApiKey(settings: NodeSettings) {
   }
 
   return refreshedSettings;
+}
+
+export async function refreshNodeConnectionApiKey(connection: NodeConnection): Promise<NodeConnection | null> {
+  if (connection.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
+    return null;
+  }
+
+  const refreshedSettings = await refreshLocalApiKey(readNodeSettings());
+  const refreshedConnection = {
+    apiKey: getConfiguredNodeApiKey(refreshedSettings),
+    mode: refreshedSettings.mode,
+    nodeApiUrl: await resolveNodeApiUrl(refreshedSettings),
+  };
+
+  if (
+    refreshedConnection.mode !== 'local' ||
+    !refreshedConnection.apiKey ||
+    refreshedConnection.apiKey === connection.apiKey
+  ) {
+    return null;
+  }
+
+  return refreshedConnection;
 }
 
 async function fetchProtectedNodeResponse(
