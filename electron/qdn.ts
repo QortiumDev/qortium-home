@@ -8,7 +8,6 @@ import { getNodeConnection } from './node-settings.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
 
-const PREVIEW_API_KEY_PATH = path.join(os.homedir(), 'git', 'qortium', 'preview', 'apikey.txt');
 const PREVIEW_ACCOUNTS_PATH = path.join(
   os.homedir(),
   'git',
@@ -225,6 +224,7 @@ type QdnWriteSigner =
     };
 
 type QdnWriteContext = {
+  apiKey: string;
   connection: NodeConnection;
   profile: QdnWriteProfile;
   signer: QdnWriteSigner;
@@ -520,32 +520,6 @@ async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
     avatarUrl: profile.avatarUrl,
     name: profile.name,
   };
-}
-
-function readTrimmedFile(filePath: string) {
-  const expandedPath = expandHomePath(filePath);
-
-  if (!existsSync(expandedPath)) {
-    return '';
-  }
-
-  return readFileSync(expandedPath, 'utf8').trim();
-}
-
-function readNodeApiKey() {
-  const explicitApiKey = process.env.QORTIUM_HOME_NODE_API_KEY?.trim();
-
-  if (explicitApiKey) {
-    return explicitApiKey;
-  }
-
-  const explicitApiKeyPath = process.env.QORTIUM_HOME_NODE_API_KEY_PATH?.trim();
-
-  if (explicitApiKeyPath) {
-    return readTrimmedFile(explicitApiKeyPath);
-  }
-
-  return readTrimmedFile(PREVIEW_API_KEY_PATH);
 }
 
 function isQdnWriteSmokeMode() {
@@ -1290,11 +1264,15 @@ function assertLocalWriteConnection(connection: NodeConnection) {
   }
 }
 
-function getNodeApiKey() {
-  const apiKey = readNodeApiKey();
+function getNodeApiKey(connection: NodeConnection) {
+  const apiKey = connection.apiKey?.trim();
 
   if (!apiKey) {
-    throw new Error('Qortium node API key was not found.');
+    if (connection.mode === 'custom') {
+      throw new Error('Save the custom node API key before using protected QDN workflows.');
+    }
+
+    throw new Error('Start Qortium Core from Home, or save the local node API key before using protected QDN workflows.');
   }
 
   return apiKey;
@@ -1346,7 +1324,7 @@ async function fetchRawResource(
   const headers: Record<string, string> = {};
 
   if (connection.mode !== 'network') {
-    headers['X-API-KEY'] = getNodeApiKey();
+    headers['X-API-KEY'] = getNodeApiKey(connection);
   }
 
   const response = await fetchNode(
@@ -1756,11 +1734,13 @@ async function getQdnWriteContext(
   const connection = await getNodeConnection();
 
   assertLocalWriteConnection(connection);
+  const apiKey = getNodeApiKey(connection);
 
   if (isQdnWriteSmokeMode()) {
     const smokeProfile = getQdnWriteSmokeProfile(resource);
 
     return {
+      apiKey,
       connection,
       profile: smokeProfile,
       signer: {
@@ -1776,6 +1756,7 @@ async function getQdnWriteContext(
   assertAccountUnlocked(accountId);
 
   return {
+    apiKey,
     connection,
     profile,
     signer: {
@@ -1800,7 +1781,7 @@ async function getQdnChatContext(context: QdnViewContext | null): Promise<QdnCha
   assertLocalWriteConnection(connection);
   assertAccountUnlocked(accountId);
 
-  const apiKey = getNodeApiKey();
+  const apiKey = getNodeApiKey(connection);
   const profile = await getAccountProfile(accountId);
   const signingKey = getAccountSigningKey(accountId);
 
@@ -1948,7 +1929,7 @@ async function publishQdnResourceForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
-  const apiKey = getNodeApiKey();
+  const apiKey = writeContext.apiKey;
   const privateKey58 = getQdnWritePrivateKey(writeContext);
   const inlineSource = isInlineQdnWriteSource(source) ? source : null;
   const publishPath = inlineSource ? buildQdnPublishBase64Path(resource, inlineSource) : buildQdnPublishPath(resource);
@@ -2010,7 +1991,7 @@ async function publishMultipleQdnResourcesForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
-  const apiKey = getNodeApiKey();
+  const apiKey = writeContext.apiKey;
   const privateKey58 = getQdnWritePrivateKey(writeContext);
   const published: Array<{
     result: unknown;
@@ -2096,7 +2077,7 @@ async function deleteQdnResourceForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
-  const apiKey = getNodeApiKey();
+  const apiKey = writeContext.apiKey;
   const privateKey58 = getQdnWritePrivateKey(writeContext);
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
@@ -3488,7 +3469,7 @@ export function registerQdnIpcHandlers() {
       };
     }
 
-    const apiKey = getNodeApiKey();
+    const apiKey = getNodeApiKey(connection);
 
     await authorizeResource(service, name, undefined, apiKey, connection.nodeApiUrl);
 

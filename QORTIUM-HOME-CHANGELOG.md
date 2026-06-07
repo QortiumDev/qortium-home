@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - fix: use resolved Core API keys for QDN workflows
+
+Changed desktop QDN authorization, publish, delete, group, name, and chat
+workflows so they use the same resolved node API key as Home's node settings and
+managed Core dashboard checks. Home now carries environment overrides, saved
+custom keys, detected running-Core keys, and generated managed-runtime
+`apikey.txt` values through the selected node connection instead of falling back
+to a development-only preview key path.
+
 ### 2026-06-06 - release: prepare home preview 8
 
 Updated Qortium Home's package and Android version metadata to

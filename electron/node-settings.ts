@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { getManagedCoreRuntimePath, isManagedCoreRuntimeRunning } from './core-manager.js';
 import {
+  ensurePreviewApiKey,
   readPreviewApiKey,
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
@@ -49,6 +50,7 @@ type DiscoveryCache = {
 };
 
 type NodeConnection = {
+  apiKey?: string;
   mode: NodeSettingsMode;
   nodeApiUrl: string;
 };
@@ -186,15 +188,64 @@ function writeNodeSettings(settings: NodeSettings) {
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 }
 
+function expandHomePath(value: string) {
+  const trimmedValue = value.trim();
+
+  if (trimmedValue === '~') {
+    return app.getPath('home');
+  }
+
+  if (trimmedValue.startsWith('~/') || trimmedValue.startsWith('~\\')) {
+    return path.join(app.getPath('home'), trimmedValue.slice(2));
+  }
+
+  return trimmedValue;
+}
+
+function readTrimmedFile(filePath: string) {
+  try {
+    return readFileSync(expandHomePath(filePath), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+function getNodeApiKeyOverride() {
+  const explicitApiKey = process.env.QORTIUM_HOME_NODE_API_KEY?.trim();
+
+  if (explicitApiKey) {
+    return explicitApiKey;
+  }
+
+  const explicitApiKeyPath = process.env.QORTIUM_HOME_NODE_API_KEY_PATH?.trim();
+
+  if (explicitApiKeyPath) {
+    return readTrimmedFile(explicitApiKeyPath);
+  }
+
+  return '';
+}
+
+function getConfiguredNodeApiKey(settings: NodeSettings) {
+  if (settings.mode === 'network') {
+    return '';
+  }
+
+  return getNodeApiKeyOverride() || settings.apiKey;
+}
+
 async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings> {
   if (settings.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
     return settings;
   }
 
   const runtimePath = await getManagedCoreRuntimePath();
-  const managedCoreApiKey = runtimePath ? readPreviewApiKey(runtimePath) : null;
   const runningCoreApiKey = readRunningLocalCoreApiKey();
   const managedRuntimeRunning = await isManagedCoreRuntimeRunning();
+  const existingManagedCoreApiKey = runtimePath ? readPreviewApiKey(runtimePath) : null;
+  const managedCoreApiKey =
+    existingManagedCoreApiKey ??
+    (runtimePath && (managedRuntimeRunning || !settings.apiKey) ? ensurePreviewApiKey(runtimePath) : null);
 
   if (settings.apiKey) {
     if (runningCoreApiKey && runningCoreApiKey.apiKey !== settings.apiKey) {
@@ -558,7 +609,9 @@ function getErrorMessage(error: unknown) {
 }
 
 function getProtectedNodeApiKey(settings: NodeSettings) {
-  if (!settings.apiKey) {
+  const apiKey = getConfiguredNodeApiKey(settings);
+
+  if (!apiKey) {
     if (settings.mode === 'local') {
       throw new Error('Install or start Qortium Core, or save the local node API key to check approved on-chain Core updates.');
     }
@@ -570,7 +623,7 @@ function getProtectedNodeApiKey(settings: NodeSettings) {
     throw new Error('Qortium node API key was not found.');
   }
 
-  return settings.apiKey;
+  return apiKey;
 }
 
 function isInvalidApiKeyResponse(response: Response, text: string) {
@@ -743,9 +796,10 @@ function installCoreUpdate() {
 }
 
 export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<NodeConnection> {
-  const settings = readNodeSettings();
+  const settings = await resolveLocalApiKey(readNodeSettings());
 
   return {
+    apiKey: getConfiguredNodeApiKey(settings),
     mode: settings.mode,
     nodeApiUrl: await resolveNodeApiUrl(settings, forceDiscoveryRefresh),
   };
