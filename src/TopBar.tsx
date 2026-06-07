@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Lock, Plus, Unlock, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Lock, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeStatusButton } from './NodeStatusButton';
@@ -1100,6 +1100,15 @@ export function TopBar({
           onMenuOpenChange={setForwardHistoryOpen}
           onStep={onGoForward}
         />
+        <button
+          className="icon-button top-bar__reload-button"
+          title="Reload page"
+          type="button"
+          onClick={() => onReloadTab(activeTabId)}
+        >
+          <RefreshCw aria-hidden="true" size={20} strokeWidth={2} />
+          <span className="sr-only">Reload page</span>
+        </button>
         <label className="sr-only" htmlFor="browser-address">
           Address
         </label>

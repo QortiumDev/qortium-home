@@ -959,7 +959,10 @@ h1 {
 
 .top-bar__address-form {
   display: grid;
-  grid-template-columns: 42px 42px minmax(0, 1fr) 42px;
+  grid-template-columns:
+    repeat(3, calc(42px * var(--text-scale)))
+    minmax(0, 1fr)
+    calc(42px * var(--text-scale));
   gap: 6px;
   align-items: start;
   min-width: 0;
@@ -977,6 +980,10 @@ h1 {
 .top-bar__history .top-bar__history-button {
   width: calc(42px * var(--text-scale));
   height: calc(42px * var(--text-scale));
+}
+
+.top-bar__reload-button {
+  color: #cbd5d5;
 }
 
 .top-bar__history-popover {
@@ -1073,7 +1080,7 @@ h1 {
 
 .top-bar__address-suggestions {
   display: grid;
-  grid-column: 3 / 4;
+  grid-column: 4 / 5;
   gap: 4px;
   min-width: 0;
 }
@@ -1965,7 +1972,10 @@ h1 {
   }
 
   .top-bar__address-form {
-    grid-template-columns: 42px 42px minmax(0, 1fr) 42px;
+    grid-template-columns:
+      repeat(3, calc(42px * var(--text-scale)))
+      minmax(0, 1fr)
+      calc(42px * var(--text-scale));
   }
 
   .home-content {
