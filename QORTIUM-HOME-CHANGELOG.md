@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - fix: authorize exact QDN render resources
+
+Changed QDN render authorization so Home includes the resource identifier when an app or website is loading a specific QDN resource. Home still sends a broader service/name authorization when no identifier is supplied, matching Core's explicit broader authorization behavior without making every identified resource look like the publisher name itself.
+
 ### 2026-06-07 - fix: simplify QDN resource loading authorization
 
 Changed QDN resource loading so Home shows a plain loading message instead of
