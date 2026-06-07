@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - test: expand QDN bridge smoke coverage
+
+Changed the QDN bridge smoke tests so desktop and Android checks require the
+expanded name, group, publish, account, and private-chat action list exposed by
+`SHOW_ACTIONS`. The fixture readiness checks now ask Core to build archive
+resources before expecting `READY`, and the stale-tab permission scenario now
+handles the expected CDP context teardown when a QDN view is replaced before
+approval.
+
 ### 2026-06-06 - app: add QDN name and group write actions
 
 Changed the QDN app bridge so QDN apps can use `qdnRequest` for name

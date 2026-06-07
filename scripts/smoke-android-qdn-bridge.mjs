@@ -715,8 +715,8 @@ async function assertResourceStatus(service, name, identifier, expectedStatus, o
 }
 
 async function assertFixtureReady() {
-  const appStatus = await getResourceStatus('APP', fixtureName, appIdentifier);
-  const jsonStatus = await getResourceStatus('JSON', fixtureName, jsonIdentifier);
+  const appStatus = await getResourceStatus('APP', fixtureName, appIdentifier, { build: true });
+  const jsonStatus = await getResourceStatus('JSON', fixtureName, jsonIdentifier, { build: true });
 
   if (appStatus?.status !== 'READY') {
     fail(`QDN APP fixture is not READY at ${fixtureAddress}. Run npm run qdn:bootstrap-test-data first.`);
@@ -1645,13 +1645,17 @@ async function runBridgeAssertions(client, contextId) {
     'FETCH_NODE_API',
     'GET_NODE_INFO',
     'GET_NODE_STATUS',
+    'GET_ACCOUNT_DATA',
     'GET_ACCOUNT_GROUPS',
     'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
+    'GET_ACCOUNT_NAMES',
     'GET_ACTIVE_CHATS',
     'GET_ADMIN_GROUP_JOIN_REQUESTS',
+    'GET_BALANCE',
     'GET_GROUP',
     'GET_GROUP_JOIN_REQUESTS',
     'GET_GROUP_MEMBERS',
+    'GET_NAME_DATA',
     'GET_SELECTED_ACCOUNT',
     'GET_QDN_RESOURCE_METADATA',
     'GET_QDN_RESOURCE_PROPERTIES',
@@ -1662,10 +1666,19 @@ async function runBridgeAssertions(client, contextId) {
     'FETCH_QDN_RESOURCE',
     'LIST_GROUPS',
     'LIST_QDN_RESOURCES',
-    'APPROVE_GROUP_JOIN_REQUEST',
-    'JOIN_GROUP',
+    'PUBLISH_MULTIPLE_QDN_RESOURCES',
     'PUBLISH_QDN_RESOURCE',
     'DELETE_QDN_RESOURCE',
+    'APPROVE_GROUP_JOIN_REQUEST',
+    'INVITE_TO_GROUP',
+    'JOIN_GROUP',
+    'LEAVE_GROUP',
+    'UPDATE_GROUP',
+    'BUY_NAME',
+    'CANCEL_SELL_NAME',
+    'REGISTER_NAME',
+    'SELL_NAME',
+    'UPDATE_NAME',
     'SEND_CHAT_MESSAGE',
     'SEARCH_CHAT_MESSAGES',
     'SEARCH_GROUPS',
