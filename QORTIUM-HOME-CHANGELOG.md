@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - fix: escape Windows core launcher arguments safely
+
+Changed the managed Core launcher command quoting on Windows so backslashes are
+escaped correctly before quotes and at the end of arguments. This prevents
+Windows script arguments such as runtime paths from being parsed incorrectly by
+the command shell.
+
 ### 2026-06-06 - test: expand QDN bridge smoke coverage
 
 Changed the QDN bridge smoke tests so desktop and Android checks require the
