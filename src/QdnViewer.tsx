@@ -527,7 +527,7 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
     async function loadResource() {
       setSafeState({
         phase: 'loading',
-        message: 'Authorizing QDN resource',
+        message: 'Loading QDN resource',
       });
 
       try {
