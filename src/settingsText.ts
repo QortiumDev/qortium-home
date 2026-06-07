@@ -43,10 +43,12 @@ export const SETTINGS_TEXT = {
     runtimeIssue: 'Runtime issue',
     size: 'Size',
     status: 'Status',
+    textSize: 'Text size',
     version: 'Version',
     releaseChannel: 'Release channel',
   },
   sections: {
+    displaySettings: 'Display Settings',
     nodeSettings: 'Node Settings',
     qortiumCore: 'Qortium Core',
     qortiumHome: 'Qortium Home',

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - app: add global display text size controls
+
+Added a Display Settings section at the top of Settings with Small, Medium, Large, and Extra Large text size choices. Home now drives shared interface typography from one persisted text-size preference, makes Medium the larger default, keeps Small at the previous compact baseline, and lets controls that contain text grow with the selected size.
+
 ### 2026-06-07 - fix: refresh stale QDN authorization API keys
 
 Changed desktop QDN app loading so a stale local Core API key no longer leaves users looking at Core's raw "API key invalid" response. When the render authorization request is rejected for an invalid key, Home now clears and redetects the active local Core key, retries the authorization once, and stores the corrected key for later QDN app requests.

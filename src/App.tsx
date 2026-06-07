@@ -13,6 +13,13 @@ import { ApiViewer } from './ApiViewer';
 import { useAppUpdates } from './appUpdateState';
 import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
+import {
+  applyTextSizeSetting,
+  getInitialTextSizeSetting,
+  loadTextSizeSetting,
+  saveTextSizeSetting,
+  type TextSizeSetting,
+} from './displaySettings';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
@@ -106,8 +113,9 @@ const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
 const NAVIGATION_SWIPE_VERTICAL_CANCEL_PX = 48;
 const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   core: false,
+  display: true,
   home: false,
-  node: true,
+  node: false,
 };
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
@@ -496,6 +504,7 @@ export function App() {
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
+  const [textSize, setTextSize] = useState<TextSizeSetting>(getInitialTextSizeSetting);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
@@ -704,6 +713,36 @@ export function App() {
       isDisposed = true;
     };
   }, []);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    loadTextSizeSetting()
+      .then((storedTextSize) => {
+        if (!isDisposed) {
+          setTextSize(storedTextSize);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load display settings.', error);
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    applyTextSizeSetting(textSize);
+  }, [textSize]);
+
+  function updateTextSize(nextTextSize: TextSizeSetting) {
+    setTextSize(nextTextSize);
+
+    saveTextSizeSetting(nextTextSize).catch((error) => {
+      console.warn('Unable to save display settings.', error);
+    });
+  }
 
   useEffect(() => {
     let isDisposed = false;
@@ -1572,7 +1611,9 @@ export function App() {
             onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
             onSectionExpansionChange={updateSettingsSectionExpansion}
             onSaveNodeSettings={saveNodeSettings}
+            onTextSizeChange={updateTextSize}
             sectionExpansion={settingsExpansion}
+            textSize={textSize}
           />
         ) : currentRoute.kind === 'dashboard' ? (
           <DashboardPage
