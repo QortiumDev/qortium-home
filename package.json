@@ -61,7 +61,7 @@
     "lucide-react": "^1.17.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "tar": "^7.5.15",
+    "tar": "^7.5.16",
     "tweetnacl": "1.0.3"
   },
   "devDependencies": {
