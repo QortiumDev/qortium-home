@@ -244,17 +244,25 @@ async function assertLocalCoreReady() {
   return status;
 }
 
-async function getResourceStatus(service, name, identifier) {
+async function getResourceStatus(service, name, identifier, options = {}) {
   const identifierPath = identifier ? `/${encodeURIComponent(identifier)}` : '';
+  const queryParams = new URLSearchParams();
 
+  if (options.build) {
+    queryParams.set('build', 'true');
+  }
+
+  const queryString = queryParams.toString();
   return fetchJson(
-    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}${identifierPath}`,
+    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}${identifierPath}${
+      queryString ? `?${queryString}` : ''
+    }`,
   );
 }
 
 async function assertFixtureReady() {
-  const appStatus = await getResourceStatus('APP', fixtureName, appIdentifier);
-  const jsonStatus = await getResourceStatus('JSON', fixtureName, jsonIdentifier);
+  const appStatus = await getResourceStatus('APP', fixtureName, appIdentifier, { build: true });
+  const jsonStatus = await getResourceStatus('JSON', fixtureName, jsonIdentifier, { build: true });
 
   if (appStatus?.status !== 'READY') {
     fail(
@@ -483,24 +491,40 @@ async function runBridgeAssertions(qdnClient) {
     'FETCH_NODE_API',
     'GET_NODE_INFO',
     'GET_NODE_STATUS',
+    'GET_ACCOUNT_DATA',
     'GET_ACCOUNT_GROUPS',
     'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
+    'GET_ACCOUNT_NAMES',
     'GET_ACTIVE_CHATS',
     'GET_ADMIN_GROUP_JOIN_REQUESTS',
+    'GET_BALANCE',
     'GET_GROUP',
     'GET_GROUP_JOIN_REQUESTS',
     'GET_GROUP_MEMBERS',
+    'GET_NAME_DATA',
     'GET_QDN_RESOURCE_METADATA',
     'GET_QDN_RESOURCE_PROPERTIES',
     'GET_QDN_RESOURCE_STATUS',
     'GET_QDN_RESOURCE_URL',
+    'GET_SELECTED_ACCOUNT',
     'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
     'GET_PRIVATE_GROUP_ACTIVE_CHATS',
     'FETCH_QDN_RESOURCE',
     'LIST_GROUPS',
     'LIST_QDN_RESOURCES',
+    'PUBLISH_MULTIPLE_QDN_RESOURCES',
+    'PUBLISH_QDN_RESOURCE',
+    'DELETE_QDN_RESOURCE',
     'APPROVE_GROUP_JOIN_REQUEST',
+    'INVITE_TO_GROUP',
     'JOIN_GROUP',
+    'LEAVE_GROUP',
+    'UPDATE_GROUP',
+    'BUY_NAME',
+    'CANCEL_SELL_NAME',
+    'REGISTER_NAME',
+    'SELL_NAME',
+    'UPDATE_NAME',
     'SEND_CHAT_MESSAGE',
     'SEARCH_CHAT_MESSAGES',
     'SEARCH_GROUPS',

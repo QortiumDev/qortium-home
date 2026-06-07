@@ -611,7 +611,10 @@ async function runQdnRequestWithDialog(
         .then((result) => ({ ok: true, result }))
         .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
     `,
-  );
+  ).catch((error) => ({
+    ok: false,
+    message: String(error && error.message || error),
+  }));
 
   if (beforeResolve) {
     await beforeResolve();
@@ -875,7 +878,11 @@ async function runScenarioActions({
         true,
       );
 
-      if (result?.ok || !String(result?.message ?? '').includes('stale')) {
+      const message = String(result?.message ?? '');
+
+      // Replacing the active QDN view can destroy the original CDP context before the
+      // rejected qdnRequest promise is delivered back to the test page.
+      if (result?.ok || (!message.includes('stale') && !message.includes('Execution context was destroyed'))) {
         fail(`Stale tab scenario failed with unexpected result: ${JSON.stringify(result)}`);
       }
 
@@ -997,13 +1004,24 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
 
         const actions = await evaluate(qdnClient, "window.qdnRequest({ action: 'SHOW_ACTIONS' })");
         for (const action of [
+          'PUBLISH_MULTIPLE_QDN_RESOURCES',
           'PUBLISH_QDN_RESOURCE',
           'DELETE_QDN_RESOURCE',
           'APPROVE_GROUP_JOIN_REQUEST',
+          'INVITE_TO_GROUP',
           'JOIN_GROUP',
+          'LEAVE_GROUP',
+          'UPDATE_GROUP',
+          'BUY_NAME',
+          'CANCEL_SELL_NAME',
+          'REGISTER_NAME',
+          'SELL_NAME',
+          'UPDATE_NAME',
           'SEND_CHAT_MESSAGE',
           'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+          'GET_PRIVATE_GROUP_ACTIVE_CHATS',
           'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+          'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
         ]) {
           if (!Array.isArray(actions) || !actions.includes(action)) {
             fail(`SHOW_ACTIONS did not include ${action}.`);
