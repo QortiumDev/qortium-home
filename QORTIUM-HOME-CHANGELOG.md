@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-06 - release: prepare home preview 8
+
+Updated Qortium Home's package and Android version metadata to
+`1.0.1-preview.8` with Android `versionCode` 9 so testers can receive the
+latest QDN app bridge, overlay, dashboard, settings, managed Core, and
+dependency updates as the next QortiumDev prerelease target.
+
 ### 2026-06-06 - fix: escape Windows core launcher arguments safely
 
 Changed the managed Core launcher command quoting on Windows so backslashes are
