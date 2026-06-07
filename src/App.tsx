@@ -269,14 +269,32 @@ function QdnAccountReadDialog({ request, onResolve }: QdnAccountReadDialogProps)
 
 function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']) {
   switch (action) {
+    case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
+      return 'Publish QDN Resources';
     case 'PUBLISH_QDN_RESOURCE':
       return 'Publish QDN Resource';
     case 'DELETE_QDN_RESOURCE':
       return 'Delete QDN Resource';
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return 'Approve Group Join Request';
+    case 'INVITE_TO_GROUP':
+      return 'Invite To Group';
     case 'JOIN_GROUP':
       return 'Join Group';
+    case 'LEAVE_GROUP':
+      return 'Leave Group';
+    case 'UPDATE_GROUP':
+      return 'Update Group';
+    case 'BUY_NAME':
+      return 'Buy Name';
+    case 'CANCEL_SELL_NAME':
+      return 'Cancel Name Sale';
+    case 'REGISTER_NAME':
+      return 'Register Name';
+    case 'SELL_NAME':
+      return 'Sell Name';
+    case 'UPDATE_NAME':
+      return 'Update Name';
     case 'SEND_CHAT_MESSAGE':
       return 'Send Chat Message';
     case 'READ_PRIVATE_GROUP_CHAT':
@@ -302,6 +320,17 @@ function getQdnWriteGroupLabel(request: QortiumQdnWriteApprovalRequest) {
   }
 
   return request.groupName ? `${request.groupName} (${request.groupId})` : String(request.groupId);
+}
+
+function getQdnWriteSourceLabel(sourceKind: QortiumQdnWriteApprovalRequest['sourceKind']) {
+  switch (sourceKind) {
+    case 'data':
+      return 'Data';
+    case 'directory':
+      return 'Folder';
+    default:
+      return 'File';
+  }
 }
 
 function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
@@ -336,6 +365,18 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
               <dd>{getQdnWriteResourceLabel(request.resource)}</dd>
             </div>
           ) : null}
+          {typeof request.resourceCount === 'number' ? (
+            <div>
+              <dt>Resources</dt>
+              <dd>{request.resourceCount}</dd>
+            </div>
+          ) : null}
+          {request.name ? (
+            <div>
+              <dt>Name</dt>
+              <dd>{request.name}</dd>
+            </div>
+          ) : null}
           {typeof request.groupId === 'number' ? (
             <div>
               <dt>Group</dt>
@@ -346,6 +387,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             <div>
               <dt>Recipient</dt>
               <dd>{request.recipientAddress}</dd>
+            </div>
+          ) : null}
+          {request.amount ? (
+            <div>
+              <dt>Amount</dt>
+              <dd>{request.amount}</dd>
             </div>
           ) : null}
           {request.chatMessagePreview ? (
@@ -362,7 +409,7 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
           ) : null}
           {request.sourceName ? (
             <div>
-              <dt>{request.sourceKind === 'directory' ? 'Folder' : 'File'}</dt>
+              <dt>{getQdnWriteSourceLabel(request.sourceKind)}</dt>
               <dd>{request.sourceName}</dd>
             </div>
           ) : null}
