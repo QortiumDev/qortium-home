@@ -1746,7 +1746,11 @@ async function installCore(request: CoreInstallRequest) {
 }
 
 function quoteWindowsCommandArg(arg: string) {
-  return `"${arg.replace(/"/g, '\\"')}"`;
+  const escaped = arg
+    .replace(/(\\*)"/g, (_match, backslashes: string) => `${backslashes}${backslashes}\\"`)
+    .replace(/(\\+)$/g, (_match, backslashes: string) => `${backslashes}${backslashes}`);
+
+  return `"${escaped}"`;
 }
 
 async function runScript(
