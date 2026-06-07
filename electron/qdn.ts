@@ -4,7 +4,11 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { assertAccountUnlocked, getAccountProfile, getAccountSigningKey } from './accounts.js';
-import { getNodeConnection } from './node-settings.js';
+import {
+  getNodeConnection,
+  isInvalidApiKeyResponse,
+  refreshNodeConnectionApiKey,
+} from './node-settings.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
 
@@ -1367,7 +1371,7 @@ async function fetchConfiguredRawResource(resource: QdnResourceRequest, attachme
   }
 }
 
-async function authorizeResource(
+async function postAuthorizeResource(
   service: string,
   name: string,
   identifier: string | undefined,
@@ -1375,7 +1379,8 @@ async function authorizeResource(
   nodeApiUrl: string,
 ) {
   const identifierPath = identifier ? `/${encodeURIComponent(identifier)}` : '';
-  const response = await fetchNode(
+
+  return fetchNode(
     `/render/authorize/${service}/${encodeURIComponent(name)}${identifierPath}`,
     {
       method: 'POST',
@@ -1385,11 +1390,49 @@ async function authorizeResource(
     },
     nodeApiUrl,
   );
+}
 
-  if (!response.ok) {
-    const message = (await response.text()).trim();
-    throw new Error(message || `QDN authorization failed with HTTP ${response.status}.`);
+async function authorizeResource(
+  service: string,
+  name: string,
+  identifier: string | undefined,
+  connection: NodeConnection,
+) {
+  let response = await postAuthorizeResource(
+    service,
+    name,
+    identifier,
+    getNodeApiKey(connection),
+    connection.nodeApiUrl,
+  );
+
+  if (response.ok) {
+    return connection;
   }
+
+  let message = (await response.text()).trim();
+
+  if (isInvalidApiKeyResponse(response, message)) {
+    const refreshedConnection = await refreshNodeConnectionApiKey(connection);
+
+    if (refreshedConnection) {
+      response = await postAuthorizeResource(
+        service,
+        name,
+        identifier,
+        getNodeApiKey(refreshedConnection),
+        refreshedConnection.nodeApiUrl,
+      );
+
+      if (response.ok) {
+        return refreshedConnection;
+      }
+
+      message = (await response.text()).trim();
+    }
+  }
+
+  throw new Error(message || `QDN authorization failed with HTTP ${response.status}.`);
 }
 
 function buildResourcesSearchPath(request: QdnResourcesSearchRequest) {
@@ -3460,7 +3503,7 @@ export function registerQdnIpcHandlers() {
 
   ipcMain.handle('qdn:authorizeResource', async (_event, request: QdnAuthorizeResourceRequest) => {
     const { service, name, identifier } = getAuthorizeRequest(request);
-    const connection = await getNodeConnection();
+    let connection = await getNodeConnection();
 
     if (connection.mode === 'network') {
       return {
@@ -3469,9 +3512,7 @@ export function registerQdnIpcHandlers() {
       };
     }
 
-    const apiKey = getNodeApiKey(connection);
-
-    await authorizeResource(service, name, identifier, apiKey, connection.nodeApiUrl);
+    connection = await authorizeResource(service, name, identifier, connection);
 
     return {
       authorized: true,

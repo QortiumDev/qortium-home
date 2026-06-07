@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - fix: refresh stale QDN authorization API keys
+
+Changed desktop QDN app loading so a stale local Core API key no longer leaves users looking at Core's raw "API key invalid" response. When the render authorization request is rejected for an invalid key, Home now clears and redetects the active local Core key, retries the authorization once, and stores the corrected key for later QDN app requests.
+
 ### 2026-06-07 - fix: authorize exact QDN render resources
 
 Changed QDN render authorization so Home includes the resource identifier when an app or website is loading a specific QDN resource. Home still sends a broader service/name authorization when no identifier is supplied, matching Core's explicit broader authorization behavior without making every identified resource look like the publisher name itself.
