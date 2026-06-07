@@ -3459,7 +3459,7 @@ export function registerQdnIpcHandlers() {
   });
 
   ipcMain.handle('qdn:authorizeResource', async (_event, request: QdnAuthorizeResourceRequest) => {
-    const { service, name } = getAuthorizeRequest(request);
+    const { service, name, identifier } = getAuthorizeRequest(request);
     const connection = await getNodeConnection();
 
     if (connection.mode === 'network') {
@@ -3471,7 +3471,7 @@ export function registerQdnIpcHandlers() {
 
     const apiKey = getNodeApiKey(connection);
 
-    await authorizeResource(service, name, undefined, apiKey, connection.nodeApiUrl);
+    await authorizeResource(service, name, identifier, apiKey, connection.nodeApiUrl);
 
     return {
       authorized: true,
