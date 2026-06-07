@@ -2,10 +2,12 @@ import { AppUpdatePanel } from './AppUpdatePanel';
 import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
+import { DisplaySettingsPanel } from './DisplaySettingsPanel';
+import type { TextSizeSetting } from './displaySettings';
 import { NodeSettingsPanel } from './NodeSettingsPanel';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 
-export type SettingsSectionId = 'core' | 'home' | 'node';
+export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -18,6 +20,8 @@ type SettingsPageProps = {
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+  onTextSizeChange: (textSize: TextSizeSetting) => void;
+  textSize: TextSizeSetting;
 };
 
 export function SettingsPage({
@@ -28,7 +32,9 @@ export function SettingsPage({
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
   onSaveNodeSettings,
+  onTextSizeChange,
   sectionExpansion,
+  textSize,
 }: SettingsPageProps) {
   return (
     <div className="settings-page">
@@ -37,6 +43,12 @@ export function SettingsPage({
       </header>
 
       <div className="settings-page__sections">
+        <DisplaySettingsPanel
+          isExpanded={sectionExpansion.display}
+          textSize={textSize}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('display', isExpanded)}
+          onTextSizeChange={onTextSizeChange}
+        />
         <NodeSettingsPanel
           isExpanded={sectionExpansion.node}
           nodeSettings={nodeSettings}
