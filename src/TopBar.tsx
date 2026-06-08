@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Lock, Plus, RefreshCw, Unlock, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeStatusButton } from './NodeStatusButton';
@@ -358,7 +358,11 @@ function AccountChip({
                   Cancel
                 </button>
                 <button className="button" disabled={isBusy} type="submit">
-                  <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+                  {isBusy ? (
+                    <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
+                  ) : (
+                    <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+                  )}
                   {isBusy ? 'Unlocking' : 'Unlock'}
                 </button>
               </div>
@@ -366,7 +370,9 @@ function AccountChip({
           ) : account ? (
             <div className="account-menu__actions">
               <button className="button" disabled={isBusy} type="button" onClick={() => void handleLockToggle(close)}>
-                {account.isUnlocked ? (
+                {isBusy ? (
+                  <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
+                ) : account.isUnlocked ? (
                   <Lock aria-hidden="true" size={18} strokeWidth={2} />
                 ) : (
                   <Unlock aria-hidden="true" size={18} strokeWidth={2} />
