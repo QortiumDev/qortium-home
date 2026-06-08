@@ -76,8 +76,8 @@ type NavigationSwipeState = {
   startY: number;
 };
 
-type QdnAccountReadDialogProps = {
-  request: QortiumQdnAccountReadApprovalRequest;
+type QdnPrivateChatReadDialogProps = {
+  request: QortiumQdnPrivateChatReadApprovalRequest;
   onResolve: (requestId: string, approved: boolean) => void;
 };
 
@@ -245,7 +245,7 @@ function createInitialTabState(): BrowserTabState {
   };
 }
 
-function QdnAccountReadDialog({ request, onResolve }: QdnAccountReadDialogProps) {
+function QdnPrivateChatReadDialog({ request, onResolve }: QdnPrivateChatReadDialogProps) {
   return (
     <div
       className="modal-backdrop"
@@ -256,13 +256,13 @@ function QdnAccountReadDialog({ request, onResolve }: QdnAccountReadDialogProps)
       }}
     >
       <section
-        aria-label="QDN account request"
+        aria-label="QDN private chat read request"
         aria-modal="true"
         className="unlock-dialog qdn-permission-dialog"
         role="dialog"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2 className="unlock-dialog__title">Share Account</h2>
+        <h2 className="unlock-dialog__title">Read Private Chats</h2>
         <p className="unlock-dialog__account">{request.name || 'Selected account'}</p>
         <p className="unlock-dialog__address">{request.address}</p>
         <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
@@ -504,7 +504,8 @@ export function App() {
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
-  const [qdnAccountReadRequests, setQdnAccountReadRequests] = useState<QortiumQdnAccountReadApprovalRequest[]>([]);
+  const [qdnPrivateChatReadRequests, setQdnPrivateChatReadRequests] =
+    useState<QortiumQdnPrivateChatReadApprovalRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
@@ -527,9 +528,9 @@ export function App() {
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
-  const activeQdnAccountReadRequest = qdnAccountReadRequests[0] ?? null;
+  const activeQdnPrivateChatReadRequest = qdnPrivateChatReadRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
-  const isQdnPermissionDialogActive = !!activeQdnAccountReadRequest || !!activeQdnWriteRequest;
+  const isQdnPermissionDialogActive = !!activeQdnPrivateChatReadRequest || !!activeQdnWriteRequest;
   const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme),
@@ -539,12 +540,12 @@ export function App() {
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
 
-    if (!qdnPermissions?.onAccountReadRequest) {
+    if (!qdnPermissions?.onPrivateChatReadRequest) {
       return undefined;
     }
 
-    return qdnPermissions.onAccountReadRequest((request) => {
-      setQdnAccountReadRequests((currentRequests) => {
+    return qdnPermissions.onPrivateChatReadRequest((request) => {
+      setQdnPrivateChatReadRequests((currentRequests) => {
         if (currentRequests.some((currentRequest) => currentRequest.id === request.id)) {
           return currentRequests;
         }
@@ -572,19 +573,19 @@ export function App() {
     });
   }, []);
 
-  function resolveQdnAccountReadRequest(requestId: string, approved: boolean) {
+  function resolveQdnPrivateChatReadRequest(requestId: string, approved: boolean) {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
 
-    setQdnAccountReadRequests((currentRequests) =>
+    setQdnPrivateChatReadRequests((currentRequests) =>
       currentRequests.filter((request) => request.id !== requestId),
     );
 
-    if (!qdnPermissions) {
+    if (!qdnPermissions?.resolvePrivateChatReadRequest) {
       return;
     }
 
-    void qdnPermissions.resolveAccountReadRequest(requestId, approved).catch((error) => {
-      console.warn('Unable to resolve QDN account request.', error);
+    void qdnPermissions.resolvePrivateChatReadRequest(requestId, approved).catch((error) => {
+      console.warn('Unable to resolve QDN private chat read request.', error);
     });
   }
 
@@ -1673,10 +1674,10 @@ export function App() {
           />
         )}
       </section>
-      {activeQdnAccountReadRequest ? (
-        <QdnAccountReadDialog
-          request={activeQdnAccountReadRequest}
-          onResolve={resolveQdnAccountReadRequest}
+      {activeQdnPrivateChatReadRequest ? (
+        <QdnPrivateChatReadDialog
+          request={activeQdnPrivateChatReadRequest}
+          onResolve={resolveQdnPrivateChatReadRequest}
         />
       ) : null}
       {activeQdnWriteRequest ? (

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-08 - app: split selected account and private chat permissions
+
+Changed QDN app permissions so reading the account already selected for a Home tab no longer opens an approval prompt. Private chat read helpers now use their own explicit permission request and dialog wording, keeping sensitive private chat access gated without blocking ordinary app startup account detection.
+
 ### 2026-06-07 - app: notify QDN apps when account state changes
 
 Changed the QDN app bridge so approved selected-account requests now include whether the selected wallet is unlocked. Home also now notifies already-loaded QDN apps when the selected account state changes, allowing apps to refresh their account status after a wallet is locked or unlocked without requiring a full app reload.
