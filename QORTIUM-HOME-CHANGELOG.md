@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-08 - app: avoid white QDN overlay gaps
+
+Changed the isolated QDN app placeholder to use Home's frame background instead of white while the native QDN view is temporarily hidden for account, node, or permission overlays, avoiding a bright blank app area when Home prompts need to appear above the native view.
+
 ### 2026-06-08 - build: inset android launcher icon
 
 Changed the Android launcher icon generator to center the Qortium Home artwork with a larger safe inset, then regenerated the Android launcher PNGs so circular and rounded-rectangle launcher masks do not crop the sides of the house icon.
