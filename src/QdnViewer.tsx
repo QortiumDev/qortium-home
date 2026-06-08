@@ -41,7 +41,7 @@ type QdnViewerState =
     };
 
 type QdnViewerProps = {
-  accountId: string | null;
+  account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   resource: QdnResource;
@@ -130,6 +130,14 @@ function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
   ];
 }
 
+function getQdnSelectedAccountChangedMessage() {
+  return {
+    action: 'SELECTED_ACCOUNT_CHANGED',
+    requestedHandler: 'ACCOUNT',
+    type: 'qortium:selected-account-changed',
+  };
+}
+
 function getPostMessageTargetOrigin(url: string) {
   try {
     const origin = new URL(url).origin;
@@ -138,6 +146,14 @@ function getPostMessageTargetOrigin(url: string) {
   } catch {
     return '*';
   }
+}
+
+function postQdnSelectedAccountChanged(frameWindow: Window | null | undefined, renderUrl: string) {
+  if (!frameWindow) {
+    return;
+  }
+
+  frameWindow.postMessage(getQdnSelectedAccountChangedMessage(), getPostMessageTargetOrigin(renderUrl));
 }
 
 function postQdnDisplaySettings(
@@ -1048,14 +1064,14 @@ function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQ
 
 function QdnIsolatedFrameContent({
   loadedResource,
-  accountId,
+  account,
   displaySettings,
   nodeApiUrl,
   resource,
   suspended,
   tabId,
 }: {
-  accountId: string | null;
+  account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
@@ -1066,6 +1082,8 @@ function QdnIsolatedFrameContent({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastBoundsRef = useRef<QortiumQdnViewBounds | null>(null);
   const [viewError, setViewError] = useState('');
+  const accountId = account?.id ?? null;
+  const isAccountUnlocked = account?.isUnlocked ?? false;
 
   useEffect(() => {
     const qdnViews = window.qortiumHome.qdnViews;
@@ -1166,6 +1184,18 @@ function QdnIsolatedFrameContent({
       return;
     }
 
+    void qdnViews.updateAccountState({ tabId, accountId }).catch((error) => {
+      console.warn('Unable to update isolated QDN view account state.', error);
+    });
+  }, [accountId, isAccountUnlocked, suspended, tabId]);
+
+  useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+
+    if (!qdnViews || suspended) {
+      return;
+    }
+
     void qdnViews.updateDisplaySettings({ tabId, displaySettings }).catch((error) => {
       console.warn('Unable to update isolated QDN view display settings.', error);
     });
@@ -1185,12 +1215,12 @@ function QdnIsolatedFrameContent({
 }
 
 function QdnIframeContent({
-  accountId,
+  account,
   displaySettings,
   loadedResource,
   resource,
 }: {
-  accountId: string | null;
+  account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   resource: QdnResource;
@@ -1201,6 +1231,8 @@ function QdnIframeContent({
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
     [isNativeFrame, loadedResource.renderUrl],
   );
+  const accountId = account?.id ?? null;
+  const isAccountUnlocked = account?.isUnlocked ?? false;
   const frameSrc = useMemo(
     () =>
       isNativeFrame && bridgeToken
@@ -1212,6 +1244,10 @@ function QdnIframeContent({
   useEffect(() => {
     postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
   }, [displaySettings, loadedResource.renderUrl]);
+
+  useEffect(() => {
+    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, loadedResource.renderUrl);
+  }, [accountId, isAccountUnlocked, loadedResource.renderUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
@@ -1292,6 +1328,7 @@ function QdnIframeContent({
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
         postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
+        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, loadedResource.renderUrl);
       }}
     />
   );
@@ -1299,14 +1336,14 @@ function QdnIframeContent({
 
 function QdnReadyContent({
   loadedResource,
-  accountId,
+  account,
   displaySettings,
   nodeApiUrl,
   resource,
   suspended,
   tabId,
 }: {
-  accountId: string | null;
+  account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
@@ -1319,7 +1356,7 @@ function QdnReadyContent({
       return (
         <QdnIsolatedFrameContent
           loadedResource={loadedResource}
-          accountId={accountId}
+          account={account}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
@@ -1331,7 +1368,7 @@ function QdnReadyContent({
 
     return (
       <QdnIframeContent
-        accountId={accountId}
+        account={account}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
         resource={resource}
@@ -1378,7 +1415,7 @@ function QdnReadyContent({
   );
 }
 
-export function QdnViewer({ accountId, displaySettings, nodeApiUrl, resource, suspended = false, tabId }: QdnViewerProps) {
+export function QdnViewer({ account, displaySettings, nodeApiUrl, resource, suspended = false, tabId }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
@@ -1411,7 +1448,7 @@ export function QdnViewer({ accountId, displaySettings, nodeApiUrl, resource, su
       {state.phase === 'ready' ? (
         <QdnReadyContent
           loadedResource={state.loadedResource}
-          accountId={accountId}
+          account={account}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           resource={resource}

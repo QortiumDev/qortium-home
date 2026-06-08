@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - app: notify QDN apps when account state changes
+
+Changed the QDN app bridge so approved selected-account requests now include whether the selected wallet is unlocked. Home also now notifies already-loaded QDN apps when the selected account state changes, allowing apps to refresh their account status after a wallet is locked or unlocked without requiring a full app reload.
+
 ### 2026-06-07 - app: improve top-bar account lock flow
 
 Changed the address-bar account button so it shows a visible locked or unlocked badge on the profile icon. The account popup now closes after a successful wallet lock or unlock action, returning the user to the current app while still keeping the popup open when a password or wallet action error needs to be shown.

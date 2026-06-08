@@ -1628,10 +1628,10 @@ export function App() {
         ) : currentRoute.kind === 'resource' ? (
           <QdnViewer
             key={routeRenderKey}
+            account={activeAccount}
             displaySettings={effectiveDisplaySettings}
             nodeApiUrl={nodeSettings.nodeApiUrl}
             resource={currentRoute.resource}
-            accountId={activeTab.accountId}
             suspended={isQdnViewSuspended}
             tabId={activeTab.id}
           />

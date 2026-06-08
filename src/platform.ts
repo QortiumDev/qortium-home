@@ -1818,6 +1818,10 @@ async function getAccountProfile(accountId: string): Promise<QortiumAccountProfi
   };
 }
 
+function isAccountUnlocked(accountId: string) {
+  return unlockedWalletSeeds.has(accountId);
+}
+
 async function requestAccountReadApproval(
   context: QdnAppRequestContext,
   profile: QortiumAccountProfile,
@@ -1879,6 +1883,7 @@ async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undef
   return {
     address: profile.address,
     avatarUrl: profile.avatarUrl,
+    isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
 }
