@@ -447,8 +447,8 @@ type QortiumHomeMenuCommand =
   | 'reload-tab'
   | 'reopen-closed-tab';
 
-type QortiumQdnAccountReadApprovalRequest = {
-  action: 'GET_SELECTED_ACCOUNT';
+type QortiumQdnPrivateChatReadApprovalRequest = {
+  action: 'READ_PRIVATE_CHAT';
   address: string;
   avatarUrl: string | null;
   id: string;
@@ -579,13 +579,13 @@ interface Window {
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
     };
     qdnPermissions?: {
-      onAccountReadRequest: (
-        callback: (request: QortiumQdnAccountReadApprovalRequest) => void,
+      onPrivateChatReadRequest: (
+        callback: (request: QortiumQdnPrivateChatReadApprovalRequest) => void,
       ) => () => void;
       onWriteRequest: (
         callback: (request: QortiumQdnWriteApprovalRequest) => void,
       ) => () => void;
-      resolveAccountReadRequest: (requestId: string, approved: boolean) => Promise<void>;
+      resolvePrivateChatReadRequest: (requestId: string, approved: boolean) => Promise<void>;
       resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
     };
   };

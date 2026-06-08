@@ -267,7 +267,7 @@ type QdnWriteApprovalDetails = {
   source?: QdnPublishSourceResult;
 };
 
-type PendingAccountReadApproval = {
+type PendingQdnApproval = {
   resolve: (approved: boolean) => void;
   timeoutId: number;
 };
@@ -278,11 +278,11 @@ const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
 const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
-const qdnAccountReadListeners = new Set<(request: QortiumQdnAccountReadApprovalRequest) => void>();
+const qdnPrivateChatReadListeners = new Set<(request: QortiumQdnPrivateChatReadApprovalRequest) => void>();
 const qdnWriteListeners = new Set<(request: QortiumQdnWriteApprovalRequest) => void>();
-const pendingAccountReadApprovals = new Map<string, PendingAccountReadApproval>();
-const pendingQdnWriteApprovals = new Map<string, PendingAccountReadApproval>();
-const approvedAccountReadRequests = new Set<string>();
+const pendingPrivateChatReadApprovals = new Map<string, PendingQdnApproval>();
+const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
+const approvedPrivateChatReadRequests = new Set<string>();
 const approvedQdnChatPermissions = new Set<string>();
 
 function forgetUnlockedWalletSeed(accountId: string) {
@@ -1822,35 +1822,35 @@ function isAccountUnlocked(accountId: string) {
   return unlockedWalletSeeds.has(accountId);
 }
 
-async function requestAccountReadApproval(
+async function requestPrivateChatReadApproval(
   context: QdnAppRequestContext,
   profile: QortiumAccountProfile,
 ) {
-  const cacheKey = getQdnAccountReadApprovalCacheKey(context, profile.accountId);
+  const cacheKey = getPrivateChatReadApprovalCacheKey(context, profile.accountId);
 
-  if (approvedAccountReadRequests.has(cacheKey)) {
+  if (approvedPrivateChatReadRequests.has(cacheKey)) {
     return;
   }
 
-  if (qdnAccountReadListeners.size === 0) {
-    throw new Error('QDN account request approval is unavailable.');
+  if (qdnPrivateChatReadListeners.size === 0) {
+    throw new Error('QDN private chat read request approval is unavailable.');
   }
 
   const requestId = createRequestId();
   const approved = await new Promise<boolean>((resolve) => {
     const timeoutId = window.setTimeout(() => {
-      pendingAccountReadApprovals.delete(requestId);
+      pendingPrivateChatReadApprovals.delete(requestId);
       resolve(false);
     }, 120_000);
 
-    pendingAccountReadApprovals.set(requestId, {
+    pendingPrivateChatReadApprovals.set(requestId, {
       resolve,
       timeoutId,
     });
 
-    for (const listener of qdnAccountReadListeners) {
+    for (const listener of qdnPrivateChatReadListeners) {
       listener({
-        action: 'GET_SELECTED_ACCOUNT',
+        action: 'READ_PRIVATE_CHAT',
         address: profile.address,
         avatarUrl: profile.avatarUrl,
         id: requestId,
@@ -1861,10 +1861,10 @@ async function requestAccountReadApproval(
   });
 
   if (!approved) {
-    throw new Error('Account request was denied.');
+    throw new Error('Private chat read request was denied.');
   }
 
-  approvedAccountReadRequests.add(cacheKey);
+  approvedPrivateChatReadRequests.add(cacheKey);
 }
 
 async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undefined) {
@@ -1877,8 +1877,6 @@ async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undef
   }
 
   const profile = await getAccountProfile(context.accountId);
-
-  await requestAccountReadApproval(context, profile);
 
   return {
     address: profile.address,
@@ -3331,7 +3329,7 @@ async function getPrivateGroupActiveChatsForApp(
 ) {
   const writeContext = await getQdnWriteContext(context);
 
-  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
+  await requestPrivateChatReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -3355,7 +3353,7 @@ async function searchPrivateGroupChatMessagesForApp(
   const writeContext = await getQdnWriteContext(context);
   const groupId = getRequiredGroupId(request, 1);
 
-  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
+  await requestPrivateChatReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -3375,7 +3373,7 @@ async function getPrivateDirectActiveChatsForApp(
 ) {
   const writeContext = await getQdnWriteContext(context);
 
-  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
+  await requestPrivateChatReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -3400,7 +3398,7 @@ async function searchPrivateDirectChatMessagesForApp(
   const writeContext = await getQdnWriteContext(context);
   const otherAddress = getDirectChatOtherAddress(request);
 
-  await requestAccountReadApproval(context as QdnAppRequestContext, writeContext.profile);
+  await requestPrivateChatReadApproval(context as QdnAppRequestContext, writeContext.profile);
 
   const result = await postLocalNodeText(
     writeContext.nodeApiUrl,
@@ -3742,12 +3740,12 @@ function createRequestId() {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getQdnAccountReadApprovalCacheKey(context: QdnAppRequestContext, accountId: string) {
+function getPrivateChatReadApprovalCacheKey(context: QdnAppRequestContext, accountId: string) {
   return [
     context.sessionKey,
     context.resourceUrl,
     accountId,
-    'GET_SELECTED_ACCOUNT',
+    'READ_PRIVATE_CHAT',
   ].join('\n');
 }
 
@@ -4917,11 +4915,11 @@ function createFallbackApi(): PlatformApi {
     appName: 'Qortium Home',
     accounts: isAndroid() ? createStoredAccountsApi() : createUnsupportedAccountsApi(),
     qdnPermissions: {
-      onAccountReadRequest(callback) {
-        qdnAccountReadListeners.add(callback);
+      onPrivateChatReadRequest(callback) {
+        qdnPrivateChatReadListeners.add(callback);
 
         return () => {
-          qdnAccountReadListeners.delete(callback);
+          qdnPrivateChatReadListeners.delete(callback);
         };
       },
       onWriteRequest(callback) {
@@ -4931,15 +4929,15 @@ function createFallbackApi(): PlatformApi {
           qdnWriteListeners.delete(callback);
         };
       },
-      resolveAccountReadRequest: async (requestId, approved) => {
-        const pendingApproval = pendingAccountReadApprovals.get(requestId);
+      resolvePrivateChatReadRequest: async (requestId, approved) => {
+        const pendingApproval = pendingPrivateChatReadApprovals.get(requestId);
 
         if (!pendingApproval) {
           return;
         }
 
         window.clearTimeout(pendingApproval.timeoutId);
-        pendingAccountReadApprovals.delete(requestId);
+        pendingPrivateChatReadApprovals.delete(requestId);
         pendingApproval.resolve(approved);
       },
       resolveWriteRequest: async (requestId, approved) => {
