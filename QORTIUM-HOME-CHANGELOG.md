@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - app: improve top-bar account lock flow
+
+Changed the address-bar account button so it shows a visible locked or unlocked badge on the profile icon. The account popup now closes after a successful wallet lock or unlock action, returning the user to the current app while still keeping the popup open when a password or wallet action error needs to be shown.
+
 ### 2026-06-07 - app: follow system theme preference
 
 Changed Display Settings so Theme now offers System, Light, and Dark. System is the default preference and resolves to the current operating-system/browser color scheme inside Home, while QDN apps still receive only the resolved Light or Dark theme value so app behavior stays simple and consistent.
