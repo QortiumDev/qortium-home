@@ -1763,7 +1763,7 @@ async function runScript(
     let output = '';
     const child =
       process.platform === 'win32'
-        ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${command}" ${args.map(quoteWindowsCommandArg).join(' ')}`], {
+        ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `""${command}" ${args.map(quoteWindowsCommandArg).join(' ')}"`], {
             cwd,
             env,
             windowsHide: true,
