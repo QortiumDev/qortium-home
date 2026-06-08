@@ -1,6 +1,5 @@
 import { Copy, Download, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DisplaySettings } from './displaySettings';
 import type { QdnDisplaySettings, QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
 import {
   buildQdnDownloadUrl,
@@ -43,7 +42,7 @@ type QdnViewerState =
 
 type QdnViewerProps = {
   accountId: string | null;
-  displaySettings: DisplaySettings;
+  displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   resource: QdnResource;
   suspended?: boolean;

@@ -1,4 +1,4 @@
-import type { DisplaySettings } from './displaySettings';
+import type { ResolvedDisplaySettings } from './displaySettings';
 
 export const PUBLIC_QDN_SERVICES = [
   'APP',
@@ -102,7 +102,7 @@ export type QdnResource = {
   service: QdnService;
 };
 
-export type QdnDisplaySettings = Pick<DisplaySettings, 'language' | 'textSize' | 'theme'>;
+export type QdnDisplaySettings = Pick<ResolvedDisplaySettings, 'language' | 'textSize' | 'theme'>;
 
 export type QdnRoute =
   | QdnExplorerRoute

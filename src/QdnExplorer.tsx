@@ -1,6 +1,5 @@
 import { FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { DisplaySettings } from './displaySettings';
 import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
 import {
   PUBLIC_QDN_SERVICES,
@@ -14,7 +13,7 @@ import {
 } from './qdn';
 
 type QdnExplorerProps = {
-  displaySettings: DisplaySettings;
+  displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   onNavigate: (route: QdnRoute) => void;
   route: QdnExplorerRoute;

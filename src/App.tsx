@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -16,8 +17,11 @@ import { DashboardPage } from './DashboardPage';
 import {
   applyDisplaySettings,
   getInitialDisplaySettings,
+  getSystemTheme,
   loadDisplaySettings,
+  resolveDisplaySettings,
   saveDisplaySettings,
+  subscribeToSystemThemeChange,
   type DisplaySettings,
 } from './displaySettings';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
@@ -505,6 +509,7 @@ export function App() {
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
+  const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
@@ -526,6 +531,10 @@ export function App() {
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnAccountReadRequest || !!activeQdnWriteRequest;
   const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen;
+  const effectiveDisplaySettings = useMemo(
+    () => resolveDisplaySettings(displaySettings, systemTheme),
+    [displaySettings, systemTheme],
+  );
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -732,9 +741,11 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => subscribeToSystemThemeChange(setSystemTheme), []);
+
   useLayoutEffect(() => {
-    applyDisplaySettings(displaySettings);
-  }, [displaySettings]);
+    applyDisplaySettings(displaySettings, systemTheme);
+  }, [displaySettings, systemTheme]);
 
   function updateDisplaySettings(nextDisplaySettings: DisplaySettings) {
     setDisplaySettings(nextDisplaySettings);
@@ -1617,7 +1628,7 @@ export function App() {
         ) : currentRoute.kind === 'resource' ? (
           <QdnViewer
             key={routeRenderKey}
-            displaySettings={displaySettings}
+            displaySettings={effectiveDisplaySettings}
             nodeApiUrl={nodeSettings.nodeApiUrl}
             resource={currentRoute.resource}
             accountId={activeTab.accountId}
@@ -1655,7 +1666,7 @@ export function App() {
         ) : (
           <QdnExplorer
             key={routeRenderKey}
-            displaySettings={displaySettings}
+            displaySettings={effectiveDisplaySettings}
             nodeApiUrl={nodeSettings.nodeApiUrl}
             route={currentRoute}
             onNavigate={navigateToRoute}
