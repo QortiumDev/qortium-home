@@ -5,6 +5,10 @@ const TEXT_SIZE_STORAGE_KEY = 'qortium-home-text-size';
 
 export const TEXT_SIZE_OPTIONS = [
   {
+    label: 'Extra Small',
+    value: 'extra-small',
+  },
+  {
     label: 'Small',
     value: 'small',
   },
