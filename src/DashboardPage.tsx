@@ -1,10 +1,11 @@
-import { Download, ExternalLink, Globe2 } from 'lucide-react';
+import { Download, FolderOpen, Globe2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
   getOpenDownloadedFileLabel,
   type AppUpdatesState,
 } from './appUpdateState';
+import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
 import {
   getOnChainCoreUpdateSummary,
@@ -318,6 +319,8 @@ function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
 
       <DetailList className="dashboard-card__details" rows={rows} />
 
+      <AppUpdateProgress progress={updates.downloadProgress} />
+
       {hasAction ? (
         <div className="dashboard-card__actions">
           {showDownloadAction ? (
@@ -336,9 +339,9 @@ function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
               className="button"
               disabled={updates.isChecking || updates.isDownloading}
               type="button"
-              onClick={updates.openDownloadedFile}
+              onClick={updates.openDownloadedUpdate}
             >
-              <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
+              <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
               {getOpenDownloadedFileLabel(updates.updatePlatform)}
             </button>
           ) : null}

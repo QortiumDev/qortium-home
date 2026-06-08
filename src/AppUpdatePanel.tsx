@@ -1,9 +1,10 @@
-import { Download, ExternalLink } from 'lucide-react';
+import { Download, FolderOpen } from 'lucide-react';
 import {
   type AppUpdatesState,
   formatBytes,
   getOpenDownloadedFileLabel,
 } from './appUpdateState';
+import { AppUpdateProgress } from './AppUpdateProgress';
 import {
   areReleaseTagsEqual,
   DetailList,
@@ -130,6 +131,8 @@ export function AppUpdatePanel({
 
         <DetailList className="app-updates__details" rows={rows} />
 
+        <AppUpdateProgress progress={updates.downloadProgress} />
+
         {hasAction ? (
           <div className="app-updates__actions">
             {showDownloadAction ? (
@@ -148,9 +151,9 @@ export function AppUpdatePanel({
                 className="button"
                 disabled={updates.isChecking || updates.isDownloading}
                 type="button"
-                onClick={updates.openDownloadedFile}
+                onClick={updates.openDownloadedUpdate}
               >
-                <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
+                <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
                 {getOpenDownloadedFileLabel(updates.updatePlatform)}
               </button>
             ) : null}

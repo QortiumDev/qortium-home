@@ -4871,6 +4871,9 @@ function createFallbackApi(): PlatformApi {
       async getEnvironment() {
         return getFallbackUpdateEnvironment();
       },
+      onDownloadProgress() {
+        return () => {};
+      },
       async openDownloadedFile(filePath) {
         if (isAndroid()) {
           const normalizedFilePath = getString(filePath);

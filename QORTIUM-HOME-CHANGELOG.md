@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-08 - app: improve update progress and text scaling
+
+Changed Home update downloads so desktop downloads report byte and percentage progress in Dashboard and Settings. Downloaded desktop Home updates now use a Show file action that opens the containing folder instead of launching the file directly, while Android keeps the Install APK action. Increased the Display Settings text-size jumps so Extra Small remains at the original baseline, Small matches the previous Medium size, Medium matches the previous Extra Large size, and Large and Extra Large continue with two larger jumps.
+
 ### 2026-06-08 - release: prepare home preview 9
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.9` with Android `versionCode` 10 so the latest display settings, QDN app setting bridge, account lock-state updates, read-only permission cleanup, and Core API key fixes can be built as the next QortiumDev prerelease target.

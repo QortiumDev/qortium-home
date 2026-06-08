@@ -73,7 +73,7 @@ export function getDownloadedUpdateMessage(
 }
 
 export function getOpenDownloadedFileLabel(platform: QortiumAppUpdatePlatform | undefined) {
-  return isAndroidPlatform(platform) ? 'Install APK' : 'Open file';
+  return isAndroidPlatform(platform) ? 'Install APK' : 'Show file';
 }
 
 function getUpdateDetailRows({
@@ -159,6 +159,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   const [channel, setChannelState] = useState<QortiumAppUpdateChannel>('stable');
   const [results, setResults] = useState<UpdateResultsByChannel>({});
   const [downloadedUpdate, setDownloadedUpdate] = useState<QortiumAppUpdateDownloadResult | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<QortiumAppUpdateDownloadProgress | null>(null);
   const [message, setMessage] = useState<UpdateMessage>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -196,6 +197,8 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     };
   }, []);
 
+  useEffect(() => window.qortiumHome.updates.onDownloadProgress(setDownloadProgress), []);
+
   const detailRows = useMemo(
     () =>
       getUpdateDetailRows({
@@ -214,6 +217,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
 
     setIsChecking(true);
     setDownloadedUpdate(null);
+    setDownloadProgress(null);
     setMessage(null);
 
     try {
@@ -266,6 +270,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   function changeChannel(nextChannel: QortiumAppUpdateChannel) {
     setChannelState(nextChannel);
     setDownloadedUpdate(null);
+    setDownloadProgress(null);
     const nextResult = results[nextChannel] ?? null;
     const nextKind = getUpdateStatusKind(nextResult);
 
@@ -278,6 +283,15 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     }
 
     setIsDownloading(true);
+    setDownloadProgress({
+      action: 'downloading',
+      fileName: result.asset.name,
+      message: 'Downloading Qortium Home update',
+      percent: result.asset.size > 0 ? 0 : null,
+      receivedBytes: 0,
+      releaseTag: result.release.tagName,
+      totalBytes: result.asset.size > 0 ? result.asset.size : null,
+    });
     setMessage(null);
 
     try {
@@ -299,16 +313,22 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
       });
     } finally {
       setIsDownloading(false);
+      setDownloadProgress(null);
     }
   }
 
-  async function openDownloadedFile() {
+  async function openDownloadedUpdate() {
     if (!downloadedUpdate) {
       return;
     }
 
     try {
-      await window.qortiumHome.updates.openDownloadedFile(downloadedUpdate.filePath);
+      if (isAndroidPlatform(updatePlatform)) {
+        await window.qortiumHome.updates.openDownloadedFile(downloadedUpdate.filePath);
+        return;
+      }
+
+      await window.qortiumHome.updates.showDownloadedFile(downloadedUpdate.filePath);
     } catch (error) {
       setMessage({
         kind: 'error',
@@ -353,12 +373,13 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     checkForUpdates,
     detailRows,
     downloadedUpdate,
+    downloadProgress,
     downloadUpdate,
     environment,
     isChecking,
     isDownloading,
     message,
-    openDownloadedFile,
+    openDownloadedUpdate,
     openReleasePage,
     releasePageUrl,
     result,

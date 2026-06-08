@@ -52,6 +52,17 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       releaseTag: string;
     }) => ipcRenderer.invoke('updates:downloadAsset', request),
     getEnvironment: () => ipcRenderer.invoke('updates:getEnvironment'),
+    onDownloadProgress: (callback: (progress: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => {
+        callback(progress);
+      };
+
+      ipcRenderer.on('updates:downloadProgress', listener);
+
+      return () => {
+        ipcRenderer.removeListener('updates:downloadProgress', listener);
+      };
+    },
     openDownloadedFile: (filePath: string) => ipcRenderer.invoke('updates:openDownloadedFile', filePath),
     openReleasePage: (url: string) => ipcRenderer.invoke('updates:openReleasePage', url),
     showDownloadedFile: (filePath: string) => ipcRenderer.invoke('updates:showDownloadedFile', filePath),

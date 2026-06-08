@@ -1,4 +1,4 @@
-import { app, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, mkdir, rename, rm, stat } from 'node:fs/promises';
@@ -19,6 +19,16 @@ type AppUpdateDownloadRequest = {
   asset?: unknown;
   platform?: unknown;
   releaseTag?: unknown;
+};
+
+type AppUpdateDownloadProgress = {
+  action: 'downloading' | 'verifying';
+  fileName: string;
+  message: string;
+  percent: number | null;
+  receivedBytes: number;
+  releaseTag: string;
+  totalBytes: number | null;
 };
 
 type ParsedVersion = {
@@ -276,6 +286,20 @@ async function openExternalUrl(value: unknown) {
   await shell.openExternal(normalizeExternalUrl(value));
 }
 
+function getResponseContentLength(response: Response) {
+  const contentLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+
+  return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
+}
+
+function publishDownloadProgress(progress: AppUpdateDownloadProgress) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send('updates:downloadProgress', progress);
+    }
+  }
+}
+
 async function downloadAsset(request: AppUpdateDownloadRequest) {
   const normalizedRequest = normalizeDownloadRequest(request);
 
@@ -304,12 +328,32 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
 
   const hash = createHash('sha256');
   let receivedBytes = 0;
+  const totalBytes = getResponseContentLength(response) ?? (normalizedRequest.asset.size > 0 ? normalizedRequest.asset.size : null);
   const digestStream = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       receivedBytes += chunk.length;
       hash.update(chunk);
+      publishDownloadProgress({
+        action: 'downloading',
+        fileName,
+        message: 'Downloading Qortium Home update',
+        percent: totalBytes ? Math.min(99, Math.round((receivedBytes / totalBytes) * 100)) : null,
+        receivedBytes,
+        releaseTag: normalizedRequest.releaseTag,
+        totalBytes,
+      });
       callback(null, chunk);
     },
+  });
+
+  publishDownloadProgress({
+    action: 'downloading',
+    fileName,
+    message: 'Downloading Qortium Home update',
+    percent: 0,
+    receivedBytes: 0,
+    releaseTag: normalizedRequest.releaseTag,
+    totalBytes,
   });
 
   await pipeline(
@@ -317,6 +361,16 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
     digestStream,
     createWriteStream(partialPath),
   );
+
+  publishDownloadProgress({
+    action: 'verifying',
+    fileName,
+    message: 'Verifying Qortium Home update',
+    percent: 100,
+    receivedBytes,
+    releaseTag: normalizedRequest.releaseTag,
+    totalBytes,
+  });
 
   const digest = `sha256:${hash.digest('hex')}`;
 
