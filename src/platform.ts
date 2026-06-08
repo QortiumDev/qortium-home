@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 import nacl from 'tweetnacl';
 import packageJson from '../package.json';
 import { compareAppVersions } from './appUpdates';
-import { PUBLIC_QDN_SERVICES } from './qdn';
+import { PUBLIC_QDN_SERVICES, type QdnDisplaySettings } from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
 const NODE_DISCOVERY_CACHE_KEY = 'qortium-home-node-discovery-cache';
@@ -198,6 +198,7 @@ type QdnAppResourceRequest = {
 
 type QdnAppRequestContext = {
   accountId: string | null;
+  displaySettings: QdnDisplaySettings;
   resourceUrl: string;
   sessionKey: string;
 };
@@ -4652,7 +4653,17 @@ function buildPrivateDirectChatMessagesBody(
   };
 }
 
-async function getQdnResourceUrl(request: QdnAppRequest) {
+function applyQdnDisplaySettings(queryParams: URLSearchParams, context: QdnAppRequestContext | undefined) {
+  if (!context?.displaySettings) {
+    return;
+  }
+
+  queryParams.set('theme', context.displaySettings.theme);
+  queryParams.set('lang', context.displaySettings.language);
+  queryParams.set('textSize', context.displaySettings.textSize);
+}
+
+async function getQdnResourceUrl(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const resource = getQdnAppResourceRequest(request);
   const status = await fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
 
@@ -4673,6 +4684,8 @@ async function getQdnResourceUrl(request: QdnAppRequest) {
   if (resource.identifier) {
     queryParams.set('identifier', resource.identifier);
   }
+
+  applyQdnDisplaySettings(queryParams, context);
 
   const renderQueryString = queryParams.toString();
 
@@ -4765,7 +4778,7 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       return fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
 
     case 'GET_QDN_RESOURCE_URL':
-      return getQdnResourceUrl(request);
+      return getQdnResourceUrl(request, context);
 
     case 'FETCH_QDN_RESOURCE':
       return fetchNodeApiPayload(buildFetchQdnResourcePath(request), request);

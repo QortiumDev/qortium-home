@@ -127,8 +127,14 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     show: (request: {
       accountId: string | null;
       bounds: { height: number; width: number; x: number; y: number };
+      displaySettings: {
+        language: 'en';
+        textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+        theme: 'dark' | 'light';
+      };
       nodeApiUrl: string;
       renderUrl: string;
+      resourceUrl?: string;
       tabId: string;
     }) => ipcRenderer.invoke('qdn-views:show', request),
     setBounds: (request: {
@@ -137,6 +143,14 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     }) => ipcRenderer.invoke('qdn-views:setBounds', request),
     hide: (tabId: string) => ipcRenderer.invoke('qdn-views:hide', { tabId }),
     destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
+    updateDisplaySettings: (request: {
+      displaySettings: {
+        language: 'en';
+        textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+        theme: 'dark' | 'light';
+      };
+      tabId: string;
+    }) => ipcRenderer.invoke('qdn-views:updateDisplaySettings', request),
   },
   qdnPermissions: {
     onAccountReadRequest: (callback: (request: unknown) => void) => {

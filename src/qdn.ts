@@ -1,3 +1,5 @@
+import type { DisplaySettings } from './displaySettings';
+
 export const PUBLIC_QDN_SERVICES = [
   'APP',
   'WEBSITE',
@@ -99,6 +101,8 @@ export type QdnResource = {
   path: string;
   service: QdnService;
 };
+
+export type QdnDisplaySettings = Pick<DisplaySettings, 'language' | 'textSize' | 'theme'>;
 
 export type QdnRoute =
   | QdnExplorerRoute
@@ -462,7 +466,17 @@ export function buildQdnResourcePropertiesUrl(resource: QdnResource, nodeApiUrl:
   )}/${encodeURIComponent(resource.identifier ?? 'default')}`;
 }
 
-export function buildQdnRenderUrl(resource: QdnResource, nodeApiUrl: string) {
+function applyQdnDisplaySettings(queryParams: URLSearchParams, displaySettings: QdnDisplaySettings | undefined) {
+  if (!displaySettings) {
+    return;
+  }
+
+  queryParams.set('theme', displaySettings.theme);
+  queryParams.set('lang', displaySettings.language);
+  queryParams.set('textSize', displaySettings.textSize);
+}
+
+export function buildQdnRenderUrl(resource: QdnResource, nodeApiUrl: string, displaySettings?: QdnDisplaySettings) {
   const { pathOnly, queryString } = splitPathAndQuery(resource.path);
   const encodedPath = encodePath(pathOnly);
   const pathSuffix = encodedPath ? `/${encodedPath}` : '';
@@ -471,6 +485,8 @@ export function buildQdnRenderUrl(resource: QdnResource, nodeApiUrl: string) {
   if (resource.identifier) {
     queryParams.set('identifier', resource.identifier);
   }
+
+  applyQdnDisplaySettings(queryParams, displaySettings);
 
   const renderQueryString = queryParams.toString();
 

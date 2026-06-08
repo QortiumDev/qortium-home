@@ -1,6 +1,7 @@
 import { Copy, Download, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
+import type { DisplaySettings } from './displaySettings';
+import type { QdnDisplaySettings, QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
 import {
   buildQdnDownloadUrl,
   buildQdnRenderUrl,
@@ -42,6 +43,7 @@ type QdnViewerState =
 
 type QdnViewerProps = {
   accountId: string | null;
+  displaySettings: DisplaySettings;
   nodeApiUrl: string;
   resource: QdnResource;
   suspended?: boolean;
@@ -107,6 +109,52 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
   url.searchParams.set('qdnHomeBridge', bridgeToken);
 
   return url.toString();
+}
+
+function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
+  return [
+    {
+      action: 'THEME_CHANGED',
+      requestedHandler: 'UI',
+      theme: displaySettings.theme,
+    },
+    {
+      action: 'LANGUAGE_CHANGED',
+      language: displaySettings.language,
+      requestedHandler: 'UI',
+    },
+    {
+      action: 'TEXT_SIZE_CHANGED',
+      requestedHandler: 'UI',
+      textSize: displaySettings.textSize,
+    },
+  ];
+}
+
+function getPostMessageTargetOrigin(url: string) {
+  try {
+    const origin = new URL(url).origin;
+
+    return origin === 'null' ? '*' : origin;
+  } catch {
+    return '*';
+  }
+}
+
+function postQdnDisplaySettings(
+  frameWindow: Window | null | undefined,
+  renderUrl: string,
+  displaySettings: QdnDisplaySettings,
+) {
+  if (!frameWindow) {
+    return;
+  }
+
+  const targetOrigin = getPostMessageTargetOrigin(renderUrl);
+
+  for (const message of getQdnDisplaySettingMessages(displaySettings)) {
+    frameWindow.postMessage(message, targetOrigin);
+  }
 }
 
 function formatError(error: unknown) {
@@ -401,7 +449,12 @@ async function createBlobRenderUrl({
   return URL.createObjectURL(typedBlob);
 }
 
-function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryToken: number) {
+function useQdnResourceLoader(
+  resource: QdnResource,
+  nodeApiUrl: string,
+  retryToken: number,
+  displaySettings: QdnDisplaySettings,
+) {
   const [state, setState] = useState<QdnViewerState>({
     phase: 'loading',
     message: 'Checking QDN resource',
@@ -442,7 +495,7 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
     async function setReadyState(status: QdnResourceStatus) {
       const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
       const viewerKind = getLoadedViewerKind(resource, properties);
-      const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl);
+      const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl, displaySettings);
       const useArchiveRenderUrl = shouldUseArchiveRenderUrl(resource, properties, viewerKind);
       const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
       let renderUrl = directRenderUrl;
@@ -563,6 +616,8 @@ function useQdnResourceLoader(resource: QdnResource, nodeApiUrl: string, retryTo
         URL.revokeObjectURL(blobRenderUrl);
       }
     };
+    // Display setting changes are sent to active apps without reloading them.
+    // The latest settings are still used when the resource is loaded or manually reloaded.
   }, [nodeApiUrl, resource, resourceKey, retryToken]);
 
   return state;
@@ -995,12 +1050,14 @@ function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQ
 function QdnIsolatedFrameContent({
   loadedResource,
   accountId,
+  displaySettings,
   nodeApiUrl,
   resource,
   suspended,
   tabId,
 }: {
   accountId: string | null;
+  displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   resource: QdnResource;
@@ -1061,6 +1118,7 @@ function QdnIsolatedFrameContent({
         await activeQdnViews.show({
           accountId,
           bounds,
+          displaySettings,
           nodeApiUrl,
           renderUrl: loadedResource.renderUrl,
           resourceUrl: resource.displayUrl,
@@ -1102,6 +1160,18 @@ function QdnIsolatedFrameContent({
     };
   }, [accountId, loadedResource.renderUrl, nodeApiUrl, suspended, tabId]);
 
+  useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+
+    if (!qdnViews || suspended) {
+      return;
+    }
+
+    void qdnViews.updateDisplaySettings({ tabId, displaySettings }).catch((error) => {
+      console.warn('Unable to update isolated QDN view display settings.', error);
+    });
+  }, [displaySettings, suspended, tabId]);
+
   return (
     <div
       className={`qdn-viewer__isolated-frame${viewError ? ' qdn-viewer__isolated-frame--error' : ''}`}
@@ -1117,10 +1187,12 @@ function QdnIsolatedFrameContent({
 
 function QdnIframeContent({
   accountId,
+  displaySettings,
   loadedResource,
   resource,
 }: {
   accountId: string | null;
+  displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   resource: QdnResource;
 }) {
@@ -1137,6 +1209,10 @@ function QdnIframeContent({
         : loadedResource.renderUrl,
     [bridgeToken, isNativeFrame, loadedResource.renderUrl],
   );
+
+  useEffect(() => {
+    postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
+  }, [displaySettings, loadedResource.renderUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
@@ -1165,6 +1241,7 @@ function QdnIframeContent({
       try {
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
+          displaySettings,
           resourceUrl: resource.displayUrl,
           sessionKey: bridgeToken,
         });
@@ -1202,7 +1279,7 @@ function QdnIframeContent({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, isNativeFrame, loadedResource.renderUrl, resource.displayUrl]);
+  }, [accountId, bridgeToken, displaySettings, isNativeFrame, loadedResource.renderUrl, resource.displayUrl]);
 
   return (
     <iframe
@@ -1214,6 +1291,9 @@ function QdnIframeContent({
       referrerPolicy="no-referrer"
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
+      onLoad={() => {
+        postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
+      }}
     />
   );
 }
@@ -1221,12 +1301,14 @@ function QdnIframeContent({
 function QdnReadyContent({
   loadedResource,
   accountId,
+  displaySettings,
   nodeApiUrl,
   resource,
   suspended,
   tabId,
 }: {
   accountId: string | null;
+  displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   resource: QdnResource;
@@ -1239,6 +1321,7 @@ function QdnReadyContent({
         <QdnIsolatedFrameContent
           loadedResource={loadedResource}
           accountId={accountId}
+          displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
           suspended={suspended}
@@ -1247,7 +1330,14 @@ function QdnReadyContent({
       );
     }
 
-    return <QdnIframeContent accountId={accountId} loadedResource={loadedResource} resource={resource} />;
+    return (
+      <QdnIframeContent
+        accountId={accountId}
+        displaySettings={displaySettings}
+        loadedResource={loadedResource}
+        resource={resource}
+      />
+    );
   }
 
   if (loadedResource.viewerKind === 'image') {
@@ -1289,9 +1379,9 @@ function QdnReadyContent({
   );
 }
 
-export function QdnViewer({ accountId, nodeApiUrl, resource, suspended = false, tabId }: QdnViewerProps) {
+export function QdnViewer({ accountId, displaySettings, nodeApiUrl, resource, suspended = false, tabId }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
-  const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken);
+  const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
   const progressText = getProgressText(state.status);
   const statusLabel = state.phase === 'ready' ? 'Ready' : formatQdnStatus(state.status);
@@ -1323,6 +1413,7 @@ export function QdnViewer({ accountId, nodeApiUrl, resource, suspended = false, 
         <QdnReadyContent
           loadedResource={state.loadedResource}
           accountId={accountId}
+          displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           resource={resource}
           suspended={suspended}

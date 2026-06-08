@@ -1,6 +1,7 @@
 import { FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
+import type { DisplaySettings } from './displaySettings';
+import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
 import {
   PUBLIC_QDN_SERVICES,
   buildQdnRenderUrl,
@@ -13,6 +14,7 @@ import {
 } from './qdn';
 
 type QdnExplorerProps = {
+  displaySettings: DisplaySettings;
   nodeApiUrl: string;
   onNavigate: (route: QdnRoute) => void;
   route: QdnExplorerRoute;
@@ -195,9 +197,11 @@ function formatResourceMeta(resource: QdnResourceListItem) {
 }
 
 function QdnImageResourcePreview({
+  displaySettings,
   nodeApiUrl,
   resource,
 }: {
+  displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   resource: QdnResourceListItem;
 }) {
@@ -234,7 +238,7 @@ function QdnImageResourcePreview({
         if (!isDisposed) {
           setState({
             phase: 'ready',
-            url: buildQdnRenderUrl(route.resource, nodeApiUrl),
+            url: buildQdnRenderUrl(route.resource, nodeApiUrl, displaySettings),
           });
         }
       } catch {
@@ -251,7 +255,7 @@ function QdnImageResourcePreview({
     return () => {
       isDisposed = true;
     };
-  }, [identifier, nodeApiUrl, resource.name, resource.service]);
+  }, [displaySettings, identifier, nodeApiUrl, resource.name, resource.service]);
 
   if (state.phase !== 'ready') {
     return fallbackIcon;
@@ -274,7 +278,7 @@ function QdnImageResourcePreview({
   );
 }
 
-export function QdnExplorer({ nodeApiUrl, onNavigate, route }: QdnExplorerProps) {
+export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: QdnExplorerProps) {
   const [state, setState] = useState<QdnExplorerState>({
     phase: 'idle',
     resources: [],
@@ -492,7 +496,11 @@ export function QdnExplorer({ nodeApiUrl, onNavigate, route }: QdnExplorerProps)
                   const rowContent = (
                     <>
                       {isImageResource ? (
-                        <QdnImageResourcePreview nodeApiUrl={nodeApiUrl} resource={resource} />
+                        <QdnImageResourcePreview
+                          displaySettings={displaySettings}
+                          nodeApiUrl={nodeApiUrl}
+                          resource={resource}
+                        />
                       ) : (
                         <ResourceIcon aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
                       )}

@@ -1617,6 +1617,7 @@ export function App() {
         ) : currentRoute.kind === 'resource' ? (
           <QdnViewer
             key={routeRenderKey}
+            displaySettings={displaySettings}
             nodeApiUrl={nodeSettings.nodeApiUrl}
             resource={currentRoute.resource}
             accountId={activeTab.accountId}
@@ -1654,6 +1655,7 @@ export function App() {
         ) : (
           <QdnExplorer
             key={routeRenderKey}
+            displaySettings={displaySettings}
             nodeApiUrl={nodeSettings.nodeApiUrl}
             route={currentRoute}
             onNavigate={navigateToRoute}
