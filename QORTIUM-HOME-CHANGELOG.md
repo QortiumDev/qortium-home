@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - app: follow system theme preference
+
+Changed Display Settings so Theme now offers System, Light, and Dark. System is the default preference and resolves to the current operating-system/browser color scheme inside Home, while QDN apps still receive only the resolved Light or Dark theme value so app behavior stays simple and consistent.
+
 ### 2026-06-07 - app: pass display settings to QDN apps
 
 Changed QDN app loading so Home passes the current theme, language, and text size to Core render URLs, allowing Core to inject `_qdnTheme`, `_qdnLang`, and `_qdnTextSize` when apps launch. Home now also sends live theme, language, and text-size change messages to active QDN app views, and app-generated QDN resource URLs inherit the same display settings.

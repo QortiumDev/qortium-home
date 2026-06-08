@@ -6,6 +6,10 @@ const DISPLAY_SETTINGS_STORAGE_KEY = 'qortium-home-display-settings';
 
 export const THEME_OPTIONS = [
   {
+    label: 'System',
+    value: 'system',
+  },
+  {
     label: 'Light',
     value: 'light',
   },
@@ -16,6 +20,7 @@ export const THEME_OPTIONS = [
 ] as const;
 
 export type ThemeSetting = (typeof THEME_OPTIONS)[number]['value'];
+export type ResolvedThemeSetting = Exclude<ThemeSetting, 'system'>;
 
 export const LANGUAGE_OPTIONS = [
   {
@@ -57,7 +62,13 @@ export type DisplaySettings = {
   theme: ThemeSetting;
 };
 
-export const DEFAULT_THEME: ThemeSetting = 'light';
+export type ResolvedDisplaySettings = Omit<DisplaySettings, 'theme'> & {
+  theme: ResolvedThemeSetting;
+};
+
+export const SYSTEM_THEME_MEDIA_QUERY = '(prefers-color-scheme: dark)';
+export const DEFAULT_THEME: ThemeSetting = 'system';
+export const DEFAULT_RESOLVED_THEME: ResolvedThemeSetting = 'light';
 export const DEFAULT_LANGUAGE: LanguageSetting = 'en';
 export const DEFAULT_TEXT_SIZE: TextSizeSetting = 'medium';
 
@@ -80,7 +91,7 @@ export function isTextSizeSetting(value: unknown): value is TextSizeSetting {
 }
 
 export function getThemeLabel(theme: ThemeSetting) {
-  return THEME_OPTIONS.find((option) => option.value === theme)?.label ?? 'Light';
+  return THEME_OPTIONS.find((option) => option.value === theme)?.label ?? 'System';
 }
 
 export function getLanguageLabel(language: LanguageSetting) {
@@ -126,7 +137,53 @@ function parseDisplaySettings(value: string | null, fallbackTextSize = DEFAULT_T
   }
 }
 
-function applyDocumentDisplaySettings(displaySettings: DisplaySettings) {
+export function getSystemTheme(): ResolvedThemeSetting {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return DEFAULT_RESOLVED_THEME;
+  }
+
+  return window.matchMedia(SYSTEM_THEME_MEDIA_QUERY).matches ? 'dark' : 'light';
+}
+
+export function resolveThemeSetting(
+  theme: ThemeSetting,
+  systemTheme: ResolvedThemeSetting = getSystemTheme(),
+): ResolvedThemeSetting {
+  return theme === 'system' ? systemTheme : theme;
+}
+
+export function resolveDisplaySettings(
+  displaySettings: DisplaySettings,
+  systemTheme: ResolvedThemeSetting = getSystemTheme(),
+): ResolvedDisplaySettings {
+  return {
+    ...displaySettings,
+    theme: resolveThemeSetting(displaySettings.theme, systemTheme),
+  };
+}
+
+export function subscribeToSystemThemeChange(listener: (theme: ResolvedThemeSetting) => void) {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {};
+  }
+
+  const mediaQueryList = window.matchMedia(SYSTEM_THEME_MEDIA_QUERY);
+  const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+    listener(event.matches ? 'dark' : 'light');
+  };
+
+  if (typeof mediaQueryList.addEventListener === 'function') {
+    mediaQueryList.addEventListener('change', handleChange);
+
+    return () => mediaQueryList.removeEventListener('change', handleChange);
+  }
+
+  mediaQueryList.addListener(handleChange);
+
+  return () => mediaQueryList.removeListener(handleChange);
+}
+
+function applyDocumentDisplaySettings(displaySettings: ResolvedDisplaySettings) {
   document.documentElement.dataset.theme = displaySettings.theme;
   document.documentElement.dataset.language = displaySettings.language;
   document.documentElement.dataset.textSize = displaySettings.textSize;
@@ -150,8 +207,11 @@ export function getInitialDisplaySettings(): DisplaySettings {
   }
 }
 
-export function applyDisplaySettings(displaySettings: DisplaySettings) {
-  applyDocumentDisplaySettings(displaySettings);
+export function applyDisplaySettings(
+  displaySettings: DisplaySettings,
+  systemTheme: ResolvedThemeSetting = getSystemTheme(),
+) {
+  applyDocumentDisplaySettings(resolveDisplaySettings(displaySettings, systemTheme));
 }
 
 export async function loadDisplaySettings() {
