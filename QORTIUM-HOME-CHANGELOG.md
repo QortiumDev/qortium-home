@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - app: expand display text size presets
+
+Changed Display Settings to offer Extra Small, Small, Medium, Large, and Extra Large text sizes. The previous compact size is now Extra Small, each existing size moved down one label, Medium is now the default normal size, and Extra Large adds a new larger option for users who need bigger interface text.
+
 ### 2026-06-07 - app: add browser reload button
 
 Added a reload button beside the Back and Forward browser controls so users can refresh the active tab from the top bar. The address bar layout now reserves space for that control and keeps the browser buttons aligned with the global text-size setting.

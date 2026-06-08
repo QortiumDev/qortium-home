@@ -55,7 +55,7 @@
 }
 
 :root {
-  --text-scale: 1.12;
+  --text-scale: 1.24;
   --font-size-small: calc(14px * var(--text-scale));
   --font-size-ui: calc(17px * var(--text-scale));
   --font-size-heading: calc(24px * var(--text-scale));
@@ -77,20 +77,24 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-:root[data-text-size="small"] {
+:root[data-text-size="extra-small"] {
   --text-scale: 1;
 }
 
-:root[data-text-size="medium"] {
+:root[data-text-size="small"] {
   --text-scale: 1.12;
 }
 
-:root[data-text-size="large"] {
+:root[data-text-size="medium"] {
   --text-scale: 1.24;
 }
 
-:root[data-text-size="extra-large"] {
+:root[data-text-size="large"] {
   --text-scale: 1.38;
+}
+
+:root[data-text-size="extra-large"] {
+  --text-scale: 1.56;
 }
 
 * {
@@ -460,7 +464,7 @@ h1 {
 
 .segmented-control {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
   gap: 4px;
   min-width: 0;
   padding: 4px;
