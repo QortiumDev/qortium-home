@@ -634,6 +634,10 @@ export async function getAccountProfile(accountId: string): Promise<AccountProfi
   };
 }
 
+export function isAccountUnlocked(accountId: string) {
+  return unlockedWalletSeeds.has(accountId);
+}
+
 export function assertAccountUnlocked(accountId: string) {
   const store = readWalletStore();
   const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);

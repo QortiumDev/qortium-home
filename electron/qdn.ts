@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assertAccountUnlocked, getAccountProfile, getAccountSigningKey } from './accounts.js';
+import { assertAccountUnlocked, getAccountProfile, getAccountSigningKey, isAccountUnlocked } from './accounts.js';
 import {
   getNodeConnection,
   isInvalidApiKeyResponse,
@@ -522,6 +522,7 @@ async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
   return {
     address: profile.address,
     avatarUrl: profile.avatarUrl,
+    isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
 }

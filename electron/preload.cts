@@ -151,6 +151,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       };
       tabId: string;
     }) => ipcRenderer.invoke('qdn-views:updateDisplaySettings', request),
+    updateAccountState: (request: { accountId: string | null; tabId: string }) =>
+      ipcRenderer.invoke('qdn-views:updateAccountState', request),
   },
   qdnPermissions: {
     onAccountReadRequest: (callback: (request: unknown) => void) => {

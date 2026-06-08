@@ -60,6 +60,11 @@ type SanitizedDisplaySettingsRequest = {
   tabId: string;
 };
 
+type SanitizedAccountStateRequest = {
+  accountId: string | null;
+  tabId: string;
+};
+
 const qdnViewsByWindow = new Map<number, Map<string, QdnViewEntry>>();
 const watchedWindowIds = new Set<number>();
 
@@ -294,6 +299,17 @@ function sanitizeDisplaySettingsRequest(value: unknown): SanitizedDisplaySetting
   };
 }
 
+function sanitizeAccountStateRequest(value: unknown): SanitizedAccountStateRequest {
+  if (!isRecord(value)) {
+    throw new Error('QDN view account state request is required.');
+  }
+
+  return {
+    accountId: sanitizeOptionalAccountId(value.accountId),
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
 function sanitizeTabRequest(value: unknown) {
   if (!isRecord(value)) {
     throw new Error('QDN view tab request is required.');
@@ -425,17 +441,40 @@ function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
   ];
 }
 
-async function sendDisplaySettingsMessages(entry: QdnViewEntry) {
+function getQdnSelectedAccountChangedMessage() {
+  return {
+    action: 'SELECTED_ACCOUNT_CHANGED',
+    requestedHandler: 'ACCOUNT',
+    type: 'qortium:selected-account-changed',
+  };
+}
+
+async function sendQdnMessages(entry: QdnViewEntry, messages: unknown[]) {
   if (entry.view.webContents.isDestroyed()) {
     return;
   }
 
-  const messages = JSON.stringify(getQdnDisplaySettingMessages(entry.displaySettings));
+  const serializedMessages = JSON.stringify(messages);
 
   await entry.view.webContents.executeJavaScript(
-    `for (const message of ${messages}) window.dispatchEvent(new MessageEvent('message', { data: message, origin: window.location.origin, source: window }));`,
+    `for (const message of ${serializedMessages}) window.dispatchEvent(new MessageEvent('message', { data: message, origin: window.location.origin, source: window }));`,
     true,
   );
+}
+
+async function sendDisplaySettingsMessages(entry: QdnViewEntry) {
+  await sendQdnMessages(entry, getQdnDisplaySettingMessages(entry.displaySettings));
+}
+
+async function sendSelectedAccountChangedMessage(entry: QdnViewEntry) {
+  await sendQdnMessages(entry, [getQdnSelectedAccountChangedMessage()]);
+}
+
+async function sendQdnViewStateMessages(entry: QdnViewEntry) {
+  await sendQdnMessages(entry, [
+    ...getQdnDisplaySettingMessages(entry.displaySettings),
+    getQdnSelectedAccountChangedMessage(),
+  ]);
 }
 
 function createViewEntry(
@@ -555,13 +594,13 @@ export function registerQdnViewIpcHandlers() {
       entry.currentUrl = request.renderUrl;
       void entry.view.webContents
         .loadURL(request.renderUrl)
-        .then(() => sendDisplaySettingsMessages(entry))
+        .then(() => sendQdnViewStateMessages(entry))
         .catch((error) => {
           console.warn('Unable to load isolated QDN view.', error);
         });
     } else {
-      void sendDisplaySettingsMessages(entry).catch((error) => {
-        console.warn('Unable to update isolated QDN view display settings.', error);
+      void sendQdnViewStateMessages(entry).catch((error) => {
+        console.warn('Unable to update isolated QDN view state.', error);
       });
     }
   });
@@ -594,6 +633,21 @@ export function registerQdnViewIpcHandlers() {
     entry.displaySettings = request.displaySettings;
     void sendDisplaySettingsMessages(entry).catch((error) => {
       console.warn('Unable to update isolated QDN view display settings.', error);
+    });
+  });
+
+  ipcMain.handle('qdn-views:updateAccountState', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeAccountStateRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry) {
+      return;
+    }
+
+    entry.accountId = request.accountId;
+    void sendSelectedAccountChangedMessage(entry).catch((error) => {
+      console.warn('Unable to update isolated QDN view account state.', error);
     });
   });
 

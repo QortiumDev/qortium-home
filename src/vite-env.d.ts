@@ -409,6 +409,11 @@ type QortiumQdnViewDisplaySettingsRequest = {
   tabId: string;
 };
 
+type QortiumQdnViewAccountStateRequest = {
+  accountId: string | null;
+  tabId: string;
+};
+
 type QortiumHomeRouteSnapshot = {
   displayUrl: string;
   kind: string;
@@ -570,6 +575,7 @@ interface Window {
       hide: (tabId: string) => Promise<void>;
       setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
+      updateAccountState: (request: QortiumQdnViewAccountStateRequest) => Promise<void>;
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
     };
     qdnPermissions?: {
