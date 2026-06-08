@@ -155,19 +155,6 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn-views:updateAccountState', request),
   },
   qdnPermissions: {
-    onPrivateChatReadRequest: (callback: (request: unknown) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
-        callback(request);
-      };
-
-      ipcRenderer.on('qdn-app:private-chat-read-request', listener);
-
-      return () => {
-        ipcRenderer.removeListener('qdn-app:private-chat-read-request', listener);
-      };
-    },
-    resolvePrivateChatReadRequest: (requestId: string, approved: boolean) =>
-      ipcRenderer.invoke('qdn-app:resolvePrivateChatReadApproval', { approved, requestId }),
     onWriteRequest: (callback: (request: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
         callback(request);

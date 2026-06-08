@@ -76,11 +76,6 @@ type NavigationSwipeState = {
   startY: number;
 };
 
-type QdnPrivateChatReadDialogProps = {
-  request: QortiumQdnPrivateChatReadApprovalRequest;
-  onResolve: (requestId: string, approved: boolean) => void;
-};
-
 type QdnWriteDialogProps = {
   request: QortiumQdnWriteApprovalRequest;
   onResolve: (requestId: string, approved: boolean) => void;
@@ -245,40 +240,6 @@ function createInitialTabState(): BrowserTabState {
   };
 }
 
-function QdnPrivateChatReadDialog({ request, onResolve }: QdnPrivateChatReadDialogProps) {
-  return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onResolve(request.id, false);
-        }
-      }}
-    >
-      <section
-        aria-label="QDN private chat read request"
-        aria-modal="true"
-        className="unlock-dialog qdn-permission-dialog"
-        role="dialog"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <h2 className="unlock-dialog__title">Read Private Chats</h2>
-        <p className="unlock-dialog__account">{request.name || 'Selected account'}</p>
-        <p className="unlock-dialog__address">{request.address}</p>
-        <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
-        <div className="unlock-dialog__actions">
-          <button className="button button--secondary" type="button" onClick={() => onResolve(request.id, false)}>
-            Deny
-          </button>
-          <button className="button" type="button" onClick={() => onResolve(request.id, true)}>
-            Allow
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']) {
   switch (action) {
     case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
@@ -309,10 +270,6 @@ function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']
       return 'Update Name';
     case 'SEND_CHAT_MESSAGE':
       return 'Send Chat Message';
-    case 'READ_PRIVATE_GROUP_CHAT':
-      return 'Read Private Group Chat';
-    case 'READ_PRIVATE_DIRECT_CHAT':
-      return 'Read Direct Private Chat';
     default:
       return 'QDN Write';
   }
@@ -504,8 +461,6 @@ export function App() {
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
-  const [qdnPrivateChatReadRequests, setQdnPrivateChatReadRequests] =
-    useState<QortiumQdnPrivateChatReadApprovalRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
@@ -528,32 +483,13 @@ export function App() {
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
-  const activeQdnPrivateChatReadRequest = qdnPrivateChatReadRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
-  const isQdnPermissionDialogActive = !!activeQdnPrivateChatReadRequest || !!activeQdnWriteRequest;
+  const isQdnPermissionDialogActive = !!activeQdnWriteRequest;
   const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme),
     [displaySettings, systemTheme],
   );
-
-  useEffect(() => {
-    const qdnPermissions = window.qortiumHome.qdnPermissions;
-
-    if (!qdnPermissions?.onPrivateChatReadRequest) {
-      return undefined;
-    }
-
-    return qdnPermissions.onPrivateChatReadRequest((request) => {
-      setQdnPrivateChatReadRequests((currentRequests) => {
-        if (currentRequests.some((currentRequest) => currentRequest.id === request.id)) {
-          return currentRequests;
-        }
-
-        return [...currentRequests, request];
-      });
-    });
-  }, []);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -572,22 +508,6 @@ export function App() {
       });
     });
   }, []);
-
-  function resolveQdnPrivateChatReadRequest(requestId: string, approved: boolean) {
-    const qdnPermissions = window.qortiumHome.qdnPermissions;
-
-    setQdnPrivateChatReadRequests((currentRequests) =>
-      currentRequests.filter((request) => request.id !== requestId),
-    );
-
-    if (!qdnPermissions?.resolvePrivateChatReadRequest) {
-      return;
-    }
-
-    void qdnPermissions.resolvePrivateChatReadRequest(requestId, approved).catch((error) => {
-      console.warn('Unable to resolve QDN private chat read request.', error);
-    });
-  }
 
   function resolveQdnWriteRequest(requestId: string, approved: boolean) {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -1674,12 +1594,6 @@ export function App() {
           />
         )}
       </section>
-      {activeQdnPrivateChatReadRequest ? (
-        <QdnPrivateChatReadDialog
-          request={activeQdnPrivateChatReadRequest}
-          onResolve={resolveQdnPrivateChatReadRequest}
-        />
-      ) : null}
       {activeQdnWriteRequest ? (
         <QdnWriteDialog
           request={activeQdnWriteRequest}

@@ -447,15 +447,6 @@ type QortiumHomeMenuCommand =
   | 'reload-tab'
   | 'reopen-closed-tab';
 
-type QortiumQdnPrivateChatReadApprovalRequest = {
-  action: 'READ_PRIVATE_CHAT';
-  address: string;
-  avatarUrl: string | null;
-  id: string;
-  name: string | null;
-  resourceUrl: string;
-};
-
 type QortiumQdnWriteApprovalRequest = {
   accountName: string | null;
   action:
@@ -472,9 +463,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'REGISTER_NAME'
     | 'SELL_NAME'
     | 'UPDATE_NAME'
-    | 'SEND_CHAT_MESSAGE'
-    | 'READ_PRIVATE_GROUP_CHAT'
-    | 'READ_PRIVATE_DIRECT_CHAT';
+    | 'SEND_CHAT_MESSAGE';
   address: string;
   amount: string | null;
   chatMessagePreview: string | null;
@@ -579,13 +568,9 @@ interface Window {
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
     };
     qdnPermissions?: {
-      onPrivateChatReadRequest: (
-        callback: (request: QortiumQdnPrivateChatReadApprovalRequest) => void,
-      ) => () => void;
       onWriteRequest: (
         callback: (request: QortiumQdnWriteApprovalRequest) => void,
       ) => () => void;
-      resolvePrivateChatReadRequest: (requestId: string, approved: boolean) => Promise<void>;
       resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
     };
   };

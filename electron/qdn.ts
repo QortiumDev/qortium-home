@@ -23,7 +23,6 @@ const PREVIEW_ACCOUNTS_PATH = path.join(
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
-const QDN_PRIVATE_CHAT_READ_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_MULTIPLE_QDN_RESOURCES', 'PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
 const QDN_GROUP_ACTIONS = [
@@ -181,13 +180,8 @@ type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
   | QdnNameAction
-  | QdnChatAction
-  | 'READ_PRIVATE_GROUP_CHAT'
-  | 'READ_PRIVATE_DIRECT_CHAT';
-type QdnChatPermissionAction =
-  | 'SEND_CHAT_MESSAGE'
-  | 'READ_PRIVATE_GROUP_CHAT'
-  | 'READ_PRIVATE_DIRECT_CHAT';
+  | QdnChatAction;
+type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE';
 
 type QdnWriteResourceRequest = {
   category?: string;
@@ -270,21 +264,17 @@ type NodeApiFetchResult = {
   statusText: string;
 };
 
-type PrivateChatReadApprovalResponse = {
+type QdnWriteApprovalResponse = {
   approved: boolean;
   requestId: string;
 };
-
-type QdnWriteApprovalResponse = PrivateChatReadApprovalResponse;
 
 type PendingQdnApproval = {
   resolve: (approved: boolean) => void;
   windowWebContentsId: number;
 };
 
-const approvedPrivateChatReadRequests = new Set<string>();
 const approvedQdnChatPermissions = new Set<string>();
-const pendingPrivateChatReadApprovals = new Map<string, PendingQdnApproval>();
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
 const BASE58_ALPHABET_MAP = new Map<string, number>(
   [...BASE58_ALPHABET].map((character, index) => [character, index]),
@@ -300,21 +290,6 @@ function expandHomePath(filePath: string) {
   }
 
   return filePath;
-}
-
-function sanitizePrivateChatReadApprovalResponse(value: unknown): PrivateChatReadApprovalResponse {
-  if (!isRecord(value)) {
-    throw new Error('QDN private chat read request response is required.');
-  }
-
-  if (typeof value.requestId !== 'string' || !value.requestId) {
-    throw new Error('QDN private chat read request id is required.');
-  }
-
-  return {
-    approved: value.approved === true,
-    requestId: value.requestId,
-  };
 }
 
 function sanitizeQdnWriteApprovalResponse(value: unknown): QdnWriteApprovalResponse {
@@ -342,16 +317,6 @@ function getQdnViewResourceUrl(context: QdnViewContext) {
   return context.resourceUrl ?? context.currentUrl ?? 'QDN app';
 }
 
-function getPrivateChatReadApprovalCacheKey(context: QdnViewContext, accountId: string) {
-  return [
-    context.windowId,
-    context.tabId,
-    context.currentUrl ?? '',
-    accountId,
-    'READ_PRIVATE_CHAT',
-  ].join('\n');
-}
-
 function getQdnChatPermissionCacheKey(
   context: QdnViewContext,
   accountId: string,
@@ -364,61 +329,6 @@ function getQdnChatPermissionCacheKey(
     accountId,
     action,
   ].join('\n');
-}
-
-async function requestPrivateChatReadApproval(
-  context: QdnViewContext,
-  profile: Awaited<ReturnType<typeof getAccountProfile>>,
-) {
-  const cacheKey = getPrivateChatReadApprovalCacheKey(context, profile.accountId);
-
-  if (approvedPrivateChatReadRequests.has(cacheKey)) {
-    return;
-  }
-
-  const hostWindow = getQdnViewHostWindow(context);
-
-  if (!hostWindow) {
-    throw new Error('QDN private chat read request does not belong to an active window.');
-  }
-
-  const requestId = randomUUID();
-  const approved = await new Promise<boolean>((resolve) => {
-    let settled = false;
-    const settle = (nextApproved: boolean) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timeoutId);
-      hostWindow.removeListener('closed', handleWindowClosed);
-      pendingPrivateChatReadApprovals.delete(requestId);
-      resolve(nextApproved);
-    };
-    const handleWindowClosed = () => settle(false);
-    const timeoutId = setTimeout(() => settle(false), QDN_PRIVATE_CHAT_READ_APPROVAL_TIMEOUT_MS);
-
-    pendingPrivateChatReadApprovals.set(requestId, {
-      resolve: settle,
-      windowWebContentsId: hostWindow.webContents.id,
-    });
-    hostWindow.once('closed', handleWindowClosed);
-    hostWindow.webContents.send('qdn-app:private-chat-read-request', {
-      action: 'READ_PRIVATE_CHAT',
-      address: profile.address,
-      avatarUrl: profile.avatarUrl,
-      id: requestId,
-      name: profile.name,
-      resourceUrl: getQdnViewResourceUrl(context),
-    });
-  });
-
-  if (!approved) {
-    throw new Error('Private chat read request was denied.');
-  }
-
-  approvedPrivateChatReadRequests.add(cacheKey);
 }
 
 async function requestQdnWriteApproval(
@@ -2855,8 +2765,6 @@ async function sendChatMessageForApp(
 async function getPrivateGroupActiveChatsForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   const chatContext = await getQdnChatContext(context);
 
-  await requestPrivateChatReadApproval(context as QdnViewContext, chatContext.profile);
-
   const result = await postLocalNodeText(
     chatContext.connection,
     '/chat/private/group/active',
@@ -2876,8 +2784,6 @@ async function searchPrivateGroupChatMessagesForApp(request: QdnAppRequest, cont
   const chatContext = await getQdnChatContext(context);
   const groupId = getRequiredGroupId(request, 1);
 
-  await requestPrivateChatReadApproval(context as QdnViewContext, chatContext.profile);
-
   const result = await postLocalNodeText(
     chatContext.connection,
     '/chat/private/group/messages',
@@ -2892,8 +2798,6 @@ async function searchPrivateGroupChatMessagesForApp(request: QdnAppRequest, cont
 
 async function getPrivateDirectActiveChatsForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   const chatContext = await getQdnChatContext(context);
-
-  await requestPrivateChatReadApproval(context as QdnViewContext, chatContext.profile);
 
   const result = await postLocalNodeText(
     chatContext.connection,
@@ -2914,8 +2818,6 @@ async function getPrivateDirectActiveChatsForApp(request: QdnAppRequest, context
 async function searchPrivateDirectChatMessagesForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   const chatContext = await getQdnChatContext(context);
   const otherAddress = getDirectChatOtherAddress(request);
-
-  await requestPrivateChatReadApproval(context as QdnViewContext, chatContext.profile);
 
   const result = await postLocalNodeText(
     chatContext.connection,
@@ -3480,21 +3382,6 @@ export function registerQdnIpcHandlers() {
     }
 
     return handleQdnAppRequest(request, context, event.sender);
-  });
-
-  ipcMain.handle('qdn-app:resolvePrivateChatReadApproval', (event, rawResponse: unknown) => {
-    const response = sanitizePrivateChatReadApprovalResponse(rawResponse);
-    const pendingApproval = pendingPrivateChatReadApprovals.get(response.requestId);
-
-    if (!pendingApproval) {
-      return;
-    }
-
-    if (pendingApproval.windowWebContentsId !== event.sender.id) {
-      throw new Error('QDN private chat read request response came from the wrong window.');
-    }
-
-    pendingApproval.resolve(response.approved);
   });
 
   ipcMain.handle('qdn-app:resolveWriteApproval', (event, rawResponse: unknown) => {
