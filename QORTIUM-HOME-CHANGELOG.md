@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-08 - app: allow QDN private chat reads without prompts
+
+Changed QDN private chat read helpers so they no longer open a user approval prompt. Private chat reads still require the selected wallet to be unlocked and still keep key handling inside Home and Core, while QDN write, signing, publishing, group, name, and chat send actions continue to use explicit approval prompts.
+
 ### 2026-06-08 - app: split selected account and private chat permissions
 
 Changed QDN app permissions so reading the account already selected for a Home tab no longer opens an approval prompt. Private chat read helpers now use their own explicit permission request and dialog wording, keeping sensitive private chat access gated without blocking ordinary app startup account detection.
