@@ -286,6 +286,16 @@ type QortiumAppUpdateDownloadRequest = {
   releaseTag: string;
 };
 
+type QortiumAppUpdateDownloadProgress = {
+  action: 'downloading' | 'verifying';
+  fileName: string;
+  message: string;
+  percent: number | null;
+  receivedBytes: number;
+  releaseTag: string;
+  totalBytes: number | null;
+};
+
 type QortiumAppUpdateDownloadResult = {
   canOpen: boolean;
   canReveal: boolean;
@@ -515,6 +525,7 @@ interface Window {
         request: QortiumAppUpdateDownloadRequest,
       ) => Promise<QortiumAppUpdateDownloadResult>;
       getEnvironment: () => Promise<QortiumAppUpdateEnvironment>;
+      onDownloadProgress: (callback: (progress: QortiumAppUpdateDownloadProgress) => void) => () => void;
       openDownloadedFile: (filePath: string) => Promise<void>;
       openReleasePage: (url: string) => Promise<void>;
       showDownloadedFile: (filePath: string) => Promise<void>;

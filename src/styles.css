@@ -137,19 +137,19 @@
 }
 
 :root[data-text-size="small"] {
-  --text-scale: 1.12;
-}
-
-:root[data-text-size="medium"] {
   --text-scale: 1.24;
 }
 
+:root[data-text-size="medium"] {
+  --text-scale: 1.56;
+}
+
 :root[data-text-size="large"] {
-  --text-scale: 1.38;
+  --text-scale: 1.88;
 }
 
 :root[data-text-size="extra-large"] {
-  --text-scale: 1.56;
+  --text-scale: 2.2;
 }
 
 * {
@@ -1508,12 +1508,14 @@ h1 {
   min-width: 0;
 }
 
+.app-updates__progress,
 .core-manager__progress {
   display: grid;
   gap: 7px;
   min-width: 0;
 }
 
+.app-updates__progress-bar,
 .core-manager__progress-bar {
   height: 8px;
   overflow: hidden;
@@ -1522,6 +1524,7 @@ h1 {
   border-radius: 999px;
 }
 
+.app-updates__progress-bar span,
 .core-manager__progress-bar span {
   display: block;
   height: 100%;
@@ -1530,6 +1533,7 @@ h1 {
 
 .node-settings__message,
 .app-updates__message,
+.app-updates__progress-text,
 .core-manager__progress-text,
 .core-manager__message {
   min-width: 0;
