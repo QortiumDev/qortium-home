@@ -475,7 +475,7 @@ h1 {
 
 .segmented-control__option {
   min-width: 0;
-  min-height: calc(38px * var(--text-scale));
+  min-height: 38px;
   padding: 7px 10px;
   overflow-wrap: anywhere;
   color: #cbd5d5;
@@ -519,7 +519,7 @@ h1 {
   justify-content: center;
   gap: 8px;
   min-width: 96px;
-  min-height: calc(42px * var(--text-scale));
+  min-height: 42px;
   padding: 8px 18px;
   color: #f4f0e8;
   background: #202727;
@@ -552,9 +552,9 @@ h1 {
 
 .icon-button {
   display: grid;
-  width: calc(42px * var(--text-scale));
-  min-width: calc(42px * var(--text-scale));
-  height: calc(42px * var(--text-scale));
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
   place-items: center;
   padding: 0;
   color: #f4f0e8;
@@ -619,7 +619,7 @@ h1 {
 
 .account-selector__select {
   width: 100%;
-  min-height: calc(42px * var(--text-scale));
+  min-height: 42px;
   padding: 8px 36px 8px 12px;
   overflow: hidden;
   color: #f4f0e8;
@@ -781,7 +781,7 @@ h1 {
 
 .field__input {
   width: 100%;
-  min-height: calc(42px * var(--text-scale));
+  min-height: 42px;
   padding: 8px 12px;
   color: #f4f0e8;
   background: #202727;
@@ -839,7 +839,7 @@ h1 {
   align-items: center;
   width: min(200px, 28vw);
   min-width: 116px;
-  min-height: calc(32px * var(--text-scale));
+  min-height: 32px;
   overflow: hidden;
   color: #cbd5d5;
   background: #192020;
@@ -905,9 +905,9 @@ h1 {
 }
 
 .top-bar__new-tab {
-  width: calc(36px * var(--text-scale));
-  min-width: calc(36px * var(--text-scale));
-  height: calc(32px * var(--text-scale));
+  width: 36px;
+  min-width: 36px;
+  height: 32px;
   color: #cbd5d5;
 }
 
@@ -963,10 +963,7 @@ h1 {
 
 .top-bar__address-form {
   display: grid;
-  grid-template-columns:
-    repeat(3, calc(42px * var(--text-scale)))
-    minmax(0, 1fr)
-    calc(42px * var(--text-scale));
+  grid-template-columns: 40px 40px 40px minmax(0, 1fr) 40px;
   gap: 6px;
   align-items: start;
   min-width: 0;
@@ -982,12 +979,20 @@ h1 {
 }
 
 .top-bar__history .top-bar__history-button {
-  width: calc(42px * var(--text-scale));
-  height: calc(42px * var(--text-scale));
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
 }
 
 .top-bar__reload-button {
   color: #cbd5d5;
+}
+
+.top-bar__reload-button,
+.top-bar__go-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
 }
 
 .top-bar__history-popover {
@@ -1042,7 +1047,7 @@ h1 {
   gap: 8px;
   align-items: center;
   min-width: 0;
-  min-height: calc(42px * var(--text-scale));
+  min-height: 40px;
   padding: 0 12px;
   color: #a9b6b6;
   background: #202727;
@@ -1976,10 +1981,7 @@ h1 {
   }
 
   .top-bar__address-form {
-    grid-template-columns:
-      repeat(3, calc(42px * var(--text-scale)))
-      minmax(0, 1fr)
-      calc(42px * var(--text-scale));
+    grid-template-columns: 40px 40px 40px minmax(0, 1fr) 40px;
   }
 
   .home-content {
