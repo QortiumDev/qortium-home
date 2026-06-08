@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-07 - app: add display theme and language settings
+
+Changed Display Settings to manage theme, language, and text size as one saved display preference. Home now supports Light and Dark themes, applies the selected theme across the app shell with shared color variables, keeps English as the initial language option, and still preserves older saved text-size choices when loading the new display settings.
+
 ### 2026-06-07 - app: stop text size from scaling browser controls
 
 Changed the display text-size setting so it only feeds the shared font-size variables instead of resizing standard controls. Browser navigation buttons, the address field, tabs, and common buttons now keep stable dimensions by default, with the top-bar browser controls matching the account and node button height more closely.

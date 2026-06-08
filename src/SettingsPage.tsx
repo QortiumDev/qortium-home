@@ -3,7 +3,7 @@ import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
 import { DisplaySettingsPanel } from './DisplaySettingsPanel';
-import type { TextSizeSetting } from './displaySettings';
+import type { DisplaySettings, LanguageSetting, TextSizeSetting, ThemeSetting } from './displaySettings';
 import { NodeSettingsPanel } from './NodeSettingsPanel';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 
@@ -14,27 +14,31 @@ export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 type SettingsPageProps = {
   appUpdates: AppUpdatesState;
   coreManager: CoreManagerState;
+  displaySettings: DisplaySettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
   sectionExpansion: SettingsExpansionState;
   nodeSettings: QortiumNodeSettings;
+  onLanguageChange: (language: LanguageSetting) => void;
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+  onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
-  textSize: TextSizeSetting;
 };
 
 export function SettingsPage({
   appUpdates,
   coreManager,
+  displaySettings,
   nodeSettings,
   onChainCoreUpdate,
+  onLanguageChange,
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
   onSaveNodeSettings,
+  onThemeChange,
   onTextSizeChange,
   sectionExpansion,
-  textSize,
 }: SettingsPageProps) {
   return (
     <div className="settings-page">
@@ -44,9 +48,11 @@ export function SettingsPage({
 
       <div className="settings-page__sections">
         <DisplaySettingsPanel
+          displaySettings={displaySettings}
           isExpanded={sectionExpansion.display}
-          textSize={textSize}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('display', isExpanded)}
+          onLanguageChange={onLanguageChange}
+          onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
         />
         <NodeSettingsPanel
