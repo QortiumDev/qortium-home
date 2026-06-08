@@ -1208,6 +1208,7 @@ h1 {
 }
 
 .account-chip {
+  position: relative;
   display: grid;
   width: 40px;
   min-width: 40px;
@@ -1249,6 +1250,26 @@ h1 {
   font-weight: 700;
   line-height: 1;
   background: var(--color-accent);
+}
+
+.account-chip__status {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+  border: 2px solid var(--color-panel-bg);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.account-chip__status--locked {
+  color: #ffffff;
+  background: var(--color-danger);
 }
 
 .account-menu {

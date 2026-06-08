@@ -211,7 +211,7 @@ function AccountChip({
     setAccountError('');
   }, [account?.id]);
 
-  async function handleLockToggle() {
+  async function handleLockToggle(closeMenu: () => void) {
     if (!account || isBusy) {
       return;
     }
@@ -227,7 +227,9 @@ function AccountChip({
     setIsBusy(true);
 
     try {
-      onAccountsStateChange(await window.qortiumHome.accounts.lockWallet(account.id));
+      const nextAccountsState = await window.qortiumHome.accounts.lockWallet(account.id);
+      onAccountsStateChange(nextAccountsState);
+      closeMenu();
     } catch (error) {
       setAccountError(formatAccountActionError(error));
     } finally {
@@ -235,7 +237,7 @@ function AccountChip({
     }
   }
 
-  async function handleUnlockSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleUnlockSubmit(event: FormEvent<HTMLFormElement>, closeMenu: () => void) {
     event.preventDefault();
 
     if (!account || isBusy) {
@@ -251,9 +253,11 @@ function AccountChip({
     setIsBusy(true);
 
     try {
-      onAccountsStateChange(await window.qortiumHome.accounts.unlockWallet(account.id, password));
+      const nextAccountsState = await window.qortiumHome.accounts.unlockWallet(account.id, password);
+      onAccountsStateChange(nextAccountsState);
       setIsUnlocking(false);
       setPassword('');
+      closeMenu();
     } catch (error) {
       setAccountError(formatAccountActionError(error));
     } finally {
@@ -263,6 +267,7 @@ function AccountChip({
 
   const displayName = profile?.name ?? account?.label ?? 'No account';
   const statusLabel = account?.isUnlocked ? 'Unlocked' : account ? 'Locked' : 'No account selected';
+  const accountChipTitle = account ? `${getAccountTooltip(account, profile)} - ${statusLabel}` : statusLabel;
   const avatarUrl = profile?.avatarUrl;
   const showAvatar = !!avatarUrl && !hasAvatarError;
 
@@ -276,12 +281,12 @@ function AccountChip({
       renderTrigger={({ contentId, isOpen, toggle }) => (
         <button
           className={`account-chip${account?.isUnlocked ? ' account-chip--unlocked' : ''}`}
-          title={account ? getAccountTooltip(account, profile) : 'No account selected'}
+          title={accountChipTitle}
           type="button"
           aria-controls={isOpen ? contentId : undefined}
           aria-expanded={isOpen}
           aria-haspopup="dialog"
-          aria-label="Account"
+          aria-label={account ? `Account, ${displayName}, ${statusLabel}` : 'Account, no account selected'}
           onClick={toggle}
         >
           {showAvatar ? (
@@ -297,70 +302,81 @@ function AccountChip({
               {getDisplayInitial(displayName)}
             </span>
           )}
+          {account ? (
+            <span
+              className={`account-chip__status account-chip__status--${account.isUnlocked ? 'unlocked' : 'locked'}`}
+              aria-hidden="true"
+            >
+              {account.isUnlocked ? <Unlock size={10} strokeWidth={2.4} /> : <Lock size={10} strokeWidth={2.4} />}
+            </span>
+          ) : null}
           <span className="sr-only">{displayName}</span>
+          <span className="sr-only">{statusLabel}</span>
         </button>
       )}
     >
-      <div className="account-menu__content">
-        <div className="account-menu__header">
-          <div className="account-menu__identity">
-            <strong>{displayName}</strong>
-            <span>{statusLabel}</span>
+      {({ close }) => (
+        <div className="account-menu__content">
+          <div className="account-menu__header">
+            <div className="account-menu__identity">
+              <strong>{displayName}</strong>
+              <span>{statusLabel}</span>
+            </div>
           </div>
-        </div>
 
-        {account ? (
-          <p className="account-menu__address">{account.address}</p>
-        ) : (
-          <p className="account-menu__message">Select a wallet on the Dashboard to use account actions.</p>
-        )}
+          {account ? (
+            <p className="account-menu__address">{account.address}</p>
+          ) : (
+            <p className="account-menu__message">Select a wallet on the Dashboard to use account actions.</p>
+          )}
 
-        {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
+          {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
 
-        {account && isUnlocking ? (
-          <form className="account-menu__unlock" onSubmit={handleUnlockSubmit}>
-            <label className="field">
-              <span className="field__label">Password</span>
-              <input
-                autoFocus
-                className="field__input"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
+          {account && isUnlocking ? (
+            <form className="account-menu__unlock" onSubmit={(event) => void handleUnlockSubmit(event, close)}>
+              <label className="field">
+                <span className="field__label">Password</span>
+                <input
+                  autoFocus
+                  className="field__input"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              <div className="account-menu__actions">
+                <button
+                  className="button button--secondary"
+                  disabled={isBusy}
+                  type="button"
+                  onClick={() => {
+                    setIsUnlocking(false);
+                    setPassword('');
+                    setAccountError('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button className="button" disabled={isBusy} type="submit">
+                  <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+                  {isBusy ? 'Unlocking' : 'Unlock'}
+                </button>
+              </div>
+            </form>
+          ) : account ? (
             <div className="account-menu__actions">
-              <button
-                className="button button--secondary"
-                disabled={isBusy}
-                type="button"
-                onClick={() => {
-                  setIsUnlocking(false);
-                  setPassword('');
-                  setAccountError('');
-                }}
-              >
-                Cancel
-              </button>
-              <button className="button" disabled={isBusy} type="submit">
-                <Unlock aria-hidden="true" size={18} strokeWidth={2} />
-                {isBusy ? 'Unlocking' : 'Unlock'}
+              <button className="button" disabled={isBusy} type="button" onClick={() => void handleLockToggle(close)}>
+                {account.isUnlocked ? (
+                  <Lock aria-hidden="true" size={18} strokeWidth={2} />
+                ) : (
+                  <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+                )}
+                {isBusy ? 'Updating' : account.isUnlocked ? 'Lock' : 'Unlock'}
               </button>
             </div>
-          </form>
-        ) : account ? (
-          <div className="account-menu__actions">
-            <button className="button" disabled={isBusy} type="button" onClick={handleLockToggle}>
-              {account.isUnlocked ? (
-                <Lock aria-hidden="true" size={18} strokeWidth={2} />
-              ) : (
-                <Unlock aria-hidden="true" size={18} strokeWidth={2} />
-              )}
-              {isBusy ? 'Updating' : account.isUnlocked ? 'Lock' : 'Unlock'}
-            </button>
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      )}
     </Popover>
   );
 }
