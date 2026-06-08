@@ -13,10 +13,26 @@ import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
 const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const THEME_VALUES = new Set(['dark', 'light']);
+const LANGUAGE_VALUES = new Set(['en']);
+const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'large', 'medium', 'small']);
+
+export type QdnDisplaySettings = {
+  language: 'en';
+  textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+  theme: 'dark' | 'light';
+};
+
+const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
+  language: 'en',
+  textSize: 'medium',
+  theme: 'light',
+};
 
 type QdnViewEntry = {
   accountId: string | null;
   currentUrl: string | null;
+  displaySettings: QdnDisplaySettings;
   nodeOrigin: string;
   resourceUrl: string | null;
   tabId: string;
@@ -27,6 +43,7 @@ type QdnViewEntry = {
 type SanitizedShowRequest = {
   accountId: string | null;
   bounds: Rectangle;
+  displaySettings: QdnDisplaySettings;
   nodeOrigin: string;
   renderUrl: string;
   resourceUrl: string | null;
@@ -38,12 +55,18 @@ type SanitizedBoundsRequest = {
   tabId: string;
 };
 
+type SanitizedDisplaySettingsRequest = {
+  displaySettings: QdnDisplaySettings;
+  tabId: string;
+};
+
 const qdnViewsByWindow = new Map<number, Map<string, QdnViewEntry>>();
 const watchedWindowIds = new Set<number>();
 
 export type QdnViewContext = {
   accountId: string | null;
   currentUrl: string | null;
+  displaySettings: QdnDisplaySettings;
   nodeOrigin: string;
   resourceUrl: string | null;
   tabId: string;
@@ -114,6 +137,28 @@ function sanitizeOptionalResourceUrl(value: unknown) {
   }
 
   return resourceUrl;
+}
+
+function sanitizeDisplaySettings(value: unknown): QdnDisplaySettings {
+  if (!isRecord(value)) {
+    return DEFAULT_QDN_DISPLAY_SETTINGS;
+  }
+
+  const theme = typeof value.theme === 'string' && THEME_VALUES.has(value.theme)
+    ? value.theme as QdnDisplaySettings['theme']
+    : DEFAULT_QDN_DISPLAY_SETTINGS.theme;
+  const language = typeof value.language === 'string' && LANGUAGE_VALUES.has(value.language)
+    ? value.language as QdnDisplaySettings['language']
+    : DEFAULT_QDN_DISPLAY_SETTINGS.language;
+  const textSize = typeof value.textSize === 'string' && TEXT_SIZE_VALUES.has(value.textSize)
+    ? value.textSize as QdnDisplaySettings['textSize']
+    : DEFAULT_QDN_DISPLAY_SETTINGS.textSize;
+
+  return {
+    language,
+    textSize,
+    theme,
+  };
 }
 
 function getRequiredNumber(value: unknown, label: string) {
@@ -219,6 +264,7 @@ function sanitizeShowRequest(value: unknown): SanitizedShowRequest {
   return {
     accountId: sanitizeOptionalAccountId(value.accountId),
     bounds: sanitizeBounds(value.bounds),
+    displaySettings: sanitizeDisplaySettings(value.displaySettings),
     nodeOrigin,
     renderUrl: sanitizeRenderUrl(value.renderUrl, nodeOrigin),
     resourceUrl: sanitizeOptionalResourceUrl(value.resourceUrl),
@@ -233,6 +279,17 @@ function sanitizeBoundsRequest(value: unknown): SanitizedBoundsRequest {
 
   return {
     bounds: sanitizeBounds(value.bounds),
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
+function sanitizeDisplaySettingsRequest(value: unknown): SanitizedDisplaySettingsRequest {
+  if (!isRecord(value)) {
+    throw new Error('QDN view display settings request is required.');
+  }
+
+  return {
+    displaySettings: sanitizeDisplaySettings(value.displaySettings),
     tabId: sanitizeTabId(value.tabId),
   };
 }
@@ -291,6 +348,7 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
         return {
           accountId: entry.accountId,
           currentUrl: entry.currentUrl,
+          displaySettings: entry.displaySettings,
           nodeOrigin: entry.nodeOrigin,
           resourceUrl: entry.resourceUrl,
           tabId: entry.tabId,
@@ -347,16 +405,51 @@ function applyViewGuards(entry: QdnViewEntry) {
   });
 }
 
+function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
+  return [
+    {
+      action: 'THEME_CHANGED',
+      requestedHandler: 'UI',
+      theme: displaySettings.theme,
+    },
+    {
+      action: 'LANGUAGE_CHANGED',
+      language: displaySettings.language,
+      requestedHandler: 'UI',
+    },
+    {
+      action: 'TEXT_SIZE_CHANGED',
+      requestedHandler: 'UI',
+      textSize: displaySettings.textSize,
+    },
+  ];
+}
+
+async function sendDisplaySettingsMessages(entry: QdnViewEntry) {
+  if (entry.view.webContents.isDestroyed()) {
+    return;
+  }
+
+  const messages = JSON.stringify(getQdnDisplaySettingMessages(entry.displaySettings));
+
+  await entry.view.webContents.executeJavaScript(
+    `for (const message of ${messages}) window.dispatchEvent(new MessageEvent('message', { data: message, origin: window.location.origin, source: window }));`,
+    true,
+  );
+}
+
 function createViewEntry(
   window: BrowserWindow,
   tabId: string,
   nodeOrigin: string,
   accountId: string | null,
   resourceUrl: string | null,
+  displaySettings: QdnDisplaySettings,
 ): QdnViewEntry {
   const entry: QdnViewEntry = {
     accountId,
     currentUrl: null,
+    displaySettings,
     nodeOrigin,
     resourceUrl,
     tabId,
@@ -424,6 +517,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
 
   if (existingEntry && existingEntry.nodeOrigin === request.nodeOrigin) {
     existingEntry.accountId = request.accountId;
+    existingEntry.displaySettings = request.displaySettings;
     existingEntry.resourceUrl = request.resourceUrl;
     return existingEntry;
   }
@@ -438,6 +532,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     request.nodeOrigin,
     request.accountId,
     request.resourceUrl,
+    request.displaySettings,
   );
 
   windowViews.set(request.tabId, entry);
@@ -458,8 +553,15 @@ export function registerQdnViewIpcHandlers() {
 
     if (entry.currentUrl !== request.renderUrl) {
       entry.currentUrl = request.renderUrl;
-      void entry.view.webContents.loadURL(request.renderUrl).catch((error) => {
-        console.warn('Unable to load isolated QDN view.', error);
+      void entry.view.webContents
+        .loadURL(request.renderUrl)
+        .then(() => sendDisplaySettingsMessages(entry))
+        .catch((error) => {
+          console.warn('Unable to load isolated QDN view.', error);
+        });
+    } else {
+      void sendDisplaySettingsMessages(entry).catch((error) => {
+        console.warn('Unable to update isolated QDN view display settings.', error);
       });
     }
   });
@@ -478,6 +580,21 @@ export function registerQdnViewIpcHandlers() {
     const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
 
     entry?.view.setVisible(false);
+  });
+
+  ipcMain.handle('qdn-views:updateDisplaySettings', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeDisplaySettingsRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry) {
+      return;
+    }
+
+    entry.displaySettings = request.displaySettings;
+    void sendDisplaySettingsMessages(entry).catch((error) => {
+      console.warn('Unable to update isolated QDN view display settings.', error);
+    });
   });
 
   ipcMain.handle('qdn-views:destroy', (event, rawRequest: unknown) => {

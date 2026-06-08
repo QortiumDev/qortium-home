@@ -383,9 +383,16 @@ type QortiumQdnViewBounds = {
   y: number;
 };
 
+type QortiumQdnDisplaySettings = {
+  language: 'en';
+  textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+  theme: 'dark' | 'light';
+};
+
 type QortiumQdnViewShowRequest = {
   accountId: string | null;
   bounds: QortiumQdnViewBounds;
+  displaySettings: QortiumQdnDisplaySettings;
   nodeApiUrl: string;
   renderUrl: string;
   resourceUrl?: string;
@@ -394,6 +401,11 @@ type QortiumQdnViewShowRequest = {
 
 type QortiumQdnViewBoundsRequest = {
   bounds: QortiumQdnViewBounds;
+  tabId: string;
+};
+
+type QortiumQdnViewDisplaySettingsRequest = {
+  displaySettings: QortiumQdnDisplaySettings;
   tabId: string;
 };
 
@@ -558,6 +570,7 @@ interface Window {
       hide: (tabId: string) => Promise<void>;
       setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
+      updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
     };
     qdnPermissions?: {
       onAccountReadRequest: (

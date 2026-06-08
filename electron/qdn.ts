@@ -3259,7 +3259,17 @@ function buildPrivateDirectChatMessagesBody(
   };
 }
 
-async function getQdnResourceUrl(request: QdnAppRequest) {
+function applyQdnDisplaySettings(queryParams: URLSearchParams, context: QdnViewContext | null) {
+  if (!context?.displaySettings) {
+    return;
+  }
+
+  queryParams.set('theme', context.displaySettings.theme);
+  queryParams.set('lang', context.displaySettings.language);
+  queryParams.set('textSize', context.displaySettings.textSize);
+}
+
+async function getQdnResourceUrl(request: QdnAppRequest, context: QdnViewContext | null) {
   const resource = getQdnAppResourceRequest(request);
   const status = await fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
 
@@ -3279,6 +3289,8 @@ async function getQdnResourceUrl(request: QdnAppRequest) {
   if (resource.identifier) {
     queryParams.set('identifier', resource.identifier);
   }
+
+  applyQdnDisplaySettings(queryParams, context);
 
   const renderQueryString = queryParams.toString();
 
@@ -3366,7 +3378,7 @@ async function handleQdnAppRequest(
       return fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
 
     case 'GET_QDN_RESOURCE_URL':
-      return getQdnResourceUrl(request);
+      return getQdnResourceUrl(request, context);
 
     case 'FETCH_QDN_RESOURCE':
       return fetchNodeApiPayload(buildFetchQdnResourcePath(request), request);
