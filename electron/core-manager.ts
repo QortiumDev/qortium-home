@@ -1767,6 +1767,7 @@ async function runScript(
             cwd,
             env,
             windowsHide: true,
+            windowsVerbatimArguments: true,
           })
         : spawn(command, args, {
             cwd,
