@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-08 - release: prepare home preview 9
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.9` with Android `versionCode` 10 so the latest display settings, QDN app setting bridge, account lock-state updates, read-only permission cleanup, and Core API key fixes can be built as the next QortiumDev prerelease target.
+
 ### 2026-06-08 - app: show account action pending spinner
 
 Changed the address-bar account popup so lock and unlock actions replace their button icon with a spinner while the wallet request is pending, making it clear that Home is still working before the popup closes or an error appears.
