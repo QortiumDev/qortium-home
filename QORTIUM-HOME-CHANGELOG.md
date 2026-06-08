@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-08 - build: inset android launcher icon
+
+Changed the Android launcher icon generator to center the Qortium Home artwork with a larger safe inset, then regenerated the Android launcher PNGs so circular and rounded-rectangle launcher masks do not crop the sides of the house icon.
+
 ### 2026-06-08 - app: improve update progress and text scaling
 
 Changed Home update downloads so desktop downloads report byte and percentage progress in Dashboard and Settings. Downloaded desktop Home updates now use a Show file action that opens the containing folder instead of launching the file directly, while Android keeps the Install APK action. Increased the Display Settings text-size jumps so Extra Small remains at the original baseline, Small matches the previous Medium size, Medium matches the previous Extra Large size, and Large and Extra Large continue with two larger jumps.

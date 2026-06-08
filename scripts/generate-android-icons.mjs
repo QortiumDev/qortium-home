@@ -15,7 +15,8 @@ const densities = [
   { name: 'xxxhdpi', legacySize: 192, foregroundSize: 432 },
 ];
 
-const safeZoneScale = 2 / 3;
+// Keep the artwork inside Android's adaptive-icon safe zone with extra room for OEM launcher masks.
+const safeZoneScale = 0.56;
 
 function generatePaddedIcon(outputPath, canvasSize) {
   const artworkSize = Math.round(canvasSize * safeZoneScale);
