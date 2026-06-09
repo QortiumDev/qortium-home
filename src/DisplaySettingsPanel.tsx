@@ -2,6 +2,7 @@ import {
   getLanguageLabel,
   getThemeLabel,
   getTextSizeLabel,
+  isLanguageSetting,
   LANGUAGE_OPTIONS,
   THEME_OPTIONS,
   TEXT_SIZE_OPTIONS,
@@ -61,29 +62,25 @@ export function DisplaySettingsPanel({
             ))}
           </div>
         </div>
-        <div className="display-settings__field">
+        <label className="display-settings__field field">
           <span className="field__label">{SETTINGS_TEXT.labels.language}</span>
-          <div
-            className="segmented-control segmented-control--single"
-            role="radiogroup"
-            aria-label={SETTINGS_TEXT.labels.language}
+          <select
+            className="select"
+            value={displaySettings.language}
+            onChange={(event) => {
+              if (isLanguageSetting(event.target.value)) {
+                onLanguageChange(event.target.value);
+              }
+            }}
           >
             {LANGUAGE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                aria-checked={displaySettings.language === option.value}
-                className={`segmented-control__option${
-                  displaySettings.language === option.value ? ' segmented-control__option--selected' : ''
-                }`}
-                role="radio"
-                type="button"
-                onClick={() => onLanguageChange(option.value)}
-              >
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </button>
+              </option>
             ))}
-          </div>
-        </div>
+          </select>
+          <span className="field__hint">{SETTINGS_TEXT.hints.language}</span>
+        </label>
         <div className="display-settings__field">
           <span className="field__label">{SETTINGS_TEXT.labels.textSize}</span>
           <div className="segmented-control" role="radiogroup" aria-label={SETTINGS_TEXT.labels.textSize}>

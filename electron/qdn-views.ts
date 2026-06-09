@@ -14,11 +14,11 @@ const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME_VALUES = new Set(['dark', 'light']);
-const LANGUAGE_VALUES = new Set(['en']);
+const LANGUAGE_VALUES = new Set(['ar', 'de', 'en', 'es', 'et', 'fi', 'fr', 'he', 'hu', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv', 'zh-CN', 'zh-TW']);
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
 
 export type QdnDisplaySettings = {
-  language: 'en';
+  language: 'ar' | 'de' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hu' | 'it' | 'ja' | 'ko' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
   theme: 'dark' | 'light';
 };

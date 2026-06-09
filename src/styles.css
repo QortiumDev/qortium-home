@@ -739,7 +739,7 @@ h1 {
   gap: 8px;
 }
 
-.account-selector__select {
+.select {
   width: 100%;
   min-height: 42px;
   padding: 8px 36px 8px 12px;
@@ -751,7 +751,7 @@ h1 {
   border-radius: var(--radius-md);
 }
 
-.account-selector__select:focus {
+.select:focus {
   border-color: var(--color-border-strong);
   outline: none;
 }

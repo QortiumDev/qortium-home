@@ -394,7 +394,7 @@ type QortiumQdnViewBounds = {
 };
 
 type QortiumQdnDisplaySettings = {
-  language: 'en';
+  language: 'ar' | 'de' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hu' | 'it' | 'ja' | 'ko' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
   theme: 'dark' | 'light';
 };
