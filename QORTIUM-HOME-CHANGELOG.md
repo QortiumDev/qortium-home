@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-09 - app: offer all core and hub languages in a dropdown
+
+Expanded the Display Settings language choice from English-only to the twenty languages currently supported across Qortium Core and Qortal Hub, shown by their native names (such as Deutsch, 日本語, and Русский) with separate Simplified and Traditional Chinese options and no flag icons. The language picker is now a dropdown instead of a row of buttons, sharing the same control style as the wallet selector. The chosen language is saved, applied to the page's language attribute, and passed to QDN apps that support it; Qortium Home's own interface remains English for now, and a note under the dropdown says so.
+
 ### 2026-06-09 - app: add tv-friendly text sizes that reflow the layout
 
 Extended the Display Settings text sizes for people reading Home from across a room, such as on a large TV. Large and Extra Large now make a bigger jump, and a new Huge option roughly doubles the text. Text scaling stays text-only — images, thumbnails, and window controls keep their normal size — but page widths, card columns, dialogs, and menus are now measured relative to the text, so larger text automatically gets fewer, wider columns instead of cramped or clipped layouts. Small icons that sit inside buttons and labels now grow with their text so big text no longer sits next to tiny glyphs, and the new size is offered to QDN apps through the existing display settings bridge.

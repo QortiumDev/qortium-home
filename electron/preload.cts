@@ -139,7 +139,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       accountId: string | null;
       bounds: { height: number; width: number; x: number; y: number };
       displaySettings: {
-        language: 'en';
+        language: 'ar' | 'de' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hu' | 'it' | 'ja' | 'ko' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
         textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
       };
@@ -156,7 +156,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
     updateDisplaySettings: (request: {
       displaySettings: {
-        language: 'en';
+        language: 'ar' | 'de' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hu' | 'it' | 'ja' | 'ko' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
         textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
       };

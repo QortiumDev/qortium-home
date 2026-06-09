@@ -49,6 +49,9 @@ export const SETTINGS_TEXT = {
     version: 'Version',
     releaseChannel: 'Release channel',
   },
+  hints: {
+    language: "Passed to QDN apps that support it. Qortium Home's own interface is currently English-only.",
+  },
   sections: {
     displaySettings: 'Display Settings',
     nodeSettings: 'Node Settings',

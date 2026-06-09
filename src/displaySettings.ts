@@ -24,8 +24,84 @@ export type ResolvedThemeSetting = Exclude<ThemeSetting, 'system'>;
 
 export const LANGUAGE_OPTIONS = [
   {
+    label: 'العربية',
+    value: 'ar',
+  },
+  {
+    label: 'Deutsch',
+    value: 'de',
+  },
+  {
     label: 'English',
     value: 'en',
+  },
+  {
+    label: 'Español',
+    value: 'es',
+  },
+  {
+    label: 'Eesti',
+    value: 'et',
+  },
+  {
+    label: 'Suomi',
+    value: 'fi',
+  },
+  {
+    label: 'Français',
+    value: 'fr',
+  },
+  {
+    label: 'עברית',
+    value: 'he',
+  },
+  {
+    label: 'Magyar',
+    value: 'hu',
+  },
+  {
+    label: 'Italiano',
+    value: 'it',
+  },
+  {
+    label: '日本語',
+    value: 'ja',
+  },
+  {
+    label: '한국어',
+    value: 'ko',
+  },
+  {
+    label: 'Nederlands',
+    value: 'nl',
+  },
+  {
+    label: 'Polski',
+    value: 'pl',
+  },
+  {
+    label: 'Português',
+    value: 'pt',
+  },
+  {
+    label: 'Română',
+    value: 'ro',
+  },
+  {
+    label: 'Русский',
+    value: 'ru',
+  },
+  {
+    label: 'Svenska',
+    value: 'sv',
+  },
+  {
+    label: '中文（简体）',
+    value: 'zh-CN',
+  },
+  {
+    label: '中文（繁體）',
+    value: 'zh-TW',
   },
 ] as const;
 

@@ -465,7 +465,7 @@ export function AccountsPanel({
           </label>
           <div className="account-selector__control">
             <select
-              className="account-selector__select"
+              className="select account-selector__select"
               id="selected-wallet"
               value={activeAccount?.id ?? ''}
               onChange={(event) => handleActiveAccountChange(event.target.value)}
