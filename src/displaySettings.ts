@@ -52,6 +52,10 @@ export const TEXT_SIZE_OPTIONS = [
     label: 'Extra Large',
     value: 'extra-large',
   },
+  {
+    label: 'Huge',
+    value: 'huge',
+  },
 ] as const;
 
 export type TextSizeSetting = (typeof TEXT_SIZE_OPTIONS)[number]['value'];

@@ -395,7 +395,7 @@ type QortiumQdnViewBounds = {
 
 type QortiumQdnDisplaySettings = {
   language: 'en';
-  textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+  textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
   theme: 'dark' | 'light';
 };
 

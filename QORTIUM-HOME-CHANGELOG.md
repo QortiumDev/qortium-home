@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-09 - app: add tv-friendly text sizes that reflow the layout
+
+Extended the Display Settings text sizes for people reading Home from across a room, such as on a large TV. Large and Extra Large now make a bigger jump, and a new Huge option roughly doubles the text. Text scaling stays text-only — images, thumbnails, and window controls keep their normal size — but page widths, card columns, dialogs, and menus are now measured relative to the text, so larger text automatically gets fewer, wider columns instead of cramped or clipped layouts. Small icons that sit inside buttons and labels now grow with their text so big text no longer sits next to tiny glyphs, and the new size is offered to QDN apps through the existing display settings bridge.
+
 ### 2026-06-09 - app: responsive ui cleanup and visual polish
 
 Reworked the shared interface styling without changing any functionality. The app now adapts to phone-sized screens up to 600px wide instead of only 420px: the address bar gets the full row on phones (forward, reload, and go buttons hide there, since swipe navigation, the system back button, and the tab menu cover them), address suggestions and address errors float over the page instead of pushing it down, and dashboard cards flow into as many columns as fit. Buttons that confirm a primary action (Browse QDN, Create, Save, Unlock, Approve) are now filled green so the main choice on each screen stands out. Text sizing was re-based so Medium matches the original baseline again while Large and Extra Large stay available for bigger text, and shared spacing, corner radius, and shadow values moved into named design tokens. Dialogs now close with the Escape key, keep keyboard focus inside while open, and return focus afterwards. The Accounts card explains what to do when no wallets exist yet, tap targets grow on touch screens, tab dragging no longer triggers from a stray tap, phone notch and gesture-bar safe areas are respected, and a missing color variable on the account status badge was fixed.

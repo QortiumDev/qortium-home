@@ -15,11 +15,11 @@ const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME_VALUES = new Set(['dark', 'light']);
 const LANGUAGE_VALUES = new Set(['en']);
-const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'large', 'medium', 'small']);
+const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
 
 export type QdnDisplaySettings = {
   language: 'en';
-  textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+  textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
   theme: 'dark' | 'light';
 };
 

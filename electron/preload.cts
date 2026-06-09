@@ -140,7 +140,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       bounds: { height: number; width: number; x: number; y: number };
       displaySettings: {
         language: 'en';
-        textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+        textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
       };
       nodeApiUrl: string;
@@ -157,7 +157,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     updateDisplaySettings: (request: {
       displaySettings: {
         language: 'en';
-        textSize: 'extra-large' | 'extra-small' | 'large' | 'medium' | 'small';
+        textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
       };
       tabId: string;
