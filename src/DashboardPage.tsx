@@ -372,13 +372,16 @@ export function DashboardPage({
       </header>
 
       <div className="dashboard-page__primary-action">
-        <button className="button" type="button" onClick={onBrowseQdn}>
+        <button className="button button--primary" type="button" onClick={onBrowseQdn}>
           <Globe2 aria-hidden="true" size={18} strokeWidth={2} />
           Browse QDN
         </button>
       </div>
 
       <section className="dashboard-card dashboard-card--accounts" aria-label="Accounts">
+        <div className="dashboard-card__header">
+          <h2 className="dashboard-card__title">Accounts</h2>
+        </div>
         <AccountsPanel
           accountsError={accountsError}
           accountsState={accountsState}

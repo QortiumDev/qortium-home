@@ -85,6 +85,7 @@ const ADDRESS_SCHEME_SUGGESTIONS = [
   },
 ];
 const TAB_DRAG_OUT_MIN_DISTANCE_PX = 72;
+const TAB_DRAG_START_MIN_DISTANCE_PX = 8;
 
 function formatHistoryEntry(entry: AppRoute) {
   if (entry.kind === 'dashboard') {
@@ -357,7 +358,7 @@ function AccountChip({
                 >
                   Cancel
                 </button>
-                <button className="button" disabled={isBusy} type="submit">
+                <button className="button button--primary" disabled={isBusy} type="submit">
                   {isBusy ? (
                     <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
                   ) : (
@@ -431,7 +432,7 @@ function HistoryButton({
 
   return (
     <Popover
-      className="top-bar__history"
+      className={`top-bar__history top-bar__history--${direction}`}
       contentClassName={`top-bar__history-popover top-bar__history-popover--${direction}`}
       contentId={`top-bar-${direction}-history`}
       contentLabel={`${label} history`}
@@ -708,6 +709,14 @@ function BrowserTabs({
     const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (
+      !dragState.hasReordered &&
+      Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY) <
+        TAB_DRAG_START_MIN_DISTANCE_PX
+    ) {
       return;
     }
 
@@ -1187,73 +1196,73 @@ export function TopBar({
               }
             }}
           />
+          {addressSuggestionsOpen && addressSuggestions.length > 0 ? (
+            <div
+              className="top-bar__address-suggestions"
+              id="browser-address-suggestions"
+              role="listbox"
+            >
+              {addressSuggestions.map((suggestion, index) => (
+                <button
+                  aria-selected={index === activeAddressSuggestionIndex}
+                  className={[
+                    'top-bar__address-suggestion',
+                    index === activeAddressSuggestionIndex ? 'top-bar__address-suggestion--active' : '',
+                  ].filter(Boolean).join(' ')}
+                  id={`browser-address-suggestion-${index}`}
+                  key={suggestion.value}
+                  ref={(element) => {
+                    addressSuggestionRefs.current[index] = element;
+                  }}
+                  role="option"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setAddressSuggestionIndex(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      moveAddressSuggestionFocus((index + 1) % addressSuggestions.length);
+                      return;
+                    }
+  
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+  
+                      if (index === 0) {
+                        addressInputRef.current?.focus();
+                        return;
+                      }
+  
+                      moveAddressSuggestionFocus(index - 1);
+                      return;
+                    }
+  
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      setAddressSuggestionsOpen(false);
+                      addressInputRef.current?.focus();
+                      return;
+                    }
+  
+                    if (event.key === 'Tab') {
+                      event.preventDefault();
+                      applyAddressSuggestion(suggestion);
+                    }
+                  }}
+                  onClick={() => applyAddressSuggestion(suggestion)}
+                >
+                  <span className="top-bar__address-suggestion-value">{suggestion.value}</span>
+                  <span className="top-bar__address-suggestion-label">{suggestion.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {addressError ? <p className="top-bar__error">{addressError}</p> : null}
         </div>
         <button className="icon-button top-bar__go-button" title="Load address" type="submit">
           <ArrowRight aria-hidden="true" size={20} strokeWidth={2} />
           <span className="sr-only">Load address</span>
         </button>
-        {addressSuggestionsOpen && addressSuggestions.length > 0 ? (
-          <div
-            className="top-bar__address-suggestions"
-            id="browser-address-suggestions"
-            role="listbox"
-          >
-            {addressSuggestions.map((suggestion, index) => (
-              <button
-                aria-selected={index === activeAddressSuggestionIndex}
-                className={[
-                  'top-bar__address-suggestion',
-                  index === activeAddressSuggestionIndex ? 'top-bar__address-suggestion--active' : '',
-                ].filter(Boolean).join(' ')}
-                id={`browser-address-suggestion-${index}`}
-                key={suggestion.value}
-                ref={(element) => {
-                  addressSuggestionRefs.current[index] = element;
-                }}
-                role="option"
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setAddressSuggestionIndex(index)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault();
-                    moveAddressSuggestionFocus((index + 1) % addressSuggestions.length);
-                    return;
-                  }
-
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault();
-
-                    if (index === 0) {
-                      addressInputRef.current?.focus();
-                      return;
-                    }
-
-                    moveAddressSuggestionFocus(index - 1);
-                    return;
-                  }
-
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    setAddressSuggestionsOpen(false);
-                    addressInputRef.current?.focus();
-                    return;
-                  }
-
-                  if (event.key === 'Tab') {
-                    event.preventDefault();
-                    applyAddressSuggestion(suggestion);
-                  }
-                }}
-                onClick={() => applyAddressSuggestion(suggestion)}
-              >
-                <span className="top-bar__address-suggestion-value">{suggestion.value}</span>
-                <span className="top-bar__address-suggestion-label">{suggestion.description}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {addressError ? <p className="top-bar__error">{addressError}</p> : null}
       </form>
       <AccountChip
         account={activeAccount}

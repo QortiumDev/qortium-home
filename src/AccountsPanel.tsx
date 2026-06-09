@@ -1,5 +1,6 @@
 import { Download, Lock, Unlock, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ModalDialog } from './components/ModalDialog';
 import { isNativePlatform } from './platform';
 
 type PendingLoadedWallet = Extract<QortiumSelectWalletResult, { canceled: false }>;
@@ -427,10 +428,17 @@ export function AccountsPanel({
 
   return (
     <section className="accounts-panel" aria-label="Accounts">
+      {isLoadingAccounts ? (
+        <p className="accounts-panel__message">Loading wallets…</p>
+      ) : !hasSavedAccounts ? (
+        <p className="accounts-panel__message">
+          No wallets yet. Create a new wallet or load an existing wallet file to get started.
+        </p>
+      ) : null}
       <div className="accounts-panel__actions" aria-label="Account actions">
         {canCreateWallet ? (
           <button
-            className="button"
+            className={`button${!isLoadingAccounts && !hasSavedAccounts ? ' button--primary' : ''}`}
             type="button"
             disabled={isLoadingAccounts || isCreatingWallet}
             onClick={openCreateDialog}
@@ -521,13 +529,12 @@ export function AccountsPanel({
       ) : null}
 
       {isCreateDialogOpen ? (
-        <div className="modal-backdrop" onMouseDown={closeCreateDialog}>
+        <ModalDialog onDismiss={closeCreateDialog}>
           <form
             aria-label="Create account"
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
             onSubmit={handleCreateSubmit}
           >
             <h2 className="unlock-dialog__title">New Account</h2>
@@ -571,22 +578,21 @@ export function AccountsPanel({
               >
                 Cancel
               </button>
-              <button className="button" type="submit" disabled={isCreatingWallet}>
+              <button className="button button--primary" type="submit" disabled={isCreatingWallet}>
                 {isCreatingWallet ? 'Creating' : 'Create'}
               </button>
             </div>
           </form>
-        </div>
+        </ModalDialog>
       ) : null}
 
       {pendingLoadedWallet ? (
-        <div className="modal-backdrop" onMouseDown={closeLoadNameDialog}>
+        <ModalDialog onDismiss={closeLoadNameDialog}>
           <form
             aria-label="Name loaded wallet"
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
             onSubmit={handleLoadNameSubmit}
           >
             <h2 className="unlock-dialog__title">Name Wallet</h2>
@@ -613,22 +619,21 @@ export function AccountsPanel({
               >
                 Cancel
               </button>
-              <button className="button" type="submit" disabled={isSavingLoadedWallet}>
+              <button className="button button--primary" type="submit" disabled={isSavingLoadedWallet}>
                 {isSavingLoadedWallet ? 'Saving' : 'Save'}
               </button>
             </div>
           </form>
-        </div>
+        </ModalDialog>
       ) : null}
 
       {unlockingAccount ? (
-        <div className="modal-backdrop" onMouseDown={closeUnlockDialog}>
+        <ModalDialog onDismiss={closeUnlockDialog}>
           <form
             aria-label="Unlock account"
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
             onSubmit={handleUnlockSubmit}
           >
             <h2 className="unlock-dialog__title">Unlock Account</h2>
@@ -656,22 +661,21 @@ export function AccountsPanel({
               >
                 Cancel
               </button>
-              <button className="button" type="submit" disabled={isUnlocking}>
+              <button className="button button--primary" type="submit" disabled={isUnlocking}>
                 {isUnlocking ? 'Unlocking' : 'Unlock'}
               </button>
             </div>
           </form>
-        </div>
+        </ModalDialog>
       ) : null}
 
       {removingAccount ? (
-        <div className="modal-backdrop" onMouseDown={closeRemoveDialog}>
+        <ModalDialog onDismiss={closeRemoveDialog}>
           <form
             aria-label="Remove wallet"
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
             onSubmit={handleRemoveSubmit}
           >
             <h2 className="unlock-dialog__title">Remove Wallet</h2>
@@ -706,7 +710,7 @@ export function AccountsPanel({
               </button>
             </div>
           </form>
-        </div>
+        </ModalDialog>
       ) : null}
     </section>
   );
