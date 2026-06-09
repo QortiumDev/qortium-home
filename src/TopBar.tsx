@@ -753,8 +753,10 @@ function BrowserTabs({
     event.preventDefault();
     clearDragState();
 
-    const menuWidth = 240;
-    const menuHeight = onMoveTabToNewWindow ? 316 : 276;
+    // The menu is sized in em (15em wide), so estimate its bounds from the scaled root font size.
+    const rootFontSizePx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const menuWidth = 15 * rootFontSizePx;
+    const menuHeight = (onMoveTabToNewWindow ? 19.75 : 17.25) * rootFontSizePx;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
     const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
