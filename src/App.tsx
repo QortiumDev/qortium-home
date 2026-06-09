@@ -25,6 +25,7 @@ import {
   type DisplaySettings,
 } from './displaySettings';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
+import { ModalDialog } from './components/ModalDialog';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
@@ -304,20 +305,12 @@ function getQdnWriteSourceLabel(sourceKind: QortiumQdnWriteApprovalRequest['sour
 
 function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onResolve(request.id, false);
-        }
-      }}
-    >
+    <ModalDialog onDismiss={() => onResolve(request.id, false)}>
       <section
         aria-label="QDN write request"
         aria-modal="true"
         className="unlock-dialog qdn-permission-dialog"
         role="dialog"
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <h2 className="unlock-dialog__title">Approve Request</h2>
         <p className="unlock-dialog__account">{request.accountName || 'Selected account'}</p>
@@ -387,12 +380,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
           <button className="button button--secondary" type="button" onClick={() => onResolve(request.id, false)}>
             Deny
           </button>
-          <button className="button" type="button" onClick={() => onResolve(request.id, true)}>
+          <button className="button button--primary" type="button" onClick={() => onResolve(request.id, true)}>
             Approve
           </button>
         </div>
       </section>
-    </div>
+    </ModalDialog>
   );
 }
 
