@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - app: refine loading, empty, and status details
+
+Replaced plain "Loading…" text with shimmering placeholder shapes while wallets and QDN listings load, so the app shows where content will appear instead of a bare message; screen readers still hear the loading text. The empty Accounts card now shows a soft green wallet icon above its explanation. Numbers in detail rows and progress messages use evenly spaced digits so values no longer shift as they update. The node status dot gains a faint glow in its status color, an unlocked wallet shows a soft green ring around the account button, and the Dashboard gets a barely-visible green ambient glow behind its header for atmosphere. The loading shimmer is disabled for people who prefer reduced motion.
+
 ### 2026-06-10 - app: polish scrollbars, dialogs, and tabs
 
 Replaced the operating system's chunky scrollbars with slim rounded ones that stay subtle until hovered, in both themes. Dialog overlays now blur the page behind them with a lighter tint instead of a heavy dark layer, and dialogs cast a deeper shadow so they clearly float above the page. Browser tabs were restyled: inactive tabs sit quietly without borders until hovered, while the active tab stands out with a soft top highlight and shadow. Selected choices in settings controls and address suggestions now use a soft green tint that matches the app's accent instead of a generic gray.

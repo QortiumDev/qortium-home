@@ -196,6 +196,20 @@ function formatResourceMeta(resource: QdnResourceListItem) {
     .join(', ');
 }
 
+function ExplorerLoadingRows({ label }: { label: string }) {
+  return (
+    <div className="qdn-explorer__skeleton" aria-busy="true">
+      <p className="sr-only">{label}</p>
+      {[0, 1, 2].map((row) => (
+        <div className="qdn-explorer__skeleton-row" key={row} aria-hidden="true">
+          <span className="skeleton skeleton--circle" />
+          <span className="skeleton" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function QdnImageResourcePreview({
   displaySettings,
   nodeApiUrl,
@@ -355,7 +369,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'services' ? (
         <>
           {state.phase === 'loading' && serviceRows.length === 0 ? (
-            <p className="qdn-explorer__message">{t('explorer.loadingServices')}</p>
+            <ExplorerLoadingRows label={t('explorer.loadingServices')} />
           ) : null}
           {state.phase !== 'loading' && serviceRows.length === 0 && state.phase !== 'error' ? (
             <p className="qdn-explorer__message">{t('explorer.emptyServices')}</p>
@@ -394,7 +408,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'name-services' ? (
         <>
           {state.phase === 'loading' && serviceRows.length === 0 ? (
-            <p className="qdn-explorer__message">{t('explorer.loadingNameServices')}</p>
+            <ExplorerLoadingRows label={t('explorer.loadingNameServices')} />
           ) : null}
           {state.phase !== 'loading' && serviceRows.length === 0 && state.phase !== 'error' ? (
             <p className="qdn-explorer__message">{t('explorer.emptyNameServices')}</p>
@@ -434,7 +448,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'service' ? (
         <>
           {state.phase === 'loading' && state.resources.length === 0 ? (
-            <p className="qdn-explorer__message">{t('explorer.loadingNames')}</p>
+            <ExplorerLoadingRows label={t('explorer.loadingNames')} />
           ) : null}
           {state.phase !== 'loading' && nameRows.length === 0 && state.phase !== 'error' ? (
             <p className="qdn-explorer__message">{t('explorer.emptyService', { service: route.service })}</p>
@@ -474,7 +488,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'name' ? (
         <>
           {state.phase === 'loading' && state.resources.length === 0 ? (
-            <p className="qdn-explorer__message">{t('explorer.loadingResources')}</p>
+            <ExplorerLoadingRows label={t('explorer.loadingResources')} />
           ) : null}
           {state.phase !== 'loading' && state.resources.length === 0 && state.phase !== 'error' ? (
             <p className="qdn-explorer__message">{t('explorer.emptyNameService', { service: route.service })}</p>

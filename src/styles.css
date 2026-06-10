@@ -99,6 +99,7 @@
   --color-shadow: rgb(35 31 24 / 18%);
   --color-scrollbar-thumb: rgb(35 31 24 / 22%);
   --color-scrollbar-thumb-hover: rgb(35 31 24 / 34%);
+  --color-skeleton-shimmer: rgb(255 255 255 / 60%);
   --color-accent-ring: rgb(33 130 74 / 18%);
   --color-accent-soft: rgb(33 130 74 / 10%);
   --color-accent-glow: rgb(33 130 74 / 22%);
@@ -171,6 +172,7 @@
   --color-shadow: rgb(0 0 0 / 35%);
   --color-scrollbar-thumb: rgb(255 255 255 / 14%);
   --color-scrollbar-thumb-hover: rgb(255 255 255 / 24%);
+  --color-skeleton-shimmer: rgb(255 255 255 / 7%);
   --color-accent-ring: rgb(135 217 155 / 20%);
   --color-accent-soft: rgb(135 217 155 / 12%);
   --color-accent-glow: rgb(135 217 155 / 22%);
@@ -346,6 +348,7 @@ h1 {
   place-items: start center;
   overflow: auto;
   overscroll-behavior: contain;
+  background: radial-gradient(640px 240px at 50% -40px, var(--color-accent-soft), transparent 70%);
 }
 
 .app-main--gesture-nav {
@@ -1433,6 +1436,7 @@ h1 {
 
 .account-chip--unlocked {
   border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-ring);
 }
 
 .account-chip__avatar {
@@ -1624,6 +1628,7 @@ h1 {
   background: currentColor;
   border: 2px solid var(--color-control-bg);
   border-radius: var(--radius-pill);
+  box-shadow: 0 0 6px currentcolor;
 }
 
 .node-status__popover {
@@ -2480,7 +2485,8 @@ h1 {
   .top-bar__address-suggestions,
   .top-bar__error,
   .modal-backdrop,
-  .modal-backdrop > * {
+  .modal-backdrop > *,
+  .skeleton::after {
     animation: none;
   }
 
@@ -2508,4 +2514,94 @@ h1 {
    over the [dir="rtl"] collapsed override above. */
 [dir="rtl"] .settings-section__chevron--expanded {
   transform: rotate(0deg);
+}
+
+.skeleton {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 0.9em;
+  overflow: hidden;
+  background: var(--color-control-bg);
+  border-radius: var(--radius-sm);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--color-skeleton-shimmer), transparent);
+  animation: qortium-skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes qortium-skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton--circle {
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: var(--radius-pill);
+}
+
+.accounts-panel__skeleton {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  width: min(100%, 32em);
+}
+
+.accounts-panel__skeleton .skeleton:last-child {
+  width: 62%;
+}
+
+.qdn-explorer__skeleton {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.qdn-explorer__skeleton-row {
+  display: grid;
+  grid-template-columns: 2em minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px 14px;
+  background: var(--color-frame-surface);
+  border: 1px solid var(--color-control-selected);
+  border-radius: var(--radius-md);
+}
+
+.qdn-explorer__skeleton-row .skeleton:last-child {
+  width: min(70%, 22em);
+}
+
+.empty-state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  min-width: 0;
+}
+
+.empty-state__icon {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-pill);
+}
+
+.detail-list__value,
+.qdn-explorer__row-meta,
+.core-manager__progress-text,
+.app-updates__progress-text,
+.qdn-viewer__progress-text,
+.qdn-viewer__status-text {
+  font-variant-numeric: tabular-nums;
 }
