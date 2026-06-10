@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('menu:command', listener);
       };
     },
+    setLabels: (labels: Record<string, string>) => ipcRenderer.invoke('menu:setLabels', { labels }),
   },
   node: {
     checkCoreUpdate: () => ipcRenderer.invoke('node:checkCoreUpdate'),

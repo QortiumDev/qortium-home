@@ -1,4 +1,4 @@
-import type { LanguageSetting } from '../displaySettings';
+import type { ConcreteLanguageSetting } from '../displaySettings';
 import { ar } from './locales/ar';
 import { de } from './locales/de';
 import { en, type TranslationKey } from './locales/en';
@@ -24,7 +24,7 @@ export type { TranslationKey };
 
 export type TranslationParams = Record<string, string | number>;
 
-const CATALOGS: Record<LanguageSetting, Record<TranslationKey, string>> = {
+const CATALOGS: Record<ConcreteLanguageSetting, Record<TranslationKey, string>> = {
   ar,
   de,
   en,
@@ -47,13 +47,13 @@ const CATALOGS: Record<LanguageSetting, Record<TranslationKey, string>> = {
   'zh-TW': zhTW,
 };
 
-let currentLanguage: LanguageSetting = 'en';
+let currentLanguage: ConcreteLanguageSetting = 'en';
 
-export function setTranslationLanguage(language: LanguageSetting) {
+export function setTranslationLanguage(language: ConcreteLanguageSetting) {
   currentLanguage = language;
 }
 
-export function getTranslationLanguage(): LanguageSetting {
+export function getTranslationLanguage(): ConcreteLanguageSetting {
   return currentLanguage;
 }
 

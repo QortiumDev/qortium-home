@@ -75,6 +75,7 @@ export function DisplaySettingsPanel({
               }
             }}
           >
+            <option value="system">{t('display.languageSystem')}</option>
             {LANGUAGE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}

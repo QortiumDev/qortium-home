@@ -457,6 +457,32 @@ type QortiumHomeMenuCommand =
   | 'reload-tab'
   | 'reopen-closed-tab';
 
+type QortiumHomeMenuLabels = {
+  back: string;
+  closeTab: string;
+  closeWindow: string;
+  copy: string;
+  cut: string;
+  edit: string;
+  file: string;
+  focusAddressBar: string;
+  forward: string;
+  minimize: string;
+  newTab: string;
+  newWindow: string;
+  paste: string;
+  quit: string;
+  redo: string;
+  reloadTab: string;
+  reopenClosedTab: string;
+  selectAll: string;
+  toggleFullScreen: string;
+  undo: string;
+  view: string;
+  window: string;
+  zoom: string;
+};
+
 type QortiumQdnWriteApprovalRequest = {
   accountName: string | null;
   action:
@@ -541,6 +567,7 @@ interface Window {
     };
     menu?: {
       onCommand: (callback: (command: QortiumHomeMenuCommand) => void) => () => void;
+      setLabels?: (labels: QortiumHomeMenuLabels) => Promise<void>;
     };
     node: {
       checkCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;

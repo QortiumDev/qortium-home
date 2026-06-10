@@ -396,85 +396,135 @@ function sendMenuCommand(command: MenuCommand) {
   BrowserWindow.getFocusedWindow()?.webContents.send('menu:command', command);
 }
 
+const DEFAULT_MENU_LABELS = {
+  back: 'Back',
+  closeTab: 'Close Tab',
+  closeWindow: 'Close Window',
+  copy: 'Copy',
+  cut: 'Cut',
+  edit: 'Edit',
+  file: 'File',
+  focusAddressBar: 'Focus Address Bar',
+  forward: 'Forward',
+  minimize: 'Minimize',
+  newTab: 'New Tab',
+  newWindow: 'New Window',
+  paste: 'Paste',
+  quit: 'Quit',
+  redo: 'Redo',
+  reloadTab: 'Reload Tab',
+  reopenClosedTab: 'Reopen Closed Tab',
+  selectAll: 'Select All',
+  toggleFullScreen: 'Toggle Full Screen',
+  undo: 'Undo',
+  view: 'View',
+  window: 'Window',
+  zoom: 'Zoom',
+};
+
+type MenuLabels = typeof DEFAULT_MENU_LABELS;
+
+const MENU_LABEL_MAX_LENGTH = 80;
+
+let menuLabels: MenuLabels = { ...DEFAULT_MENU_LABELS };
+
+function sanitizeMenuLabels(value: unknown): Partial<MenuLabels> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const labels: Partial<MenuLabels> = {};
+
+  for (const key of Object.keys(DEFAULT_MENU_LABELS) as (keyof MenuLabels)[]) {
+    const label = (value as Record<string, unknown>)[key];
+
+    if (typeof label === 'string' && label.trim() && label.length <= MENU_LABEL_MAX_LENGTH) {
+      labels[key] = label.trim();
+    }
+  }
+
+  return labels;
+}
+
 function buildApplicationMenu() {
   const template: MenuItemConstructorOptions[] = [
     {
-      label: 'File',
+      label: menuLabels.file,
       submenu: [
         {
-          label: 'New Window',
+          label: menuLabels.newWindow,
           accelerator: 'CommandOrControl+N',
           click: () => createWindow({ placement: 'secondary' }),
         },
         {
-          label: 'New Tab',
+          label: menuLabels.newTab,
           accelerator: 'CommandOrControl+T',
           click: () => sendMenuCommand('new-tab'),
         },
         {
-          label: 'Reopen Closed Tab',
+          label: menuLabels.reopenClosedTab,
           accelerator: 'CommandOrControl+Shift+T',
           click: () => sendMenuCommand('reopen-closed-tab'),
         },
         { type: 'separator' },
         {
-          label: 'Close Tab',
+          label: menuLabels.closeTab,
           accelerator: 'CommandOrControl+W',
           click: () => sendMenuCommand('close-tab'),
         },
         {
-          label: 'Close Window',
+          label: menuLabels.closeWindow,
           accelerator: 'CommandOrControl+Shift+W',
           click: () => BrowserWindow.getFocusedWindow()?.close(),
         },
         { type: 'separator' },
-        { role: 'quit' },
+        { role: 'quit', label: menuLabels.quit },
       ],
     },
     {
-      label: 'Edit',
+      label: menuLabels.edit,
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { role: 'undo', label: menuLabels.undo },
+        { role: 'redo', label: menuLabels.redo },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        { role: 'cut', label: menuLabels.cut },
+        { role: 'copy', label: menuLabels.copy },
+        { role: 'paste', label: menuLabels.paste },
+        { role: 'selectAll', label: menuLabels.selectAll },
       ],
     },
     {
-      label: 'View',
+      label: menuLabels.view,
       submenu: [
         {
-          label: 'Back',
+          label: menuLabels.back,
           accelerator: 'Alt+Left',
           click: () => sendMenuCommand('go-back'),
         },
         {
-          label: 'Forward',
+          label: menuLabels.forward,
           accelerator: 'Alt+Right',
           click: () => sendMenuCommand('go-forward'),
         },
         {
-          label: 'Reload Tab',
+          label: menuLabels.reloadTab,
           accelerator: 'CommandOrControl+R',
           click: () => sendMenuCommand('reload-tab'),
         },
         {
-          label: 'Focus Address Bar',
+          label: menuLabels.focusAddressBar,
           accelerator: 'CommandOrControl+L',
           click: () => sendMenuCommand('focus-address-bar'),
         },
         { type: 'separator' },
-        { role: 'togglefullscreen' },
+        { role: 'togglefullscreen', label: menuLabels.toggleFullScreen },
       ],
     },
     {
-      label: 'Window',
+      label: menuLabels.window,
       submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
+        { role: 'minimize', label: menuLabels.minimize },
+        { role: 'zoom', label: menuLabels.zoom },
         ...(process.platform === 'darwin'
           ? ([
               { type: 'separator' },
@@ -505,6 +555,17 @@ function buildApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+function registerMenuIpcHandlers() {
+  ipcMain.handle('menu:setLabels', (_event, request: unknown) => {
+    const labels = sanitizeMenuLabels(
+      request && typeof request === 'object' ? (request as { labels?: unknown }).labels : null,
+    );
+
+    menuLabels = { ...menuLabels, ...labels };
+    buildApplicationMenu();
+  });
+}
+
 function registerWindowIpcHandlers() {
   ipcMain.handle('windows:getStartupPayload', (event) => {
     return windowStartupPayloads.get(event.sender.id) ?? null;
@@ -532,6 +593,7 @@ app.whenReady().then(() => {
   registerNodeSettingsIpcHandlers();
   registerQdnIpcHandlers();
   registerQdnViewIpcHandlers();
+  registerMenuIpcHandlers();
   registerSystemIpcHandlers();
   registerWindowIpcHandlers();
   buildApplicationMenu();
