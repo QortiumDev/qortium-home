@@ -572,6 +572,7 @@ interface Window {
     };
     node: {
       checkCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
+      enableApiDocumentation: () => Promise<void>;
       getSettings: () => Promise<QortiumNodeSettings>;
       installCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       saveSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;

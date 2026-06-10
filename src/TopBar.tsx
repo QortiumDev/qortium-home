@@ -97,6 +97,10 @@ function formatHistoryEntry(entry: AppRoute) {
     return t('common.settings');
   }
 
+  if (entry.kind === 'core-api-docs') {
+    return t('explorer.coreApi');
+  }
+
   return entry.displayUrl;
 }
 

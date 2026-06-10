@@ -333,6 +333,16 @@ h1 {
   grid-row: 1 / -1;
 }
 
+/* Tab content stays mounted across tab switches so pages keep their state;
+   inactive tabs are hidden, the active tab's page lays out as a direct child. */
+.app-main__tab {
+  display: contents;
+}
+
+.app-main__tab--hidden {
+  display: none;
+}
+
 .app-main--viewer {
   place-items: stretch;
   padding: 0;
@@ -372,6 +382,8 @@ h1 {
 
 .dashboard-page__primary-action {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
   justify-content: center;
   min-width: 0;
 }
@@ -1611,7 +1623,8 @@ h1 {
   color: var(--color-link);
 }
 
-.node-status__button--synced {
+.node-status__button--synced,
+.node-status__button--minting {
   color: var(--color-accent);
 }
 
@@ -1629,6 +1642,19 @@ h1 {
   border: 2px solid var(--color-control-bg);
   border-radius: var(--radius-pill);
   box-shadow: 0 0 6px currentcolor;
+}
+
+.node-status__network-badge {
+  position: absolute;
+  top: 2px;
+  inset-inline-end: 2px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--color-link);
+  background: var(--color-control-bg);
+  border-radius: var(--radius-pill);
 }
 
 .node-status__popover {
@@ -2002,6 +2028,16 @@ h1 {
   display: grid;
   gap: 18px;
   width: min(100%, 35em);
+}
+
+.core-api-docs__details {
+  justify-items: center;
+  text-align: center;
+}
+
+.core-api-docs__title {
+  margin: 0;
+  font-size: 1.1em;
 }
 
 .qdn-viewer__detail-list {
