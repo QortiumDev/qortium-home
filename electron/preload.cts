@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   },
   node: {
     checkCoreUpdate: () => ipcRenderer.invoke('node:checkCoreUpdate'),
+    enableApiDocumentation: () => ipcRenderer.invoke('node:enableApiDocumentation'),
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
     installCoreUpdate: () => ipcRenderer.invoke('node:installCoreUpdate'),
     saveSettings: (request: { apiKey?: string; customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>

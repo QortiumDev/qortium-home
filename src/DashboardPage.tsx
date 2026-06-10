@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Globe2 } from 'lucide-react';
+import { Braces, Download, FolderOpen, Globe2, Settings as SettingsIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
@@ -35,6 +35,8 @@ type DashboardPageProps = {
   isLoadingAccounts: boolean;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onBrowseQdn: () => void;
+  onOpenCoreApiDocs: () => void;
+  onOpenSettings: () => void;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onSelectedAccountChange: (accountId: string | null) => void;
@@ -364,6 +366,8 @@ export function DashboardPage({
   isLoadingAccounts,
   onChainCoreUpdate,
   onBrowseQdn,
+  onOpenCoreApiDocs,
+  onOpenSettings,
   onAccountsStateChange,
   onSelectedAccountChange,
   selectedAccountId,
@@ -380,6 +384,14 @@ export function DashboardPage({
         <button className="button button--primary" type="button" onClick={onBrowseQdn}>
           <Globe2 aria-hidden="true" size={18} strokeWidth={2} />
           {t('explorer.browseQdn')}
+        </button>
+        <button className="button" type="button" onClick={onOpenCoreApiDocs}>
+          <Braces aria-hidden="true" size={18} strokeWidth={2} />
+          {t('explorer.coreApi')}
+        </button>
+        <button className="button" type="button" onClick={onOpenSettings}>
+          <SettingsIcon aria-hidden="true" size={18} strokeWidth={2} />
+          {t('common.settings')}
         </button>
       </div>
 

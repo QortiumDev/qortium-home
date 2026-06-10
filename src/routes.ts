@@ -8,6 +8,11 @@ export type NodeApiRoute = {
   path: string;
 };
 
+export type CoreApiDocsRoute = {
+  displayUrl: 'core://';
+  kind: 'core-api-docs';
+};
+
 export type SettingsRoute = {
   displayUrl: 'home://settings';
   kind: 'settings';
@@ -28,7 +33,12 @@ export const SETTINGS_ROUTE: SettingsRoute = {
   displayUrl: 'home://settings',
 };
 
-export type AppRoute = DashboardRoute | NodeApiRoute | QdnRoute | SettingsRoute;
+export const CORE_API_DOCS_ROUTE: CoreApiDocsRoute = {
+  kind: 'core-api-docs',
+  displayUrl: 'core://',
+};
+
+export type AppRoute = CoreApiDocsRoute | DashboardRoute | NodeApiRoute | QdnRoute | SettingsRoute;
 
 type RouteParseResult =
   | {
@@ -66,7 +76,14 @@ function parseCoreAddress(input: string): RouteParseResult | undefined {
 
   const pathInput = input.replace(/^core:\/\//i, '').replace(/#.*$/, '').replace(/^\/+/, '');
 
-  if (!pathInput || pathInput.startsWith('?')) {
+  if (!pathInput) {
+    return {
+      success: true,
+      route: CORE_API_DOCS_ROUTE,
+    };
+  }
+
+  if (pathInput.startsWith('?')) {
     return {
       success: false,
       message: t('address.error.corePathMissing'),

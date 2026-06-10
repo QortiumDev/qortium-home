@@ -687,7 +687,8 @@ export async function refreshNodeConnectionApiKey(connection: NodeConnection): P
 async function fetchProtectedNodeResponse(
   settings: NodeSettings,
   pathname: string,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'PATCH' | 'POST',
+  body?: string,
 ) {
   const nodeApiUrl = await resolveNodeApiUrl(settings);
   const apiKey = getProtectedNodeApiKey(settings);
@@ -699,7 +700,9 @@ async function fetchProtectedNodeResponse(
       headers: {
         Accept: 'application/json',
         'X-API-KEY': apiKey,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
+      body,
     });
   } catch {
     throw new Error(`Qortium node is unavailable at ${nodeApiUrl}.`);
@@ -715,15 +718,16 @@ async function fetchProtectedNodeResponse(
 async function requestProtectedNodeJson(
   settings: NodeSettings,
   pathname: string,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'PATCH' | 'POST',
   fallbackMessage: string,
+  body?: string,
 ) {
   if (settings.mode === 'network') {
     throw new Error(getNetworkRestrictionMessage());
   }
 
   const resolvedSettings = await resolveLocalApiKey(settings);
-  let result = await fetchProtectedNodeResponse(resolvedSettings, pathname, method);
+  let result = await fetchProtectedNodeResponse(resolvedSettings, pathname, method, body);
 
   if (
     !result.response.ok &&
@@ -733,7 +737,7 @@ async function requestProtectedNodeJson(
     const refreshedSettings = await refreshLocalApiKey(resolvedSettings);
 
     if (refreshedSettings.apiKey && refreshedSettings.apiKey !== resolvedSettings.apiKey) {
-      result = await fetchProtectedNodeResponse(refreshedSettings, pathname, method);
+      result = await fetchProtectedNodeResponse(refreshedSettings, pathname, method, body);
     }
   }
 
@@ -818,6 +822,28 @@ function installCoreUpdate() {
   );
 }
 
+async function enableApiDocumentation() {
+  const settings = readNodeSettings();
+  const updateResult = (await requestProtectedNodeJson(
+    settings,
+    '/admin/settings',
+    'PATCH',
+    'Node settings update request failed.',
+    JSON.stringify({ apiDocumentationEnabled: true }),
+  )) as { saved?: unknown } | null;
+
+  if (updateResult && updateResult.saved === false) {
+    throw new Error('The node declined the settings update.');
+  }
+
+  await requestProtectedNodeJson(
+    settings,
+    '/admin/restart',
+    'GET',
+    'Node restart request failed.',
+  );
+}
+
 export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<NodeConnection> {
   const settings = await resolveLocalApiKey(readNodeSettings());
 
@@ -841,6 +867,10 @@ export function registerNodeSettingsIpcHandlers() {
 
   ipcMain.handle('node:installCoreUpdate', () => {
     return installCoreUpdate();
+  });
+
+  ipcMain.handle('node:enableApiDocumentation', () => {
+    return enableApiDocumentation();
   });
 
   ipcMain.handle('node:saveSettings', async (_event, request: NodeSettingsRequest) => {

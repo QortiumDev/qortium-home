@@ -1,5 +1,6 @@
-import { Check, Server, Settings as SettingsIcon, WifiOff } from 'lucide-react';
+import { Globe2, Settings as SettingsIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { CoreMarkIcon, type CoreMarkVariant } from './components/CoreMarkIcon';
 import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 
@@ -25,6 +26,7 @@ type NodeStatusState =
 type DisplayStatus =
   | 'behind'
   | 'connecting'
+  | 'minting'
   | 'synced'
   | 'synchronizing'
   | 'unavailable';
@@ -32,9 +34,25 @@ type DisplayStatus =
 const DISPLAY_STATUS_KEYS: Record<DisplayStatus, TranslationKey> = {
   behind: 'node.status.behind',
   connecting: 'node.status.connecting',
+  minting: 'node.status.minting',
   synced: 'node.status.synced',
   synchronizing: 'node.status.synchronizing',
   unavailable: 'node.status.unavailable',
+};
+
+const DISPLAY_STATUS_MARKS: Record<DisplayStatus, CoreMarkVariant> = {
+  behind: 'syncing',
+  connecting: 'syncing',
+  minting: 'minting',
+  synced: 'synced',
+  synchronizing: 'syncing',
+  unavailable: 'unavailable',
+};
+
+const NODE_MODE_KEYS: Record<QortiumNodeSettings['mode'], TranslationKey> = {
+  custom: 'node.mode.custom',
+  local: 'node.mode.local',
+  network: 'node.mode.network',
 };
 
 const SYNC_PHASE_KEYS: Record<string, TranslationKey | undefined> = {
@@ -120,7 +138,7 @@ function getDisplayStatus(status: NodeStatusState): DisplayStatus {
       return 'synchronizing';
     }
 
-    return 'synced';
+    return status.data.isMintingPossible ? 'minting' : 'synced';
   }
 
   if (syncPhase) {
@@ -151,7 +169,7 @@ function getDisplayStatus(status: NodeStatusState): DisplayStatus {
     return 'synchronizing';
   }
 
-  return 'synced';
+  return status.data.isMintingPossible ? 'minting' : 'synced';
 }
 
 function getPositiveNumber(value: null | number | undefined) {
@@ -253,6 +271,7 @@ export function NodeStatusButton({
       nodeStatus.state === 'available'
         ? [
             { label: t('node.nodeLabel'), value: activeNodeApiUrl },
+            { label: t('node.modeLabel'), value: t(NODE_MODE_KEYS[nodeSettings.mode]) },
             { label: t('common.status'), value: statusLabel },
             { label: t('node.detail.phase'), value: formatSyncPhase(nodeStatus.data.syncPhase) },
             { label: t('node.detail.progress'), value: formatPercent(nodeStatus.data.syncPercent) },
@@ -270,6 +289,7 @@ export function NodeStatusButton({
           ]
         : [
             { label: t('node.nodeLabel'), value: activeNodeApiUrl },
+            { label: t('node.modeLabel'), value: t(NODE_MODE_KEYS[nodeSettings.mode]) },
             { label: t('common.status'), value: statusLabel },
           ];
 
@@ -281,9 +301,9 @@ export function NodeStatusButton({
     }
 
     return rows;
-  }, [activeNodeApiUrl, language, nodeStatus, statusLabel]);
+  }, [activeNodeApiUrl, language, nodeSettings.mode, nodeStatus, statusLabel]);
 
-  const Icon = displayStatus === 'synced' ? Check : displayStatus === 'unavailable' ? WifiOff : Server;
+  const isNetworkMode = nodeSettings.mode === 'network';
 
   return (
     <Popover
@@ -302,8 +322,13 @@ export function NodeStatusButton({
           aria-haspopup="dialog"
           onClick={toggle}
         >
-          <Icon aria-hidden="true" size={20} strokeWidth={2} />
+          <CoreMarkIcon size={20} variant={DISPLAY_STATUS_MARKS[displayStatus]} />
           <span className="node-status__dot" aria-hidden="true" />
+          {isNetworkMode ? (
+            <span className="node-status__network-badge" title={t('node.networkBadge')}>
+              <Globe2 aria-hidden="true" size={10} strokeWidth={2.4} />
+            </span>
+          ) : null}
         </button>
       )}
     >

@@ -451,18 +451,23 @@ async function runAddressSuggestionAssertions(client) {
 
   await pressKey(client, 'ArrowDown');
 
-  const highlightedState = await waitUntil('highlighted qdn address suggestion', appTimeoutMs, async () => {
+  await waitUntil('highlighted qdn address suggestion', appTimeoutMs, async () => {
     const state = await getChromeState(client);
     const activeSuggestion = state.suggestions.find((suggestion) => suggestion.value === 'qdn://');
 
     return activeSuggestion?.active && activeSuggestion?.ariaSelected === 'true' ? state : null;
   });
 
-  assert(
-    highlightedState.activeElementId === 'browser-address-suggestion-0' ||
-      highlightedState.activeElementRole === 'option',
-    'ArrowDown did not move focus to the active suggestion.',
-  );
+  // Focus moves in a requestAnimationFrame after the active state commits,
+  // so poll for it instead of asserting against the highlighted snapshot.
+  await waitUntil('focus on the active suggestion', appTimeoutMs, async () => {
+    const state = await getChromeState(client);
+
+    return state.activeElementId === 'browser-address-suggestion-0' ||
+      state.activeElementRole === 'option'
+      ? state
+      : null;
+  });
 
   await dispatchDomKey(client, 'Escape');
   await waitUntil('address suggestions closed by Escape', appTimeoutMs, async () => {

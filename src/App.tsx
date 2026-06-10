@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { ApiViewer } from './ApiViewer';
 import { useAppUpdates } from './appUpdateState';
+import { CoreApiDocsPage } from './CoreApiDocsPage';
 import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
 import {
@@ -405,6 +406,10 @@ function getTabLabel(tab: BrowserTab) {
     return t('common.settings');
   }
 
+  if (route.kind === 'core-api-docs') {
+    return t('explorer.coreApi');
+  }
+
   return route.displayUrl;
 }
 
@@ -476,7 +481,6 @@ export function App() {
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
   const routeHistory = activeTab.history;
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
-  const routeRenderKey = `${activeTab.id}:${activeTab.reloadNonce}:${currentRoute.displayUrl}`;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
@@ -894,6 +898,14 @@ export function App() {
 
   function browseQdn() {
     const parsedUrl = parseAppAddress('qdn://');
+
+    if (parsedUrl.success) {
+      navigateToRoute(parsedUrl.route);
+    }
+  }
+
+  function openCoreApiDocs() {
+    const parsedUrl = parseAppAddress('core://');
 
     if (parsedUrl.success) {
       navigateToRoute(parsedUrl.route);
@@ -1587,55 +1599,74 @@ export function App() {
         onPointerMove={handleMainPointerMove}
         onPointerUp={handleMainPointerUp}
       >
-        {currentRoute.kind === 'node-api' ? (
-          <ApiViewer key={routeRenderKey} route={currentRoute} />
-        ) : currentRoute.kind === 'resource' ? (
-          <QdnViewer
-            key={routeRenderKey}
-            account={activeAccount}
-            displaySettings={effectiveDisplaySettings}
-            nodeApiUrl={nodeSettings.nodeApiUrl}
-            resource={currentRoute.resource}
-            suspended={isQdnViewSuspended}
-            tabId={activeTab.id}
-          />
-        ) : currentRoute.kind === 'settings' ? (
-          <SettingsPage
-            appUpdates={appUpdates}
-            coreManager={coreManager}
-            nodeSettings={nodeSettings}
-            onChainCoreUpdate={onChainCoreUpdate}
-            onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
-            onLanguageChange={updateLanguage}
-            onSectionExpansionChange={updateSettingsSectionExpansion}
-            onSaveNodeSettings={saveNodeSettings}
-            onThemeChange={updateTheme}
-            onTextSizeChange={updateTextSize}
-            sectionExpansion={settingsExpansion}
-            displaySettings={displaySettings}
-          />
-        ) : currentRoute.kind === 'dashboard' ? (
-          <DashboardPage
-            accountsError={accountsError}
-            accountsState={accountsState}
-            appUpdates={appUpdates}
-            coreManager={coreManager}
-            isLoadingAccounts={isLoadingAccounts}
-            onChainCoreUpdate={onChainCoreUpdate}
-            onBrowseQdn={browseQdn}
-            selectedAccountId={activeTab.accountId}
-            onAccountsStateChange={handleAccountsStateChange}
-            onSelectedAccountChange={updateActiveTabAccount}
-          />
-        ) : (
-          <QdnExplorer
-            key={routeRenderKey}
-            displaySettings={effectiveDisplaySettings}
-            nodeApiUrl={nodeSettings.nodeApiUrl}
-            route={currentRoute}
-            onNavigate={navigateToRoute}
-          />
-        )}
+        {tabState.tabs.map((tab) => {
+          const isActiveTab = tab.id === activeTab.id;
+          const tabRoute = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+          const tabAccount =
+            accountsState.accounts.find((account) => account.id === tab.accountId) ?? null;
+          const tabRenderKey = `${tab.id}:${tab.reloadNonce}:${tabRoute.displayUrl}`;
+
+          return (
+            <div
+              key={tab.id}
+              className={`app-main__tab${isActiveTab ? '' : ' app-main__tab--hidden'}`}
+            >
+              {tabRoute.kind === 'node-api' ? (
+                <ApiViewer key={tabRenderKey} route={tabRoute} />
+              ) : tabRoute.kind === 'core-api-docs' ? (
+                <CoreApiDocsPage key={tabRenderKey} nodeSettings={nodeSettings} />
+              ) : tabRoute.kind === 'resource' ? (
+                <QdnViewer
+                  key={tabRenderKey}
+                  account={tabAccount}
+                  displaySettings={effectiveDisplaySettings}
+                  nodeApiUrl={nodeSettings.nodeApiUrl}
+                  resource={tabRoute.resource}
+                  suspended={isQdnViewSuspended || !isActiveTab}
+                  tabId={tab.id}
+                />
+              ) : tabRoute.kind === 'settings' ? (
+                <SettingsPage
+                  appUpdates={appUpdates}
+                  coreManager={coreManager}
+                  nodeSettings={nodeSettings}
+                  onChainCoreUpdate={onChainCoreUpdate}
+                  onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
+                  onLanguageChange={updateLanguage}
+                  onSectionExpansionChange={updateSettingsSectionExpansion}
+                  onSaveNodeSettings={saveNodeSettings}
+                  onThemeChange={updateTheme}
+                  onTextSizeChange={updateTextSize}
+                  sectionExpansion={settingsExpansion}
+                  displaySettings={displaySettings}
+                />
+              ) : tabRoute.kind === 'dashboard' ? (
+                <DashboardPage
+                  accountsError={accountsError}
+                  accountsState={accountsState}
+                  appUpdates={appUpdates}
+                  coreManager={coreManager}
+                  isLoadingAccounts={isLoadingAccounts}
+                  onChainCoreUpdate={onChainCoreUpdate}
+                  onBrowseQdn={browseQdn}
+                  onOpenCoreApiDocs={openCoreApiDocs}
+                  onOpenSettings={openSettings}
+                  selectedAccountId={tab.accountId}
+                  onAccountsStateChange={handleAccountsStateChange}
+                  onSelectedAccountChange={updateActiveTabAccount}
+                />
+              ) : (
+                <QdnExplorer
+                  key={tabRenderKey}
+                  displaySettings={effectiveDisplaySettings}
+                  nodeApiUrl={nodeSettings.nodeApiUrl}
+                  route={tabRoute}
+                  onNavigate={navigateToRoute}
+                />
+              )}
+            </div>
+          );
+        })}
       </section>
       {activeQdnWriteRequest ? (
         <QdnWriteDialog

@@ -4003,6 +4003,73 @@ async function requestCoreOnChainUpdate(method: 'GET' | 'POST'): Promise<Qortium
   return normalizeCoreOnChainUpdateStatus(parseResponseData(responseBody, getContentType(response)));
 }
 
+async function requestProtectedNodeText(
+  nodeApiUrl: string,
+  apiKey: string,
+  pathname: string,
+  method: 'GET' | 'PATCH',
+  data: unknown,
+  fallbackMessage: string,
+) {
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      method,
+      headers: {
+        Accept: 'application/json',
+        'X-API-KEY': apiKey,
+        ...(data === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      data,
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch (error) {
+    throw new Error(
+      (error instanceof Error && error.message) || getNodeUnavailableMessage(nodeApiUrl),
+    );
+  }
+
+  const responseBody = stringifyResponseData(response.data).trim();
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(responseBody || fallbackMessage);
+  }
+
+  return responseBody;
+}
+
+async function enableNodeApiDocumentation() {
+  const settings = await readNodeSettings();
+
+  if (settings.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = getNodeApiKey(settings);
+
+  await requestProtectedNodeText(
+    nodeApiUrl,
+    apiKey,
+    '/admin/settings',
+    'PATCH',
+    { apiDocumentationEnabled: true },
+    'Node settings update request failed.',
+  );
+  await requestProtectedNodeText(
+    nodeApiUrl,
+    apiKey,
+    '/admin/restart',
+    'GET',
+    undefined,
+    'Node restart request failed.',
+  );
+}
+
 async function requestConfiguredNode(
   settings: StoredNodeSettings,
   pathname: string,
@@ -5093,6 +5160,9 @@ function createFallbackApi(): PlatformApi {
     node: {
       async checkCoreUpdate() {
         return requestCoreOnChainUpdate('GET');
+      },
+      async enableApiDocumentation() {
+        return enableNodeApiDocumentation();
       },
       async getSettings() {
         return getNodeSettingsSnapshot(await readNodeSettings());
