@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - app: add motion and depth to the interface
+
+Gave the interface its first layer of visual depth and motion. Buttons, inputs, tabs, menu items, and other interactive controls now ease between states over about 170 milliseconds instead of snapping, buttons lift slightly on hover and settle when pressed, and menus, dropdowns, and dialogs ease in when they open. Primary action buttons now use a subtle green gradient with a soft glow and a highlighted top edge so the main choice on each screen stands out. Cards cast soft shadows, the toolbar separates from the page with a gentle shadow, focused inputs show a green glow ring, and the dark theme's background layers were re-spaced so panels, menus, and controls sit at visibly different depths instead of blending into one flat surface. All motion is disabled for people who prefer reduced motion.
+
 ### 2026-06-09 - app: follow the system language and translate window menus
 
 Made the language setting default to the device's system language. A new System choice at the top of the language dropdown is now the default for fresh installs: Home detects the operating system's preferred language, matches it against the twenty supported languages (including regional handling so Traditional Chinese regions get Traditional Chinese), and falls back to English when there is no match. Picking a specific language still works exactly as before, and choosing System returns to automatic detection, which also follows live system language changes while the app is open. The desktop window menus (File, Edit, View, and Window, including items like Undo, Copy, Paste, and Toggle Full Screen) now translate too: the app sends the translated menu labels to the desktop shell whenever the language changes, and the menus rebuild immediately.
