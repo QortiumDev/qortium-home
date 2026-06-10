@@ -17,10 +17,12 @@ import { DashboardPage } from './DashboardPage';
 import {
   applyDisplaySettings,
   getInitialDisplaySettings,
+  getSystemLanguage,
   getSystemTheme,
   loadDisplaySettings,
   resolveDisplaySettings,
   saveDisplaySettings,
+  subscribeToSystemLanguageChange,
   subscribeToSystemThemeChange,
   type DisplaySettings,
 } from './displaySettings';
@@ -460,6 +462,7 @@ export function App() {
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
+  const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
@@ -481,13 +484,13 @@ export function App() {
   const isQdnPermissionDialogActive = !!activeQdnWriteRequest;
   const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen;
   const effectiveDisplaySettings = useMemo(
-    () => resolveDisplaySettings(displaySettings, systemTheme),
-    [displaySettings, systemTheme],
+    () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
+    [displaySettings, systemLanguage, systemTheme],
   );
 
   // t() reads module state, so the active language must be set before children render;
   // the layout effect that applies document-level settings runs too late for that.
-  setTranslationLanguage(displaySettings.language);
+  setTranslationLanguage(effectiveDisplaySettings.language);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -662,9 +665,49 @@ export function App() {
 
   useEffect(() => subscribeToSystemThemeChange(setSystemTheme), []);
 
+  useEffect(() => subscribeToSystemLanguageChange(setSystemLanguage), []);
+
   useLayoutEffect(() => {
-    applyDisplaySettings(displaySettings, systemTheme);
-  }, [displaySettings, systemTheme]);
+    applyDisplaySettings(displaySettings, systemTheme, systemLanguage);
+  }, [displaySettings, systemLanguage, systemTheme]);
+
+  useEffect(() => {
+    const menuApi = window.qortiumHome.menu;
+
+    if (!menuApi?.setLabels) {
+      return;
+    }
+
+    void menuApi
+      .setLabels({
+        back: t('common.back'),
+        closeTab: t('tabs.closeTab'),
+        closeWindow: t('menu.closeWindow'),
+        copy: t('menu.copy'),
+        cut: t('menu.cut'),
+        edit: t('menu.edit'),
+        file: t('menu.file'),
+        focusAddressBar: t('menu.focusAddressBar'),
+        forward: t('common.forward'),
+        minimize: t('menu.minimize'),
+        newTab: t('tabs.newTab'),
+        newWindow: t('menu.newWindow'),
+        paste: t('menu.paste'),
+        quit: t('menu.quit'),
+        redo: t('menu.redo'),
+        reloadTab: t('tabs.reloadTab'),
+        reopenClosedTab: t('tabs.reopenClosedTab'),
+        selectAll: t('menu.selectAll'),
+        toggleFullScreen: t('menu.toggleFullScreen'),
+        undo: t('menu.undo'),
+        view: t('menu.view'),
+        window: t('menu.window'),
+        zoom: t('menu.zoom'),
+      })
+      .catch((error) => {
+        console.warn('Unable to update application menu labels.', error);
+      });
+  }, [effectiveDisplaySettings.language]);
 
   function updateDisplaySettings(nextDisplaySettings: DisplaySettings) {
     setDisplaySettings(nextDisplaySettings);

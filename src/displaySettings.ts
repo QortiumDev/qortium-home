@@ -106,7 +106,8 @@ export const LANGUAGE_OPTIONS = [
   },
 ] as const;
 
-export type LanguageSetting = (typeof LANGUAGE_OPTIONS)[number]['value'];
+export type ConcreteLanguageSetting = (typeof LANGUAGE_OPTIONS)[number]['value'];
+export type LanguageSetting = ConcreteLanguageSetting | 'system';
 
 export const TEXT_SIZE_OPTIONS = [
   {
@@ -143,14 +144,16 @@ export type DisplaySettings = {
   theme: ThemeSetting;
 };
 
-export type ResolvedDisplaySettings = Omit<DisplaySettings, 'theme'> & {
+export type ResolvedDisplaySettings = Omit<DisplaySettings, 'language' | 'theme'> & {
+  language: ConcreteLanguageSetting;
   theme: ResolvedThemeSetting;
 };
 
 export const SYSTEM_THEME_MEDIA_QUERY = '(prefers-color-scheme: dark)';
 export const DEFAULT_THEME: ThemeSetting = 'system';
 export const DEFAULT_RESOLVED_THEME: ResolvedThemeSetting = 'light';
-export const DEFAULT_LANGUAGE: LanguageSetting = 'en';
+export const DEFAULT_LANGUAGE: LanguageSetting = 'system';
+export const DEFAULT_RESOLVED_LANGUAGE: ConcreteLanguageSetting = 'en';
 export const DEFAULT_TEXT_SIZE: TextSizeSetting = 'medium';
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
@@ -164,7 +167,7 @@ export function isThemeSetting(value: unknown): value is ThemeSetting {
 }
 
 export function isLanguageSetting(value: unknown): value is LanguageSetting {
-  return LANGUAGE_OPTIONS.some((option) => option.value === value);
+  return value === 'system' || LANGUAGE_OPTIONS.some((option) => option.value === value);
 }
 
 export function isTextSizeSetting(value: unknown): value is TextSizeSetting {
@@ -176,6 +179,10 @@ export function getThemeLabel(theme: ThemeSetting) {
 }
 
 export function getLanguageLabel(language: LanguageSetting) {
+  if (language === 'system') {
+    return t('display.languageSystem');
+  }
+
   return LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ?? 'English';
 }
 
@@ -233,14 +240,71 @@ export function resolveThemeSetting(
   return theme === 'system' ? systemTheme : theme;
 }
 
+export function getSystemLanguage(): ConcreteLanguageSetting {
+  if (typeof navigator === 'undefined') {
+    return DEFAULT_RESOLVED_LANGUAGE;
+  }
+
+  const candidates = navigator.languages?.length ? navigator.languages : [navigator.language];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    const tag = candidate.toLowerCase();
+    const exact = LANGUAGE_OPTIONS.find((option) => option.value.toLowerCase() === tag);
+
+    if (exact) {
+      return exact.value;
+    }
+
+    if (tag.startsWith('zh')) {
+      return /tw|hk|mo|hant/.test(tag) ? 'zh-TW' : 'zh-CN';
+    }
+
+    const base = tag.split('-')[0];
+    const baseMatch = LANGUAGE_OPTIONS.find((option) => option.value === base);
+
+    if (baseMatch) {
+      return baseMatch.value;
+    }
+  }
+
+  return DEFAULT_RESOLVED_LANGUAGE;
+}
+
+export function resolveLanguageSetting(
+  language: LanguageSetting,
+  systemLanguage: ConcreteLanguageSetting = getSystemLanguage(),
+): ConcreteLanguageSetting {
+  return language === 'system' ? systemLanguage : language;
+}
+
 export function resolveDisplaySettings(
   displaySettings: DisplaySettings,
   systemTheme: ResolvedThemeSetting = getSystemTheme(),
+  systemLanguage: ConcreteLanguageSetting = getSystemLanguage(),
 ): ResolvedDisplaySettings {
   return {
     ...displaySettings,
+    language: resolveLanguageSetting(displaySettings.language, systemLanguage),
     theme: resolveThemeSetting(displaySettings.theme, systemTheme),
   };
+}
+
+export function subscribeToSystemLanguageChange(listener: (language: ConcreteLanguageSetting) => void) {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const handleChange = () => {
+    listener(getSystemLanguage());
+  };
+
+  window.addEventListener('languagechange', handleChange);
+
+  return () => window.removeEventListener('languagechange', handleChange);
 }
 
 export function subscribeToSystemThemeChange(listener: (theme: ResolvedThemeSetting) => void) {
@@ -264,9 +328,9 @@ export function subscribeToSystemThemeChange(listener: (theme: ResolvedThemeSett
   return () => mediaQueryList.removeListener(handleChange);
 }
 
-const RTL_LANGUAGES = new Set<LanguageSetting>(['ar', 'he']);
+const RTL_LANGUAGES = new Set<ConcreteLanguageSetting>(['ar', 'he']);
 
-export function isRtlLanguage(language: LanguageSetting) {
+export function isRtlLanguage(language: ConcreteLanguageSetting) {
   return RTL_LANGUAGES.has(language);
 }
 
@@ -299,8 +363,9 @@ export function getInitialDisplaySettings(): DisplaySettings {
 export function applyDisplaySettings(
   displaySettings: DisplaySettings,
   systemTheme: ResolvedThemeSetting = getSystemTheme(),
+  systemLanguage: ConcreteLanguageSetting = getSystemLanguage(),
 ) {
-  applyDocumentDisplaySettings(resolveDisplaySettings(displaySettings, systemTheme));
+  applyDocumentDisplaySettings(resolveDisplaySettings(displaySettings, systemTheme, systemLanguage));
 }
 
 export async function loadDisplaySettings() {

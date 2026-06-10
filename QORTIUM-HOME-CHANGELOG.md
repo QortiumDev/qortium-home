@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-09 - app: follow the system language and translate window menus
+
+Made the language setting default to the device's system language. A new System choice at the top of the language dropdown is now the default for fresh installs: Home detects the operating system's preferred language, matches it against the twenty supported languages (including regional handling so Traditional Chinese regions get Traditional Chinese), and falls back to English when there is no match. Picking a specific language still works exactly as before, and choosing System returns to automatic detection, which also follows live system language changes while the app is open. The desktop window menus (File, Edit, View, and Window, including items like Undo, Copy, Paste, and Toggle Full Screen) now translate too: the app sends the translated menu labels to the desktop shell whenever the language changes, and the menus rebuild immediately.
+
 ### 2026-06-09 - app: translate the home ui and add rtl support
 
 Made the language choice apply to Qortium Home's own interface. Every label, button, dialog, tooltip, status, and error message the app writes itself now comes from a translation catalog of about 365 entries, with matching translations for all twenty offered languages; strings were reworded where needed so sentences translate cleanly, and repeated wording (such as Cancel, Save, Unlock, and status words) now shares a single entry everywhere it appears. Arabic and Hebrew render right-to-left: the layout mirrors, directional arrows and chevrons flip, and device notch spacing stays on the correct physical side. The explanatory note under the language selector was removed. Messages that arrive from the node or operating system at runtime still appear in their original language, and the selected language continues to be passed to QDN apps as before. If a translation entry is ever missing, the English text is shown instead.
