@@ -95,8 +95,10 @@
   --color-warning: #8f641b;
   --color-info: #2f6aa3;
   --color-link: #236fb8;
-  --color-modal-backdrop: rgb(24 27 27 / 52%);
+  --color-modal-backdrop: rgb(24 27 27 / 38%);
   --color-shadow: rgb(35 31 24 / 18%);
+  --color-scrollbar-thumb: rgb(35 31 24 / 22%);
+  --color-scrollbar-thumb-hover: rgb(35 31 24 / 34%);
   --color-accent-ring: rgb(33 130 74 / 18%);
   --color-accent-soft: rgb(33 130 74 / 10%);
   --color-accent-glow: rgb(33 130 74 / 22%);
@@ -117,6 +119,7 @@
   --shadow-card: 0 1px 2px rgb(35 31 24 / 4%), 0 8px 24px rgb(35 31 24 / 6%);
   --shadow-card-hover: 0 2px 4px rgb(35 31 24 / 5%), 0 12px 28px rgb(35 31 24 / 9%);
   --shadow-bar: 0 1px 2px rgb(35 31 24 / 4%), 0 4px 16px rgb(35 31 24 / 3%);
+  --shadow-tab-active: inset 0 1px 0 rgb(255 255 255 / 55%), 0 1px 2px rgb(35 31 24 / 6%);
   --shadow-modal: 0 24px 64px rgb(35 31 24 / 26%);
   --shadow-pop: 0 18px 48px var(--color-shadow);
   --ease-pop: cubic-bezier(0.2, 0, 0, 1);
@@ -164,8 +167,10 @@
   --color-warning: #e4c06d;
   --color-info: #8bb8ef;
   --color-link: #7fb7ff;
-  --color-modal-backdrop: rgb(0 0 0 / 52%);
+  --color-modal-backdrop: rgb(0 0 0 / 45%);
   --color-shadow: rgb(0 0 0 / 35%);
+  --color-scrollbar-thumb: rgb(255 255 255 / 14%);
+  --color-scrollbar-thumb-hover: rgb(255 255 255 / 24%);
   --color-accent-ring: rgb(135 217 155 / 20%);
   --color-accent-soft: rgb(135 217 155 / 12%);
   --color-accent-glow: rgb(135 217 155 / 22%);
@@ -186,6 +191,7 @@
   --shadow-card: 0 1px 2px rgb(0 0 0 / 20%), 0 8px 20px rgb(0 0 0 / 25%);
   --shadow-card-hover: 0 2px 4px rgb(0 0 0 / 24%), 0 12px 26px rgb(0 0 0 / 32%);
   --shadow-bar: 0 1px 2px rgb(0 0 0 / 25%), 0 4px 16px rgb(0 0 0 / 18%);
+  --shadow-tab-active: inset 0 1px 0 rgb(255 255 255 / 6%), 0 1px 2px rgb(0 0 0 / 30%);
   --shadow-modal: 0 24px 64px rgb(0 0 0 / 55%);
 }
 
@@ -245,6 +251,27 @@ samp {
   font-family:
     "Illinois Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
     monospace;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar-thumb);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover);
 }
 
 #root {
@@ -621,7 +648,7 @@ h1 {
 
 .segmented-control__option--selected {
   color: var(--color-text);
-  background: var(--color-control-selected);
+  background: var(--color-accent-soft);
   border-color: var(--color-accent);
 }
 
@@ -886,6 +913,7 @@ h1 {
   place-items: center;
   padding: 24px;
   background: var(--color-modal-backdrop);
+  backdrop-filter: blur(16px);
 }
 
 .unlock-dialog {
@@ -897,7 +925,7 @@ h1 {
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--shadow-modal);
 }
 
 .unlock-dialog__title {
@@ -1052,18 +1080,24 @@ h1 {
   min-height: 32px;
   overflow: hidden;
   color: var(--color-text-secondary);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-control-selected);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: grab;
   touch-action: pan-x;
   user-select: none;
 }
 
+.top-bar__tab:hover:not(.top-bar__tab--active) {
+  background: var(--color-control-bg);
+  border-color: var(--color-border);
+}
+
 .top-bar__tab--active {
   color: var(--color-text);
   background: var(--color-control-bg);
   border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-tab-active);
 }
 
 .top-bar__tab--dragging {
@@ -1346,7 +1380,7 @@ h1 {
 .top-bar__address-suggestion[aria-selected="true"],
 .top-bar__address-suggestion--active {
   color: var(--color-text);
-  background: var(--color-control-selected);
+  background: var(--color-accent-soft);
   border-color: var(--color-accent);
   outline: none;
   box-shadow: 0 0 0 2px var(--color-accent-ring);

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - app: polish scrollbars, dialogs, and tabs
+
+Replaced the operating system's chunky scrollbars with slim rounded ones that stay subtle until hovered, in both themes. Dialog overlays now blur the page behind them with a lighter tint instead of a heavy dark layer, and dialogs cast a deeper shadow so they clearly float above the page. Browser tabs were restyled: inactive tabs sit quietly without borders until hovered, while the active tab stands out with a soft top highlight and shadow. Selected choices in settings controls and address suggestions now use a soft green tint that matches the app's accent instead of a generic gray.
+
 ### 2026-06-10 - app: add motion and depth to the interface
 
 Gave the interface its first layer of visual depth and motion. Buttons, inputs, tabs, menu items, and other interactive controls now ease between states over about 170 milliseconds instead of snapping, buttons lift slightly on hover and settle when pressed, and menus, dropdowns, and dialogs ease in when they open. Primary action buttons now use a subtle green gradient with a soft glow and a highlighted top edge so the main choice on each screen stands out. Cards cast soft shadows, the toolbar separates from the page with a gentle shadow, focused inputs show a green glow ring, and the dark theme's background layers were re-spaced so panels, menus, and controls sit at visibly different depths instead of blending into one flat surface. All motion is disabled for people who prefer reduced motion.
