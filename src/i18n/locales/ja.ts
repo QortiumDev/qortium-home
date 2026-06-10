@@ -292,6 +292,7 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "名前を登録",
   "qdnWrite.action.sellName": "名前を売却",
   "qdnWrite.action.sendChatMessage": "チャットメッセージを送信",
+  "qdnWrite.action.startMinting": "ミンティングを開始",
   "qdnWrite.action.updateGroup": "グループを更新",
   "qdnWrite.action.updateName": "名前を更新",
   "qdnWrite.approve": "承認",

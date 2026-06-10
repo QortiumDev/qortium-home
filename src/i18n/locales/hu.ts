@@ -292,6 +292,7 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "Név regisztrálása",
   "qdnWrite.action.sellName": "Név eladása",
   "qdnWrite.action.sendChatMessage": "Csevegőüzenet küldése",
+  "qdnWrite.action.startMinting": "Minting indítása",
   "qdnWrite.action.updateGroup": "Csoport frissítése",
   "qdnWrite.action.updateName": "Név frissítése",
   "qdnWrite.approve": "Jóváhagyás",

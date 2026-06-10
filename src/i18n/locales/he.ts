@@ -292,6 +292,7 @@ export const he: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "רישום שם",
   "qdnWrite.action.sellName": "מכירת שם",
   "qdnWrite.action.sendChatMessage": "שליחת הודעת צ'אט",
+  "qdnWrite.action.startMinting": "התחל הטבעה",
   "qdnWrite.action.updateGroup": "עדכון קבוצה",
   "qdnWrite.action.updateName": "עדכון שם",
   "qdnWrite.approve": "אישור",

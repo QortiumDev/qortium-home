@@ -274,6 +274,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateName';
     case 'SEND_CHAT_MESSAGE':
       return 'qdnWrite.action.sendChatMessage';
+    case 'START_MINTING':
+      return 'qdnWrite.action.startMinting';
     default:
       return 'qdnWrite.action.default';
   }

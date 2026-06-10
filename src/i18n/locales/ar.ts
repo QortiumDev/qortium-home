@@ -292,6 +292,7 @@ export const ar: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "تسجيل اسم",
   "qdnWrite.action.sellName": "بيع اسم",
   "qdnWrite.action.sendChatMessage": "إرسال رسالة دردشة",
+  "qdnWrite.action.startMinting": "بدء السكّ",
   "qdnWrite.action.updateGroup": "تحديث المجموعة",
   "qdnWrite.action.updateName": "تحديث الاسم",
   "qdnWrite.approve": "موافقة",

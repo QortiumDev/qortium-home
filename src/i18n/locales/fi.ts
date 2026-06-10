@@ -292,6 +292,7 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "Rekisteröi nimi",
   "qdnWrite.action.sellName": "Myy nimi",
   "qdnWrite.action.sendChatMessage": "Lähetä chat-viesti",
+  "qdnWrite.action.startMinting": "Aloita minttaus",
   "qdnWrite.action.updateGroup": "Päivitä ryhmä",
   "qdnWrite.action.updateName": "Päivitä nimi",
   "qdnWrite.approve": "Hyväksy",

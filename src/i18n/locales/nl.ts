@@ -292,6 +292,7 @@ export const nl: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "Naam registreren",
   "qdnWrite.action.sellName": "Naam verkopen",
   "qdnWrite.action.sendChatMessage": "Chatbericht verzenden",
+  "qdnWrite.action.startMinting": "Minting starten",
   "qdnWrite.action.updateGroup": "Groep bijwerken",
   "qdnWrite.action.updateName": "Naam bijwerken",
   "qdnWrite.approve": "Goedkeuren",

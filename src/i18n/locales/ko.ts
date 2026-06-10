@@ -292,6 +292,7 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "이름 등록",
   "qdnWrite.action.sellName": "이름 판매",
   "qdnWrite.action.sendChatMessage": "채팅 메시지 보내기",
+  "qdnWrite.action.startMinting": "민팅 시작",
   "qdnWrite.action.updateGroup": "그룹 업데이트",
   "qdnWrite.action.updateName": "이름 업데이트",
   "qdnWrite.approve": "승인",

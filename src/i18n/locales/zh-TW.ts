@@ -292,6 +292,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "註冊名稱",
   "qdnWrite.action.sellName": "出售名稱",
   "qdnWrite.action.sendChatMessage": "傳送聊天訊息",
+  "qdnWrite.action.startMinting": "開始鑄造",
   "qdnWrite.action.updateGroup": "更新群組",
   "qdnWrite.action.updateName": "更新名稱",
   "qdnWrite.approve": "核准",

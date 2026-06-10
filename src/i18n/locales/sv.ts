@@ -292,6 +292,7 @@ export const sv: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "Registrera namn",
   "qdnWrite.action.sellName": "Sälj namn",
   "qdnWrite.action.sendChatMessage": "Skicka chattmeddelande",
+  "qdnWrite.action.startMinting": "Starta minting",
   "qdnWrite.action.updateGroup": "Uppdatera grupp",
   "qdnWrite.action.updateName": "Uppdatera namn",
   "qdnWrite.approve": "Godkänn",
