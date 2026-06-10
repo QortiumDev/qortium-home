@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import type { QdnRoute } from './qdn';
 import { parseQdnUrl } from './qdn';
 
@@ -59,7 +60,7 @@ function parseCoreAddress(input: string): RouteParseResult | undefined {
   if (!/^core:\/\//i.test(input)) {
     return {
       success: false,
-      message: 'Core addresses must start with core://.',
+      message: t('address.error.coreScheme'),
     };
   }
 
@@ -68,7 +69,7 @@ function parseCoreAddress(input: string): RouteParseResult | undefined {
   if (!pathInput || pathInput.startsWith('?')) {
     return {
       success: false,
-      message: 'Enter a Core API path after core://.',
+      message: t('address.error.corePathMissing'),
     };
   }
 
@@ -86,7 +87,7 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
   if (!/^home:\/\//i.test(input)) {
     return {
       success: false,
-      message: 'Home addresses must start with home://.',
+      message: t('address.error.homeScheme'),
     };
   }
 
@@ -110,7 +111,7 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
 
   return {
     success: false,
-    message: 'Only home://dashboard and home://settings can be loaded right now.',
+    message: t('address.error.homePathUnsupported'),
   };
 }
 
@@ -122,7 +123,7 @@ function parseQdnAddress(input: string): RouteParseResult | undefined {
   if (!/^qdn:\/\//i.test(input)) {
     return {
       success: false,
-      message: 'QDN addresses must start with qdn://.',
+      message: t('address.error.qdnScheme'),
     };
   }
 
@@ -152,6 +153,6 @@ export function parseAppAddress(value: string): RouteParseResult {
 
   return {
     success: false,
-    message: 'Enter a qdn://, core://, or home:// address.',
+    message: t('address.error.unknownScheme'),
   };
 }

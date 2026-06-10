@@ -4,6 +4,7 @@ import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
 import { DisplaySettingsPanel } from './DisplaySettingsPanel';
 import type { DisplaySettings, LanguageSetting, TextSizeSetting, ThemeSetting } from './displaySettings';
+import { t } from './i18n';
 import { NodeSettingsPanel } from './NodeSettingsPanel';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 
@@ -43,7 +44,7 @@ export function SettingsPage({
   return (
     <div className="settings-page">
       <header className="settings-page__header">
-        <h1>Settings</h1>
+        <h1>{t('common.settings')}</h1>
       </header>
 
       <div className="settings-page__sections">

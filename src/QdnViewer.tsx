@@ -1,5 +1,6 @@
 import { Copy, Download, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { t, type TranslationKey } from './i18n';
 import type { QdnDisplaySettings, QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
 import {
   buildQdnDownloadUrl,
@@ -15,6 +16,7 @@ import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from '.
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
+const BYTE_UNIT_KEYS: readonly TranslationKey[] = ['common.unit.kb', 'common.unit.mb', 'common.unit.gb', 'common.unit.tb'];
 
 type LoadedQdnResource = {
   properties?: QdnResourceProperties;
@@ -174,7 +176,7 @@ function postQdnDisplaySettings(
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to load QDN resource.';
+    return t('viewer.loadFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -183,15 +185,15 @@ function formatError(error: unknown) {
 function getMediaErrorMessage(element: HTMLAudioElement | HTMLVideoElement) {
   switch (element.error?.code) {
     case MediaError.MEDIA_ERR_ABORTED:
-      return 'Media loading was canceled.';
+      return t('viewer.media.aborted');
     case MediaError.MEDIA_ERR_NETWORK:
-      return 'The media could not be loaded from the configured node.';
+      return t('viewer.media.network');
     case MediaError.MEDIA_ERR_DECODE:
-      return 'The media file could not be decoded by this app.';
+      return t('viewer.media.decode');
     case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-      return 'This media format is not supported by this app.';
+      return t('viewer.media.unsupported');
     default:
-      return 'The media could not be loaded.';
+      return t('viewer.media.generic');
   }
 }
 
@@ -223,12 +225,15 @@ function getProgressText(status: QdnResourceStatus | undefined) {
   const progress = getStatusProgress(status);
 
   if (typeof status.localChunkCount === 'number' && typeof status.totalChunkCount === 'number') {
-    return `${status.localChunkCount.toLocaleString()} / ${status.totalChunkCount.toLocaleString()} chunks${
-      typeof progress === 'number' ? `, ${progress.toFixed(0)}%` : ''
-    }`;
+    const local = status.localChunkCount.toLocaleString();
+    const total = status.totalChunkCount.toLocaleString();
+
+    return typeof progress === 'number'
+      ? t('viewer.progressChunksWithPercent', { local, total, percent: progress.toFixed(0) })
+      : t('viewer.progressChunks', { local, total });
   }
 
-  return typeof progress === 'number' ? `${progress.toFixed(0)}%` : '';
+  return typeof progress === 'number' ? t('common.percentValue', { percent: progress.toFixed(0) }) : '';
 }
 
 function formatBytes(bytes: number | undefined) {
@@ -237,23 +242,22 @@ function formatBytes(bytes: number | undefined) {
   }
 
   if (bytes < 1024) {
-    return `${bytes.toLocaleString()} bytes`;
+    return t('common.unit.bytes', { count: bytes.toLocaleString() });
   }
 
-  const units = ['KB', 'MB', 'GB', 'TB'];
   let value = bytes / 1024;
   let unitIndex = 0;
 
-  while (value >= 1024 && unitIndex < units.length - 1) {
+  while (value >= 1024 && unitIndex < BYTE_UNIT_KEYS.length - 1) {
     value /= 1024;
     unitIndex += 1;
   }
 
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+  return t(BYTE_UNIT_KEYS[unitIndex], { value: value.toLocaleString(undefined, { maximumFractionDigits: 1 }) });
 }
 
 function formatTextPreviewLimit() {
-  return formatBytes(TEXT_PREVIEW_MAX_BYTES) || '1 MB';
+  return formatBytes(TEXT_PREVIEW_MAX_BYTES) || t('common.unit.mb', { value: 1 });
 }
 
 function shouldFormatJson(resource: QdnResource, mimeType: string) {
@@ -271,14 +275,14 @@ function getTextPreviewLabel(resource: QdnResource, mimeType: string, formattedA
   }
 
   if (resource.service === 'CODE') {
-    return 'Code';
+    return t('viewer.codeLabel');
   }
 
   if (mimeType) {
-    return mimeType.split(';')[0] || 'Text';
+    return mimeType.split(';')[0] || t('common.formatText');
   }
 
-  return 'Text';
+  return t('common.formatText');
 }
 
 function isArchiveResourceProperties(properties: QdnResourceProperties | undefined) {
@@ -343,7 +347,7 @@ async function readStatus(response: Response) {
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(text || `QDN status request failed with HTTP ${response.status}.`);
+    throw new Error(text || t('viewer.statusRequestFailed', { status: response.status }));
   }
 
   return JSON.parse(text) as QdnResourceStatus;
@@ -399,12 +403,12 @@ async function verifyRenderUrl(renderUrl: string, signal: AbortSignal) {
   const response = await fetch(renderUrl, { signal });
 
   if (response.status === 404) {
-    throw new Error('File not found.');
+    throw new Error(t('viewer.fileNotFound'));
   }
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || `QDN render request failed with HTTP ${response.status}.`);
+    throw new Error(message || t('viewer.renderRequestFailed', { status: response.status }));
   }
 
   await response.body?.cancel();
@@ -448,12 +452,12 @@ async function createBlobRenderUrl({
   const response = await fetch(renderUrl, { signal });
 
   if (response.status === 404) {
-    throw new Error('File not found.');
+    throw new Error(t('viewer.fileNotFound'));
   }
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || `QDN render request failed with HTTP ${response.status}.`);
+    throw new Error(message || t('viewer.renderRequestFailed', { status: response.status }));
   }
 
   const responseContentType = response.headers.get('content-type') ?? '';
@@ -472,7 +476,7 @@ function useQdnResourceLoader(
 ) {
   const [state, setState] = useState<QdnViewerState>({
     phase: 'loading',
-    message: 'Checking QDN resource',
+    message: t('viewer.checkingResource'),
   });
   const resourceKey = useMemo(() => getQdnResourceKey(resource), [resource]);
 
@@ -595,7 +599,7 @@ function useQdnResourceLoader(
     async function loadResource() {
       setSafeState({
         phase: 'loading',
-        message: 'Loading QDN resource',
+        message: t('viewer.loadingResource'),
       });
 
       try {
@@ -650,7 +654,7 @@ function CopyButton({
   value: string;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'error' | 'idle'>('idle');
-  const buttonLabel = copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : label;
+  const buttonLabel = copyState === 'copied' ? t('common.copied') : copyState === 'error' ? t('common.copyFailed') : label;
 
   useEffect(() => {
     if (copyState === 'idle') {
@@ -705,19 +709,19 @@ function QdnDownloadButton({
   const buttonLabel =
     downloadState === 'saving'
       ? opensNativeDownload
-        ? 'Opening'
-        : 'Saving'
+        ? t('viewer.download.opening')
+        : t('common.saving')
       : downloadState === 'saved'
         ? opensNativeDownload
-          ? 'Opened'
-          : 'Saved'
+          ? t('viewer.download.opened')
+          : t('viewer.download.saved')
         : downloadState === 'error'
           ? opensNativeDownload
-            ? 'Open failed'
-            : 'Save failed'
+            ? t('viewer.download.openFailed')
+            : t('viewer.download.saveFailed')
           : opensNativeDownload
-            ? 'Open'
-            : 'Download';
+            ? t('common.open')
+            : t('common.download');
 
   useEffect(() => {
     if (downloadState !== 'saved' && downloadState !== 'error') {
@@ -768,7 +772,7 @@ function QdnResourceActions({
   return (
     <div className="qdn-viewer__actions">
       <QdnDownloadButton loadedResource={loadedResource} resource={resource} />
-      <CopyButton label="Copy QDN URL" value={resource.displayUrl} />
+      <CopyButton label={t('viewer.copyQdnUrl')} value={resource.displayUrl} />
     </div>
   );
 }
@@ -785,7 +789,7 @@ async function readTextPreview({
   if (typeof knownSize === 'number' && knownSize > TEXT_PREVIEW_MAX_BYTES) {
     return {
       phase: 'too-large',
-      message: `This resource is ${formatBytes(knownSize)}, so it is too large to preview inline. The inline preview limit is ${formatTextPreviewLimit()}.`,
+      message: t('viewer.preview.tooLargeWithSize', { size: formatBytes(knownSize), limit: formatTextPreviewLimit() }),
     };
   }
 
@@ -801,8 +805,11 @@ async function readTextPreview({
     return {
       phase: 'too-large',
       message: result.contentLength
-        ? `This resource is ${formatBytes(result.contentLength)}, so it is too large to preview inline. The inline preview limit is ${formatTextPreviewLimit()}.`
-        : `This resource is too large to preview inline. The inline preview limit is ${formatTextPreviewLimit()}.`,
+        ? t('viewer.preview.tooLargeWithSize', {
+            size: formatBytes(result.contentLength),
+            limit: formatTextPreviewLimit(),
+          })
+        : t('viewer.preview.tooLarge', { limit: formatTextPreviewLimit() }),
     };
   }
 
@@ -880,26 +887,26 @@ function QdnTextContent({
   const isReady = state.phase === 'ready';
   const statusText =
     state.phase === 'loading'
-      ? 'Loading text preview'
+      ? t('viewer.preview.loading')
       : state.phase === 'ready'
         ? state.label
         : state.phase === 'too-large'
-          ? 'Preview unavailable'
-          : 'Preview failed';
+          ? t('viewer.preview.unavailable')
+          : t('viewer.preview.failed');
 
   return (
     <div className="qdn-viewer__text">
       <div className="qdn-viewer__text-toolbar">
         <span className="qdn-viewer__type-label">{statusText}</span>
         <div className="qdn-viewer__actions">
-          <CopyButton disabled={!isReady} label="Copy text" value={isReady ? state.content : ''} />
+          <CopyButton disabled={!isReady} label={t('viewer.copyText')} value={isReady ? state.content : ''} />
           <QdnDownloadButton loadedResource={loadedResource} resource={resource} />
         </div>
       </div>
 
       {state.phase === 'loading' ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">Loading text preview</p>
+          <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
         </div>
       ) : null}
 
@@ -932,42 +939,42 @@ function QdnResourceDetailList({
   return (
     <dl className="detail-list qdn-viewer__detail-list">
       <div className="detail-list__row">
-        <dt className="detail-list__label">Service</dt>
+        <dt className="detail-list__label">{t('common.service')}</dt>
         <dd className="detail-list__value">{resource.service}</dd>
       </div>
       <div className="detail-list__row">
-        <dt className="detail-list__label">Name</dt>
+        <dt className="detail-list__label">{t('common.name')}</dt>
         <dd className="detail-list__value">{resource.name}</dd>
       </div>
       <div className="detail-list__row">
-        <dt className="detail-list__label">Identifier</dt>
+        <dt className="detail-list__label">{t('common.identifier')}</dt>
         <dd className="detail-list__value">{resource.identifier || 'default'}</dd>
       </div>
       {resource.path ? (
         <div className="detail-list__row">
-          <dt className="detail-list__label">Path</dt>
+          <dt className="detail-list__label">{t('common.path')}</dt>
           <dd className="detail-list__value">{resource.path}</dd>
         </div>
       ) : null}
       <div className="detail-list__row">
-        <dt className="detail-list__label">Status</dt>
+        <dt className="detail-list__label">{t('common.status')}</dt>
         <dd className="detail-list__value">{formatQdnStatus(loadedResource.status)}</dd>
       </div>
       {loadedResource.properties?.filename ? (
         <div className="detail-list__row">
-          <dt className="detail-list__label">File</dt>
+          <dt className="detail-list__label">{t('viewer.detail.file')}</dt>
           <dd className="detail-list__value">{loadedResource.properties.filename}</dd>
         </div>
       ) : null}
       {loadedResource.properties?.mimeType ? (
         <div className="detail-list__row">
-          <dt className="detail-list__label">Type</dt>
+          <dt className="detail-list__label">{t('common.type')}</dt>
           <dd className="detail-list__value">{loadedResource.properties.mimeType}</dd>
         </div>
       ) : null}
       {loadedResource.properties?.size ? (
         <div className="detail-list__row">
-          <dt className="detail-list__label">Size</dt>
+          <dt className="detail-list__label">{t('common.size')}</dt>
           <dd className="detail-list__value">{formatBytes(loadedResource.properties.size)}</dd>
         </div>
       ) : null}
@@ -1400,7 +1407,7 @@ function QdnReadyContent({
     return (
       <QdnDetailsContent
         loadedResource={loadedResource}
-        message={isNativePlatform() ? 'This resource is ready to open.' : 'This resource is ready to download.'}
+        message={isNativePlatform() ? t('viewer.readyToOpen') : t('viewer.readyToDownload')}
         resource={resource}
       />
     );
@@ -1409,7 +1416,7 @@ function QdnReadyContent({
   return (
     <QdnDetailsContent
       loadedResource={loadedResource}
-      message={`${resource.service} resources do not have a dedicated viewer yet.`}
+      message={t('viewer.noDedicatedViewer', { service: resource.service })}
       resource={resource}
     />
   );
@@ -1420,17 +1427,17 @@ export function QdnViewer({ account, displaySettings, nodeApiUrl, resource, susp
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
   const progressText = getProgressText(state.status);
-  const statusLabel = state.phase === 'ready' ? 'Ready' : formatQdnStatus(state.status);
+  const statusLabel = state.phase === 'ready' ? t('qdnStatus.ready') : formatQdnStatus(state.status);
 
   return (
-    <section className="qdn-viewer" aria-label="QDN viewer">
+    <section className="qdn-viewer" aria-label={t('viewer.ariaLabel')}>
       <div className="qdn-viewer__status" aria-live="polite">
         <div className="qdn-viewer__status-text">
           <span className="qdn-viewer__status-label">{statusLabel}</span>
           <span className="qdn-viewer__resource">{resource.displayUrl}</span>
         </div>
         {typeof progress === 'number' && state.phase !== 'ready' ? (
-          <div className="qdn-viewer__progress" aria-label="QDN loading progress">
+          <div className="qdn-viewer__progress" aria-label={t('viewer.progressAriaLabel')}>
             <div
               className="qdn-viewer__progress-bar"
               role="progressbar"
@@ -1465,7 +1472,7 @@ export function QdnViewer({ account, displaySettings, nodeApiUrl, resource, susp
               onClick={() => setRetryToken((currentToken) => currentToken + 1)}
             >
               <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-              Retry
+              {t('common.retry')}
             </button>
           ) : null}
         </div>

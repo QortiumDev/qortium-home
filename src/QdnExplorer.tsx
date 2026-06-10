@@ -1,5 +1,6 @@
 import { FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { t } from './i18n';
 import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
 import {
   PUBLIC_QDN_SERVICES,
@@ -62,7 +63,7 @@ type QdnImagePreviewState =
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to load QDN resources.';
+    return t('explorer.loadFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -85,7 +86,7 @@ function isQdnResourceListItem(value: unknown): value is QdnResourceListItem {
 
 function readResources(data: unknown) {
   if (!Array.isArray(data)) {
-    throw new Error('QDN resource list response did not match the expected shape.');
+    throw new Error(t('explorer.unexpectedListResponse'));
   }
 
   return data.filter(isQdnResourceListItem);
@@ -178,17 +179,17 @@ function getRouteHeading(route: QdnExplorerRoute) {
     return route.name;
   }
 
-  return `${route.service} / ${route.name}`;
+  return t('explorer.serviceAndNameHeading', { service: route.service, name: route.name });
 }
 
 function formatExplorerStatus(status: QdnResourceListItem['status']) {
-  return status?.status ? formatQdnStatus(status) : 'Published';
+  return status?.status ? formatQdnStatus(status) : t('qdnStatus.published');
 }
 
 function formatResourceMeta(resource: QdnResourceListItem) {
   return [
     formatExplorerStatus(resource.status),
-    resource.size ? `${resource.size.toLocaleString()} bytes` : '',
+    resource.size ? t('common.unit.bytes', { count: resource.size.toLocaleString() }) : '',
     resource.created ? formatDate(resource.created) : '',
   ]
     .filter(Boolean)
@@ -330,7 +331,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
   }, [route, retryToken]);
 
   return (
-    <section className="qdn-explorer" aria-label="QDN explorer">
+    <section className="qdn-explorer" aria-label={t('explorer.ariaLabel')}>
       <header className="qdn-explorer__header">
         <div className="qdn-explorer__heading">
           <h2>{getRouteHeading(route)}</h2>
@@ -343,7 +344,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
           onClick={() => setRetryToken((currentToken) => currentToken + 1)}
         >
           <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-          Refresh
+          {t('common.refresh')}
         </button>
       </header>
 
@@ -354,10 +355,10 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'services' ? (
         <>
           {state.phase === 'loading' && serviceRows.length === 0 ? (
-            <p className="qdn-explorer__message">Loading published services</p>
+            <p className="qdn-explorer__message">{t('explorer.loadingServices')}</p>
           ) : null}
           {state.phase !== 'loading' && serviceRows.length === 0 && state.phase !== 'error' ? (
-            <p className="qdn-explorer__message">No public QDN resources found.</p>
+            <p className="qdn-explorer__message">{t('explorer.emptyServices')}</p>
           ) : null}
           {serviceRows.length > 0 ? (
             <div className="qdn-explorer__list" role="list">
@@ -378,9 +379,11 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                   <Folder aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
                   <span className="qdn-explorer__row-main">
                     <span className="qdn-explorer__row-title">{row.service}</span>
-                    <span className="qdn-explorer__row-subtitle">Browse published {row.service} names</span>
+                    <span className="qdn-explorer__row-subtitle">
+                      {t('explorer.browseServiceNames', { service: row.service })}
+                    </span>
                   </span>
-                  <span className="qdn-explorer__row-meta">Service</span>
+                  <span className="qdn-explorer__row-meta">{t('common.service')}</span>
                 </button>
               ))}
             </div>
@@ -391,10 +394,10 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'name-services' ? (
         <>
           {state.phase === 'loading' && serviceRows.length === 0 ? (
-            <p className="qdn-explorer__message">Loading published services for this name</p>
+            <p className="qdn-explorer__message">{t('explorer.loadingNameServices')}</p>
           ) : null}
           {state.phase !== 'loading' && serviceRows.length === 0 && state.phase !== 'error' ? (
-            <p className="qdn-explorer__message">No public QDN resources found for this name.</p>
+            <p className="qdn-explorer__message">{t('explorer.emptyNameServices')}</p>
           ) : null}
           {serviceRows.length > 0 ? (
             <div className="qdn-explorer__list" role="list">
@@ -417,8 +420,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                   <span className="qdn-explorer__row-main">
                     <span className="qdn-explorer__row-title">{row.service}</span>
                     <span className="qdn-explorer__row-subtitle">
-                      {row.count.toLocaleString()} {row.count === 1 ? 'resource' : 'resources'} published by{' '}
-                      {route.name}
+                      {t('explorer.resourcesPublishedBy', { name: route.name, count: row.count.toLocaleString() })}
                     </span>
                   </span>
                   <span className="qdn-explorer__row-meta">{formatExplorerStatus(row.status)}</span>
@@ -432,10 +434,10 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'service' ? (
         <>
           {state.phase === 'loading' && state.resources.length === 0 ? (
-            <p className="qdn-explorer__message">Loading published names</p>
+            <p className="qdn-explorer__message">{t('explorer.loadingNames')}</p>
           ) : null}
           {state.phase !== 'loading' && nameRows.length === 0 && state.phase !== 'error' ? (
-            <p className="qdn-explorer__message">No published {route.service} resources found.</p>
+            <p className="qdn-explorer__message">{t('explorer.emptyService', { service: route.service })}</p>
           ) : null}
           {nameRows.length > 0 ? (
             <div className="qdn-explorer__list" role="list">
@@ -458,7 +460,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                   <span className="qdn-explorer__row-main">
                     <span className="qdn-explorer__row-title">{row.name}</span>
                     <span className="qdn-explorer__row-subtitle">
-                      {row.count.toLocaleString()} {row.count === 1 ? 'resource' : 'resources'}
+                      {t('explorer.resourceCount', { count: row.count.toLocaleString() })}
                     </span>
                   </span>
                   <span className="qdn-explorer__row-meta">{formatExplorerStatus(row.status)}</span>
@@ -472,10 +474,10 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       {route.kind === 'name' ? (
         <>
           {state.phase === 'loading' && state.resources.length === 0 ? (
-            <p className="qdn-explorer__message">Loading published resources</p>
+            <p className="qdn-explorer__message">{t('explorer.loadingResources')}</p>
           ) : null}
           {state.phase !== 'loading' && state.resources.length === 0 && state.phase !== 'error' ? (
-            <p className="qdn-explorer__message">No published {route.service} resources found for this name.</p>
+            <p className="qdn-explorer__message">{t('explorer.emptyNameService', { service: route.service })}</p>
           ) : null}
           {state.resources.length > 0 ? (
             <div className="qdn-explorer__list" role="list">
@@ -506,7 +508,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                       <span className="qdn-explorer__row-main">
                         <span className="qdn-explorer__row-title">{getQdnItemIdentifier(resource)}</span>
                         <span className="qdn-explorer__row-subtitle">
-                          {resource.metadata?.title || resource.metadata?.description || 'Published QDN resource'}
+                          {resource.metadata?.title || resource.metadata?.description || t('explorer.publishedResource')}
                         </span>
                       </span>
                       <span className="qdn-explorer__row-meta">{formatResourceMeta(resource)}</span>

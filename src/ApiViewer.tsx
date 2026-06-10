@@ -1,8 +1,10 @@
 import { Copy, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { t, type TranslationKey } from './i18n';
 import type { NodeApiRoute } from './routes';
 
 const API_PREVIEW_MAX_BYTES = 1_048_576;
+const BYTE_UNIT_KEYS: readonly TranslationKey[] = ['common.unit.kb', 'common.unit.mb', 'common.unit.gb', 'common.unit.tb'];
 
 type ApiViewerState =
   | {
@@ -36,7 +38,7 @@ type ApiViewerProps = {
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to load node API endpoint.';
+    return t('api.loadFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -48,23 +50,22 @@ function formatBytes(bytes: number | undefined) {
   }
 
   if (bytes < 1024) {
-    return `${bytes.toLocaleString()} bytes`;
+    return t('common.unit.bytes', { count: bytes.toLocaleString() });
   }
 
-  const units = ['KB', 'MB', 'GB', 'TB'];
   let value = bytes / 1024;
   let unitIndex = 0;
 
-  while (value >= 1024 && unitIndex < units.length - 1) {
+  while (value >= 1024 && unitIndex < BYTE_UNIT_KEYS.length - 1) {
     value /= 1024;
     unitIndex += 1;
   }
 
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+  return t(BYTE_UNIT_KEYS[unitIndex], { value: value.toLocaleString(undefined, { maximumFractionDigits: 1 }) });
 }
 
 function formatPreviewLimit() {
-  return formatBytes(API_PREVIEW_MAX_BYTES) || '1 MB';
+  return formatBytes(API_PREVIEW_MAX_BYTES) || t('common.unit.mb', { value: 1 });
 }
 
 function formatApiBody(body: string, contentType: string) {
@@ -77,14 +78,14 @@ function formatApiBody(body: string, contentType: string) {
     } catch {
       return {
         displayBody: body,
-        displayType: contentType.split(';')[0] || 'Text',
+        displayType: contentType.split(';')[0] || t('common.formatText'),
       };
     }
   }
 
   return {
     displayBody: body,
-    displayType: contentType.split(';')[0] || 'Text',
+    displayType: contentType.split(';')[0] || t('common.formatText'),
   };
 }
 
@@ -121,7 +122,7 @@ function CopyButton({
   value: string;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'error' | 'idle'>('idle');
-  const buttonLabel = copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : label;
+  const buttonLabel = copyState === 'copied' ? t('common.copied') : copyState === 'error' ? t('common.copyFailed') : label;
 
   useEffect(() => {
     if (copyState === 'idle') {
@@ -157,25 +158,26 @@ function ApiDetailList({ state, route }: { route: NodeApiRoute; state: Exclude<A
   return (
     <dl className="detail-list qdn-viewer__detail-list">
       <div className="detail-list__row">
-        <dt className="detail-list__label">Endpoint</dt>
+        <dt className="detail-list__label">{t('common.endpoint')}</dt>
         <dd className="detail-list__value">{route.path}</dd>
       </div>
       <div className="detail-list__row">
-        <dt className="detail-list__label">Status</dt>
+        <dt className="detail-list__label">{t('common.status')}</dt>
         <dd className="detail-list__value">
-          HTTP {state.status}
-          {state.statusText ? ` ${state.statusText}` : ''}
+          {state.statusText
+            ? t('api.httpStatusWithText', { status: state.status, statusText: state.statusText })
+            : t('api.httpStatus', { status: state.status })}
         </dd>
       </div>
       {state.contentType ? (
         <div className="detail-list__row">
-          <dt className="detail-list__label">Type</dt>
+          <dt className="detail-list__label">{t('common.type')}</dt>
           <dd className="detail-list__value">{state.contentType}</dd>
         </div>
       ) : null}
       {state.contentLength ? (
         <div className="detail-list__row">
-          <dt className="detail-list__label">Size</dt>
+          <dt className="detail-list__label">{t('common.size')}</dt>
           <dd className="detail-list__value">{formatBytes(state.contentLength)}</dd>
         </div>
       ) : null}
@@ -248,13 +250,13 @@ export function ApiViewer({ route }: ApiViewerProps) {
 
   const statusLabel =
     state.phase === 'ready' || state.phase === 'too-large'
-      ? `HTTP ${state.status}`
+      ? t('api.httpStatus', { status: state.status })
       : state.phase === 'error'
-        ? 'Error'
-        : 'Loading';
+        ? t('common.error')
+        : t('common.loading');
 
   return (
-    <section className="qdn-viewer" aria-label="Node API viewer">
+    <section className="qdn-viewer" aria-label={t('api.ariaLabel')}>
       <div className="qdn-viewer__status" aria-live="polite">
         <div className="qdn-viewer__status-text">
           <span className="qdn-viewer__status-label">{statusLabel}</span>
@@ -264,7 +266,7 @@ export function ApiViewer({ route }: ApiViewerProps) {
 
       {state.phase === 'loading' ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">Loading node API endpoint</p>
+          <p className="qdn-viewer__message">{t('api.loadingEndpoint')}</p>
         </div>
       ) : null}
 
@@ -277,7 +279,7 @@ export function ApiViewer({ route }: ApiViewerProps) {
             onClick={() => setRetryToken((currentToken) => currentToken + 1)}
           >
             <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       ) : null}
@@ -287,8 +289,8 @@ export function ApiViewer({ route }: ApiViewerProps) {
           <div className="qdn-viewer__text-toolbar">
             <span className="qdn-viewer__type-label">{state.displayType}</span>
             <div className="qdn-viewer__actions">
-              <CopyButton label="Copy response" value={state.displayBody} />
-              <CopyButton label="Copy endpoint" value={route.displayUrl} />
+              <CopyButton label={t('api.copyResponse')} value={state.displayBody} />
+              <CopyButton label={t('api.copyEndpoint')} value={route.displayUrl} />
             </div>
           </div>
           <pre className="qdn-viewer__text-content">
@@ -300,9 +302,7 @@ export function ApiViewer({ route }: ApiViewerProps) {
       {state.phase === 'too-large' ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--ready">
           <div className="qdn-viewer__details">
-            <p className="qdn-viewer__message">
-              This response is too large to preview inline. The inline preview limit is {formatPreviewLimit()}.
-            </p>
+            <p className="qdn-viewer__message">{t('api.previewTooLarge', { limit: formatPreviewLimit() })}</p>
             <ApiDetailList route={route} state={state} />
           </div>
         </div>

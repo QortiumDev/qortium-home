@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { compareAppVersions } from './appUpdates';
-import { SETTINGS_TEXT } from './settingsText';
+import { compareAppVersions, UPDATE_CHANNEL_LABEL_KEYS } from './appUpdates';
+import { getTranslationLanguage, t } from './i18n';
 
 export type CoreMessage = {
   kind: 'error' | 'success';
@@ -29,49 +29,51 @@ export type DetailRow = {
 
 export function formatCoreError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Core action failed.';
+    return t('core.actionFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
 export function formatInstalledCore(installedCore: QortiumInstalledCore | null) {
-  return installedCore ? installedCore.tagName : 'Not installed';
+  return installedCore ? installedCore.tagName : t('common.notInstalled');
 }
 
 export function formatJava(javaStatus: QortiumCoreJavaStatus | null) {
   if (!javaStatus) {
-    return 'Checking';
+    return t('common.checking');
   }
 
   if (!javaStatus.version) {
-    return 'Missing';
+    return t('core.javaMissing');
   }
 
   const source =
     javaStatus.source === 'managed'
-      ? 'managed'
+      ? t('core.javaSourceManaged')
       : javaStatus.source === 'system'
-        ? 'system'
+        ? t('core.javaSourceSystem')
         : '';
 
   if (javaStatus.available) {
-    return source ? `Java ${javaStatus.version} (${source})` : `Java ${javaStatus.version}`;
+    return source
+      ? t('core.javaVersionWithSource', { source, version: javaStatus.version })
+      : t('core.javaVersion', { version: javaStatus.version });
   }
 
-  return `Java ${javaStatus.version} unsupported`;
+  return t('core.javaUnsupported', { version: javaStatus.version });
 }
 
 export function formatRuntime(runtime: QortiumCoreRuntimeStatus | null) {
   if (!runtime) {
-    return 'Checking';
+    return t('common.checking');
   }
 
   if (runtime.blocked) {
-    return SETTINGS_TEXT.status.runtimeBlocked;
+    return t('core.statusRuntimeBlocked');
   }
 
-  return runtime.running ? 'Running' : 'Stopped';
+  return runtime.running ? t('core.runtimeRunning') : t('common.stopped');
 }
 
 export function getCoreRuntimeBlockedMessage(status: QortiumCoreStatus | null) {
@@ -80,10 +82,10 @@ export function getCoreRuntimeBlockedMessage(status: QortiumCoreStatus | null) {
 
 export function getReleaseLabel(release: QortiumCoreReleaseSummary | undefined) {
   if (!release) {
-    return 'Check releases';
+    return t('core.checkReleases');
   }
 
-  return release.available ? release.tagName : 'Unavailable';
+  return release.available ? release.tagName : t('common.unavailable');
 }
 
 export function getProgressPercent(progress: QortiumCoreProgress | null) {
@@ -126,21 +128,23 @@ export function getCoreReleaseActionLabel({
   release: QortiumCoreReleaseSummary | undefined;
 }) {
   if (busyAction === 'installing-stable' && channel === 'stable') {
-    return 'Installing';
+    return t('common.installing');
   }
 
   if (busyAction === 'installing-prerelease' && channel === 'prerelease') {
-    return 'Installing';
+    return t('common.installing');
   }
 
-  const label = channel === 'stable' ? 'stable' : 'prerelease';
+  const label = t(UPDATE_CHANNEL_LABEL_KEYS[channel]);
   const comparison = getCoreReleaseComparison(release, installedCore);
 
   if (comparison === 0) {
-    return `Current ${label}`;
+    return t('core.releaseActionCurrent', { channel: label });
   }
 
-  return isCoreReleaseUpdateAvailable(release, installedCore) ? `Update ${label}` : `Install ${label}`;
+  return isCoreReleaseUpdateAvailable(release, installedCore)
+    ? t('core.releaseActionUpdate', { channel: label })
+    : t('core.releaseActionInstall', { channel: label });
 }
 
 function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCoreReleases | null) {
@@ -153,17 +157,17 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
       : releases?.stable;
   const rows = [
     {
-      label: SETTINGS_TEXT.labels.version,
-      value: status?.installed ? formatInstalledCore(status.installed) : status?.runtime.running ? 'Detected' : 'Not installed',
+      label: t('common.version'),
+      value: status?.installed ? formatInstalledCore(status.installed) : status?.runtime.running ? t('common.detected') : t('common.notInstalled'),
     },
-    { label: SETTINGS_TEXT.labels.java, value: formatJava(status?.java ?? null) },
-    { label: SETTINGS_TEXT.labels.runtime, value: formatRuntime(status?.runtime ?? null) },
-    { label: SETTINGS_TEXT.labels.localApi, value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
+    { label: t('core.javaLabel'), value: formatJava(status?.java ?? null) },
+    { label: t('core.runtimeLabel'), value: formatRuntime(status?.runtime ?? null) },
+    { label: t('node.localApi'), value: status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891' },
   ];
 
   if (status?.runtime.blocked) {
     rows.push({
-      label: SETTINGS_TEXT.labels.runtimeIssue,
+      label: t('core.runtimeIssue'),
       value: status.runtime.blocked.message,
     });
   }
@@ -173,7 +177,7 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
     installedVersion &&
     isCoreReleaseUpdateAvailable(release, status?.installed)
   ) {
-    rows.push({ label: SETTINGS_TEXT.labels.latest, value: getReleaseLabel(release) });
+    rows.push({ label: t('common.latest'), value: getReleaseLabel(release) });
   }
 
   return rows;
@@ -187,6 +191,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
   const [message, setMessage] = useState<CoreMessage>(null);
   const [busyAction, setBusyAction] = useState<CoreBusyAction>(null);
   const isBusy = busyAction !== null;
+  const language = getTranslationLanguage();
 
   useEffect(() => {
     if (!coreApi) {
@@ -226,7 +231,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
     };
   }, [coreApi]);
 
-  const detailRows = useMemo(() => getCoreDetailRows(status, releases), [releases, status]);
+  const detailRows = useMemo(() => getCoreDetailRows(status, releases), [language, releases, status]);
   const progressPercent = getProgressPercent(progress);
   const runtimeBlocked = !!status?.runtime.blocked;
   const canInstallPrerelease = !!releases?.prerelease.available;
@@ -259,7 +264,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
       setStatus(nextStatus);
       setMessage({
         kind: 'success',
-        text: 'Core release check complete.',
+        text: t('core.releaseCheckComplete'),
       });
     } catch (error) {
       setMessage({
@@ -285,7 +290,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
       setStatus(nextStatus);
       setMessage({
         kind: 'success',
-        text: `Installed ${nextStatus.installed?.tagName ?? 'Qortium Core'}.`,
+        text: t('core.installedName', { name: nextStatus.installed?.tagName ?? 'Qortium Core' }),
       });
     } catch (error) {
       setMessage({
@@ -311,7 +316,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
       setStatus(nextStatus);
       setMessage({
         kind: 'success',
-        text: `Installed ${formatJava(nextStatus.java)}.`,
+        text: t('core.installedName', { name: formatJava(nextStatus.java) }),
       });
     } catch (error) {
       setMessage({
@@ -345,8 +350,8 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
       setMessage({
         kind: 'success',
         text: nextStatus.runtime.running
-          ? `Core is running at ${nextStatus.runtime.localApiUrl}.`
-          : 'Core start command completed.',
+          ? t('core.runningAt', { url: nextStatus.runtime.localApiUrl })
+          : t('core.startCompleted'),
       });
     } catch (error) {
       setMessage({
@@ -372,7 +377,7 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
       setStatus(nextStatus);
       setMessage({
         kind: 'success',
-        text: nextStatus.runtime.running ? 'Core stop command completed.' : 'Core is stopped.',
+        text: nextStatus.runtime.running ? t('core.stopCompleted') : t('core.stoppedMessage'),
       });
     } catch (error) {
       setMessage({

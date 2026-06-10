@@ -1,6 +1,13 @@
+import { t, type TranslationKey } from './i18n';
+
 const HOME_REPOSITORY = 'QortiumDev/qortium-home';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${HOME_REPOSITORY}`;
 const GITHUB_ACCEPT_HEADER = 'application/vnd.github+json';
+
+export const UPDATE_CHANNEL_LABEL_KEYS: Record<QortiumAppUpdateChannel, TranslationKey> = {
+  prerelease: 'updates.channelPrerelease',
+  stable: 'updates.channelStable',
+};
 
 type GithubAsset = {
   browser_download_url?: unknown;
@@ -55,7 +62,7 @@ async function fetchGithubJson<T>(url: string) {
   }
 
   if (!response.ok) {
-    throw new Error(text || `GitHub request failed with HTTP ${response.status}.`);
+    throw new Error(text || t('updates.githubRequestFailed', { status: response.status }));
   }
 
   return text ? (JSON.parse(text) as T) : null;
@@ -295,7 +302,7 @@ export async function checkAppUpdates(
     return {
       ...baseResult,
       status: 'unsupported',
-      message: `Qortium Home updates are not available for ${environment.platform.label}.`,
+      message: t('updates.unsupportedPlatform', { platform: environment.platform.label }),
     };
   }
 
@@ -307,7 +314,7 @@ export async function checkAppUpdates(
       return {
         ...baseResult,
         status: 'not-found',
-        message: `No ${channel} release was found.`,
+        message: t('updates.releaseNotFound', { channel: t(UPDATE_CHANNEL_LABEL_KEYS[channel]) }),
       };
     }
 
@@ -318,7 +325,10 @@ export async function checkAppUpdates(
         ...baseResult,
         release: releaseSummary,
         status: 'error',
-        message: `Unable to compare ${releaseSummary.tagName} with ${environment.currentVersion}.`,
+        message: t('updates.versionCompareFailed', {
+          tag: releaseSummary.tagName,
+          version: environment.currentVersion,
+        }),
       };
     }
 
@@ -331,7 +341,7 @@ export async function checkAppUpdates(
         comparison,
         release: releaseSummary,
         status: 'up-to-date',
-        message: `Qortium Home is up to date on ${channel}.`,
+        message: t('updates.upToDateOnChannel', { channel: t(UPDATE_CHANNEL_LABEL_KEYS[channel]) }),
       };
     }
 
@@ -341,7 +351,10 @@ export async function checkAppUpdates(
         comparison,
         release: releaseSummary,
         status: 'no-compatible-asset',
-        message: `${releaseSummary.tagName} does not include a ${environment.platform.label} asset.`,
+        message: t('updates.noCompatibleAsset', {
+          platform: environment.platform.label,
+          tag: releaseSummary.tagName,
+        }),
       };
     }
 
@@ -351,13 +364,16 @@ export async function checkAppUpdates(
       comparison,
       release: releaseSummary,
       status: 'available',
-      message: `${releaseSummary.tagName} is available for ${environment.platform.label}.`,
+      message: t('updates.available', {
+        platform: environment.platform.label,
+        tag: releaseSummary.tagName,
+      }),
     };
   } catch (error) {
     return {
       ...baseResult,
       status: 'error',
-      message: error instanceof Error ? error.message : 'Unable to check Qortium Home releases.',
+      message: error instanceof Error ? error.message : t('updates.checkReleasesFailed'),
     };
   }
 }

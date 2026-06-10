@@ -1,17 +1,27 @@
 import { formatBytes } from './appUpdateState';
+import { t } from './i18n';
 
 function getProgressText(progress: QortiumAppUpdateDownloadProgress) {
   if (progress.percent !== null && progress.totalBytes !== null) {
-    return `${progress.message} ${progress.percent}% (${formatBytes(progress.receivedBytes)} of ${formatBytes(
-      progress.totalBytes,
-    )})`;
+    return t('updates.progressPercentBytes', {
+      message: progress.message,
+      percent: progress.percent,
+      received: formatBytes(progress.receivedBytes),
+      total: formatBytes(progress.totalBytes),
+    });
   }
 
   if (progress.percent !== null) {
-    return `${progress.message} ${progress.percent}%`;
+    return t('common.progressWithPercent', {
+      message: progress.message,
+      percent: progress.percent,
+    });
   }
 
-  return `${progress.message} (${formatBytes(progress.receivedBytes)})`;
+  return t('updates.progressBytes', {
+    message: progress.message,
+    received: formatBytes(progress.receivedBytes),
+  });
 }
 
 export function AppUpdateProgress({

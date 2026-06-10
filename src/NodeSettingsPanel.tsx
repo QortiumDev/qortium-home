@@ -1,9 +1,9 @@
 import { Check, RefreshCw } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
+import { t } from './i18n';
 import { isNativePlatform } from './platform';
 import { SettingsSection } from './SettingsSection';
-import { SETTINGS_TEXT } from './settingsText';
 
 type ConfigMessage = {
   kind: 'error' | 'success';
@@ -20,7 +20,7 @@ type NodeSettingsPanelProps = {
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to update node settings.';
+    return t('node.updateSettingsFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -36,14 +36,14 @@ function getNodeSettingsRequest(mode: QortiumNodeSettingsMode, customUrl: string
 
 function formatMode(mode: QortiumNodeSettingsMode) {
   if (mode === 'custom') {
-    return 'Custom';
+    return t('node.mode.custom');
   }
 
   if (mode === 'network') {
-    return 'Previewnet network';
+    return t('node.mode.network');
   }
 
-  return 'Local node';
+  return t('node.mode.local');
 }
 
 function getNodeSettingsSummary(nodeSettings: QortiumNodeSettings) {
@@ -56,10 +56,10 @@ function getNodeSettingsSummary(nodeSettings: QortiumNodeSettings) {
 
 function getApiKeyHint(mode: QortiumNodeSettingsMode) {
   if (mode === 'custom') {
-    return 'Used for protected admin calls on this custom node.';
+    return t('node.apiKeyHintCustom');
   }
 
-  return 'Home detects this from the active local Core when available.';
+  return t('node.apiKeyHintLocal');
 }
 
 export function NodeSettingsPanel({
@@ -96,7 +96,7 @@ export function NodeSettingsPanel({
 
       setConfigMessage({
         kind: result.ok ? 'success' : 'error',
-        text: result.ok ? `Connected to ${result.nodeApiUrl}.` : result.message,
+        text: result.ok ? t('node.connected', { nodeApiUrl: result.nodeApiUrl }) : result.message,
       });
     } catch (error) {
       setConfigMessage({
@@ -119,7 +119,7 @@ export function NodeSettingsPanel({
       onResolvedNodeApiUrl(settings.nodeApiUrl);
       setConfigMessage({
         kind: 'success',
-        text: `Using ${settings.nodeApiUrl}.`,
+        text: t('node.usingNode', { nodeApiUrl: settings.nodeApiUrl }),
       });
     } catch (error) {
       setConfigMessage({
@@ -136,13 +136,13 @@ export function NodeSettingsPanel({
       defaultExpanded
       isExpanded={isExpanded}
       summary={getNodeSettingsSummary(nodeSettings)}
-      title={SETTINGS_TEXT.sections.nodeSettings}
+      title={t('node.sectionTitle')}
       onExpandedChange={onExpandedChange}
     >
       <div className="node-settings">
       <form className="node-settings__form" onSubmit={handleSave}>
         <label className="field">
-          <span className="field__label">{SETTINGS_TEXT.labels.node}</span>
+          <span className="field__label">{t('node.nodeLabel')}</span>
           <select
             className="field__input"
             value={mode}
@@ -154,20 +154,20 @@ export function NodeSettingsPanel({
               setConfigMessage(null);
             }}
           >
-            <option value="local">Local node</option>
+            <option value="local">{t('node.mode.local')}</option>
             {nodeSettings.networkModeAvailable ? (
-              <option value="network">Previewnet network</option>
+              <option value="network">{t('node.mode.network')}</option>
             ) : null}
-            <option value="custom">Custom</option>
+            <option value="custom">{t('node.mode.custom')}</option>
           </select>
         </label>
 
         {mode === 'custom' ? (
           <label className="field">
-            <span className="field__label">Custom URL</span>
+            <span className="field__label">{t('node.customUrl')}</span>
             <input
               className="field__input"
-              placeholder="http://127.0.0.1:24891"
+              placeholder={t('node.customUrlPlaceholder')}
               spellCheck={false}
               type="text"
               value={customUrl}
@@ -179,21 +179,21 @@ export function NodeSettingsPanel({
           </label>
         ) : mode === 'network' ? (
           <p className="node-settings__preset">
-            <span>{SETTINGS_TEXT.labels.endpoint}</span>
+            <span>{t('common.endpoint')}</span>
             <span>
-              Public read-only browsing through {nodeSettings.networkSeedUrls.length.toLocaleString()} seeds
+              {t('node.networkSummary', { count: nodeSettings.networkSeedUrls.length.toLocaleString() })}
             </span>
           </p>
         ) : (
           <p className="node-settings__preset">
-            <span>{SETTINGS_TEXT.labels.endpoint}</span>
+            <span>{t('common.endpoint')}</span>
             <span>{nodeSettings.localUrl}</span>
           </p>
         )}
 
         {showApiKeyField ? (
           <label className="field">
-            <span className="field__label">API key</span>
+            <span className="field__label">{t('node.apiKey')}</span>
             <input
               autoComplete="off"
               className="field__input"
@@ -217,11 +217,11 @@ export function NodeSettingsPanel({
             onClick={handleTestConnection}
           >
             <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-            {isTesting ? SETTINGS_TEXT.actions.testing : SETTINGS_TEXT.actions.test}
+            {isTesting ? t('node.testing') : t('node.test')}
           </button>
           <button className="button" disabled={isSaving || isTesting} type="submit">
             <Check aria-hidden="true" size={18} strokeWidth={2} />
-            {isSaving ? SETTINGS_TEXT.actions.saving : SETTINGS_TEXT.actions.save}
+            {isSaving ? t('common.saving') : t('common.save')}
           </button>
         </div>
 

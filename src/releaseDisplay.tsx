@@ -1,7 +1,7 @@
 import { ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { compareAppVersions } from './appUpdates';
-import { SETTINGS_TEXT } from './settingsText';
+import { t } from './i18n';
 
 const HOME_RELEASE_TAG_BASE_URL = 'https://github.com/QortiumDev/qortium-home/releases/tag';
 
@@ -62,7 +62,7 @@ export function LinkedValue({
   return (
     <button
       className={className}
-      title={title ?? `Open ${children}`}
+      title={title ?? t('common.openItem', { target: children })}
       type="button"
       onClick={() => {
         void window.qortiumHome.updates.openReleasePage(url);
@@ -78,7 +78,7 @@ export function PathValue({ path }: { path: string }) {
   return (
     <button
       className="value-link value-link--path"
-      title={`Open ${path}`}
+      title={t('common.openItem', { target: path })}
       type="button"
       onClick={() => {
         void window.qortiumHome.system?.openPath(path);
@@ -167,18 +167,18 @@ export function getPreferredCoreReleaseTarget({
 
 export function getCoreVersionValue(status: QortiumCoreStatus | null) {
   if (!status) {
-    return SETTINGS_TEXT.status.checking;
+    return t('common.checking');
   }
 
   if (!status.supported) {
-    return SETTINGS_TEXT.status.unavailable;
+    return t('common.unavailable');
   }
 
   if (status.installed) {
     return status.installed.tagName;
   }
 
-  return status.runtime.running ? SETTINGS_TEXT.status.detected : SETTINGS_TEXT.status.notInstalled;
+  return status.runtime.running ? t('common.detected') : t('common.notInstalled');
 }
 
 export function getCoreReleaseBusyAction(channel: QortiumCoreChannel | null | undefined) {
@@ -213,32 +213,32 @@ export function getHomeUpdateStatusText({
   }
 
   if (isDownloading) {
-    return SETTINGS_TEXT.status.downloading;
+    return t('common.downloading');
   }
 
   if (downloadedUpdate?.canOpen) {
-    return SETTINGS_TEXT.status.downloaded;
+    return t('common.downloaded');
   }
 
   if (isChecking || !environment || !result) {
-    return SETTINGS_TEXT.status.checking;
+    return t('common.checking');
   }
 
   if (result.status === 'available') {
-    return SETTINGS_TEXT.status.updateAvailable;
+    return t('common.updateAvailable');
   }
 
   if (result.status === 'up-to-date') {
-    return SETTINGS_TEXT.status.upToDate;
+    return t('common.upToDate');
   }
 
   if (result.status === 'no-compatible-asset') {
-    return SETTINGS_TEXT.status.noCompatibleInstaller;
+    return t('updates.statusNoCompatibleInstaller');
   }
 
   if (result.status === 'unsupported') {
-    return SETTINGS_TEXT.status.unsupported;
+    return t('common.unsupported');
   }
 
-  return result.message || SETTINGS_TEXT.status.unavailable;
+  return result.message || t('common.unavailable');
 }

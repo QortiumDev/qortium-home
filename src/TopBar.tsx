@@ -3,6 +3,7 @@ import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeStatusButton } from './NodeStatusButton';
 import { Popover } from './components/Popover';
+import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 import type { AppRoute } from './routes';
 import { parseAppAddress } from './routes';
 
@@ -66,21 +67,21 @@ type HistoryMenuItem = {
 };
 
 const accountProfileCache = new Map<string, Promise<QortiumAccountProfile>>();
-const ADDRESS_SCHEME_SUGGESTIONS = [
+const ADDRESS_SCHEME_SUGGESTIONS: Array<{ descriptionKey: TranslationKey; value: string }> = [
   {
-    description: 'QDN',
+    descriptionKey: 'address.suggestionQdn',
     value: 'qdn://',
   },
   {
-    description: 'Core',
+    descriptionKey: 'address.suggestionCore',
     value: 'core://',
   },
   {
-    description: 'Home',
+    descriptionKey: 'address.suggestionHome',
     value: 'home://dashboard',
   },
   {
-    description: 'Settings',
+    descriptionKey: 'common.settings',
     value: 'home://settings',
   },
 ];
@@ -89,11 +90,11 @@ const TAB_DRAG_START_MIN_DISTANCE_PX = 8;
 
 function formatHistoryEntry(entry: AppRoute) {
   if (entry.kind === 'dashboard') {
-    return 'Dashboard';
+    return t('common.dashboard');
   }
 
   if (entry.kind === 'settings') {
-    return 'Settings';
+    return t('common.settings');
   }
 
   return entry.displayUrl;
@@ -152,7 +153,7 @@ function getAccountTooltip(account: QortiumAccountSummary, profile: QortiumAccou
 
 function formatAccountActionError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Account action failed.';
+    return t('account.actionFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -246,7 +247,7 @@ function AccountChip({
     }
 
     if (!password) {
-      setAccountError('Enter the wallet password.');
+      setAccountError(t('account.enterWalletPassword'));
       return;
     }
 
@@ -266,9 +267,15 @@ function AccountChip({
     }
   }
 
-  const displayName = profile?.name ?? account?.label ?? 'No account';
-  const statusLabel = account?.isUnlocked ? 'Unlocked' : account ? 'Locked' : 'No account selected';
-  const accountChipTitle = account ? `${getAccountTooltip(account, profile)} - ${statusLabel}` : statusLabel;
+  const displayName = profile?.name ?? account?.label ?? t('account.noAccount');
+  const statusLabel = account?.isUnlocked
+    ? t('account.statusUnlocked')
+    : account
+      ? t('account.statusLocked')
+      : t('account.noAccountSelected');
+  const accountChipTitle = account
+    ? t('account.chipTitle', { accountDetails: getAccountTooltip(account, profile), status: statusLabel })
+    : statusLabel;
   const avatarUrl = profile?.avatarUrl;
   const showAvatar = !!avatarUrl && !hasAvatarError;
 
@@ -277,7 +284,7 @@ function AccountChip({
       className="account-menu"
       contentClassName="account-menu__popover"
       contentId="top-bar-account-menu"
-      contentLabel="Account"
+      contentLabel={t('account.menuLabel')}
       onOpenChange={onMenuOpenChange}
       renderTrigger={({ contentId, isOpen, toggle }) => (
         <button
@@ -287,7 +294,9 @@ function AccountChip({
           aria-controls={isOpen ? contentId : undefined}
           aria-expanded={isOpen}
           aria-haspopup="dialog"
-          aria-label={account ? `Account, ${displayName}, ${statusLabel}` : 'Account, no account selected'}
+          aria-label={
+            account ? t('account.chipAria', { name: displayName, status: statusLabel }) : t('account.chipAriaEmpty')
+          }
           onClick={toggle}
         >
           {showAvatar ? (
@@ -328,7 +337,7 @@ function AccountChip({
           {account ? (
             <p className="account-menu__address">{account.address}</p>
           ) : (
-            <p className="account-menu__message">Select a wallet on the Dashboard to use account actions.</p>
+            <p className="account-menu__message">{t('account.selectWalletHint')}</p>
           )}
 
           {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
@@ -336,7 +345,7 @@ function AccountChip({
           {account && isUnlocking ? (
             <form className="account-menu__unlock" onSubmit={(event) => void handleUnlockSubmit(event, close)}>
               <label className="field">
-                <span className="field__label">Password</span>
+                <span className="field__label">{t('common.password')}</span>
                 <input
                   autoFocus
                   className="field__input"
@@ -356,7 +365,7 @@ function AccountChip({
                     setAccountError('');
                   }}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button className="button button--primary" disabled={isBusy} type="submit">
                   {isBusy ? (
@@ -364,7 +373,7 @@ function AccountChip({
                   ) : (
                     <Unlock aria-hidden="true" size={18} strokeWidth={2} />
                   )}
-                  {isBusy ? 'Unlocking' : 'Unlock'}
+                  {isBusy ? t('common.unlocking') : t('common.unlock')}
                 </button>
               </div>
             </form>
@@ -378,7 +387,7 @@ function AccountChip({
                 ) : (
                   <Unlock aria-hidden="true" size={18} strokeWidth={2} />
                 )}
-                {isBusy ? 'Updating' : account.isUnlocked ? 'Lock' : 'Unlock'}
+                {isBusy ? t('common.updating') : account.isUnlocked ? t('common.lock') : t('common.unlock')}
               </button>
             </div>
           ) : null}
@@ -415,11 +424,12 @@ function HistoryButton({
   onMenuOpenChange,
   onStep,
 }: HistoryButtonProps) {
-  const label = direction === 'back' ? 'Back' : 'Forward';
+  const label = direction === 'back' ? t('common.back') : t('common.forward');
   const Icon = direction === 'back' ? ChevronLeft : ChevronRight;
+  const language = getTranslationLanguage();
   const items = useMemo(
     () => getHistoryItems(direction, historyEntries, historyIndex),
-    [direction, historyEntries, historyIndex],
+    [direction, historyEntries, historyIndex, language],
   );
 
   function handleContextMenu(event: MouseEvent<HTMLButtonElement>, open: () => void) {
@@ -435,14 +445,14 @@ function HistoryButton({
       className={`top-bar__history top-bar__history--${direction}`}
       contentClassName={`top-bar__history-popover top-bar__history-popover--${direction}`}
       contentId={`top-bar-${direction}-history`}
-      contentLabel={`${label} history`}
+      contentLabel={direction === 'back' ? t('address.backHistory') : t('address.forwardHistory')}
       contentRole="menu"
       onOpenChange={onMenuOpenChange}
       renderTrigger={({ close, contentId, isOpen, open }) => (
         <button
           className="icon-button top-bar__history-button"
           disabled={!canNavigate}
-          title={`${label} (right-click for history)`}
+          title={direction === 'back' ? t('address.backButtonTitle') : t('address.forwardButtonTitle')}
           type="button"
           aria-controls={isOpen ? contentId : undefined}
           aria-expanded={isOpen}
@@ -778,7 +788,7 @@ function BrowserTabs({
       <div
         className="top-bar__tab-list"
         role="tablist"
-        aria-label="Browser tabs"
+        aria-label={t('tabs.listLabel')}
         onDoubleClick={(event) => {
           if (event.currentTarget === event.target) {
             onAddTab();
@@ -836,8 +846,8 @@ function BrowserTabs({
               <button
                 className="top-bar__tab-close"
                 type="button"
-                title={`Close ${tab.label}`}
-                aria-label={`Close ${tab.label}`}
+                title={t('tabs.closeNamed', { label: tab.label })}
+                aria-label={t('tabs.closeNamed', { label: tab.label })}
                 onClick={() => onCloseTab(tab.id)}
               >
                 <X aria-hidden="true" size={16} strokeWidth={2} />
@@ -846,16 +856,16 @@ function BrowserTabs({
           );
         })}
       </div>
-      <button className="icon-button top-bar__new-tab" title="New tab" type="button" onClick={onAddTab}>
+      <button className="icon-button top-bar__new-tab" title={t('tabs.newTab')} type="button" onClick={onAddTab}>
         <Plus aria-hidden="true" size={20} strokeWidth={2} />
-        <span className="sr-only">New tab</span>
+        <span className="sr-only">{t('tabs.newTab')}</span>
       </button>
       {contextMenu && contextMenuTab ? (
         <div
           className="top-bar__tab-menu"
           ref={contextMenuRef}
           role="menu"
-          aria-label={`Tab options for ${contextMenuTab.label}`}
+          aria-label={t('tabs.contextMenuLabel', { label: contextMenuTab.label })}
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
@@ -867,7 +877,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(onAddTab)}
           >
-            New Tab
+            {t('tabs.newTab')}
           </button>
           <button
             className="top-bar__tab-menu-item"
@@ -875,7 +885,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(() => onReloadTab(contextMenuTab.id))}
           >
-            Reload Tab
+            {t('tabs.reloadTab')}
           </button>
           <button
             className="top-bar__tab-menu-item"
@@ -883,7 +893,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(() => onDuplicateTab(contextMenuTab.id))}
           >
-            Duplicate Tab
+            {t('tabs.duplicateTab')}
           </button>
           {onMoveTabToNewWindow ? (
             <button
@@ -892,7 +902,7 @@ function BrowserTabs({
               type="button"
               onClick={() => runTabMenuCommand(() => onMoveTabToNewWindow(contextMenuTab.id))}
             >
-              Move Tab to New Window
+              {t('tabs.moveTabToNewWindow')}
             </button>
           ) : null}
           <div className="top-bar__tab-menu-separator" role="separator" />
@@ -902,7 +912,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(() => onCloseTab(contextMenuTab.id))}
           >
-            Close Tab
+            {t('tabs.closeTab')}
           </button>
           <button
             className="top-bar__tab-menu-item"
@@ -911,7 +921,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(() => onCloseOtherTabs(contextMenuTab.id))}
           >
-            Close Other Tabs
+            {t('tabs.closeOtherTabs')}
           </button>
           <button
             className="top-bar__tab-menu-item"
@@ -920,7 +930,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(() => onCloseTabsToRight(contextMenuTab.id))}
           >
-            Close Tabs to the Right
+            {t('tabs.closeTabsToRight')}
           </button>
           <div className="top-bar__tab-menu-separator" role="separator" />
           <button
@@ -930,7 +940,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(onReopenClosedTab)}
           >
-            Reopen Closed Tab
+            {t('tabs.reopenClosedTab')}
           </button>
         </div>
       ) : null}
@@ -1135,15 +1145,15 @@ export function TopBar({
         />
         <button
           className="icon-button top-bar__reload-button"
-          title="Reload page"
+          title={t('address.reloadPage')}
           type="button"
           onClick={() => onReloadTab(activeTabId)}
         >
           <RefreshCw aria-hidden="true" size={20} strokeWidth={2} />
-          <span className="sr-only">Reload page</span>
+          <span className="sr-only">{t('address.reloadPage')}</span>
         </button>
         <label className="sr-only" htmlFor="browser-address">
-          Address
+          {t('address.label')}
         </label>
         <div className="top-bar__address-control">
           <Globe2 aria-hidden="true" className="top-bar__address-icon" size={20} strokeWidth={2} />
@@ -1151,7 +1161,7 @@ export function TopBar({
             autoComplete="off"
             className="top-bar__address-input"
             id="browser-address"
-            placeholder="qdn://APP, core://admin/status, or home://dashboard"
+            placeholder={t('address.placeholder')}
             spellCheck={false}
             type="text"
             role="combobox"
@@ -1254,16 +1264,16 @@ export function TopBar({
                   onClick={() => applyAddressSuggestion(suggestion)}
                 >
                   <span className="top-bar__address-suggestion-value">{suggestion.value}</span>
-                  <span className="top-bar__address-suggestion-label">{suggestion.description}</span>
+                  <span className="top-bar__address-suggestion-label">{t(suggestion.descriptionKey)}</span>
                 </button>
               ))}
             </div>
           ) : null}
           {addressError ? <p className="top-bar__error">{addressError}</p> : null}
         </div>
-        <button className="icon-button top-bar__go-button" title="Load address" type="submit">
+        <button className="icon-button top-bar__go-button" title={t('address.loadAddress')} type="submit">
           <ArrowRight aria-hidden="true" size={20} strokeWidth={2} />
-          <span className="sr-only">Load address</span>
+          <span className="sr-only">{t('address.loadAddress')}</span>
         </button>
       </form>
       <AccountChip

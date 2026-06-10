@@ -11,8 +11,8 @@ import {
   type TextSizeSetting,
   type ThemeSetting,
 } from './displaySettings';
+import { t } from './i18n';
 import { SettingsSection } from './SettingsSection';
-import { SETTINGS_TEXT } from './settingsText';
 
 type DisplaySettingsPanelProps = {
   displaySettings: DisplaySettings;
@@ -31,21 +31,23 @@ export function DisplaySettingsPanel({
   onThemeChange,
   onTextSizeChange,
 }: DisplaySettingsPanelProps) {
-  const summary = `${getThemeLabel(displaySettings.theme)}, ${getLanguageLabel(displaySettings.language)}, ${getTextSizeLabel(
-    displaySettings.textSize,
-  )}`;
+  const summary = t('display.summary', {
+    theme: getThemeLabel(displaySettings.theme),
+    language: getLanguageLabel(displaySettings.language),
+    textSize: getTextSizeLabel(displaySettings.textSize),
+  });
 
   return (
     <SettingsSection
       isExpanded={isExpanded}
       summary={summary}
-      title={SETTINGS_TEXT.sections.displaySettings}
+      title={t('display.sectionTitle')}
       onExpandedChange={onExpandedChange}
     >
       <div className="display-settings">
         <div className="display-settings__field">
-          <span className="field__label">{SETTINGS_TEXT.labels.theme}</span>
-          <div className="segmented-control" role="radiogroup" aria-label={SETTINGS_TEXT.labels.theme}>
+          <span className="field__label">{t('display.themeLabel')}</span>
+          <div className="segmented-control" role="radiogroup" aria-label={t('display.themeLabel')}>
             {THEME_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -57,13 +59,13 @@ export function DisplaySettingsPanel({
                 type="button"
                 onClick={() => onThemeChange(option.value)}
               >
-                {option.label}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>
         </div>
         <label className="display-settings__field field">
-          <span className="field__label">{SETTINGS_TEXT.labels.language}</span>
+          <span className="field__label">{t('display.languageLabel')}</span>
           <select
             className="select"
             value={displaySettings.language}
@@ -79,11 +81,10 @@ export function DisplaySettingsPanel({
               </option>
             ))}
           </select>
-          <span className="field__hint">{SETTINGS_TEXT.hints.language}</span>
         </label>
         <div className="display-settings__field">
-          <span className="field__label">{SETTINGS_TEXT.labels.textSize}</span>
-          <div className="segmented-control" role="radiogroup" aria-label={SETTINGS_TEXT.labels.textSize}>
+          <span className="field__label">{t('display.textSizeLabel')}</span>
+          <div className="segmented-control" role="radiogroup" aria-label={t('display.textSizeLabel')}>
             {TEXT_SIZE_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -95,7 +96,7 @@ export function DisplaySettingsPanel({
                 type="button"
                 onClick={() => onTextSizeChange(option.value)}
               >
-                {option.label}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>

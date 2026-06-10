@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { checkAppUpdates } from './appUpdates';
+import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 
 const UPDATE_CHANNELS: QortiumAppUpdateChannel[] = ['stable', 'prerelease'];
+const BYTE_UNIT_KEYS: TranslationKey[] = [
+  'common.unit.bytes',
+  'common.unit.kb',
+  'common.unit.mb',
+  'common.unit.gb',
+];
 
 export type UpdateMessage = {
   kind: 'error' | 'success';
@@ -12,7 +19,7 @@ type UpdateResultsByChannel = Partial<Record<QortiumAppUpdateChannel, QortiumApp
 
 export function formatUpdateError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to check app updates.';
+    return t('updates.checkFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -23,16 +30,20 @@ export function formatBytes(bytes: number) {
     return '-';
   }
 
-  const units = ['B', 'KB', 'MB', 'GB'];
   let value = bytes;
   let unitIndex = 0;
 
-  while (value >= 1024 && unitIndex < units.length - 1) {
+  while (value >= 1024 && unitIndex < BYTE_UNIT_KEYS.length - 1) {
     value /= 1024;
     unitIndex += 1;
   }
 
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+  const formattedValue = value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  const unitKey = BYTE_UNIT_KEYS[unitIndex];
+
+  return unitKey === 'common.unit.bytes'
+    ? t(unitKey, { count: formattedValue })
+    : t(unitKey, { value: formattedValue });
 }
 
 export function getDefaultUpdateChannel(
@@ -64,16 +75,19 @@ export function getDownloadedUpdateMessage(
   platform: QortiumAppUpdatePlatform | undefined,
 ) {
   if (isAndroidPlatform(platform)) {
-    return `Downloaded and verified ${downloadedUpdate.fileName}. Tap Install APK to continue with Android's installer.`;
+    return t('updates.downloadedVerifiedAndroid', {
+      fileName: downloadedUpdate.fileName,
+      installButton: t('updates.installApk'),
+    });
   }
 
   return downloadedUpdate.digestVerified
-    ? `Downloaded and verified ${downloadedUpdate.fileName}.`
-    : `Downloaded ${downloadedUpdate.fileName}.`;
+    ? t('updates.downloadedVerified', { fileName: downloadedUpdate.fileName })
+    : t('updates.downloadedFile', { fileName: downloadedUpdate.fileName });
 }
 
 export function getOpenDownloadedFileLabel(platform: QortiumAppUpdatePlatform | undefined) {
-  return isAndroidPlatform(platform) ? 'Install APK' : 'Show file';
+  return isAndroidPlatform(platform) ? t('updates.installApk') : t('updates.showFile');
 }
 
 function getUpdateDetailRows({
@@ -88,32 +102,32 @@ function getUpdateDetailRows({
   updatePlatform: QortiumAppUpdatePlatform | undefined;
 }) {
   const rows = [
-    { label: 'Current', value: environment?.currentVersion ?? 'Checking' },
-    { label: 'Platform', value: environment?.platform.label ?? 'Checking' },
+    { label: t('common.current'), value: environment?.currentVersion ?? t('common.checking') },
+    { label: t('common.platform'), value: environment?.platform.label ?? t('common.checking') },
   ];
 
   if (result?.release) {
-    rows.push({ label: 'Latest', value: result.release.tagName });
+    rows.push({ label: t('common.latest'), value: result.release.tagName });
   }
 
   if (result?.status === 'available' && result.asset) {
     rows.push(
-      { label: 'Asset', value: result.asset.name },
-      { label: 'Size', value: formatBytes(result.asset.size) },
-      { label: 'Digest', value: result.asset.digest ?? 'Unavailable' },
+      { label: t('updates.assetLabel'), value: result.asset.name },
+      { label: t('common.size'), value: formatBytes(result.asset.size) },
+      { label: t('common.digest'), value: result.asset.digest ?? t('common.unavailable') },
     );
   }
 
   if (downloadedUpdate) {
     rows.push(
-      { label: 'Downloaded', value: downloadedUpdate.fileName },
+      { label: t('common.downloaded'), value: downloadedUpdate.fileName },
       ...(isAndroidPlatform(updatePlatform)
         ? [
-            { label: 'Saved', value: downloadedUpdate.filePath },
-            { label: 'Install', value: downloadedUpdate.canOpen ? 'Ready' : 'Unavailable' },
+            { label: t('updates.savedLabel'), value: downloadedUpdate.filePath },
+            { label: t('updates.installLabel'), value: downloadedUpdate.canOpen ? t('common.ready') : t('common.unavailable') },
           ]
         : []),
-      { label: 'Verified', value: downloadedUpdate.digestVerified ? 'Yes' : 'No digest' },
+      { label: t('updates.verifiedLabel'), value: downloadedUpdate.digestVerified ? t('common.yes') : t('updates.noDigest') },
     );
   }
 
@@ -169,6 +183,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   const updatePlatform = result?.platform ?? environment?.platform;
   const updateAvailable = result?.status === 'available';
   const availableChannels = useMemo(() => getResultChannels(results), [results]);
+  const language = getTranslationLanguage();
 
   useEffect(() => {
     let isDisposed = false;
@@ -207,7 +222,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
         result,
         updatePlatform,
       }),
-    [channel, downloadedUpdate, environment, result, updatePlatform],
+    [channel, downloadedUpdate, environment, language, result, updatePlatform],
   );
 
   async function checkForUpdates() {
@@ -240,7 +255,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
       setChannelState(nextChannel);
       setMessage({
         kind: nextKind ?? 'error',
-        text: nextResult?.message ?? 'Unable to check Qortium Home releases.',
+        text: nextResult?.message ?? t('updates.checkReleasesFailed'),
       });
     } catch (error) {
       setMessage({
@@ -286,7 +301,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     setDownloadProgress({
       action: 'downloading',
       fileName: result.asset.name,
-      message: 'Downloading Qortium Home update',
+      message: t('updates.progressDownloadingHome'),
       percent: result.asset.size > 0 ? 0 : null,
       receivedBytes: 0,
       releaseTag: result.release.tagName,

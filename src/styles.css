@@ -382,7 +382,7 @@ h1 {
   overflow: hidden;
   color: var(--color-text);
   font: inherit;
-  text-align: right;
+  text-align: end;
   text-decoration: underline;
   text-decoration-color: var(--color-border-strong);
   text-underline-offset: 3px;
@@ -464,7 +464,7 @@ h1 {
   min-width: 0;
   padding: 4px 0;
   color: var(--color-text);
-  text-align: left;
+  text-align: start;
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -502,7 +502,7 @@ h1 {
   color: var(--color-text-subtle);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
-  text-align: right;
+  text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -742,7 +742,9 @@ h1 {
 .select {
   width: 100%;
   min-height: 42px;
-  padding: 8px 36px 8px 12px;
+  padding-block: 8px;
+  padding-inline-start: 12px;
+  padding-inline-end: 36px;
   overflow: hidden;
   color: var(--color-text);
   text-overflow: ellipsis;
@@ -1000,9 +1002,9 @@ h1 {
 
 .top-bar__tab-select {
   display: block;
-  padding-left: 10px;
+  padding-inline-start: 10px;
   overflow: hidden;
-  text-align: left;
+  text-align: start;
 }
 
 .top-bar__tab-label {
@@ -1060,7 +1062,7 @@ h1 {
   color: inherit;
   font: inherit;
   line-height: var(--line-height-small);
-  text-align: left;
+  text-align: start;
   text-overflow: ellipsis;
   white-space: nowrap;
   background: transparent;
@@ -1121,8 +1123,8 @@ h1 {
 }
 
 .top-bar__history-popover {
-  right: auto;
-  left: 0;
+  inset-inline-end: auto;
+  inset-inline-start: 0;
   width: min(20em, calc(100vw - 96px));
   min-width: min(15em, calc(100vw - 96px));
   max-height: min(22em, calc(100vh - 120px));
@@ -1145,7 +1147,7 @@ h1 {
   color: var(--color-text);
   font: inherit;
   line-height: var(--line-height-small);
-  text-align: left;
+  text-align: start;
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);
@@ -1240,7 +1242,7 @@ h1 {
   font: inherit;
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
-  text-align: left;
+  text-align: start;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -1330,7 +1332,7 @@ h1 {
 
 .account-chip__status {
   position: absolute;
-  right: 1px;
+  inset-inline-end: 1px;
   bottom: 1px;
   display: grid;
   width: 16px;
@@ -1491,7 +1493,7 @@ h1 {
 
 .node-status__dot {
   position: absolute;
-  right: 7px;
+  inset-inline-end: 7px;
   bottom: 7px;
   width: 8px;
   height: 8px;
@@ -1530,7 +1532,7 @@ h1 {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--color-text);
-  text-align: right;
+  text-align: end;
 }
 
 .node-settings,
@@ -1618,7 +1620,7 @@ h1 {
   color: var(--color-text-subtle);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
-  text-align: right;
+  text-align: end;
 }
 
 .node-settings__actions,
@@ -1646,7 +1648,7 @@ h1 {
 .popover-panel {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  inset-inline-end: 0;
   width: max-content;
   min-width: min(20em, calc(100vw - 40px));
   max-width: calc(100vw - 40px);
@@ -1685,7 +1687,7 @@ h1 {
   color: var(--color-text);
   font-size: var(--font-size-ui);
   line-height: var(--line-height-small);
-  text-align: right;
+  text-align: end;
 }
 
 .detail-list__value--technical {
@@ -2010,7 +2012,7 @@ h1 {
   min-height: 58px;
   padding: 10px 14px;
   color: var(--color-text);
-  text-align: left;
+  text-align: start;
   background: var(--color-frame-surface);
   border: 0;
   border-bottom: 1px solid var(--color-control-selected);
@@ -2100,7 +2102,7 @@ h1 {
   color: var(--color-text-secondary);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
-  text-align: right;
+  text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2117,7 +2119,7 @@ h1 {
   }
 
   .detail-list__value {
-    text-align: left;
+    text-align: start;
   }
 
   .detail-list__value--technical {
@@ -2179,7 +2181,7 @@ h1 {
 
   .settings-section__summary {
     grid-column: 2;
-    text-align: left;
+    text-align: start;
   }
 
   .segmented-control {
@@ -2266,7 +2268,7 @@ h1 {
 
   .qdn-explorer__row-meta {
     grid-column: 2;
-    text-align: left;
+    text-align: start;
   }
 }
 
@@ -2298,4 +2300,24 @@ h1 {
   .button__spinner {
     animation-duration: 1.6s;
   }
+}
+
+/* RTL: directional glyphs (lucide icons) do not auto-mirror with dir="rtl".
+   Only genuinely directional arrows/chevrons flip — refresh, plus, lock,
+   download, and globe icons stay as-is. */
+[dir="rtl"] .top-bar__history-button svg,
+[dir="rtl"] .top-bar__go-button svg {
+  transform: scaleX(-1);
+}
+
+/* Collapsed settings chevron points toward the content side: rotate the
+   ChevronDown +90deg (left) in RTL instead of -90deg (right). */
+[dir="rtl"] .settings-section__chevron {
+  transform: rotate(90deg);
+}
+
+/* Expanded still points down; declared after (equal specificity) so it wins
+   over the [dir="rtl"] collapsed override above. */
+[dir="rtl"] .settings-section__chevron--expanded {
+  transform: rotate(0deg);
 }
