@@ -26,6 +26,7 @@ import {
 } from './displaySettings';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
+import { setTranslationLanguage, t, type TranslationKey } from './i18n';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
@@ -132,7 +133,7 @@ function getDefaultAccountId(accountsState: QortiumAccountsState) {
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Account action failed.';
+    return t('account.actionFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -241,38 +242,38 @@ function createInitialTabState(): BrowserTabState {
   };
 }
 
-function getQdnWriteActionLabel(action: QortiumQdnWriteApprovalRequest['action']) {
+function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']): TranslationKey {
   switch (action) {
     case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
-      return 'Publish QDN Resources';
+      return 'qdnWrite.action.publishResources';
     case 'PUBLISH_QDN_RESOURCE':
-      return 'Publish QDN Resource';
+      return 'qdnWrite.action.publishResource';
     case 'DELETE_QDN_RESOURCE':
-      return 'Delete QDN Resource';
+      return 'qdnWrite.action.deleteResource';
     case 'APPROVE_GROUP_JOIN_REQUEST':
-      return 'Approve Group Join Request';
+      return 'qdnWrite.action.approveGroupJoinRequest';
     case 'INVITE_TO_GROUP':
-      return 'Invite To Group';
+      return 'qdnWrite.action.inviteToGroup';
     case 'JOIN_GROUP':
-      return 'Join Group';
+      return 'qdnWrite.action.joinGroup';
     case 'LEAVE_GROUP':
-      return 'Leave Group';
+      return 'qdnWrite.action.leaveGroup';
     case 'UPDATE_GROUP':
-      return 'Update Group';
+      return 'qdnWrite.action.updateGroup';
     case 'BUY_NAME':
-      return 'Buy Name';
+      return 'qdnWrite.action.buyName';
     case 'CANCEL_SELL_NAME':
-      return 'Cancel Name Sale';
+      return 'qdnWrite.action.cancelNameSale';
     case 'REGISTER_NAME':
-      return 'Register Name';
+      return 'qdnWrite.action.registerName';
     case 'SELL_NAME':
-      return 'Sell Name';
+      return 'qdnWrite.action.sellName';
     case 'UPDATE_NAME':
-      return 'Update Name';
+      return 'qdnWrite.action.updateName';
     case 'SEND_CHAT_MESSAGE':
-      return 'Send Chat Message';
+      return 'qdnWrite.action.sendChatMessage';
     default:
-      return 'QDN Write';
+      return 'qdnWrite.action.default';
   }
 }
 
@@ -292,14 +293,14 @@ function getQdnWriteGroupLabel(request: QortiumQdnWriteApprovalRequest) {
   return request.groupName ? `${request.groupName} (${request.groupId})` : String(request.groupId);
 }
 
-function getQdnWriteSourceLabel(sourceKind: QortiumQdnWriteApprovalRequest['sourceKind']) {
+function getQdnWriteSourceKey(sourceKind: QortiumQdnWriteApprovalRequest['sourceKind']): TranslationKey {
   switch (sourceKind) {
     case 'data':
-      return 'Data';
+      return 'qdnWrite.source.data';
     case 'directory':
-      return 'Folder';
+      return 'qdnWrite.source.folder';
     default:
-      return 'File';
+      return 'qdnWrite.source.file';
   }
 }
 
@@ -307,81 +308,81 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
   return (
     <ModalDialog onDismiss={() => onResolve(request.id, false)}>
       <section
-        aria-label="QDN write request"
+        aria-label={t('qdnWrite.dialogLabel')}
         aria-modal="true"
         className="unlock-dialog qdn-permission-dialog"
         role="dialog"
       >
-        <h2 className="unlock-dialog__title">Approve Request</h2>
-        <p className="unlock-dialog__account">{request.accountName || 'Selected account'}</p>
+        <h2 className="unlock-dialog__title">{t('qdnWrite.title')}</h2>
+        <p className="unlock-dialog__account">{request.accountName || t('qdnWrite.selectedAccountFallback')}</p>
         <p className="unlock-dialog__address">{request.address}</p>
         <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
         <dl className="detail-list qdn-permission-dialog__details">
           <div>
-            <dt>Action</dt>
-            <dd>{getQdnWriteActionLabel(request.action)}</dd>
+            <dt>{t('qdnWrite.field.action')}</dt>
+            <dd>{t(getQdnWriteActionKey(request.action))}</dd>
           </div>
           {request.resource ? (
             <div>
-              <dt>Resource</dt>
+              <dt>{t('qdnWrite.field.resource')}</dt>
               <dd>{getQdnWriteResourceLabel(request.resource)}</dd>
             </div>
           ) : null}
           {typeof request.resourceCount === 'number' ? (
             <div>
-              <dt>Resources</dt>
+              <dt>{t('qdnWrite.field.resources')}</dt>
               <dd>{request.resourceCount}</dd>
             </div>
           ) : null}
           {request.name ? (
             <div>
-              <dt>Name</dt>
+              <dt>{t('common.name')}</dt>
               <dd>{request.name}</dd>
             </div>
           ) : null}
           {typeof request.groupId === 'number' ? (
             <div>
-              <dt>Group</dt>
+              <dt>{t('qdnWrite.field.group')}</dt>
               <dd>{getQdnWriteGroupLabel(request)}</dd>
             </div>
           ) : null}
           {request.recipientAddress ? (
             <div>
-              <dt>Recipient</dt>
+              <dt>{t('qdnWrite.field.recipient')}</dt>
               <dd>{request.recipientAddress}</dd>
             </div>
           ) : null}
           {request.amount ? (
             <div>
-              <dt>Amount</dt>
+              <dt>{t('qdnWrite.field.amount')}</dt>
               <dd>{request.amount}</dd>
             </div>
           ) : null}
           {request.chatMessagePreview ? (
             <div>
-              <dt>Message</dt>
+              <dt>{t('qdnWrite.field.message')}</dt>
               <dd>{request.chatMessagePreview}</dd>
             </div>
           ) : null}
           {request.permissionScope === 'session' ? (
             <div>
-              <dt>Scope</dt>
-              <dd>This tab session</dd>
+              <dt>{t('qdnWrite.field.scope')}</dt>
+              <dd>{t('qdnWrite.scopeSession')}</dd>
             </div>
           ) : null}
           {request.sourceName ? (
             <div>
-              <dt>{getQdnWriteSourceLabel(request.sourceKind)}</dt>
+              <dt>{t(getQdnWriteSourceKey(request.sourceKind))}</dt>
               <dd>{request.sourceName}</dd>
             </div>
           ) : null}
         </dl>
         <div className="unlock-dialog__actions">
           <button className="button button--secondary" type="button" onClick={() => onResolve(request.id, false)}>
-            Deny
+            {t('qdnWrite.deny')}
           </button>
           <button className="button button--primary" type="button" onClick={() => onResolve(request.id, true)}>
-            Approve
+            {t('qdnWrite.approve')}
           </button>
         </div>
       </section>
@@ -393,11 +394,11 @@ function getTabLabel(tab: BrowserTab) {
   const route = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
 
   if (route.kind === 'dashboard') {
-    return 'Dashboard';
+    return t('common.dashboard');
   }
 
   if (route.kind === 'settings') {
-    return 'Settings';
+    return t('common.settings');
   }
 
   return route.displayUrl;
@@ -483,6 +484,10 @@ export function App() {
     () => resolveDisplaySettings(displaySettings, systemTheme),
     [displaySettings, systemTheme],
   );
+
+  // t() reads module state, so the active language must be set before children render;
+  // the layout effect that applies document-level settings runs too late for that.
+  setTranslationLanguage(displaySettings.language);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -625,7 +630,7 @@ export function App() {
         }
       } catch (error) {
         if (!isDisposed) {
-          setNodeSettingsError(error instanceof Error ? error.message : 'Unable to load node settings.');
+          setNodeSettingsError(error instanceof Error ? error.message : t('node.loadSettingsFailed'));
         }
       }
     }
@@ -1482,11 +1487,11 @@ export function App() {
   if (!nodeSettings || isLoadingWindowStartupPayload) {
     return (
       <main className="app-shell">
-        <section className="app-main" aria-label="Qortium Home">
+        <section className="app-main" aria-label={t('common.appName')}>
           <div className="home-content">
-            <h1>Qortium Home</h1>
+            <h1>{t('common.appName')}</h1>
             <p className={`app-message${nodeSettingsError ? ' app-message--error' : ''}`}>
-              {nodeSettingsError || (isLoadingWindowStartupPayload ? 'Loading window' : 'Loading node settings')}
+              {nodeSettingsError || (isLoadingWindowStartupPayload ? t('common.loadingWindow') : t('node.loadingSettings'))}
             </p>
           </div>
         </section>
@@ -1531,7 +1536,7 @@ export function App() {
       />
       <section
         className={appMainClassName}
-        aria-label={isDashboardRoute ? 'Dashboard' : isSettingsRoute ? 'Settings' : 'Browser page'}
+        aria-label={isDashboardRoute ? t('common.dashboard') : isSettingsRoute ? t('common.settings') : t('viewer.browserPageAria')}
         onPointerCancel={clearNavigationSwipe}
         onPointerDown={handleMainPointerDown}
         onPointerMove={handleMainPointerMove}

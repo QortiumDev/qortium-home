@@ -1,23 +1,24 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
+import { setTranslationLanguage, t, type TranslationKey } from './i18n';
 
 const TEXT_SIZE_STORAGE_KEY = 'qortium-home-text-size';
 const DISPLAY_SETTINGS_STORAGE_KEY = 'qortium-home-display-settings';
 
 export const THEME_OPTIONS = [
   {
-    label: 'System',
+    labelKey: 'display.theme.system',
     value: 'system',
   },
   {
-    label: 'Light',
+    labelKey: 'display.theme.light',
     value: 'light',
   },
   {
-    label: 'Dark',
+    labelKey: 'display.theme.dark',
     value: 'dark',
   },
-] as const;
+] as const satisfies readonly { labelKey: TranslationKey; value: string }[];
 
 export type ThemeSetting = (typeof THEME_OPTIONS)[number]['value'];
 export type ResolvedThemeSetting = Exclude<ThemeSetting, 'system'>;
@@ -109,30 +110,30 @@ export type LanguageSetting = (typeof LANGUAGE_OPTIONS)[number]['value'];
 
 export const TEXT_SIZE_OPTIONS = [
   {
-    label: 'Extra Small',
+    labelKey: 'display.textSize.extraSmall',
     value: 'extra-small',
   },
   {
-    label: 'Small',
+    labelKey: 'display.textSize.small',
     value: 'small',
   },
   {
-    label: 'Medium',
+    labelKey: 'display.textSize.medium',
     value: 'medium',
   },
   {
-    label: 'Large',
+    labelKey: 'display.textSize.large',
     value: 'large',
   },
   {
-    label: 'Extra Large',
+    labelKey: 'display.textSize.extraLarge',
     value: 'extra-large',
   },
   {
-    label: 'Huge',
+    labelKey: 'display.textSize.huge',
     value: 'huge',
   },
-] as const;
+] as const satisfies readonly { labelKey: TranslationKey; value: string }[];
 
 export type TextSizeSetting = (typeof TEXT_SIZE_OPTIONS)[number]['value'];
 
@@ -171,7 +172,7 @@ export function isTextSizeSetting(value: unknown): value is TextSizeSetting {
 }
 
 export function getThemeLabel(theme: ThemeSetting) {
-  return THEME_OPTIONS.find((option) => option.value === theme)?.label ?? 'System';
+  return t(THEME_OPTIONS.find((option) => option.value === theme)?.labelKey ?? 'display.theme.system');
 }
 
 export function getLanguageLabel(language: LanguageSetting) {
@@ -179,7 +180,7 @@ export function getLanguageLabel(language: LanguageSetting) {
 }
 
 export function getTextSizeLabel(textSize: TextSizeSetting) {
-  return TEXT_SIZE_OPTIONS.find((option) => option.value === textSize)?.label ?? 'Medium';
+  return t(TEXT_SIZE_OPTIONS.find((option) => option.value === textSize)?.labelKey ?? 'display.textSize.medium');
 }
 
 function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEXT_SIZE): DisplaySettings {
@@ -263,11 +264,19 @@ export function subscribeToSystemThemeChange(listener: (theme: ResolvedThemeSett
   return () => mediaQueryList.removeListener(handleChange);
 }
 
+const RTL_LANGUAGES = new Set<LanguageSetting>(['ar', 'he']);
+
+export function isRtlLanguage(language: LanguageSetting) {
+  return RTL_LANGUAGES.has(language);
+}
+
 function applyDocumentDisplaySettings(displaySettings: ResolvedDisplaySettings) {
+  setTranslationLanguage(displaySettings.language);
   document.documentElement.dataset.theme = displaySettings.theme;
   document.documentElement.dataset.language = displaySettings.language;
   document.documentElement.dataset.textSize = displaySettings.textSize;
   document.documentElement.lang = displaySettings.language;
+  document.documentElement.dir = isRtlLanguage(displaySettings.language) ? 'rtl' : 'ltr';
   document.documentElement.style.colorScheme = displaySettings.theme;
 }
 

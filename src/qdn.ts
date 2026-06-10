@@ -1,4 +1,5 @@
 import type { ResolvedDisplaySettings } from './displaySettings';
+import { t } from './i18n';
 
 export const PUBLIC_QDN_SERVICES = [
   'APP',
@@ -266,7 +267,7 @@ export function parseQdnUrl(value: string): QdnParseResult {
   if (!/^qdn:\/\//i.test(input)) {
     return {
       success: false,
-      message: 'Enter a qdn:// link.',
+      message: t('address.error.enterQdnLink'),
     };
   }
 
@@ -295,14 +296,14 @@ export function parseQdnUrl(value: string): QdnParseResult {
     if (!name) {
       return {
         success: false,
-        message: 'Enter a name after qdn://*/.',
+        message: t('address.error.nameAfterWildcard'),
       };
     }
 
     if (hasExtraPath || queryString) {
       return {
         success: false,
-        message: 'Wildcard QDN links only support qdn://*/name.',
+        message: t('address.error.wildcardFormat'),
       };
     }
 
@@ -319,7 +320,7 @@ export function parseQdnUrl(value: string): QdnParseResult {
   if (!isQdnService(service)) {
     return {
       success: false,
-      message: 'Only public QDN services can be browsed right now.',
+      message: t('address.error.publicServicesOnly'),
     };
   }
 
@@ -531,30 +532,30 @@ export function buildQdnRouteFromListItem(item: QdnResourceListItem): QdnRoute {
 export function formatQdnStatus(status: QdnResourceStatus | undefined) {
   switch (status?.status) {
     case 'BLOCKED':
-      return 'Blocked';
+      return t('qdnStatus.blocked');
     case 'BUILD_FAILED':
-      return 'Build failed';
+      return t('qdnStatus.buildFailed');
     case 'BUILDING':
-      return 'Building';
+      return t('qdnStatus.building');
     case 'DOWNLOADED':
-      return 'Downloaded';
+      return t('qdnStatus.downloaded');
     case 'DOWNLOADING':
-      return 'Downloading';
+      return t('qdnStatus.downloading');
     case 'FAILED_TO_DOWNLOAD':
-      return 'Download failed';
+      return t('qdnStatus.downloadFailed');
     case 'MISSING_DATA':
-      return 'Waiting for data';
+      return t('qdnStatus.waitingForData');
     case 'NOT_PUBLISHED':
-      return 'Not published';
+      return t('qdnStatus.notPublished');
     case 'READY':
-      return 'Ready';
+      return t('qdnStatus.ready');
     case 'REFETCHING':
-      return 'Refetching';
+      return t('qdnStatus.refetching');
     case 'SEARCHING':
-      return 'Searching';
+      return t('qdnStatus.searching');
     case 'UNSUPPORTED':
-      return 'Unsupported';
+      return t('qdnStatus.unsupported');
     default:
-      return status?.status ? status.status : 'Checking';
+      return status?.status ? status.status : t('qdnStatus.checking');
   }
 }

@@ -1,10 +1,12 @@
 import { Download, FolderOpen } from 'lucide-react';
+import { UPDATE_CHANNEL_LABEL_KEYS } from './appUpdates';
 import {
   type AppUpdatesState,
   formatBytes,
   getOpenDownloadedFileLabel,
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
+import { t } from './i18n';
 import {
   areReleaseTagsEqual,
   DetailList,
@@ -15,7 +17,6 @@ import {
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
-import { SETTINGS_TEXT } from './settingsText';
 
 type AppUpdatePanelProps = {
   isExpanded: boolean;
@@ -35,33 +36,33 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
   const showChannel = hasDistinctAvailableChannels(updates);
   const rows: DetailRow[] = [
     {
-      label: SETTINGS_TEXT.labels.status,
+      label: t('common.status'),
       value: getHomeUpdateStatusText(updates),
     },
     {
-      label: SETTINGS_TEXT.labels.version,
+      label: t('common.version'),
       value: (
         <LinkedValue url={getHomeReleaseUrl(updates.environment?.currentVersion)}>
-          {currentReleaseTag || SETTINGS_TEXT.status.checking}
+          {currentReleaseTag || t('common.checking')}
         </LinkedValue>
       ),
     },
     {
-      label: SETTINGS_TEXT.labels.platform,
-      value: updates.environment?.platform.label ?? SETTINGS_TEXT.status.checking,
+      label: t('common.platform'),
+      value: updates.environment?.platform.label ?? t('common.checking'),
     },
   ];
 
   if (showChannel) {
     rows.push({
-      label: SETTINGS_TEXT.labels.channel,
-      value: SETTINGS_TEXT.channels[updates.channel],
+      label: t('updates.channelLabel'),
+      value: t(UPDATE_CHANNEL_LABEL_KEYS[updates.channel]),
     });
   }
 
   if (updates.result?.release && !areReleaseTagsEqual(updates.result.release.tagName, currentReleaseTag)) {
     rows.push({
-      label: SETTINGS_TEXT.labels.latest,
+      label: t('common.latest'),
       value: (
         <LinkedValue url={updates.result.release.htmlUrl}>
           {updates.result.release.tagName}
@@ -72,14 +73,14 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 
   if (updates.updateAvailable && updates.result?.asset) {
     rows.push(
-      { label: SETTINGS_TEXT.labels.size, value: formatBytes(updates.result.asset.size) },
-      { label: SETTINGS_TEXT.labels.digest, value: updates.result.asset.digest ?? SETTINGS_TEXT.status.unavailable },
+      { label: t('common.size'), value: formatBytes(updates.result.asset.size) },
+      { label: t('common.digest'), value: updates.result.asset.digest ?? t('common.unavailable') },
     );
   }
 
   if (updates.downloadedUpdate) {
     rows.push({
-      label: SETTINGS_TEXT.status.downloaded,
+      label: t('common.downloaded'),
       value: updates.downloadedUpdate.fileName,
     });
   }
@@ -104,16 +105,16 @@ export function AppUpdatePanel({
     <SettingsSection
       isExpanded={isExpanded}
       isRefreshing={updates.isChecking}
-      refreshLabel={SETTINGS_TEXT.actions.checkForUpdates}
+      refreshLabel={t('updates.checkForUpdates')}
       summary={summary}
-      title={SETTINGS_TEXT.sections.qortiumHome}
+      title={t('common.appName')}
       onExpandedChange={onExpandedChange}
       onRefresh={updates.checkForUpdates}
     >
       <div className="app-updates">
         {showChannelSelect ? (
           <label className="field">
-            <span className="field__label">{SETTINGS_TEXT.labels.releaseChannel}</span>
+            <span className="field__label">{t('updates.releaseChannelLabel')}</span>
             <select
               className="field__input"
               disabled={updates.isChecking}
@@ -122,7 +123,7 @@ export function AppUpdatePanel({
             >
               {updates.availableChannels.map((channel) => (
                 <option key={channel} value={channel}>
-                  {SETTINGS_TEXT.channels[channel]}
+                  {t(UPDATE_CHANNEL_LABEL_KEYS[channel])}
                 </option>
               ))}
             </select>
@@ -143,7 +144,7 @@ export function AppUpdatePanel({
                 onClick={updates.downloadUpdate}
               >
                 <Download aria-hidden="true" size={18} strokeWidth={2} />
-                {updates.isDownloading ? SETTINGS_TEXT.actions.downloading : SETTINGS_TEXT.actions.downloadUpdate}
+                {updates.isDownloading ? t('common.downloading') : t('updates.downloadUpdate')}
               </button>
             ) : null}
             {showDownloadedAction ? (

@@ -1,6 +1,7 @@
 import { Download, Lock, Unlock, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ModalDialog } from './components/ModalDialog';
+import { t } from './i18n';
 import { isNativePlatform } from './platform';
 
 type PendingLoadedWallet = Extract<QortiumSelectWalletResult, { canceled: false }>;
@@ -16,7 +17,7 @@ type AccountsPanelProps = {
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Account action failed.';
+    return t('account.actionFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -47,11 +48,11 @@ function validateWalletName(
   const walletName = normalizeWalletName(name);
 
   if (!walletName) {
-    return 'Enter the wallet name.';
+    return t('account.enterWalletName');
   }
 
   if (findDuplicateWalletName(accounts, walletName, exceptAccountId)) {
-    return 'Wallet name already exists.';
+    return t('account.walletNameExists');
   }
 
   return '';
@@ -159,17 +160,17 @@ export function AccountsPanel({
     }
 
     if (!newWalletPassword) {
-      setCreateError('Enter the wallet password.');
+      setCreateError(t('account.enterWalletPassword'));
       return;
     }
 
     if (!newWalletPasswordConfirm) {
-      setCreateError('Confirm the wallet password.');
+      setCreateError(t('account.confirmWalletPassword'));
       return;
     }
 
     if (newWalletPassword !== newWalletPasswordConfirm) {
-      setCreateError('Wallet passwords do not match.');
+      setCreateError(t('account.passwordsDoNotMatch'));
       return;
     }
 
@@ -330,7 +331,7 @@ export function AccountsPanel({
       const result = await window.qortiumHome.accounts.exportWallet(activeAccount.id);
 
       if (!result.canceled) {
-        setAccountNotice(`Saved wallet backup as ${result.fileName}.`);
+        setAccountNotice(t('account.savedWalletBackup', { fileName: result.fileName }));
       }
     } catch (error) {
       setAccountError(formatError(error));
@@ -401,7 +402,7 @@ export function AccountsPanel({
     }
 
     if (!removingAccount.isUnlocked && !removePassword) {
-      setRemoveError('Enter the wallet password.');
+      setRemoveError(t('account.enterWalletPassword'));
       return;
     }
 
@@ -427,15 +428,13 @@ export function AccountsPanel({
   }
 
   return (
-    <section className="accounts-panel" aria-label="Accounts">
+    <section className="accounts-panel" aria-label={t('account.title')}>
       {isLoadingAccounts ? (
-        <p className="accounts-panel__message">Loading wallets…</p>
+        <p className="accounts-panel__message">{t('account.loadingWallets')}</p>
       ) : !hasSavedAccounts ? (
-        <p className="accounts-panel__message">
-          No wallets yet. Create a new wallet or load an existing wallet file to get started.
-        </p>
+        <p className="accounts-panel__message">{t('account.noWalletsYet')}</p>
       ) : null}
-      <div className="accounts-panel__actions" aria-label="Account actions">
+      <div className="accounts-panel__actions" aria-label={t('account.actionsLabel')}>
         {canCreateWallet ? (
           <button
             className={`button${!isLoadingAccounts && !hasSavedAccounts ? ' button--primary' : ''}`}
@@ -443,7 +442,7 @@ export function AccountsPanel({
             disabled={isLoadingAccounts || isCreatingWallet}
             onClick={openCreateDialog}
           >
-            {isCreatingWallet ? 'Creating' : 'New'}
+            {isCreatingWallet ? t('common.creating') : t('account.newWalletButton')}
           </button>
         ) : null}
         {canLoadWalletFile ? (
@@ -453,7 +452,7 @@ export function AccountsPanel({
             disabled={isLoadingAccounts || isLoadingWallet || isSavingLoadedWallet}
             onClick={handleLoadWallet}
           >
-            {isLoadingWallet ? 'Loading' : 'Load'}
+            {isLoadingWallet ? t('common.loading') : t('account.loadWalletButton')}
           </button>
         ) : null}
       </div>
@@ -461,7 +460,7 @@ export function AccountsPanel({
       {hasSavedAccounts ? (
         <div className="account-selector">
           <label className="account-selector__label" htmlFor="selected-wallet">
-            Selected wallet
+            {t('account.selectedWallet')}
           </label>
           <div className="account-selector__control">
             <select
@@ -479,10 +478,10 @@ export function AccountsPanel({
             <div className="account-selector__buttons">
               {canExportWalletFile ? (
                 <button
-                  aria-label="Export selected wallet backup"
+                  aria-label={t('account.exportSelectedWallet')}
                   className="icon-button account-selector__export-button"
                   disabled={!activeAccount || isExportingWallet}
-                  title="Export selected wallet backup"
+                  title={t('account.exportSelectedWallet')}
                   type="button"
                   onClick={handleExportWallet}
                 >
@@ -490,22 +489,24 @@ export function AccountsPanel({
                 </button>
               ) : null}
               <button
-                aria-label={activeAccount?.isUnlocked ? 'Lock selected wallet' : 'Unlock selected wallet'}
+                aria-label={
+                  activeAccount?.isUnlocked ? t('account.lockSelectedWallet') : t('account.unlockSelectedWallet')
+                }
                 className={`icon-button account-selector__lock-button${
                   activeAccount?.isUnlocked ? ' account-selector__lock-button--unlocked' : ''
                 }`}
                 disabled={!activeAccount}
-                title={activeAccount?.isUnlocked ? 'Lock selected wallet' : 'Unlock selected wallet'}
+                title={activeAccount?.isUnlocked ? t('account.lockSelectedWallet') : t('account.unlockSelectedWallet')}
                 type="button"
                 onClick={handleLockToggle}
               >
                 {activeAccount?.isUnlocked ? <Unlock size={20} /> : <Lock size={20} />}
               </button>
               <button
-                aria-label="Remove selected wallet"
+                aria-label={t('account.removeSelectedWallet')}
                 className="icon-button account-selector__remove-button"
                 disabled={!activeAccount || isRemovingAccount}
-                title="Remove selected wallet"
+                title={t('account.removeSelectedWallet')}
                 type="button"
                 onClick={openRemoveDialog}
               >
@@ -514,7 +515,7 @@ export function AccountsPanel({
             </div>
           </div>
           {activeAccount ? (
-            <p className="account-selector__address" aria-label="Selected wallet address">
+            <p className="account-selector__address" aria-label={t('account.selectedWalletAddress')}>
               {activeAccount.address}
             </p>
           ) : null}
@@ -531,15 +532,15 @@ export function AccountsPanel({
       {isCreateDialogOpen ? (
         <ModalDialog onDismiss={closeCreateDialog}>
           <form
-            aria-label="Create account"
+            aria-label={t('account.newAccountTitle')}
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
             onSubmit={handleCreateSubmit}
           >
-            <h2 className="unlock-dialog__title">New Account</h2>
+            <h2 className="unlock-dialog__title">{t('account.newAccountTitle')}</h2>
             <label className="field">
-              <span className="field__label">Wallet name</span>
+              <span className="field__label">{t('account.walletName')}</span>
               <input
                 autoFocus
                 className="field__input"
@@ -549,7 +550,7 @@ export function AccountsPanel({
               />
             </label>
             <label className="field">
-              <span className="field__label">Password</span>
+              <span className="field__label">{t('common.password')}</span>
               <input
                 className="field__input"
                 type="password"
@@ -558,7 +559,7 @@ export function AccountsPanel({
               />
             </label>
             <label className="field">
-              <span className="field__label">Confirm password</span>
+              <span className="field__label">{t('account.confirmPassword')}</span>
               <input
                 className="field__input"
                 type="password"
@@ -576,10 +577,10 @@ export function AccountsPanel({
                 disabled={isCreatingWallet}
                 onClick={closeCreateDialog}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button className="button button--primary" type="submit" disabled={isCreatingWallet}>
-                {isCreatingWallet ? 'Creating' : 'Create'}
+                {isCreatingWallet ? t('common.creating') : t('common.create')}
               </button>
             </div>
           </form>
@@ -589,16 +590,16 @@ export function AccountsPanel({
       {pendingLoadedWallet ? (
         <ModalDialog onDismiss={closeLoadNameDialog}>
           <form
-            aria-label="Name loaded wallet"
+            aria-label={t('account.nameLoadedWalletLabel')}
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
             onSubmit={handleLoadNameSubmit}
           >
-            <h2 className="unlock-dialog__title">Name Wallet</h2>
+            <h2 className="unlock-dialog__title">{t('account.nameWalletTitle')}</h2>
             <p className="unlock-dialog__address">{pendingLoadedWallet.address}</p>
             <label className="field">
-              <span className="field__label">Wallet name</span>
+              <span className="field__label">{t('account.walletName')}</span>
               <input
                 autoFocus
                 className="field__input"
@@ -617,10 +618,10 @@ export function AccountsPanel({
                 disabled={isSavingLoadedWallet}
                 onClick={closeLoadNameDialog}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button className="button button--primary" type="submit" disabled={isSavingLoadedWallet}>
-                {isSavingLoadedWallet ? 'Saving' : 'Save'}
+                {isSavingLoadedWallet ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </form>
@@ -630,17 +631,17 @@ export function AccountsPanel({
       {unlockingAccount ? (
         <ModalDialog onDismiss={closeUnlockDialog}>
           <form
-            aria-label="Unlock account"
+            aria-label={t('account.unlockAccountTitle')}
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
             onSubmit={handleUnlockSubmit}
           >
-            <h2 className="unlock-dialog__title">Unlock Account</h2>
+            <h2 className="unlock-dialog__title">{t('account.unlockAccountTitle')}</h2>
             <p className="unlock-dialog__account">{unlockingAccount.label}</p>
             <p className="unlock-dialog__address">{unlockingAccount.address}</p>
             <label className="field">
-              <span className="field__label">Password</span>
+              <span className="field__label">{t('common.password')}</span>
               <input
                 autoFocus
                 className="field__input"
@@ -659,10 +660,10 @@ export function AccountsPanel({
                 disabled={isUnlocking}
                 onClick={closeUnlockDialog}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button className="button button--primary" type="submit" disabled={isUnlocking}>
-                {isUnlocking ? 'Unlocking' : 'Unlock'}
+                {isUnlocking ? t('common.unlocking') : t('common.unlock')}
               </button>
             </div>
           </form>
@@ -672,18 +673,18 @@ export function AccountsPanel({
       {removingAccount ? (
         <ModalDialog onDismiss={closeRemoveDialog}>
           <form
-            aria-label="Remove wallet"
+            aria-label={t('account.removeWalletTitle')}
             aria-modal="true"
             className="unlock-dialog"
             role="dialog"
             onSubmit={handleRemoveSubmit}
           >
-            <h2 className="unlock-dialog__title">Remove Wallet</h2>
+            <h2 className="unlock-dialog__title">{t('account.removeWalletTitle')}</h2>
             <p className="unlock-dialog__account">{removingAccount.label}</p>
             <p className="unlock-dialog__address">{removingAccount.address}</p>
             {!removingAccount.isUnlocked ? (
               <label className="field">
-                <span className="field__label">Password</span>
+                <span className="field__label">{t('common.password')}</span>
                 <input
                   autoFocus
                   className="field__input"
@@ -703,10 +704,10 @@ export function AccountsPanel({
                 disabled={isRemovingAccount}
                 onClick={closeRemoveDialog}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button className="button button--danger" type="submit" disabled={isRemovingAccount}>
-                {isRemovingAccount ? 'Removing' : 'Remove'}
+                {isRemovingAccount ? t('common.removing') : t('common.remove')}
               </button>
             </div>
           </form>

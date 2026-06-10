@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { t } from './i18n';
 
 export type OnChainCoreUpdateState =
   | {
@@ -22,7 +23,7 @@ const ACTIVE_ON_CHAIN_QDN_RESOURCE_STATUSES = new Set(['BUILDING', 'DOWNLOADING'
 
 export function formatCoreAdminError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to check approved on-chain Core updates.';
+    return t('core.onChain.checkFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -30,11 +31,11 @@ export function formatCoreAdminError(error: unknown) {
 
 function getOnChainCoreUpdateUnavailableMessage(nodeSettings: QortiumNodeSettings) {
   if (nodeSettings.mode === 'network') {
-    return 'Requires a local Core or trusted custom node with API key.';
+    return t('core.onChain.requiresLocalCore');
   }
 
   if (nodeSettings.mode === 'custom' && !nodeSettings.apiKey) {
-    return 'Save the custom node API key to check approved on-chain Core updates.';
+    return t('core.onChain.saveApiKey');
   }
 
   return null;
@@ -72,30 +73,30 @@ export function getOnChainCoreUpdateSummary(updateState: OnChainCoreUpdateState)
   }
 
   if (updateState.status.installStarted) {
-    return 'Approved Core update install has been scheduled.';
+    return t('core.onChain.installScheduled');
   }
 
   if (updateState.status.installing) {
-    return 'Approved Core update install is in progress.';
+    return t('core.onChain.installInProgress');
   }
 
   if (isOnChainCoreUpdateAttemptActive(updateState.status)) {
-    return 'Approved Core update data is downloading from QDN. Core will retry the install when the data is local.';
+    return t('core.onChain.downloadingWillRetry');
   }
 
   if (isOnChainQdnResourceActive(updateState.status)) {
-    return 'Approved Core update data is downloading from QDN.';
+    return t('core.onChain.downloading');
   }
 
   if (updateState.status.downloadStarted) {
-    return 'Approved Core update data download was requested.';
+    return t('core.onChain.downloadRequested');
   }
 
   if (updateState.status.autoUpdateMode === 'INSTALL') {
-    return 'Approved Core update available. Core auto-update is enabled and will install it automatically.';
+    return t('core.onChain.availableAutoInstall');
   }
 
-  return 'Approved Core update available.';
+  return t('core.onChain.available');
 }
 
 export function useOnChainCoreUpdate(nodeSettings: QortiumNodeSettings | null) {

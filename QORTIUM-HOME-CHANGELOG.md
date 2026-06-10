@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-09 - app: translate the home ui and add rtl support
+
+Made the language choice apply to Qortium Home's own interface. Every label, button, dialog, tooltip, status, and error message the app writes itself now comes from a translation catalog of about 365 entries, with matching translations for all twenty offered languages; strings were reworded where needed so sentences translate cleanly, and repeated wording (such as Cancel, Save, Unlock, and status words) now shares a single entry everywhere it appears. Arabic and Hebrew render right-to-left: the layout mirrors, directional arrows and chevrons flip, and device notch spacing stays on the correct physical side. The explanatory note under the language selector was removed. Messages that arrive from the node or operating system at runtime still appear in their original language, and the selected language continues to be passed to QDN apps as before. If a translation entry is ever missing, the English text is shown instead.
+
 ### 2026-06-09 - app: offer all core and hub languages in a dropdown
 
 Expanded the Display Settings language choice from English-only to the twenty languages currently supported across Qortium Core and Qortal Hub, shown by their native names (such as Deutsch, 日本語, and Русский) with separate Simplified and Traditional Chinese options and no flag icons. The language picker is now a dropdown instead of a row of buttons, sharing the same control style as the wallet selector. The chosen language is saved, applied to the page's language attribute, and passed to QDN apps that support it; Qortium Home's own interface remains English for now, and a note under the dropdown says so.

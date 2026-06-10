@@ -7,6 +7,7 @@ import {
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
+import { getTranslationLanguage, t } from './i18n';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
@@ -25,7 +26,6 @@ import {
   LinkedValue,
   type DetailRow,
 } from './releaseDisplay';
-import { SETTINGS_TEXT } from './settingsText';
 
 type DashboardPageProps = {
   accountsError: string;
@@ -58,7 +58,7 @@ function getCoreDashboardStatusText({
   }
 
   if (onChainCoreUpdate.state === 'installing') {
-    return 'Starting approved Core update.';
+    return t('core.onChain.installStarting');
   }
 
   const onChainUpdateSummary = getOnChainCoreUpdateSummary(onChainCoreUpdate);
@@ -68,34 +68,34 @@ function getCoreDashboardStatusText({
   }
 
   if (!status) {
-    return SETTINGS_TEXT.status.checking;
+    return t('common.checking');
   }
 
   if (status.runtime.blocked) {
-    return SETTINGS_TEXT.status.runtimeBlocked;
+    return t('core.statusRuntimeBlocked');
   }
 
   if (!status.supported) {
-    return SETTINGS_TEXT.status.unsupported;
+    return t('common.unsupported');
   }
 
   if (!status.installed && status.runtime.running) {
-    return SETTINGS_TEXT.status.localCoreDetected;
+    return t('core.statusLocalCoreDetected');
   }
 
   if (!status.installed) {
-    return SETTINGS_TEXT.status.notInstalled;
+    return t('common.notInstalled');
   }
 
   if (!status.java.available && !status.runtime.running) {
-    return SETTINGS_TEXT.status.javaRequired;
+    return t('core.statusJavaRequired');
   }
 
   if (stableUpdateAvailable || prereleaseUpdateAvailable) {
-    return SETTINGS_TEXT.status.updateAvailable;
+    return t('common.updateAvailable');
   }
 
-  return SETTINGS_TEXT.status.upToDate;
+  return t('common.upToDate');
 }
 
 function getCoreRows({
@@ -121,7 +121,7 @@ function getCoreRows({
   const installedVersion = status?.installed?.tagName ?? '';
   const rows: DetailRow[] = [
     {
-      label: SETTINGS_TEXT.labels.status,
+      label: t('common.status'),
       value: getCoreDashboardStatusText({
         coreMessage,
         onChainCoreUpdate,
@@ -131,7 +131,7 @@ function getCoreRows({
       }),
     },
     {
-      label: SETTINGS_TEXT.labels.version,
+      label: t('common.version'),
       value: (
         <LinkedValue className="dashboard-card__version-link" url={status?.installed?.htmlUrl}>
           {getCoreVersionValue(status)}
@@ -144,14 +144,14 @@ function getCoreRows({
 
   if (runtimeBlockedMessage) {
     rows.push({
-      label: SETTINGS_TEXT.labels.runtimeIssue,
+      label: t('core.runtimeIssue'),
       value: runtimeBlockedMessage,
     });
   }
 
   if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
     rows.push({
-      label: SETTINGS_TEXT.labels.latest,
+      label: t('common.latest'),
       value: (
         <LinkedValue className="dashboard-card__version-link" url={latestRelease.htmlUrl}>
           {latestRelease.tagName}
@@ -193,6 +193,7 @@ function ManagedCoreDashboardCard({
     !!releaseTarget &&
     releaseTargetUpdateAvailable;
   const releaseTargetBusyAction = getCoreReleaseBusyAction(releaseTarget?.channel);
+  const language = getTranslationLanguage();
   const rows = useMemo(
     () =>
       getCoreRows({
@@ -209,6 +210,7 @@ function ManagedCoreDashboardCard({
       coreManager.releases,
       coreManager.stableUpdateAvailable,
       coreManager.status,
+      language,
       onChainCoreUpdate.status,
     ],
   );
@@ -219,9 +221,9 @@ function ManagedCoreDashboardCard({
   }
 
   return (
-    <section className="dashboard-card dashboard-card--core" aria-label={SETTINGS_TEXT.sections.qortiumCore}>
+    <section className="dashboard-card dashboard-card--core" aria-label={t('core.sectionTitle')}>
       <div className="dashboard-card__header">
-        <h2 className="dashboard-card__title">{SETTINGS_TEXT.sections.qortiumCore}</h2>
+        <h2 className="dashboard-card__title">{t('core.sectionTitle')}</h2>
       </div>
 
       <DetailList className="dashboard-card__details" rows={rows} />
@@ -234,7 +236,10 @@ function ManagedCoreDashboardCard({
           <span className="core-manager__progress-text">
             {coreManager.progressPercent === null
               ? coreManager.progress.message
-              : `${coreManager.progress.message} ${coreManager.progressPercent}%`}
+              : t('common.progressWithPercent', {
+                  message: coreManager.progress.message,
+                  percent: coreManager.progressPercent,
+                })}
           </span>
         </div>
       ) : null}
@@ -250,8 +255,8 @@ function ManagedCoreDashboardCard({
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
               {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
-                ? SETTINGS_TEXT.actions.installing
-                : SETTINGS_TEXT.actions.installApprovedUpdate}
+                ? t('common.installing')
+                : t('core.installApprovedUpdate')}
             </button>
           ) : null}
           {showReleaseUpdateAction && releaseTarget ? (
@@ -263,8 +268,8 @@ function ManagedCoreDashboardCard({
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
               {coreManager.busyAction === releaseTargetBusyAction
-                ? SETTINGS_TEXT.actions.installing
-                : SETTINGS_TEXT.actions.installUpdate}
+                ? t('common.installing')
+                : t('updates.installUpdate')}
             </button>
           ) : null}
         </div>
@@ -277,14 +282,14 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
   const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
   const rows: DetailRow[] = [
     {
-      label: SETTINGS_TEXT.labels.status,
+      label: t('common.status'),
       value: getHomeUpdateStatusText(updates),
     },
     {
-      label: SETTINGS_TEXT.labels.version,
+      label: t('common.version'),
       value: (
         <LinkedValue className="dashboard-card__version-link" url={getHomeReleaseUrl(updates.environment?.currentVersion)}>
-          {currentReleaseTag || SETTINGS_TEXT.status.checking}
+          {currentReleaseTag || t('common.checking')}
         </LinkedValue>
       ),
     },
@@ -292,7 +297,7 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 
   if (updates.result?.release && !areReleaseTagsEqual(updates.result.release.tagName, currentReleaseTag)) {
     rows.push({
-      label: SETTINGS_TEXT.labels.latest,
+      label: t('common.latest'),
       value: (
         <LinkedValue className="dashboard-card__version-link" url={updates.result.release.htmlUrl}>
           {updates.result.release.tagName}
@@ -312,9 +317,9 @@ function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
   const hasAction = showDownloadAction || showDownloadedAction;
 
   return (
-    <section className="dashboard-card dashboard-card--updates" aria-label={SETTINGS_TEXT.sections.qortiumHome}>
+    <section className="dashboard-card dashboard-card--updates" aria-label={t('common.appName')}>
       <div className="dashboard-card__header">
-        <h2 className="dashboard-card__title">{SETTINGS_TEXT.sections.qortiumHome}</h2>
+        <h2 className="dashboard-card__title">{t('common.appName')}</h2>
       </div>
 
       <DetailList className="dashboard-card__details" rows={rows} />
@@ -331,7 +336,7 @@ function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
               onClick={updates.downloadUpdate}
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
-              {updates.isDownloading ? SETTINGS_TEXT.actions.downloading : SETTINGS_TEXT.actions.downloadUpdate}
+              {updates.isDownloading ? t('common.downloading') : t('updates.downloadUpdate')}
             </button>
           ) : null}
           {showDownloadedAction ? (
@@ -368,19 +373,19 @@ export function DashboardPage({
   return (
     <div className="dashboard-page">
       <header className="dashboard-page__header">
-        <h1>Dashboard</h1>
+        <h1>{t('common.dashboard')}</h1>
       </header>
 
       <div className="dashboard-page__primary-action">
         <button className="button button--primary" type="button" onClick={onBrowseQdn}>
           <Globe2 aria-hidden="true" size={18} strokeWidth={2} />
-          Browse QDN
+          {t('explorer.browseQdn')}
         </button>
       </div>
 
-      <section className="dashboard-card dashboard-card--accounts" aria-label="Accounts">
+      <section className="dashboard-card dashboard-card--accounts" aria-label={t('account.title')}>
         <div className="dashboard-card__header">
-          <h2 className="dashboard-card__title">Accounts</h2>
+          <h2 className="dashboard-card__title">{t('account.title')}</h2>
         </div>
         <AccountsPanel
           accountsError={accountsError}

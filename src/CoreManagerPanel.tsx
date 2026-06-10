@@ -6,6 +6,7 @@ import {
   getCoreRuntimeBlockedMessage,
   type CoreManagerState,
 } from './coreManagerState';
+import { getTranslationLanguage, t } from './i18n';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
@@ -21,7 +22,6 @@ import {
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
-import { SETTINGS_TEXT } from './settingsText';
 
 type CoreManagerPanelProps = {
   coreManager: CoreManagerState;
@@ -42,7 +42,7 @@ function getCoreSettingsStatusText({
   }
 
   if (onChainCoreUpdate.status.state === 'installing') {
-    return 'Starting approved Core update.';
+    return t('core.onChain.installStarting');
   }
 
   const onChainSummary = getOnChainCoreUpdateSummary(onChainCoreUpdate.status);
@@ -52,34 +52,34 @@ function getCoreSettingsStatusText({
   }
 
   if (!coreManager.status) {
-    return SETTINGS_TEXT.status.checking;
+    return t('common.checking');
   }
 
   if (coreManager.status.runtime.blocked) {
-    return SETTINGS_TEXT.status.runtimeBlocked;
+    return t('core.statusRuntimeBlocked');
   }
 
   if (!coreManager.status.supported) {
-    return SETTINGS_TEXT.status.unsupported;
+    return t('common.unsupported');
   }
 
   if (!coreManager.status.installed && coreManager.status.runtime.running) {
-    return SETTINGS_TEXT.status.localCoreDetected;
+    return t('core.statusLocalCoreDetected');
   }
 
   if (!coreManager.status.installed) {
-    return SETTINGS_TEXT.status.notInstalled;
+    return t('common.notInstalled');
   }
 
   if (!coreManager.status.java.available && !coreManager.status.runtime.running) {
-    return SETTINGS_TEXT.status.javaRequired;
+    return t('core.statusJavaRequired');
   }
 
   if (coreManager.stableUpdateAvailable || coreManager.prereleaseUpdateAvailable) {
-    return SETTINGS_TEXT.status.updateAvailable;
+    return t('common.updateAvailable');
   }
 
-  return coreManager.status.runtime.running ? SETTINGS_TEXT.status.upToDate : SETTINGS_TEXT.status.stopped;
+  return coreManager.status.runtime.running ? t('common.upToDate') : t('common.stopped');
 }
 
 function getCoreSettingsRows({
@@ -98,11 +98,11 @@ function getCoreSettingsRows({
   const installedVersion = coreManager.status?.installed?.tagName ?? '';
   const rows: DetailRow[] = [
     {
-      label: SETTINGS_TEXT.labels.status,
+      label: t('common.status'),
       value: statusText,
     },
     {
-      label: SETTINGS_TEXT.labels.version,
+      label: t('common.version'),
       value: (
         <LinkedValue url={coreManager.status?.installed?.htmlUrl}>
           {getCoreVersionValue(coreManager.status)}
@@ -110,15 +110,15 @@ function getCoreSettingsRows({
       ),
     },
     {
-      label: SETTINGS_TEXT.labels.java,
+      label: t('core.javaLabel'),
       value: formatJava(coreManager.status?.java ?? null),
     },
     {
-      label: SETTINGS_TEXT.labels.runtime,
+      label: t('core.runtimeLabel'),
       value: formatRuntime(coreManager.status?.runtime ?? null),
     },
     {
-      label: SETTINGS_TEXT.labels.localApi,
+      label: t('node.localApi'),
       value: coreManager.status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891',
     },
   ];
@@ -127,14 +127,14 @@ function getCoreSettingsRows({
 
   if (runtimeBlockedMessage) {
     rows.push({
-      label: SETTINGS_TEXT.labels.runtimeIssue,
+      label: t('core.runtimeIssue'),
       value: runtimeBlockedMessage,
     });
   }
 
   if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
     rows.push({
-      label: SETTINGS_TEXT.labels.latest,
+      label: t('common.latest'),
       value: (
         <LinkedValue url={latestRelease.htmlUrl}>
           {latestRelease.tagName}
@@ -145,7 +145,7 @@ function getCoreSettingsRows({
 
   if (onChainCoreUpdate.status.state === 'unavailable') {
     rows.push({
-      label: SETTINGS_TEXT.labels.approvedUpdate,
+      label: t('core.approvedUpdateLabel'),
       value: onChainCoreUpdate.status.message,
     });
   }
@@ -186,23 +186,24 @@ export function CoreManagerPanel({
   const runtimeAction = !showJavaAction && coreManager.canStart
     ? {
         icon: <Play aria-hidden="true" size={18} strokeWidth={2} />,
-        label: coreManager.busyAction === 'starting' ? SETTINGS_TEXT.actions.starting : SETTINGS_TEXT.actions.startCore,
+        label: coreManager.busyAction === 'starting' ? t('common.starting') : t('core.startCore'),
         onClick: coreManager.startCore,
       }
     : !showJavaAction && coreManager.canStop
       ? {
           icon: <Square aria-hidden="true" size={18} strokeWidth={2} />,
-          label: coreManager.busyAction === 'stopping' ? SETTINGS_TEXT.actions.stopping : SETTINGS_TEXT.actions.stopCore,
+          label: coreManager.busyAction === 'stopping' ? t('common.stopping') : t('core.stopCore'),
           onClick: coreManager.stopCore,
         }
       : null;
+  const language = getTranslationLanguage();
   const rows = useMemo(
     () =>
       getCoreSettingsRows({
         coreManager,
         onChainCoreUpdate,
       }),
-    [coreManager, onChainCoreUpdate],
+    [coreManager, language, onChainCoreUpdate],
   );
   const summary = getCoreSettingsStatusText({ coreManager, onChainCoreUpdate });
 
@@ -219,9 +220,9 @@ export function CoreManagerPanel({
     <SettingsSection
       isExpanded={isExpanded}
       isRefreshing={coreManager.isBusy || onChainCoreUpdate.isBusy}
-      refreshLabel={SETTINGS_TEXT.actions.checkForUpdates}
+      refreshLabel={t('updates.checkForUpdates')}
       summary={summary}
-      title={SETTINGS_TEXT.sections.qortiumCore}
+      title={t('core.sectionTitle')}
       onExpandedChange={onExpandedChange}
       onRefresh={handleRefresh}
     >
@@ -236,7 +237,10 @@ export function CoreManagerPanel({
             <span className="core-manager__progress-text">
               {coreManager.progressPercent === null
                 ? coreManager.progress.message
-                : `${coreManager.progress.message} ${coreManager.progressPercent}%`}
+                : t('common.progressWithPercent', {
+                    message: coreManager.progress.message,
+                    percent: coreManager.progressPercent,
+                  })}
             </span>
           </div>
         ) : null}
@@ -251,8 +255,8 @@ export function CoreManagerPanel({
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
               {coreManager.busyAction === 'installing-java'
-                ? SETTINGS_TEXT.actions.installing
-                : SETTINGS_TEXT.actions.installJava}
+                ? t('common.installing')
+                : t('core.installJava')}
             </button>
           ) : null}
           {showOnChainInstallAction ? (
@@ -264,8 +268,8 @@ export function CoreManagerPanel({
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
               {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
-                ? SETTINGS_TEXT.actions.installing
-                : SETTINGS_TEXT.actions.installApprovedUpdate}
+                ? t('common.installing')
+                : t('core.installApprovedUpdate')}
             </button>
           ) : null}
           {showCoreInstallAction && releaseTarget ? (
@@ -277,10 +281,10 @@ export function CoreManagerPanel({
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
               {coreManager.busyAction === releaseTargetBusyAction
-                ? SETTINGS_TEXT.actions.installing
+                ? t('common.installing')
                 : coreManager.status?.installed
-                  ? SETTINGS_TEXT.actions.installUpdate
-                  : SETTINGS_TEXT.actions.installCore}
+                  ? t('updates.installUpdate')
+                  : t('core.installCore')}
             </button>
           ) : null}
           {runtimeAction ? (

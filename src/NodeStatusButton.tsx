@@ -1,6 +1,7 @@
 import { Check, Server, Settings as SettingsIcon, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Popover } from './components/Popover';
+import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 
 const STATUS_REFRESH_MS = 15_000;
 
@@ -22,11 +23,26 @@ type NodeStatusState =
   | { message?: string; nodeApiUrl?: string; state: 'unavailable' };
 
 type DisplayStatus =
-  | 'Behind'
-  | 'Connecting'
-  | 'Synced'
-  | 'Synchronizing'
-  | 'Unavailable';
+  | 'behind'
+  | 'connecting'
+  | 'synced'
+  | 'synchronizing'
+  | 'unavailable';
+
+const DISPLAY_STATUS_KEYS: Record<DisplayStatus, TranslationKey> = {
+  behind: 'node.status.behind',
+  connecting: 'node.status.connecting',
+  synced: 'node.status.synced',
+  synchronizing: 'node.status.synchronizing',
+  unavailable: 'node.status.unavailable',
+};
+
+const SYNC_PHASE_KEYS: Record<string, TranslationKey | undefined> = {
+  BEHIND: 'node.status.behind',
+  CONNECTING: 'node.status.connecting',
+  SYNCED: 'node.status.synced',
+  SYNCHRONIZING: 'node.status.synchronizing',
+};
 
 type DetailRow = {
   label: string;
@@ -42,7 +58,7 @@ type NodeStatusButtonProps = {
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to update node settings.';
+    return t('node.updateSettingsFailed');
   }
 
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -78,45 +94,45 @@ function isNodeStatusResponse(value: unknown): value is NodeStatusResponse {
 
 function getDisplayStatus(status: NodeStatusState): DisplayStatus {
   if (status.state === 'loading') {
-    return 'Connecting';
+    return 'connecting';
   }
 
   if (status.state === 'unavailable') {
-    return 'Unavailable';
+    return 'unavailable';
   }
 
   const syncPhase = status.data.syncPhase?.toUpperCase();
 
   if (syncPhase === 'CONNECTING') {
-    return 'Connecting';
+    return 'connecting';
   }
 
   if (syncPhase === 'SYNCHRONIZING') {
-    return 'Synchronizing';
+    return 'synchronizing';
   }
 
   if (syncPhase === 'BEHIND') {
-    return 'Behind';
+    return 'behind';
   }
 
   if (syncPhase === 'SYNCED') {
     if (status.data.isSynchronizing || getPositiveNumber(status.data.syncBlocksRemaining) > 0) {
-      return 'Synchronizing';
+      return 'synchronizing';
     }
 
-    return 'Synced';
+    return 'synced';
   }
 
   if (syncPhase) {
-    return 'Synchronizing';
+    return 'synchronizing';
   }
 
   if (status.data.isSynchronizing) {
-    return 'Synchronizing';
+    return 'synchronizing';
   }
 
   if (getPositiveNumber(status.data.syncBlocksRemaining) > 0) {
-    return 'Behind';
+    return 'behind';
   }
 
   if (
@@ -124,7 +140,7 @@ function getDisplayStatus(status: NodeStatusState): DisplayStatus {
     Number.isFinite(status.data.syncTargetHeight) &&
     status.data.height < status.data.syncTargetHeight
   ) {
-    return 'Behind';
+    return 'behind';
   }
 
   if (
@@ -132,10 +148,10 @@ function getDisplayStatus(status: NodeStatusState): DisplayStatus {
     Number.isFinite(status.data.syncPercent) &&
     status.data.syncPercent < 100
   ) {
-    return 'Synchronizing';
+    return 'synchronizing';
   }
 
-  return 'Synced';
+  return 'synced';
 }
 
 function getPositiveNumber(value: null | number | undefined) {
@@ -143,7 +159,7 @@ function getPositiveNumber(value: null | number | undefined) {
 }
 
 function formatBoolean(value: boolean) {
-  return value ? 'Yes' : 'No';
+  return value ? t('common.yes') : t('common.no');
 }
 
 function formatNumber(value: null | number | undefined) {
@@ -151,12 +167,18 @@ function formatNumber(value: null | number | undefined) {
 }
 
 function formatPercent(syncPercent: null | number | undefined) {
-  return typeof syncPercent === 'number' ? `${syncPercent.toFixed(0)}%` : 'Unknown';
+  return typeof syncPercent === 'number' ? `${syncPercent.toFixed(0)}%` : t('common.unknown');
 }
 
 function formatSyncPhase(syncPhase: null | string | undefined) {
   if (!syncPhase) {
-    return 'Legacy status';
+    return t('node.legacyStatus');
+  }
+
+  const knownPhaseKey = SYNC_PHASE_KEYS[syncPhase.toUpperCase()];
+
+  if (knownPhaseKey) {
+    return t(knownPhaseKey);
   }
 
   return syncPhase
@@ -198,7 +220,7 @@ export function NodeStatusButton({
         setNodeStatus({
           state: 'unavailable',
           nodeApiUrl: result.nodeApiUrl,
-          message: result.ok ? 'Node status response did not match the expected shape.' : result.message,
+          message: result.ok ? t('node.statusShapeError') : result.message,
         });
       } catch (error) {
         if (isMounted) {
@@ -220,6 +242,8 @@ export function NodeStatusButton({
   }, [nodeSettings.nodeApiUrl, onResolvedNodeApiUrl]);
 
   const displayStatus = getDisplayStatus(nodeStatus);
+  const statusLabel = t(DISPLAY_STATUS_KEYS[displayStatus]);
+  const language = getTranslationLanguage();
   const activeNodeApiUrl =
     nodeStatus.state === 'available' || nodeStatus.state === 'unavailable'
       ? nodeStatus.nodeApiUrl || nodeSettings.nodeApiUrl
@@ -228,48 +252,51 @@ export function NodeStatusButton({
     const rows: DetailRow[] =
       nodeStatus.state === 'available'
         ? [
-            { label: 'Node', value: activeNodeApiUrl },
-            { label: 'Status', value: displayStatus },
-            { label: 'Phase', value: formatSyncPhase(nodeStatus.data.syncPhase) },
-            { label: 'Progress', value: formatPercent(nodeStatus.data.syncPercent) },
-            { label: 'Height', value: nodeStatus.data.height.toLocaleString() },
-            { label: 'Target', value: formatNumber(nodeStatus.data.syncTargetHeight) },
-            { label: 'Blocks left', value: formatNumber(nodeStatus.data.syncBlocksRemaining) },
+            { label: t('node.nodeLabel'), value: activeNodeApiUrl },
+            { label: t('common.status'), value: statusLabel },
+            { label: t('node.detail.phase'), value: formatSyncPhase(nodeStatus.data.syncPhase) },
+            { label: t('node.detail.progress'), value: formatPercent(nodeStatus.data.syncPercent) },
+            { label: t('node.detail.height'), value: nodeStatus.data.height.toLocaleString() },
+            { label: t('node.detail.target'), value: formatNumber(nodeStatus.data.syncTargetHeight) },
+            { label: t('node.detail.blocksLeft'), value: formatNumber(nodeStatus.data.syncBlocksRemaining) },
             {
-              label: 'Peers',
-              value: `${nodeStatus.data.numberOfConnections.toLocaleString()} chain / ${nodeStatus.data.numberOfDataConnections.toLocaleString()} data`,
+              label: t('node.detail.peers'),
+              value: t('node.peersValue', {
+                chainCount: nodeStatus.data.numberOfConnections.toLocaleString(),
+                dataCount: nodeStatus.data.numberOfDataConnections.toLocaleString(),
+              }),
             },
-            { label: 'Minting', value: formatBoolean(nodeStatus.data.isMintingPossible) },
+            { label: t('node.detail.minting'), value: formatBoolean(nodeStatus.data.isMintingPossible) },
           ]
         : [
-            { label: 'Node', value: activeNodeApiUrl },
-            { label: 'Status', value: displayStatus },
+            { label: t('node.nodeLabel'), value: activeNodeApiUrl },
+            { label: t('common.status'), value: statusLabel },
           ];
 
     if (nodeStatus.state === 'unavailable' && nodeStatus.message) {
       rows.push({
-        label: 'Error',
+        label: t('common.error'),
         value: nodeStatus.message,
       });
     }
 
     return rows;
-  }, [activeNodeApiUrl, displayStatus, nodeStatus]);
+  }, [activeNodeApiUrl, language, nodeStatus, statusLabel]);
 
-  const Icon = displayStatus === 'Synced' ? Check : displayStatus === 'Unavailable' ? WifiOff : Server;
+  const Icon = displayStatus === 'synced' ? Check : displayStatus === 'unavailable' ? WifiOff : Server;
 
   return (
     <Popover
       className="node-status"
       contentClassName="node-status__popover"
       contentId={popoverId}
-      contentLabel="Node status"
+      contentLabel={t('node.statusPopoverLabel')}
       onOpenChange={onMenuOpenChange}
       renderTrigger={({ contentId, isOpen, toggle }) => (
         <button
           type="button"
-          className={`node-status__button node-status__button--${displayStatus.toLowerCase()}`}
-          aria-label={`Node status: ${displayStatus}`}
+          className={`node-status__button node-status__button--${displayStatus}`}
+          aria-label={t('node.statusAria', { status: statusLabel })}
           aria-controls={isOpen ? contentId : undefined}
           aria-expanded={isOpen}
           aria-haspopup="dialog"
@@ -301,7 +328,7 @@ export function NodeStatusButton({
               }}
             >
               <SettingsIcon aria-hidden="true" size={18} strokeWidth={2} />
-              Settings
+              {t('common.settings')}
             </button>
           </div>
         </div>
