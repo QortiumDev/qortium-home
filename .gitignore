@@ -6,3 +6,4 @@ dist-release/
 *.log
 npm-debug.log*
 package-lock.json.tmp
+CLAUDE.md
