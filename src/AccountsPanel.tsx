@@ -1,4 +1,4 @@
-import { Download, Lock, Unlock, X } from 'lucide-react';
+import { Download, Lock, Unlock, Wallet, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
@@ -430,9 +430,18 @@ export function AccountsPanel({
   return (
     <section className="accounts-panel" aria-label={t('account.title')}>
       {isLoadingAccounts ? (
-        <p className="accounts-panel__message">{t('account.loadingWallets')}</p>
+        <div className="accounts-panel__skeleton" aria-busy="true">
+          <p className="sr-only">{t('account.loadingWallets')}</p>
+          <span className="skeleton" aria-hidden="true" />
+          <span className="skeleton" aria-hidden="true" />
+        </div>
       ) : !hasSavedAccounts ? (
-        <p className="accounts-panel__message">{t('account.noWalletsYet')}</p>
+        <div className="empty-state">
+          <span className="empty-state__icon" aria-hidden="true">
+            <Wallet size={26} strokeWidth={2} />
+          </span>
+          <p className="accounts-panel__message">{t('account.noWalletsYet')}</p>
+        </div>
       ) : null}
       <div className="accounts-panel__actions" aria-label={t('account.actionsLabel')}>
         {canCreateWallet ? (
