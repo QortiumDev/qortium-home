@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - release: prepare home preview 10
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.10` with Android `versionCode` 11 so the latest Core API documentation workflow, synced node status refinements, and `CLAUDE.md` ignore hygiene can be published as the next QortiumDev prerelease target.
+
 ### 2026-06-10 - qdn: authorize and register minting keys for QDN apps
 
 Joining a minting group through a QDN app now includes the account's minting key authorization in the join itself, so the on-chain minting permission Core grants on minting-group joins actually happens for joins made from Home. Two new bridge actions let apps work with minting: a read-only minting status check reports whether the selected account has its minting authorization on chain, whether its minting key is loaded on the connected node, and whether that node is currently able to mint; and a Start Minting action (with its own approval prompt, translated in all twenty languages) derives the account's minting key and hands it to the local node so the node can mint for that account. Accounts that joined a minting group before joins carried minting keys are covered too: when no on-chain authorization exists yet, Start Minting submits the free self-share authorization transaction instead and reports it as pending, so the key can be added once it confirms — the same flow also lets existing minters re-add their key on a fresh or additional node. The minting key is only ever exchanged between Home and the local node — QDN apps never see it. On the public read-only Previewnet connection, the status check reports only the on-chain part, and Start Minting is unavailable like all other protected workflows.
