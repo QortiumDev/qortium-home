@@ -78,6 +78,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'GET_GROUP',
   'GET_GROUP_JOIN_REQUESTS',
   'GET_GROUP_MEMBERS',
+  'GET_MINTING_STATUS',
   'GET_NAME_DATA',
   'GET_NODE_INFO',
   'GET_NODE_STATUS',
@@ -98,6 +99,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_GROUPS',
   'SEARCH_QDN_RESOURCES',
+  'START_MINTING',
   'WHICH_UI',
   'SHOW_ACTIONS',
 ] as const;
@@ -211,7 +213,8 @@ type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
   | QdnNameAction
-  | QdnChatAction;
+  | QdnChatAction
+  | 'START_MINTING';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE';
 
 type QdnWriteResourceRequest = {
@@ -2332,15 +2335,18 @@ async function postLocalNodeText(
 async function signAndProcessTransaction(
   writeContext: QdnWriteContext,
   rawUnsignedBytes58: string,
-  computePath = '/arbitrary/compute',
+  computePath: string | null = '/arbitrary/compute',
 ) {
-  const rawUnsignedWithNonce = await postLocalNodeText(
-    writeContext.nodeApiUrl,
-    computePath,
-    rawUnsignedBytes58,
-    writeContext.apiKey,
-    'QDN transaction nonce computation failed.',
-  );
+  // A null computePath skips nonce computation for transaction types without a MemoryPoW fee alternative.
+  const rawUnsignedWithNonce = computePath
+    ? await postLocalNodeText(
+        writeContext.nodeApiUrl,
+        computePath,
+        rawUnsignedBytes58,
+        writeContext.apiKey,
+        'QDN transaction nonce computation failed.',
+      )
+    : { body: rawUnsignedBytes58 };
   const signedTransaction = await postLocalNodeText(
     writeContext.nodeApiUrl,
     '/transactions/sign',
@@ -2651,6 +2657,13 @@ async function joinGroupForApp(request: QdnAppRequest, context: QdnAppRequestCon
     permissionScope: 'single-request',
   });
 
+  // Joining a minting group authorizes a minting key on chain, so include the
+  // self-share public key derived from the joiner's own keypair.
+  const mintingPublicKey58 =
+    isRecord(groupData) && groupData.isMintingGroup === true
+      ? (await deriveMintingKeyPair(writeContext)).publicKey58
+      : null;
+
   const unsignedTransaction = await postLocalNodeText(
     writeContext.nodeApiUrl,
     '/groups/join',
@@ -2661,6 +2674,7 @@ async function joinGroupForApp(request: QdnAppRequest, context: QdnAppRequestCon
       fee: 0,
       joinerPublicKey: writeContext.publicKey58,
       groupId,
+      ...(mintingPublicKey58 ? { mintingPublicKey: mintingPublicKey58 } : {}),
     }),
     writeContext.apiKey,
     'Join group transaction build failed.',
@@ -2679,6 +2693,176 @@ async function joinGroupForApp(request: QdnAppRequest, context: QdnAppRequestCon
     groupName,
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
+  };
+}
+
+function isSelfShareRewardShare(value: unknown, address: string) {
+  return (
+    isRecord(value) &&
+    getString(value.mintingAccount) === address &&
+    getString(value.recipient) === address
+  );
+}
+
+async function getSelfShareRewardShares(nodeApiUrl: string, address: string) {
+  const encodedAddress = encodeURIComponent(address);
+  const rewardShares = await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    `/addresses/rewardshares?minters=${encodedAddress}&recipients=${encodedAddress}`,
+    'Reward share lookup failed.',
+  );
+
+  if (!Array.isArray(rewardShares)) {
+    return [];
+  }
+
+  return rewardShares.filter((rewardShare) => isSelfShareRewardShare(rewardShare, address));
+}
+
+async function deriveMintingKeyPair(writeContext: QdnWriteContext) {
+  const mintingPrivateKey = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/addresses/rewardsharekey',
+    JSON.stringify({
+      mintingAccountPrivateKey: writeContext.privateKey58,
+      recipientAccountPublicKey: writeContext.publicKey58,
+    }),
+    writeContext.apiKey,
+    'Minting key derivation failed.',
+    'application/json',
+  );
+  const mintingPublicKey = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/utils/publickey',
+    mintingPrivateKey.body,
+    writeContext.apiKey,
+    'Minting public key derivation failed.',
+  );
+
+  return {
+    privateKey58: mintingPrivateKey.body,
+    publicKey58: mintingPublicKey.body,
+  };
+}
+
+async function getMintingStatusForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const selfShares = await getSelfShareRewardShares(nodeApiUrl, address);
+  const hasRewardShare = selfShares.length > 0;
+
+  if (settings.mode === 'network') {
+    // A public read-only node cannot report the user's own node-side minting state.
+    return {
+      address,
+      hasRewardShare,
+      isMinting: null,
+      keyOnNode: null,
+      nodeMintingPossible: null,
+    };
+  }
+
+  const mintingAccounts = await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    '/admin/mintingaccounts',
+    'Minting account lookup failed.',
+  );
+  const keyOnNode =
+    Array.isArray(mintingAccounts) &&
+    mintingAccounts.some(
+      (mintingAccount) =>
+        isRecord(mintingAccount) &&
+        getString(mintingAccount.mintingAccount) === address &&
+        getString(mintingAccount.recipientAccount) === address,
+    );
+
+  const nodeStatus = await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    '/admin/status',
+    'Node status lookup failed.',
+  );
+  const nodeMintingPossible = isRecord(nodeStatus) && nodeStatus.isMintingPossible === true;
+
+  return {
+    address,
+    hasRewardShare,
+    isMinting: hasRewardShare && keyOnNode,
+    keyOnNode,
+    nodeMintingPossible,
+  };
+}
+
+async function startMintingForApp(context: QdnAppRequestContext | undefined) {
+  const writeContext = await getQdnWriteContext(context);
+  const address = writeContext.profile.address;
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'START_MINTING',
+    permissionScope: 'single-request',
+  });
+
+  const selfShares = await getSelfShareRewardShares(writeContext.nodeApiUrl, address);
+  const mintingKeyPair = await deriveMintingKeyPair(writeContext);
+
+  if (selfShares.length === 0) {
+    // No on-chain authorization yet (the account joined its minting group before joins
+    // carried minting keys) — submit a zero-fee self-share REWARD_SHARE transaction.
+    // The minting key can be added to the node once this confirms.
+    const unsignedTransaction = await postLocalNodeText(
+      writeContext.nodeApiUrl,
+      '/addresses/rewardshare',
+      JSON.stringify({
+        type: 'REWARD_SHARE',
+        timestamp: Date.now(),
+        txGroupId: 0,
+        fee: 0,
+        minterPublicKey: writeContext.publicKey58,
+        recipient: address,
+        rewardSharePublicKey: mintingKeyPair.publicKey58,
+        sharePercent: 0,
+      }),
+      writeContext.apiKey,
+      'Minting authorization transaction build failed.',
+      'application/json',
+    );
+    const processedTransaction = await signAndProcessTransaction(writeContext, unsignedTransaction.body, null);
+
+    return {
+      accepted: true,
+      action: 'START_MINTING',
+      address,
+      keyAdded: false,
+      rewardSharePending: true,
+      transactionSignature: processedTransaction.signature,
+    };
+  }
+
+  if (
+    !selfShares.some(
+      (selfShare) =>
+        isRecord(selfShare) && getString(selfShare.rewardSharePublicKey) === mintingKeyPair.publicKey58,
+    )
+  ) {
+    throw new Error(
+      'The minting key authorization on chain does not match the key derived from the selected account.',
+    );
+  }
+
+  // The derived minting private key goes only to the local node; it is never returned to the app.
+  await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/admin/mintingaccounts',
+    mintingKeyPair.privateKey58,
+    writeContext.apiKey,
+    'Adding the minting key to the node failed.',
+  );
+
+  return {
+    accepted: true,
+    action: 'START_MINTING',
+    address,
+    keyAdded: true,
   };
 }
 
@@ -4695,6 +4879,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'GET_GROUP_MEMBERS':
       return fetchNodeApiPayload(buildGroupMembersPath(request), request);
 
+    case 'GET_MINTING_STATUS':
+      return getMintingStatusForApp(request, context);
+
     case 'GET_NAME_DATA':
       return fetchNodeApiPayload(
         `/names/${encodeURIComponent(getRequiredRequestString(request, 'name', 'Name'))}`,
@@ -4757,6 +4944,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'JOIN_GROUP':
       return joinGroupForApp(request, context);
+
+    case 'START_MINTING':
+      return startMintingForApp(context);
 
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return approveGroupJoinRequestForApp(request, context);

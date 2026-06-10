@@ -292,6 +292,7 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "Înregistrează nume",
   "qdnWrite.action.sellName": "Vinde nume",
   "qdnWrite.action.sendChatMessage": "Trimite mesaj de chat",
+  "qdnWrite.action.startMinting": "Pornește minting",
   "qdnWrite.action.updateGroup": "Actualizează grupul",
   "qdnWrite.action.updateName": "Actualizează numele",
   "qdnWrite.approve": "Aprobă",

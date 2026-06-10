@@ -499,7 +499,8 @@ type QortiumQdnWriteApprovalRequest = {
     | 'REGISTER_NAME'
     | 'SELL_NAME'
     | 'UPDATE_NAME'
-    | 'SEND_CHAT_MESSAGE';
+    | 'SEND_CHAT_MESSAGE'
+    | 'START_MINTING';
   address: string;
   amount: string | null;
   chatMessagePreview: string | null;

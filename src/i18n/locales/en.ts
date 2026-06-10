@@ -290,6 +290,7 @@ export const en = {
   "qdnWrite.action.registerName": "Register Name",
   "qdnWrite.action.sellName": "Sell Name",
   "qdnWrite.action.sendChatMessage": "Send Chat Message",
+  "qdnWrite.action.startMinting": "Start Minting",
   "qdnWrite.action.updateGroup": "Update Group",
   "qdnWrite.action.updateName": "Update Name",
   "qdnWrite.approve": "Approve",

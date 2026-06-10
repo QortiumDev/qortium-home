@@ -292,6 +292,7 @@ export const es: Record<TranslationKey, string> = {
   "qdnWrite.action.registerName": "Registrar nombre",
   "qdnWrite.action.sellName": "Vender nombre",
   "qdnWrite.action.sendChatMessage": "Enviar mensaje de chat",
+  "qdnWrite.action.startMinting": "Iniciar acuñación",
   "qdnWrite.action.updateGroup": "Actualizar grupo",
   "qdnWrite.action.updateName": "Actualizar nombre",
   "qdnWrite.approve": "Aprobar",
