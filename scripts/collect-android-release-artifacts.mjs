@@ -13,13 +13,13 @@ const distReleasePath = path.join(repoRoot, 'dist-release');
 function printHelp() {
   console.log(`Usage: node scripts/collect-android-release-artifacts.mjs [options]
 
-Copies Android release APK/AAB outputs into dist-release with canonical names.
+Copies Android release APK outputs into dist-release with canonical names.
 Unsigned outputs are kept separate with an -unsigned suffix so they cannot be
 mistaken for installable public release artifacts.
 
 Options:
   --apk   Collect the release APK only.
-  --aab   Collect the release AAB only.
+  --aab   Collect the release AAB too.
   --help  Show this help text.`);
 }
 
@@ -50,7 +50,6 @@ function parseArgs(argv) {
 
   if (!options.apk && !options.aab) {
     options.apk = true;
-    options.aab = true;
   }
 
   return options;
