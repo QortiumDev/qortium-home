@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - node: harden API documentation enable flow
+
+Hardened the fallback Core API documentation enable path so protected node requests re-read the latest node settings between the settings update and restart request, report rejected API keys clearly, and keep the restart timeout note aligned with the newer Core restart handoff behavior.
+
 ### 2026-06-10 - app: add accent display setting
 
 Added a persistent display accent setting with localized accent labels and propagated the selected accent into Home-managed QDN renders so embedded apps can stay visually aligned with the user's Home display preferences.
