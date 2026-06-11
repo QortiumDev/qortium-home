@@ -3,7 +3,9 @@
   "version": "1.0.1-preview.10",
   "private": true,
   "license": "0BSD",
+  "author": "QortiumDev",
   "description": "A simple Qortium Home desktop app.",
+  "desktopName": "Qortium Home",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -120,7 +122,8 @@
         }
       ],
       "category": "Network",
-      "executableName": "qortium-home"
+      "executableName": "qortium-home",
+      "syncDesktopName": true
     },
     "mac": {
       "icon": "build/icon.icns",
