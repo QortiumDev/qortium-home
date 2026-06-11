@@ -207,7 +207,7 @@ fi
 `;
   }
 
-  return `npm run "$target"`;
+  return `npm run ${shellQuote(target)}`;
 }
 
 function buildRemote(target, commit) {

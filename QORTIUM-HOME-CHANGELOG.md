@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-11 - build: fix remote mac target execution
+
+Fixed the remote Mac build helper so standard macOS targets run the requested npm script directly instead of depending on an unexported shell variable inside the remote build shell.
+
 ### 2026-06-11 - build: align release artifact matrix
 
 Updated the Home release helpers to match the current preview asset set: Linux x64 and arm64 AppImages, Windows x64 portable builds, normal macOS universal and macOS 11 legacy universal DMGs, and the signed Android APK. The default Android release build and collector now skip the AAB unless it is requested explicitly.
