@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - chore: add package metadata for Linux desktop builds
+
+Added package author metadata and a Linux desktop name mapping so electron-builder can associate packaged Qortium Home windows with the generated desktop entry.
+
 ### 2026-06-10 - node: harden API documentation enable flow
 
 Hardened the fallback Core API documentation enable path so protected node requests re-read the latest node settings between the settings update and restart request, report rejected API keys clearly, and keep the restart timeout note aligned with the newer Core restart handoff behavior.
