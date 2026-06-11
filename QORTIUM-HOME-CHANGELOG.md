@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-11 - release: prepare home preview 11
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.11` with Android `versionCode` 12 so the accent display setting, Core API documentation enable hardening, and Linux desktop metadata fix can be published as the next QortiumDev prerelease target.
+
 ### 2026-06-10 - chore: add package metadata for Linux desktop builds
 
 Added package author metadata and a Linux desktop name mapping so electron-builder can associate packaged Qortium Home windows with the generated desktop entry.
