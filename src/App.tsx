@@ -744,6 +744,13 @@ export function App() {
     });
   }
 
+  function updateAccent(nextAccent: DisplaySettings['accent']) {
+    updateDisplaySettings({
+      ...displaySettings,
+      accent: nextAccent,
+    });
+  }
+
   useEffect(() => {
     let isDisposed = false;
 
@@ -1635,6 +1642,7 @@ export function App() {
                   onLanguageChange={updateLanguage}
                   onSectionExpansionChange={updateSettingsSectionExpansion}
                   onSaveNodeSettings={saveNodeSettings}
+                  onAccentChange={updateAccent}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}
                   sectionExpansion={settingsExpansion}

@@ -3,7 +3,13 @@ import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
 import { DisplaySettingsPanel } from './DisplaySettingsPanel';
-import type { DisplaySettings, LanguageSetting, TextSizeSetting, ThemeSetting } from './displaySettings';
+import type {
+  AccentSetting,
+  DisplaySettings,
+  LanguageSetting,
+  TextSizeSetting,
+  ThemeSetting,
+} from './displaySettings';
 import { t } from './i18n';
 import { NodeSettingsPanel } from './NodeSettingsPanel';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
@@ -20,6 +26,7 @@ type SettingsPageProps = {
   sectionExpansion: SettingsExpansionState;
   nodeSettings: QortiumNodeSettings;
   onLanguageChange: (language: LanguageSetting) => void;
+  onAccentChange: (accent: AccentSetting) => void;
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
@@ -37,6 +44,7 @@ export function SettingsPage({
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
   onSaveNodeSettings,
+  onAccentChange,
   onThemeChange,
   onTextSizeChange,
   sectionExpansion,
@@ -53,6 +61,7 @@ export function SettingsPage({
           isExpanded={sectionExpansion.display}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('display', isExpanded)}
           onLanguageChange={onLanguageChange}
+          onAccentChange={onAccentChange}
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
         />

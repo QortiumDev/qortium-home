@@ -129,6 +129,11 @@ function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
       requestedHandler: 'UI',
       textSize: displaySettings.textSize,
     },
+    {
+      action: 'ACCENT_CHANGED',
+      requestedHandler: 'UI',
+      accent: displaySettings.accent,
+    },
   ];
 }
 

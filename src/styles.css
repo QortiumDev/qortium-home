@@ -197,6 +197,374 @@
   --shadow-modal: 0 24px 64px rgb(0 0 0 / 55%);
 }
 
+:root[data-accent="blue"] {
+  --color-accent: #2a79f3;
+  --color-accent-strong: #1e5ec3;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(42 121 243 / 20%);
+  --color-accent-soft: rgb(42 121 243 / 10%);
+  --color-accent-glow: rgb(42 121 243 / 22%);
+  --gradient-primary: linear-gradient(180deg, #4d8cf6 0%, #2a79f3 55%, #2167db 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #6398f8 0%, #4084f5 55%, #2e73e5 100%);
+  --gradient-primary-active: linear-gradient(180deg, #2167db 0%, #1e5ec3 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(42 121 243 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(42 121 243 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(42 121 243 / 22%);
+}
+
+:root[data-accent="orange"] {
+  --color-accent: #de8b23;
+  --color-accent-strong: #bf6e0f;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(222 139 35 / 20%);
+  --color-accent-soft: rgb(222 139 35 / 10%);
+  --color-accent-glow: rgb(222 139 35 / 22%);
+  --gradient-primary: linear-gradient(180deg, #f29b33 0%, #de8b23 55%, #c97a1a 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #f4a648 0%, #e5983d 55%, #d67d24 100%);
+  --gradient-primary-active: linear-gradient(180deg, #c97a1a 0%, #bf6e0f 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(222 139 35 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(222 139 35 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(222 139 35 / 22%);
+}
+
+:root[data-accent="purple"] {
+  --color-accent: #7b44da;
+  --color-accent-strong: #622fbd;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(123 68 218 / 20%);
+  --color-accent-soft: rgb(123 68 218 / 10%);
+  --color-accent-glow: rgb(123 68 218 / 22%);
+  --gradient-primary: linear-gradient(180deg, #9460e3 0%, #7b44da 55%, #6b35c5 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #a06df0 0%, #9057e0 55%, #7b4ad2 100%);
+  --gradient-primary-active: linear-gradient(180deg, #6b35c5 0%, #622fbd 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(123 68 218 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(123 68 218 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(123 68 218 / 22%);
+}
+
+:root[data-accent="red"] {
+  --color-accent: #d53e3e;
+  --color-accent-strong: #b63232;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(213 62 62 / 20%);
+  --color-accent-soft: rgb(213 62 62 / 10%);
+  --color-accent-glow: rgb(213 62 62 / 22%);
+  --gradient-primary: linear-gradient(180deg, #e65a5a 0%, #d53e3e 55%, #c52e2e 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #ea7676 0%, #de4b4b 55%, #cf3c3c 100%);
+  --gradient-primary-active: linear-gradient(180deg, #c52e2e 0%, #b63232 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(213 62 62 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(213 62 62 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(213 62 62 / 22%);
+}
+
+:root[data-accent="teal"] {
+  --color-accent: #17a398;
+  --color-accent-strong: #12857a;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(23 163 152 / 20%);
+  --color-accent-soft: rgb(23 163 152 / 10%);
+  --color-accent-glow: rgb(23 163 152 / 22%);
+  --gradient-primary: linear-gradient(180deg, #34baad 0%, #17a398 55%, #138f87 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #49c2b7 0%, #21b0a3 55%, #17978d 100%);
+  --gradient-primary-active: linear-gradient(180deg, #138f87 0%, #12857a 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(23 163 152 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(23 163 152 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(23 163 152 / 22%);
+}
+
+:root[data-accent="cyan"] {
+  --color-accent: #1298d8;
+  --color-accent-strong: #0f79aa;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(18 152 216 / 20%);
+  --color-accent-soft: rgb(18 152 216 / 10%);
+  --color-accent-glow: rgb(18 152 216 / 22%);
+  --gradient-primary: linear-gradient(180deg, #2aa8e4 0%, #1298d8 55%, #0e82c2 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #43b4ea 0%, #1aa4dd 55%, #108ed1 100%);
+  --gradient-primary-active: linear-gradient(180deg, #0e82c2 0%, #0f79aa 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(18 152 216 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(18 152 216 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(18 152 216 / 22%);
+}
+
+:root[data-accent="pink"] {
+  --color-accent: #d43f86;
+  --color-accent-strong: #bd3673;
+  --color-accent-contrast: #ffffff;
+  --color-accent-ring: rgb(212 63 134 / 20%);
+  --color-accent-soft: rgb(212 63 134 / 10%);
+  --color-accent-glow: rgb(212 63 134 / 22%);
+  --gradient-primary: linear-gradient(180deg, #e15fa0 0%, #d43f86 55%, #c43578 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #e775b0 0%, #da4c90 55%, #c94a89 100%);
+  --gradient-primary-active: linear-gradient(180deg, #c43578 0%, #bd3673 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(212 63 134 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(212 63 134 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(212 63 134 / 22%);
+}
+
+:root[data-accent="yellow"] {
+  --color-accent: #d6a828;
+  --color-accent-strong: #bd8f20;
+  --color-accent-contrast: #1e1400;
+  --color-accent-ring: rgb(214 168 40 / 20%);
+  --color-accent-soft: rgb(214 168 40 / 10%);
+  --color-accent-glow: rgb(214 168 40 / 22%);
+  --gradient-primary: linear-gradient(180deg, #e6bf52 0%, #d6a828 55%, #c79a20 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #ecd16a 0%, #dfb13f 55%, #d1a22a 100%);
+  --gradient-primary-active: linear-gradient(180deg, #c79a20 0%, #bd8f20 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 2px 8px rgb(214 168 40 / 25%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 4px 12px rgb(214 168 40 / 30%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 4px rgb(214 168 40 / 22%);
+}
+
+:root[data-theme="dark"][data-accent="blue"] {
+  --color-accent: #8abefe;
+  --color-accent-strong: #7aaef7;
+  --color-accent-contrast: #061733;
+  --color-accent-ring: rgb(138 190 254 / 20%);
+  --color-accent-soft: rgb(138 190 254 / 12%);
+  --color-accent-glow: rgb(138 190 254 / 22%);
+  --gradient-primary: linear-gradient(180deg, #a4cbff 0%, #8abefe 55%, #78a0e5 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #b3d4ff 0%, #9ac2fc 55%, #84b3ec 100%);
+  --gradient-primary-active: linear-gradient(180deg, #78a0e5 0%, #7aaef7 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="orange"] {
+  --color-accent: #f1b16d;
+  --color-accent-strong: #eaa257;
+  --color-accent-contrast: #2a1c00;
+  --color-accent-ring: rgb(241 177 109 / 20%);
+  --color-accent-soft: rgb(241 177 109 / 12%);
+  --color-accent-glow: rgb(241 177 109 / 22%);
+  --gradient-primary: linear-gradient(180deg, #ffd49e 0%, #f1b16d 55%, #e1984f 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #ffdcb3 0%, #f7c07f 55%, #eca06a 100%);
+  --gradient-primary-active: linear-gradient(180deg, #e1984f 0%, #eaa257 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="purple"] {
+  --color-accent: #caa2ff;
+  --color-accent-strong: #b58dff;
+  --color-accent-contrast: #1c0c3d;
+  --color-accent-ring: rgb(202 162 255 / 20%);
+  --color-accent-soft: rgb(202 162 255 / 12%);
+  --color-accent-glow: rgb(202 162 255 / 22%);
+  --gradient-primary: linear-gradient(180deg, #e0c8ff 0%, #caa2ff 55%, #b78df8 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #e6d4ff 0%, #d3b0ff 55%, #c59bff 100%);
+  --gradient-primary-active: linear-gradient(180deg, #b78df8 0%, #b58dff 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="red"] {
+  --color-accent: #f19a9a;
+  --color-accent-strong: #dd7a7a;
+  --color-accent-contrast: #301111;
+  --color-accent-ring: rgb(241 154 154 / 20%);
+  --color-accent-soft: rgb(241 154 154 / 12%);
+  --color-accent-glow: rgb(241 154 154 / 22%);
+  --gradient-primary: linear-gradient(180deg, #ffc5c5 0%, #f19a9a 55%, #df8181 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #ffd1d1 0%, #f7a8a8 55%, #e48b8b 100%);
+  --gradient-primary-active: linear-gradient(180deg, #df8181 0%, #dd7a7a 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="teal"] {
+  --color-accent: #6ed9d1;
+  --color-accent-strong: #5fc3bc;
+  --color-accent-contrast: #072523;
+  --color-accent-ring: rgb(110 217 209 / 20%);
+  --color-accent-soft: rgb(110 217 209 / 12%);
+  --color-accent-glow: rgb(110 217 209 / 22%);
+  --gradient-primary: linear-gradient(180deg, #9ae5e0 0%, #6ed9d1 55%, #58cabf 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #a6ebe6 0%, #74ddd4 55%, #6ad1c6 100%);
+  --gradient-primary-active: linear-gradient(180deg, #58cabf 0%, #5fc3bc 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="cyan"] {
+  --color-accent: #88d2ff;
+  --color-accent-strong: #79c5f5;
+  --color-accent-contrast: #03243d;
+  --color-accent-ring: rgb(136 210 255 / 20%);
+  --color-accent-soft: rgb(136 210 255 / 12%);
+  --color-accent-glow: rgb(136 210 255 / 22%);
+  --gradient-primary: linear-gradient(180deg, #b5e6ff 0%, #88d2ff 55%, #76c6f7 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #c4ecff 0%, #92dbff 55%, #80d0fb 100%);
+  --gradient-primary-active: linear-gradient(180deg, #76c6f7 0%, #79c5f5 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="pink"] {
+  --color-accent: #f8a7cf;
+  --color-accent-strong: #f58cbf;
+  --color-accent-contrast: #2a0d23;
+  --color-accent-ring: rgb(248 167 207 / 20%);
+  --color-accent-soft: rgb(248 167 207 / 12%);
+  --color-accent-glow: rgb(248 167 207 / 22%);
+  --gradient-primary: linear-gradient(180deg, #ffd6eb 0%, #f8a7cf 55%, #ed8fba 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #ffe0f1 0%, #f9b1d4 55%, #f199c0 100%);
+  --gradient-primary-active: linear-gradient(180deg, #ed8fba 0%, #f58cbf 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
+:root[data-theme="dark"][data-accent="yellow"] {
+  --color-accent: #f4cb67;
+  --color-accent-strong: #edbf53;
+  --color-accent-contrast: #2f2100;
+  --color-accent-ring: rgb(244 203 103 / 20%);
+  --color-accent-soft: rgb(244 203 103 / 12%);
+  --color-accent-glow: rgb(244 203 103 / 22%);
+  --gradient-primary: linear-gradient(180deg, #fde5a8 0%, #f4cb67 55%, #e9ba55 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #ffebba 0%, #f5d478 55%, #ebc468 100%);
+  --gradient-primary-active: linear-gradient(180deg, #e9ba55 0%, #edbf53 100%);
+  --shadow-primary-button:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 8px rgb(0 0 0 / 30%),
+    0 0 16px var(--color-accent-glow);
+  --shadow-primary-button-hover:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 4px 12px rgb(0 0 0 / 35%),
+    0 0 20px var(--color-accent-glow);
+  --shadow-primary-button-active:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 4px rgb(0 0 0 / 30%);
+}
+
 :root[data-text-size="extra-small"] {
   --text-scale: 0.88;
 }
@@ -596,12 +964,24 @@ h1 {
   text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .settings-section__refresh {
   width: 34px;
   min-width: 34px;
   height: 34px;
+}
+
+.settings-section__summary-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  border: 2px solid rgb(255 255 255 / 75%);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 32%);
 }
 
 .settings-section__body {
@@ -637,6 +1017,16 @@ h1 {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.segmented-control--accent {
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.segmented-control--accent .segmented-control__option {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .segmented-control__option {
   transition: var(--transition-control);
   min-width: 0;
@@ -665,6 +1055,25 @@ h1 {
   color: var(--color-text);
   background: var(--color-accent-soft);
   border-color: var(--color-accent);
+}
+
+.segmented-control__option--accent {
+  display: grid;
+  place-items: center;
+  gap: 0;
+}
+
+.display-settings__accent-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  border: 2px solid rgb(255 255 255 / 70%);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+}
+
+.segmented-control__option--selected .display-settings__accent-swatch {
+  border-color: var(--color-accent-contrast);
+  box-shadow: 0 0 0 2px var(--color-accent);
 }
 
 .sr-only {

@@ -138,10 +138,61 @@ export const TEXT_SIZE_OPTIONS = [
 
 export type TextSizeSetting = (typeof TEXT_SIZE_OPTIONS)[number]['value'];
 
+export const ACCENT_OPTIONS = [
+  {
+    labelKey: 'display.accent.green',
+    value: 'green',
+    swatch: '#21824a',
+  },
+  {
+    labelKey: 'display.accent.blue',
+    value: 'blue',
+    swatch: '#2a79f3',
+  },
+  {
+    labelKey: 'display.accent.orange',
+    value: 'orange',
+    swatch: '#de8b23',
+  },
+  {
+    labelKey: 'display.accent.purple',
+    value: 'purple',
+    swatch: '#7b44da',
+  },
+  {
+    labelKey: 'display.accent.red',
+    value: 'red',
+    swatch: '#d53e3e',
+  },
+  {
+    labelKey: 'display.accent.teal',
+    value: 'teal',
+    swatch: '#17a398',
+  },
+  {
+    labelKey: 'display.accent.cyan',
+    value: 'cyan',
+    swatch: '#1298d8',
+  },
+  {
+    labelKey: 'display.accent.pink',
+    value: 'pink',
+    swatch: '#d43f86',
+  },
+  {
+    labelKey: 'display.accent.yellow',
+    value: 'yellow',
+    swatch: '#d6a828',
+  },
+] as const satisfies readonly { labelKey: TranslationKey; value: string; swatch: string }[];
+
+export type AccentSetting = (typeof ACCENT_OPTIONS)[number]['value'];
+
 export type DisplaySettings = {
   language: LanguageSetting;
   textSize: TextSizeSetting;
   theme: ThemeSetting;
+  accent: AccentSetting;
 };
 
 export type ResolvedDisplaySettings = Omit<DisplaySettings, 'language' | 'theme'> & {
@@ -155,11 +206,13 @@ export const DEFAULT_RESOLVED_THEME: ResolvedThemeSetting = 'light';
 export const DEFAULT_LANGUAGE: LanguageSetting = 'system';
 export const DEFAULT_RESOLVED_LANGUAGE: ConcreteLanguageSetting = 'en';
 export const DEFAULT_TEXT_SIZE: TextSizeSetting = 'medium';
+export const DEFAULT_ACCENT: AccentSetting = 'green';
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   language: DEFAULT_LANGUAGE,
   textSize: DEFAULT_TEXT_SIZE,
   theme: DEFAULT_THEME,
+  accent: DEFAULT_ACCENT,
 };
 
 export function isThemeSetting(value: unknown): value is ThemeSetting {
@@ -172,6 +225,10 @@ export function isLanguageSetting(value: unknown): value is LanguageSetting {
 
 export function isTextSizeSetting(value: unknown): value is TextSizeSetting {
   return TEXT_SIZE_OPTIONS.some((option) => option.value === value);
+}
+
+export function isAccentSetting(value: unknown): value is AccentSetting {
+  return ACCENT_OPTIONS.some((option) => option.value === value);
 }
 
 export function getThemeLabel(theme: ThemeSetting) {
@@ -204,6 +261,7 @@ function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEX
     language: isLanguageSetting(settings.language) ? settings.language : DEFAULT_LANGUAGE,
     textSize: isTextSizeSetting(settings.textSize) ? settings.textSize : fallbackTextSize,
     theme: isThemeSetting(settings.theme) ? settings.theme : DEFAULT_THEME,
+    accent: isAccentSetting(settings.accent) ? settings.accent : DEFAULT_ACCENT,
   };
 }
 
@@ -339,6 +397,7 @@ function applyDocumentDisplaySettings(displaySettings: ResolvedDisplaySettings) 
   document.documentElement.dataset.theme = displaySettings.theme;
   document.documentElement.dataset.language = displaySettings.language;
   document.documentElement.dataset.textSize = displaySettings.textSize;
+  document.documentElement.dataset.accent = displaySettings.accent;
   document.documentElement.lang = displaySettings.language;
   document.documentElement.dir = isRtlLanguage(displaySettings.language) ? 'rtl' : 'ltr';
   document.documentElement.style.colorScheme = displaySettings.theme;

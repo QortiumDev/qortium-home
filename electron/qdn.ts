@@ -3359,6 +3359,7 @@ function applyQdnDisplaySettings(queryParams: URLSearchParams, context: QdnViewC
   queryParams.set('theme', context.displaySettings.theme);
   queryParams.set('lang', context.displaySettings.language);
   queryParams.set('textSize', context.displaySettings.textSize);
+  queryParams.set('accent', context.displaySettings.accent);
 }
 
 async function getQdnResourceUrl(request: QdnAppRequest, context: QdnViewContext | null) {
