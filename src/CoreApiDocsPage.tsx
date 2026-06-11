@@ -8,8 +8,8 @@ const DOCS_PROBE_MAX_BYTES = 262_144;
 // when apiDocumentationEnabled is false, so the probe must inspect the body.
 const DOCS_DISABLED_PATTERN = /currently disabled|api documentation disabled/i;
 const RESTART_POLL_INTERVAL_MS = 3_000;
-// The Core's ApplyRestart helper waits 60s, then makes up to 12 shutdown
-// attempts 30s apart before relaunching, so a restart can take many minutes.
+// Keep a generous timeout because enabling documentation requires a full Core
+// restart, and older Core builds can take several minutes to relaunch.
 const RESTART_POLL_TIMEOUT_MS = 600_000;
 
 type CoreApiDocsPageProps = {

@@ -4036,33 +4036,46 @@ async function requestProtectedNodeText(
   const responseBody = stringifyResponseData(response.data).trim();
 
   if (response.status < 200 || response.status >= 300) {
+    if (/api key/i.test(responseBody)) {
+      throw new Error('Node API key was rejected. Reconnect to the active local Core or update the node API key in settings.');
+    }
+
     throw new Error(responseBody || fallbackMessage);
   }
 
   return responseBody;
 }
 
-async function enableNodeApiDocumentation() {
+async function getProtectedNodeRequestContext() {
   const settings = await readNodeSettings();
 
   if (settings.mode === 'network') {
     throw new Error(getNetworkRestrictionMessage());
   }
 
-  const nodeApiUrl = await resolveNodeApiUrl(settings);
-  const apiKey = getNodeApiKey(settings);
+  return {
+    apiKey: getNodeApiKey(settings),
+    nodeApiUrl: await resolveNodeApiUrl(settings),
+  };
+}
+
+async function enableNodeApiDocumentation() {
+  const settingsContext = await getProtectedNodeRequestContext();
 
   await requestProtectedNodeText(
-    nodeApiUrl,
-    apiKey,
+    settingsContext.nodeApiUrl,
+    settingsContext.apiKey,
     '/admin/settings',
     'PATCH',
     { apiDocumentationEnabled: true },
     'Node settings update request failed.',
   );
+
+  const restartContext = await getProtectedNodeRequestContext();
+
   await requestProtectedNodeText(
-    nodeApiUrl,
-    apiKey,
+    restartContext.nodeApiUrl,
+    restartContext.apiKey,
     '/admin/restart',
     'GET',
     undefined,
