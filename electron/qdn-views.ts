@@ -16,16 +16,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME_VALUES = new Set(['dark', 'light']);
 const LANGUAGE_VALUES = new Set(['ar', 'de', 'en', 'es', 'et', 'fi', 'fr', 'he', 'hu', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv', 'zh-CN', 'zh-TW']);
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
+const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
 
 export type QdnDisplaySettings = {
   language: 'ar' | 'de' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hu' | 'it' | 'ja' | 'ko' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
+  accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
   theme: 'dark' | 'light';
 };
 
 const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
   language: 'en',
   textSize: 'medium',
+  accent: 'green',
   theme: 'light',
 };
 
@@ -158,10 +161,14 @@ function sanitizeDisplaySettings(value: unknown): QdnDisplaySettings {
   const textSize = typeof value.textSize === 'string' && TEXT_SIZE_VALUES.has(value.textSize)
     ? value.textSize as QdnDisplaySettings['textSize']
     : DEFAULT_QDN_DISPLAY_SETTINGS.textSize;
+  const accent = typeof value.accent === 'string' && ACCENT_VALUES.has(value.accent)
+    ? value.accent as QdnDisplaySettings['accent']
+    : DEFAULT_QDN_DISPLAY_SETTINGS.accent;
 
   return {
     language,
     textSize,
+    accent,
     theme,
   };
 }
@@ -437,6 +444,11 @@ function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
       action: 'TEXT_SIZE_CHANGED',
       requestedHandler: 'UI',
       textSize: displaySettings.textSize,
+    },
+    {
+      action: 'ACCENT_CHANGED',
+      requestedHandler: 'UI',
+      accent: displaySettings.accent,
     },
   ];
 }

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-10 - app: add accent display setting
+
+Added a persistent display accent setting with localized accent labels and propagated the selected accent into Home-managed QDN renders so embedded apps can stay visually aligned with the user's Home display preferences.
+
 ### 2026-06-10 - release: prepare home preview 10
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.10` with Android `versionCode` 11 so the latest Core API documentation workflow, synced node status refinements, and `CLAUDE.md` ignore hygiene can be published as the next QortiumDev prerelease target.
