@@ -22,7 +22,8 @@ Options:
                       Check locally built unsigned Android release artifacts.
                       Unsigned Android artifacts are never accepted for GitHub
                       release verification.
-  --android-only      Only check Android release APK/AAB artifacts.
+  --android-only      Only check Android release artifacts.
+  --include-aab       Include the Android release AAB in the expected artifact set.
   --skip-github      Only check local artifacts and the platform matrix.
   --help             Show this help text.`);
 }
@@ -32,6 +33,7 @@ function parseArgs(argv) {
     allowUnsignedAndroid: false,
     androidOnly: false,
     repository: defaultRepository,
+    includeAab: false,
     skipGithub: false,
     tag: `v${packageJson.version}`,
   };
@@ -51,6 +53,11 @@ function parseArgs(argv) {
 
     if (arg === '--android-only') {
       options.androidOnly = true;
+      continue;
+    }
+
+    if (arg === '--include-aab') {
+      options.includeAab = true;
       continue;
     }
 
@@ -111,9 +118,16 @@ function getExpectedArtifacts(version, options = {}) {
     {
       group: 'desktop',
       label: 'macOS universal DMG',
-      matrixLabels: ['macOS x64', 'macOS arm64'],
+      matrixLabels: ['macOS universal'],
       name: `Qortium-Home-${version}-universal.dmg`,
       path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-universal.dmg`),
+    },
+    {
+      group: 'desktop',
+      label: 'macOS 11 legacy universal DMG',
+      matrixLabels: ['macOS 11 legacy universal'],
+      name: `Qortium-Home-${version}-macos11-universal.dmg`,
+      path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-macos11-universal.dmg`),
     },
     {
       group: 'android',
@@ -126,7 +140,10 @@ function getExpectedArtifacts(version, options = {}) {
         `Qortium-Home-${version}-android-release${androidReleaseSuffix}.apk`,
       ),
     },
-    {
+  ];
+
+  if (options.includeAab) {
+    artifacts.push({
       group: 'android',
       label: `Android release AAB${options.allowUnsignedAndroid ? ' (unsigned)' : ''}`,
       matrixLabels: ['Android AAB'],
@@ -136,8 +153,8 @@ function getExpectedArtifacts(version, options = {}) {
         'dist-release',
         `Qortium-Home-${version}-android-release${androidReleaseSuffix}.aab`,
       ),
-    },
-  ];
+    });
+  }
 
   return options.androidOnly ? artifacts.filter((artifact) => artifact.group === 'android') : artifacts;
 }

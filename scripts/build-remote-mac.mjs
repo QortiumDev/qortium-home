@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const allowedTargets = new Set(['dist:mac:x64', 'dist:mac:arm64', 'dist:mac:universal']);
+const macos11UniversalTarget = 'dist:mac:macos11:universal';
+const allowedTargets = new Set(['dist:mac:x64', 'dist:mac:arm64', 'dist:mac:universal', macos11UniversalTarget]);
 const defaultRemoteHost = 'qortium-macmini';
 const defaultRemotePath = 'build/qortium-home';
 const expectedHostFingerprint = 'SHA256:kviKojSotaQOxY94eVLQ8K+ootwbhH3cEu7C0ZaVPaY';
@@ -21,6 +22,7 @@ Targets:
   dist:mac:x64
   dist:mac:arm64
   dist:mac:universal
+  dist:mac:macos11:universal
 
 Environment:
   QORTIUM_MAC_HOST         SSH host alias. Default: ${defaultRemoteHost}
@@ -185,6 +187,29 @@ tar -xf - -C "$remote_dir"
   ]);
 }
 
+function getRemoteBuildScript(target) {
+  if (target === macos11UniversalTarget) {
+    return `
+set -euo pipefail
+version="$(node -p "require('./package.json').version")"
+npm run build
+npx electron-builder --mac dmg --universal --publish never -c.mac.minimumSystemVersion=11.0.0
+normal_dmg="dist-release/Qortium-Home-$version-universal.dmg"
+legacy_dmg="dist-release/Qortium-Home-$version-macos11-universal.dmg"
+if [ ! -f "$normal_dmg" ]; then
+  echo "Expected legacy macOS build output not found: $normal_dmg" >&2
+  exit 1
+fi
+mv "$normal_dmg" "$legacy_dmg"
+if [ -f "$normal_dmg.blockmap" ]; then
+  mv "$normal_dmg.blockmap" "$legacy_dmg.blockmap"
+fi
+`;
+  }
+
+  return `npm run "$target"`;
+}
+
 function buildRemote(target, commit) {
   const remoteScript = `
 set -euo pipefail
@@ -200,9 +225,9 @@ npm --version
 npm ci
 rm -rf dist-release
 if command -v caffeinate >/dev/null 2>&1; then
-  caffeinate -dimsu npm run "$target"
+  caffeinate -dimsu /bin/bash -lc ${shellQuote(getRemoteBuildScript(target))}
 else
-  npm run "$target"
+  /bin/bash -lc ${shellQuote(getRemoteBuildScript(target))}
 fi
 ls -lh dist-release/*.dmg
 `;
