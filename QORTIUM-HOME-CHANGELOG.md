@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - ui: open settings in a new tab from the node menu
+
+Opening Settings from the node status menu next to the address bar now opens a new tab instead of replacing the page in the current tab.
+
 ### 2026-06-12 - ui: add sortable columns to the QDN explorer
 
 The QDN explorer now shows how many resources each service or name has and when each was last updated, in every browsing view. Lists start sorted by most recently updated, and column headers can be clicked to sort by name, count, size, or status.
