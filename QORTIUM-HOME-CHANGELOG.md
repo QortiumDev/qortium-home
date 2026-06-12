@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - ui: show name and avatar for the selected wallet
+
+The dashboard now shows the selected wallet's registered name and avatar alongside its address, and the account button next to the address bar now loads avatars from the correct QDN location.
+
 ### 2026-06-12 - qdn: add OPEN_QDN_MEDIA_PLAYER bridge action
 
 QDN apps can now ask Home to play QDN audio and video in Home's own media player, which opens over the app while it stays loaded. Only AUDIO, VOICE, PODCAST, and VIDEO resources are allowed in the player.

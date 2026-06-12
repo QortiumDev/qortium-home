@@ -1304,6 +1304,35 @@ h1 {
   color: var(--color-danger);
 }
 
+.account-selector__identity {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.account-selector__avatar {
+  flex: none;
+  width: 2.6em;
+  height: 2.6em;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+}
+
+.account-selector__identity-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-selector__name {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
 .account-selector__address {
   min-width: 0;
   margin: 0;

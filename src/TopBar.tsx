@@ -1,6 +1,7 @@
 import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getAccountProfile } from './accountProfile';
 import { NodeStatusButton } from './NodeStatusButton';
 import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
@@ -66,7 +67,6 @@ type HistoryMenuItem = {
   index: number;
 };
 
-const accountProfileCache = new Map<string, Promise<QortiumAccountProfile>>();
 const ADDRESS_SCHEME_SUGGESTIONS: Array<{ descriptionKey: TranslationKey; value: string }> = [
   {
     descriptionKey: 'address.suggestionQdn',
@@ -102,25 +102,6 @@ function formatHistoryEntry(entry: AppRoute) {
   }
 
   return entry.displayUrl;
-}
-
-function getAccountProfileCacheKey(account: QortiumAccountSummary, nodeApiUrl: string) {
-  return `${nodeApiUrl}:${account.id}:${account.address}:${account.label}`;
-}
-
-function getAccountProfile(account: QortiumAccountSummary, nodeApiUrl: string) {
-  const cacheKey = getAccountProfileCacheKey(account, nodeApiUrl);
-  let profileRequest = accountProfileCache.get(cacheKey);
-
-  if (!profileRequest) {
-    profileRequest = window.qortiumHome.accounts.getProfile(account.id).catch((error) => {
-      accountProfileCache.delete(cacheKey);
-      throw error;
-    });
-    accountProfileCache.set(cacheKey, profileRequest);
-  }
-
-  return profileRequest;
 }
 
 function getDisplayInitial(value: string) {
