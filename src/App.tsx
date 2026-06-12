@@ -33,6 +33,7 @@ import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, t, type TranslationKey } from './i18n';
 import { buildQdnDisplayUrl, type QdnDisplaySettings, type QdnResource, type QdnService } from './qdn';
 import { QdnExplorer } from './QdnExplorer';
+import { QdnPreviewViewer } from './QdnPreview';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
 import { TopBar } from './TopBar';
@@ -1799,6 +1800,16 @@ export function App() {
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   resource={tabRoute.resource}
+                  suspended={isQdnViewSuspended || !isActiveTab}
+                  tabId={tab.id}
+                />
+              ) : tabRoute.kind === 'preview' ? (
+                <QdnPreviewViewer
+                  key={tabRenderKey}
+                  account={tabAccount}
+                  displaySettings={effectiveDisplaySettings}
+                  nodeApiUrl={nodeSettings.nodeApiUrl}
+                  preview={tabRoute.preview}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}
                 />

@@ -389,6 +389,24 @@ type QortiumQdnArchiveRenderResult = {
   renderUrl: string;
 };
 
+type QortiumQdnPreviewContentRequest = {
+  kind?: 'directory' | 'file';
+  path?: string;
+};
+
+type QortiumQdnPreviewContentResult =
+  | {
+      canceled: true;
+    }
+  | {
+      canceled: false;
+      renderUrl: string;
+      service: string;
+      sourceKind: 'directory' | 'file';
+      sourceName: string;
+      sourcePath: string;
+    };
+
 type QortiumQdnViewBounds = {
   height: number;
   width: number;
@@ -623,6 +641,9 @@ interface Window {
       prepareArchiveRender: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnArchiveRenderResult>;
+      previewContent: (
+        request: QortiumQdnPreviewContentRequest,
+      ) => Promise<QortiumQdnPreviewContentResult>;
       downloadResource: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnDownloadResult>;

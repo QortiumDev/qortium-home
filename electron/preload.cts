@@ -134,6 +134,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       path?: string;
       service: string;
     }) => ipcRenderer.invoke('qdn:prepareArchiveRender', request),
+    previewContent: (request: { kind?: 'directory' | 'file'; path?: string }) =>
+      ipcRenderer.invoke('qdn:previewContent', request),
     downloadResource: (request: {
       identifier?: string;
       name: string;

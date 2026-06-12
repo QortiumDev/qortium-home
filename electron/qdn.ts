@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron';
+import extract from 'extract-zip';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFile, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { assertAccountUnlocked, getAccountProfile, getAccountSigningKey, isAccountUnlocked } from './accounts.js';
@@ -23,6 +25,42 @@ const PREVIEW_ACCOUNTS_PATH = path.join(
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
+// Must match the Core renderer's index file list and case-sensitive matching.
+const QDN_PREVIEW_INDEX_FILES = new Set([
+  'index.html',
+  'index.htm',
+  'default.html',
+  'default.htm',
+  'home.html',
+  'home.htm',
+]);
+const QDN_PREVIEW_EXTENSION_SERVICES = new Map([
+  ['apng', 'IMAGE'],
+  ['avif', 'IMAGE'],
+  ['bmp', 'IMAGE'],
+  ['gif', 'IMAGE'],
+  ['ico', 'IMAGE'],
+  ['jpeg', 'IMAGE'],
+  ['jpg', 'IMAGE'],
+  ['png', 'IMAGE'],
+  ['svg', 'IMAGE'],
+  ['webp', 'IMAGE'],
+  ['m4v', 'VIDEO'],
+  ['mkv', 'VIDEO'],
+  ['mov', 'VIDEO'],
+  ['mp4', 'VIDEO'],
+  ['ogv', 'VIDEO'],
+  ['webm', 'VIDEO'],
+  ['aac', 'AUDIO'],
+  ['flac', 'AUDIO'],
+  ['m4a', 'AUDIO'],
+  ['mp3', 'AUDIO'],
+  ['oga', 'AUDIO'],
+  ['ogg', 'AUDIO'],
+  ['opus', 'AUDIO'],
+  ['wav', 'AUDIO'],
+]);
+const qdnPreviewStagingDirs = new Map<string, string>();
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_MULTIPLE_QDN_RESOURCES', 'PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
 const QDN_GROUP_ACTIONS = [
@@ -160,6 +198,11 @@ type QdnResourcesSearchRequest = {
 type NodeApiRequest = {
   maxBytes?: unknown;
   method?: unknown;
+  path?: unknown;
+};
+
+type QdnPreviewContentRequest = {
+  kind?: unknown;
   path?: unknown;
 };
 
@@ -1634,6 +1677,142 @@ function getQdnWriteSourceKind(filePath: string): QdnWriteSourceSelection['kind'
   } catch {
     return 'file';
   }
+}
+
+function getQdnPreviewContentRequest(value: QdnPreviewContentRequest) {
+  const kind = getString(value.kind);
+  const sourcePath = getString(value.path);
+
+  if (kind && kind !== 'directory' && kind !== 'file') {
+    throw new Error('QDN preview source kind must be "directory" or "file".');
+  }
+
+  return {
+    kind: kind === 'directory' ? ('directory' as const) : ('file' as const),
+    sourcePath: sourcePath || undefined,
+  };
+}
+
+async function createQdnPreviewStagingDir(sourcePath: string) {
+  const previousDir = qdnPreviewStagingDirs.get(sourcePath);
+
+  if (previousDir) {
+    await rm(previousDir, { force: true, recursive: true });
+  }
+
+  const stagingDir = await mkdtemp(path.join(os.tmpdir(), 'qortium-home-preview-'));
+
+  qdnPreviewStagingDirs.set(sourcePath, stagingDir);
+
+  return stagingDir;
+}
+
+// Match the Core publish flow, which descends into a single extracted folder
+// while ignoring "_"-prefixed system entries such as __MACOSX.
+async function resolveExtractedQdnPreviewRoot(stagingDir: string) {
+  const entries = (await readdir(stagingDir)).filter((entry) => !entry.startsWith('_'));
+
+  if (entries.length === 1) {
+    const candidate = path.join(stagingDir, entries[0]);
+
+    if ((await stat(candidate)).isDirectory()) {
+      return candidate;
+    }
+  }
+
+  return stagingDir;
+}
+
+async function assertQdnPreviewIndexFile(directoryPath: string) {
+  const entries = await readdir(directoryPath);
+
+  if (!entries.some((entry) => QDN_PREVIEW_INDEX_FILES.has(entry))) {
+    throw new Error('Website previews need an index file (for example index.html) in the top level of the folder or zip.');
+  }
+}
+
+async function stageQdnPreviewSource(sourcePath: string) {
+  let sourceStats;
+
+  try {
+    sourceStats = await stat(sourcePath);
+  } catch {
+    throw new Error(`Preview source does not exist: ${sourcePath}`);
+  }
+
+  if (sourceStats.isDirectory()) {
+    await assertQdnPreviewIndexFile(sourcePath);
+
+    return {
+      previewPath: sourcePath,
+      service: 'WEBSITE',
+      sourceKind: 'directory' as const,
+    };
+  }
+
+  const extension = path.extname(sourcePath).slice(1).toLowerCase();
+
+  if (extension === 'zip') {
+    const stagingDir = await createQdnPreviewStagingDir(sourcePath);
+
+    await extract(sourcePath, { dir: stagingDir });
+    const previewPath = await resolveExtractedQdnPreviewRoot(stagingDir);
+
+    await assertQdnPreviewIndexFile(previewPath);
+
+    return {
+      previewPath,
+      service: 'WEBSITE',
+      sourceKind: 'file' as const,
+    };
+  }
+
+  if (extension === 'html' || extension === 'htm') {
+    // Stage the file as index.html so the Core accepts it as a standalone website.
+    const stagingDir = await createQdnPreviewStagingDir(sourcePath);
+
+    await copyFile(sourcePath, path.join(stagingDir, 'index.html'));
+
+    return {
+      previewPath: stagingDir,
+      service: 'WEBSITE',
+      sourceKind: 'file' as const,
+    };
+  }
+
+  const service = QDN_PREVIEW_EXTENSION_SERVICES.get(extension);
+
+  if (!service) {
+    throw new Error(
+      'Unsupported preview content. Choose a folder or zip containing an index.html file, an HTML file, or an image, video, or audio file.',
+    );
+  }
+
+  return {
+    previewPath: sourcePath,
+    service,
+    sourceKind: 'file' as const,
+  };
+}
+
+function getQdnPreviewErrorMessage(body: string, status: number) {
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown };
+
+    if (parsed && typeof parsed.message === 'string' && parsed.message) {
+      return parsed.message;
+    }
+  } catch {
+    // Fall through to the generic messages below.
+  }
+
+  // Nodes without the preview endpoint route the request elsewhere and answer
+  // with a generic 404 or an HTML 500 page instead of a JSON API error.
+  if (status === 404 || status === 500) {
+    return 'The connected Qortium Core node does not support QDN previews yet. Update Qortium Core and try again.';
+  }
+
+  return `Qortium node preview request failed with HTTP ${status}.`;
 }
 
 function isSameQdnWriteContext(
@@ -3794,6 +3973,67 @@ export function registerQdnIpcHandlers() {
     const archiveBuffer = Buffer.from(await response.arrayBuffer());
 
     return prepareQdnArchiveRender(resource, archiveBuffer);
+  });
+
+  ipcMain.handle('qdn:previewContent', async (event, request: QdnPreviewContentRequest) => {
+    const { kind, sourcePath: requestedPath } = getQdnPreviewContentRequest(request);
+    let sourcePath = requestedPath;
+
+    if (!sourcePath) {
+      const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const dialogOptions = {
+        buttonLabel: 'Preview',
+        properties: [kind === 'directory' ? ('openDirectory' as const) : ('openFile' as const)],
+        title: 'Select Preview Content',
+      };
+      const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return {
+          canceled: true,
+        };
+      }
+
+      sourcePath = result.filePaths[0];
+    }
+
+    const connection = await getNodeConnection();
+
+    assertLocalWriteConnection(connection);
+    const apiKey = getNodeApiKey(connection);
+    const { previewPath, service, sourceKind } = await stageQdnPreviewSource(sourcePath);
+    const response = await fetchNode(
+      `/arbitrary/preview/${service}`,
+      {
+        body: previewPath,
+        headers: {
+          'Content-Type': 'text/plain',
+          'X-API-KEY': apiKey,
+        },
+        method: 'POST',
+      },
+      connection.nodeApiUrl,
+    );
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(getQdnPreviewErrorMessage(text, response.status));
+    }
+
+    if (!text.startsWith('/render/')) {
+      throw new Error('Qortium node returned an unexpected preview URL.');
+    }
+
+    return {
+      canceled: false,
+      renderUrl: `${connection.nodeApiUrl.replace(/\/+$/, '')}${text}`,
+      service,
+      sourceKind,
+      sourceName: path.basename(sourcePath),
+      sourcePath,
+    };
   });
 
   ipcMain.handle('qdn:downloadResource', async (event, request: QdnRawResourceRequest) => {

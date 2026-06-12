@@ -1,9 +1,12 @@
-import { ChevronDown, ChevronUp, FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, File, FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
+import { isNativePlatform } from './platform';
 import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
 import {
   PUBLIC_QDN_SERVICES,
+  buildQdnPreviewRoute,
   buildQdnRenderUrl,
   buildQdnRouteFromListItem,
   formatByteSize,
@@ -76,6 +79,11 @@ type QdnImagePreviewState =
   | {
       phase: 'error';
     };
+
+type PreviewDialogState = {
+  error?: string;
+  isWorking: boolean;
+} | null;
 
 function formatError(error: unknown) {
   if (!(error instanceof Error)) {
@@ -349,11 +357,52 @@ function QdnImageResourcePreview({
   );
 }
 
+function QdnPreviewDialog({
+  errorMessage,
+  isWorking,
+  onDismiss,
+  onPick,
+}: {
+  errorMessage?: string;
+  isWorking: boolean;
+  onDismiss: () => void;
+  onPick: (kind: 'directory' | 'file') => void;
+}) {
+  return (
+    <ModalDialog onDismiss={onDismiss}>
+      <section aria-label={t('preview.dialogTitle')} aria-modal="true" className="preview-dialog" role="dialog">
+        <h3 className="preview-dialog__title">{t('preview.dialogTitle')}</h3>
+        <p className="preview-dialog__intro">{t('preview.dialogIntro')}</p>
+        <p className="preview-dialog__supported">{t('preview.supported')}</p>
+        {errorMessage ? (
+          <p className="preview-dialog__error" role="alert">
+            {errorMessage}
+          </p>
+        ) : null}
+        <div className="preview-dialog__actions">
+          <button className="button button--secondary" type="button" disabled={isWorking} onClick={onDismiss}>
+            {t('common.cancel')}
+          </button>
+          <button className="button" type="button" disabled={isWorking} onClick={() => onPick('file')}>
+            <File aria-hidden="true" size={18} strokeWidth={2} />
+            {t('preview.chooseFile')}
+          </button>
+          <button className="button" type="button" disabled={isWorking} onClick={() => onPick('directory')}>
+            <Folder aria-hidden="true" size={18} strokeWidth={2} />
+            {t('preview.chooseFolder')}
+          </button>
+        </div>
+      </section>
+    </ModalDialog>
+  );
+}
+
 export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: QdnExplorerProps) {
   const [state, setState] = useState<QdnExplorerState>({
     phase: 'idle',
     resources: [],
   });
+  const [previewDialog, setPreviewDialog] = useState<PreviewDialogState>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [sort, setSort] = useState<ExplorerSort>(DEFAULT_EXPLORER_SORT);
   const nameRows = useMemo(() => getNameRows(state.resources), [state.resources]);
@@ -408,6 +457,39 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
     { key: 'size', label: t('common.size') },
     { key: 'updated', label: t('explorer.columnUpdated') },
   ];
+
+  async function handlePreviewPick(kind: 'directory' | 'file') {
+    setPreviewDialog({ isWorking: true });
+
+    try {
+      const result = await window.qortiumHome.qdn.previewContent({ kind });
+
+      if (result.canceled) {
+        setPreviewDialog({ isWorking: false });
+        return;
+      }
+
+      if (!isQdnService(result.service)) {
+        throw new Error(t('preview.failed'));
+      }
+
+      setPreviewDialog(null);
+      onNavigate(
+        buildQdnPreviewRoute({
+          renderUrl: result.renderUrl,
+          service: result.service,
+          sourceKind: result.sourceKind,
+          sourceName: result.sourceName,
+          sourcePath: result.sourcePath,
+        }),
+      );
+    } catch (error) {
+      setPreviewDialog({
+        isWorking: false,
+        error: formatError(error),
+      });
+    }
+  }
 
   function toggleSort(key: ExplorerSortKey) {
     setSort((currentSort) => {
@@ -470,16 +552,37 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
           <h2>{getRouteHeading(route)}</h2>
           <p>{route.displayUrl}</p>
         </div>
-        <button
-          className="button button--secondary qdn-explorer__refresh"
-          type="button"
-          disabled={state.phase === 'loading'}
-          onClick={() => setRetryToken((currentToken) => currentToken + 1)}
-        >
-          <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-          {t('common.refresh')}
-        </button>
+        <div className="qdn-explorer__header-actions">
+          {!isNativePlatform() ? (
+            <button
+              className="button button--secondary qdn-explorer__preview"
+              type="button"
+              onClick={() => setPreviewDialog({ isWorking: false })}
+            >
+              <Eye aria-hidden="true" size={18} strokeWidth={2} />
+              {t('explorer.previewButton')}
+            </button>
+          ) : null}
+          <button
+            className="button button--secondary qdn-explorer__refresh"
+            type="button"
+            disabled={state.phase === 'loading'}
+            onClick={() => setRetryToken((currentToken) => currentToken + 1)}
+          >
+            <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
+            {t('common.refresh')}
+          </button>
+        </div>
       </header>
+
+      {previewDialog ? (
+        <QdnPreviewDialog
+          errorMessage={previewDialog.error}
+          isWorking={previewDialog.isWorking}
+          onDismiss={() => setPreviewDialog(null)}
+          onPick={(kind) => void handlePreviewPick(kind)}
+        />
+      ) : null}
 
       {state.phase === 'error' ? (
         <p className="qdn-explorer__message qdn-explorer__message--error">{state.message}</p>
