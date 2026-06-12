@@ -251,12 +251,17 @@ function isAllowedRenderUrlForOrigin(rawUrl: string, nodeOrigin: string) {
 
   const pathSegments = url.pathname.split('/');
 
-  return (
-    pathSegments[1] === 'render' &&
-    ALLOWED_RENDER_SERVICES.has(getRenderService(url)) &&
-    typeof pathSegments[3] === 'string' &&
-    pathSegments[3].length > 0
-  );
+  if (pathSegments[1] !== 'render' || typeof pathSegments[3] !== 'string' || pathSegments[3].length === 0) {
+    return false;
+  }
+
+  // Hash render URLs come from local publish previews, which the Core node
+  // only serves for pre-authorized hashes with a matching secret.
+  if (pathSegments[2] === 'hash') {
+    return true;
+  }
+
+  return ALLOWED_RENDER_SERVICES.has(getRenderService(url));
 }
 
 function sanitizeRenderUrl(value: unknown, nodeOrigin: string) {

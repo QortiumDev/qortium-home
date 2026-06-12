@@ -112,12 +112,25 @@ export type QdnResource = {
 
 export type QdnDisplaySettings = Pick<ResolvedDisplaySettings, 'language' | 'textSize' | 'theme' | 'accent'>;
 
+export type QdnPreview = {
+  renderUrl: string;
+  service: QdnService;
+  sourceKind: 'directory' | 'file';
+  sourceName: string;
+  sourcePath: string;
+};
+
 export type QdnRoute =
   | QdnExplorerRoute
   | {
       displayUrl: string;
       kind: 'resource';
       resource: QdnResource;
+    }
+  | {
+      displayUrl: string;
+      kind: 'preview';
+      preview: QdnPreview;
     };
 
 export type QdnResourceStatus = {
@@ -535,6 +548,14 @@ export function buildQdnRouteFromListItem(item: QdnResourceListItem): QdnRoute {
       ...resource,
       displayUrl,
     },
+  };
+}
+
+export function buildQdnPreviewRoute(preview: QdnPreview): QdnRoute {
+  return {
+    kind: 'preview',
+    displayUrl: `qdn://preview/${preview.service}/${encodeURIComponent(preview.sourceName)}`,
+    preview,
   };
 }
 

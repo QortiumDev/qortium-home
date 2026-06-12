@@ -82,7 +82,7 @@ type QdnAppBridgeMessage = {
   type?: unknown;
 };
 
-function canUseIsolatedQdnViews() {
+export function canUseIsolatedQdnViews() {
   return !isNativePlatform() && !!window.qortiumHome.qdnViews;
 }
 
@@ -189,7 +189,7 @@ function formatError(error: unknown) {
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
-function getMediaErrorMessage(element: HTMLAudioElement | HTMLVideoElement) {
+export function getMediaErrorMessage(element: HTMLAudioElement | HTMLVideoElement) {
   switch (element.error?.code) {
     case MediaError.MEDIA_ERR_ABORTED:
       return t('viewer.media.aborted');
@@ -1071,20 +1071,20 @@ function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQ
   );
 }
 
-function QdnIsolatedFrameContent({
-  loadedResource,
+export function QdnIsolatedFrameContent({
   account,
   displaySettings,
   nodeApiUrl,
-  resource,
+  renderUrl,
+  resourceUrl,
   suspended,
   tabId,
 }: {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
-  loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
-  resource: QdnResource;
+  renderUrl: string;
+  resourceUrl: string;
   suspended: boolean;
   tabId: string;
 }) {
@@ -1191,8 +1191,8 @@ function QdnIsolatedFrameContent({
           bounds,
           displaySettings,
           nodeApiUrl,
-          renderUrl: loadedResource.renderUrl,
-          resourceUrl: resource.displayUrl,
+          renderUrl,
+          resourceUrl,
           tabId,
         });
 
@@ -1245,7 +1245,7 @@ function QdnIsolatedFrameContent({
         });
       }
     };
-  }, [accountId, loadedResource.renderUrl, nodeApiUrl, suspended, tabId]);
+  }, [accountId, renderUrl, nodeApiUrl, suspended, tabId]);
 
   useEffect(() => {
     const qdnViews = window.qortiumHome.qdnViews;
@@ -1274,7 +1274,7 @@ function QdnIsolatedFrameContent({
   return (
     <div
       className={`qdn-viewer__isolated-frame${viewError ? ' qdn-viewer__isolated-frame--error' : ''}`}
-      aria-label={resource.displayUrl}
+      aria-label={resourceUrl}
       ref={containerRef}
     >
       {viewError ? (
@@ -1447,11 +1447,11 @@ function QdnReadyContent({
     if (canUseIsolatedQdnViews()) {
       return (
         <QdnIsolatedFrameContent
-          loadedResource={loadedResource}
           account={account}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
-          resource={resource}
+          renderUrl={loadedResource.renderUrl}
+          resourceUrl={resource.displayUrl}
           suspended={suspended}
           tabId={tabId}
         />
