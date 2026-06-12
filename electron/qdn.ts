@@ -50,6 +50,7 @@ const QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS = [
 ] as const;
 const QDN_WRITE_SMOKE_ROLE = 'local';
 const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
+const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const QDN_APP_BRIDGE_ACTIONS = [
   'FETCH_NODE_API',
@@ -76,6 +77,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'IS_USING_PUBLIC_NODE',
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
+  'OPEN_NEW_TAB',
   ...QDN_WRITE_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
@@ -3558,6 +3560,31 @@ async function handleQdnAppRequest(
       const connection = await getNodeConnection();
 
       return connection.mode === 'network';
+    }
+
+    case 'OPEN_NEW_TAB': {
+      const qdnUrl = getRequiredRequestString(request, 'qdnUrl', 'QDN URL');
+
+      if (!/^qdn:\/\//i.test(qdnUrl)) {
+        throw new Error('OPEN_NEW_TAB only accepts qdn:// URLs.');
+      }
+
+      if (qdnUrl.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
+        throw new Error('QDN URL is too long.');
+      }
+
+      const hostWindow = context ? getQdnViewHostWindow(context) : null;
+
+      if (!context || !hostWindow) {
+        throw new Error('QDN open new tab request does not belong to an active window.');
+      }
+
+      hostWindow.webContents.send('qdn-app:open-new-tab', {
+        qdnUrl,
+        sourceTabId: context.tabId,
+      });
+
+      return true;
     }
 
     case 'WHICH_UI':

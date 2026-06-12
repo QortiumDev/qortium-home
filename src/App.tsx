@@ -474,6 +474,9 @@ export function App() {
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
+  const openQdnLinkInNewTabRef = useRef<
+    ((qdnUrl: string, sourceTabId: string | null) => void) | null
+  >(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
@@ -942,6 +945,28 @@ export function App() {
     }));
   }
 
+  function openQdnLinkInNewTab(qdnUrl: string, sourceTabId: string | null) {
+    const parsed = parseAppAddress(qdnUrl);
+
+    // QDN apps may only open QDN resources, never internal Home pages.
+    if (!parsed.success || parsed.route.kind !== 'resource') {
+      console.warn('Ignoring QDN app request to open an unsupported address in a new tab.', qdnUrl);
+      return;
+    }
+
+    const sourceTab = tabState.tabs.find((tab) => tab.id === sourceTabId);
+    const tab = createBrowserTab(sourceTab ? sourceTab.accountId : getDefaultAccountId(accountsState), {
+      entries: [parsed.route],
+      index: 0,
+    });
+
+    setTabState((currentTabState) => ({
+      ...currentTabState,
+      tabs: [...currentTabState.tabs, tab],
+      activeTabId: tab.id,
+    }));
+  }
+
   function selectTab(tabId: string) {
     setTabState((currentTabState) => {
       if (!currentTabState.tabs.some((tab) => tab.id === tabId)) {
@@ -1251,6 +1276,8 @@ export function App() {
     goHome,
   };
 
+  openQdnLinkInNewTabRef.current = openQdnLinkInNewTab;
+
   useEffect(() => {
     return window.qortiumHome.menu?.onCommand((command) => {
       const actions = tabCommandActionsRef.current;
@@ -1294,6 +1321,18 @@ export function App() {
       if (command === 'go-forward' && actions.canGoForward) {
         actions.goForward();
       }
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onOpenNewTab) {
+      return undefined;
+    }
+
+    return qdnEvents.onOpenNewTab((event) => {
+      openQdnLinkInNewTabRef.current?.(event.qdnUrl, event.sourceTabId);
     });
   }, []);
 
@@ -1666,6 +1705,7 @@ export function App() {
                   account={tabAccount}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  onOpenNewTab={(qdnUrl) => openQdnLinkInNewTab(qdnUrl, tab.id)}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}

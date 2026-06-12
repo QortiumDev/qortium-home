@@ -624,5 +624,10 @@ interface Window {
       ) => () => void;
       resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
     };
+    qdnEvents?: {
+      onOpenNewTab: (
+        callback: (event: { qdnUrl: string; sourceTabId: string | null }) => void,
+      ) => () => void;
+    };
   };
 }

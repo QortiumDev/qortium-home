@@ -185,4 +185,20 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     resolveWriteRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
   },
+  qdnEvents: {
+    onOpenNewTab: (callback: (event: { qdnUrl: string; sourceTabId: string | null }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { qdnUrl: string; sourceTabId: string | null },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:open-new-tab', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:open-new-tab', listener);
+      };
+    },
+  },
 });
