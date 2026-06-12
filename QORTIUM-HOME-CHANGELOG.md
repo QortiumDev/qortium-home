@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - release: prepare home preview 13
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.13` with Android `versionCode` 14 so the QDN local preview workflow, account refresh fixes, app unlock request support, and dashboard tab pins can be published as the next QortiumDev prerelease target.
+
 ### 2026-06-12 - ui: pin tabs to the dashboard
 
 Tabs can now be pinned to the dashboard from the tab right-click menu. Saved pins appear above the dashboard's QDN, Core API, and Settings buttons, persist across restarts, open through Home's normal address routing, and can be removed directly from the dashboard.
