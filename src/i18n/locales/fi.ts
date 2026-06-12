@@ -231,6 +231,8 @@ export const fi: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "Nimen {name} julkaisemia resursseja: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN-resurssiluettelon vastaus ei vastannut odotettua muotoa.",
+  "mediaPlayer.close": "Sulje",
+  "mediaPlayer.dialogLabel": "Mediasoitin",
   "menu.closeWindow": "Sulje ikkuna",
   "menu.copy": "Kopioi",
   "menu.cut": "Leikkaa",

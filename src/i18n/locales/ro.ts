@@ -231,6 +231,8 @@ export const ro: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "Resurse publicate de {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "Răspunsul cu lista de resurse QDN nu a avut forma așteptată.",
+  "mediaPlayer.close": "Închide",
+  "mediaPlayer.dialogLabel": "Player media",
   "menu.closeWindow": "Închide fereastra",
   "menu.copy": "Copiere",
   "menu.cut": "Decupare",

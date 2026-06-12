@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - qdn: add OPEN_QDN_MEDIA_PLAYER bridge action
+
+QDN apps can now ask Home to play QDN audio and video in Home's own media player, which opens over the app while it stays loaded. Only AUDIO, VOICE, PODCAST, and VIDEO resources are allowed in the player.
+
 ### 2026-06-11 - qdn: notify apps when the selected account unlocks
 
 QDN apps are now notified when the selected account is unlocked or locked, so apps like Chat refresh their account state immediately instead of needing a reload.

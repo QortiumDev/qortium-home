@@ -231,6 +231,8 @@ export const hu: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "{name} által közzétett erőforrások: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "A QDN-erőforráslista válasza nem felelt meg a várt formátumnak.",
+  "mediaPlayer.close": "Bezárás",
+  "mediaPlayer.dialogLabel": "Médialejátszó",
   "menu.closeWindow": "Ablak bezárása",
   "menu.copy": "Másolás",
   "menu.cut": "Kivágás",

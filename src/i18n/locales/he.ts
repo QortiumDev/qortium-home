@@ -231,6 +231,8 @@ export const he: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "משאבים שפורסמו על ידי {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "תגובת רשימת משאבי ה-QDN לא תאמה את המבנה הצפוי.",
+  "mediaPlayer.close": "סגירה",
+  "mediaPlayer.dialogLabel": "נגן מדיה",
   "menu.closeWindow": "סגירת חלון",
   "menu.copy": "העתקה",
   "menu.cut": "גזירה",

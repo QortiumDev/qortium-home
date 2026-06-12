@@ -231,6 +231,8 @@ export const nl: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "Resources gepubliceerd door {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "Het antwoord met de QDN-resourcelijst kwam niet overeen met de verwachte vorm.",
+  "mediaPlayer.close": "Sluiten",
+  "mediaPlayer.dialogLabel": "Mediaspeler",
   "menu.closeWindow": "Venster sluiten",
   "menu.copy": "Kopiëren",
   "menu.cut": "Knippen",

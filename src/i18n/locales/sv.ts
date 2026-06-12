@@ -231,6 +231,8 @@ export const sv: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "Resurser publicerade av {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "Svaret med QDN-resurslistan hade inte den förväntade formen.",
+  "mediaPlayer.close": "Stäng",
+  "mediaPlayer.dialogLabel": "Mediaspelare",
   "menu.closeWindow": "Stäng fönster",
   "menu.copy": "Kopiera",
   "menu.cut": "Klipp ut",

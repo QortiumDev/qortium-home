@@ -231,6 +231,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "{name} 發布的資源：{count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN 資源清單回應不符合預期格式。",
+  "mediaPlayer.close": "關閉",
+  "mediaPlayer.dialogLabel": "媒體播放器",
   "menu.closeWindow": "關閉視窗",
   "menu.copy": "複製",
   "menu.cut": "剪下",

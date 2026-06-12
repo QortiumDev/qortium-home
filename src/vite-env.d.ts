@@ -435,6 +435,13 @@ type QortiumQdnViewAccountStateRequest = {
   tabId: string;
 };
 
+type QortiumQdnMediaPlayerRequest = {
+  identifier: string | null;
+  name: string;
+  path: string | null;
+  service: string;
+};
+
 type QortiumHomeRouteSnapshot = {
   displayUrl: string;
   kind: string;
@@ -628,6 +635,9 @@ interface Window {
     qdnEvents?: {
       onOpenNewTab: (
         callback: (event: { qdnUrl: string; sourceTabId: string | null }) => void,
+      ) => () => void;
+      onOpenMediaPlayer: (
+        callback: (event: QortiumQdnMediaPlayerRequest) => void,
       ) => () => void;
     };
   };

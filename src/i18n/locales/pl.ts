@@ -231,6 +231,8 @@ export const pl: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "Zasoby opublikowane przez {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "Odpowiedź z listą zasobów QDN nie miała oczekiwanego formatu.",
+  "mediaPlayer.close": "Zamknij",
+  "mediaPlayer.dialogLabel": "Odtwarzacz multimediów",
   "menu.closeWindow": "Zamknij okno",
   "menu.copy": "Kopiuj",
   "menu.cut": "Wytnij",

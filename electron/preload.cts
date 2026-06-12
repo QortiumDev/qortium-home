@@ -200,5 +200,26 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:open-new-tab', listener);
       };
     },
+    onOpenMediaPlayer: (
+      callback: (event: {
+        identifier: string | null;
+        name: string;
+        path: string | null;
+        service: string;
+      }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { identifier: string | null; name: string; path: string | null; service: string },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:open-media-player', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:open-media-player', listener);
+      };
+    },
   },
 });

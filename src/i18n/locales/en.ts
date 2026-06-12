@@ -229,6 +229,8 @@ export const en = {
   "explorer.resourcesPublishedBy": "Resources published by {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN resource list response did not match the expected shape.",
+  "mediaPlayer.close": "Close",
+  "mediaPlayer.dialogLabel": "Media player",
   "menu.closeWindow": "Close Window",
   "menu.copy": "Copy",
   "menu.cut": "Cut",
