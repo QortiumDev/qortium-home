@@ -90,6 +90,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'IS_USING_PUBLIC_NODE',
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
+  'OPEN_NEW_TAB',
   ...QDN_WRITE_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
@@ -104,6 +105,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'SHOW_ACTIONS',
 ] as const;
 const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
+const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
 
 type StoredNodeSettings = {
   apiKey: string;
@@ -201,6 +203,7 @@ type QdnAppResourceRequest = {
 type QdnAppRequestContext = {
   accountId: string | null;
   displaySettings: QdnDisplaySettings;
+  onOpenNewTab?: (qdnUrl: string) => void;
   resourceUrl: string;
   sessionKey: string;
 };
@@ -5063,6 +5066,26 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       const settings = await readNodeSettings();
 
       return settings.mode === 'network';
+    }
+
+    case 'OPEN_NEW_TAB': {
+      const qdnUrl = getRequiredRequestString(request, 'qdnUrl', 'QDN URL');
+
+      if (!/^qdn:\/\//i.test(qdnUrl)) {
+        throw new Error('OPEN_NEW_TAB only accepts qdn:// URLs.');
+      }
+
+      if (qdnUrl.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
+        throw new Error('QDN URL is too long.');
+      }
+
+      if (!context?.onOpenNewTab) {
+        throw new Error('Opening a new tab is not available in this context.');
+      }
+
+      context.onOpenNewTab(qdnUrl);
+
+      return true;
     }
 
     case 'WHICH_UI':

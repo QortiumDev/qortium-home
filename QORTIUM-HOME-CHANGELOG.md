@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-11 - qdn: add OPEN_NEW_TAB bridge action
+
+QDN apps can now ask Home to open a QDN address in a new tab through the qdnRequest bridge. Home validates the address, only allows QDN content, and opens the tab with the same selected account as the requesting app.
+
 ### 2026-06-11 - ui: keep QDN pages visible under menus and prompts
 
 Opening the account menu, the node status menu, or a permission prompt no longer blanks out QDN pages: the page now stays visible as a seamless frozen preview until the menu or prompt is closed. As part of the same work, QDN apps no longer reload their state or reset their navigation when their page returns to view after closing a menu or switching to another tab and back.

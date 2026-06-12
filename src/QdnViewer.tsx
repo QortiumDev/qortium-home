@@ -46,6 +46,7 @@ type QdnViewerProps = {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  onOpenNewTab?: (qdnUrl: string) => void;
   resource: QdnResource;
   suspended?: boolean;
   tabId: string;
@@ -1309,14 +1310,19 @@ function QdnIframeContent({
   account,
   displaySettings,
   loadedResource,
+  onOpenNewTab,
   resource,
 }: {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
+  onOpenNewTab?: (qdnUrl: string) => void;
   resource: QdnResource;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const onOpenNewTabRef = useRef(onOpenNewTab);
+
+  onOpenNewTabRef.current = onOpenNewTab;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
@@ -1368,6 +1374,9 @@ function QdnIframeContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
+          onOpenNewTab: (qdnUrl: string) => {
+            onOpenNewTabRef.current?.(qdnUrl);
+          },
           resourceUrl: resource.displayUrl,
           sessionKey: bridgeToken,
         });
@@ -1430,6 +1439,7 @@ function QdnReadyContent({
   account,
   displaySettings,
   nodeApiUrl,
+  onOpenNewTab,
   resource,
   suspended,
   tabId,
@@ -1438,6 +1448,7 @@ function QdnReadyContent({
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  onOpenNewTab?: (qdnUrl: string) => void;
   resource: QdnResource;
   suspended: boolean;
   tabId: string;
@@ -1462,6 +1473,7 @@ function QdnReadyContent({
         account={account}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
+        onOpenNewTab={onOpenNewTab}
         resource={resource}
       />
     );
@@ -1506,7 +1518,15 @@ function QdnReadyContent({
   );
 }
 
-export function QdnViewer({ account, displaySettings, nodeApiUrl, resource, suspended = false, tabId }: QdnViewerProps) {
+export function QdnViewer({
+  account,
+  displaySettings,
+  nodeApiUrl,
+  onOpenNewTab,
+  resource,
+  suspended = false,
+  tabId,
+}: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
@@ -1542,6 +1562,7 @@ export function QdnViewer({ account, displaySettings, nodeApiUrl, resource, susp
           account={account}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
+          onOpenNewTab={onOpenNewTab}
           resource={resource}
           suspended={suspended}
           tabId={tabId}
