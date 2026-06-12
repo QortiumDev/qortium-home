@@ -231,6 +231,8 @@ export const ko: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "{name}이(가) 게시한 리소스: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN 리소스 목록 응답이 예상한 형식과 일치하지 않습니다.",
+  "mediaPlayer.close": "닫기",
+  "mediaPlayer.dialogLabel": "미디어 플레이어",
   "menu.closeWindow": "창 닫기",
   "menu.copy": "복사",
   "menu.cut": "잘라내기",

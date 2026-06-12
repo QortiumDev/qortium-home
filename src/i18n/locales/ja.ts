@@ -231,6 +231,8 @@ export const ja: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "{name}が公開したリソース: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDNリソース一覧のレスポンスが想定された形式と一致しませんでした。",
+  "mediaPlayer.close": "閉じる",
+  "mediaPlayer.dialogLabel": "メディアプレーヤー",
   "menu.closeWindow": "ウィンドウを閉じる",
   "menu.copy": "コピー",
   "menu.cut": "切り取り",

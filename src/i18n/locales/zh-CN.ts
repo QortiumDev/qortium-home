@@ -231,6 +231,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "{name} 发布的资源：{count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN 资源列表响应与预期格式不符。",
+  "mediaPlayer.close": "关闭",
+  "mediaPlayer.dialogLabel": "媒体播放器",
   "menu.closeWindow": "关闭窗口",
   "menu.copy": "复制",
   "menu.cut": "剪切",

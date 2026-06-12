@@ -231,6 +231,8 @@ export const et: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "Nime {name} all avaldatud ressursse: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN-i ressursiloendi vastus ei vastanud oodatud kujule.",
+  "mediaPlayer.close": "Sulge",
+  "mediaPlayer.dialogLabel": "Meediumipleier",
   "menu.closeWindow": "Sulge aken",
   "menu.copy": "Kopeeri",
   "menu.cut": "Lõika",

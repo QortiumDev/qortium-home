@@ -91,6 +91,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
   'OPEN_NEW_TAB',
+  'OPEN_QDN_MEDIA_PLAYER',
   ...QDN_WRITE_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
@@ -106,6 +107,8 @@ const QDN_APP_BRIDGE_ACTIONS = [
 ] as const;
 const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
 const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
+const QDN_MEDIA_PLAYER_SERVICES = new Set(['AUDIO', 'PODCAST', 'VIDEO', 'VOICE']);
+const QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH = 1024;
 
 type StoredNodeSettings = {
   apiKey: string;
@@ -203,6 +206,7 @@ type QdnAppResourceRequest = {
 type QdnAppRequestContext = {
   accountId: string | null;
   displaySettings: QdnDisplaySettings;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (qdnUrl: string) => void;
   resourceUrl: string;
   sessionKey: string;
@@ -5084,6 +5088,39 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       }
 
       context.onOpenNewTab(qdnUrl);
+
+      return true;
+    }
+
+    case 'OPEN_QDN_MEDIA_PLAYER': {
+      const service = getRequiredRequestString(request, 'service', 'Service').toUpperCase();
+
+      if (!QDN_MEDIA_PLAYER_SERVICES.has(service)) {
+        throw new Error('OPEN_QDN_MEDIA_PLAYER only supports AUDIO, VOICE, PODCAST, and VIDEO resources.');
+      }
+
+      const name = getRequiredRequestString(request, 'name', 'Name');
+      const identifier = getString(getRequestValue(request, 'identifier'));
+      const resourcePath = getString(getRequestValue(request, 'path'));
+
+      if (
+        name.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
+        identifier.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
+        resourcePath.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH
+      ) {
+        throw new Error('QDN media player request fields are too long.');
+      }
+
+      if (!context?.onOpenMediaPlayer) {
+        throw new Error('The media player is not available in this context.');
+      }
+
+      context.onOpenMediaPlayer({
+        identifier: identifier || null,
+        name,
+        path: resourcePath || null,
+        service,
+      });
 
       return true;
     }

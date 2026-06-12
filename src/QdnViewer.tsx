@@ -46,6 +46,7 @@ type QdnViewerProps = {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (qdnUrl: string) => void;
   resource: QdnResource;
   suspended?: boolean;
@@ -1310,19 +1311,23 @@ function QdnIframeContent({
   account,
   displaySettings,
   loadedResource,
+  onOpenMediaPlayer,
   onOpenNewTab,
   resource,
 }: {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (qdnUrl: string) => void;
   resource: QdnResource;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const onOpenNewTabRef = useRef(onOpenNewTab);
+  const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
 
   onOpenNewTabRef.current = onOpenNewTab;
+  onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
@@ -1374,6 +1379,9 @@ function QdnIframeContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
+          onOpenMediaPlayer: (mediaRequest: QortiumQdnMediaPlayerRequest) => {
+            onOpenMediaPlayerRef.current?.(mediaRequest);
+          },
           onOpenNewTab: (qdnUrl: string) => {
             onOpenNewTabRef.current?.(qdnUrl);
           },
@@ -1439,6 +1447,7 @@ function QdnReadyContent({
   account,
   displaySettings,
   nodeApiUrl,
+  onOpenMediaPlayer,
   onOpenNewTab,
   resource,
   suspended,
@@ -1448,6 +1457,7 @@ function QdnReadyContent({
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (qdnUrl: string) => void;
   resource: QdnResource;
   suspended: boolean;
@@ -1473,6 +1483,7 @@ function QdnReadyContent({
         account={account}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
+        onOpenMediaPlayer={onOpenMediaPlayer}
         onOpenNewTab={onOpenNewTab}
         resource={resource}
       />
@@ -1522,6 +1533,7 @@ export function QdnViewer({
   account,
   displaySettings,
   nodeApiUrl,
+  onOpenMediaPlayer,
   onOpenNewTab,
   resource,
   suspended = false,
@@ -1562,6 +1574,7 @@ export function QdnViewer({
           account={account}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
+          onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}
           resource={resource}
           suspended={suspended}

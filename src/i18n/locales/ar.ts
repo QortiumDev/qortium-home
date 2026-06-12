@@ -231,6 +231,8 @@ export const ar: Record<TranslationKey, string> = {
   "explorer.resourcesPublishedBy": "الموارد المنشورة بواسطة {name}: {count}",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "لم تطابق استجابة قائمة موارد QDN الشكل المتوقع.",
+  "mediaPlayer.close": "إغلاق",
+  "mediaPlayer.dialogLabel": "مشغل الوسائط",
   "menu.closeWindow": "إغلاق النافذة",
   "menu.copy": "نسخ",
   "menu.cut": "قص",

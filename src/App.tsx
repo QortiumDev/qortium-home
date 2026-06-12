@@ -1,6 +1,7 @@
 import './styles.css';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
+import { X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -30,6 +31,7 @@ import {
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, t, type TranslationKey } from './i18n';
+import { buildQdnDisplayUrl, type QdnDisplaySettings, type QdnResource, type QdnService } from './qdn';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
@@ -395,6 +397,50 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
   );
 }
 
+const QDN_MEDIA_PLAYER_SERVICES: readonly QdnService[] = ['AUDIO', 'PODCAST', 'VIDEO', 'VOICE'];
+
+type QdnMediaPlayerDialogProps = {
+  displaySettings: QdnDisplaySettings;
+  nodeApiUrl: string;
+  onDismiss: () => void;
+  resource: QdnResource;
+};
+
+function QdnMediaPlayerDialog({ displaySettings, nodeApiUrl, onDismiss, resource }: QdnMediaPlayerDialogProps) {
+  return (
+    <ModalDialog onDismiss={onDismiss}>
+      <section
+        aria-label={t('mediaPlayer.dialogLabel')}
+        aria-modal="true"
+        className="media-player-dialog"
+        role="dialog"
+      >
+        <header className="media-player-dialog__header">
+          <span className="media-player-dialog__url">{resource.displayUrl}</span>
+          <button
+            aria-label={t('mediaPlayer.close')}
+            className="icon-button media-player-dialog__close"
+            type="button"
+            onClick={onDismiss}
+          >
+            <X aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
+        </header>
+        <div className="media-player-dialog__body">
+          <QdnViewer
+            key={resource.displayUrl}
+            account={null}
+            displaySettings={displaySettings}
+            nodeApiUrl={nodeApiUrl}
+            resource={resource}
+            tabId={`media-player:${resource.displayUrl}`}
+          />
+        </div>
+      </section>
+    </ModalDialog>
+  );
+}
+
 function getTabLabel(tab: BrowserTab) {
   const route = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
 
@@ -465,6 +511,7 @@ export function App() {
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
+  const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
@@ -477,6 +524,7 @@ export function App() {
   const openQdnLinkInNewTabRef = useRef<
     ((qdnUrl: string, sourceTabId: string | null) => void) | null
   >(null);
+  const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
@@ -491,7 +539,7 @@ export function App() {
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnWriteRequest;
-  const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen;
+  const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
@@ -967,6 +1015,24 @@ export function App() {
     }));
   }
 
+  function openQdnMediaPlayer(request: QortiumQdnMediaPlayerRequest) {
+    const service = request.service.toUpperCase() as QdnService;
+
+    if (!QDN_MEDIA_PLAYER_SERVICES.includes(service) || !request.name) {
+      console.warn('Ignoring QDN app media player request for an unsupported resource.', request);
+      return;
+    }
+
+    const resource: Omit<QdnResource, 'displayUrl'> = {
+      ...(request.identifier ? { identifier: request.identifier } : {}),
+      name: request.name,
+      path: request.path ?? '',
+      service,
+    };
+
+    setQdnMediaPlayerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
+  }
+
   function selectTab(tabId: string) {
     setTabState((currentTabState) => {
       if (!currentTabState.tabs.some((tab) => tab.id === tabId)) {
@@ -1277,6 +1343,7 @@ export function App() {
   };
 
   openQdnLinkInNewTabRef.current = openQdnLinkInNewTab;
+  openQdnMediaPlayerRef.current = openQdnMediaPlayer;
 
   useEffect(() => {
     return window.qortiumHome.menu?.onCommand((command) => {
@@ -1333,6 +1400,18 @@ export function App() {
 
     return qdnEvents.onOpenNewTab((event) => {
       openQdnLinkInNewTabRef.current?.(event.qdnUrl, event.sourceTabId);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onOpenMediaPlayer) {
+      return undefined;
+    }
+
+    return qdnEvents.onOpenMediaPlayer((event) => {
+      openQdnMediaPlayerRef.current?.(event);
     });
   }, []);
 
@@ -1705,6 +1784,7 @@ export function App() {
                   account={tabAccount}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(qdnUrl) => openQdnLinkInNewTab(qdnUrl, tab.id)}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
@@ -1758,6 +1838,14 @@ export function App() {
         <QdnWriteDialog
           request={activeQdnWriteRequest}
           onResolve={resolveQdnWriteRequest}
+        />
+      ) : null}
+      {qdnMediaPlayerResource && !activeQdnWriteRequest && nodeSettings ? (
+        <QdnMediaPlayerDialog
+          displaySettings={effectiveDisplaySettings}
+          nodeApiUrl={nodeSettings.nodeApiUrl}
+          onDismiss={() => setQdnMediaPlayerResource(null)}
+          resource={qdnMediaPlayerResource}
         />
       ) : null}
     </main>
