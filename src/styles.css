@@ -2354,6 +2354,14 @@ h1 {
   background: var(--color-frame-bg);
 }
 
+.qdn-viewer__snapshot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
 .qdn-viewer__image-stage {
   display: grid;
   min-width: 0;

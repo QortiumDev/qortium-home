@@ -610,6 +610,7 @@ interface Window {
       ) => Promise<QortiumQdnDownloadResult>;
     };
     qdnViews?: {
+      capture: (tabId: string) => Promise<string | null>;
       destroy: (tabId: string) => Promise<void>;
       hide: (tabId: string) => Promise<void>;
       setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;

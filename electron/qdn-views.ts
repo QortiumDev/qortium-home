@@ -35,8 +35,13 @@ const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
 type QdnViewEntry = {
   accountId: string | null;
   currentUrl: string | null;
+  // What the loaded page last received; `undefined` means nothing delivered
+  // yet, so state messages are only sent when these fall out of sync.
+  deliveredAccountId: string | null | undefined;
+  deliveredDisplaySettings: QdnDisplaySettings | undefined;
   displaySettings: QdnDisplaySettings;
   nodeOrigin: string;
+  pendingStateDelivery: Promise<void>;
   resourceUrl: string | null;
   tabId: string;
   view: WebContentsView;
@@ -474,19 +479,53 @@ async function sendQdnMessages(entry: QdnViewEntry, messages: unknown[]) {
   );
 }
 
-async function sendDisplaySettingsMessages(entry: QdnViewEntry) {
-  await sendQdnMessages(entry, getQdnDisplaySettingMessages(entry.displaySettings));
+function areDisplaySettingsEqual(
+  first: QdnDisplaySettings | undefined,
+  second: QdnDisplaySettings,
+) {
+  return (
+    !!first &&
+    first.accent === second.accent &&
+    first.language === second.language &&
+    first.textSize === second.textSize &&
+    first.theme === second.theme
+  );
 }
 
-async function sendSelectedAccountChangedMessage(entry: QdnViewEntry) {
-  await sendQdnMessages(entry, [getQdnSelectedAccountChangedMessage()]);
+async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
+  const sendDisplaySettings = !areDisplaySettingsEqual(
+    entry.deliveredDisplaySettings,
+    entry.displaySettings,
+  );
+  const sendAccountChanged = entry.deliveredAccountId !== entry.accountId;
+  const messages = [
+    ...(sendDisplaySettings ? getQdnDisplaySettingMessages(entry.displaySettings) : []),
+    ...(sendAccountChanged ? [getQdnSelectedAccountChangedMessage()] : []),
+  ];
+
+  if (!messages.length) {
+    return;
+  }
+
+  await sendQdnMessages(entry, messages);
+
+  if (sendDisplaySettings) {
+    entry.deliveredDisplaySettings = entry.displaySettings;
+  }
+
+  if (sendAccountChanged) {
+    entry.deliveredAccountId = entry.accountId;
+  }
 }
 
-async function sendQdnViewStateMessages(entry: QdnViewEntry) {
-  await sendQdnMessages(entry, [
-    ...getQdnDisplaySettingMessages(entry.displaySettings),
-    getQdnSelectedAccountChangedMessage(),
-  ]);
+// Deliveries are serialized per view so concurrent show/update calls cannot
+// both see the same pending state and send duplicate messages into the page.
+function queueQdnViewStateDelivery(entry: QdnViewEntry) {
+  entry.pendingStateDelivery = entry.pendingStateDelivery
+    .then(() => sendPendingQdnViewStateMessages(entry))
+    .catch((error) => {
+      console.warn('Unable to update isolated QDN view state.', error);
+    });
 }
 
 function createViewEntry(
@@ -500,8 +539,11 @@ function createViewEntry(
   const entry: QdnViewEntry = {
     accountId,
     currentUrl: null,
+    deliveredAccountId: undefined,
+    deliveredDisplaySettings: undefined,
     displaySettings,
     nodeOrigin,
+    pendingStateDelivery: Promise.resolve(),
     resourceUrl,
     tabId,
     view: new WebContentsView({
@@ -606,14 +648,17 @@ export function registerQdnViewIpcHandlers() {
       entry.currentUrl = request.renderUrl;
       void entry.view.webContents
         .loadURL(request.renderUrl)
-        .then(() => sendQdnViewStateMessages(entry))
+        .then(() => {
+          // The freshly loaded page has received nothing yet.
+          entry.deliveredAccountId = undefined;
+          entry.deliveredDisplaySettings = undefined;
+          queueQdnViewStateDelivery(entry);
+        })
         .catch((error) => {
           console.warn('Unable to load isolated QDN view.', error);
         });
     } else {
-      void sendQdnViewStateMessages(entry).catch((error) => {
-        console.warn('Unable to update isolated QDN view state.', error);
-      });
+      queueQdnViewStateDelivery(entry);
     }
   });
 
@@ -623,6 +668,32 @@ export function registerQdnViewIpcHandlers() {
     const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
 
     entry?.view.setBounds(request.bounds);
+  });
+
+  ipcMain.handle('qdn-views:capture', async (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const tabId = sanitizeTabRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
+
+    // Capturing a hidden view yields an empty image, so only capture live views.
+    if (!entry || !entry.view.getVisible() || entry.view.webContents.isDestroyed()) {
+      return null;
+    }
+
+    try {
+      const snapshot = await entry.view.webContents.capturePage();
+
+      if (snapshot.isEmpty()) {
+        return null;
+      }
+
+      // JPEG instead of PNG: encoding, transferring, and decoding a full-view
+      // PNG data URL takes long enough to make overlay opening feel laggy.
+      return `data:image/jpeg;base64,${snapshot.toJPEG(90).toString('base64')}`;
+    } catch (error) {
+      console.warn('Unable to capture isolated QDN view snapshot.', error);
+      return null;
+    }
   });
 
   ipcMain.handle('qdn-views:hide', (event, rawRequest: unknown) => {
@@ -643,9 +714,7 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.displaySettings = request.displaySettings;
-    void sendDisplaySettingsMessages(entry).catch((error) => {
-      console.warn('Unable to update isolated QDN view display settings.', error);
-    });
+    queueQdnViewStateDelivery(entry);
   });
 
   ipcMain.handle('qdn-views:updateAccountState', (event, rawRequest: unknown) => {
@@ -658,9 +727,7 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.accountId = request.accountId;
-    void sendSelectedAccountChangedMessage(entry).catch((error) => {
-      console.warn('Unable to update isolated QDN view account state.', error);
-    });
+    queueQdnViewStateDelivery(entry);
   });
 
   ipcMain.handle('qdn-views:destroy', (event, rawRequest: unknown) => {
