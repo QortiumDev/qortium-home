@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - ui: pin tabs to the dashboard
+
+Tabs can now be pinned to the dashboard from the tab right-click menu. Saved pins appear above the dashboard's QDN, Core API, and Settings buttons, persist across restarts, open through Home's normal address routing, and can be removed directly from the dashboard.
+
 ### 2026-06-12 - qdn: let apps request selected account unlock
 
 QDN apps can now call `UNLOCK_SELECTED_ACCOUNT` when the selected account is locked. Home handles the password prompt itself, unlocks the wallet through the same account flow used by the dashboard and top bar, updates the selected account state, and returns the refreshed account details to the app without exposing the password or private key. The action is advertised through `SHOW_ACTIONS` on desktop and Android, with smoke checks updated to cover the new bridge capability.

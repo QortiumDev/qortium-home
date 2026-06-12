@@ -756,6 +756,104 @@ h1 {
   min-width: 0;
 }
 
+.dashboard-pins {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-pins__title {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-heading);
+  font-weight: 650;
+  line-height: var(--line-height-tight);
+}
+
+.dashboard-pins__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16em), 1fr));
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.dashboard-pin {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboard-pin__link {
+  transition: var(--transition-control);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 12px;
+  color: var(--color-text);
+  text-align: start;
+  background: var(--color-control-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.dashboard-pin__link:hover,
+.dashboard-pin__link:focus-visible {
+  background: var(--color-control-hover);
+  border-color: var(--color-border-strong);
+  outline: none;
+}
+
+.dashboard-pin__link:focus-visible {
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
+}
+
+.dashboard-pin__link svg {
+  color: var(--color-accent);
+}
+
+.dashboard-pin__text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dashboard-pin__label,
+.dashboard-pin__url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-pin__label {
+  font-weight: 650;
+  line-height: var(--line-height-tight);
+}
+
+.dashboard-pin__url {
+  color: var(--color-text-subtle);
+  font-family:
+    "Illinois Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.dashboard-pin__remove {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  color: var(--color-text-secondary);
+}
+
 .dashboard-page__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 21em), 1fr));
@@ -1686,7 +1784,9 @@ h1 {
 
 .top-bar__tab-menu-item {
   transition: background-color 170ms ease, color 170ms ease;
-  display: block;
+  display: flex;
+  gap: 8px;
+  align-items: center;
   width: 100%;
   min-width: 0;
   padding: 8px 10px;
@@ -1701,6 +1801,10 @@ h1 {
   border: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;
+}
+
+.top-bar__tab-menu-item svg {
+  flex: 0 0 auto;
 }
 
 .top-bar__tab-menu-item:hover:not(:disabled),

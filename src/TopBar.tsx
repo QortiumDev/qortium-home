@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Plus, RefreshCw, Unlock, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAccountProfile } from './accountProfile';
@@ -34,6 +34,7 @@ type TopBarProps = {
   onNodeAvailable: () => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
+  onPinTabToDashboard: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
@@ -44,6 +45,7 @@ type TopBarProps = {
 type TabDropPosition = 'after' | 'before';
 
 type BrowserTabSummary = {
+  canPinToDashboard: boolean;
   id: string;
   label: string;
 };
@@ -488,6 +490,7 @@ function BrowserTabs({
   onCloseTabsToRight,
   onDuplicateTab,
   onMoveTabToNewWindow,
+  onPinTabToDashboard,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
@@ -503,6 +506,7 @@ function BrowserTabs({
   onCloseTabsToRight: (tabId: string) => void;
   onDuplicateTab: (tabId: string) => void;
   onMoveTabToNewWindow?: (tabId: string) => void;
+  onPinTabToDashboard: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
@@ -755,7 +759,7 @@ function BrowserTabs({
     // The menu is sized in em (15em wide), so estimate its bounds from the scaled root font size.
     const rootFontSizePx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const menuWidth = 15 * rootFontSizePx;
-    const menuHeight = (onMoveTabToNewWindow ? 19.75 : 17.25) * rootFontSizePx;
+    const menuHeight = (onMoveTabToNewWindow ? 22.25 : 19.75) * rootFontSizePx;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
     const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
@@ -884,6 +888,16 @@ function BrowserTabs({
           >
             {t('tabs.duplicateTab')}
           </button>
+          <button
+            className="top-bar__tab-menu-item"
+            disabled={!contextMenuTab.canPinToDashboard}
+            role="menuitem"
+            type="button"
+            onClick={() => runTabMenuCommand(() => onPinTabToDashboard(contextMenuTab.id))}
+          >
+            <Pin aria-hidden="true" size={16} strokeWidth={2} />
+            {t('tabs.pinToDashboard')}
+          </button>
           {onMoveTabToNewWindow ? (
             <button
               className="top-bar__tab-menu-item"
@@ -963,6 +977,7 @@ export function TopBar({
   onNodeAvailable,
   onOpenSettings,
   onOverlayOpenChange,
+  onPinTabToDashboard,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
@@ -1109,6 +1124,7 @@ export function TopBar({
         onCloseTabsToRight={onCloseTabsToRight}
         onDuplicateTab={onDuplicateTab}
         onMoveTabToNewWindow={onMoveTabToNewWindow}
+        onPinTabToDashboard={onPinTabToDashboard}
         onReorderTab={onReorderTab}
         onReloadTab={onReloadTab}
         onReopenClosedTab={onReopenClosedTab}
