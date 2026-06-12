@@ -2,6 +2,7 @@
 export const en = {
   "account.actionFailed": "Account action failed.",
   "account.actionsLabel": "Account actions",
+  "account.addAddress": "Add address",
   "account.chipAria": "Account, {name}, {status}",
   "account.chipAriaEmpty": "Account, no account selected",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -26,6 +27,7 @@ export const en = {
   "account.removeWalletTitle": "Remove Wallet",
   "account.savedWalletBackup": "Saved wallet backup as {fileName}.",
   "account.selectWalletHint": "Select a wallet on the Dashboard to use account actions.",
+  "account.selectedAddress": "Selected address",
   "account.selectedWallet": "Selected wallet",
   "account.selectedWalletAddress": "Selected wallet address",
   "account.statusLocked": "Locked",

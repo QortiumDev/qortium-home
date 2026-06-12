@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const zhCN: Record<TranslationKey, string> = {
   "account.actionFailed": "账户操作失败。",
   "account.actionsLabel": "账户操作",
+  "account.addAddress": "添加地址",
   "account.chipAria": "账户，{name}，{status}",
   "account.chipAriaEmpty": "账户，未选择账户",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "移除钱包",
   "account.savedWalletBackup": "已将钱包备份保存为 {fileName}。",
   "account.selectWalletHint": "请在仪表盘中选择一个钱包以使用账户操作。",
+  "account.selectedAddress": "选定的地址",
   "account.selectedWallet": "所选钱包",
   "account.selectedWalletAddress": "所选钱包地址",
   "account.statusLocked": "已锁定",

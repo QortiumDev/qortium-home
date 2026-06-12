@@ -127,9 +127,17 @@ type EncryptedWallet = {
   [key: string]: unknown;
 };
 
+type DerivedWalletAddress = {
+  address: string;
+  index: number;
+};
+
 type StoredWallet = {
   address: string;
   createdAt: string;
+  // Extra addresses derived from the same seed (index >= 1); index 0 is the
+  // base `address`. Stored only in Home's store, never in wallet files.
+  derivedAddresses: DerivedWalletAddress[];
   encryptedWallet: EncryptedWallet;
   id: string;
   label: string;
@@ -938,13 +946,73 @@ function isStoredWallet(value: unknown): value is StoredWallet {
   );
 }
 
+function sanitizeDerivedAddresses(value: unknown): DerivedWalletAddress[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (entry): entry is DerivedWalletAddress =>
+        isRecord(entry) &&
+        isNonEmptyString(entry.address) &&
+        typeof entry.index === 'number' &&
+        Number.isInteger(entry.index) &&
+        entry.index > 0,
+    )
+    .map((entry) => ({ address: entry.address, index: entry.index }))
+    .sort((first, second) => first.index - second.index);
+}
+
+function getDerivedAccountId(walletId: string, addressIndex: number) {
+  return addressIndex === 0 ? walletId : `${walletId}:${addressIndex}`;
+}
+
+function getWalletIdForAccountId(accountId: string) {
+  return accountId.split(':').slice(0, 2).join(':');
+}
+
+type ResolvedWalletAccount = {
+  address: string;
+  addressIndex: number;
+  wallet: StoredWallet;
+};
+
+function resolveWalletAccount(wallets: StoredWallet[], accountId: string): ResolvedWalletAccount | null {
+  for (const wallet of wallets) {
+    if (wallet.id === accountId) {
+      return { address: wallet.address, addressIndex: 0, wallet };
+    }
+
+    for (const derived of wallet.derivedAddresses) {
+      if (getDerivedAccountId(wallet.id, derived.index) === accountId) {
+        return { address: derived.address, addressIndex: derived.index, wallet };
+      }
+    }
+  }
+
+  return null;
+}
+
+function requireWalletAccount(store: WalletStore, accountId: string): ResolvedWalletAccount {
+  const resolved = resolveWalletAccount(store.wallets, accountId);
+
+  if (!resolved) {
+    throw new Error('Selected account is not saved.');
+  }
+
+  return resolved;
+}
+
 function normalizeWalletStore(store: WalletStore): WalletStore {
-  const activeWallet = store.wallets.find((wallet) => wallet.id === store.activeAccountId);
+  const activeAccount = store.activeAccountId
+    ? resolveWalletAccount(store.wallets, store.activeAccountId)
+    : null;
 
   return {
     version: WALLET_STORE_VERSION,
     wallets: store.wallets,
-    activeAccountId: activeWallet?.id ?? store.wallets[0]?.id ?? null,
+    activeAccountId: activeAccount ? store.activeAccountId : store.wallets[0]?.id ?? null,
   };
 }
 
@@ -955,7 +1023,10 @@ function parseWalletStore(value: unknown): WalletStore {
 
   return normalizeWalletStore({
     version: WALLET_STORE_VERSION,
-    wallets: value.wallets.filter(isStoredWallet),
+    wallets: value.wallets.filter(isStoredWallet).map((wallet) => ({
+      ...wallet,
+      derivedAddresses: sanitizeDerivedAddresses((wallet as Record<string, unknown>).derivedAddresses),
+    })),
     activeAccountId: typeof value.activeAccountId === 'string' ? value.activeAccountId : null,
   });
 }
@@ -979,13 +1050,30 @@ function toAccountsState(store: WalletStore): QortiumAccountsState {
 
   return {
     activeAccountId: nextStore.activeAccountId,
-    accounts: nextStore.wallets.map((wallet) => ({
-      id: wallet.id,
-      label: wallet.label,
-      address: wallet.address,
-      sourceFilename: wallet.sourceFilename,
-      isUnlocked: unlockedWalletSeeds.has(wallet.id),
-    })),
+    accounts: nextStore.wallets.flatMap((wallet) => {
+      const isUnlocked = unlockedWalletSeeds.has(wallet.id);
+
+      return [
+        {
+          id: wallet.id,
+          addressIndex: 0,
+          label: wallet.label,
+          address: wallet.address,
+          sourceFilename: wallet.sourceFilename,
+          isUnlocked,
+          walletId: wallet.id,
+        },
+        ...wallet.derivedAddresses.map((derived) => ({
+          id: getDerivedAccountId(wallet.id, derived.index),
+          addressIndex: derived.index,
+          label: `${wallet.label} · ${derived.index}`,
+          address: derived.address,
+          sourceFilename: wallet.sourceFilename,
+          isUnlocked,
+          walletId: wallet.id,
+        })),
+      ];
+    }),
   };
 }
 
@@ -1540,6 +1628,7 @@ async function saveLoadedWallet(token: string, name: string) {
     id,
     label: walletName,
     address: pendingWallet.encryptedWallet.address0,
+    derivedAddresses: existingWallet?.derivedAddresses ?? [],
     sourceFilename: pendingWallet.sourceFilename,
     encryptedWallet: pendingWallet.encryptedWallet,
     createdAt: existingWallet?.createdAt ?? now,
@@ -1633,6 +1722,7 @@ async function createWallet(name: string, password: string): Promise<QortiumCrea
       id,
       label: walletName,
       address: encryptedWallet.address0,
+      derivedAddresses: existingWallet?.derivedAddresses ?? [],
       sourceFilename: backupResult.fileName,
       encryptedWallet,
       createdAt: existingWallet?.createdAt ?? now,
@@ -1664,12 +1754,7 @@ async function createWallet(name: string, password: string): Promise<QortiumCrea
 
 async function exportWallet(accountId: string) {
   const store = await readWalletStore();
-  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
-
-  if (!wallet) {
-    throw new Error('Selected account is not saved.');
-  }
-
+  const { wallet } = requireWalletAccount(store, accountId);
   const suggestedFilename = wallet.sourceFilename || getWalletBackupFilename(wallet.label, wallet.encryptedWallet);
 
   return saveWalletBackup(wallet.encryptedWallet, suggestedFilename);
@@ -1678,9 +1763,7 @@ async function exportWallet(accountId: string) {
 async function setActiveAccount(accountId: string) {
   const store = await readWalletStore();
 
-  if (!store.wallets.some((wallet) => wallet.id === accountId)) {
-    throw new Error('Selected account is not saved.');
-  }
+  requireWalletAccount(store, accountId);
 
   store.activeAccountId = accountId;
   await writeWalletStore(store);
@@ -1690,48 +1773,76 @@ async function setActiveAccount(accountId: string) {
 
 async function unlockWallet(accountId: string, password: string) {
   const store = await readWalletStore();
-  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
-
-  if (!wallet) {
-    throw new Error('Selected account is not saved.');
-  }
-
+  const { wallet } = requireWalletAccount(store, accountId);
   const seed = await decryptWalletSeed(password, wallet.encryptedWallet);
 
-  unlockedWalletSeeds.set(accountId, seed);
+  unlockedWalletSeeds.set(wallet.id, seed);
 
   return toAccountsState(store);
 }
 
 async function lockWallet(accountId: string) {
   const store = await readWalletStore();
+  const { wallet } = requireWalletAccount(store, accountId);
 
-  if (!store.wallets.some((wallet) => wallet.id === accountId)) {
-    throw new Error('Selected account is not saved.');
+  forgetUnlockedWalletSeed(wallet.id);
+
+  return toAccountsState(store);
+}
+
+async function addDerivedAddress(accountId: string) {
+  const store = await readWalletStore();
+  const { wallet } = requireWalletAccount(store, accountId);
+  const seed = unlockedWalletSeeds.get(wallet.id);
+
+  if (!seed) {
+    throw new Error('Unlock the selected wallet to add an address.');
   }
 
-  forgetUnlockedWalletSeed(accountId);
+  const nextIndex = (wallet.derivedAddresses[wallet.derivedAddresses.length - 1]?.index ?? 0) + 1;
+  const addressSeed = deriveAddressSeed(seed, nextIndex);
+  const keyPair = nacl.sign.keyPair.fromSeed(addressSeed);
+  const address = await publicKeyToAddress(keyPair.publicKey);
+
+  wallet.derivedAddresses = [...wallet.derivedAddresses, { address, index: nextIndex }];
+  wallet.updatedAt = new Date().toISOString();
+  store.activeAccountId = getDerivedAccountId(wallet.id, nextIndex);
+  await writeWalletStore(store);
 
   return toAccountsState(store);
 }
 
 async function removeWallet(accountId: string, password?: string) {
   const store = await readWalletStore();
-  const walletIndex = store.wallets.findIndex((wallet) => wallet.id === accountId);
-  const wallet = store.wallets[walletIndex];
+  const { addressIndex, wallet } = requireWalletAccount(store, accountId);
 
-  if (!wallet) {
-    throw new Error('Selected account is not saved.');
+  // Removing a derived address only hides it from the list; re-adding derives
+  // the same address again, so no password confirmation is needed.
+  if (addressIndex > 0) {
+    wallet.derivedAddresses = wallet.derivedAddresses.filter((derived) => derived.index !== addressIndex);
+    wallet.updatedAt = new Date().toISOString();
+
+    if (store.activeAccountId === accountId) {
+      store.activeAccountId = wallet.id;
+    }
+
+    await writeWalletStore(store);
+
+    return toAccountsState(store);
   }
 
-  if (!unlockedWalletSeeds.has(accountId)) {
+  const walletIndex = store.wallets.findIndex((storedWallet) => storedWallet.id === wallet.id);
+
+  if (!unlockedWalletSeeds.has(wallet.id)) {
     await decryptWalletSeed(password ?? '', wallet.encryptedWallet);
   }
 
-  const wasActiveWallet = store.activeAccountId === accountId;
+  const wasActiveWallet =
+    store.activeAccountId !== null &&
+    resolveWalletAccount([wallet], store.activeAccountId) !== null;
 
   store.wallets.splice(walletIndex, 1);
-  forgetUnlockedWalletSeed(accountId);
+  forgetUnlockedWalletSeed(wallet.id);
 
   if (wasActiveWallet) {
     store.activeAccountId = store.wallets[walletIndex]?.id ?? store.wallets[walletIndex - 1]?.id ?? null;
@@ -1789,11 +1900,7 @@ async function getFirstOwnedName(address: string, nodeApiUrl: string) {
 
 async function getAccountProfile(accountId: string): Promise<QortiumAccountProfile> {
   const store = await readWalletStore();
-  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
-
-  if (!wallet) {
-    throw new Error('Selected account is not saved.');
-  }
+  const { address: accountAddress, addressIndex, wallet } = requireWalletAccount(store, accountId);
 
   let nodeApiUrl = '';
 
@@ -1804,24 +1911,24 @@ async function getAccountProfile(accountId: string): Promise<QortiumAccountProfi
   }
 
   const name = nodeApiUrl
-    ? (await getPrimaryName(wallet.address, nodeApiUrl)) ??
-      (await getFirstOwnedName(wallet.address, nodeApiUrl))
+    ? (await getPrimaryName(accountAddress, nodeApiUrl)) ??
+      (await getFirstOwnedName(accountAddress, nodeApiUrl))
     : null;
   const avatarUrl = name
     ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
     : null;
 
   return {
-    accountId: wallet.id,
-    address: wallet.address,
+    accountId,
+    address: accountAddress,
     avatarUrl,
-    label: wallet.label,
+    label: addressIndex === 0 ? wallet.label : `${wallet.label} · ${addressIndex}`,
     name,
   };
 }
 
 function isAccountUnlocked(accountId: string) {
-  return unlockedWalletSeeds.has(accountId);
+  return unlockedWalletSeeds.has(getWalletIdForAccountId(accountId));
 }
 
 async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undefined) {
@@ -2127,23 +2234,18 @@ function assertLocalWriteConnection(settings: StoredNodeSettings, nodeApiUrl: st
 
 async function getAccountSigningKey(accountId: string) {
   const store = await readWalletStore();
-  const wallet = store.wallets.find((storedWallet) => storedWallet.id === accountId);
-
-  if (!wallet) {
-    throw new Error('Selected account is not saved.');
-  }
-
-  const seed = unlockedWalletSeeds.get(accountId);
+  const { address: accountAddress, addressIndex, wallet } = requireWalletAccount(store, accountId);
+  const seed = unlockedWalletSeeds.get(wallet.id);
 
   if (!seed) {
     throw new Error('Selected account is locked.');
   }
 
-  const privateKey = deriveAddressSeed(seed, 0);
+  const privateKey = deriveAddressSeed(seed, addressIndex);
   const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
   const address = await publicKeyToAddress(keyPair.publicKey);
 
-  if (address !== wallet.address) {
+  if (address !== accountAddress) {
     throw new Error('Selected account signing key does not match the saved account address.');
   }
 
@@ -3557,6 +3659,7 @@ function createStoredAccountsApi(): PlatformApi['accounts'] {
     createWallet,
     exportWallet,
     setActiveAccount,
+    addDerivedAddress,
     unlockWallet,
     lockWallet,
     removeWallet,
@@ -5170,6 +5273,7 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
     createWallet: async () => unsupported(),
     exportWallet: async () => unsupported(),
     setActiveAccount: async () => emptyState,
+    addDerivedAddress: async () => unsupported(),
     unlockWallet: async () => emptyState,
     lockWallet: async () => emptyState,
     removeWallet: async () => emptyState,

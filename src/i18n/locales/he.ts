@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const he: Record<TranslationKey, string> = {
   "account.actionFailed": "פעולת החשבון נכשלה.",
   "account.actionsLabel": "פעולות חשבון",
+  "account.addAddress": "הוספת כתובת",
   "account.chipAria": "חשבון, {name}, {status}",
   "account.chipAriaEmpty": "חשבון, לא נבחר חשבון",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const he: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "הסרת ארנק",
   "account.savedWalletBackup": "גיבוי הארנק נשמר בשם {fileName}.",
   "account.selectWalletHint": "יש לבחור ארנק בלוח הבקרה כדי להשתמש בפעולות חשבון.",
+  "account.selectedAddress": "הכתובת שנבחרה",
   "account.selectedWallet": "הארנק שנבחר",
   "account.selectedWalletAddress": "כתובת הארנק שנבחר",
   "account.statusLocked": "נעול",

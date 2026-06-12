@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const ko: Record<TranslationKey, string> = {
   "account.actionFailed": "계정 작업에 실패했습니다.",
   "account.actionsLabel": "계정 작업",
+  "account.addAddress": "주소 추가",
   "account.chipAria": "계정, {name}, {status}",
   "account.chipAriaEmpty": "계정, 선택된 계정 없음",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const ko: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "지갑 제거",
   "account.savedWalletBackup": "지갑 백업을 {fileName}(으)로 저장했습니다.",
   "account.selectWalletHint": "계정 작업을 사용하려면 대시보드에서 지갑을 선택하세요.",
+  "account.selectedAddress": "선택된 주소",
   "account.selectedWallet": "선택한 지갑",
   "account.selectedWalletAddress": "선택한 지갑 주소",
   "account.statusLocked": "잠김",

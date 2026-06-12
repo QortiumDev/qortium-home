@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const et: Record<TranslationKey, string> = {
   "account.actionFailed": "Konto toiming ebaõnnestus.",
   "account.actionsLabel": "Konto toimingud",
+  "account.addAddress": "Lisa aadress",
   "account.chipAria": "Konto, {name}, {status}",
   "account.chipAriaEmpty": "Konto, ühtegi kontot pole valitud",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const et: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Eemalda rahakott",
   "account.savedWalletBackup": "Rahakoti varukoopia salvestati nimega {fileName}.",
   "account.selectWalletHint": "Kontotoimingute kasutamiseks vali Töölaual rahakott.",
+  "account.selectedAddress": "Valitud aadress",
   "account.selectedWallet": "Valitud rahakott",
   "account.selectedWalletAddress": "Valitud rahakoti aadress",
   "account.statusLocked": "Lukus",

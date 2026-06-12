@@ -1,4 +1,4 @@
-import { Download, Lock, Unlock, Wallet, X } from 'lucide-react';
+import { Download, Lock, Plus, Unlock, Wallet, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { getAccountProfile } from './accountProfile';
 import { ModalDialog } from './components/ModalDialog';
@@ -87,6 +87,8 @@ export function AccountsPanel({
   const [unlockError, setUnlockError] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [isExportingWallet, setIsExportingWallet] = useState(false);
+  const [isAddingAddress, setIsAddingAddress] = useState(false);
+  const [addAddressAfterUnlock, setAddAddressAfterUnlock] = useState(false);
   const [removingAccountId, setRemovingAccountId] = useState<string | null>(null);
   const [removePassword, setRemovePassword] = useState('');
   const [removeError, setRemoveError] = useState('');
@@ -149,6 +151,17 @@ export function AccountsPanel({
       isDisposed = true;
     };
   }, [activeAccount, nodeApiUrl]);
+  const walletAccounts = useMemo(
+    () =>
+      accountsState.accounts
+        .filter((account) => account.walletId === activeAccount?.walletId)
+        .sort((first, second) => first.addressIndex - second.addressIndex),
+    [accountsState.accounts, activeAccount?.walletId],
+  );
+  const walletOptions = useMemo(
+    () => accountsState.accounts.filter((account) => account.addressIndex === 0),
+    [accountsState.accounts],
+  );
   const unlockingAccount = useMemo(
     () => accountsState.accounts.find((account) => account.id === unlockingAccountId),
     [accountsState.accounts, unlockingAccountId],
@@ -341,6 +354,7 @@ export function AccountsPanel({
     if (!activeAccount.isUnlocked) {
       setPassword('');
       setUnlockError('');
+      setAddAddressAfterUnlock(false);
       setUnlockingAccountId(activeAccount.id);
       return;
     }
@@ -350,6 +364,71 @@ export function AccountsPanel({
     } catch (error) {
       setAccountError(formatError(error));
     }
+  }
+
+  async function performAddAddress(accountId: string) {
+    setIsAddingAddress(true);
+
+    try {
+      const nextAccountsState = await window.qortiumHome.accounts.addDerivedAddress(accountId);
+
+      onAccountsStateChange(nextAccountsState);
+      onSelectedAccountChange(nextAccountsState.activeAccountId);
+    } catch (error) {
+      setAccountError(formatError(error));
+    } finally {
+      setIsAddingAddress(false);
+    }
+  }
+
+  function handleAddAddress() {
+    if (!activeAccount || isAddingAddress) {
+      return;
+    }
+
+    setAccountError('');
+    setAccountNotice('');
+
+    if (!activeAccount.isUnlocked) {
+      setPassword('');
+      setUnlockError('');
+      setAddAddressAfterUnlock(true);
+      setUnlockingAccountId(activeAccount.id);
+      return;
+    }
+
+    void performAddAddress(activeAccount.id);
+  }
+
+  async function removeDerivedAddress(accountId: string) {
+    setAccountError('');
+    setAccountNotice('');
+    setIsRemovingAccount(true);
+
+    try {
+      const nextAccountsState = await window.qortiumHome.accounts.removeWallet(accountId);
+
+      onAccountsStateChange(nextAccountsState);
+      onSelectedAccountChange(nextAccountsState.activeAccountId);
+    } catch (error) {
+      setAccountError(formatError(error));
+    } finally {
+      setIsRemovingAccount(false);
+    }
+  }
+
+  function handleRemoveClick() {
+    if (!activeAccount) {
+      return;
+    }
+
+    // Derived addresses are recoverable by re-adding, so no password dialog.
+    if (activeAccount.addressIndex > 0) {
+      void removeDerivedAddress(activeAccount.id);
+      return;
+    }
+
+    openRemoveDialog();
   }
 
   async function handleExportWallet() {
@@ -382,6 +461,7 @@ export function AccountsPanel({
     setUnlockingAccountId(null);
     setPassword('');
     setUnlockError('');
+    setAddAddressAfterUnlock(false);
   }
 
   async function handleUnlockSubmit(event: FormEvent<HTMLFormElement>) {
@@ -391,14 +471,22 @@ export function AccountsPanel({
       return;
     }
 
+    const unlockingId = unlockingAccount.id;
+    const shouldAddAddress = addAddressAfterUnlock;
+
     setUnlockError('');
     setIsUnlocking(true);
 
     try {
-      onAccountsStateChange(await window.qortiumHome.accounts.unlockWallet(unlockingAccount.id, password));
+      onAccountsStateChange(await window.qortiumHome.accounts.unlockWallet(unlockingId, password));
       setUnlockingAccountId(null);
       setPassword('');
       setUnlockError('');
+      setAddAddressAfterUnlock(false);
+
+      if (shouldAddAddress) {
+        await performAddAddress(unlockingId);
+      }
     } catch (error) {
       setUnlockError(formatError(error));
     } finally {
@@ -509,10 +597,10 @@ export function AccountsPanel({
             <select
               className="select account-selector__select"
               id="selected-wallet"
-              value={activeAccount?.id ?? ''}
+              value={activeAccount?.walletId ?? ''}
               onChange={(event) => handleActiveAccountChange(event.target.value)}
             >
-              {accountsState.accounts.map((account) => (
+              {walletOptions.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.label}
                 </option>
@@ -551,7 +639,7 @@ export function AccountsPanel({
                 disabled={!activeAccount || isRemovingAccount}
                 title={t('account.removeSelectedWallet')}
                 type="button"
-                onClick={openRemoveDialog}
+                onClick={handleRemoveClick}
               >
                 <X size={20} />
               </button>
@@ -572,9 +660,30 @@ export function AccountsPanel({
                 {activeProfile?.name ? (
                   <p className="account-selector__name">{activeProfile.name}</p>
                 ) : null}
-                <p className="account-selector__address" aria-label={t('account.selectedWalletAddress')}>
-                  {activeAccount.address}
-                </p>
+                <div className="account-selector__address-row">
+                  <select
+                    aria-label={t('account.selectedAddress')}
+                    className="select account-selector__address-select"
+                    value={activeAccount.id}
+                    onChange={(event) => handleActiveAccountChange(event.target.value)}
+                  >
+                    {walletAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.addressIndex}: {account.address}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    aria-label={t('account.addAddress')}
+                    className="icon-button account-selector__add-address-button"
+                    disabled={isAddingAddress}
+                    title={t('account.addAddress')}
+                    type="button"
+                    onClick={handleAddAddress}
+                  >
+                    <Plus size={20} />
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}

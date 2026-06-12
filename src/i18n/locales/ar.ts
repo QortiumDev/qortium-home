@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const ar: Record<TranslationKey, string> = {
   "account.actionFailed": "فشل إجراء الحساب.",
   "account.actionsLabel": "إجراءات الحساب",
+  "account.addAddress": "إضافة عنوان",
   "account.chipAria": "الحساب، {name}، {status}",
   "account.chipAriaEmpty": "الحساب، لم يتم تحديد أي حساب",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const ar: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "إزالة المحفظة",
   "account.savedWalletBackup": "تم حفظ النسخة الاحتياطية للمحفظة باسم {fileName}.",
   "account.selectWalletHint": "حدد محفظة في لوحة التحكم لاستخدام إجراءات الحساب.",
+  "account.selectedAddress": "العنوان المحدد",
   "account.selectedWallet": "المحفظة المحددة",
   "account.selectedWalletAddress": "عنوان المحفظة المحددة",
   "account.statusLocked": "مقفل",

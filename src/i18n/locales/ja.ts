@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const ja: Record<TranslationKey, string> = {
   "account.actionFailed": "アカウント操作に失敗しました。",
   "account.actionsLabel": "アカウント操作",
+  "account.addAddress": "アドレスを追加",
   "account.chipAria": "アカウント、{name}、{status}",
   "account.chipAriaEmpty": "アカウント、アカウント未選択",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const ja: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "ウォレットを削除",
   "account.savedWalletBackup": "ウォレットのバックアップを{fileName}として保存しました。",
   "account.selectWalletHint": "アカウント操作を使用するには、ダッシュボードでウォレットを選択してください。",
+  "account.selectedAddress": "選択中のアドレス",
   "account.selectedWallet": "選択中のウォレット",
   "account.selectedWalletAddress": "選択中のウォレットのアドレス",
   "account.statusLocked": "ロック中",

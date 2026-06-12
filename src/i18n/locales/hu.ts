@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const hu: Record<TranslationKey, string> = {
   "account.actionFailed": "A fiókművelet nem sikerült.",
   "account.actionsLabel": "Fiókműveletek",
+  "account.addAddress": "Cím hozzáadása",
   "account.chipAria": "Fiók, {name}, {status}",
   "account.chipAriaEmpty": "Fiók, nincs kiválasztott fiók",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const hu: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Tárca eltávolítása",
   "account.savedWalletBackup": "A tárca biztonsági mentése {fileName} néven mentve.",
   "account.selectWalletHint": "A fiókműveletek használatához válasszon egy tárcát az Irányítópulton.",
+  "account.selectedAddress": "Kiválasztott cím",
   "account.selectedWallet": "Kiválasztott tárca",
   "account.selectedWalletAddress": "A kiválasztott tárca címe",
   "account.statusLocked": "Zárolva",

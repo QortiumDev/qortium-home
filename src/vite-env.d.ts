@@ -2,10 +2,12 @@
 
 type QortiumAccountSummary = {
   address: string;
+  addressIndex: number;
   id: string;
   isUnlocked: boolean;
   label: string;
   sourceFilename: string;
+  walletId: string;
 };
 
 type QortiumAccountsState = {
@@ -551,6 +553,7 @@ interface Window {
       createWallet: (name: string, password: string) => Promise<QortiumCreateWalletResult>;
       exportWallet: (accountId: string) => Promise<QortiumWalletBackupResult>;
       setActiveAccount: (accountId: string) => Promise<QortiumAccountsState>;
+      addDerivedAddress: (accountId: string) => Promise<QortiumAccountsState>;
       unlockWallet: (accountId: string, password: string) => Promise<QortiumAccountsState>;
       lockWallet: (accountId: string) => Promise<QortiumAccountsState>;
       removeWallet: (accountId: string, password?: string) => Promise<QortiumAccountsState>;
