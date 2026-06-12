@@ -1,4 +1,4 @@
-import { FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { t } from './i18n';
 import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
@@ -6,6 +6,7 @@ import {
   PUBLIC_QDN_SERVICES,
   buildQdnRenderUrl,
   buildQdnRouteFromListItem,
+  formatByteSize,
   formatQdnStatus,
   getQdnItemIdentifier,
   getQdnViewerKind,
@@ -37,16 +38,31 @@ type QdnExplorerState =
 
 type NameRow = {
   count: number;
-  created?: number;
   name: string;
-  status?: QdnResourceListItem['status'];
+  updated?: number;
 };
 
 type ServiceRow = {
   count: number;
-  created?: number;
   service: QdnService;
-  status?: QdnResourceListItem['status'];
+  updated?: number;
+};
+
+type ExplorerSortKey = 'count' | 'name' | 'size' | 'status' | 'updated';
+
+type ExplorerSort = {
+  direction: 'asc' | 'desc';
+  key: ExplorerSortKey;
+};
+
+type ExplorerColumn = {
+  key: ExplorerSortKey;
+  label: string;
+};
+
+const DEFAULT_EXPLORER_SORT: ExplorerSort = {
+  direction: 'desc',
+  key: 'updated',
 };
 
 type QdnImagePreviewState =
@@ -92,10 +108,9 @@ function readResources(data: unknown) {
   return data.filter(isQdnResourceListItem);
 }
 
-async function loadServiceAvailabilityResources(service: QdnService) {
+async function loadAllResources() {
   const data = await window.qortiumHome.qdn.listResources({
-    service,
-    limit: 1,
+    limit: 0,
     includeStatus: false,
     includeMetadata: false,
   });
@@ -109,19 +124,23 @@ async function loadRouteResources(route: Extract<QdnExplorerRoute, { kind: 'serv
     name: route.kind === 'service' ? undefined : route.name,
     exactMatchNames: route.kind !== 'service',
     limit: 0,
-    includeStatus: true,
-    includeMetadata: true,
+    includeStatus: route.kind === 'name',
+    includeMetadata: route.kind === 'name',
   });
 
   return readResources(data);
 }
 
-function formatDate(timestamp: number | undefined) {
+function getItemUpdated(resource: QdnResourceListItem) {
+  return resource.updated ?? resource.created ?? 0;
+}
+
+function formatUpdated(timestamp: number | undefined) {
   if (!timestamp) {
     return '';
   }
 
-  return new Date(timestamp).toLocaleString();
+  return new Date(timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function getNameRows(resources: QdnResourceListItem[]) {
@@ -129,14 +148,11 @@ function getNameRows(resources: QdnResourceListItem[]) {
 
   for (const resource of resources) {
     const currentRow = rowsByName.get(resource.name);
-    const currentCreated = currentRow?.created ?? 0;
-    const nextCreated = resource.created ?? 0;
 
     rowsByName.set(resource.name, {
       name: resource.name,
       count: (currentRow?.count ?? 0) + 1,
-      created: Math.max(currentCreated, nextCreated) || undefined,
-      status: nextCreated >= currentCreated ? resource.status : currentRow?.status,
+      updated: Math.max(currentRow?.updated ?? 0, getItemUpdated(resource)) || undefined,
     });
   }
 
@@ -150,20 +166,37 @@ function getServiceRows(resources: QdnResourceListItem[]) {
 
   for (const resource of resources) {
     const currentRow = rowsByService.get(resource.service);
-    const currentCreated = currentRow?.created ?? 0;
-    const nextCreated = resource.created ?? 0;
 
     rowsByService.set(resource.service, {
       service: resource.service,
       count: (currentRow?.count ?? 0) + 1,
-      created: Math.max(currentCreated, nextCreated) || undefined,
-      status: nextCreated >= currentCreated ? resource.status : currentRow?.status,
+      updated: Math.max(currentRow?.updated ?? 0, getItemUpdated(resource)) || undefined,
     });
   }
 
   return PUBLIC_QDN_SERVICES.map((service) => rowsByService.get(service)).filter(
     (row): row is ServiceRow => row !== undefined,
   );
+}
+
+function compareSortValues(first: number | string, second: number | string) {
+  if (typeof first === 'string' || typeof second === 'string') {
+    return String(first).localeCompare(String(second), undefined, { sensitivity: 'base' });
+  }
+
+  return first - second;
+}
+
+function sortExplorerRows<Row>(
+  rows: Row[],
+  sort: ExplorerSort,
+  getValue: (row: Row, key: ExplorerSortKey) => number | string,
+) {
+  const direction = sort.direction === 'asc' ? 1 : -1;
+
+  return rows
+    .slice()
+    .sort((first, second) => direction * compareSortValues(getValue(first, sort.key), getValue(second, sort.key)));
 }
 
 function getRouteHeading(route: QdnExplorerRoute) {
@@ -186,16 +219,6 @@ function formatExplorerStatus(status: QdnResourceListItem['status']) {
   return status?.status ? formatQdnStatus(status) : t('qdnStatus.published');
 }
 
-function formatResourceMeta(resource: QdnResourceListItem) {
-  return [
-    formatExplorerStatus(resource.status),
-    resource.size ? t('common.unit.bytes', { count: resource.size.toLocaleString() }) : '',
-    resource.created ? formatDate(resource.created) : '',
-  ]
-    .filter(Boolean)
-    .join(', ');
-}
-
 function ExplorerLoadingRows({ label }: { label: string }) {
   return (
     <div className="qdn-explorer__skeleton" aria-busy="true">
@@ -206,6 +229,40 @@ function ExplorerLoadingRows({ label }: { label: string }) {
           <span className="skeleton" />
         </div>
       ))}
+    </div>
+  );
+}
+
+function ExplorerListHeader({
+  columns,
+  sort,
+  onSort,
+}: {
+  columns: ExplorerColumn[];
+  sort: ExplorerSort;
+  onSort: (key: ExplorerSortKey) => void;
+}) {
+  return (
+    <div className="qdn-explorer__head" role="presentation">
+      <span aria-hidden="true" />
+      {columns.map((column, columnIndex) => {
+        const isActive = sort.key === column.key;
+        const DirectionIcon = sort.direction === 'asc' ? ChevronUp : ChevronDown;
+
+        return (
+          <button
+            className={`qdn-explorer__column${columnIndex > 0 ? ' qdn-explorer__column--meta' : ''}${
+              isActive ? ' qdn-explorer__column--active' : ''
+            }`}
+            key={column.key}
+            type="button"
+            onClick={() => onSort(column.key)}
+          >
+            {column.label}
+            {isActive ? <DirectionIcon aria-hidden="true" size={14} strokeWidth={2.2} /> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -298,8 +355,73 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
     resources: [],
   });
   const [retryToken, setRetryToken] = useState(0);
+  const [sort, setSort] = useState<ExplorerSort>(DEFAULT_EXPLORER_SORT);
   const nameRows = useMemo(() => getNameRows(state.resources), [state.resources]);
   const serviceRows = useMemo(() => getServiceRows(state.resources), [state.resources]);
+  const sortedServiceRows = useMemo(
+    () =>
+      sortExplorerRows(serviceRows, sort, (row, key) =>
+        key === 'count' ? row.count : key === 'updated' ? (row.updated ?? 0) : row.service,
+      ),
+    [serviceRows, sort],
+  );
+  const sortedNameRows = useMemo(
+    () =>
+      sortExplorerRows(nameRows, sort, (row, key) =>
+        key === 'count' ? row.count : key === 'updated' ? (row.updated ?? 0) : row.name,
+      ),
+    [nameRows, sort],
+  );
+  const sortedResources = useMemo(() => {
+    const defaultSorted = state.resources
+      .slice()
+      .sort((first, second) =>
+        getQdnItemIdentifier(first).localeCompare(getQdnItemIdentifier(second), undefined, {
+          sensitivity: 'base',
+        }),
+      );
+
+    return sortExplorerRows(defaultSorted, sort, (resource, key) => {
+      if (key === 'size') {
+        return resource.size ?? 0;
+      }
+
+      if (key === 'updated') {
+        return getItemUpdated(resource);
+      }
+
+      if (key === 'status') {
+        return formatExplorerStatus(resource.status);
+      }
+
+      return getQdnItemIdentifier(resource);
+    });
+  }, [sort, state.resources]);
+  const folderColumns: ExplorerColumn[] = [
+    { key: 'name', label: t('common.name') },
+    { key: 'count', label: t('explorer.columnCount') },
+    { key: 'updated', label: t('explorer.columnUpdated') },
+  ];
+  const resourceColumns: ExplorerColumn[] = [
+    { key: 'name', label: t('common.name') },
+    { key: 'status', label: t('common.status') },
+    { key: 'size', label: t('common.size') },
+    { key: 'updated', label: t('explorer.columnUpdated') },
+  ];
+
+  function toggleSort(key: ExplorerSortKey) {
+    setSort((currentSort) => {
+      if (currentSort.key === key) {
+        return { key, direction: currentSort.direction === 'asc' ? 'desc' : 'asc' };
+      }
+
+      return { key, direction: key === 'name' || key === 'status' ? 'asc' : 'desc' };
+    });
+  }
+
+  useEffect(() => {
+    setSort(DEFAULT_EXPLORER_SORT);
+  }, [route]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -311,10 +433,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       }));
 
       try {
-        const resources =
-          route.kind === 'services'
-            ? (await Promise.all(PUBLIC_QDN_SERVICES.map(loadServiceAvailabilityResources))).flat()
-            : await loadRouteResources(route);
+        const resources = route.kind === 'services' ? await loadAllResources() : await loadRouteResources(route);
 
         if (!isDisposed) {
           setState({
@@ -375,8 +494,9 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
             <p className="qdn-explorer__message">{t('explorer.emptyServices')}</p>
           ) : null}
           {serviceRows.length > 0 ? (
-            <div className="qdn-explorer__list" role="list">
-              {serviceRows.map((row) => (
+            <div className="qdn-explorer__list qdn-explorer__list--folders" role="list">
+              <ExplorerListHeader columns={folderColumns} sort={sort} onSort={toggleSort} />
+              {sortedServiceRows.map((row) => (
                 <button
                   className="qdn-explorer__row"
                   key={row.service}
@@ -393,11 +513,9 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                   <Folder aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
                   <span className="qdn-explorer__row-main">
                     <span className="qdn-explorer__row-title">{row.service}</span>
-                    <span className="qdn-explorer__row-subtitle">
-                      {t('explorer.browseServiceNames', { service: row.service })}
-                    </span>
                   </span>
-                  <span className="qdn-explorer__row-meta">{t('common.service')}</span>
+                  <span className="qdn-explorer__row-meta">{row.count.toLocaleString()}</span>
+                  <span className="qdn-explorer__row-meta">{formatUpdated(row.updated)}</span>
                 </button>
               ))}
             </div>
@@ -414,8 +532,9 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
             <p className="qdn-explorer__message">{t('explorer.emptyNameServices')}</p>
           ) : null}
           {serviceRows.length > 0 ? (
-            <div className="qdn-explorer__list" role="list">
-              {serviceRows.map((row) => (
+            <div className="qdn-explorer__list qdn-explorer__list--folders" role="list">
+              <ExplorerListHeader columns={folderColumns} sort={sort} onSort={toggleSort} />
+              {sortedServiceRows.map((row) => (
                 <button
                   className="qdn-explorer__row"
                   key={row.service}
@@ -433,11 +552,9 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                   <Folder aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
                   <span className="qdn-explorer__row-main">
                     <span className="qdn-explorer__row-title">{row.service}</span>
-                    <span className="qdn-explorer__row-subtitle">
-                      {t('explorer.resourcesPublishedBy', { name: route.name, count: row.count.toLocaleString() })}
-                    </span>
                   </span>
-                  <span className="qdn-explorer__row-meta">{formatExplorerStatus(row.status)}</span>
+                  <span className="qdn-explorer__row-meta">{row.count.toLocaleString()}</span>
+                  <span className="qdn-explorer__row-meta">{formatUpdated(row.updated)}</span>
                 </button>
               ))}
             </div>
@@ -454,8 +571,9 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
             <p className="qdn-explorer__message">{t('explorer.emptyService', { service: route.service })}</p>
           ) : null}
           {nameRows.length > 0 ? (
-            <div className="qdn-explorer__list" role="list">
-              {nameRows.map((row) => (
+            <div className="qdn-explorer__list qdn-explorer__list--folders" role="list">
+              <ExplorerListHeader columns={folderColumns} sort={sort} onSort={toggleSort} />
+              {sortedNameRows.map((row) => (
                 <button
                   className="qdn-explorer__row"
                   key={row.name}
@@ -473,11 +591,9 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                   <Folder aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
                   <span className="qdn-explorer__row-main">
                     <span className="qdn-explorer__row-title">{row.name}</span>
-                    <span className="qdn-explorer__row-subtitle">
-                      {t('explorer.resourceCount', { count: row.count.toLocaleString() })}
-                    </span>
                   </span>
-                  <span className="qdn-explorer__row-meta">{formatExplorerStatus(row.status)}</span>
+                  <span className="qdn-explorer__row-meta">{row.count.toLocaleString()}</span>
+                  <span className="qdn-explorer__row-meta">{formatUpdated(row.updated)}</span>
                 </button>
               ))}
             </div>
@@ -494,67 +610,63 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
             <p className="qdn-explorer__message">{t('explorer.emptyNameService', { service: route.service })}</p>
           ) : null}
           {state.resources.length > 0 ? (
-            <div className="qdn-explorer__list" role="list">
-              {state.resources
-                .slice()
-                .sort((first, second) =>
-                  getQdnItemIdentifier(first).localeCompare(getQdnItemIdentifier(second), undefined, {
-                    sensitivity: 'base',
-                  }),
-                )
-                .map((resource) => {
-                  const canOpenResource = isQdnRenderableService(resource.service);
-                  const viewerKind = getQdnViewerKind(resource.service);
-                  const isImageResource = viewerKind === 'image';
-                  const ResourceIcon =
-                    viewerKind === 'audio' ? FileAudio : viewerKind === 'video' ? FileVideo : FileText;
-                  const rowContent = (
-                    <>
-                      {isImageResource ? (
-                        <QdnImageResourcePreview
-                          displaySettings={displaySettings}
-                          nodeApiUrl={nodeApiUrl}
-                          resource={resource}
-                        />
-                      ) : (
-                        <ResourceIcon aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
-                      )}
-                      <span className="qdn-explorer__row-main">
-                        <span className="qdn-explorer__row-title">{getQdnItemIdentifier(resource)}</span>
-                        <span className="qdn-explorer__row-subtitle">
-                          {resource.metadata?.title || resource.metadata?.description || t('explorer.publishedResource')}
-                        </span>
+            <div className="qdn-explorer__list qdn-explorer__list--resources" role="list">
+              <ExplorerListHeader columns={resourceColumns} sort={sort} onSort={toggleSort} />
+              {sortedResources.map((resource) => {
+                const canOpenResource = isQdnRenderableService(resource.service);
+                const viewerKind = getQdnViewerKind(resource.service);
+                const isImageResource = viewerKind === 'image';
+                const ResourceIcon =
+                  viewerKind === 'audio' ? FileAudio : viewerKind === 'video' ? FileVideo : FileText;
+                const rowContent = (
+                  <>
+                    {isImageResource ? (
+                      <QdnImageResourcePreview
+                        displaySettings={displaySettings}
+                        nodeApiUrl={nodeApiUrl}
+                        resource={resource}
+                      />
+                    ) : (
+                      <ResourceIcon aria-hidden="true" className="qdn-explorer__row-icon" size={22} strokeWidth={2} />
+                    )}
+                    <span className="qdn-explorer__row-main">
+                      <span className="qdn-explorer__row-title">{getQdnItemIdentifier(resource)}</span>
+                      <span className="qdn-explorer__row-subtitle">
+                        {resource.metadata?.title || resource.metadata?.description || t('explorer.publishedResource')}
                       </span>
-                      <span className="qdn-explorer__row-meta">{formatResourceMeta(resource)}</span>
-                    </>
-                  );
+                    </span>
+                    <span className="qdn-explorer__row-meta">{formatExplorerStatus(resource.status)}</span>
+                    <span className="qdn-explorer__row-meta">{formatByteSize(resource.size)}</span>
+                    <span className="qdn-explorer__row-meta">{formatUpdated(getItemUpdated(resource) || undefined)}</span>
+                  </>
+                );
 
-                  if (!canOpenResource) {
-                    return (
-                      <div
-                        className={`qdn-explorer__row qdn-explorer__row--static${
-                          isImageResource ? ' qdn-explorer__row--preview' : ''
-                        }`}
-                        key={`${resource.service}:${resource.name}:${getQdnItemIdentifier(resource)}`}
-                        role="listitem"
-                      >
-                        {rowContent}
-                      </div>
-                    );
-                  }
-
+                if (!canOpenResource) {
                   return (
-                    <button
-                      className={`qdn-explorer__row${isImageResource ? ' qdn-explorer__row--preview' : ''}`}
+                    <div
+                      className={`qdn-explorer__row qdn-explorer__row--static${
+                        isImageResource ? ' qdn-explorer__row--preview' : ''
+                      }`}
                       key={`${resource.service}:${resource.name}:${getQdnItemIdentifier(resource)}`}
-                      type="button"
                       role="listitem"
-                      onClick={() => onNavigate(buildQdnRouteFromListItem(resource))}
                     >
                       {rowContent}
-                    </button>
+                    </div>
                   );
-                })}
+                }
+
+                return (
+                  <button
+                    className={`qdn-explorer__row${isImageResource ? ' qdn-explorer__row--preview' : ''}`}
+                    key={`${resource.service}:${resource.name}:${getQdnItemIdentifier(resource)}`}
+                    type="button"
+                    role="listitem"
+                    onClick={() => onNavigate(buildQdnRouteFromListItem(resource))}
+                  >
+                    {rowContent}
+                  </button>
+                );
+              })}
             </div>
           ) : null}
         </>

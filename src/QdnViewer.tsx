@@ -1,12 +1,13 @@
 import { Copy, Download, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { t, type TranslationKey } from './i18n';
+import { t } from './i18n';
 import type { QdnDisplaySettings, QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
 import {
   buildQdnDownloadUrl,
   buildQdnRenderUrl,
   buildQdnResourcePropertiesUrl,
   buildQdnStatusUrl,
+  formatByteSize,
   formatQdnStatus,
   getQdnResourceKey,
   getQdnViewerKind,
@@ -16,7 +17,6 @@ import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from '.
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
-const BYTE_UNIT_KEYS: readonly TranslationKey[] = ['common.unit.kb', 'common.unit.mb', 'common.unit.gb', 'common.unit.tb'];
 
 type LoadedQdnResource = {
   properties?: QdnResourceProperties;
@@ -243,28 +243,8 @@ function getProgressText(status: QdnResourceStatus | undefined) {
   return typeof progress === 'number' ? t('common.percentValue', { percent: progress.toFixed(0) }) : '';
 }
 
-function formatBytes(bytes: number | undefined) {
-  if (typeof bytes !== 'number') {
-    return '';
-  }
-
-  if (bytes < 1024) {
-    return t('common.unit.bytes', { count: bytes.toLocaleString() });
-  }
-
-  let value = bytes / 1024;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < BYTE_UNIT_KEYS.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return t(BYTE_UNIT_KEYS[unitIndex], { value: value.toLocaleString(undefined, { maximumFractionDigits: 1 }) });
-}
-
 function formatTextPreviewLimit() {
-  return formatBytes(TEXT_PREVIEW_MAX_BYTES) || t('common.unit.mb', { value: 1 });
+  return formatByteSize(TEXT_PREVIEW_MAX_BYTES) || t('common.unit.mb', { value: 1 });
 }
 
 function shouldFormatJson(resource: QdnResource, mimeType: string) {
@@ -796,7 +776,7 @@ async function readTextPreview({
   if (typeof knownSize === 'number' && knownSize > TEXT_PREVIEW_MAX_BYTES) {
     return {
       phase: 'too-large',
-      message: t('viewer.preview.tooLargeWithSize', { size: formatBytes(knownSize), limit: formatTextPreviewLimit() }),
+      message: t('viewer.preview.tooLargeWithSize', { size: formatByteSize(knownSize), limit: formatTextPreviewLimit() }),
     };
   }
 
@@ -813,7 +793,7 @@ async function readTextPreview({
       phase: 'too-large',
       message: result.contentLength
         ? t('viewer.preview.tooLargeWithSize', {
-            size: formatBytes(result.contentLength),
+            size: formatByteSize(result.contentLength),
             limit: formatTextPreviewLimit(),
           })
         : t('viewer.preview.tooLarge', { limit: formatTextPreviewLimit() }),
@@ -982,7 +962,7 @@ function QdnResourceDetailList({
       {loadedResource.properties?.size ? (
         <div className="detail-list__row">
           <dt className="detail-list__label">{t('common.size')}</dt>
-          <dd className="detail-list__value">{formatBytes(loadedResource.properties.size)}</dd>
+          <dd className="detail-list__value">{formatByteSize(loadedResource.properties.size)}</dd>
         </div>
       ) : null}
     </dl>

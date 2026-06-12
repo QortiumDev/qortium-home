@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - ui: add sortable columns to the QDN explorer
+
+The QDN explorer now shows how many resources each service or name has and when each was last updated, in every browsing view. Lists start sorted by most recently updated, and column headers can be clicked to sort by name, count, size, or status.
+
 ### 2026-06-12 - qdn: let OPEN_NEW_TAB open home and core addresses
 
 The OPEN_NEW_TAB bridge action now also accepts home:// and core:// addresses, so QDN apps can link to Home pages and node API views. Addresses go through Home's normal address parsing, so unsupported paths are still blocked.
