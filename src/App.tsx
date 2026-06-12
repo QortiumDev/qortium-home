@@ -1461,6 +1461,44 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function handleHistoryMouseButton(event: MouseEvent) {
+      if (event.button !== 3 && event.button !== 4) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.type !== 'mouseup') {
+        return;
+      }
+
+      const actions = navigationActionsRef.current;
+
+      if (!actions) {
+        return;
+      }
+
+      if (event.button === 3 && actions.canGoBack) {
+        actions.goBack();
+        return;
+      }
+
+      if (event.button === 4 && actions.canGoForward) {
+        actions.goForward();
+      }
+    }
+
+    window.addEventListener('mousedown', handleHistoryMouseButton, true);
+    window.addEventListener('mouseup', handleHistoryMouseButton, true);
+
+    return () => {
+      window.removeEventListener('mousedown', handleHistoryMouseButton, true);
+      window.removeEventListener('mouseup', handleHistoryMouseButton, true);
+    };
+  }, []);
+
   const isNativeApp = Capacitor.isNativePlatform();
   const appMainClassName = [
     'app-main',
