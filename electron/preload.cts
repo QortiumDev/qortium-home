@@ -186,10 +186,10 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
   },
   qdnEvents: {
-    onOpenNewTab: (callback: (event: { qdnUrl: string; sourceTabId: string | null }) => void) => {
+    onOpenNewTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        payload: { qdnUrl: string; sourceTabId: string | null },
+        payload: { address: string; sourceTabId: string | null },
       ) => {
         callback(payload);
       };

@@ -521,8 +521,8 @@ export function App() {
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
-  const openQdnLinkInNewTabRef = useRef<
-    ((qdnUrl: string, sourceTabId: string | null) => void) | null
+  const openAppLinkInNewTabRef = useRef<
+    ((address: string, sourceTabId: string | null) => void) | null
   >(null);
   const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
@@ -993,12 +993,11 @@ export function App() {
     }));
   }
 
-  function openQdnLinkInNewTab(qdnUrl: string, sourceTabId: string | null) {
-    const parsed = parseAppAddress(qdnUrl);
+  function openAppLinkInNewTab(address: string, sourceTabId: string | null) {
+    const parsed = parseAppAddress(address);
 
-    // QDN apps may only open QDN resources, never internal Home pages.
-    if (!parsed.success || parsed.route.kind !== 'resource') {
-      console.warn('Ignoring QDN app request to open an unsupported address in a new tab.', qdnUrl);
+    if (!parsed.success) {
+      console.warn('Ignoring QDN app request to open an unsupported address in a new tab.', address);
       return;
     }
 
@@ -1342,7 +1341,7 @@ export function App() {
     goHome,
   };
 
-  openQdnLinkInNewTabRef.current = openQdnLinkInNewTab;
+  openAppLinkInNewTabRef.current = openAppLinkInNewTab;
   openQdnMediaPlayerRef.current = openQdnMediaPlayer;
 
   useEffect(() => {
@@ -1399,7 +1398,7 @@ export function App() {
     }
 
     return qdnEvents.onOpenNewTab((event) => {
-      openQdnLinkInNewTabRef.current?.(event.qdnUrl, event.sourceTabId);
+      openAppLinkInNewTabRef.current?.(event.address, event.sourceTabId);
     });
   }, []);
 
@@ -1785,7 +1784,7 @@ export function App() {
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   onOpenMediaPlayer={openQdnMediaPlayer}
-                  onOpenNewTab={(qdnUrl) => openQdnLinkInNewTab(qdnUrl, tab.id)}
+                  onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}
