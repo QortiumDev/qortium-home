@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - accounts: import wallets from a private key
+
+A new Import button on the dashboard lets users add an account from a base58 private key. Home shows the derived address before saving, protects the key with a password in a wallet file it can load like any other, and marks these wallets as single-address since extra addresses cannot be derived from a private key.
+
 ### 2026-06-12 - accounts: support multiple derived addresses per wallet
 
 Wallets can now hold more than one address. The dashboard shows the selected wallet's addresses in a dropdown with a + button that derives the next address, and each address acts as its own account with its own name, avatar, and signing key. Unlocking a wallet unlocks all of its addresses.

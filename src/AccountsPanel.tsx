@@ -89,6 +89,14 @@ export function AccountsPanel({
   const [isExportingWallet, setIsExportingWallet] = useState(false);
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [addAddressAfterUnlock, setAddAddressAfterUnlock] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importPrivateKey, setImportPrivateKey] = useState('');
+  const [importWalletName, setImportWalletName] = useState('');
+  const [importPassword, setImportPassword] = useState('');
+  const [importPasswordConfirm, setImportPasswordConfirm] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importPreviewAddress, setImportPreviewAddress] = useState('');
+  const [isImportingWallet, setIsImportingWallet] = useState(false);
   const [removingAccountId, setRemovingAccountId] = useState<string | null>(null);
   const [removePassword, setRemovePassword] = useState('');
   const [removeError, setRemoveError] = useState('');
@@ -173,6 +181,35 @@ export function AccountsPanel({
   const hasSavedAccounts = accountsState.accounts.length > 0;
   const visibleAccountError = accountError || accountsError;
 
+  useEffect(() => {
+    let isDisposed = false;
+
+    if (!importPrivateKey.trim()) {
+      setImportPreviewAddress('');
+
+      return () => {
+        isDisposed = true;
+      };
+    }
+
+    window.qortiumHome.accounts
+      .getAddressFromPrivateKey(importPrivateKey)
+      .then((address) => {
+        if (!isDisposed) {
+          setImportPreviewAddress(address);
+        }
+      })
+      .catch(() => {
+        if (!isDisposed) {
+          setImportPreviewAddress('');
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [importPrivateKey]);
+
   function openCreateDialog() {
     setAccountError('');
     setAccountNotice('');
@@ -247,6 +284,95 @@ export function AccountsPanel({
       setCreateError(formatError(error));
     } finally {
       setIsCreatingWallet(false);
+    }
+  }
+
+  function openImportDialog() {
+    setAccountError('');
+    setAccountNotice('');
+    setImportError('');
+    setImportPrivateKey('');
+    setImportWalletName('');
+    setImportPassword('');
+    setImportPasswordConfirm('');
+    setImportPreviewAddress('');
+    setIsImportDialogOpen(true);
+  }
+
+  function closeImportDialog() {
+    if (isImportingWallet) {
+      return;
+    }
+
+    setIsImportDialogOpen(false);
+    setImportError('');
+    setImportPrivateKey('');
+    setImportWalletName('');
+    setImportPassword('');
+    setImportPasswordConfirm('');
+    setImportPreviewAddress('');
+  }
+
+  async function handleImportSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setImportError('');
+
+    if (!importPrivateKey.trim()) {
+      setImportError(t('account.enterPrivateKey'));
+      return;
+    }
+
+    const walletNameError = validateWalletName(accountsState.accounts, importWalletName);
+
+    if (walletNameError) {
+      setImportError(walletNameError);
+      return;
+    }
+
+    if (!importPassword) {
+      setImportError(t('account.enterWalletPassword'));
+      return;
+    }
+
+    if (!importPasswordConfirm) {
+      setImportError(t('account.confirmWalletPassword'));
+      return;
+    }
+
+    if (importPassword !== importPasswordConfirm) {
+      setImportError(t('account.passwordsDoNotMatch'));
+      return;
+    }
+
+    setIsImportingWallet(true);
+
+    try {
+      const result = await window.qortiumHome.accounts.importPrivateKeyWallet(
+        normalizeWalletName(importWalletName),
+        importPrivateKey.trim(),
+        importPassword,
+      );
+
+      if (!result.canceled) {
+        const savedAccountsState = {
+          accounts: result.accounts,
+          activeAccountId: result.activeAccountId,
+        };
+
+        onAccountsStateChange(savedAccountsState);
+        onSelectedAccountChange(savedAccountsState.activeAccountId);
+      }
+
+      setIsImportDialogOpen(false);
+      setImportPrivateKey('');
+      setImportWalletName('');
+      setImportPassword('');
+      setImportPasswordConfirm('');
+      setImportPreviewAddress('');
+    } catch (error) {
+      setImportError(formatError(error));
+    } finally {
+      setIsImportingWallet(false);
     }
   }
 
@@ -586,6 +712,16 @@ export function AccountsPanel({
             {isLoadingWallet ? t('common.loading') : t('account.loadWalletButton')}
           </button>
         ) : null}
+        {canCreateWallet ? (
+          <button
+            className="button"
+            type="button"
+            disabled={isLoadingAccounts || isImportingWallet}
+            onClick={openImportDialog}
+          >
+            {t('account.importWalletButton')}
+          </button>
+        ) : null}
       </div>
 
       {hasSavedAccounts ? (
@@ -660,30 +796,36 @@ export function AccountsPanel({
                 {activeProfile?.name ? (
                   <p className="account-selector__name">{activeProfile.name}</p>
                 ) : null}
-                <div className="account-selector__address-row">
-                  <select
-                    aria-label={t('account.selectedAddress')}
-                    className="select account-selector__address-select"
-                    value={activeAccount.id}
-                    onChange={(event) => handleActiveAccountChange(event.target.value)}
-                  >
-                    {walletAccounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.addressIndex}: {account.address}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    aria-label={t('account.addAddress')}
-                    className="icon-button account-selector__add-address-button"
-                    disabled={isAddingAddress}
-                    title={t('account.addAddress')}
-                    type="button"
-                    onClick={handleAddAddress}
-                  >
-                    <Plus size={20} />
-                  </button>
-                </div>
+                {activeAccount.supportsDerivedAddresses ? (
+                  <div className="account-selector__address-row">
+                    <select
+                      aria-label={t('account.selectedAddress')}
+                      className="select account-selector__address-select"
+                      value={activeAccount.id}
+                      onChange={(event) => handleActiveAccountChange(event.target.value)}
+                    >
+                      {walletAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.addressIndex}: {account.address}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      aria-label={t('account.addAddress')}
+                      className="icon-button account-selector__add-address-button"
+                      disabled={isAddingAddress}
+                      title={t('account.addAddress')}
+                      type="button"
+                      onClick={handleAddAddress}
+                    >
+                      <Plus size={20} />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="account-selector__address" aria-label={t('account.selectedWalletAddress')}>
+                    {activeAccount.address}
+                  </p>
+                )}
               </div>
             </div>
           ) : null}
@@ -749,6 +891,77 @@ export function AccountsPanel({
               </button>
               <button className="button button--primary" type="submit" disabled={isCreatingWallet}>
                 {isCreatingWallet ? t('common.creating') : t('common.create')}
+              </button>
+            </div>
+          </form>
+        </ModalDialog>
+      ) : null}
+
+      {isImportDialogOpen ? (
+        <ModalDialog onDismiss={closeImportDialog}>
+          <form
+            aria-label={t('account.importWalletTitle')}
+            aria-modal="true"
+            className="unlock-dialog"
+            role="dialog"
+            onSubmit={handleImportSubmit}
+          >
+            <h2 className="unlock-dialog__title">{t('account.importWalletTitle')}</h2>
+            <label className="field">
+              <span className="field__label">{t('account.privateKey')}</span>
+              <input
+                autoFocus
+                autoComplete="off"
+                className="field__input"
+                type="password"
+                value={importPrivateKey}
+                onChange={(event) => setImportPrivateKey(event.target.value)}
+              />
+            </label>
+            {importPreviewAddress ? (
+              <p className="unlock-dialog__address">{importPreviewAddress}</p>
+            ) : null}
+            <label className="field">
+              <span className="field__label">{t('account.walletName')}</span>
+              <input
+                className="field__input"
+                type="text"
+                value={importWalletName}
+                onChange={(event) => setImportWalletName(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">{t('common.password')}</span>
+              <input
+                className="field__input"
+                type="password"
+                value={importPassword}
+                onChange={(event) => setImportPassword(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">{t('account.confirmPassword')}</span>
+              <input
+                className="field__input"
+                type="password"
+                value={importPasswordConfirm}
+                onChange={(event) => setImportPasswordConfirm(event.target.value)}
+              />
+            </label>
+            {importError ? (
+              <p className="accounts-panel__message accounts-panel__message--error">{importError}</p>
+            ) : null}
+            <div className="unlock-dialog__actions">
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={isImportingWallet}
+                onClick={closeImportDialog}
+              >
+                {t('common.cancel')}
+              </button>
+              <button className="button button--primary" type="submit" disabled={isImportingWallet}>
+                {isImportingWallet ? t('common.loading') : t('account.importWalletButton')}
               </button>
             </div>
           </form>
