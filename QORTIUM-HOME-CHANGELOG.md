@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - release: prepare home preview 12
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.12` with Android `versionCode` 13 so the wallet import, multi-address derivation, QDN tab/media bridge, explorer sorting, and navigation polish can be published as the next QortiumDev prerelease target.
+
 ### 2026-06-12 - accounts: import wallets from a private key
 
 A new Import button on the dashboard lets users add an account from a base58 private key. Home shows the derived address before saving, protects the key with a password in a wallet file it can load like any other, and marks these wallets as single-address since extra addresses cannot be derived from a private key.
