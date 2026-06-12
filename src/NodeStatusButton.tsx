@@ -1,5 +1,5 @@
 import { Globe2, Settings as SettingsIcon } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CoreMarkIcon, type CoreMarkVariant } from './components/CoreMarkIcon';
 import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
@@ -70,6 +70,7 @@ type DetailRow = {
 type NodeStatusButtonProps = {
   nodeSettings: QortiumNodeSettings;
   onMenuOpenChange?: (isOpen: boolean) => void;
+  onNodeAvailable?: () => void;
   onOpenSettings: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
 };
@@ -210,11 +211,16 @@ function formatSyncPhase(syncPhase: null | string | undefined) {
 export function NodeStatusButton({
   nodeSettings,
   onMenuOpenChange,
+  onNodeAvailable,
   onOpenSettings,
   onResolvedNodeApiUrl,
 }: NodeStatusButtonProps) {
   const [nodeStatus, setNodeStatus] = useState<NodeStatusState>({ state: 'loading' });
+  const wasUnavailableRef = useRef(false);
+  const onNodeAvailableRef = useRef(onNodeAvailable);
   const popoverId = 'node-status-details';
+
+  onNodeAvailableRef.current = onNodeAvailable;
 
   useEffect(() => {
     let isMounted = true;
@@ -232,9 +238,17 @@ export function NodeStatusButton({
         if (result.ok && isNodeStatusResponse(result.status)) {
           onResolvedNodeApiUrl(result.nodeApiUrl);
           setNodeStatus({ state: 'available', data: result.status, nodeApiUrl: result.nodeApiUrl });
+
+          // Tell the app when the node recovers, so node-derived data loaded
+          // while it was unreachable can be refreshed.
+          if (wasUnavailableRef.current) {
+            wasUnavailableRef.current = false;
+            onNodeAvailableRef.current?.();
+          }
           return;
         }
 
+        wasUnavailableRef.current = true;
         setNodeStatus({
           state: 'unavailable',
           nodeApiUrl: result.nodeApiUrl,
@@ -242,6 +256,7 @@ export function NodeStatusButton({
         });
       } catch (error) {
         if (isMounted) {
+          wasUnavailableRef.current = true;
           setNodeStatus({
             state: 'unavailable',
             message: formatError(error),

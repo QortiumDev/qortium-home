@@ -1,11 +1,11 @@
 const accountProfileCache = new Map<string, Promise<QortiumAccountProfile>>();
 
-function getAccountProfileCacheKey(account: QortiumAccountSummary, nodeApiUrl: string) {
-  return `${nodeApiUrl}:${account.id}:${account.address}:${account.label}`;
+function getAccountProfileCacheKey(account: QortiumAccountSummary, nodeApiUrl: string, nodeEpoch: number) {
+  return `${nodeEpoch}:${nodeApiUrl}:${account.id}:${account.address}:${account.label}`;
 }
 
-export function getAccountProfile(account: QortiumAccountSummary, nodeApiUrl: string) {
-  const cacheKey = getAccountProfileCacheKey(account, nodeApiUrl);
+export function getAccountProfile(account: QortiumAccountSummary, nodeApiUrl: string, nodeEpoch: number) {
+  const cacheKey = getAccountProfileCacheKey(account, nodeApiUrl, nodeEpoch);
   let profileRequest = accountProfileCache.get(cacheKey);
 
   if (!profileRequest) {

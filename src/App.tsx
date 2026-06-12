@@ -511,6 +511,9 @@ export function App() {
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
+  // Incremented when the configured node becomes reachable, so data fetched
+  // from the node while it was unreachable gets refreshed.
+  const [nodeEpoch, setNodeEpoch] = useState(0);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
@@ -854,12 +857,17 @@ export function App() {
     });
   }, []);
 
+  const handleNodeAvailable = useCallback(() => {
+    setNodeEpoch((currentEpoch) => currentEpoch + 1);
+  }, []);
+
   const appUpdates = useAppUpdates({ autoCheck: true });
   const coreManager = useCoreManager({
+    onNodeAvailable: handleNodeAvailable,
     onResolvedNodeApiUrl: updateResolvedNodeApiUrl,
     onSaveNodeSettings: saveNodeSettings,
   });
-  const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings);
+  const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings, nodeEpoch);
 
   function updateSettingsSectionExpansion(sectionId: SettingsSectionId, isExpanded: boolean) {
     setSettingsExpansion((currentExpansion) => ({
@@ -1763,8 +1771,10 @@ export function App() {
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
         onAccountsStateChange={handleAccountsStateChange}
+        onNodeAvailable={handleNodeAvailable}
         onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
         onSelectTab={selectTab}
+        nodeEpoch={nodeEpoch}
         nodeSettings={nodeSettings}
       />
       <section
@@ -1837,6 +1847,7 @@ export function App() {
                   coreManager={coreManager}
                   isLoadingAccounts={isLoadingAccounts}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
                   onChainCoreUpdate={onChainCoreUpdate}
                   onBrowseQdn={browseQdn}
                   onOpenCoreApiDocs={openCoreApiDocs}

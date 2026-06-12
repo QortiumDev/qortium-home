@@ -34,6 +34,7 @@ type DashboardPageProps = {
   coreManager: CoreManagerState;
   isLoadingAccounts: boolean;
   nodeApiUrl: string;
+  nodeEpoch: number;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onBrowseQdn: () => void;
   onOpenCoreApiDocs: () => void;
@@ -366,6 +367,7 @@ export function DashboardPage({
   coreManager,
   isLoadingAccounts,
   nodeApiUrl,
+  nodeEpoch,
   onChainCoreUpdate,
   onBrowseQdn,
   onOpenCoreApiDocs,
@@ -406,6 +408,7 @@ export function DashboardPage({
           accountsState={accountsState}
           isLoadingAccounts={isLoadingAccounts}
           nodeApiUrl={nodeApiUrl}
+          nodeEpoch={nodeEpoch}
           selectedAccountId={selectedAccountId}
           onAccountsStateChange={onAccountsStateChange}
           onSelectedAccountChange={onSelectedAccountChange}
