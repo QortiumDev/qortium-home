@@ -3566,14 +3566,19 @@ async function handleQdnAppRequest(
     }
 
     case 'OPEN_NEW_TAB': {
-      const qdnUrl = getRequiredRequestString(request, 'qdnUrl', 'QDN URL');
+      const address =
+        getString(getRequestValue(request, 'address')) || getString(getRequestValue(request, 'qdnUrl'));
 
-      if (!/^qdn:\/\//i.test(qdnUrl)) {
-        throw new Error('OPEN_NEW_TAB only accepts qdn:// URLs.');
+      if (!address) {
+        throw new Error('Address is required.');
       }
 
-      if (qdnUrl.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
-        throw new Error('QDN URL is too long.');
+      if (!/^(qdn|home|core):\/\//i.test(address)) {
+        throw new Error('OPEN_NEW_TAB only accepts qdn://, home://, and core:// addresses.');
+      }
+
+      if (address.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
+        throw new Error('Address is too long.');
       }
 
       const hostWindow = context ? getQdnViewHostWindow(context) : null;
@@ -3583,7 +3588,7 @@ async function handleQdnAppRequest(
       }
 
       hostWindow.webContents.send('qdn-app:open-new-tab', {
-        qdnUrl,
+        address,
         sourceTabId: context.tabId,
       });
 

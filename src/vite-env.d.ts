@@ -634,7 +634,7 @@ interface Window {
     };
     qdnEvents?: {
       onOpenNewTab: (
-        callback: (event: { qdnUrl: string; sourceTabId: string | null }) => void,
+        callback: (event: { address: string; sourceTabId: string | null }) => void,
       ) => () => void;
       onOpenMediaPlayer: (
         callback: (event: QortiumQdnMediaPlayerRequest) => void,

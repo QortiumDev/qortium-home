@@ -207,7 +207,7 @@ type QdnAppRequestContext = {
   accountId: string | null;
   displaySettings: QdnDisplaySettings;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
-  onOpenNewTab?: (qdnUrl: string) => void;
+  onOpenNewTab?: (address: string) => void;
   resourceUrl: string;
   sessionKey: string;
 };
@@ -5073,21 +5073,26 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     }
 
     case 'OPEN_NEW_TAB': {
-      const qdnUrl = getRequiredRequestString(request, 'qdnUrl', 'QDN URL');
+      const address =
+        getString(getRequestValue(request, 'address')) || getString(getRequestValue(request, 'qdnUrl'));
 
-      if (!/^qdn:\/\//i.test(qdnUrl)) {
-        throw new Error('OPEN_NEW_TAB only accepts qdn:// URLs.');
+      if (!address) {
+        throw new Error('Address is required.');
       }
 
-      if (qdnUrl.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
-        throw new Error('QDN URL is too long.');
+      if (!/^(qdn|home|core):\/\//i.test(address)) {
+        throw new Error('OPEN_NEW_TAB only accepts qdn://, home://, and core:// addresses.');
+      }
+
+      if (address.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
+        throw new Error('Address is too long.');
       }
 
       if (!context?.onOpenNewTab) {
         throw new Error('Opening a new tab is not available in this context.');
       }
 
-      context.onOpenNewTab(qdnUrl);
+      context.onOpenNewTab(address);
 
       return true;
     }

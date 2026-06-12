@@ -47,7 +47,7 @@ type QdnViewerProps = {
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
-  onOpenNewTab?: (qdnUrl: string) => void;
+  onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
   suspended?: boolean;
   tabId: string;
@@ -1319,7 +1319,7 @@ function QdnIframeContent({
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
-  onOpenNewTab?: (qdnUrl: string) => void;
+  onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -1382,8 +1382,8 @@ function QdnIframeContent({
           onOpenMediaPlayer: (mediaRequest: QortiumQdnMediaPlayerRequest) => {
             onOpenMediaPlayerRef.current?.(mediaRequest);
           },
-          onOpenNewTab: (qdnUrl: string) => {
-            onOpenNewTabRef.current?.(qdnUrl);
+          onOpenNewTab: (address: string) => {
+            onOpenNewTabRef.current?.(address);
           },
           resourceUrl: resource.displayUrl,
           sessionKey: bridgeToken,
@@ -1458,7 +1458,7 @@ function QdnReadyContent({
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
-  onOpenNewTab?: (qdnUrl: string) => void;
+  onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
   suspended: boolean;
   tabId: string;
