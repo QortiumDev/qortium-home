@@ -1273,7 +1273,7 @@ function QdnIsolatedFrameContent({
       return;
     }
 
-    void qdnViews.updateAccountState({ tabId, accountId }).catch((error) => {
+    void qdnViews.updateAccountState({ tabId, accountId, isUnlocked: isAccountUnlocked }).catch((error) => {
       console.warn('Unable to update isolated QDN view account state.', error);
     });
   }, [accountId, isAccountUnlocked, suspended, tabId]);

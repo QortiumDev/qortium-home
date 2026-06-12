@@ -431,6 +431,7 @@ type QortiumQdnViewDisplaySettingsRequest = {
 
 type QortiumQdnViewAccountStateRequest = {
   accountId: string | null;
+  isUnlocked: boolean;
   tabId: string;
 };
 

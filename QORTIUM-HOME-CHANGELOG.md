@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-11 - qdn: notify apps when the selected account unlocks
+
+QDN apps are now notified when the selected account is unlocked or locked, so apps like Chat refresh their account state immediately instead of needing a reload.
+
 ### 2026-06-11 - qdn: add OPEN_NEW_TAB bridge action
 
 QDN apps can now ask Home to open a QDN address in a new tab through the qdnRequest bridge. Home validates the address, only allows QDN content, and opens the tab with the same selected account as the requesting app.
