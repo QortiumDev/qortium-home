@@ -1,4 +1,4 @@
-import { Braces, Download, FolderOpen, Globe2, Settings as SettingsIcon } from 'lucide-react';
+import { Braces, Download, FolderOpen, Globe2, Pin, Settings as SettingsIcon, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
@@ -7,6 +7,7 @@ import {
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
+import type { DashboardPin } from './dashboardPins';
 import { getTranslationLanguage, t } from './i18n';
 import {
   getOnChainCoreUpdateSummary,
@@ -32,13 +33,16 @@ type DashboardPageProps = {
   accountsState: QortiumAccountsState;
   appUpdates: AppUpdatesState;
   coreManager: CoreManagerState;
+  dashboardPins: DashboardPin[];
   isLoadingAccounts: boolean;
   nodeApiUrl: string;
   nodeEpoch: number;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onBrowseQdn: () => void;
+  onOpenDashboardPin: (pin: DashboardPin) => void;
   onOpenCoreApiDocs: () => void;
   onOpenSettings: () => void;
+  onRemoveDashboardPin: (pinId: string) => void;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onSelectedAccountChange: (accountId: string | null) => void;
@@ -365,13 +369,16 @@ export function DashboardPage({
   accountsState,
   appUpdates,
   coreManager,
+  dashboardPins,
   isLoadingAccounts,
   nodeApiUrl,
   nodeEpoch,
   onChainCoreUpdate,
   onBrowseQdn,
+  onOpenDashboardPin,
   onOpenCoreApiDocs,
   onOpenSettings,
+  onRemoveDashboardPin,
   onAccountsStateChange,
   onSelectedAccountChange,
   selectedAccountId,
@@ -383,6 +390,39 @@ export function DashboardPage({
       <header className="dashboard-page__header">
         <h1>{t('common.dashboard')}</h1>
       </header>
+
+      {dashboardPins.length > 0 ? (
+        <section className="dashboard-pins" aria-label={t('dashboard.pins')}>
+          <h2 className="dashboard-pins__title">{t('dashboard.pins')}</h2>
+          <ul className="dashboard-pins__list">
+            {dashboardPins.map((pin) => (
+              <li className="dashboard-pin" key={pin.id}>
+                <button
+                  className="dashboard-pin__link"
+                  title={t('common.openItem', { target: pin.label })}
+                  type="button"
+                  onClick={() => onOpenDashboardPin(pin)}
+                >
+                  <Pin aria-hidden="true" size={18} strokeWidth={2} />
+                  <span className="dashboard-pin__text">
+                    <span className="dashboard-pin__label">{pin.label}</span>
+                    <span className="dashboard-pin__url">{pin.displayUrl}</span>
+                  </span>
+                </button>
+                <button
+                  className="icon-button dashboard-pin__remove"
+                  title={t('dashboard.removePin', { label: pin.label })}
+                  type="button"
+                  aria-label={t('dashboard.removePin', { label: pin.label })}
+                  onClick={() => onRemoveDashboardPin(pin.id)}
+                >
+                  <X aria-hidden="true" size={18} strokeWidth={2} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="dashboard-page__primary-action">
         <button className="button button--primary" type="button" onClick={onBrowseQdn}>

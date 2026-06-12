@@ -29,6 +29,14 @@ import {
   subscribeToSystemThemeChange,
   type DisplaySettings,
 } from './displaySettings';
+import {
+  createDashboardPin,
+  loadDashboardPins,
+  removeDashboardPin,
+  saveDashboardPins,
+  upsertDashboardPin,
+  type DashboardPin,
+} from './dashboardPins';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, t, type TranslationKey } from './i18n';
@@ -608,6 +616,7 @@ export function App() {
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
@@ -616,6 +625,7 @@ export function App() {
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
+  const dashboardPinsRef = useRef<DashboardPin[]>([]);
   const openAppLinkInNewTabRef = useRef<
     ((address: string, sourceTabId: string | null) => void) | null
   >(null);
@@ -845,6 +855,25 @@ export function App() {
       })
       .catch((error) => {
         console.warn('Unable to load display settings.', error);
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    loadDashboardPins()
+      .then((storedPins) => {
+        if (!isDisposed) {
+          dashboardPinsRef.current = storedPins;
+          setDashboardPins(storedPins);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load dashboard pins.', error);
       });
 
     return () => {
@@ -1118,6 +1147,54 @@ export function App() {
     if (parsedUrl.success) {
       navigateToRoute(parsedUrl.route);
     }
+  }
+
+  function updateDashboardPins(updatePins: (currentPins: DashboardPin[]) => DashboardPin[]) {
+    const nextPins = updatePins(dashboardPinsRef.current);
+
+    dashboardPinsRef.current = nextPins;
+    setDashboardPins(nextPins);
+
+    saveDashboardPins(nextPins).catch((error) => {
+      console.warn('Unable to save dashboard pins.', error);
+    });
+  }
+
+  function pinTabToDashboard(tabId: string) {
+    const tab = tabState.tabs.find((candidateTab) => candidateTab.id === tabId);
+
+    if (!tab) {
+      return;
+    }
+
+    const route = getCurrentRouteForTab(tab);
+
+    if (route.kind === 'dashboard') {
+      return;
+    }
+
+    const pin = createDashboardPin(route.displayUrl, getTabLabel(tab));
+
+    if (!pin) {
+      return;
+    }
+
+    updateDashboardPins((currentPins) => upsertDashboardPin(currentPins, pin));
+  }
+
+  function openDashboardPin(pin: DashboardPin) {
+    const parsedUrl = parseAppAddress(pin.displayUrl);
+
+    if (!parsedUrl.success) {
+      console.warn('Ignoring unsupported dashboard pin.', pin.displayUrl);
+      return;
+    }
+
+    navigateToRoute(parsedUrl.route);
+  }
+
+  function unpinDashboardLink(pinId: string) {
+    updateDashboardPins((currentPins) => removeDashboardPin(currentPins, pinId));
   }
 
   function addClosedTabToHistory(currentClosedTabs: ClosedBrowserTab[], tab: BrowserTab) {
@@ -1880,6 +1957,7 @@ export function App() {
         historyEntries={routeHistory.entries}
         historyIndex={routeHistory.index}
         tabs={tabState.tabs.map((tab) => ({
+          canPinToDashboard: getCurrentRouteForTab(tab).kind !== 'dashboard',
           id: tab.id,
           label: getTabLabel(tab),
         }))}
@@ -1895,6 +1973,7 @@ export function App() {
         onNavigate={navigateToRoute}
         onOpenSettings={openSettingsInNewTab}
         onOverlayOpenChange={setIsTopBarOverlayOpen}
+        onPinTabToDashboard={pinTabToDashboard}
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
@@ -1973,13 +2052,16 @@ export function App() {
                   accountsState={accountsState}
                   appUpdates={appUpdates}
                   coreManager={coreManager}
+                  dashboardPins={dashboardPins}
                   isLoadingAccounts={isLoadingAccounts}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   nodeEpoch={nodeEpoch}
                   onChainCoreUpdate={onChainCoreUpdate}
                   onBrowseQdn={browseQdn}
+                  onOpenDashboardPin={openDashboardPin}
                   onOpenCoreApiDocs={openCoreApiDocs}
                   onOpenSettings={openSettings}
+                  onRemoveDashboardPin={unpinDashboardLink}
                   selectedAccountId={tab.accountId}
                   onAccountsStateChange={handleAccountsStateChange}
                   onSelectedAccountChange={updateActiveTabAccount}
