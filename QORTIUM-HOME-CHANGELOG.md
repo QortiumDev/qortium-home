@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - qdn: let apps request selected account unlock
+
+QDN apps can now call `UNLOCK_SELECTED_ACCOUNT` when the selected account is locked. Home handles the password prompt itself, unlocks the wallet through the same account flow used by the dashboard and top bar, updates the selected account state, and returns the refreshed account details to the app without exposing the password or private key. The action is advertised through `SHOW_ACTIONS` on desktop and Android, with smoke checks updated to cover the new bridge capability.
+
 ### 2026-06-12 - accounts: refresh names and avatars when the node connects
 
 When Home started while the Core node was stopped, account names, avatars, and the on-chain Core update status loaded as empty and stayed empty after the node came online, because that data was only fetched once at startup and the empty answers were kept. Home now tracks when the configured node becomes reachable — both immediately after starting Core from within Home and through the regular node status checks that also notice externally started or recovering nodes — and refreshes the account name and avatar shown on the dashboard and in the top bar, plus the dashboard's Core update status, as soon as the connection is back.

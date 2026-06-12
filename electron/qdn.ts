@@ -129,6 +129,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'SEARCH_GROUPS',
   'SEARCH_QDN_RESOURCES',
   'START_MINTING',
+  'UNLOCK_SELECTED_ACCOUNT',
   'WHICH_UI',
   'SHOW_ACTIONS',
 ] as const;
@@ -382,19 +383,22 @@ function getQdnChatPermissionCacheKey(
   ].join('\n');
 }
 
-async function requestQdnWriteApproval(
+// Sends an approval request to the host window renderer and resolves with the
+// user's decision delivered through 'qdn-app:resolveWriteApproval'.
+async function awaitQdnApprovalFromHostWindow(
   context: QdnViewContext,
-  profile: Awaited<ReturnType<typeof getAccountProfile>>,
-  details: QdnWriteApprovalDetails,
+  channel: string,
+  payload: Record<string, unknown>,
 ) {
   const hostWindow = getQdnViewHostWindow(context);
 
   if (!hostWindow) {
-    throw new Error('QDN write request does not belong to an active window.');
+    throw new Error('QDN app request does not belong to an active window.');
   }
 
   const requestId = randomUUID();
-  const approved = await new Promise<boolean>((resolve) => {
+
+  return new Promise<boolean>((resolve) => {
     let settled = false;
     const settle = (nextApproved: boolean) => {
       if (settled) {
@@ -415,30 +419,40 @@ async function requestQdnWriteApproval(
       windowWebContentsId: hostWindow.webContents.id,
     });
     hostWindow.once('closed', handleWindowClosed);
-    hostWindow.webContents.send('qdn-app:write-request', {
-      accountName: profile.name,
-      action: details.action,
-      address: profile.address,
-      amount: typeof details.amount === 'undefined' ? null : String(details.amount),
-      chatMessagePreview: details.chatMessagePreview ?? null,
-      groupId: typeof details.groupId === 'number' ? details.groupId : null,
-      groupName: details.groupName ?? null,
+    hostWindow.webContents.send(channel, {
+      ...payload,
       id: requestId,
-      name: details.name ?? null,
-      permissionScope: details.permissionScope ?? 'single-request',
-      recipientAddress: details.recipientAddress ?? null,
-      resource: details.resource
-        ? {
-            identifier: details.resource.identifier ?? null,
-            name: details.resource.name,
-            service: details.resource.service,
-          }
-        : null,
-      resourceCount: details.resourceCount ?? null,
-      resourceUrl: getQdnViewResourceUrl(context),
-      sourceKind: details.source?.kind ?? null,
-      sourceName: details.source?.displayName ?? null,
     });
+  });
+}
+
+async function requestQdnWriteApproval(
+  context: QdnViewContext,
+  profile: Awaited<ReturnType<typeof getAccountProfile>>,
+  details: QdnWriteApprovalDetails,
+) {
+  const approved = await awaitQdnApprovalFromHostWindow(context, 'qdn-app:write-request', {
+    accountName: profile.name,
+    action: details.action,
+    address: profile.address,
+    amount: typeof details.amount === 'undefined' ? null : String(details.amount),
+    chatMessagePreview: details.chatMessagePreview ?? null,
+    groupId: typeof details.groupId === 'number' ? details.groupId : null,
+    groupName: details.groupName ?? null,
+    name: details.name ?? null,
+    permissionScope: details.permissionScope ?? 'single-request',
+    recipientAddress: details.recipientAddress ?? null,
+    resource: details.resource
+      ? {
+          identifier: details.resource.identifier ?? null,
+          name: details.resource.name,
+          service: details.resource.service,
+        }
+      : null,
+    resourceCount: details.resourceCount ?? null,
+    resourceUrl: getQdnViewResourceUrl(context),
+    sourceKind: details.source?.kind ?? null,
+    sourceName: details.source?.displayName ?? null,
   });
 
   if (!approved) {
@@ -484,6 +498,33 @@ async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
     isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
+}
+
+// Prompts the user to unlock the selected account through Home's own password
+// dialog; the app never sees the password. Cancelling is not an error - the
+// returned account state tells the app whether the unlock happened.
+async function unlockSelectedAccountForQdnApp(context: QdnViewContext | null) {
+  if (!context) {
+    throw new Error('UNLOCK_SELECTED_ACCOUNT is only available from a QDN app frame.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  if (!isAccountUnlocked(context.accountId)) {
+    const profile = await getAccountProfile(context.accountId);
+
+    await awaitQdnApprovalFromHostWindow(context, 'qdn-app:unlock-request', {
+      accountId: profile.accountId,
+      accountLabel: profile.label,
+      accountName: profile.name,
+      address: profile.address,
+      resourceUrl: getQdnViewResourceUrl(context),
+    });
+  }
+
+  return getSelectedAccountForQdnApp(context);
 }
 
 function isQdnWriteSmokeMode() {
@@ -3620,6 +3661,9 @@ async function handleQdnAppRequest(
 
     case 'GET_SELECTED_ACCOUNT':
       return getSelectedAccountForQdnApp(context);
+
+    case 'UNLOCK_SELECTED_ACCOUNT':
+      return unlockSelectedAccountForQdnApp(context);
 
     case 'GET_BALANCE':
       return fetchNodeApiPayload(`/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);

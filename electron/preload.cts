@@ -179,6 +179,17 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn-views:updateAccountState', request),
   },
   qdnPermissions: {
+    onUnlockRequest: (callback: (request: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        callback(request);
+      };
+
+      ipcRenderer.on('qdn-app:unlock-request', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:unlock-request', listener);
+      };
+    },
     onWriteRequest: (callback: (request: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
         callback(request);
@@ -190,6 +201,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:write-request', listener);
       };
     },
+    resolveUnlockRequest: (requestId: string, approved: boolean) =>
+      ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
     resolveWriteRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
   },

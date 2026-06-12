@@ -1680,6 +1680,7 @@ async function runBridgeAssertions(client, contextId) {
     'SELL_NAME',
     'UPDATE_NAME',
     'SEND_CHAT_MESSAGE',
+    'UNLOCK_SELECTED_ACCOUNT',
     'SEARCH_CHAT_MESSAGES',
     'SEARCH_GROUPS',
     'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',

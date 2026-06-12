@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FormEvent as ReactFormEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { ApiViewer } from './ApiViewer';
@@ -86,6 +87,12 @@ type NavigationSwipeState = {
 
 type QdnWriteDialogProps = {
   request: QortiumQdnWriteApprovalRequest;
+  onResolve: (requestId: string, approved: boolean) => void;
+};
+
+type QdnUnlockDialogProps = {
+  request: QortiumQdnUnlockRequest;
+  onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onResolve: (requestId: string, approved: boolean) => void;
 };
 
@@ -312,6 +319,89 @@ function getQdnWriteSourceKey(sourceKind: QortiumQdnWriteApprovalRequest['source
   }
 }
 
+function QdnUnlockDialog({ request, onAccountsStateChange, onResolve }: QdnUnlockDialogProps) {
+  const [password, setPassword] = useState('');
+  const [unlockError, setUnlockError] = useState('');
+  const [isUnlocking, setIsUnlocking] = useState(false);
+
+  function dismiss() {
+    if (!isUnlocking) {
+      onResolve(request.id, false);
+    }
+  }
+
+  async function handleSubmit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isUnlocking) {
+      return;
+    }
+
+    if (!password) {
+      setUnlockError(t('account.enterWalletPassword'));
+      return;
+    }
+
+    setUnlockError('');
+    setIsUnlocking(true);
+
+    try {
+      const nextAccountsState = await window.qortiumHome.accounts.unlockWallet(request.accountId, password);
+      onAccountsStateChange(nextAccountsState);
+      setPassword('');
+      onResolve(request.id, true);
+    } catch (error) {
+      setUnlockError(formatError(error));
+      setIsUnlocking(false);
+    }
+  }
+
+  return (
+    <ModalDialog onDismiss={dismiss}>
+      <form
+        aria-label={t('account.unlockAccountTitle')}
+        aria-modal="true"
+        className="unlock-dialog qdn-permission-dialog"
+        role="dialog"
+        onSubmit={handleSubmit}
+      >
+        <h2 className="unlock-dialog__title">{t('account.unlockAccountTitle')}</h2>
+        <p className="unlock-dialog__account">
+          {request.accountName || request.accountLabel || t('qdnWrite.selectedAccountFallback')}
+        </p>
+        <p className="unlock-dialog__address">{request.address}</p>
+        <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
+        <label className="field">
+          <span className="field__label">{t('common.password')}</span>
+          <input
+            autoFocus
+            className="field__input"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        {unlockError ? (
+          <p className="accounts-panel__message accounts-panel__message--error">{unlockError}</p>
+        ) : null}
+        <div className="unlock-dialog__actions">
+          <button
+            className="button button--secondary"
+            type="button"
+            disabled={isUnlocking}
+            onClick={dismiss}
+          >
+            {t('common.cancel')}
+          </button>
+          <button className="button button--primary" type="submit" disabled={isUnlocking}>
+            {isUnlocking ? t('common.unlocking') : t('common.unlock')}
+          </button>
+        </div>
+      </form>
+    </ModalDialog>
+  );
+}
+
 function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
   return (
     <ModalDialog onDismiss={() => onResolve(request.id, false)}>
@@ -514,6 +604,7 @@ export function App() {
   // Incremented when the configured node becomes reachable, so data fetched
   // from the node while it was unreachable gets refreshed.
   const [nodeEpoch, setNodeEpoch] = useState(0);
+  const [qdnUnlockRequests, setQdnUnlockRequests] = useState<QortiumQdnUnlockRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
@@ -541,8 +632,9 @@ export function App() {
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
+  const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
-  const isQdnPermissionDialogActive = !!activeQdnWriteRequest;
+  const isQdnPermissionDialogActive = !!activeQdnUnlockRequest || !!activeQdnWriteRequest;
   const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
@@ -552,6 +644,24 @@ export function App() {
   // t() reads module state, so the active language must be set before children render;
   // the layout effect that applies document-level settings runs too late for that.
   setTranslationLanguage(effectiveDisplaySettings.language);
+
+  useEffect(() => {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+
+    if (!qdnPermissions?.onUnlockRequest) {
+      return undefined;
+    }
+
+    return qdnPermissions.onUnlockRequest((request) => {
+      setQdnUnlockRequests((currentRequests) => {
+        if (currentRequests.some((currentRequest) => currentRequest.id === request.id)) {
+          return currentRequests;
+        }
+
+        return [...currentRequests, request];
+      });
+    });
+  }, []);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -570,6 +680,24 @@ export function App() {
       });
     });
   }, []);
+
+  function resolveQdnUnlockRequest(requestId: string, approved: boolean) {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+
+    setQdnUnlockRequests((currentRequests) =>
+      currentRequests.filter((request) => request.id !== requestId),
+    );
+
+    const resolveRequest = qdnPermissions?.resolveUnlockRequest ?? qdnPermissions?.resolveWriteRequest;
+
+    if (!resolveRequest) {
+      return;
+    }
+
+    void resolveRequest(requestId, approved).catch((error) => {
+      console.warn('Unable to resolve QDN unlock request.', error);
+    });
+  }
 
   function resolveQdnWriteRequest(requestId: string, approved: boolean) {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -1875,7 +2003,14 @@ export function App() {
           onResolve={resolveQdnWriteRequest}
         />
       ) : null}
-      {qdnMediaPlayerResource && !activeQdnWriteRequest && nodeSettings ? (
+      {activeQdnUnlockRequest && !activeQdnWriteRequest ? (
+        <QdnUnlockDialog
+          request={activeQdnUnlockRequest}
+          onAccountsStateChange={handleAccountsStateChange}
+          onResolve={resolveQdnUnlockRequest}
+        />
+      ) : null}
+      {qdnMediaPlayerResource && !activeQdnWriteRequest && !activeQdnUnlockRequest && nodeSettings ? (
         <QdnMediaPlayerDialog
           displaySettings={effectiveDisplaySettings}
           nodeApiUrl={nodeSettings.nodeApiUrl}

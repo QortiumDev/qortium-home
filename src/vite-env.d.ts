@@ -560,6 +560,15 @@ type QortiumQdnWriteApprovalRequest = {
   sourceName: string | null;
 };
 
+type QortiumQdnUnlockRequest = {
+  accountId: string;
+  accountLabel: string;
+  accountName: string | null;
+  address: string;
+  id: string;
+  resourceUrl: string;
+};
+
 interface Window {
   qortiumHome: {
     accounts: {
@@ -658,9 +667,13 @@ interface Window {
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
     };
     qdnPermissions?: {
+      onUnlockRequest?: (
+        callback: (request: QortiumQdnUnlockRequest) => void,
+      ) => () => void;
       onWriteRequest: (
         callback: (request: QortiumQdnWriteApprovalRequest) => void,
       ) => () => void;
+      resolveUnlockRequest?: (requestId: string, approved: boolean) => Promise<void>;
       resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
     };
     qdnEvents?: {
