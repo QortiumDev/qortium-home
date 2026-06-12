@@ -954,6 +954,19 @@ export function App() {
     navigateToRoute(SETTINGS_ROUTE);
   }
 
+  function openSettingsInNewTab() {
+    const tab = createBrowserTab(getDefaultAccountId(accountsState), {
+      entries: [SETTINGS_ROUTE],
+      index: 0,
+    });
+
+    setTabState((currentTabState) => ({
+      ...currentTabState,
+      tabs: [...currentTabState.tabs, tab],
+      activeTabId: tab.id,
+    }));
+  }
+
   function browseQdn() {
     const parsedUrl = parseAppAddress('qdn://');
 
@@ -1743,7 +1756,7 @@ export function App() {
         onGoToHistoryIndex={goToHistoryIndex}
         onMoveTabToNewWindow={window.qortiumHome.windows ? moveTabToNewWindow : undefined}
         onNavigate={navigateToRoute}
-        onOpenSettings={openSettings}
+        onOpenSettings={openSettingsInNewTab}
         onOverlayOpenChange={setIsTopBarOverlayOpen}
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
