@@ -34,10 +34,11 @@ const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
 
 type QdnViewEntry = {
   accountId: string | null;
+  accountUnlocked: boolean;
   currentUrl: string | null;
   // What the loaded page last received; `undefined` means nothing delivered
   // yet, so state messages are only sent when these fall out of sync.
-  deliveredAccountId: string | null | undefined;
+  deliveredAccountStateKey: string | undefined;
   deliveredDisplaySettings: QdnDisplaySettings | undefined;
   displaySettings: QdnDisplaySettings;
   nodeOrigin: string;
@@ -70,6 +71,7 @@ type SanitizedDisplaySettingsRequest = {
 
 type SanitizedAccountStateRequest = {
   accountId: string | null;
+  isUnlocked: boolean;
   tabId: string;
 };
 
@@ -318,6 +320,7 @@ function sanitizeAccountStateRequest(value: unknown): SanitizedAccountStateReque
 
   return {
     accountId: sanitizeOptionalAccountId(value.accountId),
+    isUnlocked: value.isUnlocked === true,
     tabId: sanitizeTabId(value.tabId),
   };
 }
@@ -492,12 +495,18 @@ function areDisplaySettingsEqual(
   );
 }
 
+// Unlocking the selected account must notify the page too, so the delivery
+// key covers both the account id and its lock state.
+function getAccountStateKey(entry: QdnViewEntry) {
+  return `${entry.accountUnlocked ? 'unlocked' : 'locked'}:${entry.accountId ?? ''}`;
+}
+
 async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   const sendDisplaySettings = !areDisplaySettingsEqual(
     entry.deliveredDisplaySettings,
     entry.displaySettings,
   );
-  const sendAccountChanged = entry.deliveredAccountId !== entry.accountId;
+  const sendAccountChanged = entry.deliveredAccountStateKey !== getAccountStateKey(entry);
   const messages = [
     ...(sendDisplaySettings ? getQdnDisplaySettingMessages(entry.displaySettings) : []),
     ...(sendAccountChanged ? [getQdnSelectedAccountChangedMessage()] : []),
@@ -514,7 +523,7 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   }
 
   if (sendAccountChanged) {
-    entry.deliveredAccountId = entry.accountId;
+    entry.deliveredAccountStateKey = getAccountStateKey(entry);
   }
 }
 
@@ -538,8 +547,9 @@ function createViewEntry(
 ): QdnViewEntry {
   const entry: QdnViewEntry = {
     accountId,
+    accountUnlocked: false,
     currentUrl: null,
-    deliveredAccountId: undefined,
+    deliveredAccountStateKey: undefined,
     deliveredDisplaySettings: undefined,
     displaySettings,
     nodeOrigin,
@@ -650,7 +660,7 @@ export function registerQdnViewIpcHandlers() {
         .loadURL(request.renderUrl)
         .then(() => {
           // The freshly loaded page has received nothing yet.
-          entry.deliveredAccountId = undefined;
+          entry.deliveredAccountStateKey = undefined;
           entry.deliveredDisplaySettings = undefined;
           queueQdnViewStateDelivery(entry);
         })
@@ -727,6 +737,7 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.accountId = request.accountId;
+    entry.accountUnlocked = request.isUnlocked;
     queueQdnViewStateDelivery(entry);
   });
 
