@@ -1018,6 +1018,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
           'SELL_NAME',
           'UPDATE_NAME',
           'SEND_CHAT_MESSAGE',
+          'UNLOCK_SELECTED_ACCOUNT',
           'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
           'GET_PRIVATE_GROUP_ACTIVE_CHATS',
           'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',

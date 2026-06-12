@@ -106,6 +106,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'SEARCH_GROUPS',
   'SEARCH_QDN_RESOURCES',
   'START_MINTING',
+  'UNLOCK_SELECTED_ACCOUNT',
   'WHICH_UI',
   'SHOW_ACTIONS',
 ] as const;
@@ -295,7 +296,9 @@ const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
 const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
+const qdnUnlockListeners = new Set<(request: QortiumQdnUnlockRequest) => void>();
 const qdnWriteListeners = new Set<(request: QortiumQdnWriteApprovalRequest) => void>();
+const pendingQdnUnlockApprovals = new Map<string, PendingQdnApproval>();
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
 const approvedQdnChatPermissions = new Set<string>();
 
@@ -2071,6 +2074,50 @@ async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undef
     isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
+}
+
+async function unlockSelectedAccountForQdnApp(context: QdnAppRequestContext | undefined) {
+  if (!context) {
+    throw new Error('UNLOCK_SELECTED_ACCOUNT is only available from a QDN app frame.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  if (!isAccountUnlocked(context.accountId)) {
+    if (qdnUnlockListeners.size === 0) {
+      throw new Error('QDN account unlock is unavailable.');
+    }
+
+    const profile = await getAccountProfile(context.accountId);
+    const requestId = createRequestId();
+
+    await new Promise<boolean>((resolve) => {
+      const timeoutId = window.setTimeout(() => {
+        pendingQdnUnlockApprovals.delete(requestId);
+        resolve(false);
+      }, QDN_WRITE_APPROVAL_TIMEOUT_MS);
+
+      pendingQdnUnlockApprovals.set(requestId, {
+        resolve,
+        timeoutId,
+      });
+
+      for (const listener of qdnUnlockListeners) {
+        listener({
+          accountId: profile.accountId,
+          accountLabel: profile.label,
+          accountName: profile.name,
+          address: profile.address,
+          id: requestId,
+          resourceUrl: context.resourceUrl || 'QDN app',
+        });
+      }
+    });
+  }
+
+  return getSelectedAccountForQdnApp(context);
 }
 
 function getRequestTags(value: unknown) {
@@ -5178,6 +5225,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'GET_SELECTED_ACCOUNT':
       return getSelectedAccountForQdnApp(context);
 
+    case 'UNLOCK_SELECTED_ACCOUNT':
+      return unlockSelectedAccountForQdnApp(context);
+
     case 'GET_BALANCE':
       return fetchNodeApiPayload(
         `/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`,
@@ -5416,12 +5466,30 @@ function createFallbackApi(): PlatformApi {
     appName: 'Qortium Home',
     accounts: isAndroid() ? createStoredAccountsApi() : createUnsupportedAccountsApi(),
     qdnPermissions: {
+      onUnlockRequest(callback) {
+        qdnUnlockListeners.add(callback);
+
+        return () => {
+          qdnUnlockListeners.delete(callback);
+        };
+      },
       onWriteRequest(callback) {
         qdnWriteListeners.add(callback);
 
         return () => {
           qdnWriteListeners.delete(callback);
         };
+      },
+      resolveUnlockRequest: async (requestId, approved) => {
+        const pendingApproval = pendingQdnUnlockApprovals.get(requestId);
+
+        if (!pendingApproval) {
+          return;
+        }
+
+        window.clearTimeout(pendingApproval.timeoutId);
+        pendingQdnUnlockApprovals.delete(requestId);
+        pendingApproval.resolve(approved);
       },
       resolveWriteRequest: async (requestId, approved) => {
         const pendingApproval = pendingQdnWriteApprovals.get(requestId);
