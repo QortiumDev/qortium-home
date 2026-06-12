@@ -1,5 +1,12 @@
 import type { ResolvedDisplaySettings } from './displaySettings';
-import { t } from './i18n';
+import { t, type TranslationKey } from './i18n';
+
+const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
+  'common.unit.kb',
+  'common.unit.mb',
+  'common.unit.gb',
+  'common.unit.tb',
+];
 
 export const PUBLIC_QDN_SERVICES = [
   'APP',
@@ -141,6 +148,7 @@ export type QdnResourceListItem = {
   service: QdnService;
   size?: number;
   status?: QdnResourceStatus;
+  updated?: number;
 };
 
 type QdnParseResult =
@@ -528,6 +536,26 @@ export function buildQdnRouteFromListItem(item: QdnResourceListItem): QdnRoute {
       displayUrl,
     },
   };
+}
+
+export function formatByteSize(bytes: number | undefined) {
+  if (typeof bytes !== 'number') {
+    return '';
+  }
+
+  if (bytes < 1024) {
+    return t('common.unit.bytes', { count: bytes.toLocaleString() });
+  }
+
+  let value = bytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < BYTE_UNIT_KEYS.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return t(BYTE_UNIT_KEYS[unitIndex], { value: value.toLocaleString(undefined, { maximumFractionDigits: 1 }) });
 }
 
 export function formatQdnStatus(status: QdnResourceStatus | undefined) {
