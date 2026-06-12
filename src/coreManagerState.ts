@@ -17,6 +17,7 @@ export type CoreBusyAction =
   | null;
 
 type CoreManagerOptions = {
+  onNodeAvailable?: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 };
@@ -183,7 +184,7 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
   return rows;
 }
 
-export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: CoreManagerOptions) {
+export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNodeSettings }: CoreManagerOptions) {
   const coreApi = window.qortiumHome.core;
   const [status, setStatus] = useState<QortiumCoreStatus | null>(null);
   const [releases, setReleases] = useState<QortiumCoreReleases | null>(null);
@@ -345,6 +346,9 @@ export function useCoreManager({ onResolvedNodeApiUrl, onSaveNodeSettings }: Cor
         const settings = await onSaveNodeSettings({ mode: 'local' });
 
         onResolvedNodeApiUrl(settings.nodeApiUrl);
+        // start() resolves only once the local Core API answers, so refresh
+        // node-derived data (account names, avatars, update status) right away.
+        onNodeAvailable?.();
       }
 
       setMessage({

@@ -12,6 +12,7 @@ type AccountsPanelProps = {
   accountsState: QortiumAccountsState;
   isLoadingAccounts: boolean;
   nodeApiUrl: string;
+  nodeEpoch: number;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onSelectedAccountChange: (accountId: string | null) => void;
@@ -65,6 +66,7 @@ export function AccountsPanel({
   accountsState,
   isLoadingAccounts,
   nodeApiUrl,
+  nodeEpoch,
   selectedAccountId,
   onAccountsStateChange,
   onSelectedAccountChange,
@@ -143,7 +145,7 @@ export function AccountsPanel({
       };
     }
 
-    getAccountProfile(activeAccount, nodeApiUrl)
+    getAccountProfile(activeAccount, nodeApiUrl, nodeEpoch)
       .then((profile) => {
         if (!isDisposed) {
           setActiveProfile(profile);
@@ -158,7 +160,7 @@ export function AccountsPanel({
     return () => {
       isDisposed = true;
     };
-  }, [activeAccount, nodeApiUrl]);
+  }, [activeAccount, nodeApiUrl, nodeEpoch]);
   const walletAccounts = useMemo(
     () =>
       accountsState.accounts

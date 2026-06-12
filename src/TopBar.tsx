@@ -17,6 +17,7 @@ type TopBarProps = {
   currentRoute: AppRoute;
   historyEntries: AppRoute[];
   historyIndex: number;
+  nodeEpoch: number;
   nodeSettings: QortiumNodeSettings;
   tabs: BrowserTabSummary[];
   onAddTab: () => void;
@@ -30,6 +31,7 @@ type TopBarProps = {
   onMoveTabToNewWindow?: (tabId: string) => void;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onNavigate: (route: AppRoute) => void;
+  onNodeAvailable: () => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
@@ -147,11 +149,13 @@ function formatAccountActionError(error: unknown) {
 function AccountChip({
   account,
   nodeApiUrl,
+  nodeEpoch,
   onAccountsStateChange,
   onMenuOpenChange,
 }: {
   account: QortiumAccountSummary | null;
   nodeApiUrl: string;
+  nodeEpoch: number;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onMenuOpenChange?: (isOpen: boolean) => void;
 }) {
@@ -174,7 +178,7 @@ function AccountChip({
       };
     }
 
-    getAccountProfile(account, nodeApiUrl)
+    getAccountProfile(account, nodeApiUrl, nodeEpoch)
       .then((nextProfile) => {
         if (!isDisposed) {
           setProfile(nextProfile);
@@ -189,7 +193,7 @@ function AccountChip({
     return () => {
       isDisposed = true;
     };
-  }, [account, nodeApiUrl]);
+  }, [account, nodeApiUrl, nodeEpoch]);
 
   useEffect(() => {
     setIsUnlocking(false);
@@ -942,6 +946,7 @@ export function TopBar({
   currentRoute,
   historyEntries,
   historyIndex,
+  nodeEpoch,
   nodeSettings,
   tabs,
   onAddTab,
@@ -955,6 +960,7 @@ export function TopBar({
   onMoveTabToNewWindow,
   onAccountsStateChange,
   onNavigate,
+  onNodeAvailable,
   onOpenSettings,
   onOverlayOpenChange,
   onReorderTab,
@@ -1264,12 +1270,14 @@ export function TopBar({
       <AccountChip
         account={activeAccount}
         nodeApiUrl={nodeSettings.nodeApiUrl}
+        nodeEpoch={nodeEpoch}
         onAccountsStateChange={onAccountsStateChange}
         onMenuOpenChange={setAccountMenuOpen}
       />
       <NodeStatusButton
         nodeSettings={nodeSettings}
         onMenuOpenChange={setNodeMenuOpen}
+        onNodeAvailable={onNodeAvailable}
         onOpenSettings={onOpenSettings}
         onResolvedNodeApiUrl={onResolvedNodeApiUrl}
       />
