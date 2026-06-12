@@ -7,6 +7,7 @@ type QortiumAccountSummary = {
   isUnlocked: boolean;
   label: string;
   sourceFilename: string;
+  supportsDerivedAddresses: boolean;
   walletId: string;
 };
 
@@ -551,6 +552,12 @@ interface Window {
       discardLoadedWallet: (token: string) => Promise<void>;
       saveLoadedWallet: (token: string, name: string) => Promise<QortiumAccountsState>;
       createWallet: (name: string, password: string) => Promise<QortiumCreateWalletResult>;
+      getAddressFromPrivateKey: (privateKey: string) => Promise<string>;
+      importPrivateKeyWallet: (
+        name: string,
+        privateKey: string,
+        password: string,
+      ) => Promise<QortiumCreateWalletResult>;
       exportWallet: (accountId: string) => Promise<QortiumWalletBackupResult>;
       setActiveAccount: (accountId: string) => Promise<QortiumAccountsState>;
       addDerivedAddress: (accountId: string) => Promise<QortiumAccountsState>;
