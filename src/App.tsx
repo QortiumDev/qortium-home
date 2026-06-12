@@ -1813,6 +1813,7 @@ export function App() {
                   appUpdates={appUpdates}
                   coreManager={coreManager}
                   isLoadingAccounts={isLoadingAccounts}
+                  nodeApiUrl={nodeSettings.nodeApiUrl}
                   onChainCoreUpdate={onChainCoreUpdate}
                   onBrowseQdn={browseQdn}
                   onOpenCoreApiDocs={openCoreApiDocs}

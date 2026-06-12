@@ -1,5 +1,6 @@
 import { Download, Lock, Unlock, Wallet, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { getAccountProfile } from './accountProfile';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
 import { isNativePlatform } from './platform';
@@ -10,6 +11,7 @@ type AccountsPanelProps = {
   accountsError: string;
   accountsState: QortiumAccountsState;
   isLoadingAccounts: boolean;
+  nodeApiUrl: string;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onSelectedAccountChange: (accountId: string | null) => void;
@@ -62,6 +64,7 @@ export function AccountsPanel({
   accountsError,
   accountsState,
   isLoadingAccounts,
+  nodeApiUrl,
   selectedAccountId,
   onAccountsStateChange,
   onSelectedAccountChange,
@@ -115,6 +118,37 @@ export function AccountsPanel({
     () => accountsState.accounts.find((account) => account.id === selectedAccountId),
     [accountsState.accounts, selectedAccountId],
   );
+  const [activeProfile, setActiveProfile] = useState<QortiumAccountProfile | null>(null);
+  const [hasAvatarError, setHasAvatarError] = useState(false);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    setActiveProfile(null);
+    setHasAvatarError(false);
+
+    if (!activeAccount) {
+      return () => {
+        isDisposed = true;
+      };
+    }
+
+    getAccountProfile(activeAccount, nodeApiUrl)
+      .then((profile) => {
+        if (!isDisposed) {
+          setActiveProfile(profile);
+        }
+      })
+      .catch(() => {
+        if (!isDisposed) {
+          setActiveProfile(null);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [activeAccount, nodeApiUrl]);
   const unlockingAccount = useMemo(
     () => accountsState.accounts.find((account) => account.id === unlockingAccountId),
     [accountsState.accounts, unlockingAccountId],
@@ -524,9 +558,25 @@ export function AccountsPanel({
             </div>
           </div>
           {activeAccount ? (
-            <p className="account-selector__address" aria-label={t('account.selectedWalletAddress')}>
-              {activeAccount.address}
-            </p>
+            <div className="account-selector__identity">
+              {activeProfile?.avatarUrl && !hasAvatarError ? (
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="account-selector__avatar"
+                  src={activeProfile.avatarUrl}
+                  onError={() => setHasAvatarError(true)}
+                />
+              ) : null}
+              <div className="account-selector__identity-text">
+                {activeProfile?.name ? (
+                  <p className="account-selector__name">{activeProfile.name}</p>
+                ) : null}
+                <p className="account-selector__address" aria-label={t('account.selectedWalletAddress')}>
+                  {activeAccount.address}
+                </p>
+              </div>
+            </div>
           ) : null}
         </div>
       ) : null}
