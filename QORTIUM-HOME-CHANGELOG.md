@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-11 - ui: support mouse back and forward buttons
+
+The extra back/forward buttons found on many mice now move through tab history in Qortium Home, matching how web browsers behave, including while a QDN app has focus.
+
 ### 2026-06-11 - build: fix remote mac target execution
 
 Fixed the remote Mac build helper so standard macOS targets run the requested npm script directly instead of depending on an unexported shell variable inside the remote build shell.

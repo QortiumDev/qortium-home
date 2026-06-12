@@ -381,6 +381,23 @@ function createWindow(options: CreateWindowOptions = {}) {
 
   watchWindowState(window);
 
+  window.on('app-command', (_event, command) => {
+    if (command !== 'browser-backward' && command !== 'browser-forward') {
+      return;
+    }
+
+    // When the Home renderer itself has focus it already handles the mouse
+    // back/forward buttons, so forwarding here would step history twice.
+    // Forward only when focus is elsewhere (e.g. an embedded QDN view, which
+    // swallows the mouse events before the renderer can see them).
+    if (window.webContents.isFocused()) {
+      return;
+    }
+
+    const menuCommand: MenuCommand = command === 'browser-backward' ? 'go-back' : 'go-forward';
+    window.webContents.send('menu:command', menuCommand);
+  });
+
   if (windowState?.isMaximized) {
     window.maximize();
   }
