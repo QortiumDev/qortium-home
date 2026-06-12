@@ -155,6 +155,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       bounds: { height: number; width: number; x: number; y: number };
       tabId: string;
     }) => ipcRenderer.invoke('qdn-views:setBounds', request),
+    capture: (tabId: string) => ipcRenderer.invoke('qdn-views:capture', { tabId }),
     hide: (tabId: string) => ipcRenderer.invoke('qdn-views:hide', { tabId }),
     destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
     updateDisplaySettings: (request: {

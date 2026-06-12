@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-11 - ui: keep QDN pages visible under menus and prompts
+
+Opening the account menu, the node status menu, or a permission prompt no longer blanks out QDN pages: the page now stays visible as a seamless frozen preview until the menu or prompt is closed. As part of the same work, QDN apps no longer reload their state or reset their navigation when their page returns to view after closing a menu or switching to another tab and back.
+
 ### 2026-06-11 - ui: support mouse back and forward buttons
 
 The extra back/forward buttons found on many mice now move through tab history in Qortium Home, matching how web browsers behave, including while a QDN app has focus.

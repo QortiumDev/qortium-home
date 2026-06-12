@@ -1064,6 +1064,21 @@ function getElementBounds(element: HTMLElement): QortiumQdnViewBounds {
   };
 }
 
+function waitForAnimationFrames(count: number) {
+  return new Promise<void>((resolve) => {
+    function step(remaining: number) {
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
+
+      window.requestAnimationFrame(() => step(remaining - 1));
+    }
+
+    step(count);
+  });
+}
+
 function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQdnViewBounds) {
   return (
     !!first &&
@@ -1093,9 +1108,13 @@ function QdnIsolatedFrameContent({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastBoundsRef = useRef<QortiumQdnViewBounds | null>(null);
+  const suspendedRef = useRef(suspended);
   const [viewError, setViewError] = useState('');
+  const [snapshotUrl, setSnapshotUrl] = useState('');
   const accountId = account?.id ?? null;
   const isAccountUnlocked = account?.isUnlocked ?? false;
+
+  suspendedRef.current = suspended;
 
   useEffect(() => {
     const qdnViews = window.qortiumHome.qdnViews;
@@ -1108,11 +1127,52 @@ function QdnIsolatedFrameContent({
     const activeQdnViews = qdnViews;
 
     if (suspended) {
-      void activeQdnViews.hide(tabId).catch((error) => {
-        console.warn('Unable to suspend isolated QDN view.', error);
-      });
+      let isSuspendDisposed = false;
 
-      return undefined;
+      async function suspendView() {
+        const snapshot = await activeQdnViews.capture(tabId).catch((error) => {
+          console.warn('Unable to capture isolated QDN view snapshot.', error);
+          return null;
+        });
+
+        if (isSuspendDisposed) {
+          return;
+        }
+
+        // Paint the snapshot beneath the still-visible view before hiding it,
+        // so the swap never exposes the empty frame behind both layers.
+        if (snapshot) {
+          try {
+            const image = new Image();
+
+            image.src = snapshot;
+            await image.decode();
+          } catch {
+            // Decoding only pre-warms the paint; show the snapshot regardless.
+          }
+
+          if (isSuspendDisposed) {
+            return;
+          }
+
+          setSnapshotUrl(snapshot);
+          await waitForAnimationFrames(2);
+
+          if (isSuspendDisposed) {
+            return;
+          }
+        }
+
+        await activeQdnViews.hide(tabId).catch((error) => {
+          console.warn('Unable to suspend isolated QDN view.', error);
+        });
+      }
+
+      void suspendView();
+
+      return () => {
+        isSuspendDisposed = true;
+      };
     }
 
     const initialContainer = container;
@@ -1154,12 +1214,23 @@ function QdnIsolatedFrameContent({
           tabId,
         });
 
+        if (isDisposed) {
+          return;
+        }
+
+        setViewError('');
+
+        // The live view composites above the snapshot, so give it a couple of
+        // frames to appear before removing the snapshot underneath it.
+        await waitForAnimationFrames(2);
+
         if (!isDisposed) {
-          setViewError('');
+          setSnapshotUrl('');
         }
       } catch (error) {
         if (!isDisposed) {
           setViewError(formatError(error));
+          setSnapshotUrl('');
         }
       }
     }
@@ -1183,9 +1254,14 @@ function QdnIsolatedFrameContent({
         window.cancelAnimationFrame(animationFrameId);
       }
 
-      void qdnViews.hide(tabId).catch((error) => {
-        console.warn('Unable to hide isolated QDN view.', error);
-      });
+      // When this re-runs because the view is being suspended, leave the view
+      // visible: the suspend branch hides it itself after capturing the
+      // snapshot, and hiding here first would make that capture come up empty.
+      if (!suspendedRef.current) {
+        void qdnViews.hide(tabId).catch((error) => {
+          console.warn('Unable to hide isolated QDN view.', error);
+        });
+      }
     };
   }, [accountId, loadedResource.renderUrl, nodeApiUrl, suspended, tabId]);
 
@@ -1221,6 +1297,9 @@ function QdnIsolatedFrameContent({
     >
       {viewError ? (
         <p className="qdn-viewer__message qdn-viewer__message--error">{viewError}</p>
+      ) : null}
+      {!viewError && snapshotUrl ? (
+        <img className="qdn-viewer__snapshot" src={snapshotUrl} alt="" />
       ) : null}
     </div>
   );
