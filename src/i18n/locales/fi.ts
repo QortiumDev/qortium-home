@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const fi: Record<TranslationKey, string> = {
   "account.actionFailed": "Tilitoiminto epäonnistui.",
   "account.actionsLabel": "Tilitoiminnot",
+  "account.addAddress": "Lisää osoite",
   "account.chipAria": "Tili, {name}, {status}",
   "account.chipAriaEmpty": "Tili, ei tiliä valittuna",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const fi: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Poista lompakko",
   "account.savedWalletBackup": "Lompakon varmuuskopio tallennettiin nimellä {fileName}.",
   "account.selectWalletHint": "Valitse lompakko Kojelaudalta käyttääksesi tilitoimintoja.",
+  "account.selectedAddress": "Valittu osoite",
   "account.selectedWallet": "Valittu lompakko",
   "account.selectedWalletAddress": "Valitun lompakon osoite",
   "account.statusLocked": "Lukittu",

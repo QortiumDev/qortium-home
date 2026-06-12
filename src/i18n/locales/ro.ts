@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const ro: Record<TranslationKey, string> = {
   "account.actionFailed": "Acțiunea asupra contului a eșuat.",
   "account.actionsLabel": "Acțiuni pentru cont",
+  "account.addAddress": "Adaugă adresă",
   "account.chipAria": "Cont, {name}, {status}",
   "account.chipAriaEmpty": "Cont, niciun cont selectat",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const ro: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Eliminare portofel",
   "account.savedWalletBackup": "Copia de rezervă a portofelului a fost salvată ca {fileName}.",
   "account.selectWalletHint": "Selectează un portofel din Tabloul de bord pentru a folosi acțiunile contului.",
+  "account.selectedAddress": "Adresă selectată",
   "account.selectedWallet": "Portofel selectat",
   "account.selectedWalletAddress": "Adresa portofelului selectat",
   "account.statusLocked": "Blocat",

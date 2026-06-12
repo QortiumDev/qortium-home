@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const zhTW: Record<TranslationKey, string> = {
   "account.actionFailed": "帳戶操作失敗。",
   "account.actionsLabel": "帳戶操作",
+  "account.addAddress": "新增地址",
   "account.chipAria": "帳戶，{name}，{status}",
   "account.chipAriaEmpty": "帳戶，未選取任何帳戶",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "移除錢包",
   "account.savedWalletBackup": "已將錢包備份儲存為 {fileName}。",
   "account.selectWalletHint": "請在儀表板上選取錢包以使用帳戶操作。",
+  "account.selectedAddress": "選定的地址",
   "account.selectedWallet": "所選錢包",
   "account.selectedWalletAddress": "所選錢包位址",
   "account.statusLocked": "已鎖定",

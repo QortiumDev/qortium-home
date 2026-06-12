@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const pl: Record<TranslationKey, string> = {
   "account.actionFailed": "Akcja konta nie powiodła się.",
   "account.actionsLabel": "Akcje konta",
+  "account.addAddress": "Dodaj adres",
   "account.chipAria": "Konto, {name}, {status}",
   "account.chipAriaEmpty": "Konto, nie wybrano konta",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const pl: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Usuń portfel",
   "account.savedWalletBackup": "Zapisano kopię zapasową portfela jako {fileName}.",
   "account.selectWalletHint": "Wybierz portfel na Pulpicie, aby korzystać z akcji konta.",
+  "account.selectedAddress": "Wybrany adres",
   "account.selectedWallet": "Wybrany portfel",
   "account.selectedWalletAddress": "Adres wybranego portfela",
   "account.statusLocked": "Zablokowany",

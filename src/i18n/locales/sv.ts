@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const sv: Record<TranslationKey, string> = {
   "account.actionFailed": "Kontoåtgärden misslyckades.",
   "account.actionsLabel": "Kontoåtgärder",
+  "account.addAddress": "Lägg till adress",
   "account.chipAria": "Konto, {name}, {status}",
   "account.chipAriaEmpty": "Konto, inget konto valt",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const sv: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Ta bort plånbok",
   "account.savedWalletBackup": "Sparade säkerhetskopia av plånboken som {fileName}.",
   "account.selectWalletHint": "Välj en plånbok på Översikten för att använda kontoåtgärder.",
+  "account.selectedAddress": "Vald adress",
   "account.selectedWallet": "Vald plånbok",
   "account.selectedWalletAddress": "Den valda plånbokens adress",
   "account.statusLocked": "Låst",

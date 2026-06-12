@@ -4,6 +4,7 @@ import type { TranslationKey } from './en';
 export const ru: Record<TranslationKey, string> = {
   "account.actionFailed": "Не удалось выполнить действие с аккаунтом.",
   "account.actionsLabel": "Действия с аккаунтом",
+  "account.addAddress": "Добавить адрес",
   "account.chipAria": "Аккаунт, {name}, {status}",
   "account.chipAriaEmpty": "Аккаунт, аккаунт не выбран",
   "account.chipTitle": "{accountDetails}\n{status}",
@@ -28,6 +29,7 @@ export const ru: Record<TranslationKey, string> = {
   "account.removeWalletTitle": "Удалить кошелёк",
   "account.savedWalletBackup": "Резервная копия кошелька сохранена как {fileName}.",
   "account.selectWalletHint": "Выберите кошелёк на панели управления, чтобы использовать действия с аккаунтом.",
+  "account.selectedAddress": "Выбранный адрес",
   "account.selectedWallet": "Выбранный кошелёк",
   "account.selectedWalletAddress": "Адрес выбранного кошелька",
   "account.statusLocked": "Заблокирован",

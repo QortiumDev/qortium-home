@@ -1345,6 +1345,27 @@ h1 {
   line-height: var(--line-height-small);
 }
 
+.account-selector__address-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.account-selector__address-select {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-subtle);
+  font-family:
+    "Illinois Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: var(--font-size-small);
+}
+
+.account-selector__add-address-button {
+  flex: none;
+}
+
 .accounts-panel__message {
   max-width: 32em;
   margin: 0;

@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     exportWallet: () => Promise.reject(new Error('Wallet export is only available in the Android app right now.')),
     setActiveAccount: (accountId: string) =>
       ipcRenderer.invoke('accounts:setActiveAccount', accountId),
+    addDerivedAddress: (accountId: string) =>
+      ipcRenderer.invoke('accounts:addDerivedAddress', accountId),
     unlockWallet: (accountId: string, password: string) =>
       ipcRenderer.invoke('accounts:unlockWallet', accountId, password),
     lockWallet: (accountId: string) => ipcRenderer.invoke('accounts:lockWallet', accountId),

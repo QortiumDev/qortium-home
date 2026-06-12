@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-12 - accounts: support multiple derived addresses per wallet
+
+Wallets can now hold more than one address. The dashboard shows the selected wallet's addresses in a dropdown with a + button that derives the next address, and each address acts as its own account with its own name, avatar, and signing key. Unlocking a wallet unlocks all of its addresses.
+
 ### 2026-06-12 - ui: open settings in a new tab from the node menu
 
 Opening Settings from the node status menu next to the address bar now opens a new tab instead of replacing the page in the current tab.
