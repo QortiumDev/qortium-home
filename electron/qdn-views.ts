@@ -360,8 +360,15 @@ function watchWindow(window: BrowserWindow) {
   });
 }
 
-function getPartition(window: BrowserWindow, tabId: string) {
-  return `qortium-home-tab-${window.webContents.id}-${tabId}`;
+function getPartition(nodeOrigin: string, resourceUrl: string | null): string {
+  const safeOrigin = nodeOrigin.replace(/[^a-z0-9:.-]/gi, '_').slice(0, 40);
+  if (resourceUrl) {
+    // resourceUrl is a stable QDN URL (e.g. "qdn://APP/walletium/default")
+    // that identifies the app regardless of which tab or window opened it.
+    const safeResource = resourceUrl.replace(/[^a-z0-9:/._-]/gi, '_').slice(0, 60);
+    return `persist:qortium-home-${safeOrigin}-${safeResource}`;
+  }
+  return `persist:qortium-home-${safeOrigin}`;
 }
 
 export function getQdnViewContextForWebContents(webContents: WebContents): QdnViewContext | null {
@@ -508,7 +515,7 @@ function createViewEntry(
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        partition: getPartition(window, tabId),
+        partition: getPartition(nodeOrigin, resourceUrl),
         preload: path.join(__dirname, 'qdn-app-preload.cjs'),
         sandbox: true,
       },
