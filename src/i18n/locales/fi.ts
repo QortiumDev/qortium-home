@@ -344,6 +344,7 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "Määrä",
   "qdnWrite.field.group": "Ryhmä",
   "qdnWrite.field.message": "Viesti",
+  "qdnWrite.field.mintingKey": "Minttausavain",
   "qdnWrite.field.recipient": "Vastaanottaja",
   "qdnWrite.field.resource": "Resurssi",
   "qdnWrite.field.resources": "Resurssit",

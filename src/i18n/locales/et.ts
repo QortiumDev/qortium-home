@@ -344,6 +344,7 @@ export const et: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "Summa",
   "qdnWrite.field.group": "Grupp",
   "qdnWrite.field.message": "Sõnum",
+  "qdnWrite.field.mintingKey": "Mintimisvõti",
   "qdnWrite.field.recipient": "Saaja",
   "qdnWrite.field.resource": "Ressurss",
   "qdnWrite.field.resources": "Ressursid",

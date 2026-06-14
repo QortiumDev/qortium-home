@@ -344,6 +344,7 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "金額",
   "qdnWrite.field.group": "グループ",
   "qdnWrite.field.message": "メッセージ",
+  "qdnWrite.field.mintingKey": "ミンティングキー",
   "qdnWrite.field.recipient": "宛先",
   "qdnWrite.field.resource": "リソース",
   "qdnWrite.field.resources": "リソース一覧",

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-13 - qdn: show the minting key in the removal approval
+
+When a QDN app asks to remove a minting key, the approval prompt now shows the public key that would be removed, so the user can confirm exactly which minting key is affected before approving. Previously the prompt named the action but not the specific key — which matters here because the app chooses the key, unlike Start Minting which always acts on the user's selected account. The key flows through the same approval request used by every write action, so it is shown the same way on desktop and Android.
+
 ### 2026-06-13 - qdn: let apps request minting key removal
 
 QDN apps can now call `REMOVE_MINTING_ACCOUNT` to ask Home to remove a minting key from the connected Core node, identifying the key by its public key. Home checks the key's basic shape, requires the user to approve each request, and then sends the removal to the node using the node's own API key — the app never sees the key material or the node credentials. The node confirms the removal, and Home reports a clear error if no matching key was present. The action is advertised through `SHOW_ACTIONS` on desktop and Android and uses the same single-request approval flow as Start Minting.

@@ -344,6 +344,7 @@ export const it: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "Importo",
   "qdnWrite.field.group": "Gruppo",
   "qdnWrite.field.message": "Messaggio",
+  "qdnWrite.field.mintingKey": "Chiave di minting",
   "qdnWrite.field.recipient": "Destinatario",
   "qdnWrite.field.resource": "Risorsa",
   "qdnWrite.field.resources": "Risorse",

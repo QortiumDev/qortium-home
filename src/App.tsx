@@ -472,6 +472,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
               <dd>{request.chatMessagePreview}</dd>
             </div>
           ) : null}
+          {request.mintingKey ? (
+            <div>
+              <dt>{t('qdnWrite.field.mintingKey')}</dt>
+              <dd>{request.mintingKey}</dd>
+            </div>
+          ) : null}
           {request.permissionScope === 'session' ? (
             <div>
               <dt>{t('qdnWrite.field.scope')}</dt>

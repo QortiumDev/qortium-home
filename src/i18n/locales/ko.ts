@@ -344,6 +344,7 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "금액",
   "qdnWrite.field.group": "그룹",
   "qdnWrite.field.message": "메시지",
+  "qdnWrite.field.mintingKey": "민팅 키",
   "qdnWrite.field.recipient": "받는 사람",
   "qdnWrite.field.resource": "리소스",
   "qdnWrite.field.resources": "리소스 목록",

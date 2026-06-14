@@ -342,6 +342,7 @@ export const en = {
   "qdnWrite.field.amount": "Amount",
   "qdnWrite.field.group": "Group",
   "qdnWrite.field.message": "Message",
+  "qdnWrite.field.mintingKey": "Minting Key",
   "qdnWrite.field.recipient": "Recipient",
   "qdnWrite.field.resource": "Resource",
   "qdnWrite.field.resources": "Resources",
