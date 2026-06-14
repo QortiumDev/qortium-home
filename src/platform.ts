@@ -102,6 +102,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   ...QDN_CHAT_ACTIONS,
   ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
   ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,
+  'REMOVE_MINTING_ACCOUNT',
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_GROUPS',
   'SEARCH_QDN_RESOURCES',
@@ -234,7 +235,8 @@ type QdnWriteApprovalAction =
   | QdnGroupAction
   | QdnNameAction
   | QdnChatAction
-  | 'START_MINTING';
+  | 'START_MINTING'
+  | 'REMOVE_MINTING_ACCOUNT';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE';
 
 type QdnWriteResourceRequest = {
@@ -2615,6 +2617,45 @@ async function postLocalNodeText(
   };
 }
 
+async function deleteLocalNodeText(
+  nodeApiUrl: string,
+  pathname: string,
+  body: string,
+  apiKey: string,
+  fallbackMessage: string,
+  contentType = 'text/plain',
+) {
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      method: 'DELETE',
+      headers: {
+        'Content-Type': contentType,
+        'X-API-KEY': apiKey,
+      },
+      data: body,
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const responseBody = stringifyResponseData(response.data).trim();
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(responseBody || fallbackMessage);
+  }
+
+  return {
+    body: responseBody,
+    contentType: getContentType(response),
+  };
+}
+
 async function signAndProcessTransaction(
   writeContext: QdnWriteContext,
   rawUnsignedBytes58: string,
@@ -3146,6 +3187,46 @@ async function startMintingForApp(context: QdnAppRequestContext | undefined) {
     action: 'START_MINTING',
     address,
     keyAdded: true,
+  };
+}
+
+async function removeMintingAccountForApp(
+  request: QdnAppRequest,
+  context: QdnAppRequestContext | undefined,
+) {
+  const publicKey = getRequiredRequestString(request, 'publicKey', 'Public key');
+
+  // Basic shape check; the node fully validates the key and returns "false" if not present.
+  if (!new RegExp(`^[${BASE58_ALPHABET}]{32,64}$`).test(publicKey)) {
+    throw new Error('Public key must be a base58-encoded key.');
+  }
+
+  const writeContext = await getQdnWriteContext(context);
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'REMOVE_MINTING_ACCOUNT',
+    permissionScope: 'single-request',
+  });
+
+  // DELETE /admin/mintingaccounts takes the public (or private) key as the plain-text body.
+  const result = await deleteLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/admin/mintingaccounts',
+    publicKey,
+    writeContext.apiKey,
+    'Removing the minting key from the node failed.',
+  );
+
+  // Core returns "true" on removal, "false" when no matching key was on the node.
+  if (result.body.trim() !== 'true') {
+    throw new Error('The node did not have a matching minting key to remove.');
+  }
+
+  return {
+    accepted: true,
+    action: 'REMOVE_MINTING_ACCOUNT',
+    publicKey,
+    removed: true,
   };
 }
 
@@ -5317,6 +5398,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'START_MINTING':
       return startMintingForApp(context);
+
+    case 'REMOVE_MINTING_ACCOUNT':
+      return removeMintingAccountForApp(request, context);
 
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return approveGroupJoinRequestForApp(request, context);

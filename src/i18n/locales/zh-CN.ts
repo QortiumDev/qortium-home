@@ -331,6 +331,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "发布 QDN 资源",
   "qdnWrite.action.publishResources": "批量发布 QDN 资源",
   "qdnWrite.action.registerName": "注册名称",
+  "qdnWrite.action.removeMintingAccount": "移除铸造密钥",
   "qdnWrite.action.sellName": "出售名称",
   "qdnWrite.action.sendChatMessage": "发送聊天消息",
   "qdnWrite.action.startMinting": "开始铸造",

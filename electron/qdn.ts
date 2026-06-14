@@ -125,6 +125,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   ...QDN_CHAT_ACTIONS,
   ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
   ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,
+  'REMOVE_MINTING_ACCOUNT',
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_GROUPS',
   'SEARCH_QDN_RESOURCES',
@@ -232,7 +233,8 @@ type QdnWriteApprovalAction =
   | QdnGroupAction
   | QdnNameAction
   | QdnChatAction
-  | 'START_MINTING';
+  | 'START_MINTING'
+  | 'REMOVE_MINTING_ACCOUNT';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE';
 
 type QdnWriteResourceRequest = {
@@ -1605,6 +1607,30 @@ async function postLocalNodeText(
   return readSuccessfulNodeText(response, fallbackMessage);
 }
 
+async function deleteLocalNodeText(
+  connection: NodeConnection,
+  pathname: string,
+  body: string,
+  apiKey: string,
+  fallbackMessage: string,
+  contentType = 'text/plain',
+) {
+  const response = await fetchNode(
+    pathname,
+    {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': contentType,
+        'X-API-KEY': apiKey,
+      },
+      body,
+    },
+    connection.nodeApiUrl,
+  );
+
+  return readSuccessfulNodeText(response, fallbackMessage);
+}
+
 async function signAndProcessTransaction(
   connection: NodeConnection,
   apiKey: string,
@@ -2522,6 +2548,49 @@ async function startMintingForApp(context: QdnViewContext | null, sender: WebCon
     action: 'START_MINTING',
     address,
     keyAdded: true,
+  };
+}
+
+async function removeMintingAccountForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const publicKey = getRequiredRequestString(request, 'publicKey', 'Public key');
+
+  // Basic shape check; the node fully validates the key and returns "false" if not present.
+  if (!new RegExp(`^[${BASE58_ALPHABET}]{32,64}$`).test(publicKey)) {
+    throw new Error('Public key must be a base58-encoded key.');
+  }
+
+  const chatContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, chatContext.profile, {
+    action: 'REMOVE_MINTING_ACCOUNT',
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  // DELETE /admin/mintingaccounts takes the public (or private) key as the plain-text body.
+  const result = await deleteLocalNodeText(
+    chatContext.connection,
+    '/admin/mintingaccounts',
+    publicKey,
+    chatContext.apiKey,
+    'Removing the minting key from the node failed.',
+  );
+
+  // Core returns "true" on removal, "false" when no matching key was on the node.
+  if (result.body.trim() !== 'true') {
+    throw new Error('The node did not have a matching minting key to remove.');
+  }
+
+  return {
+    accepted: true,
+    action: 'REMOVE_MINTING_ACCOUNT',
+    publicKey,
+    removed: true,
   };
 }
 
@@ -3751,6 +3820,9 @@ async function handleQdnAppRequest(
 
     case 'START_MINTING':
       return startMintingForApp(context, sender);
+
+    case 'REMOVE_MINTING_ACCOUNT':
+      return removeMintingAccountForApp(request, context, sender);
 
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return approveGroupJoinRequestForApp(request, context, sender);

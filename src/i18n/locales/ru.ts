@@ -331,6 +331,7 @@ export const ru: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Опубликовать ресурс QDN",
   "qdnWrite.action.publishResources": "Опубликовать ресурсы QDN",
   "qdnWrite.action.registerName": "Зарегистрировать имя",
+  "qdnWrite.action.removeMintingAccount": "Удалить ключ минтинга",
   "qdnWrite.action.sellName": "Продать имя",
   "qdnWrite.action.sendChatMessage": "Отправить сообщение в чат",
   "qdnWrite.action.startMinting": "Начать минтинг",

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-13 - qdn: let apps request minting key removal
+
+QDN apps can now call `REMOVE_MINTING_ACCOUNT` to ask Home to remove a minting key from the connected Core node, identifying the key by its public key. Home checks the key's basic shape, requires the user to approve each request, and then sends the removal to the node using the node's own API key — the app never sees the key material or the node credentials. The node confirms the removal, and Home reports a clear error if no matching key was present. The action is advertised through `SHOW_ACTIONS` on desktop and Android and uses the same single-request approval flow as Start Minting.
+
 ### 2026-06-12 - release: prepare home preview 13
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.13` with Android `versionCode` 14 so the QDN local preview workflow, account refresh fixes, app unlock request support, and dashboard tab pins can be published as the next QortiumDev prerelease target.

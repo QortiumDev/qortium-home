@@ -331,6 +331,7 @@ export const sv: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Publicera QDN-resurs",
   "qdnWrite.action.publishResources": "Publicera QDN-resurser",
   "qdnWrite.action.registerName": "Registrera namn",
+  "qdnWrite.action.removeMintingAccount": "Ta bort minting-nyckel",
   "qdnWrite.action.sellName": "Sälj namn",
   "qdnWrite.action.sendChatMessage": "Skicka chattmeddelande",
   "qdnWrite.action.startMinting": "Starta minting",

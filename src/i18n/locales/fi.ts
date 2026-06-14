@@ -331,6 +331,7 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Julkaise QDN-resurssi",
   "qdnWrite.action.publishResources": "Julkaise QDN-resursseja",
   "qdnWrite.action.registerName": "Rekisteröi nimi",
+  "qdnWrite.action.removeMintingAccount": "Poista minttausavain",
   "qdnWrite.action.sellName": "Myy nimi",
   "qdnWrite.action.sendChatMessage": "Lähetä chat-viesti",
   "qdnWrite.action.startMinting": "Aloita minttaus",
