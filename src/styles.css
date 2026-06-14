@@ -1730,10 +1730,47 @@ h1 {
 }
 
 .top-bar__tab-select {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   padding-inline-start: 10px;
   overflow: hidden;
   text-align: start;
+}
+
+.top-bar__tab-avatar {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  overflow: hidden;
+  background: var(--color-control-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+.top-bar__tab-avatar--unlocked {
+  border-color: var(--color-accent);
+}
+
+.top-bar__tab-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.top-bar__tab-avatar-fallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: var(--color-page-bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--color-accent);
 }
 
 .top-bar__tab-label {

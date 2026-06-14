@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - ui: show the selected account avatar on each tab
+
+Each browser tab can act as a different account, but there was no way to tell which account a tab was using without opening it. Every tab now shows a small avatar for its selected account, next to the tab title. If the account has a registered name with an avatar that image is shown; otherwise a coloured circle with the account's initial is used, matching the account button in the top bar. Hovering the avatar shows the account name, and a subtle ring marks when that account is unlocked. Tabs with no account selected show no avatar.
+
 ### 2026-06-14 - ui: enlarge the node status icon in the address bar
 
 The small hexagon that shows the node's sync status in the address bar was sitting inside a much larger button, leaving a lot of empty space around it. The icon is now drawn larger so it fills that button more fully and is easier to read at a glance. Only the icon changed size; the button itself, the status colours, and the small corner indicators (the sync dot and the network badge) are unchanged.

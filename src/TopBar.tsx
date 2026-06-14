@@ -45,6 +45,7 @@ type TopBarProps = {
 type TabDropPosition = 'after' | 'before';
 
 type BrowserTabSummary = {
+  account: QortiumAccountSummary | null;
   canPinToDashboard: boolean;
   id: string;
   label: string;
@@ -481,6 +482,77 @@ function HistoryButton({
   );
 }
 
+function TabAvatar({
+  account,
+  nodeApiUrl,
+  nodeEpoch,
+}: {
+  account: QortiumAccountSummary | null;
+  nodeApiUrl: string;
+  nodeEpoch: number;
+}) {
+  const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
+  const [hasAvatarError, setHasAvatarError] = useState(false);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    setProfile(null);
+    setHasAvatarError(false);
+
+    if (!account) {
+      return () => {
+        isDisposed = true;
+      };
+    }
+
+    getAccountProfile(account, nodeApiUrl, nodeEpoch)
+      .then((nextProfile) => {
+        if (!isDisposed) {
+          setProfile(nextProfile);
+        }
+      })
+      .catch(() => {
+        if (!isDisposed) {
+          setProfile(null);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [account, nodeApiUrl, nodeEpoch]);
+
+  if (!account) {
+    return null;
+  }
+
+  const displayName = profile?.name ?? account.label;
+  const avatarUrl = profile?.avatarUrl;
+  const showAvatar = !!avatarUrl && !hasAvatarError;
+
+  return (
+    <span
+      className={`top-bar__tab-avatar${account.isUnlocked ? ' top-bar__tab-avatar--unlocked' : ''}`}
+      title={displayName}
+    >
+      {showAvatar ? (
+        <img
+          className="top-bar__tab-avatar-image"
+          src={avatarUrl}
+          alt=""
+          aria-hidden="true"
+          onError={() => setHasAvatarError(true)}
+        />
+      ) : (
+        <span className="top-bar__tab-avatar-fallback" aria-hidden="true">
+          {getDisplayInitial(displayName)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function BrowserTabs({
   activeTabId,
   canReopenClosedTab,
@@ -496,10 +568,14 @@ function BrowserTabs({
   onReopenClosedTab,
   onSelectTab,
   onMenuOpenChange,
+  nodeApiUrl,
+  nodeEpoch,
   tabs,
 }: {
   activeTabId: string;
   canReopenClosedTab: boolean;
+  nodeApiUrl: string;
+  nodeEpoch: number;
   onAddTab: () => void;
   onCloseTab: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
@@ -834,6 +910,7 @@ function BrowserTabs({
                   onSelectTab(tab.id);
                 }}
               >
+                <TabAvatar account={tab.account} nodeApiUrl={nodeApiUrl} nodeEpoch={nodeEpoch} />
                 <span className="top-bar__tab-label">{tab.label}</span>
               </button>
               <button
@@ -1117,6 +1194,8 @@ export function TopBar({
       <BrowserTabs
         activeTabId={activeTabId}
         canReopenClosedTab={canReopenClosedTab}
+        nodeApiUrl={nodeSettings.nodeApiUrl}
+        nodeEpoch={nodeEpoch}
         tabs={tabs}
         onAddTab={onAddTab}
         onCloseTab={onCloseTab}
