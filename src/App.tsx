@@ -1965,6 +1965,7 @@ export function App() {
         historyEntries={routeHistory.entries}
         historyIndex={routeHistory.index}
         tabs={tabState.tabs.map((tab) => ({
+          account: accountsState.accounts.find((account) => account.id === tab.accountId) ?? null,
           canPinToDashboard: getCurrentRouteForTab(tab).kind !== 'dashboard',
           id: tab.id,
           label: getTabLabel(tab),
