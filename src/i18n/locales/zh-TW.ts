@@ -344,6 +344,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "金額",
   "qdnWrite.field.group": "群組",
   "qdnWrite.field.message": "訊息",
+  "qdnWrite.field.mintingKey": "鑄造金鑰",
   "qdnWrite.field.recipient": "接收者",
   "qdnWrite.field.resource": "資源",
   "qdnWrite.field.resources": "資源",

@@ -344,6 +344,7 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "Összeg",
   "qdnWrite.field.group": "Csoport",
   "qdnWrite.field.message": "Üzenet",
+  "qdnWrite.field.mintingKey": "Minting kulcs",
   "qdnWrite.field.recipient": "Címzett",
   "qdnWrite.field.resource": "Erőforrás",
   "qdnWrite.field.resources": "Erőforrások",

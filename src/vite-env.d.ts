@@ -547,6 +547,7 @@ type QortiumQdnWriteApprovalRequest = {
   groupId: number | null;
   groupName: string | null;
   id: string;
+  mintingKey: string | null;
   name: string | null;
   permissionScope: 'single-request' | 'session';
   recipientAddress: string | null;

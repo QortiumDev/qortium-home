@@ -344,6 +344,7 @@ export const ar: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "المبلغ",
   "qdnWrite.field.group": "المجموعة",
   "qdnWrite.field.message": "الرسالة",
+  "qdnWrite.field.mintingKey": "مفتاح السكّ",
   "qdnWrite.field.recipient": "المستلم",
   "qdnWrite.field.resource": "المورد",
   "qdnWrite.field.resources": "الموارد",

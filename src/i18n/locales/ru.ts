@@ -344,6 +344,7 @@ export const ru: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "Сумма",
   "qdnWrite.field.group": "Группа",
   "qdnWrite.field.message": "Сообщение",
+  "qdnWrite.field.mintingKey": "Ключ минтинга",
   "qdnWrite.field.recipient": "Получатель",
   "qdnWrite.field.resource": "Ресурс",
   "qdnWrite.field.resources": "Ресурсы",

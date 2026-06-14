@@ -344,6 +344,7 @@ export const he: Record<TranslationKey, string> = {
   "qdnWrite.field.amount": "סכום",
   "qdnWrite.field.group": "קבוצה",
   "qdnWrite.field.message": "הודעה",
+  "qdnWrite.field.mintingKey": "מפתח הטבעה",
   "qdnWrite.field.recipient": "נמען",
   "qdnWrite.field.resource": "משאב",
   "qdnWrite.field.resources": "משאבים",

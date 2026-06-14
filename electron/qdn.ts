@@ -299,6 +299,7 @@ type QdnWriteApprovalDetails = {
   chatMessagePreview?: string;
   groupId?: number;
   groupName?: string | null;
+  mintingKey?: string | null;
   name?: string;
   permissionScope?: 'single-request' | 'session';
   recipientAddress?: string;
@@ -441,6 +442,7 @@ async function requestQdnWriteApproval(
     chatMessagePreview: details.chatMessagePreview ?? null,
     groupId: typeof details.groupId === 'number' ? details.groupId : null,
     groupName: details.groupName ?? null,
+    mintingKey: details.mintingKey ?? null,
     name: details.name ?? null,
     permissionScope: details.permissionScope ?? 'single-request',
     recipientAddress: details.recipientAddress ?? null,
@@ -2567,6 +2569,7 @@ async function removeMintingAccountForApp(
 
   await requestQdnWriteApproval(context as QdnViewContext, chatContext.profile, {
     action: 'REMOVE_MINTING_ACCOUNT',
+    mintingKey: publicKey,
     permissionScope: 'single-request',
   });
 
