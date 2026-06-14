@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - ui: enlarge the node status icon in the address bar
+
+The small hexagon that shows the node's sync status in the address bar was sitting inside a much larger button, leaving a lot of empty space around it. The icon is now drawn larger so it fills that button more fully and is easier to read at a glance. Only the icon changed size; the button itself, the status colours, and the small corner indicators (the sync dot and the network badge) are unchanged.
+
 ### 2026-06-14 - qdn: allow desktop QDN apps to reach the public Qortal node
 
 On desktop, QDN apps run under a content-security-policy supplied by the node that only lets the app connect back to its own origin. That blocked the new cross-chain reads at the app level: an app such as the emulator could ask Home's bridge for Qortal data, but anything the app loads directly — for example an emulator streaming a game file straight from the Qortal node — was refused by the browser.
