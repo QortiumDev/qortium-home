@@ -337,7 +337,7 @@ export function NodeStatusButton({
           aria-haspopup="dialog"
           onClick={toggle}
         >
-          <CoreMarkIcon size={20} variant={DISPLAY_STATUS_MARKS[displayStatus]} />
+          <CoreMarkIcon size={26} variant={DISPLAY_STATUS_MARKS[displayStatus]} />
           <span className="node-status__dot" aria-hidden="true" />
           {isNetworkMode ? (
             <span className="node-status__network-badge" title={t('node.networkBadge')}>
