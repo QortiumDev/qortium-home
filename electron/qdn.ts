@@ -24,6 +24,13 @@ const PREVIEW_ACCOUNTS_PATH = path.join(
 );
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
+// Public, read-only Qortal nodes for cross-chain QDN reads (no account, API key, or writes).
+const QORTAL_PUBLIC_NODE_API_URLS = ['https://ext-node.qortal.link'];
+const QORTAL_NODE_CACHE_TTL_MS = 5 * 60_000;
+const QORTAL_PROBE_TIMEOUT_MS = 5_000;
+// Qortal cross-chain resource fetches (e.g. game ROMs) need a much larger ceiling than QDN text reads.
+const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
+const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
 const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 // Must match the Core renderer's index file list and case-sensitive matching.
 const QDN_PREVIEW_INDEX_FILES = new Set([
@@ -95,6 +102,7 @@ const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 const QDN_APP_BRIDGE_ACTIONS = [
   'FETCH_NODE_API',
   'FETCH_QDN_RESOURCE',
+  'FETCH_QORTAL_RESOURCE',
   'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
@@ -114,6 +122,9 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
   'GET_QDN_RESOURCE_URL',
+  'GET_QORTAL_RESOURCE_METADATA',
+  'GET_QORTAL_RESOURCE_STATUS',
+  'GET_QORTAL_RESOURCE_URL',
   'IS_USING_PUBLIC_NODE',
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
@@ -129,6 +140,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_GROUPS',
   'SEARCH_QDN_RESOURCES',
+  'SEARCH_QORTAL_RESOURCES',
   'START_MINTING',
   'UNLOCK_SELECTED_ACCOUNT',
   'WHICH_UI',
@@ -1570,6 +1582,194 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
   }
 
   return result.data;
+}
+
+// --- Read-only cross-chain reads from a public Qortal node ---
+// Mirrors the desktop QDN read pipeline but targets a public Qortal node: GET/HEAD against public
+// QDN services only, no account, API key, signing or writes.
+
+let cachedQortalNodeApiUrl: { url: string; expiresAt: number } | null = null;
+
+async function resolveQortalNodeApiUrl(): Promise<string> {
+  if (cachedQortalNodeApiUrl && cachedQortalNodeApiUrl.expiresAt > Date.now()) {
+    return cachedQortalNodeApiUrl.url;
+  }
+
+  for (const candidate of QORTAL_PUBLIC_NODE_API_URLS) {
+    try {
+      const response = await fetchNode(
+        '/admin/status',
+        { method: 'GET', signal: AbortSignal.timeout(QORTAL_PROBE_TIMEOUT_MS) },
+        candidate,
+      );
+      if (response.ok) {
+        cachedQortalNodeApiUrl = { url: candidate, expiresAt: Date.now() + QORTAL_NODE_CACHE_TTL_MS };
+        return candidate;
+      }
+    } catch {
+      // Try the next public Qortal node.
+    }
+  }
+
+  throw new Error('No public Qortal node is reachable right now.');
+}
+
+async function fetchQortalNodeApi(
+  apiPath: string,
+  maxBytes: number,
+  method: 'GET' | 'HEAD' = 'GET',
+): Promise<NodeApiFetchResult> {
+  const nodeApiUrl = await resolveQortalNodeApiUrl();
+  const response = await fetchNode(apiPath, { method }, nodeApiUrl);
+
+  const contentLength = getContentLength(response);
+  const contentType = response.headers.get('content-type') ?? '';
+  const headers = getHeaders(response);
+
+  if (maxBytes > 0 && typeof contentLength === 'number' && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error(`Qortal node response exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  const body = method !== 'HEAD' ? await response.text() : '';
+  const bodyLength = Buffer.byteLength(body, 'utf8');
+
+  if (maxBytes > 0 && bodyLength > maxBytes) {
+    throw new Error(`Qortal node response exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  return {
+    body,
+    contentLength: contentLength ?? bodyLength,
+    contentType,
+    data: parseResponseData(body, contentType),
+    headers,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  };
+}
+
+async function fetchQortalNodeApiPayload(apiPath: string, request: QdnAppRequest) {
+  const result = await fetchQortalNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')));
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+// Qortal resource requests are validated by shape only (read-only public reads); NOT limited to the
+// Qortium public-service whitelist, since Qortal resources (ROMs, metadata, etc.) use many services.
+function getQortalService(value: unknown) {
+  const service = getString(value).toUpperCase();
+
+  if (!service) {
+    throw new Error('Qortal resource service is required.');
+  }
+  if (!/^[A-Z0-9_]+$/.test(service)) {
+    throw new Error('Qortal resource service is invalid.');
+  }
+
+  return service;
+}
+
+function getQortalResourceRequest(request: QdnAppRequest) {
+  const service = getQortalService(getRequestValue(request, 'service'));
+  const name = getString(getRequestValue(request, 'name'));
+  const identifier = getString(getRequestValue(request, 'identifier'));
+  const resourcePath = getString(getRequestValue(request, 'path')) || getString(getRequestValue(request, 'filepath'));
+
+  if (!name) {
+    throw new Error('Qortal resource name is required.');
+  }
+
+  return { service, name, identifier: identifier || undefined, path: resourcePath };
+}
+
+function buildQortalResourcePath(resource: { service: string; name: string; identifier?: string; path?: string }) {
+  const queryParams = new URLSearchParams();
+  if (resource.path) {
+    queryParams.set('filepath', resource.path);
+  }
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${
+    resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : ''
+  }${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildQortalStatusPath(request: QdnAppRequest) {
+  const resource = getQortalResourceRequest(request);
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  if (typeof getBoolean(getRequestValue(request, 'build')) === 'boolean') {
+    queryParams.set('build', String(getBoolean(getRequestValue(request, 'build'))));
+  }
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/resource/status/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQortalMetadataPath(request: QdnAppRequest) {
+  const resource = getQortalResourceRequest(request);
+
+  return `/arbitrary/metadata/${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
+    resource.identifier ?? 'default',
+  )}`;
+}
+
+function getQortalResourceMaxBytes(value: unknown) {
+  const maxBytes = Math.floor(getNumber(value) ?? QDN_APP_QORTAL_DEFAULT_MAX_BYTES);
+
+  return Math.max(0, Math.min(maxBytes, QDN_APP_QORTAL_MAX_BYTES_LIMIT));
+}
+
+// Fetches a Qortal QDN resource as binary, returned base64-encoded so the app can build a blob URL
+// (e.g. for an emulator ROM). Returns { body: base64, encoding, contentType, contentLength }.
+async function fetchQortalResourceBinary(request: QdnAppRequest) {
+  const resource = getQortalResourceRequest(request);
+  const maxBytes = getQortalResourceMaxBytes(getRequestValue(request, 'maxBytes'));
+  const apiPath = buildQortalResourcePath(resource);
+
+  const nodeApiUrl = await resolveQortalNodeApiUrl();
+  const response = await fetchNode(apiPath, { method: 'GET' }, nodeApiUrl);
+
+  if (!response.ok) {
+    throw new Error(`Qortal resource request failed with HTTP ${response.status}.`);
+  }
+
+  const contentLength = getContentLength(response);
+  if (maxBytes > 0 && typeof contentLength === 'number' && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error(`Qortal resource exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (maxBytes > 0 && arrayBuffer.byteLength > maxBytes) {
+    throw new Error(`Qortal resource exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  return {
+    body: Buffer.from(arrayBuffer).toString('base64'),
+    encoding: 'base64' as const,
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    contentLength: contentLength ?? arrayBuffer.byteLength,
+  };
+}
+
+// Returns the direct URL of a Qortal resource on the public node. The Qortal node serves these with
+// CORS and ranged GET, so an in-app player (e.g. EmulatorJS) can stream the file straight from it.
+async function getQortalResourceUrl(request: QdnAppRequest) {
+  const resource = getQortalResourceRequest(request);
+  const nodeApiUrl = await resolveQortalNodeApiUrl();
+
+  return { url: `${nodeApiUrl.replace(/\/+$/, '')}${buildQortalResourcePath(resource)}` };
 }
 
 async function readSuccessfulNodeText(response: Response, fallbackMessage: string) {
@@ -3784,6 +3984,21 @@ async function handleQdnAppRequest(
 
     case 'SEARCH_QDN_RESOURCES':
       return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources/search'), request);
+
+    case 'FETCH_QORTAL_RESOURCE':
+      return fetchQortalResourceBinary(request);
+
+    case 'GET_QORTAL_RESOURCE_METADATA':
+      return fetchQortalNodeApiPayload(buildQortalMetadataPath(request), request);
+
+    case 'GET_QORTAL_RESOURCE_STATUS':
+      return fetchQortalNodeApiPayload(buildQortalStatusPath(request), request);
+
+    case 'GET_QORTAL_RESOURCE_URL':
+      return getQortalResourceUrl(request);
+
+    case 'SEARCH_QORTAL_RESOURCES':
+      return fetchQortalNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources/search'), request);
 
     case 'LIST_GROUPS':
       return fetchNodeApiPayload(buildGroupsPath(request), request);

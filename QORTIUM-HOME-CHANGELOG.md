@@ -33,6 +33,12 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-13 - qdn: let apps read Qortal QDN data from a public Qortal node
+
+QDN apps running in Qortium Home can now read public QDN data from the Qortal network, not only from the configured Qortium node. Five new read-only app actions are available: search Qortal resources, check a resource's build status, read its metadata, fetch a resource's bytes, and get a resource's direct URL. These are served from a public, read-only Qortal node (defaulting to ext-node.qortal.link, with the first reachable node cached for a few minutes).
+
+The direct-URL action is what lets an in-app player such as an emulator stream a file (for example a game ROM) straight from the Qortal node — which serves these with cross-origin and ranged requests — so it works for any size, including large CD-based games, without routing the whole file through Home. The byte-fetch action returns base64-encoded content with its type and size for smaller resources and metadata (up to 64 MB). Everything here is strictly read-only and narrow: well-formed public resource lookups, GET requests, size-limited, with no Qortal account, API key, signing, writes, or private data involved. This is the platform groundwork for cross-chain apps such as a Qortium Emulator.
+
 ### 2026-06-13 - qdn: support local content preview on android
 
 Local content preview now works in the Android app, not just on desktop. Because the node may run on a different device from the app, the content can't be handed to the node as a local file path the way the desktop does. Instead the app lets the user choose a file, uploads it to the node's preview endpoint, and shows the same temporary render the desktop preview produces. Images, video, audio, and HTML files are supported, and a website can be previewed by choosing a .zip of its folder — folder selection itself isn't available on mobile, so the desktop-only "Choose Folder" option is hidden there and the Preview button now appears on Android. This relies on the matching Qortium Core release that accepts uploaded preview content.
