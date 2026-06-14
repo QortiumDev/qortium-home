@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - ui: scroll qdn browser pages when content overflows
+
+Browsing a QDN address such as qdn://APP shows a list of resources, but when that list was longer than the window it was cut off at the bottom with no scrollbar, leaving the rest unreachable. The browsing area now bounds those pages to the window's height, so any page whose content overflows — the QDN service and resource listings, and the node API and API-docs pages that share the same area — scrolls within the window as expected. The full-screen content viewers (rendered QDN apps and media) are unaffected.
+
 ### 2026-06-14 - qdn: let apps request and resolve private group chat keys
 
 Members of a private group can end up missing the encryption key for some messages, which the node reports as a "missing key" status. Recovering it means publishing on-chain requests signed by the account, which a QDN app cannot do on its own because it never has access to private keys.
