@@ -333,6 +333,8 @@ export const en = {
   "qdnWrite.action.publishResources": "Publish QDN Resources",
   "qdnWrite.action.registerName": "Register Name",
   "qdnWrite.action.removeMintingAccount": "Remove Minting Key",
+  "qdnWrite.action.requestPrivateGroupChatKey": "Request Private Group Chat Key",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Resolve Private Group Chat Key Requests",
   "qdnWrite.action.sellName": "Sell Name",
   "qdnWrite.action.sendChatMessage": "Send Chat Message",
   "qdnWrite.action.startMinting": "Start Minting",

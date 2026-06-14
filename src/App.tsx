@@ -296,6 +296,10 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateName';
     case 'SEND_CHAT_MESSAGE':
       return 'qdnWrite.action.sendChatMessage';
+    case 'REQUEST_PRIVATE_GROUP_CHAT_KEY':
+      return 'qdnWrite.action.requestPrivateGroupChatKey';
+    case 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS':
+      return 'qdnWrite.action.resolvePrivateGroupChatKeyRequests';
     case 'START_MINTING':
       return 'qdnWrite.action.startMinting';
     case 'REMOVE_MINTING_ACCOUNT':

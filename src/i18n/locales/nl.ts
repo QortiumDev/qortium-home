@@ -335,6 +335,8 @@ export const nl: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "QDN-resources publiceren",
   "qdnWrite.action.registerName": "Naam registreren",
   "qdnWrite.action.removeMintingAccount": "Minting-sleutel verwijderen",
+  "qdnWrite.action.requestPrivateGroupChatKey": "Privé-groepschatsleutel aanvragen",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Verzoeken om privé-groepschatsleutel afhandelen",
   "qdnWrite.action.sellName": "Naam verkopen",
   "qdnWrite.action.sendChatMessage": "Chatbericht verzenden",
   "qdnWrite.action.startMinting": "Minting starten",

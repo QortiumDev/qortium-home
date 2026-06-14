@@ -335,6 +335,8 @@ export const et: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "Avalda QDN-i ressursid",
   "qdnWrite.action.registerName": "Registreeri nimi",
   "qdnWrite.action.removeMintingAccount": "Eemalda mintimisvõti",
+  "qdnWrite.action.requestPrivateGroupChatKey": "Taotle privaatse grupivestluse võtit",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Lahenda privaatse grupivestluse võtme taotlused",
   "qdnWrite.action.sellName": "Müü nimi",
   "qdnWrite.action.sendChatMessage": "Saada vestlussõnum",
   "qdnWrite.action.startMinting": "Alusta mintimist",

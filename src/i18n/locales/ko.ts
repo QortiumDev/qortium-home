@@ -335,6 +335,8 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "QDN 리소스 일괄 게시",
   "qdnWrite.action.registerName": "이름 등록",
   "qdnWrite.action.removeMintingAccount": "민팅 키 제거",
+  "qdnWrite.action.requestPrivateGroupChatKey": "비공개 그룹 채팅 키 요청",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "비공개 그룹 채팅 키 요청 처리",
   "qdnWrite.action.sellName": "이름 판매",
   "qdnWrite.action.sendChatMessage": "채팅 메시지 보내기",
   "qdnWrite.action.startMinting": "민팅 시작",

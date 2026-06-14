@@ -335,6 +335,8 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "QDN-erőforrások közzététele",
   "qdnWrite.action.registerName": "Név regisztrálása",
   "qdnWrite.action.removeMintingAccount": "Minting kulcs eltávolítása",
+  "qdnWrite.action.requestPrivateGroupChatKey": "Privát csoportcsevegési kulcs kérése",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Privát csoportcsevegési kulcskérelmek feldolgozása",
   "qdnWrite.action.sellName": "Név eladása",
   "qdnWrite.action.sendChatMessage": "Csevegőüzenet küldése",
   "qdnWrite.action.startMinting": "Minting indítása",

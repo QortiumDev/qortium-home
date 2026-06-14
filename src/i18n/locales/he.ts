@@ -335,6 +335,8 @@ export const he: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "פרסום משאבי QDN",
   "qdnWrite.action.registerName": "רישום שם",
   "qdnWrite.action.removeMintingAccount": "הסר מפתח הטבעה",
+  "qdnWrite.action.requestPrivateGroupChatKey": "בקשת מפתח צ'אט קבוצתי פרטי",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "טיפול בבקשות למפתח צ'אט קבוצתי פרטי",
   "qdnWrite.action.sellName": "מכירת שם",
   "qdnWrite.action.sendChatMessage": "שליחת הודעת צ'אט",
   "qdnWrite.action.startMinting": "התחל הטבעה",

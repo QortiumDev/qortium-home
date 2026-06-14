@@ -335,6 +335,8 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "Publică resursele QDN",
   "qdnWrite.action.registerName": "Înregistrează nume",
   "qdnWrite.action.removeMintingAccount": "Elimină cheia de minting",
+  "qdnWrite.action.requestPrivateGroupChatKey": "Solicită cheia chatului de grup privat",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Rezolvă cererile de cheie pentru chatul de grup privat",
   "qdnWrite.action.sellName": "Vinde nume",
   "qdnWrite.action.sendChatMessage": "Trimite mesaj de chat",
   "qdnWrite.action.startMinting": "Pornește minting",

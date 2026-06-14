@@ -335,6 +335,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "發布多個 QDN 資源",
   "qdnWrite.action.registerName": "註冊名稱",
   "qdnWrite.action.removeMintingAccount": "移除鑄造金鑰",
+  "qdnWrite.action.requestPrivateGroupChatKey": "請求私密群組聊天金鑰",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "處理私密群組聊天金鑰請求",
   "qdnWrite.action.sellName": "出售名稱",
   "qdnWrite.action.sendChatMessage": "傳送聊天訊息",
   "qdnWrite.action.startMinting": "開始鑄造",
