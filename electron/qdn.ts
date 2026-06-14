@@ -89,6 +89,10 @@ const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
 ] as const;
+const QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS = [
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+] as const;
 const QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
@@ -136,6 +140,7 @@ const QDN_APP_BRIDGE_ACTIONS = [
   ...QDN_CHAT_ACTIONS,
   ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
   ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,
+  ...QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS,
   'REMOVE_MINTING_ACCOUNT',
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_GROUPS',
@@ -240,11 +245,13 @@ type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
 type QdnGroupAction = (typeof QDN_GROUP_ACTIONS)[number];
 type QdnNameAction = (typeof QDN_NAME_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
+type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
   | QdnNameAction
   | QdnChatAction
+  | QdnPrivateGroupChatWriteAction
   | 'START_MINTING'
   | 'REMOVE_MINTING_ACCOUNT';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE';
@@ -3484,6 +3491,70 @@ async function searchPrivateGroupChatMessagesForApp(request: QdnAppRequest, cont
   return parseLocalPostData(result);
 }
 
+async function requestPrivateGroupChatKeyForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const chatContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, chatContext.profile, {
+    action: 'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+    groupId,
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/group/key-request',
+    JSON.stringify(buildPrivateGroupChatKeyRequestBody(request, chatContext.privateKey58)),
+    chatContext.apiKey,
+    'Private group chat key request failed.',
+    'application/json',
+  );
+
+  return {
+    accepted: true,
+    action: 'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+    groupId,
+    result: parseLocalPostData(result),
+  };
+}
+
+async function resolvePrivateGroupChatKeyRequestsForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const chatContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, chatContext.profile, {
+    action: 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+    groupId,
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const result = await postLocalNodeText(
+    chatContext.connection,
+    '/chat/private/group/key-requests/resolve',
+    JSON.stringify(buildPrivateGroupChatKeyRequestRecoveryBody(request, chatContext.privateKey58)),
+    chatContext.apiKey,
+    'Private group chat key request resolution failed.',
+    'application/json',
+  );
+
+  return {
+    accepted: true,
+    action: 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+    groupId,
+    result: parseLocalPostData(result),
+  };
+}
+
 async function getPrivateDirectActiveChatsForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   const chatContext = await getQdnChatContext(context);
 
@@ -3808,6 +3879,24 @@ async function buildActiveChatsPath(request: QdnAppRequest, context: QdnViewCont
   return `/chat/active/${encodeURIComponent(address)}${queryString ? `?${queryString}` : ''}`;
 }
 
+function buildPrivateGroupChatKeyRequestBody(request: QdnAppRequest, privateKey58: string) {
+  return {
+    requesterPrivateKey: privateKey58,
+    groupId: getRequiredGroupId(request, 1),
+    // epochId/keyId are optional base58 byte[]; omitted => Core uses the current epoch.
+    epochId: getOptionalBase58RequestString(request, 'epochId'),
+    keyId: getOptionalBase58RequestString(request, 'keyId'),
+  };
+}
+
+function buildPrivateGroupChatKeyRequestRecoveryBody(request: QdnAppRequest, privateKey58: string) {
+  return {
+    relayerPrivateKey: privateKey58,
+    groupId: getRequiredGroupId(request, 1),
+    limit: getOptionalIntegerRequestValue(request, 1, 'limit'),
+  };
+}
+
 function buildPrivateGroupChatMessagesBody(request: QdnAppRequest, privateKey58: string) {
   const chatReference = getOptionalBase58RequestString(request, 'chatReference');
 
@@ -4023,6 +4112,12 @@ async function handleQdnAppRequest(
 
     case 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES':
       return searchPrivateGroupChatMessagesForApp(request, context);
+
+    case 'REQUEST_PRIVATE_GROUP_CHAT_KEY':
+      return requestPrivateGroupChatKeyForApp(request, context, sender);
+
+    case 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS':
+      return resolvePrivateGroupChatKeyRequestsForApp(request, context, sender);
 
     case 'PUBLISH_QDN_RESOURCE':
       return publishQdnResourceForApp(request, context, sender);

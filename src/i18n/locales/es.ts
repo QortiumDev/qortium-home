@@ -335,6 +335,8 @@ export const es: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResources": "Publicar recursos de QDN",
   "qdnWrite.action.registerName": "Registrar nombre",
   "qdnWrite.action.removeMintingAccount": "Eliminar clave de acuñación",
+  "qdnWrite.action.requestPrivateGroupChatKey": "Solicitar clave de chat de grupo privado",
+  "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Resolver solicitudes de clave de chat de grupo privado",
   "qdnWrite.action.sellName": "Vender nombre",
   "qdnWrite.action.sendChatMessage": "Enviar mensaje de chat",
   "qdnWrite.action.startMinting": "Iniciar acuñación",

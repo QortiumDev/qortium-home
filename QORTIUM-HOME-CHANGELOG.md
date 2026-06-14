@@ -33,6 +33,12 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - qdn: let apps request and resolve private group chat keys
+
+Members of a private group can end up missing the encryption key for some messages, which the node reports as a "missing key" status. Recovering it means publishing on-chain requests signed by the account, which a QDN app cannot do on its own because it never has access to private keys.
+
+Home now offers two new bridge actions for apps such as the chat app: one to ask the network for a missing private group chat key (optionally a specific past key), and one for a member to fulfil other members' outstanding key requests. As with every action that signs something, the wallet asks for the user's approval each time and shows which account and group are involved; the account's private key stays inside Home and is never given to the app, and no raw group keys are ever returned to it. The chat app can use these to recover missing keys and then refresh the conversation. The work is mirrored across the desktop and mobile builds, and the approval labels are translated in every language.
+
 ### 2026-06-14 - dashboard: redesign pinned links as draggable icon tiles
 
 Pinned links on the dashboard used to be wide rows that spelled out the full address. They are now compact square tiles. Each tile shows an icon for the kind of thing it points to — a video, audio, image, or document icon for QDN content, a house for home pages, and a server for core node pages — together with a short label (the content's identifier, or the page title) instead of the raw address.

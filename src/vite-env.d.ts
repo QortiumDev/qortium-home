@@ -539,6 +539,8 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SELL_NAME'
     | 'UPDATE_NAME'
     | 'SEND_CHAT_MESSAGE'
+    | 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
+    | 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
     | 'START_MINTING'
     | 'REMOVE_MINTING_ACCOUNT';
   address: string;
