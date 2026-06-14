@@ -1,9 +1,18 @@
 import { Copy, Download, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
-import type { QdnDisplaySettings, QdnResource, QdnResourceProperties, QdnResourceStatus, QdnViewerKind } from './qdn';
+import type {
+  QdnDisplaySettings,
+  QdnResource,
+  QdnResourceMetadata,
+  QdnResourceProperties,
+  QdnResourceStatus,
+  QdnViewerKind,
+} from './qdn';
 import {
   buildQdnDownloadUrl,
+  buildQdnDisplayUrl,
+  buildQdnMetadataUrl,
   buildQdnRenderUrl,
   buildQdnResourcePropertiesUrl,
   buildQdnStatusUrl,
@@ -74,6 +83,29 @@ type TextPreviewState =
 type MediaErrorState = {
   message: string;
 } | null;
+
+type GifRepositoryState =
+  | {
+      phase: 'loading';
+    }
+  | {
+      files: string[];
+      phase: 'ready';
+    }
+  | {
+      message: string;
+      phase: 'error';
+    };
+
+type ElementSize = {
+  height: number;
+  width: number;
+};
+
+type NaturalImageSize = {
+  height: number;
+  width: number;
+};
 
 type QdnAppBridgeMessage = {
   bridgeToken?: unknown;
@@ -279,7 +311,18 @@ function isArchiveResourceProperties(properties: QdnResourceProperties | undefin
   return /\.zip$/i.test(filename) || /\bzip\b/i.test(mimeType);
 }
 
+function isGifFilename(value: string) {
+  return /\.gif$/i.test(value.split('?')[0] ?? '');
+}
+
 function getLoadedViewerKind(resource: QdnResource, properties: QdnResourceProperties | undefined) {
+  if (
+    resource.service === 'GIF_REPOSITORY' &&
+    ((properties?.filename && isGifFilename(properties.filename)) || isGifFilename(resource.path))
+  ) {
+    return 'image';
+  }
+
   return getQdnViewerKind(resource.service);
 }
 
@@ -370,6 +413,20 @@ async function readProperties(response: Response) {
   return data;
 }
 
+function isQdnResourceMetadata(value: unknown): value is QdnResourceMetadata {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    (value.description === undefined || typeof value.description === 'string') &&
+    (value.files === undefined ||
+      (Array.isArray(value.files) && value.files.every((file) => typeof file === 'string'))) &&
+    (value.mimeType === undefined || typeof value.mimeType === 'string') &&
+    (value.title === undefined || typeof value.title === 'string')
+  );
+}
+
 async function loadResourceProperties(resource: QdnResource, nodeApiUrl: string, signal: AbortSignal) {
   try {
     const response = await fetch(buildQdnResourcePropertiesUrl(resource, nodeApiUrl), {
@@ -384,6 +441,30 @@ async function loadResourceProperties(resource: QdnResource, nodeApiUrl: string,
 
     return undefined;
   }
+}
+
+async function loadResourceMetadata(resource: QdnResource, nodeApiUrl: string, signal: AbortSignal) {
+  const response = await fetch(buildQdnMetadataUrl(resource, nodeApiUrl), {
+    signal,
+  });
+
+  if (response.status === 404) {
+    return undefined;
+  }
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(text || `QDN metadata request failed with HTTP ${response.status}.`);
+  }
+
+  const data: unknown = JSON.parse(text);
+
+  if (!isQdnResourceMetadata(data)) {
+    throw new Error('QDN metadata response did not match the expected shape.');
+  }
+
+  return data;
 }
 
 async function verifyRenderUrl(renderUrl: string, signal: AbortSignal) {
@@ -1035,6 +1116,322 @@ function QdnMediaContent({
   );
 }
 
+function QdnImageContent({
+  alt,
+  renderUrl,
+}: {
+  alt: string;
+  renderUrl: string;
+}) {
+  const [isActualSize, setIsActualSize] = useState(false);
+
+  useEffect(() => {
+    setIsActualSize(false);
+  }, [renderUrl]);
+
+  return (
+    <div
+      className={`qdn-viewer__image-stage qdn-viewer__image-stage--${
+        isActualSize ? 'actual' : 'fit'
+      }`}
+    >
+      <QdnImageButton
+        alt={alt}
+        className={`qdn-viewer__image-toggle qdn-viewer__image-toggle--${
+          isActualSize ? 'actual' : 'fit'
+        }`}
+        isActualSize={isActualSize}
+        pressed={isActualSize}
+        src={renderUrl}
+        title={isActualSize ? 'Fit image to page' : 'Show actual image size'}
+        onClick={() => setIsActualSize((currentValue) => !currentValue)}
+      />
+    </div>
+  );
+}
+
+function getElementSize(element: HTMLElement): ElementSize {
+  return {
+    height: Math.max(0, element.clientHeight),
+    width: Math.max(0, element.clientWidth),
+  };
+}
+
+function getContainedImageSize(containerSize: ElementSize, naturalSize: NaturalImageSize) {
+  if (
+    containerSize.height <= 0 ||
+    containerSize.width <= 0 ||
+    naturalSize.height <= 0 ||
+    naturalSize.width <= 0
+  ) {
+    return undefined;
+  }
+
+  const scale = Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height);
+
+  return {
+    height: `${Math.max(1, Math.floor(naturalSize.height * scale))}px`,
+    width: `${Math.max(1, Math.floor(naturalSize.width * scale))}px`,
+  };
+}
+
+function QdnImageButton({
+  alt,
+  className,
+  isActualSize = false,
+  onClick,
+  pressed,
+  src,
+  title,
+}: {
+  alt: string;
+  className: string;
+  isActualSize?: boolean;
+  onClick: () => void;
+  pressed?: boolean;
+  src: string;
+  title: string;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [containerSize, setContainerSize] = useState<ElementSize>({ height: 0, width: 0 });
+  const [naturalSize, setNaturalSize] = useState<NaturalImageSize | null>(null);
+
+  useEffect(() => {
+    const element = buttonRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    function updateSize() {
+      if (buttonRef.current) {
+        setContainerSize(getElementSize(buttonRef.current));
+      }
+    }
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(element);
+    window.addEventListener('resize', updateSize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
+  }, []);
+
+  useEffect(() => {
+    setNaturalSize(null);
+  }, [src]);
+
+  const fittedSize =
+    !isActualSize && naturalSize
+      ? getContainedImageSize(containerSize, naturalSize)
+      : undefined;
+
+  return (
+    <button
+      aria-label={title}
+      aria-pressed={pressed}
+      className={className}
+      ref={buttonRef}
+      title={title}
+      type="button"
+      onClick={onClick}
+    >
+      <img
+        className={`qdn-viewer__image qdn-viewer__image--${isActualSize ? 'actual' : 'fit'}`}
+        alt={alt}
+        src={src}
+        style={fittedSize}
+        onLoad={(event) => {
+          setNaturalSize({
+            height: event.currentTarget.naturalHeight,
+            width: event.currentTarget.naturalWidth,
+          });
+        }}
+      />
+    </button>
+  );
+}
+
+function isGifRepositoryFile(value: string) {
+  const normalized = value.trim();
+
+  return (
+    !!normalized &&
+    !normalized.includes('\\') &&
+    !normalized.split('/').some((segment) => !segment) &&
+    isGifFilename(normalized)
+  );
+}
+
+function getSortedGifRepositoryFiles(metadata: QdnResourceMetadata | undefined) {
+  return (metadata?.files ?? [])
+    .filter(isGifRepositoryFile)
+    .slice()
+    .sort((first, second) => first.localeCompare(second, undefined, { sensitivity: 'base' }));
+}
+
+function getQdnResourceWithPath(resource: QdnResource, path: string): QdnResource {
+  const nextResource = {
+    service: resource.service,
+    name: resource.name,
+    identifier: resource.identifier,
+    path,
+  };
+
+  return {
+    ...nextResource,
+    displayUrl: buildQdnDisplayUrl(nextResource),
+  };
+}
+
+function QdnGifRepositoryContent({
+  displaySettings,
+  loadedResource,
+  nodeApiUrl,
+  onOpenNewTab,
+  resource,
+}: {
+  displaySettings: QdnDisplaySettings;
+  loadedResource: LoadedQdnResource;
+  nodeApiUrl: string;
+  onOpenNewTab?: (address: string) => void;
+  resource: QdnResource;
+}) {
+  const [state, setState] = useState<GifRepositoryState>({
+    phase: 'loading',
+  });
+  const [selectedFile, setSelectedFile] = useState('');
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    let isDisposed = false;
+
+    async function loadGifList() {
+      setState({
+        phase: 'loading',
+      });
+
+      try {
+        const metadata = await loadResourceMetadata(resource, nodeApiUrl, abortController.signal);
+        const files = getSortedGifRepositoryFiles(metadata);
+
+        if (!isDisposed) {
+          setSelectedFile('');
+          setState({
+            files,
+            phase: 'ready',
+          });
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+
+        if (!isDisposed) {
+          setState({
+            phase: 'error',
+            message: formatError(error),
+          });
+        }
+      }
+    }
+
+    void loadGifList();
+
+    return () => {
+      isDisposed = true;
+      abortController.abort();
+    };
+  }, [nodeApiUrl, resource]);
+
+  if (state.phase === 'loading') {
+    return (
+      <div className="qdn-viewer__empty qdn-viewer__empty--loading">
+        <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
+      </div>
+    );
+  }
+
+  if (state.phase === 'error') {
+    return <QdnDetailsContent loadedResource={loadedResource} message={state.message} resource={resource} />;
+  }
+
+  if (state.files.length === 0) {
+    return (
+      <QdnDetailsContent
+        loadedResource={loadedResource}
+        message={t('viewer.preview.unavailable')}
+        resource={resource}
+      />
+    );
+  }
+
+  if (selectedFile) {
+    const selectedResource = getQdnResourceWithPath(resource, selectedFile);
+
+    return (
+      <div className="qdn-viewer__gif-single">
+        <QdnImageButton
+          alt={selectedFile}
+          className="qdn-viewer__gif-single-button"
+          src={buildQdnRenderUrl(selectedResource, nodeApiUrl, displaySettings)}
+          title={t('common.back')}
+          onClick={() => setSelectedFile('')}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="qdn-viewer__gif-repository">
+      <div className="qdn-viewer__gif-grid">
+        {state.files.map((file) => {
+          const gifResource = getQdnResourceWithPath(resource, file);
+
+          return (
+            <figure className="qdn-viewer__gif-card" key={file}>
+              <button
+                aria-label={t('common.openItem', { target: file })}
+                className="qdn-viewer__gif-frame"
+                title={t('common.openItem', { target: file })}
+                type="button"
+                onClick={() => setSelectedFile(file)}
+              >
+                <img
+                  className="qdn-viewer__gif-image"
+                  alt={file}
+                  loading="lazy"
+                  src={buildQdnRenderUrl(gifResource, nodeApiUrl, displaySettings)}
+                />
+              </button>
+              <figcaption className="qdn-viewer__gif-caption">
+                <a
+                  className="qdn-viewer__gif-link"
+                  href={gifResource.displayUrl}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onOpenNewTab?.(gifResource.displayUrl);
+                  }}
+                >
+                  {file}
+                </a>
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div>
+      <div className="qdn-viewer__details qdn-viewer__gif-details">
+        <QdnResourceActions loadedResource={loadedResource} resource={resource} />
+        <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
+      </div>
+    </div>
+  );
+}
+
 function getElementBounds(element: HTMLElement): QortiumQdnViewBounds {
   const rect = element.getBoundingClientRect();
 
@@ -1472,13 +1869,10 @@ function QdnReadyContent({
 
   if (loadedResource.viewerKind === 'image') {
     return (
-      <div className="qdn-viewer__image-stage">
-        <img
-          className="qdn-viewer__image"
-          alt={loadedResource.properties?.filename || resource.displayUrl}
-          src={loadedResource.renderUrl}
-        />
-      </div>
+      <QdnImageContent
+        alt={loadedResource.properties?.filename || resource.displayUrl}
+        renderUrl={loadedResource.renderUrl}
+      />
     );
   }
 
@@ -1488,6 +1882,18 @@ function QdnReadyContent({
 
   if (loadedResource.viewerKind === 'audio' || loadedResource.viewerKind === 'video') {
     return <QdnMediaContent loadedResource={loadedResource} resource={resource} />;
+  }
+
+  if (loadedResource.viewerKind === 'gif-repository') {
+    return (
+      <QdnGifRepositoryContent
+        displaySettings={displaySettings}
+        loadedResource={loadedResource}
+        nodeApiUrl={nodeApiUrl}
+        onOpenNewTab={onOpenNewTab}
+        resource={resource}
+      />
+    );
   }
 
   if (loadedResource.viewerKind === 'download') {

@@ -40,7 +40,7 @@ export function getDashboardPinDisplay(pin: DashboardPin): DashboardPinDisplay {
           ? FileAudio
           : viewerKind === 'video'
             ? FileVideo
-            : viewerKind === 'image'
+            : viewerKind === 'image' || viewerKind === 'gif-repository'
               ? FileImage
               : viewerKind === 'iframe'
                 ? Globe2

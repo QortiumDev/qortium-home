@@ -2545,8 +2545,11 @@ h1 {
 .qdn-viewer {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   color: var(--color-text);
   background: var(--color-frame-bg);
 }
@@ -2644,13 +2647,54 @@ h1 {
 }
 
 .qdn-viewer__image-stage {
+  box-sizing: border-box;
   display: grid;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   padding: 24px;
   overflow: auto;
   background: var(--color-frame-bg);
+}
+
+.qdn-viewer__image-stage--fit {
+  overflow: hidden;
+}
+
+.qdn-viewer__image-toggle {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+
+.qdn-viewer__image-toggle--fit {
+  width: 100%;
+  height: 100%;
+  align-self: stretch;
+  cursor: zoom-in;
+  justify-self: stretch;
+  overflow: hidden;
+}
+
+.qdn-viewer__image-toggle--actual {
+  width: max-content;
+  height: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  cursor: zoom-out;
+}
+
+.qdn-viewer__image-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
 }
 
 .qdn-viewer__image {
@@ -2658,6 +2702,20 @@ h1 {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+.qdn-viewer__image--fit {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+}
+
+.qdn-viewer__image--actual {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
 }
 
 .qdn-viewer__media {
@@ -2694,6 +2752,121 @@ h1 {
 }
 
 .qdn-viewer__media-details {
+  justify-self: center;
+  padding: 18px 20px 22px;
+}
+
+.qdn-viewer__gif-repository {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-frame-bg);
+}
+
+.qdn-viewer__gif-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  padding: 24px;
+  overflow: auto;
+}
+
+.qdn-viewer__gif-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+
+.qdn-viewer__gif-frame {
+  display: grid;
+  aspect-ratio: 1;
+  width: 100%;
+  min-width: 0;
+  place-items: center;
+  padding: 0;
+  overflow: hidden;
+  color: inherit;
+  background: var(--color-frame-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.qdn-viewer__gif-frame:hover,
+.qdn-viewer__gif-frame:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.qdn-viewer__gif-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.qdn-viewer__gif-caption {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.qdn-viewer__gif-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.qdn-viewer__gif-link:hover,
+.qdn-viewer__gif-link:focus-visible {
+  color: var(--color-accent-strong);
+  outline: none;
+}
+
+.qdn-viewer__gif-single {
+  box-sizing: border-box;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background: var(--color-frame-bg);
+}
+
+.qdn-viewer__gif-single-button {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  justify-self: stretch;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: zoom-out;
+}
+
+.qdn-viewer__gif-single-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
+}
+
+.qdn-viewer__gif-details {
   justify-self: center;
   padding: 18px 20px 22px;
 }
@@ -3215,6 +3388,8 @@ h1 {
     padding: 14px 12px;
   }
 
+  .qdn-viewer__image-stage,
+  .qdn-viewer__gif-single,
   .qdn-viewer__media-stage {
     padding: 16px 12px;
   }
