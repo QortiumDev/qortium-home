@@ -772,7 +772,7 @@ h1 {
 
 .dashboard-pins__list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16em), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
   gap: 10px;
   min-width: 0;
   padding: 0;
@@ -781,77 +781,126 @@ h1 {
 }
 
 .dashboard-pin {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
-  gap: 8px;
+  position: relative;
   min-width: 0;
+  /* Allow vertical page scroll to start on a tile while a horizontal drag
+     reorders it (mouse drag is unaffected by touch-action). */
+  touch-action: pan-y;
 }
 
-.dashboard-pin__link {
+.dashboard-pin--dragging {
+  opacity: 0.55;
+}
+
+.dashboard-pin__tile {
   transition: var(--transition-control);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   align-items: center;
-  min-width: 0;
-  min-height: 42px;
-  padding: 7px 12px;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 10px 8px;
   color: var(--color-text);
-  text-align: start;
+  text-align: center;
   background: var(--color-control-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
 
-.dashboard-pin__link:hover,
-.dashboard-pin__link:focus-visible {
+.dashboard-pin__tile:hover,
+.dashboard-pin__tile:focus-visible {
   background: var(--color-control-hover);
   border-color: var(--color-border-strong);
   outline: none;
 }
 
-.dashboard-pin__link:focus-visible {
+.dashboard-pin__tile:focus-visible {
   box-shadow: 0 0 0 3px var(--color-accent-ring);
 }
 
-.dashboard-pin__link svg {
+.dashboard-pin--dragging .dashboard-pin__tile {
+  cursor: grabbing;
+}
+
+.dashboard-pin__tile svg {
+  flex-shrink: 0;
   color: var(--color-accent);
 }
 
-.dashboard-pin__text {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.dashboard-pin__label,
-.dashboard-pin__url {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dashboard-pin__label {
-  font-weight: 650;
-  line-height: var(--line-height-tight);
-}
-
-.dashboard-pin__url {
-  color: var(--color-text-subtle);
-  font-family:
-    "Illinois Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
-    monospace;
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
   font-size: var(--font-size-small);
-  line-height: var(--line-height-small);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  word-break: break-word;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.dashboard-pin__remove {
-  width: 42px;
-  min-width: 42px;
-  height: 42px;
-  color: var(--color-text-secondary);
+.dashboard-pin__rename-input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  color: var(--color-text);
+  font-size: var(--font-size-small);
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-pin__rename-input:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.dashboard-pin__menu {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  min-width: 11rem;
+  max-width: calc(100vw - 16px);
+  padding: 6px;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+}
+
+.dashboard-pin__menu-item {
+  transition: var(--transition-control);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.dashboard-pin__menu-item:hover,
+.dashboard-pin__menu-item:focus-visible {
+  background: var(--color-control-hover);
+  outline: none;
+}
+
+.dashboard-pin__menu-item--danger {
+  color: var(--color-danger);
+}
+
+.dashboard-pin__menu-item svg {
+  flex-shrink: 0;
 }
 
 .dashboard-page__grid {

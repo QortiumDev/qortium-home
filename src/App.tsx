@@ -33,9 +33,12 @@ import {
   createDashboardPin,
   loadDashboardPins,
   removeDashboardPin,
+  reorderDashboardPins,
   saveDashboardPins,
+  setDashboardPinLabel,
   upsertDashboardPin,
   type DashboardPin,
+  type DashboardPinDropPosition,
 } from './dashboardPins';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
@@ -1205,6 +1208,20 @@ export function App() {
     updateDashboardPins((currentPins) => removeDashboardPin(currentPins, pinId));
   }
 
+  function renameDashboardPin(pinId: string, customLabel: string) {
+    updateDashboardPins((currentPins) => setDashboardPinLabel(currentPins, pinId, customLabel));
+  }
+
+  function reorderDashboardPin(
+    draggedPinId: string,
+    targetPinId: string,
+    dropPosition: DashboardPinDropPosition,
+  ) {
+    updateDashboardPins((currentPins) =>
+      reorderDashboardPins(currentPins, draggedPinId, targetPinId, dropPosition),
+    );
+  }
+
   function addClosedTabToHistory(currentClosedTabs: ClosedBrowserTab[], tab: BrowserTab) {
     return addClosedTabsToHistory(currentClosedTabs, [tab]);
   }
@@ -2071,6 +2088,8 @@ export function App() {
                   onOpenCoreApiDocs={openCoreApiDocs}
                   onOpenSettings={openSettings}
                   onRemoveDashboardPin={unpinDashboardLink}
+                  onRenameDashboardPin={renameDashboardPin}
+                  onReorderDashboardPin={reorderDashboardPin}
                   selectedAccountId={tab.accountId}
                   onAccountsStateChange={handleAccountsStateChange}
                   onSelectedAccountChange={updateActiveTabAccount}
