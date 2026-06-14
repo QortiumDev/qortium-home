@@ -33,6 +33,12 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - qdn: allow desktop QDN apps to reach the public Qortal node
+
+On desktop, QDN apps run under a content-security-policy supplied by the node that only lets the app connect back to its own origin. That blocked the new cross-chain reads at the app level: an app such as the emulator could ask Home's bridge for Qortal data, but anything the app loads directly — for example an emulator streaming a game file straight from the Qortal node — was refused by the browser.
+
+The desktop app view now narrowly relaxes that policy: it adds the configured public Qortal node origin(s) to the connect, image, and media directives so the app can read from them, while leaving the rest of the policy intact. This mirrors what the Android app already does (Android removes the policy entirely), but is deliberately limited to just the Qortal node origins. Responses coming from the Qortal node itself carry no policy and are left unchanged. With this, the cross-chain read bridge works on desktop as well as Android.
+
 ### 2026-06-13 - qdn: let apps read Qortal QDN data from a public Qortal node
 
 QDN apps running in Qortium Home can now read public QDN data from the Qortal network, not only from the configured Qortium node. Five new read-only app actions are available: search Qortal resources, check a resource's build status, read its metadata, fetch a resource's bytes, and get a resource's direct URL. These are served from a public, read-only Qortal node (defaulting to ext-node.qortal.link, with the first reachable node cached for a few minutes).

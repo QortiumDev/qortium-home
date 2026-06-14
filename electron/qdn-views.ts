@@ -17,6 +17,47 @@ const THEME_VALUES = new Set(['dark', 'light']);
 const LANGUAGE_VALUES = new Set(['ar', 'de', 'en', 'es', 'et', 'fi', 'fr', 'he', 'hu', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv', 'zh-CN', 'zh-TW']);
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
 const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
+// Read-only public Qortal node origins the cross-chain bridge reads from (mirror of
+// QORTAL_PUBLIC_NODE_API_URLS in qdn.ts). QDN apps render from the node's own origin, so the
+// rendered Content-Security-Policy must allow connecting to these for read-only cross-chain reads
+// (e.g. an emulator streaming a ROM from Qortal). Android strips the CSP entirely; on desktop we
+// relax it narrowly to just these origins.
+const QORTAL_RENDER_ALLOWED_ORIGINS = ['https://ext-node.qortal.link'];
+const QORTAL_RELAXED_CSP_DIRECTIVES = ['connect-src', 'img-src', 'media-src'];
+
+// Relaxes a rendered QDN app's CSP so it can reach the public Qortal node(s) for cross-chain reads,
+// leaving the rest of the policy intact. Adds the allowed origins to connect-src/img-src/media-src,
+// creating those directives from default-src when absent (otherwise they inherit default-src 'self').
+function relaxQdnAppCspForQortal(csp: string): string {
+  if (!QORTAL_RENDER_ALLOWED_ORIGINS.length || !csp.trim()) {
+    return csp;
+  }
+
+  const directives = csp.split(';').map((directive) => directive.trim()).filter(Boolean);
+  const present = new Set(directives.map((directive) => directive.split(/\s+/)[0].toLowerCase()));
+  const defaultSrc = directives.find((directive) => directive.split(/\s+/)[0].toLowerCase() === 'default-src');
+  const defaultValues = defaultSrc ? defaultSrc.split(/\s+/).slice(1) : ["'self'"];
+
+  const updated = directives.map((directive) => {
+    const parts = directive.split(/\s+/);
+    if (QORTAL_RELAXED_CSP_DIRECTIVES.includes(parts[0].toLowerCase())) {
+      const values = new Set(parts.slice(1));
+      QORTAL_RENDER_ALLOWED_ORIGINS.forEach((origin) => values.add(origin));
+      return `${parts[0]} ${[...values].join(' ')}`;
+    }
+    return directive;
+  });
+
+  for (const directiveName of QORTAL_RELAXED_CSP_DIRECTIVES) {
+    if (!present.has(directiveName)) {
+      const values = new Set(defaultValues);
+      QORTAL_RENDER_ALLOWED_ORIGINS.forEach((origin) => values.add(origin));
+      updated.push(`${directiveName} ${[...values].join(' ')}`);
+    }
+  }
+
+  return updated.join('; ');
+}
 
 export type QdnDisplaySettings = {
   language: 'ar' | 'de' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hu' | 'it' | 'ja' | 'ko' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
@@ -438,6 +479,29 @@ function applyViewGuards(entry: QdnViewEntry) {
   isolatedSession.setPermissionCheckHandler(() => false);
   isolatedSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
+  });
+
+  // Relax the rendered app's Content-Security-Policy so it can read cross-chain (Qortal) resources.
+  // Narrow by design: only the configured Qortal node origins are added to connect-src/img-src/
+  // media-src; the rest of the node-supplied policy is preserved. Responses from the Qortal node
+  // itself carry no CSP, so they are left untouched.
+  isolatedSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = details.responseHeaders;
+    if (!responseHeaders) {
+      callback({});
+      return;
+    }
+
+    for (const headerName of Object.keys(responseHeaders)) {
+      if (headerName.toLowerCase() === 'content-security-policy') {
+        const values = responseHeaders[headerName];
+        responseHeaders[headerName] = (Array.isArray(values) ? values : [values]).map((value) =>
+          relaxQdnAppCspForQortal(value),
+        );
+      }
+    }
+
+    callback({ responseHeaders });
   });
 }
 
