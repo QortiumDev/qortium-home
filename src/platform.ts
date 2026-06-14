@@ -57,6 +57,7 @@ const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_WRITE_ACTIONS = ['PUBLISH_MULTIPLE_QDN_RESOURCES', 'PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
 const QDN_GROUP_ACTIONS = [
   'APPROVE_GROUP_JOIN_REQUEST',
+  'GROUP_APPROVAL',
   'INVITE_TO_GROUP',
   'JOIN_GROUP',
   'LEAVE_GROUP',
@@ -297,6 +298,7 @@ type QdnWriteContext = {
 type QdnWriteApprovalDetails = {
   action: QdnWriteApprovalAction;
   amount?: number | string;
+  approval?: boolean;
   chatMessagePreview?: string;
   groupId?: number;
   groupName?: string | null;
@@ -2552,6 +2554,7 @@ async function requestQdnWriteApproval(
         action: details.action,
         address: profile.address,
         amount: typeof details.amount === 'undefined' ? null : String(details.amount),
+        approval: typeof details.approval === 'boolean' ? details.approval : null,
         chatMessagePreview: details.chatMessagePreview ?? null,
         groupId: typeof details.groupId === 'number' ? details.groupId : null,
         groupName: details.groupName ?? null,
@@ -3370,6 +3373,76 @@ async function approveGroupJoinRequestForApp(
     groupId,
     groupName,
     invitee,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function requestGroupApprovalForApp(
+  request: QdnAppRequest,
+  context: QdnAppRequestContext | undefined,
+) {
+  const pendingSignature = getOptionalBase58RequestString(request, 'pendingSignature');
+
+  if (!pendingSignature) {
+    throw new Error('pendingSignature (base58) is required.');
+  }
+
+  // Required boolean: false is an explicit "oppose" vote, so never default it.
+  const approval = getBoolean(getRequestValue(request, 'approval'));
+
+  if (typeof approval !== 'boolean') {
+    throw new Error('approval boolean is required.');
+  }
+
+  // groupId is display-only context for the consent dialog; the GROUP_APPROVAL vote
+  // itself always rides in the root group (txGroupId 0).
+  const displayGroupId = getInteger(getRequestValue(request, 'groupId'));
+
+  const writeContext = await getQdnWriteContext(context);
+
+  let groupName: string | null = null;
+  if (typeof displayGroupId === 'number' && displayGroupId >= 0) {
+    const groupData = await getGroupDataForChat(writeContext.nodeApiUrl, displayGroupId);
+    groupName = getGroupName(groupData);
+  }
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'GROUP_APPROVAL',
+    approval,
+    groupId: typeof displayGroupId === 'number' ? displayGroupId : undefined,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/groups/approval',
+    JSON.stringify({
+      type: 'GROUP_APPROVAL',
+      timestamp: Date.now(),
+      txGroupId: 0,
+      fee: 0,
+      adminPublicKey: writeContext.publicKey58,
+      pendingSignature,
+      approval,
+    }),
+    writeContext.apiKey,
+    'Group approval transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await signAndProcessTransaction(
+    writeContext,
+    unsignedTransaction.body,
+    '/transactions/mempow/compute',
+  );
+
+  return {
+    accepted: true,
+    action: 'GROUP_APPROVAL',
+    approval,
+    groupId: typeof displayGroupId === 'number' ? displayGroupId : undefined,
+    pendingSignature,
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
   };
@@ -5750,6 +5823,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return approveGroupJoinRequestForApp(request, context);
+
+    case 'GROUP_APPROVAL':
+      return requestGroupApprovalForApp(request, context);
 
     case 'INVITE_TO_GROUP':
       return inviteToGroupForApp(request, context);

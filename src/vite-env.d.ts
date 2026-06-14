@@ -529,6 +529,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'PUBLISH_QDN_RESOURCE'
     | 'DELETE_QDN_RESOURCE'
     | 'APPROVE_GROUP_JOIN_REQUEST'
+    | 'GROUP_APPROVAL'
     | 'INVITE_TO_GROUP'
     | 'JOIN_GROUP'
     | 'LEAVE_GROUP'
@@ -545,6 +546,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'REMOVE_MINTING_ACCOUNT';
   address: string;
   amount: string | null;
+  approval: boolean | null;
   chatMessagePreview: string | null;
   groupId: number | null;
   groupName: string | null;

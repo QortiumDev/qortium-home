@@ -276,6 +276,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.deleteResource';
     case 'APPROVE_GROUP_JOIN_REQUEST':
       return 'qdnWrite.action.approveGroupJoinRequest';
+    case 'GROUP_APPROVAL':
+      return 'qdnWrite.action.groupApproval';
     case 'INVITE_TO_GROUP':
       return 'qdnWrite.action.inviteToGroup';
     case 'JOIN_GROUP':
@@ -459,6 +461,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             <div>
               <dt>{t('qdnWrite.field.group')}</dt>
               <dd>{getQdnWriteGroupLabel(request)}</dd>
+            </div>
+          ) : null}
+          {typeof request.approval === 'boolean' ? (
+            <div>
+              <dt>{t('qdnWrite.voteDirection')}</dt>
+              <dd>{t(request.approval ? 'qdnWrite.voteApprove' : 'qdnWrite.voteOppose')}</dd>
             </div>
           ) : null}
           {request.recipientAddress ? (
