@@ -33,6 +33,12 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - dashboard: redesign pinned links as draggable icon tiles
+
+Pinned links on the dashboard used to be wide rows that spelled out the full address. They are now compact square tiles. Each tile shows an icon for the kind of thing it points to — a video, audio, image, or document icon for QDN content, a house for home pages, and a server for core node pages — together with a short label (the content's identifier, or the page title) instead of the raw address.
+
+The always-visible remove button is gone: right-click a tile, or press and hold on a touch screen, to open a small menu with Rename and Remove. Rename lets you give a pin your own label, and clearing the label restores the automatic one. Tiles can also be dragged to rearrange them, and the new order is remembered. Existing pins keep working and pick up the new look automatically.
+
 ### 2026-06-14 - ui: show the selected account avatar on each tab
 
 Each browser tab can act as a different account, but there was no way to tell which account a tab was using without opening it. Every tab now shows a small avatar for its selected account, next to the tab title. If the account has a registered name with an avatar that image is shown; otherwise a coloured circle with the account's initial is used, matching the account button in the top bar. Hovering the avatar shows the account name, and a subtle ring marks when that account is unlocked. Tabs with no account selected show no avatar.

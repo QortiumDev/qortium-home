@@ -1,5 +1,6 @@
-import { Braces, Download, FolderOpen, Globe2, Pin, Settings as SettingsIcon, X } from 'lucide-react';
-import { useMemo } from 'react';
+import { Braces, Download, FolderOpen, Globe2, Pencil, Settings as SettingsIcon, X } from 'lucide-react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import {
   getOpenDownloadedFileLabel,
@@ -7,7 +8,8 @@ import {
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
-import type { DashboardPin } from './dashboardPins';
+import { getDashboardPinDisplay } from './dashboardPinDisplay';
+import type { DashboardPin, DashboardPinDropPosition } from './dashboardPins';
 import { getTranslationLanguage, t } from './i18n';
 import {
   getOnChainCoreUpdateSummary,
@@ -43,6 +45,12 @@ type DashboardPageProps = {
   onOpenCoreApiDocs: () => void;
   onOpenSettings: () => void;
   onRemoveDashboardPin: (pinId: string) => void;
+  onRenameDashboardPin: (pinId: string, customLabel: string) => void;
+  onReorderDashboardPin: (
+    draggedPinId: string,
+    targetPinId: string,
+    dropPosition: DashboardPinDropPosition,
+  ) => void;
   selectedAccountId: string | null;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onSelectedAccountChange: (accountId: string | null) => void;
@@ -364,6 +372,433 @@ function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
   );
 }
 
+const PIN_DRAG_START_MIN_DISTANCE_PX = 8;
+const PIN_LONG_PRESS_MS = 500;
+
+type PinContextMenuState = { pinId: string; x: number; y: number } | null;
+
+function DashboardPins({
+  pins,
+  onOpenPin,
+  onRemovePin,
+  onRenamePin,
+  onReorderPin,
+}: {
+  pins: DashboardPin[];
+  onOpenPin: (pin: DashboardPin) => void;
+  onRemovePin: (pinId: string) => void;
+  onRenamePin: (pinId: string, customLabel: string) => void;
+  onReorderPin: (draggedPinId: string, targetPinId: string, dropPosition: DashboardPinDropPosition) => void;
+}) {
+  const [contextMenu, setContextMenu] = useState<PinContextMenuState>(null);
+  const [draggedPinId, setDraggedPinId] = useState<string | null>(null);
+  const [renamingPinId, setRenamingPinId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  const pinElementsRef = useRef(new Map<string, HTMLLIElement>());
+  const dragStateRef = useRef<{
+    hasReordered: boolean;
+    pinId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const suppressedClickPinIdRef = useRef<string | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Dismiss the context menu on outside pointerdown or Escape.
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+
+    function closeOnPointerDown(event: globalThis.PointerEvent) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+
+      if (!contextMenuRef.current?.contains(event.target)) {
+        setContextMenu(null);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    }
+
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnEscape);
+
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (renamingPinId) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingPinId]);
+
+  // Move focus into the context menu when it opens, for keyboard / screen-reader users.
+  useEffect(() => {
+    if (contextMenu) {
+      contextMenuRef.current?.querySelector<HTMLButtonElement>('.dashboard-pin__menu-item')?.focus();
+    }
+  }, [contextMenu]);
+
+  // Cancel a pending long-press timer when unmounting so it can't run after disposal.
+  useEffect(() => () => clearLongPressTimer(), []);
+
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function clearDragState() {
+    dragStateRef.current = null;
+    setDraggedPinId(null);
+    clearLongPressTimer();
+  }
+
+  // Clear the click-suppression flag after the artifact click that follows a drag /
+  // long-press has been dispatched, so a later genuine tap is never swallowed.
+  function scheduleSuppressionClear() {
+    window.setTimeout(() => {
+      suppressedClickPinIdRef.current = null;
+    }, 0);
+  }
+
+  function handlePointerCancel() {
+    clearDragState();
+    scheduleSuppressionClear();
+  }
+
+  function openContextMenuAt(pinId: string, clientX: number, clientY: number) {
+    const rootFontSizePx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const menuWidth = 12 * rootFontSizePx;
+    const menuHeight = 6 * rootFontSizePx;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
+    const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
+
+    setContextMenu({
+      pinId,
+      x: Math.max(margin, Math.min(clientX, maxX)),
+      y: Math.max(margin, Math.min(clientY, maxY)),
+    });
+  }
+
+  function getReorderTarget(pointerClientX: number, pointerClientY: number, sourcePinId: string) {
+    const currentIndex = pins.findIndex((pin) => pin.id === sourcePinId);
+
+    if (currentIndex === -1 || pins.length < 2) {
+      return null;
+    }
+
+    const pinsWithoutDragged = pins.filter((pin) => pin.id !== sourcePinId);
+    let target: { dropPosition: DashboardPinDropPosition; pinId: string } | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const pin of pinsWithoutDragged) {
+      const element = pinElementsRef.current.get(pin.id);
+
+      if (!element) {
+        continue;
+      }
+
+      const bounds = element.getBoundingClientRect();
+      const centerX = bounds.left + bounds.width / 2;
+      const centerY = bounds.top + bounds.height / 2;
+      const distance = Math.hypot(pointerClientX - centerX, pointerClientY - centerY);
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        target = { dropPosition: pointerClientX < centerX ? 'before' : 'after', pinId: pin.id };
+      }
+    }
+
+    if (!target) {
+      return null;
+    }
+
+    const targetIndex = pinsWithoutDragged.findIndex((pin) => pin.id === target?.pinId);
+    const insertIndex = target.dropPosition === 'after' ? targetIndex + 1 : targetIndex;
+
+    if (insertIndex === currentIndex) {
+      return null;
+    }
+
+    return target;
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLLIElement>, pinId: string) {
+    if (renamingPinId) {
+      return;
+    }
+
+    // A pointerdown while the menu is open just dismisses it (first click closes,
+    // it does not also open/drag the tile).
+    if (contextMenu) {
+      suppressedClickPinIdRef.current = pinId;
+      setContextMenu(null);
+      return;
+    }
+
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+
+    // Ignore a second simultaneous pointer so it can't hijack an in-progress drag.
+    if (dragStateRef.current && dragStateRef.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if ((event.target as HTMLElement).closest('.dashboard-pin__rename-input')) {
+      return;
+    }
+
+    const { clientX, clientY } = event;
+
+    dragStateRef.current = {
+      hasReordered: false,
+      pinId,
+      pointerId: event.pointerId,
+      startX: clientX,
+      startY: clientY,
+    };
+    setDraggedPinId(pinId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    clearLongPressTimer();
+    longPressTimerRef.current = window.setTimeout(() => {
+      const dragState = dragStateRef.current;
+
+      if (dragState && dragState.pinId === pinId && !dragState.hasReordered) {
+        suppressedClickPinIdRef.current = pinId;
+        clearDragState();
+        openContextMenuAt(pinId, clientX, clientY);
+      }
+    }, PIN_LONG_PRESS_MS);
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLLIElement>) {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (
+      !dragState.hasReordered &&
+      Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY) <
+        PIN_DRAG_START_MIN_DISTANCE_PX
+    ) {
+      return;
+    }
+
+    clearLongPressTimer();
+
+    const reorderTarget = getReorderTarget(event.clientX, event.clientY, dragState.pinId);
+
+    if (!reorderTarget) {
+      return;
+    }
+
+    dragState.hasReordered = true;
+    onReorderPin(dragState.pinId, reorderTarget.pinId, reorderTarget.dropPosition);
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLLIElement>, pin: DashboardPin) {
+    const dragState = dragStateRef.current;
+    const isMyPointer = !!dragState && dragState.pointerId === event.pointerId;
+    const reordered = isMyPointer && dragState.hasReordered;
+    // A clean tap (gesture started on this tile, no reorder, not renaming) opens the pin
+    // here on pointerup: the browser does not reliably fire a click after the pointer
+    // capture used for drag-reorder, so we must not depend on the tile button's onClick.
+    const isTap = isMyPointer && !reordered && !renamingPinId;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (reordered || isTap) {
+      // Swallow the click the browser may still synthesize for this pointer.
+      suppressedClickPinIdRef.current = pin.id;
+    }
+
+    clearDragState();
+    scheduleSuppressionClear();
+
+    if (isTap) {
+      onOpenPin(pin);
+    }
+  }
+
+  function handleContextMenu(event: ReactMouseEvent<HTMLLIElement>, pinId: string) {
+    // While renaming, leave the native context menu intact (e.g. paste into the input).
+    if (renamingPinId) {
+      return;
+    }
+
+    event.preventDefault();
+    clearDragState();
+    openContextMenuAt(pinId, event.clientX, event.clientY);
+  }
+
+  function handleOpen(pin: DashboardPin) {
+    if (suppressedClickPinIdRef.current === pin.id) {
+      suppressedClickPinIdRef.current = null;
+      return;
+    }
+
+    onOpenPin(pin);
+  }
+
+  function startRename(pinId: string, currentLabel: string) {
+    setContextMenu(null);
+    setRenameValue(currentLabel);
+    setRenamingPinId(pinId);
+  }
+
+  function commitRename() {
+    if (!renamingPinId) {
+      return;
+    }
+
+    // Skip persisting if the pin disappeared (e.g. removed in another window) while editing.
+    if (pins.some((pin) => pin.id === renamingPinId)) {
+      onRenamePin(renamingPinId, renameValue);
+    }
+
+    setRenamingPinId(null);
+    setRenameValue('');
+  }
+
+  function cancelRename() {
+    setRenamingPinId(null);
+    setRenameValue('');
+  }
+
+  const contextMenuPin = contextMenu ? pins.find((pin) => pin.id === contextMenu.pinId) ?? null : null;
+  const contextMenuLabel = contextMenuPin ? getDashboardPinDisplay(contextMenuPin).shortLabel : '';
+
+  return (
+    <section className="dashboard-pins" aria-label={t('dashboard.pins')}>
+      <h2 className="dashboard-pins__title">{t('dashboard.pins')}</h2>
+      <ul className="dashboard-pins__list">
+        {pins.map((pin) => {
+          const display = getDashboardPinDisplay(pin);
+          const isRenaming = renamingPinId === pin.id;
+
+          return (
+            <li
+              className={`dashboard-pin${draggedPinId === pin.id ? ' dashboard-pin--dragging' : ''}`}
+              key={pin.id}
+              ref={(element) => {
+                if (element) {
+                  pinElementsRef.current.set(pin.id, element);
+                } else {
+                  pinElementsRef.current.delete(pin.id);
+                }
+              }}
+              onPointerDown={(event) => handlePointerDown(event, pin.id)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={(event) => handlePointerUp(event, pin)}
+              onPointerCancel={handlePointerCancel}
+              onLostPointerCapture={handlePointerCancel}
+              onContextMenu={(event) => handleContextMenu(event, pin.id)}
+            >
+              <button
+                className="dashboard-pin__tile"
+                title={t('common.openItem', { target: display.shortLabel })}
+                type="button"
+                aria-label={t('common.openItem', { target: display.shortLabel })}
+                onClick={() => handleOpen(pin)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    openContextMenuAt(pin.id, bounds.left, bounds.bottom);
+                  }
+                }}
+              >
+                <display.Icon aria-hidden="true" size={28} strokeWidth={2} />
+                {isRenaming ? (
+                  <input
+                    ref={renameInputRef}
+                    className="dashboard-pin__rename-input"
+                    type="text"
+                    value={renameValue}
+                    aria-label={t('dashboard.renamePinLabel', { label: display.shortLabel })}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        commitRename();
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cancelRename();
+                      }
+                    }}
+                    onBlur={commitRename}
+                  />
+                ) : (
+                  <span className="dashboard-pin__label">{display.shortLabel}</span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {contextMenu && contextMenuPin ? (
+        <div
+          className="dashboard-pin__menu"
+          ref={contextMenuRef}
+          role="menu"
+          aria-label={t('dashboard.pinMenuLabel')}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="dashboard-pin__menu-item"
+            role="menuitem"
+            type="button"
+            onClick={() => startRename(contextMenuPin.id, contextMenuLabel)}
+          >
+            <Pencil aria-hidden="true" size={16} strokeWidth={2} />
+            {t('dashboard.renamePin')}
+          </button>
+          <button
+            className="dashboard-pin__menu-item dashboard-pin__menu-item--danger"
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              onRemovePin(contextMenuPin.id);
+              setContextMenu(null);
+            }}
+          >
+            <X aria-hidden="true" size={16} strokeWidth={2} />
+            {t('common.remove')}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function DashboardPage({
   accountsError,
   accountsState,
@@ -379,6 +814,8 @@ export function DashboardPage({
   onOpenCoreApiDocs,
   onOpenSettings,
   onRemoveDashboardPin,
+  onRenameDashboardPin,
+  onReorderDashboardPin,
   onAccountsStateChange,
   onSelectedAccountChange,
   selectedAccountId,
@@ -392,36 +829,13 @@ export function DashboardPage({
       </header>
 
       {dashboardPins.length > 0 ? (
-        <section className="dashboard-pins" aria-label={t('dashboard.pins')}>
-          <h2 className="dashboard-pins__title">{t('dashboard.pins')}</h2>
-          <ul className="dashboard-pins__list">
-            {dashboardPins.map((pin) => (
-              <li className="dashboard-pin" key={pin.id}>
-                <button
-                  className="dashboard-pin__link"
-                  title={t('common.openItem', { target: pin.label })}
-                  type="button"
-                  onClick={() => onOpenDashboardPin(pin)}
-                >
-                  <Pin aria-hidden="true" size={18} strokeWidth={2} />
-                  <span className="dashboard-pin__text">
-                    <span className="dashboard-pin__label">{pin.label}</span>
-                    <span className="dashboard-pin__url">{pin.displayUrl}</span>
-                  </span>
-                </button>
-                <button
-                  className="icon-button dashboard-pin__remove"
-                  title={t('dashboard.removePin', { label: pin.label })}
-                  type="button"
-                  aria-label={t('dashboard.removePin', { label: pin.label })}
-                  onClick={() => onRemoveDashboardPin(pin.id)}
-                >
-                  <X aria-hidden="true" size={18} strokeWidth={2} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <DashboardPins
+          pins={dashboardPins}
+          onOpenPin={onOpenDashboardPin}
+          onRemovePin={onRemoveDashboardPin}
+          onRenamePin={onRenameDashboardPin}
+          onReorderPin={onReorderDashboardPin}
+        />
       ) : null}
 
       <div className="dashboard-page__primary-action">
