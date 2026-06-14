@@ -286,6 +286,33 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.leaveGroup';
     case 'UPDATE_GROUP':
       return 'qdnWrite.action.updateGroup';
+    case 'CREATE_GROUP':
+      return 'qdnWrite.action.createGroup';
+    case 'ADD_GROUP_ADMIN':
+      return 'qdnWrite.action.addGroupAdmin';
+    case 'REMOVE_GROUP_ADMIN':
+      return 'qdnWrite.action.removeGroupAdmin';
+    case 'GROUP_BAN':
+      return 'qdnWrite.action.groupBan';
+    case 'CANCEL_GROUP_BAN':
+      return 'qdnWrite.action.cancelGroupBan';
+    case 'GROUP_KICK':
+      return 'qdnWrite.action.groupKick';
+    case 'CANCEL_GROUP_INVITE':
+      return 'qdnWrite.action.cancelGroupInvite';
+    case 'SET_GROUP':
+      return 'qdnWrite.action.setGroup';
+    case 'PAYMENT':
+    case 'SEND_COIN':
+      return 'qdnWrite.action.sendCoin';
+    case 'TRANSFER_ASSET':
+      return 'qdnWrite.action.transferAsset';
+    case 'CREATE_POLL':
+      return 'qdnWrite.action.createPoll';
+    case 'VOTE_ON_POLL':
+      return 'qdnWrite.action.voteOnPoll';
+    case 'UPDATE_POLL':
+      return 'qdnWrite.action.updatePoll';
     case 'BUY_NAME':
       return 'qdnWrite.action.buyName';
     case 'CANCEL_SELL_NAME':

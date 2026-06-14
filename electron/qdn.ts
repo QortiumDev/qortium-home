@@ -17,6 +17,8 @@ import {
   QDN_CHAT_ACTIONS,
   QDN_GROUP_ACTIONS,
   QDN_NAME_ACTIONS,
+  QDN_PAYMENT_ACTIONS,
+  QDN_POLL_ACTIONS,
   QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from './qdn-app-actions.js';
@@ -176,12 +178,16 @@ type QdnResourceRequest = {
 type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
 type QdnGroupAction = (typeof QDN_GROUP_ACTIONS)[number];
 type QdnNameAction = (typeof QDN_NAME_ACTIONS)[number];
+type QdnPaymentAction = (typeof QDN_PAYMENT_ACTIONS)[number];
+type QdnPollAction = (typeof QDN_POLL_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
   | QdnNameAction
+  | QdnPaymentAction
+  | QdnPollAction
   | QdnChatAction
   | QdnPrivateGroupChatWriteAction
   | 'START_MINTING'
@@ -3058,6 +3064,780 @@ async function updateGroupForApp(
   };
 }
 
+const QDN_GROUP_APPROVAL_THRESHOLDS = new Set([
+  'NONE',
+  'ONE',
+  'PCT20',
+  'PCT40',
+  'PCT60',
+  'PCT80',
+  'PCT100',
+]);
+
+function getGroupApprovalThresholdInput(request: QdnAppRequest) {
+  const value = getString(getRequestValue(request, 'approvalThreshold')).toUpperCase();
+
+  if (!value) {
+    return 'NONE';
+  }
+
+  if (!QDN_GROUP_APPROVAL_THRESHOLDS.has(value)) {
+    throw new Error('approvalThreshold must be NONE, ONE, PCT20, PCT40, PCT60, PCT80, or PCT100.');
+  }
+
+  return value;
+}
+
+function getRequiredIntegerRequestValue(
+  request: QdnAppRequest,
+  minimumValue: number,
+  label: string,
+  ...keys: string[]
+) {
+  for (const key of keys) {
+    const value = getInteger(getRequestValue(request, key));
+
+    if (typeof value === 'number') {
+      if (value < minimumValue) {
+        throw new Error(`${label} must be at least ${minimumValue}.`);
+      }
+
+      return value;
+    }
+  }
+
+  throw new Error(`${label} is required.`);
+}
+
+function getRequiredMemberAddress(request: QdnAppRequest, label: string, ...keys: string[]) {
+  const address = getOptionalAddressRequestString(request, label, ...keys);
+
+  if (!address) {
+    throw new Error(`${label} is required.`);
+  }
+
+  return address;
+}
+
+function getPollOptionsInput(request: QdnAppRequest, ...keys: string[]) {
+  let raw: unknown;
+
+  for (const key of keys) {
+    const value = getRequestValue(request, key);
+
+    if (typeof value !== 'undefined' && value !== null) {
+      raw = value;
+      break;
+    }
+  }
+
+  const names: string[] = [];
+
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const name = isRecord(entry)
+        ? getString(entry.optionName) || getString(entry.name) || getString(entry.value)
+        : getString(entry);
+
+      if (name) {
+        names.push(name);
+      }
+    }
+  } else {
+    const text = getString(raw);
+
+    if (text) {
+      for (const part of text.split(',')) {
+        const name = part.trim();
+
+        if (name) {
+          names.push(name);
+        }
+      }
+    }
+  }
+
+  if (names.length < 2) {
+    throw new Error('A poll requires at least two options.');
+  }
+
+  if (new Set(names).size !== names.length) {
+    throw new Error('Poll options must be unique.');
+  }
+
+  return names.map((optionName) => ({ optionName }));
+}
+
+async function createGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupName = getRequiredRequestString(request, 'groupName', 'Group name');
+  const description = getString(getRequestValue(request, 'description'));
+  const isOpen = getOptionalBooleanRequestValue(request, 'isOpen', 'open') ?? false;
+  const approvalThreshold = getGroupApprovalThresholdInput(request);
+  const minimumBlockDelay = getOptionalIntegerRequestValue(request, 0, 'minimumBlockDelay', 'minBlockDelay') ?? 5;
+  const maximumBlockDelay =
+    getOptionalIntegerRequestValue(request, 0, 'maximumBlockDelay', 'maxBlockDelay') ??
+    Math.max(10, minimumBlockDelay);
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'CREATE_GROUP',
+    name: groupName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/create',
+    JSON.stringify({
+      type: 'CREATE_GROUP',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      creatorPublicKey: writeContext.publicKey58,
+      groupName,
+      description,
+      isOpen,
+      approvalThreshold,
+      minimumBlockDelay,
+      maximumBlockDelay,
+    }),
+    writeContext.apiKey,
+    'Create group transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'CREATE_GROUP',
+    groupName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function addGroupAdminForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const member = getRequiredMemberAddress(request, 'Member address', 'member', 'address', 'memberAddress');
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'ADD_GROUP_ADMIN',
+    groupId,
+    groupName,
+    recipientAddress: member,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/addadmin',
+    JSON.stringify({
+      type: 'ADD_GROUP_ADMIN',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      groupId,
+      member,
+    }),
+    writeContext.apiKey,
+    'Add group admin transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'ADD_GROUP_ADMIN',
+    groupId,
+    groupName,
+    member,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function removeGroupAdminForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const admin = getRequiredMemberAddress(request, 'Admin address', 'admin', 'address', 'memberAddress');
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'REMOVE_GROUP_ADMIN',
+    groupId,
+    groupName,
+    recipientAddress: admin,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/removeadmin',
+    JSON.stringify({
+      type: 'REMOVE_GROUP_ADMIN',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      groupId,
+      admin,
+    }),
+    writeContext.apiKey,
+    'Remove group admin transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'REMOVE_GROUP_ADMIN',
+    groupId,
+    groupName,
+    admin,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function banFromGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const offender = getRequiredMemberAddress(request, 'Offender address', 'offender', 'member', 'address');
+  const reason = getString(getRequestValue(request, 'reason'));
+  const timeToLive = getOptionalIntegerRequestValue(request, 0, 'timeToLive', 'ttl', 'banTime') ?? 0;
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'GROUP_BAN',
+    groupId,
+    groupName,
+    recipientAddress: offender,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/ban',
+    JSON.stringify({
+      type: 'GROUP_BAN',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      adminPublicKey: writeContext.publicKey58,
+      groupId,
+      offender,
+      reason,
+      timeToLive,
+    }),
+    writeContext.apiKey,
+    'Group ban transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'GROUP_BAN',
+    groupId,
+    groupName,
+    offender,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function cancelGroupBanForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const member = getRequiredMemberAddress(request, 'Member address', 'member', 'offender', 'address');
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'CANCEL_GROUP_BAN',
+    groupId,
+    groupName,
+    recipientAddress: member,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/ban/cancel',
+    JSON.stringify({
+      type: 'CANCEL_GROUP_BAN',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      adminPublicKey: writeContext.publicKey58,
+      groupId,
+      member,
+    }),
+    writeContext.apiKey,
+    'Cancel group ban transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'CANCEL_GROUP_BAN',
+    groupId,
+    groupName,
+    member,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function kickFromGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const member = getRequiredMemberAddress(request, 'Member address', 'member', 'address');
+  const reason = getString(getRequestValue(request, 'reason'));
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'GROUP_KICK',
+    groupId,
+    groupName,
+    recipientAddress: member,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/kick',
+    JSON.stringify({
+      type: 'GROUP_KICK',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      adminPublicKey: writeContext.publicKey58,
+      groupId,
+      member,
+      reason,
+    }),
+    writeContext.apiKey,
+    'Group kick transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'GROUP_KICK',
+    groupId,
+    groupName,
+    member,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function cancelGroupInviteForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getRequiredGroupId(request, 1);
+  const invitee = getRequiredMemberAddress(request, 'Invitee address', 'invitee', 'address', 'recipientAddress');
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'CANCEL_GROUP_INVITE',
+    groupId,
+    groupName,
+    recipientAddress: invitee,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/invite/cancel',
+    JSON.stringify({
+      type: 'CANCEL_GROUP_INVITE',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      adminPublicKey: writeContext.publicKey58,
+      groupId,
+      invitee,
+    }),
+    writeContext.apiKey,
+    'Cancel group invite transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'CANCEL_GROUP_INVITE',
+    groupId,
+    groupName,
+    invitee,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function setDefaultGroupForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const defaultGroupId = getRequiredIntegerRequestValue(
+    request,
+    0,
+    'Default group id',
+    'defaultGroupId',
+    'groupId',
+  );
+  const writeContext = await getQdnChatContext(context);
+  const groupData = defaultGroupId > 0 ? await getGroupDataForChat(writeContext.connection, defaultGroupId) : null;
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'SET_GROUP',
+    groupId: defaultGroupId,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/setdefault',
+    JSON.stringify({
+      type: 'SET_GROUP',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      creatorPublicKey: writeContext.publicKey58,
+      defaultGroupId,
+    }),
+    writeContext.apiKey,
+    'Set default group transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'SET_GROUP',
+    defaultGroupId,
+    groupName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function sendCoinForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+  action: 'PAYMENT' | 'SEND_COIN',
+) {
+  const recipient = getRequiredMemberAddress(
+    request,
+    'Recipient address',
+    'recipient',
+    'recipientAddress',
+    'address',
+    'destinationAddress',
+  );
+  const amount = getRequiredAmountValue(request, 'amount', 'Amount');
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action,
+    amount,
+    recipientAddress: recipient,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/payments/pay',
+    JSON.stringify({
+      type: 'PAYMENT',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      senderPublicKey: writeContext.publicKey58,
+      recipient,
+      amount,
+    }),
+    writeContext.apiKey,
+    'Payment transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action,
+    recipient,
+    amount,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function transferAssetForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const recipient = getRequiredMemberAddress(
+    request,
+    'Recipient address',
+    'recipient',
+    'recipientAddress',
+    'address',
+    'destinationAddress',
+  );
+  const amount = getRequiredAmountValue(request, 'amount', 'Amount');
+  const assetId = getRequiredIntegerRequestValue(request, 0, 'Asset id', 'assetId');
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'TRANSFER_ASSET',
+    amount,
+    name: `Asset #${assetId}`,
+    recipientAddress: recipient,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/assets/transfer',
+    JSON.stringify({
+      type: 'TRANSFER_ASSET',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      senderPublicKey: writeContext.publicKey58,
+      recipient,
+      amount,
+      assetId,
+    }),
+    writeContext.apiKey,
+    'Transfer asset transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'TRANSFER_ASSET',
+    recipient,
+    amount,
+    assetId,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function createPollForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const pollName = getRequiredRequestString(request, 'pollName', 'Poll name');
+  const description = getString(getRequestValue(request, 'description'));
+  const pollOptions = getPollOptionsInput(request, 'pollOptions', 'options');
+  const ownerInput = getOptionalAddressRequestString(request, 'Owner address', 'owner');
+  const endTime = getOptionalIntegerRequestValue(request, 0, 'endTime', 'pollEndTime');
+  const writeContext = await getQdnChatContext(context);
+  const resolvedOwner = ownerInput || writeContext.profile.address;
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'CREATE_POLL',
+    name: pollName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/polls/create',
+    JSON.stringify({
+      type: 'CREATE_POLL',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      pollCreatorPublicKey: writeContext.publicKey58,
+      owner: resolvedOwner,
+      pollName,
+      description,
+      pollOptions,
+      ...(typeof endTime === 'number' ? { endTime } : {}),
+    }),
+    writeContext.apiKey,
+    'Create poll transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'CREATE_POLL',
+    pollName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function voteOnPollForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
+  const optionIndex = getRequiredIntegerRequestValue(request, 0, 'Option index', 'optionIndex', 'option');
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'VOTE_ON_POLL',
+    name: `Poll #${pollId} · option ${optionIndex}`,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/polls/vote',
+    JSON.stringify({
+      type: 'VOTE_ON_POLL',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      voterPublicKey: writeContext.publicKey58,
+      pollId,
+      optionIndex,
+    }),
+    writeContext.apiKey,
+    'Vote on poll transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'VOTE_ON_POLL',
+    pollId,
+    optionIndex,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function updatePollForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
+  const newPollName = getRequiredRequestString(request, 'newPollName', 'New poll name');
+  const newDescription = getString(getRequestValue(request, 'newDescription') ?? getRequestValue(request, 'description'));
+  const newPollOptions = getPollOptionsInput(request, 'newPollOptions', 'pollOptions', 'options');
+  const newEndTime = getOptionalIntegerRequestValue(request, 0, 'newEndTime', 'endTime');
+  const writeContext = await getQdnChatContext(context);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'UPDATE_POLL',
+    name: newPollName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/polls/update',
+    JSON.stringify({
+      type: 'UPDATE_POLL',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      pollId,
+      newPollName,
+      newDescription,
+      newPollOptions,
+      ...(typeof newEndTime === 'number' ? { newEndTime } : {}),
+    }),
+    writeContext.apiKey,
+    'Update poll transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'UPDATE_POLL',
+    pollId,
+    newPollName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
 async function registerNameForApp(
   request: QdnAppRequest,
   context: QdnViewContext | null,
@@ -4160,6 +4940,48 @@ async function handleQdnAppRequest(
 
     case 'UPDATE_GROUP':
       return updateGroupForApp(request, context, sender);
+
+    case 'CREATE_GROUP':
+      return createGroupForApp(request, context, sender);
+
+    case 'ADD_GROUP_ADMIN':
+      return addGroupAdminForApp(request, context, sender);
+
+    case 'REMOVE_GROUP_ADMIN':
+      return removeGroupAdminForApp(request, context, sender);
+
+    case 'GROUP_BAN':
+      return banFromGroupForApp(request, context, sender);
+
+    case 'CANCEL_GROUP_BAN':
+      return cancelGroupBanForApp(request, context, sender);
+
+    case 'GROUP_KICK':
+      return kickFromGroupForApp(request, context, sender);
+
+    case 'CANCEL_GROUP_INVITE':
+      return cancelGroupInviteForApp(request, context, sender);
+
+    case 'SET_GROUP':
+      return setDefaultGroupForApp(request, context, sender);
+
+    case 'PAYMENT':
+      return sendCoinForApp(request, context, sender, 'PAYMENT');
+
+    case 'SEND_COIN':
+      return sendCoinForApp(request, context, sender, 'SEND_COIN');
+
+    case 'TRANSFER_ASSET':
+      return transferAssetForApp(request, context, sender);
+
+    case 'CREATE_POLL':
+      return createPollForApp(request, context, sender);
+
+    case 'VOTE_ON_POLL':
+      return voteOnPollForApp(request, context, sender);
+
+    case 'UPDATE_POLL':
+      return updatePollForApp(request, context, sender);
 
     case 'REGISTER_NAME':
       return registerNameForApp(request, context, sender);
