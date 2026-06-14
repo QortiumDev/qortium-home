@@ -331,6 +331,7 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "QDNリソースを公開",
   "qdnWrite.action.publishResources": "複数のQDNリソースを公開",
   "qdnWrite.action.registerName": "名前を登録",
+  "qdnWrite.action.removeMintingAccount": "ミンティングキーを削除",
   "qdnWrite.action.sellName": "名前を売却",
   "qdnWrite.action.sendChatMessage": "チャットメッセージを送信",
   "qdnWrite.action.startMinting": "ミンティングを開始",

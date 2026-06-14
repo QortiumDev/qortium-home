@@ -539,7 +539,8 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SELL_NAME'
     | 'UPDATE_NAME'
     | 'SEND_CHAT_MESSAGE'
-    | 'START_MINTING';
+    | 'START_MINTING'
+    | 'REMOVE_MINTING_ACCOUNT';
   address: string;
   amount: string | null;
   chatMessagePreview: string | null;

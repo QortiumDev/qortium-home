@@ -331,6 +331,7 @@ export const pt: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Publicar recurso QDN",
   "qdnWrite.action.publishResources": "Publicar recursos QDN",
   "qdnWrite.action.registerName": "Registrar nome",
+  "qdnWrite.action.removeMintingAccount": "Remover chave de cunhagem",
   "qdnWrite.action.sellName": "Vender nome",
   "qdnWrite.action.sendChatMessage": "Enviar mensagem de chat",
   "qdnWrite.action.startMinting": "Iniciar cunhagem",

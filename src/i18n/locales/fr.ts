@@ -331,6 +331,7 @@ export const fr: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Publier la ressource QDN",
   "qdnWrite.action.publishResources": "Publier les ressources QDN",
   "qdnWrite.action.registerName": "Enregistrer un nom",
+  "qdnWrite.action.removeMintingAccount": "Supprimer la clé de frappe",
   "qdnWrite.action.sellName": "Vendre un nom",
   "qdnWrite.action.sendChatMessage": "Envoyer un message de chat",
   "qdnWrite.action.startMinting": "Démarrer la frappe",

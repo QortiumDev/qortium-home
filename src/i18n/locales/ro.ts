@@ -331,6 +331,7 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Publică resursa QDN",
   "qdnWrite.action.publishResources": "Publică resursele QDN",
   "qdnWrite.action.registerName": "Înregistrează nume",
+  "qdnWrite.action.removeMintingAccount": "Elimină cheia de minting",
   "qdnWrite.action.sellName": "Vinde nume",
   "qdnWrite.action.sendChatMessage": "Trimite mesaj de chat",
   "qdnWrite.action.startMinting": "Pornește minting",

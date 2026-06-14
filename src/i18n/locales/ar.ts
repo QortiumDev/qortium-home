@@ -331,6 +331,7 @@ export const ar: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "نشر مورد QDN",
   "qdnWrite.action.publishResources": "نشر موارد QDN",
   "qdnWrite.action.registerName": "تسجيل اسم",
+  "qdnWrite.action.removeMintingAccount": "إزالة مفتاح السكّ",
   "qdnWrite.action.sellName": "بيع اسم",
   "qdnWrite.action.sendChatMessage": "إرسال رسالة دردشة",
   "qdnWrite.action.startMinting": "بدء السكّ",

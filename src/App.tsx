@@ -295,6 +295,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.sendChatMessage';
     case 'START_MINTING':
       return 'qdnWrite.action.startMinting';
+    case 'REMOVE_MINTING_ACCOUNT':
+      return 'qdnWrite.action.removeMintingAccount';
     default:
       return 'qdnWrite.action.default';
   }
