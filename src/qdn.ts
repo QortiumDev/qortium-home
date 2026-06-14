@@ -54,6 +54,7 @@ const IFRAME_QDN_SERVICES = ['APP', 'WEBSITE'] as const;
 const IMAGE_QDN_SERVICES = ['IMAGE', 'THUMBNAIL', 'QCHAT_IMAGE'] as const;
 const AUDIO_QDN_SERVICES = ['AUDIO', 'VOICE', 'PODCAST'] as const;
 const VIDEO_QDN_SERVICES = ['VIDEO'] as const;
+const GIF_REPOSITORY_QDN_SERVICES = ['GIF_REPOSITORY'] as const;
 const TEXT_QDN_SERVICES = [
   'JSON',
   'METADATA',
@@ -72,13 +73,22 @@ const RENDERABLE_QDN_SERVICES = [
   ...IMAGE_QDN_SERVICES,
   ...AUDIO_QDN_SERVICES,
   ...VIDEO_QDN_SERVICES,
+  ...GIF_REPOSITORY_QDN_SERVICES,
   ...TEXT_QDN_SERVICES,
   ...DOWNLOAD_QDN_SERVICES,
 ] as const;
 
 export type QdnService = (typeof PUBLIC_QDN_SERVICES)[number];
 export type QdnRenderableService = (typeof RENDERABLE_QDN_SERVICES)[number];
-export type QdnViewerKind = 'audio' | 'download' | 'iframe' | 'image' | 'text' | 'unsupported' | 'video';
+export type QdnViewerKind =
+  | 'audio'
+  | 'download'
+  | 'gif-repository'
+  | 'iframe'
+  | 'image'
+  | 'text'
+  | 'unsupported'
+  | 'video';
 
 export type QdnExplorerRoute =
   | {
@@ -149,12 +159,21 @@ export type QdnResourceProperties = {
   size?: number;
 };
 
+export type QdnResourceMetadata = {
+  description?: string;
+  files?: string[];
+  mimeType?: string;
+  title?: string;
+};
+
 export type QdnResourceListItem = {
   created?: number;
   identifier?: string;
   latestSignature?: string;
   metadata?: {
     description?: string;
+    files?: string[];
+    mimeType?: string;
     title?: string;
   };
   name: string;
@@ -241,6 +260,10 @@ export function getQdnViewerKind(service: QdnService): QdnViewerKind {
 
   if (VIDEO_QDN_SERVICES.includes(service as (typeof VIDEO_QDN_SERVICES)[number])) {
     return 'video';
+  }
+
+  if (GIF_REPOSITORY_QDN_SERVICES.includes(service as (typeof GIF_REPOSITORY_QDN_SERVICES)[number])) {
+    return 'gif-repository';
   }
 
   if (TEXT_QDN_SERVICES.includes(service as (typeof TEXT_QDN_SERVICES)[number])) {
@@ -484,6 +507,12 @@ export function buildQdnServiceAvailabilitySearchUrl(service: QdnService, nodeAp
 
 export function buildQdnResourcePropertiesUrl(resource: QdnResource, nodeApiUrl: string) {
   return `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/resource/properties/${resource.service}/${encodeURIComponent(
+    resource.name,
+  )}/${encodeURIComponent(resource.identifier ?? 'default')}`;
+}
+
+export function buildQdnMetadataUrl(resource: QdnResource, nodeApiUrl: string) {
+  return `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/metadata/${resource.service}/${encodeURIComponent(
     resource.name,
   )}/${encodeURIComponent(resource.identifier ?? 'default')}`;
 }

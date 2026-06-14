@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Eye, File, FileAudio, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, File, FileAudio, FileImage, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
@@ -721,7 +721,13 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
                 const viewerKind = getQdnViewerKind(resource.service);
                 const isImageResource = viewerKind === 'image';
                 const ResourceIcon =
-                  viewerKind === 'audio' ? FileAudio : viewerKind === 'video' ? FileVideo : FileText;
+                  viewerKind === 'audio'
+                    ? FileAudio
+                    : viewerKind === 'video'
+                      ? FileVideo
+                      : viewerKind === 'gif-repository'
+                        ? FileImage
+                        : FileText;
                 const rowContent = (
                   <>
                     {isImageResource ? (
