@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-13 - qdn: support local content preview on android
+
+Local content preview now works in the Android app, not just on desktop. Because the node may run on a different device from the app, the content can't be handed to the node as a local file path the way the desktop does. Instead the app lets the user choose a file, uploads it to the node's preview endpoint, and shows the same temporary render the desktop preview produces. Images, video, audio, and HTML files are supported, and a website can be previewed by choosing a .zip of its folder — folder selection itself isn't available on mobile, so the desktop-only "Choose Folder" option is hidden there and the Preview button now appears on Android. This relies on the matching Qortium Core release that accepts uploaded preview content.
+
 ### 2026-06-13 - qdn: show the minting key in the removal approval
 
 When a QDN app asks to remove a minting key, the approval prompt now shows the public key that would be removed, so the user can confirm exactly which minting key is affected before approving. Previously the prompt named the action but not the specific key — which matters here because the app chooses the key, unlike Start Minting which always acts on the user's selected account. The key flows through the same approval request used by every write action, so it is shown the same way on desktop and Android.

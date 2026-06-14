@@ -387,10 +387,13 @@ function QdnPreviewDialog({
             <File aria-hidden="true" size={18} strokeWidth={2} />
             {t('preview.chooseFile')}
           </button>
-          <button className="button" type="button" disabled={isWorking} onClick={() => onPick('directory')}>
-            <Folder aria-hidden="true" size={18} strokeWidth={2} />
-            {t('preview.chooseFolder')}
-          </button>
+          {!isNativePlatform() ? (
+            // Folder selection isn't available on mobile; a zipped website can be chosen via "Choose File".
+            <button className="button" type="button" disabled={isWorking} onClick={() => onPick('directory')}>
+              <Folder aria-hidden="true" size={18} strokeWidth={2} />
+              {t('preview.chooseFolder')}
+            </button>
+          ) : null}
         </div>
       </section>
     </ModalDialog>
@@ -553,16 +556,14 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
           <p>{route.displayUrl}</p>
         </div>
         <div className="qdn-explorer__header-actions">
-          {!isNativePlatform() ? (
-            <button
-              className="button button--secondary qdn-explorer__preview"
-              type="button"
-              onClick={() => setPreviewDialog({ isWorking: false })}
-            >
-              <Eye aria-hidden="true" size={18} strokeWidth={2} />
-              {t('explorer.previewButton')}
-            </button>
-          ) : null}
+          <button
+            className="button button--secondary qdn-explorer__preview"
+            type="button"
+            onClick={() => setPreviewDialog({ isWorking: false })}
+          >
+            <Eye aria-hidden="true" size={18} strokeWidth={2} />
+            {t('explorer.previewButton')}
+          </button>
           <button
             className="button button--secondary qdn-explorer__refresh"
             type="button"

@@ -2619,6 +2619,75 @@ async function postLocalNodeText(
   };
 }
 
+// Maps a file extension to the QDN service used to preview it (mirrors the desktop preview).
+const PREVIEW_EXTENSION_SERVICES: Record<string, string> = {
+  apng: 'IMAGE', avif: 'IMAGE', bmp: 'IMAGE', gif: 'IMAGE', ico: 'IMAGE',
+  jpeg: 'IMAGE', jpg: 'IMAGE', png: 'IMAGE', svg: 'IMAGE', webp: 'IMAGE',
+  m4v: 'VIDEO', mkv: 'VIDEO', mov: 'VIDEO', mp4: 'VIDEO', ogv: 'VIDEO', webm: 'VIDEO',
+  aac: 'AUDIO', flac: 'AUDIO', m4a: 'AUDIO', mp3: 'AUDIO', oga: 'AUDIO', ogg: 'AUDIO', opus: 'AUDIO', wav: 'AUDIO',
+};
+
+const PREVIEW_PICK_ACCEPT = ['.zip', '.html', '.htm', ...Object.keys(PREVIEW_EXTENSION_SERVICES).map((ext) => `.${ext}`)].join(',');
+
+function resolvePreviewServiceForFile(filename: string): { service: string; archive: boolean } {
+  const extension = filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1).toLowerCase() : '';
+
+  if (extension === 'zip') {
+    // A zipped website folder; the node extracts it.
+    return { service: 'WEBSITE', archive: true };
+  }
+  if (extension === 'html' || extension === 'htm') {
+    // A standalone page; the node wraps it as index.html for the website service.
+    return { service: 'WEBSITE', archive: false };
+  }
+
+  const service = PREVIEW_EXTENSION_SERVICES[extension];
+  if (!service) {
+    throw new Error(
+      'Unsupported preview content. Choose an image, video, or audio file, an HTML file, or a .zip of a website folder.',
+    );
+  }
+
+  return { service, archive: false };
+}
+
+// Opens a file picker in the WebView and resolves with the chosen file, or null if dismissed.
+// Cancellation produces no 'change' event, so it is detected when the window regains focus.
+function pickPreviewFile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = PREVIEW_PICK_ACCEPT;
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+
+    let settled = false;
+    const finish = (file: File | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.removeEventListener('focus', onFocus);
+      input.remove();
+      resolve(file);
+    };
+
+    const onChange = () => finish(input.files && input.files.length > 0 ? input.files[0] : null);
+    const onFocus = () => {
+      window.setTimeout(() => {
+        if (!settled && (!input.files || input.files.length === 0)) {
+          finish(null);
+        }
+      }, 700);
+    };
+
+    input.addEventListener('change', onChange, { once: true });
+    window.addEventListener('focus', onFocus);
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
 async function deleteLocalNodeText(
   nodeApiUrl: string,
   pathname: string,
@@ -5779,6 +5848,46 @@ function createFallbackApi(): PlatformApi {
       },
       async prepareArchiveRender() {
         throw new Error('Inline archive app rendering is only available in the desktop app right now.');
+      },
+      async previewContent() {
+        // Pick a file in the WebView, then upload it to the configured node's preview endpoint as
+        // base64 (the node can be on another device, so the desktop's local-path flow can't be used).
+        // Refresh re-opens the picker, since the chosen file isn't re-readable by path on mobile.
+        const file = await pickPreviewFile();
+        if (!file) {
+          return { canceled: true };
+        }
+
+        const { service, archive } = resolvePreviewServiceForFile(file.name);
+
+        const settings = await readNodeSettings();
+        const apiKey = getNodeApiKey(settings);
+        const nodeApiUrl = await resolveNodeApiUrl(settings);
+
+        const base64 = arrayBufferToBase64(await file.arrayBuffer());
+        const query = `archive=${archive ? 'true' : 'false'}&filename=${encodeURIComponent(file.name)}`;
+
+        const result = await postLocalNodeText(
+          nodeApiUrl,
+          `/arbitrary/preview/${service}/upload?${query}`,
+          base64,
+          apiKey,
+          'Generating the preview failed.',
+        );
+
+        const renderPath = result.body.trim();
+        if (!renderPath.startsWith('/render/')) {
+          throw new Error('The node returned an unexpected preview URL.');
+        }
+
+        return {
+          canceled: false,
+          renderUrl: `${getNodeApiUrlBase(nodeApiUrl)}${renderPath}`,
+          service,
+          sourceKind: archive ? 'directory' : 'file',
+          sourceName: file.name,
+          sourcePath: file.name,
+        };
       },
       async downloadResource(request) {
         if (!isAndroid()) {
