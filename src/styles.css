@@ -772,25 +772,34 @@ h1 {
 }
 
 .dashboard-pins__list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+  justify-content: center;
   min-width: 0;
+  /* max-width is set inline to exactly the balanced column count so rows wrap
+     evenly (e.g. 3 + 2) and the centered block sits in the middle of the section. */
+  margin: 0 auto;
   padding: 0;
-  margin: 0;
   list-style: none;
 }
 
 .dashboard-pin {
   position: relative;
+  width: 7rem;
   min-width: 0;
-  /* Allow vertical page scroll to start on a tile while a horizontal drag
-     reorders it (mouse drag is unaffected by touch-action). */
+  /* Displaced tiles slide to their new slot (FLIP); the dragged tile overrides
+     this with transition:none so it tracks the pointer with no lag. */
+  transition: transform 180ms ease;
+  /* Let a vertical page scroll begin on a tile (a horizontal drag still reorders;
+     mouse drag is unaffected by touch-action). Matches the pre-existing behavior so
+     touch scrolling over the pins area is not lost. */
   touch-action: pan-y;
 }
 
 .dashboard-pin--dragging {
-  opacity: 0.55;
+  z-index: 5;
+  transition: none;
 }
 
 .dashboard-pin__tile {
@@ -824,6 +833,48 @@ h1 {
 
 .dashboard-pin--dragging .dashboard-pin__tile {
   cursor: grabbing;
+  transform: scale(1.04);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-pop);
+}
+
+/* App / website icon chip (dashboard pins + tabs). A name-seeded monogram is the
+   base layer; the fetched favicon/avatar fades in over it once it loads. */
+.app-icon {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  overflow: hidden;
+  color: var(--color-accent);
+  background: var(--color-control-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.app-icon--pin {
+  border-radius: var(--radius-md);
+}
+
+.app-icon__monogram {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.app-icon__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 12%;
+  object-fit: contain;
+  background: var(--color-control-bg);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.app-icon__image[data-loaded='true'] {
+  opacity: 1;
 }
 
 .dashboard-pin__tile svg {
@@ -1746,6 +1797,7 @@ h1 {
 
 .top-bar__tab {
   transition: var(--transition-control);
+  container-type: inline-size;
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
@@ -1799,6 +1851,34 @@ h1 {
   padding-inline-start: 10px;
   overflow: hidden;
   text-align: start;
+}
+
+.top-bar__tab-icons {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A tab with neither an account avatar nor an app icon (e.g. a dashboard tab) must
+   not leave the wrapper inserting the parent's gap before the label. */
+.top-bar__tab-icons:empty {
+  display: none;
+}
+
+/* When the tab is narrow, tuck the account avatar half behind the app icon so both
+   stay visible (the app icon keeps tabs distinguishable at a glance). The negative
+   margin is scoped to the case where an avatar actually precedes the icon, so a
+   lone app icon (account-less tab) is never pulled under the tab's start padding. */
+@container (max-width: 9.5em) {
+  .top-bar__tab-icons {
+    gap: 0;
+  }
+
+  .top-bar__tab-avatar + .app-icon--tab {
+    margin-inline-start: -8px;
+    box-shadow: 0 0 0 2px var(--color-control-bg);
+  }
 }
 
 .top-bar__tab-avatar {
@@ -3511,6 +3591,9 @@ h1 {
   .select,
   .field__input,
   .segmented-control__option,
+  .dashboard-pin,
+  .dashboard-pin__tile,
+  .app-icon__image,
   .top-bar__tab,
   .top-bar__tab-menu-item,
   .top-bar__history-menu-item,

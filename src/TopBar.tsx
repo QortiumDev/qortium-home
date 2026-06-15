@@ -2,6 +2,9 @@ import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin,
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAccountProfile } from './accountProfile';
+import type { AppIconResolution } from './appIcon';
+import { getAppIconResolution } from './appIcon';
+import { AppIcon } from './AppIcon';
 import { NodeStatusButton } from './NodeStatusButton';
 import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
@@ -47,6 +50,7 @@ type TabDropPosition = 'after' | 'before';
 type BrowserTabSummary = {
   account: QortiumAccountSummary | null;
   canPinToDashboard: boolean;
+  displayUrl: string;
   id: string;
   label: string;
 };
@@ -852,6 +856,16 @@ function BrowserTabs({
     void command();
   }
 
+  const tabIconResolutions = useMemo(() => {
+    const resolutions = new Map<string, AppIconResolution | null>();
+
+    for (const tab of tabs) {
+      resolutions.set(tab.id, getAppIconResolution(tab.displayUrl, nodeApiUrl, nodeEpoch));
+    }
+
+    return resolutions;
+  }, [tabs, nodeApiUrl, nodeEpoch]);
+
   return (
     <div className="top-bar__tabs" ref={tabStripRef}>
       <div
@@ -866,6 +880,7 @@ function BrowserTabs({
       >
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
+          const iconResolution = tabIconResolutions.get(tab.id) ?? null;
 
           return (
             <div
@@ -910,7 +925,12 @@ function BrowserTabs({
                   onSelectTab(tab.id);
                 }}
               >
-                <TabAvatar account={tab.account} nodeApiUrl={nodeApiUrl} nodeEpoch={nodeEpoch} />
+                <span className="top-bar__tab-icons">
+                  <TabAvatar account={tab.account} nodeApiUrl={nodeApiUrl} nodeEpoch={nodeEpoch} />
+                  {iconResolution ? (
+                    <AppIcon resolution={iconResolution} size={16} variant="tab" />
+                  ) : null}
+                </span>
                 <span className="top-bar__tab-label">{tab.label}</span>
               </button>
               <button

@@ -2088,6 +2088,7 @@ export function App() {
         tabs={tabState.tabs.map((tab) => ({
           account: accountsState.accounts.find((account) => account.id === tab.accountId) ?? null,
           canPinToDashboard: getCurrentRouteForTab(tab).kind !== 'dashboard',
+          displayUrl: getCurrentRouteForTab(tab).displayUrl,
           id: tab.id,
           label: getTabLabel(tab),
         }))}
