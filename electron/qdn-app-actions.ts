@@ -36,6 +36,7 @@ export const QDN_NAME_ACTIONS = [
 // PAYMENT and SEND_COIN are aliases for the same coin-transfer transaction.
 export const QDN_PAYMENT_ACTIONS = ['PAYMENT', 'SEND_COIN', 'TRANSFER_ASSET'] as const;
 export const QDN_POLL_ACTIONS = ['CREATE_POLL', 'UPDATE_POLL', 'VOTE_ON_POLL'] as const;
+export const QDN_TRUST_ACTIONS = ['RATE_ACCOUNT'] as const;
 export const QDN_CHAT_ACTIONS = ['SEND_CHAT_MESSAGE'] as const;
 export const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
@@ -85,6 +86,7 @@ export const QDN_APP_BRIDGE_ACTIONS = [
   ...QDN_NAME_ACTIONS,
   ...QDN_PAYMENT_ACTIONS,
   ...QDN_POLL_ACTIONS,
+  ...QDN_TRUST_ACTIONS,
   ...QDN_CHAT_ACTIONS,
   ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
   ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,

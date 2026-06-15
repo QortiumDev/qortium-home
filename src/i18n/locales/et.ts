@@ -341,6 +341,7 @@ export const et: Record<TranslationKey, string> = {
   "qdnWrite.action.leaveGroup": "Lahku grupist",
   "qdnWrite.action.publishResource": "Avalda QDN-i ressurss",
   "qdnWrite.action.publishResources": "Avalda QDN-i ressursid",
+  "qdnWrite.action.rateAccount": "Hinda kontot",
   "qdnWrite.action.registerName": "Registreeri nimi",
   "qdnWrite.action.removeGroupAdmin": "Eemalda grupi administraator",
   "qdnWrite.action.removeMintingAccount": "Eemalda mintimisvõti",

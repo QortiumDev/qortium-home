@@ -341,6 +341,7 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.action.leaveGroup": "Kilépés a csoportból",
   "qdnWrite.action.publishResource": "QDN-erőforrás közzététele",
   "qdnWrite.action.publishResources": "QDN-erőforrások közzététele",
+  "qdnWrite.action.rateAccount": "Fiók értékelése",
   "qdnWrite.action.registerName": "Név regisztrálása",
   "qdnWrite.action.removeGroupAdmin": "Csoportadmin eltávolítása",
   "qdnWrite.action.removeMintingAccount": "Minting kulcs eltávolítása",

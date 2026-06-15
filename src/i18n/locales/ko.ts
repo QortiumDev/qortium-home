@@ -341,6 +341,7 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.action.leaveGroup": "그룹 탈퇴",
   "qdnWrite.action.publishResource": "QDN 리소스 게시",
   "qdnWrite.action.publishResources": "QDN 리소스 일괄 게시",
+  "qdnWrite.action.rateAccount": "계정 평가",
   "qdnWrite.action.registerName": "이름 등록",
   "qdnWrite.action.removeGroupAdmin": "그룹 관리자 제거",
   "qdnWrite.action.removeMintingAccount": "민팅 키 제거",
