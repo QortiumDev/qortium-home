@@ -57,6 +57,7 @@ type QdnViewerProps = {
   nodeApiUrl: string;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
   resource: QdnResource;
   suspended?: boolean;
   tabId: string;
@@ -1690,6 +1691,7 @@ function QdnIframeContent({
   loadedResource,
   onOpenMediaPlayer,
   onOpenNewTab,
+  onOpenInCurrentTab,
   resource,
 }: {
   account: QortiumAccountSummary | null;
@@ -1697,13 +1699,16 @@ function QdnIframeContent({
   loadedResource: LoadedQdnResource;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
   resource: QdnResource;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const onOpenNewTabRef = useRef(onOpenNewTab);
+  const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
 
   onOpenNewTabRef.current = onOpenNewTab;
+  onOpenInCurrentTabRef.current = onOpenInCurrentTab;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
@@ -1761,6 +1766,9 @@ function QdnIframeContent({
           },
           onOpenNewTab: (address: string) => {
             onOpenNewTabRef.current?.(address);
+          },
+          onOpenInCurrentTab: (address: string) => {
+            onOpenInCurrentTabRef.current?.(address);
           },
           resourceUrl: resource.displayUrl,
           sessionKey: bridgeToken,
@@ -1826,6 +1834,7 @@ function QdnReadyContent({
   nodeApiUrl,
   onOpenMediaPlayer,
   onOpenNewTab,
+  onOpenInCurrentTab,
   resource,
   suspended,
   tabId,
@@ -1836,6 +1845,7 @@ function QdnReadyContent({
   nodeApiUrl: string;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
   resource: QdnResource;
   suspended: boolean;
   tabId: string;
@@ -1862,6 +1872,7 @@ function QdnReadyContent({
         loadedResource={loadedResource}
         onOpenMediaPlayer={onOpenMediaPlayer}
         onOpenNewTab={onOpenNewTab}
+        onOpenInCurrentTab={onOpenInCurrentTab}
         resource={resource}
       />
     );
@@ -1921,6 +1932,7 @@ export function QdnViewer({
   nodeApiUrl,
   onOpenMediaPlayer,
   onOpenNewTab,
+  onOpenInCurrentTab,
   resource,
   suspended = false,
   tabId,
@@ -1962,6 +1974,7 @@ export function QdnViewer({
           nodeApiUrl={nodeApiUrl}
           onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}
+          onOpenInCurrentTab={onOpenInCurrentTab}
           resource={resource}
           suspended={suspended}
           tabId={tabId}

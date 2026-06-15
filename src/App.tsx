@@ -681,6 +681,9 @@ export function App() {
   const openAppLinkInNewTabRef = useRef<
     ((address: string, sourceTabId: string | null) => void) | null
   >(null);
+  const openInCurrentTabRef = useRef<
+    ((address: string, sourceTabId: string | null) => void) | null
+  >(null);
   const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
@@ -1307,6 +1310,41 @@ export function App() {
     }));
   }
 
+  function openInCurrentTab(address: string, sourceTabId: string | null) {
+    const parsed = parseAppAddress(address);
+
+    if (!parsed.success) {
+      console.warn('Ignoring QDN app request to navigate current tab to an unsupported address.', address);
+      return;
+    }
+
+    setTabState((currentTabState) => {
+      const targetTab = currentTabState.tabs.find((tab) => tab.id === sourceTabId);
+
+      if (!targetTab) {
+        console.warn('Could not find source tab for OPEN_CURRENT_TAB request.', sourceTabId);
+        return currentTabState;
+      }
+
+      const currentEntry = targetTab.history.entries[targetTab.history.index] ?? null;
+      const newHistory =
+        currentEntry?.displayUrl === parsed.route.displayUrl
+          ? targetTab.history
+          : {
+              entries: [...targetTab.history.entries.slice(0, targetTab.history.index + 1), parsed.route],
+              index: targetTab.history.index + 1,
+            };
+
+      return {
+        ...currentTabState,
+        activeTabId: targetTab.id,
+        tabs: currentTabState.tabs.map((tab) =>
+          tab.id === targetTab.id ? { ...tab, history: newHistory } : tab,
+        ),
+      };
+    });
+  }
+
   function openQdnMediaPlayer(request: QortiumQdnMediaPlayerRequest) {
     const service = request.service.toUpperCase() as QdnService;
 
@@ -1635,6 +1673,7 @@ export function App() {
   };
 
   openAppLinkInNewTabRef.current = openAppLinkInNewTab;
+  openInCurrentTabRef.current = openInCurrentTab;
   openQdnMediaPlayerRef.current = openQdnMediaPlayer;
 
   useEffect(() => {
@@ -1692,6 +1731,18 @@ export function App() {
 
     return qdnEvents.onOpenNewTab((event) => {
       openAppLinkInNewTabRef.current?.(event.address, event.sourceTabId);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onOpenCurrentTab) {
+      return undefined;
+    }
+
+    return qdnEvents.onOpenCurrentTab((event) => {
+      openInCurrentTabRef.current?.(event.address, event.sourceTabId);
     });
   }, []);
 
@@ -2083,6 +2134,7 @@ export function App() {
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
+                  onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}

@@ -5177,6 +5177,36 @@ async function handleQdnAppRequest(
       return true;
     }
 
+    case 'OPEN_CURRENT_TAB': {
+      const address =
+        getString(getRequestValue(request, 'address')) || getString(getRequestValue(request, 'qdnUrl'));
+
+      if (!address) {
+        throw new Error('Address is required.');
+      }
+
+      if (!/^(qdn|home|core):\/\//i.test(address)) {
+        throw new Error('OPEN_CURRENT_TAB only accepts qdn://, home://, and core:// addresses.');
+      }
+
+      if (address.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
+        throw new Error('Address is too long.');
+      }
+
+      const hostWindow = context ? getQdnViewHostWindow(context) : null;
+
+      if (!context || !hostWindow) {
+        throw new Error('QDN navigate current tab request does not belong to an active window.');
+      }
+
+      hostWindow.webContents.send('qdn-app:open-current-tab', {
+        address,
+        sourceTabId: context.tabId,
+      });
+
+      return true;
+    }
+
     case 'OPEN_QDN_MEDIA_PLAYER': {
       const service = getRequiredRequestString(request, 'service', 'Service').toUpperCase();
 
