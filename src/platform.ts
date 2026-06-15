@@ -175,6 +175,7 @@ type QdnAppRequestContext = {
   displaySettings: QdnDisplaySettings;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
   resourceUrl: string;
   sessionKey: string;
 };
@@ -6559,6 +6560,31 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       }
 
       context.onOpenNewTab(address);
+
+      return true;
+    }
+
+    case 'OPEN_CURRENT_TAB': {
+      const address =
+        getString(getRequestValue(request, 'address')) || getString(getRequestValue(request, 'qdnUrl'));
+
+      if (!address) {
+        throw new Error('Address is required.');
+      }
+
+      if (!/^(qdn|home|core):\/\//i.test(address)) {
+        throw new Error('OPEN_CURRENT_TAB only accepts qdn://, home://, and core:// addresses.');
+      }
+
+      if (address.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
+        throw new Error('Address is too long.');
+      }
+
+      if (!context?.onOpenInCurrentTab) {
+        throw new Error('Navigating the current tab is not available in this context.');
+      }
+
+      context.onOpenInCurrentTab(address);
 
       return true;
     }

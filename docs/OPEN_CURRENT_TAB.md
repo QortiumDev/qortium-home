@@ -1,8 +1,8 @@
-# Add `NAVIGATE_CURRENT_TAB` bridge action
+# Add `OPEN_CURRENT_TAB` bridge action
 
 ## Goal
 
-Add a `NAVIGATE_CURRENT_TAB` QDN bridge action that lets a Q-App navigate the
+Add a `OPEN_CURRENT_TAB` QDN bridge action that lets a Q-App navigate the
 tab it is running in to a different QDN address, rather than always opening a
 new tab. The new tab stays in the existing tab (pushing to its history so the
 user can hit Back), and the tab becomes/stays active.
@@ -13,7 +13,7 @@ Contrast with `OPEN_NEW_TAB`, which always creates a brand-new tab.
 
 Browsium (`qortium-browser`) is a QDN app-discovery app. When a user clicks
 "Open" on an app card, the natural UX is to load that app in-place (same tab)
-rather than stacking an ever-growing tab bar. Without `NAVIGATE_CURRENT_TAB`,
+rather than stacking an ever-growing tab bar. Without `OPEN_CURRENT_TAB`,
 Browsium can only call `OPEN_NEW_TAB`.
 
 General use cases:
@@ -26,13 +26,13 @@ General use cases:
 ```ts
 // Navigate the current tab to the Apps explorer
 await qdnRequest({
-  action: 'NAVIGATE_CURRENT_TAB',
+  action: 'OPEN_CURRENT_TAB',
   address: 'qdn://APP/{publisherName}/Apps',
 });
 
 // Navigate to any resource (push to history, user can hit Back)
 await qdnRequest({
-  action: 'NAVIGATE_CURRENT_TAB',
+  action: 'OPEN_CURRENT_TAB',
   address: `qdn://APP/${name}/${identifier}`,
 });
 ```
@@ -42,18 +42,18 @@ Same 2 048-character length cap.
 
 ---
 
-## Files to change (5 files, ~40 lines total)
+## Files to change (desktop IPC path — see the platform note at the end for Android)
 
 ### 1. `electron/qdn-app-actions.ts`
 
-Add `'NAVIGATE_CURRENT_TAB'` to `QDN_APP_BRIDGE_ACTIONS`.
+Add `'OPEN_CURRENT_TAB'` to `QDN_APP_BRIDGE_ACTIONS`.
 
 ```diff
  export const QDN_APP_BRIDGE_ACTIONS = [
    ...
    'OPEN_NEW_TAB',
    'OPEN_QDN_MEDIA_PLAYER',
-+  'NAVIGATE_CURRENT_TAB',
++  'OPEN_CURRENT_TAB',
    ...
  ] as const;
 ```
@@ -83,7 +83,7 @@ The existing `'OPEN_NEW_TAB'` block ends at line 5103:
 Insert this block between `OPEN_NEW_TAB` and `OPEN_QDN_MEDIA_PLAYER`:
 
 ```ts
-    case 'NAVIGATE_CURRENT_TAB': {
+    case 'OPEN_CURRENT_TAB': {
       const address =
         getString(getRequestValue(request, 'address')) || getString(getRequestValue(request, 'qdnUrl'));
 
@@ -92,7 +92,7 @@ Insert this block between `OPEN_NEW_TAB` and `OPEN_QDN_MEDIA_PLAYER`:
       }
 
       if (!/^(qdn|home|core):\/\//i.test(address)) {
-        throw new Error('NAVIGATE_CURRENT_TAB only accepts qdn://, home://, and core:// addresses.');
+        throw new Error('OPEN_CURRENT_TAB only accepts qdn://, home://, and core:// addresses.');
       }
 
       if (address.length > QDN_OPEN_NEW_TAB_URL_MAX_LENGTH) {
@@ -105,7 +105,7 @@ Insert this block between `OPEN_NEW_TAB` and `OPEN_QDN_MEDIA_PLAYER`:
         throw new Error('QDN navigate current tab request does not belong to an active window.');
       }
 
-      hostWindow.webContents.send('qdn-app:navigate-current-tab', {
+      hostWindow.webContents.send('qdn-app:open-current-tab', {
         address,
         sourceTabId: context.tabId,
       });
@@ -121,7 +121,7 @@ Everything (validation, constant reuse, IPC send) is identical to `OPEN_NEW_TAB`
 
 ### 3. `electron/preload.cts`
 
-Add `onNavigateCurrentTab` to the `qdnEvents` object, immediately after the
+Add `onOpenCurrentTab` to the `qdnEvents` object, immediately after the
 closing brace of `onOpenMediaPlayer` (~line 244), before the closing `},` of
 `qdnEvents`:
 
@@ -130,7 +130,7 @@ closing brace of `onOpenMediaPlayer` (~line 244), before the closing `},` of
          ipcRenderer.removeListener('qdn-app:open-media-player', listener);
        };
      },
-+    onNavigateCurrentTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {
++    onOpenCurrentTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {
 +      const listener = (
 +        _event: Electron.IpcRendererEvent,
 +        payload: { address: string; sourceTabId: string | null },
@@ -138,10 +138,10 @@ closing brace of `onOpenMediaPlayer` (~line 244), before the closing `},` of
 +        callback(payload);
 +      };
 +
-+      ipcRenderer.on('qdn-app:navigate-current-tab', listener);
++      ipcRenderer.on('qdn-app:open-current-tab', listener);
 +
 +      return () => {
-+        ipcRenderer.removeListener('qdn-app:navigate-current-tab', listener);
++        ipcRenderer.removeListener('qdn-app:open-current-tab', listener);
 +      };
 +    },
    },
@@ -154,7 +154,7 @@ The pattern is an exact copy of `onOpenNewTab` with a different IPC channel name
 
 ### 4. `src/vite-env.d.ts`
 
-Add `onNavigateCurrentTab` to the `qdnEvents` type (~line 699).
+Add `onOpenCurrentTab` to the `qdnEvents` type (~line 699).
 
 Current block:
 ```ts
@@ -177,7 +177,7 @@ After:
       onOpenMediaPlayer: (
         callback: (event: QortiumQdnMediaPlayerRequest) => void,
       ) => () => void;
-      onNavigateCurrentTab: (
+      onOpenCurrentTab: (
         callback: (event: { address: string; sourceTabId: string | null }) => void,
       ) => () => void;
     };
@@ -195,16 +195,16 @@ Two additions.
    const openAppLinkInNewTabRef = useRef<
      ((address: string, sourceTabId: string | null) => void) | null
    >(null);
-+  const navigateInCurrentTabRef = useRef<
++  const openInCurrentTabRef = useRef<
 +    ((address: string, sourceTabId: string | null) => void) | null
 +  >(null);
    const openQdnMediaPlayerRef = useRef<...>
 ```
 
-#### 5b. Add the `navigateInCurrentTab` function (~line 1306, after `openAppLinkInNewTab`)
+#### 5b. Add the `openInCurrentTab` function (~line 1306, after `openAppLinkInNewTab`)
 
 ```ts
-  function navigateInCurrentTab(address: string, sourceTabId: string | null) {
+  function openInCurrentTab(address: string, sourceTabId: string | null) {
     const parsed = parseAppAddress(address);
 
     if (!parsed.success) {
@@ -216,7 +216,7 @@ Two additions.
       const targetTab = currentTabState.tabs.find((tab) => tab.id === sourceTabId);
 
       if (!targetTab) {
-        console.warn('Could not find source tab for NAVIGATE_CURRENT_TAB request.', sourceTabId);
+        console.warn('Could not find source tab for OPEN_CURRENT_TAB request.', sourceTabId);
         return currentTabState;
       }
 
@@ -258,7 +258,7 @@ Right after the `openAppLinkInNewTabRef` assignment and the `onOpenNewTab`
 ```diff
    // existing ref assignment pattern — find by searching "openAppLinkInNewTabRef.current ="
    openAppLinkInNewTabRef.current = openAppLinkInNewTab;
-+  navigateInCurrentTabRef.current = navigateInCurrentTab;
++  openInCurrentTabRef.current = openInCurrentTab;
 ```
 
 And right after the `onOpenNewTab` `useEffect` (~line 1694):
@@ -267,12 +267,12 @@ And right after the `onOpenNewTab` `useEffect` (~line 1694):
   useEffect(() => {
     const qdnEvents = window.qortiumHome.qdnEvents;
 
-    if (!qdnEvents?.onNavigateCurrentTab) {
+    if (!qdnEvents?.onOpenCurrentTab) {
       return undefined;
     }
 
-    return qdnEvents.onNavigateCurrentTab((event) => {
-      navigateInCurrentTabRef.current?.(event.address, event.sourceTabId);
+    return qdnEvents.onOpenCurrentTab((event) => {
+      openInCurrentTabRef.current?.(event.address, event.sourceTabId);
     });
   }, []);
 ```
@@ -282,11 +282,11 @@ And right after the `onOpenNewTab` `useEffect` (~line 1694):
 ## How refs are assigned — context for the implementer
 
 Search `App.tsx` for `openAppLinkInNewTabRef.current =` to find the exact line
-where the existing ref is updated each render. Add `navigateInCurrentTabRef.current = navigateInCurrentTab`
+where the existing ref is updated each render. Add `openInCurrentTabRef.current = openInCurrentTab`
 on the next line.
 
 The ref pattern is used here (instead of putting the function directly in the
-`useEffect`) because `navigateInCurrentTab` closes over `setTabState` which is
+`useEffect`) because `openInCurrentTab` closes over `setTabState` which is
 stable, but the effect must not re-subscribe every render — the ref breaks that
 coupling cleanly.
 
@@ -296,10 +296,17 @@ coupling cleanly.
 
 | File | Change |
 |---|---|
-| `electron/qdn-app-actions.ts` | Add `'NAVIGATE_CURRENT_TAB'` to the actions array |
-| `electron/qdn.ts` | Add `case 'NAVIGATE_CURRENT_TAB':` handler (IPC channel `qdn-app:navigate-current-tab`) |
-| `electron/preload.cts` | Add `onNavigateCurrentTab` IPC-to-callback binding |
-| `src/vite-env.d.ts` | Add `onNavigateCurrentTab` to `qdnEvents` type |
-| `src/App.tsx` | Add ref + function + `useEffect` subscriber |
+| `electron/qdn-app-actions.ts` | Add `'OPEN_CURRENT_TAB'` to the actions array |
+| `electron/qdn.ts` | Add `case 'OPEN_CURRENT_TAB':` handler (IPC channel `qdn-app:open-current-tab`) |
+| `electron/preload.cts` | Add `onOpenCurrentTab` IPC-to-callback binding |
+| `src/vite-env.d.ts` | Add `onOpenCurrentTab` to `qdnEvents` type |
+| `src/App.tsx` | Add ref + function + `useEffect` subscriber, and pass `onOpenInCurrentTab` to `QdnViewer` |
+| `src/platform.ts` | Add `onOpenInCurrentTab` to `QdnAppRequestContext` and a `case 'OPEN_CURRENT_TAB':` handler (Android path) |
+| `src/QdnViewer.tsx` | Thread `onOpenInCurrentTab` through to the iframe bridge context |
 
 No new constants, no new packages, no behaviour changes to existing actions.
+
+> **Platform note:** The Electron desktop path routes `OPEN_CURRENT_TAB` over IPC
+> (`electron/*` + `src/App.tsx`), while Android handles the same action directly in
+> the shared renderer via `src/platform.ts` and `src/QdnViewer.tsx`. Both ultimately
+> call the same `openInCurrentTab` logic in `App.tsx`.

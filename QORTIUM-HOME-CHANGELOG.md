@@ -33,6 +33,12 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-15 - qdn: add OPEN_CURRENT_TAB bridge action
+
+QDN apps can now navigate the tab they are running in to a different Qortium address through a new `OPEN_CURRENT_TAB` bridge action, instead of always opening a new tab. The destination is pushed onto the tab's history so the user can hit Back to return to the originating app, and asking to navigate to the address that is already showing leaves the history unchanged.
+
+It accepts the same `qdn://`, `home://`, and `core://` address formats (and the same length limit) as `OPEN_NEW_TAB`, and works the same way on both the desktop and Android apps.
+
 ### 2026-06-15 - qdn: add group kick and ban read bridge actions
 
 QDN apps can now query group kick and ban history through four new named bridge actions: `GET_GROUP_KICKS`, `GET_GROUP_BANS`, `GET_MEMBER_KICKS`, and `GET_MEMBER_BANS`.

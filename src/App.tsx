@@ -2132,6 +2132,7 @@ export function App() {
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
+                  onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}
