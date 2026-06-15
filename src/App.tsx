@@ -313,6 +313,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.voteOnPoll';
     case 'UPDATE_POLL':
       return 'qdnWrite.action.updatePoll';
+    case 'RATE_ACCOUNT':
+      return 'qdnWrite.action.rateAccount';
     case 'BUY_NAME':
       return 'qdnWrite.action.buyName';
     case 'CANCEL_SELL_NAME':

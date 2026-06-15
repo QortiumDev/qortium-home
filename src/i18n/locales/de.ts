@@ -341,6 +341,7 @@ export const de: Record<TranslationKey, string> = {
   "qdnWrite.action.leaveGroup": "Gruppe verlassen",
   "qdnWrite.action.publishResource": "QDN-Ressource veröffentlichen",
   "qdnWrite.action.publishResources": "QDN-Ressourcen veröffentlichen",
+  "qdnWrite.action.rateAccount": "Konto bewerten",
   "qdnWrite.action.registerName": "Namen registrieren",
   "qdnWrite.action.removeGroupAdmin": "Gruppenadmin entfernen",
   "qdnWrite.action.removeMintingAccount": "Minting-Schlüssel entfernen",
