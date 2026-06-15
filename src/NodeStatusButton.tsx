@@ -349,15 +349,6 @@ export function NodeStatusButton({
     >
       {({ close }) => (
         <div className="node-status__content">
-          <dl className="detail-list">
-            {detailRows.map((row) => (
-              <div className="detail-list__row" key={row.label}>
-                <dt className="detail-list__label">{row.label}</dt>
-                <dd className="detail-list__value">{row.value}</dd>
-              </div>
-            ))}
-          </dl>
-
           <div className="node-status__actions">
             <button
               className="button button--secondary"
@@ -371,6 +362,15 @@ export function NodeStatusButton({
               {t('common.settings')}
             </button>
           </div>
+
+          <dl className="detail-list">
+            {detailRows.map((row) => (
+              <div className="detail-list__row" key={row.label}>
+                <dt className="detail-list__label">{row.label}</dt>
+                <dd className="detail-list__value">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       )}
     </Popover>

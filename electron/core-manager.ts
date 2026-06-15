@@ -28,10 +28,15 @@ const RUNTIME_CHAIN_FILE = 'runtime-chain.json';
 const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
 const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
 const LOCAL_CORE_STATUS_PATH = '/admin/status';
+const LOCAL_CORE_INFO_PATH = '/admin/info';
 const START_TIMEOUT_MS = 120_000;
 const STOP_TIMEOUT_MS = 45_000;
 const STATUS_TIMEOUT_MS = 2_500;
 const POLL_INTERVAL_MS = 2_000;
+// After stopping a running core for an in-place update, wait briefly so the OS
+// releases file handles on the jar (Windows locks the jar of a running JVM,
+// which would otherwise block replacing the install directory).
+const FILE_RELEASE_SETTLE_MS = 2_000;
 const MIN_JAVA_MAJOR_VERSION = 17;
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_API_BASE_URL = 'https://api.adoptium.net/v3/binary/latest';
@@ -78,6 +83,7 @@ type GithubRelease = {
   prerelease?: unknown;
   published_at?: unknown;
   tag_name?: unknown;
+  target_commitish?: unknown;
 };
 
 type CoreReleaseAsset = {
@@ -104,6 +110,7 @@ type CoreReleaseSummary =
       asset: CoreReleaseAsset;
       available: true;
       channel: CoreChannel;
+      commit: string;
       htmlUrl: string;
       name: string;
       publishedAt: string;
@@ -177,11 +184,14 @@ type CoreRuntimeBlockedStatus = {
 type CoreRuntimeStatus = {
   apiKeyPath?: string;
   blocked?: CoreRuntimeBlockedStatus;
+  buildVersion?: string;
   jarPath?: string;
   localApiUrl: string;
   owner: CoreRuntimeOwner;
   pid?: number;
   running: boolean;
+  runningCommit?: string;
+  runningVersion?: string;
   runtimePath?: string;
   settingsPath?: string;
   status: unknown;
@@ -722,6 +732,7 @@ function releaseToSummary(channel: CoreChannel, value: unknown): CoreReleaseSumm
     available: true,
     channel,
     asset,
+    commit: getString(release.target_commitish),
     tagName,
     name: getString(release.name) || tagName,
     htmlUrl: getString(release.html_url),
@@ -862,6 +873,25 @@ function isPidRunning(pid: number) {
       (error as NodeJS.ErrnoException).code === 'EPERM'
     );
   }
+}
+
+// Waits until a process has actually exited (and therefore released its file
+// handles/locks), polling up to timeoutMs. The local Core API stops answering
+// well before the JVM finishes shutting down, so an API-based "stopped" check is
+// not enough before replacing the install files (notably on Windows, where the
+// running jar stays locked until the process exits). Returns true if it exited.
+async function waitForPidExit(pid: number, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (!isPidRunning(pid)) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return !isPidRunning(pid);
 }
 
 export async function isManagedCoreRuntimeRunning() {
@@ -1270,6 +1300,47 @@ function getJavaRuntimeEnv(java: JavaStatus) {
   };
 }
 
+function parseCoreBuildVersion(buildVersion: string): { commit?: string; version?: string } {
+  // e.g. "qortium-1.0.0-0368587" -> { version: "1.0.0", commit: "0368587" }
+  const match = buildVersion.match(/-([0-9]+\.[0-9]+\.[0-9]+(?:[-.][0-9A-Za-z.]+)?)-([0-9a-fA-F]{6,40})$/);
+
+  if (match) {
+    return { commit: match[2], version: match[1] };
+  }
+
+  return {};
+}
+
+async function fetchCoreBuildInfo(
+  signal: AbortSignal,
+): Promise<{ buildVersion?: string; runningCommit?: string; runningVersion?: string }> {
+  try {
+    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_INFO_PATH}`, { signal });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    const info: unknown = await response.json();
+
+    if (!isObject(info)) {
+      return {};
+    }
+
+    const buildVersion = getString(info.buildVersion);
+
+    if (!buildVersion) {
+      return {};
+    }
+
+    const parsed = parseCoreBuildVersion(buildVersion);
+
+    return { buildVersion, runningCommit: parsed.commit, runningVersion: parsed.version };
+  } catch {
+    return {};
+  }
+}
+
 async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
@@ -1289,7 +1360,10 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
       };
     }
 
+    const buildInfo = await fetchCoreBuildInfo(abortController.signal);
+
     return {
+      ...buildInfo,
       localApiUrl: LOCAL_CORE_API_URL,
       owner: 'unknown',
       running: true,
@@ -1338,18 +1412,22 @@ async function resolveRuntimeStatusOwner(
   const runningCore = readRunningLocalCoreApiKey();
 
   if (runningCore) {
-    const owner: CoreRuntimeOwner =
-      installedCore &&
-      (isPathWithinPath(runningCore.apiKeyDirectory, installedCore.runtimePath) ||
-        isPathWithinPath(runningCore.jarPath, installedCore.installPath))
-        ? 'home'
-        : 'external';
+    // A core is Home-owned when it runs out of our managed install/runtime
+    // directories. Comparing against the managed base paths (not only the
+    // recorded install metadata) keeps ownership correct even when the install
+    // metadata or jar has since been removed while the core keeps running.
+    const isHomeManaged =
+      isPathWithinPath(runningCore.apiKeyDirectory, getCoreRuntimePath()) ||
+      isPathWithinPath(runningCore.jarPath, getCoreInstallPath()) ||
+      (installedCore !== null &&
+        (isPathWithinPath(runningCore.apiKeyDirectory, installedCore.runtimePath) ||
+          isPathWithinPath(runningCore.jarPath, installedCore.installPath)));
 
     return {
       ...runtime,
       apiKeyPath: runningCore.path,
       jarPath: runningCore.jarPath,
-      owner,
+      owner: isHomeManaged ? 'home' : 'external',
       pid: runningCore.pid,
       runtimePath: runningCore.apiKeyDirectory,
       settingsPath: runningCore.settingsPath,
@@ -1360,10 +1438,18 @@ async function resolveRuntimeStatusOwner(
     return {
       ...runtime,
       owner: 'home',
+      pid: (await readInstalledCoreRuntimePid(installedCore)) ?? undefined,
       runtimePath: installedCore.runtimePath,
     };
   }
 
+  // We deliberately do NOT fall back to "a recorded run.pid is alive" here: pids
+  // are reused, and on platforms without readRunningLocalCoreApiKey() (Windows /
+  // macOS) that would let an unrelated process be mistaken for a Home-owned core
+  // and killed. Ownership stays 'unknown' (so stopCore refuses) unless it can be
+  // positively confirmed above. The jar-deleted-but-running case is still handled
+  // on Linux, where readRunningLocalCoreApiKey() resolves the live process's own
+  // jar path into our managed install directory.
   return runtime;
 }
 
@@ -1669,6 +1755,20 @@ async function installCore(request: CoreInstallRequest) {
     return await getStatus();
   }
 
+  // If Home is currently running this core, update in place by stopping it
+  // before replacing the files and restarting it afterwards. This keeps the
+  // download/extract phase running concurrently with the live core and avoids
+  // the Windows file lock that blocks replacing the jar of a running JVM.
+  // Only do the in-place stop -> replace -> restart dance when there is a known,
+  // valid existing install (existingCore !== null): we then have a previous
+  // version to fall back to and restart if the update fails. A running core with
+  // no/incomplete install metadata is left running and updated without the dance.
+  const runtimeBefore = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), existingCore);
+  const restartAfterInstall = runtimeBefore.running && runtimeBefore.owner === 'home' && existingCore !== null;
+  const ownedPid = restartAfterInstall
+    ? runtimeBefore.pid ?? (await readRuntimePid(runtimeBefore.runtimePath ?? getCoreRuntimePath()))
+    : null;
+
   const stagingPath = path.join(
     getCoreBasePath(),
     sanitizePathSegment(`_install-staging-${Date.now()}-${release.tagName}`),
@@ -1677,6 +1777,12 @@ async function installCore(request: CoreInstallRequest) {
     getCoreDownloadsPath(),
     `${sanitizePathSegment(release.tagName)}-${sanitizePathSegment(release.asset.name)}`,
   );
+  // When updating in place we move the current install aside to this backup
+  // first, install into the (now empty) target, and only delete the backup on
+  // success. If anything fails we restore it, so a failed update never destroys
+  // a working install.
+  const backupPath = path.join(getCoreBasePath(), sanitizePathSegment(`_install-backup-${Date.now()}`));
+  let backupInUse = false;
 
   await mkdir(getCoreDownloadsPath(), { recursive: true });
   await rm(stagingPath, { recursive: true, force: true });
@@ -1698,9 +1804,29 @@ async function installCore(request: CoreInstallRequest) {
 
     await ensureRuntimeChainCompatible(getCoreRuntimePath(), release.tagName, runtimeIdentity);
 
-    await movePathReplacingDestination(extractedCorePaths.installPath, getCoreInstallPath());
-
     const installPath = getCoreInstallPath();
+
+    if (restartAfterInstall) {
+      await stopCore({ quiet: true });
+
+      // Wait for the process to actually exit (not just the API to go quiet) so
+      // the OS releases the jar lock before we touch the install directory.
+      if (ownedPid !== null) {
+        await waitForPidExit(ownedPid, STOP_TIMEOUT_MS);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, FILE_RELEASE_SETTLE_MS));
+
+      // Move the working install aside instead of deleting it up front.
+      await rm(backupPath, { recursive: true, force: true });
+
+      if (existsSync(installPath)) {
+        await movePath(installPath, backupPath);
+        backupInUse = true;
+      }
+    }
+
+    await movePathReplacingDestination(extractedCorePaths.installPath, installPath);
     const previewPath = path.join(installPath, path.relative(extractedCorePaths.installPath, extractedCorePaths.previewPath));
     const jarPath = path.join(installPath, path.relative(extractedCorePaths.installPath, extractedCorePaths.jarPath));
 
@@ -1727,18 +1853,50 @@ async function installCore(request: CoreInstallRequest) {
     await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, runtimeIdentity, {
       recordIfMissing: true,
     });
+
+    if (restartAfterInstall) {
+      await startCore({ quiet: true });
+    }
   } catch (error) {
     await rm(stagingPath, { recursive: true, force: true });
+
+    // Restore the previous install we moved aside, so the core has a valid
+    // version to fall back to (and to restart).
+    if (backupInUse && existsSync(backupPath)) {
+      try {
+        await movePathReplacingDestination(backupPath, getCoreInstallPath());
+        backupInUse = false;
+      } catch {
+        // leave the backup in place for manual recovery
+      }
+    }
+
+    if (restartAfterInstall) {
+      // Best effort: bring the previous (now restored) version back up.
+      try {
+        await startCore({ quiet: true });
+      } catch {
+        // leave the core stopped if it cannot be restarted
+      }
+    }
+
     throw error;
   } finally {
     await rm(downloadPath, { force: true });
     await rm(stagingPath, { recursive: true, force: true });
+    // On success the backup holds the old version and can be discarded; on a
+    // restored failure it was already moved back (backupInUse=false here).
+    if (backupInUse) {
+      await rm(backupPath, { recursive: true, force: true });
+    }
   }
 
   publishProgress({
     action: 'idle',
     kind: 'success',
-    message: `Installed Qortium Core ${release.tagName}.`,
+    message: restartAfterInstall
+      ? `Updated and restarted Qortium Core ${release.tagName}.`
+      : `Installed Qortium Core ${release.tagName}.`,
     percent: 100,
   });
 
@@ -1827,7 +1985,7 @@ function getStopScript(previewPath: string) {
     : path.join(previewPath, 'stop.sh');
 }
 
-async function startCore() {
+async function startCore(options: { quiet?: boolean } = {}) {
   const installedCore = await readInstalledCore();
 
   if (!installedCore) {
@@ -1878,23 +2036,42 @@ async function startCore() {
     throw new Error(withCoreLogPaths(getErrorMessage(error), installedCore.logPaths));
   }
 
-  publishProgress({
-    action: 'idle',
-    kind: 'success',
-    message: 'Qortium Core is running.',
-    percent: 100,
-  });
+  if (!options.quiet) {
+    publishProgress({
+      action: 'idle',
+      kind: 'success',
+      message: 'Qortium Core is running.',
+      percent: 100,
+    });
+  }
 
   return await getStatus();
 }
 
-async function stopCore() {
-  const installedCore = await readInstalledCore();
+async function stopCoreByPid(pid: number) {
+  const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGKILL'];
 
-  if (!installedCore) {
-    throw new Error('No Qortium Core install was found.');
+  for (const signal of signals) {
+    if (!isPidRunning(pid)) {
+      return;
+    }
+
+    try {
+      process.kill(pid, signal);
+    } catch {
+      return;
+    }
+
+    const deadline = Date.now() + 5_000;
+
+    while (Date.now() < deadline && isPidRunning(pid)) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
+}
 
+async function stopCore(options: { quiet?: boolean } = {}) {
+  const installedCore = await readInstalledCore();
   const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 
   if (!currentRuntime.running) {
@@ -1905,16 +2082,12 @@ async function stopCore() {
     throw new Error('The local Qortium Core was started outside Home. Stop it from the launcher or terminal that started it.');
   }
 
-  const stopScript = getStopScript(installedCore.previewPath);
-
-  if (!existsSync(stopScript)) {
-    throw new Error(
-      withCoreLogPaths(
-        `The installed Core release is missing its preview stop script at ${stopScript}.`,
-        installedCore.logPaths,
-      ),
-    );
+  if (currentRuntime.owner !== 'home') {
+    throw new Error('Home could not confirm it manages the running Qortium Core, so it was not stopped.');
   }
+
+  const logPaths = installedCore?.logPaths ?? getCoreLogPaths(getCoreRuntimePath());
+  const stopScript = installedCore ? getStopScript(installedCore.previewPath) : null;
 
   publishProgress({
     action: 'stopping',
@@ -1923,23 +2096,40 @@ async function stopCore() {
     percent: 5,
   });
   try {
-    await runScript(
-      stopScript,
-      [`--runtime-dir=${installedCore.runtimePath}`],
-      installedCore.previewPath,
-      getJavaRuntimeEnv(await getJavaStatus()),
-    );
+    if (installedCore && stopScript && existsSync(stopScript)) {
+      await runScript(
+        stopScript,
+        [`--runtime-dir=${installedCore.runtimePath}`],
+        installedCore.previewPath,
+        getJavaRuntimeEnv(await getJavaStatus()),
+      );
+    } else {
+      // The install files are gone (e.g. the jar was deleted) but the core is
+      // still running: terminate the recorded process directly so the user is
+      // not stuck with a running-but-unmanageable core.
+      const pid =
+        currentRuntime.pid ?? (await readRuntimePid(currentRuntime.runtimePath ?? getCoreRuntimePath())) ?? null;
+
+      if (pid === null) {
+        throw new Error('Could not determine the running Qortium Core process to stop.');
+      }
+
+      await stopCoreByPid(pid);
+    }
+
     await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
   } catch (error) {
-    throw new Error(withCoreLogPaths(getErrorMessage(error), installedCore.logPaths));
+    throw new Error(withCoreLogPaths(getErrorMessage(error), logPaths));
   }
 
-  publishProgress({
-    action: 'idle',
-    kind: 'success',
-    message: 'Qortium Core is stopped.',
-    percent: 100,
-  });
+  if (!options.quiet) {
+    publishProgress({
+      action: 'idle',
+      kind: 'success',
+      message: 'Qortium Core is stopped.',
+      percent: 100,
+    });
+  }
 
   return await getStatus();
 }

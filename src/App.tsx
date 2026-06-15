@@ -1175,6 +1175,18 @@ export function App() {
     navigateToRoute(SETTINGS_ROUTE);
   }
 
+  function openSettingsSection(sectionId: SettingsSectionId) {
+    // Open Settings with only the requested section expanded, so the Dashboard
+    // tile gears jump straight to the relevant controls.
+    setSettingsExpansion({
+      core: sectionId === 'core',
+      display: sectionId === 'display',
+      home: sectionId === 'home',
+      node: sectionId === 'node',
+    });
+    navigateToRoute(SETTINGS_ROUTE);
+  }
+
   function openSettingsInNewTab() {
     const tab = createBrowserTab(getDefaultAccountId(accountsState), {
       entries: [SETTINGS_ROUTE],
@@ -2180,6 +2192,7 @@ export function App() {
                   onOpenDashboardPin={openDashboardPin}
                   onOpenCoreApiDocs={openCoreApiDocs}
                   onOpenSettings={openSettings}
+                  onOpenSettingsSection={openSettingsSection}
                   onRemoveDashboardPin={unpinDashboardLink}
                   onRenameDashboardPin={renameDashboardPin}
                   onReorderDashboardPin={reorderDashboardPin}

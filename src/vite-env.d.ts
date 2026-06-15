@@ -151,6 +151,7 @@ type QortiumCoreReleaseSummary =
       asset: QortiumCoreReleaseAsset;
       available: true;
       channel: QortiumCoreChannel;
+      commit: string;
       htmlUrl: string;
       name: string;
       publishedAt: string;
@@ -207,11 +208,14 @@ type QortiumCoreRuntimeStatus = {
     message: string;
     runtimePath: string;
   };
+  buildVersion?: string;
   jarPath?: string;
   localApiUrl: string;
   owner: 'external' | 'home' | 'unknown';
   pid?: number;
   running: boolean;
+  runningCommit?: string;
+  runningVersion?: string;
   runtimePath?: string;
   settingsPath?: string;
   status: unknown;
@@ -244,7 +248,9 @@ type QortiumAppUpdatePlatform = {
 
 type QortiumAppUpdateEnvironment = {
   currentVersion: string;
+  installDir?: string;
   platform: QortiumAppUpdatePlatform;
+  updatesDir?: string;
 };
 
 type QortiumAppUpdateAsset = {
@@ -635,6 +641,7 @@ interface Window {
     };
     system?: {
       openPath: (filePath: string) => Promise<void>;
+      revealPath: (filePath: string) => Promise<void>;
     };
     windows?: {
       closeCurrentWindow: () => Promise<void>;

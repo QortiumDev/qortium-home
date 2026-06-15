@@ -1,4 +1,4 @@
-import { Braces, Download, FolderOpen, Globe2, Pencil, Settings as SettingsIcon, X } from 'lucide-react';
+import { Braces, Download, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
@@ -7,7 +7,8 @@ import {
   type AppUpdatesState,
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
-import { getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
+import { getCoreRuntimeAction, getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
+import { DashboardCardHeader } from './DashboardCardActions';
 import { getDashboardPinDisplay } from './dashboardPinDisplay';
 import type { DashboardPin, DashboardPinDropPosition } from './dashboardPins';
 import { getTranslationLanguage, t } from './i18n';
@@ -21,14 +22,16 @@ import {
   areReleaseTagsEqual,
   DetailList,
   formatReleaseTag,
+  getCoreLatestRows,
   getCoreReleaseBusyAction,
-  getCoreVersionValue,
-  getHomeReleaseUrl,
+  getCoreVersionRowValue,
   getHomeUpdateStatusText,
+  getHomeVersionRowValue,
   getPreferredCoreReleaseTarget,
   LinkedValue,
   type DetailRow,
 } from './releaseDisplay';
+import type { SettingsSectionId } from './SettingsPage';
 
 type DashboardPageProps = {
   accountsError: string;
@@ -44,6 +47,7 @@ type DashboardPageProps = {
   onOpenDashboardPin: (pin: DashboardPin) => void;
   onOpenCoreApiDocs: () => void;
   onOpenSettings: () => void;
+  onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
   onRemoveDashboardPin: (pinId: string) => void;
   onRenameDashboardPin: (pinId: string, customLabel: string) => void;
   onReorderDashboardPin: (
@@ -96,7 +100,9 @@ function getCoreDashboardStatusText({
   }
 
   if (!status.installed && status.runtime.running) {
-    return t('core.statusLocalCoreDetected');
+    return status.runtime.owner === 'home'
+      ? t('core.statusRunningFilesMissing')
+      : t('core.statusLocalCoreDetected');
   }
 
   if (!status.installed) {
@@ -148,11 +154,7 @@ function getCoreRows({
     },
     {
       label: t('common.version'),
-      value: (
-        <LinkedValue className="dashboard-card__version-link" url={status?.installed?.htmlUrl}>
-          {getCoreVersionValue(status)}
-        </LinkedValue>
-      ),
+      value: getCoreVersionRowValue(status, 'dashboard-card__version-link'),
     },
   ];
 
@@ -165,16 +167,16 @@ function getCoreRows({
     });
   }
 
-  if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
-    rows.push({
-      label: t('common.latest'),
-      value: (
-        <LinkedValue className="dashboard-card__version-link" url={latestRelease.htmlUrl}>
-          {latestRelease.tagName}
-        </LinkedValue>
-      ),
-    });
-  }
+  const onChainStatus = onChainCoreUpdate.state === 'available' ? onChainCoreUpdate.status : null;
+
+  rows.push(
+    ...getCoreLatestRows({
+      installedTagName: installedVersion,
+      linkClassName: 'dashboard-card__version-link',
+      onChain: onChainStatus,
+      release: latestRelease,
+    }),
+  );
 
   return rows;
 }
@@ -182,9 +184,11 @@ function getCoreRows({
 function ManagedCoreDashboardCard({
   coreManager,
   onChainCoreUpdate,
+  onOpenSettingsSection,
 }: {
   coreManager: CoreManagerState;
   onChainCoreUpdate: OnChainCoreUpdateController;
+  onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
 }) {
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
@@ -230,7 +234,8 @@ function ManagedCoreDashboardCard({
       onChainCoreUpdate.status,
     ],
   );
-  const hasAction = showOnChainInstallAction || showReleaseUpdateAction;
+  const runtimeAction = getCoreRuntimeAction(coreManager);
+  const hasAction = showOnChainInstallAction || showReleaseUpdateAction || !!runtimeAction;
 
   if (!coreManager.coreApi) {
     return null;
@@ -238,9 +243,15 @@ function ManagedCoreDashboardCard({
 
   return (
     <section className="dashboard-card dashboard-card--core" aria-label={t('core.sectionTitle')}>
-      <div className="dashboard-card__header">
-        <h2 className="dashboard-card__title">{t('core.sectionTitle')}</h2>
-      </div>
+      <DashboardCardHeader
+        isRefreshing={coreManager.isBusy || onChainCoreUpdate.isBusy}
+        title={t('core.sectionTitle')}
+        onOpenSettings={() => onOpenSettingsSection('core')}
+        onRefresh={() => {
+          void coreManager.refreshStatus();
+          void onChainCoreUpdate.refreshStatus();
+        }}
+      />
 
       <DetailList className="dashboard-card__details" rows={rows} />
 
@@ -283,9 +294,27 @@ function ManagedCoreDashboardCard({
               onClick={() => coreManager.installCore(releaseTarget.channel)}
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
-              {coreManager.busyAction === releaseTargetBusyAction
-                ? t('common.installing')
-                : t('updates.installUpdate')}
+              {coreManager.busyAction === 'updating'
+                ? t('common.updating')
+                : coreManager.busyAction === releaseTargetBusyAction
+                  ? t('common.installing')
+                  : t('updates.installUpdate')}
+            </button>
+          ) : null}
+          {runtimeAction ? (
+            <button
+              className="button button--secondary"
+              disabled={runtimeAction.disabled}
+              title={runtimeAction.title}
+              type="button"
+              onClick={runtimeAction.onClick}
+            >
+              {runtimeAction.kind === 'start' ? (
+                <Play aria-hidden="true" size={18} strokeWidth={2} />
+              ) : (
+                <Square aria-hidden="true" size={18} strokeWidth={2} />
+              )}
+              {runtimeAction.label}
             </button>
           ) : null}
         </div>
@@ -303,17 +332,13 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
     },
     {
       label: t('common.version'),
-      value: (
-        <LinkedValue className="dashboard-card__version-link" url={getHomeReleaseUrl(updates.environment?.currentVersion)}>
-          {currentReleaseTag || t('common.checking')}
-        </LinkedValue>
-      ),
+      value: getHomeVersionRowValue(updates.environment, 'dashboard-card__version-link'),
     },
   ];
 
   if (updates.result?.release && !areReleaseTagsEqual(updates.result.release.tagName, currentReleaseTag)) {
     rows.push({
-      label: t('common.latest'),
+      label: t('common.latestGithub'),
       value: (
         <LinkedValue className="dashboard-card__version-link" url={updates.result.release.htmlUrl}>
           {updates.result.release.tagName}
@@ -325,7 +350,13 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
   return rows;
 }
 
-function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
+function HomeUpdateDashboardCard({
+  updates,
+  onOpenSettingsSection,
+}: {
+  updates: AppUpdatesState;
+  onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
+}) {
   const rows = getHomeUpdateRows(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =
@@ -334,9 +365,12 @@ function HomeUpdateDashboardCard({ updates }: { updates: AppUpdatesState }) {
 
   return (
     <section className="dashboard-card dashboard-card--updates" aria-label={t('common.appName')}>
-      <div className="dashboard-card__header">
-        <h2 className="dashboard-card__title">{t('common.appName')}</h2>
-      </div>
+      <DashboardCardHeader
+        isRefreshing={updates.isChecking}
+        title={t('common.appName')}
+        onOpenSettings={() => onOpenSettingsSection('home')}
+        onRefresh={updates.checkForUpdates}
+      />
 
       <DetailList className="dashboard-card__details" rows={rows} />
 
@@ -813,6 +847,7 @@ export function DashboardPage({
   onOpenDashboardPin,
   onOpenCoreApiDocs,
   onOpenSettings,
+  onOpenSettingsSection,
   onRemoveDashboardPin,
   onRenameDashboardPin,
   onReorderDashboardPin,
@@ -874,9 +909,10 @@ export function DashboardPage({
           <ManagedCoreDashboardCard
             coreManager={coreManager}
             onChainCoreUpdate={onChainCoreUpdate}
+            onOpenSettingsSection={onOpenSettingsSection}
           />
         ) : null}
-        <HomeUpdateDashboardCard updates={appUpdates} />
+        <HomeUpdateDashboardCard updates={appUpdates} onOpenSettingsSection={onOpenSettingsSection} />
       </div>
     </div>
   );

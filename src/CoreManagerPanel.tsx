@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import {
   formatJava,
   formatRuntime,
+  getCoreRuntimeAction,
   getCoreRuntimeBlockedMessage,
   type CoreManagerState,
 } from './coreManagerState';
@@ -13,12 +14,11 @@ import {
   type OnChainCoreUpdateController,
 } from './onChainCoreUpdateState';
 import {
-  areReleaseTagsEqual,
   DetailList,
+  getCoreLatestRows,
   getCoreReleaseBusyAction,
-  getCoreVersionValue,
+  getCoreVersionRowValue,
   getPreferredCoreReleaseTarget,
-  LinkedValue,
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
@@ -64,7 +64,9 @@ function getCoreSettingsStatusText({
   }
 
   if (!coreManager.status.installed && coreManager.status.runtime.running) {
-    return t('core.statusLocalCoreDetected');
+    return coreManager.status.runtime.owner === 'home'
+      ? t('core.statusRunningFilesMissing')
+      : t('core.statusLocalCoreDetected');
   }
 
   if (!coreManager.status.installed) {
@@ -103,11 +105,7 @@ function getCoreSettingsRows({
     },
     {
       label: t('common.version'),
-      value: (
-        <LinkedValue url={coreManager.status?.installed?.htmlUrl}>
-          {getCoreVersionValue(coreManager.status)}
-        </LinkedValue>
-      ),
+      value: getCoreVersionRowValue(coreManager.status),
     },
     {
       label: t('core.javaLabel'),
@@ -123,6 +121,12 @@ function getCoreSettingsRows({
     },
   ];
 
+  const installPath = coreManager.status?.installed?.installPath;
+
+  if (installPath) {
+    rows.push({ label: t('core.folderLabel'), path: installPath });
+  }
+
   const runtimeBlockedMessage = getCoreRuntimeBlockedMessage(coreManager.status);
 
   if (runtimeBlockedMessage) {
@@ -132,16 +136,16 @@ function getCoreSettingsRows({
     });
   }
 
-  if (latestRelease && !areReleaseTagsEqual(latestRelease.tagName, installedVersion)) {
-    rows.push({
-      label: t('common.latest'),
-      value: (
-        <LinkedValue url={latestRelease.htmlUrl}>
-          {latestRelease.tagName}
-        </LinkedValue>
-      ),
-    });
-  }
+  const onChainStatus =
+    onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
+
+  rows.push(
+    ...getCoreLatestRows({
+      installedTagName: installedVersion,
+      onChain: onChainStatus,
+      release: latestRelease,
+    }),
+  );
 
   if (onChainCoreUpdate.status.state === 'unavailable') {
     rows.push({
@@ -183,19 +187,7 @@ export function CoreManagerPanel({
     !!onChainStatus?.updateAvailable &&
     onChainStatus.autoUpdateMode !== 'INSTALL' &&
     !onChainInstallAttemptActive;
-  const runtimeAction = !showJavaAction && coreManager.canStart
-    ? {
-        icon: <Play aria-hidden="true" size={18} strokeWidth={2} />,
-        label: coreManager.busyAction === 'starting' ? t('common.starting') : t('core.startCore'),
-        onClick: coreManager.startCore,
-      }
-    : !showJavaAction && coreManager.canStop
-      ? {
-          icon: <Square aria-hidden="true" size={18} strokeWidth={2} />,
-          label: coreManager.busyAction === 'stopping' ? t('common.stopping') : t('core.stopCore'),
-          onClick: coreManager.stopCore,
-        }
-      : null;
+  const runtimeAction = getCoreRuntimeAction(coreManager, showJavaAction);
   const language = getTranslationLanguage();
   const rows = useMemo(
     () =>
@@ -280,21 +272,28 @@ export function CoreManagerPanel({
               onClick={() => coreManager.installCore(releaseTarget.channel)}
             >
               <Download aria-hidden="true" size={18} strokeWidth={2} />
-              {coreManager.busyAction === releaseTargetBusyAction
-                ? t('common.installing')
-                : coreManager.status?.installed
-                  ? t('updates.installUpdate')
-                  : t('core.installCore')}
+              {coreManager.busyAction === 'updating'
+                ? t('common.updating')
+                : coreManager.busyAction === releaseTargetBusyAction
+                  ? t('common.installing')
+                  : coreManager.status?.installed
+                    ? t('updates.installUpdate')
+                    : t('core.installCore')}
             </button>
           ) : null}
           {runtimeAction ? (
             <button
               className="button button--secondary"
-              disabled={coreManager.isBusy}
+              disabled={runtimeAction.disabled}
+              title={runtimeAction.title}
               type="button"
               onClick={runtimeAction.onClick}
             >
-              {runtimeAction.icon}
+              {runtimeAction.kind === 'start' ? (
+                <Play aria-hidden="true" size={18} strokeWidth={2} />
+              ) : (
+                <Square aria-hidden="true" size={18} strokeWidth={2} />
+              )}
               {runtimeAction.label}
             </button>
           ) : null}
