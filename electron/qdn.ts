@@ -4580,6 +4580,59 @@ function buildGroupJoinRequestsPath(request: QdnAppRequest) {
   return `/groups/joinrequests/${encodeURIComponent(String(getRequiredGroupId(request, 1)))}`;
 }
 
+function buildGroupKicksPath(request: QdnAppRequest) {
+  const groupId = getRequiredGroupId(request, 1);
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    address: 'address',
+    before: 'before',
+    after: 'after',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/groups/kicks/${encodeURIComponent(String(groupId))}${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildGroupBansPath(request: QdnAppRequest) {
+  const groupId = getRequiredGroupId(request, 1);
+
+  return `/groups/bans/${encodeURIComponent(String(groupId))}`;
+}
+
+async function buildMemberKicksPath(request: QdnAppRequest, context: QdnViewContext | null) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams({ address });
+
+  appendRequestQueryFields(queryParams, request, {
+    groupId: 'groupId',
+    before: 'before',
+    after: 'after',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  return `/groups/kicks/member?${queryParams.toString()}`;
+}
+
+async function buildMemberBansPath(request: QdnAppRequest, context: QdnViewContext | null) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams({ address });
+
+  appendRequestQueryFields(queryParams, request, {
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  return `/groups/bans/member?${queryParams.toString()}`;
+}
+
 async function buildAccountGroupJoinRequestsPath(request: QdnAppRequest, context: QdnViewContext | null) {
   const address = await getAddressForQdnRequest(request, context, 'Address');
 
@@ -4827,11 +4880,23 @@ async function handleQdnAppRequest(
     case 'GET_ADMIN_GROUP_JOIN_REQUESTS':
       return fetchNodeApiPayload(await buildAdminGroupJoinRequestsPath(request, context), request);
 
+    case 'GET_GROUP_BANS':
+      return fetchNodeApiPayload(buildGroupBansPath(request), request);
+
     case 'GET_GROUP_JOIN_REQUESTS':
       return fetchNodeApiPayload(buildGroupJoinRequestsPath(request), request);
 
+    case 'GET_GROUP_KICKS':
+      return fetchNodeApiPayload(buildGroupKicksPath(request), request);
+
     case 'GET_GROUP_MEMBERS':
       return fetchNodeApiPayload(buildGroupMembersPath(request), request);
+
+    case 'GET_MEMBER_BANS':
+      return fetchNodeApiPayload(await buildMemberBansPath(request, context), request);
+
+    case 'GET_MEMBER_KICKS':
+      return fetchNodeApiPayload(await buildMemberKicksPath(request, context), request);
 
     case 'GET_MINTING_STATUS':
       return getMintingStatusForApp(request, context);
