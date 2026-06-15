@@ -412,7 +412,7 @@ function HomeUpdateDashboardCard({
 
 const PIN_DRAG_START_MIN_DISTANCE_PX = 8;
 const PIN_LONG_PRESS_MS = 500;
-const PIN_TILE_REM = 7;
+const PIN_TILE_REM = 5;
 const PIN_GAP_PX = 10;
 
 type PinContextMenuState = { pinId: string; x: number; y: number } | null;
@@ -954,7 +954,11 @@ function DashboardPins({
     };
     lastPointerRef.current = { x: clientX, y: clientY };
     appliedTranslateRef.current = { x: 0, y: 0 };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // Capture on the stable list element, NOT the tile: reordering moves the tile's
+    // DOM node, which would drop capture held on the tile and abort the drag after a
+    // single reorder. The list never moves, so capture (and the move/up events)
+    // survive every reorder.
+    listRef.current?.setPointerCapture(event.pointerId);
 
     clearLongPressTimer();
     longPressTimerRef.current = window.setTimeout(() => {
@@ -970,7 +974,7 @@ function DashboardPins({
     }, PIN_LONG_PRESS_MS);
   }
 
-  function handlePointerMove(event: ReactPointerEvent<HTMLLIElement>) {
+  function handlePointerMove(event: ReactPointerEvent<HTMLUListElement>) {
     const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
@@ -1015,13 +1019,16 @@ function DashboardPins({
     );
   }
 
-  function handlePointerUp(event: ReactPointerEvent<HTMLLIElement>, pin: DashboardPin) {
+  function handlePointerUp(event: ReactPointerEvent<HTMLUListElement>) {
     const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
     }
 
+    // Capture lives on the list, so resolve which tile the gesture belongs to from
+    // the drag state rather than the event target.
+    const pin = renderPins.find((candidate) => candidate.id === dragState.pinId) ?? null;
     const wasDragging = draggedPinId === dragState.pinId;
     const reordered = dragState.hasReordered;
     // A clean tap (gesture never crossed the drag threshold, not renaming) opens the
@@ -1029,7 +1036,7 @@ function DashboardPins({
     // pointer capture used for drag-reorder, so we must not rely on the tile's onClick.
     const isTap = !wasDragging && !renamingPinId;
 
-    if (reordered || wasDragging || isTap) {
+    if ((reordered || wasDragging || isTap) && pin) {
       // Swallow the click the browser may still synthesize for this pointer.
       suppressedClickPinIdRef.current = pin.id;
     }
@@ -1043,7 +1050,7 @@ function DashboardPins({
 
     scheduleSuppressionClear();
 
-    if (isTap) {
+    if (isTap && pin) {
       onOpenPin(pin);
     }
   }
@@ -1099,7 +1106,15 @@ function DashboardPins({
   return (
     <section className="dashboard-pins" aria-label={t('dashboard.pins')} ref={sectionRef}>
       <h2 className="dashboard-pins__title">{t('dashboard.pins')}</h2>
-      <ul className="dashboard-pins__list" ref={listRef} style={{ maxWidth: listMaxWidth }}>
+      <ul
+        className="dashboard-pins__list"
+        ref={listRef}
+        style={{ maxWidth: listMaxWidth }}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handleDragCancel}
+        onLostPointerCapture={handleDragCancel}
+      >
         {renderPins.map((pin) => {
           const display = getDashboardPinDisplay(pin);
           const iconResolution = iconResolutions.get(pin.id) ?? null;
@@ -1117,10 +1132,6 @@ function DashboardPins({
                 }
               }}
               onPointerDown={(event) => handlePointerDown(event, pin.id)}
-              onPointerMove={handlePointerMove}
-              onPointerUp={(event) => handlePointerUp(event, pin)}
-              onPointerCancel={handleDragCancel}
-              onLostPointerCapture={handleDragCancel}
               onContextMenu={(event) => handleContextMenu(event, pin.id)}
             >
               <button
