@@ -242,5 +242,19 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:open-media-player', listener);
       };
     },
+    onOpenCurrentTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { address: string; sourceTabId: string | null },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:open-current-tab', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:open-current-tab', listener);
+      };
+    },
   },
 });

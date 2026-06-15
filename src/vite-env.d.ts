@@ -703,6 +703,9 @@ interface Window {
       onOpenMediaPlayer: (
         callback: (event: QortiumQdnMediaPlayerRequest) => void,
       ) => () => void;
+      onOpenCurrentTab: (
+        callback: (event: { address: string; sourceTabId: string | null }) => void,
+      ) => () => void;
     };
   };
 }
