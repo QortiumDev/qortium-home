@@ -6882,6 +6882,9 @@ function createFallbackApi(): PlatformApi {
       async openPath() {
         throw new Error('Opening local paths is only available in the desktop app right now.');
       },
+      async revealPath() {
+        throw new Error('Revealing local paths is only available in the desktop app right now.');
+      },
     },
     node: {
       async checkCoreUpdate() {

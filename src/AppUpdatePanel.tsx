@@ -11,8 +11,8 @@ import {
   areReleaseTagsEqual,
   DetailList,
   formatReleaseTag,
-  getHomeReleaseUrl,
   getHomeUpdateStatusText,
+  getHomeVersionRowValue,
   LinkedValue,
   type DetailRow,
 } from './releaseDisplay';
@@ -41,17 +41,17 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
     },
     {
       label: t('common.version'),
-      value: (
-        <LinkedValue url={getHomeReleaseUrl(updates.environment?.currentVersion)}>
-          {currentReleaseTag || t('common.checking')}
-        </LinkedValue>
-      ),
+      value: getHomeVersionRowValue(updates.environment),
     },
     {
       label: t('common.platform'),
       value: updates.environment?.platform.label ?? t('common.checking'),
     },
   ];
+
+  if (updates.environment?.installDir) {
+    rows.push({ label: t('core.folderLabel'), path: updates.environment.installDir });
+  }
 
   if (showChannel) {
     rows.push({
@@ -62,7 +62,7 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 
   if (updates.result?.release && !areReleaseTagsEqual(updates.result.release.tagName, currentReleaseTag)) {
     rows.push({
-      label: t('common.latest'),
+      label: t('common.latestGithub'),
       value: (
         <LinkedValue url={updates.result.release.htmlUrl}>
           {updates.result.release.tagName}

@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   },
   system: {
     openPath: (filePath: string) => ipcRenderer.invoke('system:openPath', filePath),
+    revealPath: (filePath: string) => ipcRenderer.invoke('system:revealPath', filePath),
   },
   windows: {
     closeCurrentWindow: () => ipcRenderer.invoke('windows:closeCurrentWindow'),

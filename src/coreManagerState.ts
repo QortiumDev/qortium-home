@@ -14,6 +14,7 @@ export type CoreBusyAction =
   | 'installing-stable'
   | 'starting'
   | 'stopping'
+  | 'updating'
   | null;
 
 type CoreManagerOptions = {
@@ -128,6 +129,10 @@ export function getCoreReleaseActionLabel({
   installedCore: QortiumInstalledCore | null | undefined;
   release: QortiumCoreReleaseSummary | undefined;
 }) {
+  if (busyAction === 'updating') {
+    return t('common.updating');
+  }
+
   if (busyAction === 'installing-stable' && channel === 'stable') {
     return t('common.installing');
   }
@@ -239,7 +244,9 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
   const canInstallStable = !!releases?.stable.available;
   const canInstallJava = !!status && !runtimeBlocked && !status.java.available && status.supported;
   const canStart = !!status?.installed && !runtimeBlocked && !!status.java.available && !status.runtime.running;
-  const canStop = !!status?.installed && !!status.runtime.running && status.runtime.owner !== 'external';
+  // A running core can be stopped whenever Home owns it, even if its install
+  // files (jar/metadata) were since removed — the backend stops it by pid.
+  const canStop = !!status?.runtime.running && status.runtime.owner === 'home';
   const stableUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.stable, status?.installed);
   const prereleaseUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.prerelease, status?.installed);
   const canInstallOrUpdatePrerelease =
@@ -282,7 +289,17 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
       return;
     }
 
-    setBusyAction(channel === 'stable' ? 'installing-stable' : 'installing-prerelease');
+    // An in-place update (stop -> replace -> restart) happens when a managed
+    // core is already running; surface it as a single "Updating" action.
+    const isInPlaceUpdate = !!status?.installed && !!status?.runtime.running;
+
+    // The running core (and any minting/sync it is doing) is interrupted while
+    // the update applies, so confirm before stopping it.
+    if (isInPlaceUpdate && typeof window.confirm === 'function' && !window.confirm(t('core.updateRestartConfirm'))) {
+      return;
+    }
+
+    setBusyAction(isInPlaceUpdate ? 'updating' : channel === 'stable' ? 'installing-stable' : 'installing-prerelease');
     setMessage(null);
 
     try {
@@ -291,7 +308,9 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
       setStatus(nextStatus);
       setMessage({
         kind: 'success',
-        text: t('core.installedName', { name: nextStatus.installed?.tagName ?? 'Qortium Core' }),
+        text: isInPlaceUpdate
+          ? t('core.updatedName', { name: nextStatus.installed?.tagName ?? 'Qortium Core' })
+          : t('core.installedName', { name: nextStatus.installed?.tagName ?? 'Qortium Core' }),
       });
     } catch (error) {
       setMessage({
@@ -419,3 +438,52 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
 }
 
 export type CoreManagerState = ReturnType<typeof useCoreManager>;
+
+export type CoreRuntimeAction = {
+  disabled: boolean;
+  kind: 'start' | 'stop';
+  label: string;
+  onClick?: () => void | Promise<void>;
+  title?: string;
+};
+
+// Shared Start/Stop control descriptor used by both the Dashboard tile and the
+// Settings panel so the two surfaces stay in lockstep. Returns a disabled Stop
+// (with an explanatory tooltip) when a running core was started outside Home.
+export function getCoreRuntimeAction(
+  coreManager: CoreManagerState,
+  hideForJava = false,
+): CoreRuntimeAction | null {
+  if (hideForJava) {
+    return null;
+  }
+
+  if (coreManager.canStart) {
+    return {
+      disabled: coreManager.isBusy,
+      kind: 'start',
+      label: coreManager.busyAction === 'starting' ? t('common.starting') : t('core.startCore'),
+      onClick: coreManager.startCore,
+    };
+  }
+
+  if (coreManager.canStop) {
+    return {
+      disabled: coreManager.isBusy,
+      kind: 'stop',
+      label: coreManager.busyAction === 'stopping' ? t('common.stopping') : t('core.stopCore'),
+      onClick: coreManager.stopCore,
+    };
+  }
+
+  if (coreManager.status?.runtime.running && coreManager.status.runtime.owner === 'external') {
+    return {
+      disabled: true,
+      kind: 'stop',
+      label: t('core.stopCore'),
+      title: t('core.stopExternalHint'),
+    };
+  }
+
+  return null;
+}

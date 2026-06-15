@@ -251,12 +251,14 @@ function getUpdateEnvironment() {
 
   return {
     currentVersion: app.getVersion(),
+    installDir: path.dirname(app.getPath('exe')),
     platform: {
       arch,
       label: getPlatformLabel(os, arch),
       os,
       supported: isSupportedPlatform(os, arch),
     },
+    updatesDir: getAppUpdatesPath(),
   };
 }
 
