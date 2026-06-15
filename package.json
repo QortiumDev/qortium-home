@@ -61,7 +61,7 @@
     "asmcrypto.js": "2.3.2",
     "bcryptjs": "2.4.3",
     "extract-zip": "^2.0.1",
-    "lucide-react": "^1.17.0",
+    "lucide-react": "^1.18.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tar": "^7.5.16",
