@@ -443,6 +443,7 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.download.saved": "保存済み",
   "viewer.fileNotFound": "ファイルが見つかりません。",
   "viewer.loadFailed": "QDNリソースを読み込めません。",
+  "viewer.hideStatusBar": "ステータスバーを非表示",
   "viewer.loadingResource": "QDNリソースを読み込み中…",
   "viewer.media.aborted": "メディアの読み込みがキャンセルされました。",
   "viewer.media.decode": "このアプリではメディアファイルをデコードできませんでした。",
@@ -450,6 +451,7 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.media.network": "設定されたノードからメディアを読み込めませんでした。",
   "viewer.media.unsupported": "このアプリはこのメディア形式に対応していません。",
   "viewer.noDedicatedViewer": "{service}リソース専用のビューアーはまだありません。",
+  "viewer.openInNewTab": "新しいタブで開く",
   "viewer.preview.failed": "プレビュー失敗",
   "viewer.preview.loading": "テキストプレビューを読み込み中…",
   "viewer.preview.tooLarge": "このリソースは大きすぎるためインラインでプレビューできません。インラインプレビューの上限は{limit}です。",
@@ -461,5 +463,6 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "このリソースはダウンロードの準備ができています。",
   "viewer.readyToOpen": "このリソースは開く準備ができています。",
   "viewer.renderRequestFailed": "QDNレンダーリクエストがHTTP {status}で失敗しました。",
+  "viewer.showStatusBar": "ステータスバーを表示",
   "viewer.statusRequestFailed": "QDNステータスリクエストがHTTP {status}で失敗しました。",
 };

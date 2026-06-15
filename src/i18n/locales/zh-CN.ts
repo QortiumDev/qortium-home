@@ -443,6 +443,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.download.saved": "已保存",
   "viewer.fileNotFound": "未找到文件。",
   "viewer.loadFailed": "无法加载 QDN 资源。",
+  "viewer.hideStatusBar": "隐藏状态栏",
   "viewer.loadingResource": "正在加载 QDN 资源…",
   "viewer.media.aborted": "媒体加载已取消。",
   "viewer.media.decode": "此应用无法解码该媒体文件。",
@@ -450,6 +451,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.media.network": "无法从配置的节点加载该媒体。",
   "viewer.media.unsupported": "此应用不支持该媒体格式。",
   "viewer.noDedicatedViewer": "{service} 资源暂无专用查看器。",
+  "viewer.openInNewTab": "在新标签页中打开",
   "viewer.preview.failed": "预览失败",
   "viewer.preview.loading": "正在加载文本预览…",
   "viewer.preview.tooLarge": "此资源过大，无法内联预览。内联预览上限为 {limit}。",
@@ -461,5 +463,6 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "此资源已可下载。",
   "viewer.readyToOpen": "此资源已可打开。",
   "viewer.renderRequestFailed": "QDN 渲染请求失败，HTTP {status}。",
+  "viewer.showStatusBar": "显示状态栏",
   "viewer.statusRequestFailed": "QDN 状态请求失败，HTTP {status}。",
 };

@@ -443,6 +443,7 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.download.saved": "Mentve",
   "viewer.fileNotFound": "A fájl nem található.",
   "viewer.loadFailed": "A QDN-erőforrás nem tölthető be.",
+  "viewer.hideStatusBar": "Állapotsáv elrejtése",
   "viewer.loadingResource": "QDN-erőforrás betöltése…",
   "viewer.media.aborted": "A média betöltése meg lett szakítva.",
   "viewer.media.decode": "A médiafájlt nem tudta dekódolni ez az alkalmazás.",
@@ -450,6 +451,7 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.media.network": "A média nem tölthető be a beállított csomópontról.",
   "viewer.media.unsupported": "Ezt a médiaformátumot nem támogatja ez az alkalmazás.",
   "viewer.noDedicatedViewer": "A(z) {service} erőforrásokhoz még nincs dedikált megjelenítő.",
+  "viewer.openInNewTab": "Megnyitás új lapon",
   "viewer.preview.failed": "Előnézet sikertelen",
   "viewer.preview.loading": "Szöveg-előnézet betöltése…",
   "viewer.preview.tooLarge": "Ez az erőforrás túl nagy a beágyazott előnézethez. A beágyazott előnézet korlátja {limit}.",
@@ -461,5 +463,6 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Ez az erőforrás készen áll a letöltésre.",
   "viewer.readyToOpen": "Ez az erőforrás készen áll a megnyitásra.",
   "viewer.renderRequestFailed": "A QDN-megjelenítési kérés HTTP {status} hibával meghiúsult.",
+  "viewer.showStatusBar": "Állapotsáv megjelenítése",
   "viewer.statusRequestFailed": "A QDN-állapotkérés HTTP {status} hibával meghiúsult.",
 };

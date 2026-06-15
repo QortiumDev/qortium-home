@@ -443,6 +443,7 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.download.saved": "Sparad",
   "viewer.fileNotFound": "Filen hittades inte.",
   "viewer.loadFailed": "Det gick inte att läsa in QDN-resursen.",
+  "viewer.hideStatusBar": "Dölj statusrad",
   "viewer.loadingResource": "Läser in QDN-resurs…",
   "viewer.media.aborted": "Inläsningen av mediet avbröts.",
   "viewer.media.decode": "Mediefilen kunde inte avkodas av den här appen.",
@@ -450,6 +451,7 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.media.network": "Mediet kunde inte läsas in från den konfigurerade noden.",
   "viewer.media.unsupported": "Det här medieformatet stöds inte av den här appen.",
   "viewer.noDedicatedViewer": "{service}-resurser har ingen egen visare ännu.",
+  "viewer.openInNewTab": "Öppna i ny flik",
   "viewer.preview.failed": "Förhandsvisning misslyckades",
   "viewer.preview.loading": "Läser in förhandsvisning av text…",
   "viewer.preview.tooLarge": "Den här resursen är för stor för att förhandsvisas direkt. Gränsen för direkt förhandsvisning är {limit}.",
@@ -461,5 +463,6 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Den här resursen är redo att hämtas.",
   "viewer.readyToOpen": "Den här resursen är redo att öppnas.",
   "viewer.renderRequestFailed": "QDN-renderingsbegäran misslyckades med HTTP {status}.",
+  "viewer.showStatusBar": "Visa statusrad",
   "viewer.statusRequestFailed": "QDN-statusbegäran misslyckades med HTTP {status}.",
 };

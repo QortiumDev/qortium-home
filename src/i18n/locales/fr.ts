@@ -443,6 +443,7 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.download.saved": "Enregistré",
   "viewer.fileNotFound": "Fichier introuvable.",
   "viewer.loadFailed": "Impossible de charger la ressource QDN.",
+  "viewer.hideStatusBar": "Masquer la barre de statut",
   "viewer.loadingResource": "Chargement de la ressource QDN…",
   "viewer.media.aborted": "Le chargement du média a été annulé.",
   "viewer.media.decode": "Le fichier média n'a pas pu être décodé par cette application.",
@@ -450,6 +451,7 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.media.network": "Le média n'a pas pu être chargé depuis le nœud configuré.",
   "viewer.media.unsupported": "Ce format de média n'est pas pris en charge par cette application.",
   "viewer.noDedicatedViewer": "Les ressources {service} n'ont pas encore de visionneuse dédiée.",
+  "viewer.openInNewTab": "Ouvrir dans un nouvel onglet",
   "viewer.preview.failed": "Échec de l'aperçu",
   "viewer.preview.loading": "Chargement de l'aperçu du texte…",
   "viewer.preview.tooLarge": "Cette ressource est trop volumineuse pour un aperçu intégré. La limite d'aperçu intégré est de {limit}.",
@@ -461,5 +463,6 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Cette ressource est prête à être téléchargée.",
   "viewer.readyToOpen": "Cette ressource est prête à être ouverte.",
   "viewer.renderRequestFailed": "La requête de rendu QDN a échoué avec HTTP {status}.",
+  "viewer.showStatusBar": "Afficher la barre de statut",
   "viewer.statusRequestFailed": "La requête de statut QDN a échoué avec HTTP {status}.",
 };

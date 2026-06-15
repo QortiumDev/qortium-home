@@ -443,6 +443,7 @@ export const de: Record<TranslationKey, string> = {
   "viewer.download.saved": "Gespeichert",
   "viewer.fileNotFound": "Datei nicht gefunden.",
   "viewer.loadFailed": "QDN-Ressource kann nicht geladen werden.",
+  "viewer.hideStatusBar": "Statusleiste ausblenden",
   "viewer.loadingResource": "QDN-Ressource wird geladen…",
   "viewer.media.aborted": "Das Laden der Medien wurde abgebrochen.",
   "viewer.media.decode": "Die Mediendatei konnte von dieser App nicht dekodiert werden.",
@@ -450,6 +451,7 @@ export const de: Record<TranslationKey, string> = {
   "viewer.media.network": "Die Medien konnten nicht vom konfigurierten Node geladen werden.",
   "viewer.media.unsupported": "Dieses Medienformat wird von dieser App nicht unterstützt.",
   "viewer.noDedicatedViewer": "Für {service}-Ressourcen gibt es noch keinen eigenen Viewer.",
+  "viewer.openInNewTab": "In neuem Tab öffnen",
   "viewer.preview.failed": "Vorschau fehlgeschlagen",
   "viewer.preview.loading": "Textvorschau wird geladen…",
   "viewer.preview.tooLarge": "Diese Ressource ist zu groß für die Inline-Vorschau. Das Limit für die Inline-Vorschau beträgt {limit}.",
@@ -461,5 +463,6 @@ export const de: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Diese Ressource ist bereit zum Herunterladen.",
   "viewer.readyToOpen": "Diese Ressource ist bereit zum Öffnen.",
   "viewer.renderRequestFailed": "QDN-Render-Anfrage mit HTTP {status} fehlgeschlagen.",
+  "viewer.showStatusBar": "Statusleiste einblenden",
   "viewer.statusRequestFailed": "QDN-Status-Anfrage mit HTTP {status} fehlgeschlagen.",
 };

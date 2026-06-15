@@ -443,6 +443,7 @@ export const et: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvestatud",
   "viewer.fileNotFound": "Faili ei leitud.",
   "viewer.loadFailed": "QDN-i ressurssi ei õnnestunud laadida.",
+  "viewer.hideStatusBar": "Peida olekuriba",
   "viewer.loadingResource": "QDN-i ressursi laadimine…",
   "viewer.media.aborted": "Meedia laadimine katkestati.",
   "viewer.media.decode": "See rakendus ei suutnud meediafaili dekodeerida.",
@@ -450,6 +451,7 @@ export const et: Record<TranslationKey, string> = {
   "viewer.media.network": "Meediat ei õnnestunud seadistatud sõlmest laadida.",
   "viewer.media.unsupported": "See rakendus ei toeta seda meediavormingut.",
   "viewer.noDedicatedViewer": "Teenuse {service} ressurssidel pole veel eraldi vaaturit.",
+  "viewer.openInNewTab": "Ava uuel vahekaardil",
   "viewer.preview.failed": "Eelvaade ebaõnnestus",
   "viewer.preview.loading": "Teksti eelvaate laadimine…",
   "viewer.preview.tooLarge": "See ressurss on rakendusesisese eelvaate jaoks liiga suur. Eelvaate limiit on {limit}.",
@@ -461,5 +463,6 @@ export const et: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "See ressurss on allalaadimiseks valmis.",
   "viewer.readyToOpen": "See ressurss on avamiseks valmis.",
   "viewer.renderRequestFailed": "QDN-i renderdamispäring ebaõnnestus HTTP olekuga {status}.",
+  "viewer.showStatusBar": "Näita olekuriba",
   "viewer.statusRequestFailed": "QDN-i olekupäring ebaõnnestus HTTP olekuga {status}.",
 };

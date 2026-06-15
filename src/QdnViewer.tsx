@@ -1,5 +1,5 @@
-import { Copy, Download, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Copy, Download, ExternalLink, RefreshCw, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
 import type {
   QdnDisplaySettings,
@@ -18,8 +18,9 @@ import {
   buildQdnStatusUrl,
   formatByteSize,
   formatQdnStatus,
+  getLoadedViewerKind,
   getQdnResourceKey,
-  getQdnViewerKind,
+  isGifFilename,
   isTerminalQdnStatus,
 } from './qdn';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
@@ -310,21 +311,6 @@ function isArchiveResourceProperties(properties: QdnResourceProperties | undefin
   const mimeType = properties?.mimeType ?? '';
 
   return /\.zip$/i.test(filename) || /\bzip\b/i.test(mimeType);
-}
-
-function isGifFilename(value: string) {
-  return /\.gif$/i.test(value.split('?')[0] ?? '');
-}
-
-function getLoadedViewerKind(resource: QdnResource, properties: QdnResourceProperties | undefined) {
-  if (
-    resource.service === 'GIF_REPOSITORY' &&
-    ((properties?.filename && isGifFilename(properties.filename)) || isGifFilename(resource.path))
-  ) {
-    return 'image';
-  }
-
-  return getQdnViewerKind(resource.service);
 }
 
 function shouldUseArchiveRenderUrl(
@@ -713,11 +699,13 @@ function useQdnResourceLoader(
 
 function CopyButton({
   className,
+  compact,
   disabled,
   label,
   value,
 }: {
   className?: string;
+  compact?: boolean;
   disabled?: boolean;
   label: string;
   value: string;
@@ -737,9 +725,11 @@ function CopyButton({
 
   return (
     <button
-      className={`button button--secondary${className ? ` ${className}` : ''}`}
+      className={`button button--secondary${compact ? ' button--compact' : ''}${className ? ` ${className}` : ''}`}
       type="button"
       disabled={disabled}
+      title={compact ? label : undefined}
+      aria-label={compact ? label : undefined}
       onClick={async () => {
         try {
           await writeClipboardText(value);
@@ -750,7 +740,7 @@ function CopyButton({
       }}
     >
       <Copy aria-hidden="true" size={18} strokeWidth={2} />
-      {buttonLabel}
+      <span className="button__label">{buttonLabel}</span>
     </button>
   );
 }
@@ -767,14 +757,17 @@ function getSuggestedResourceFilename(resource: QdnResource, properties: QdnReso
 }
 
 function QdnDownloadButton({
+  compact,
   loadedResource,
   resource,
 }: {
+  compact?: boolean;
   loadedResource: LoadedQdnResource;
   resource: QdnResource;
 }) {
   const [downloadState, setDownloadState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
   const opensNativeDownload = isNativePlatform();
+  const actionLabel = opensNativeDownload ? t('common.open') : t('common.download');
   const buttonLabel =
     downloadState === 'saving'
       ? opensNativeDownload
@@ -804,9 +797,11 @@ function QdnDownloadButton({
 
   return (
     <button
-      className="button qdn-viewer__action-button"
+      className={`button qdn-viewer__action-button${compact ? ' button--compact' : ''}`}
       type="button"
       disabled={downloadState === 'saving'}
+      title={compact ? actionLabel : undefined}
+      aria-label={compact ? actionLabel : undefined}
       onClick={async () => {
         setDownloadState('saving');
 
@@ -826,22 +821,40 @@ function QdnDownloadButton({
       }}
     >
       <Download aria-hidden="true" size={18} strokeWidth={2} />
-      {buttonLabel}
+      <span className="button__label">{buttonLabel}</span>
     </button>
   );
 }
 
-function QdnResourceActions({
+function QdnStatusActions({
   loadedResource,
+  onOpenNewTab,
   resource,
 }: {
   loadedResource: LoadedQdnResource;
+  onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
 }) {
+  // APP/WEBSITE resources have no single downloadable file, so the download
+  // action is hidden for them; every other resource type can be saved.
+  const canDownload = loadedResource.viewerKind !== 'iframe';
+
   return (
-    <div className="qdn-viewer__actions">
-      <QdnDownloadButton loadedResource={loadedResource} resource={resource} />
-      <CopyButton label={t('viewer.copyQdnUrl')} value={resource.displayUrl} />
+    <div className="qdn-viewer__status-actions">
+      <CopyButton compact label={t('viewer.copyQdnUrl')} value={resource.displayUrl} />
+      {canDownload ? <QdnDownloadButton compact loadedResource={loadedResource} resource={resource} /> : null}
+      {onOpenNewTab ? (
+        <button
+          className="button button--secondary button--compact"
+          type="button"
+          title={t('viewer.openInNewTab')}
+          aria-label={t('viewer.openInNewTab')}
+          onClick={() => onOpenNewTab(resource.displayUrl)}
+        >
+          <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
+          <span className="button__label">{t('viewer.openInNewTab')}</span>
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -969,7 +982,6 @@ function QdnTextContent({
         <span className="qdn-viewer__type-label">{statusText}</span>
         <div className="qdn-viewer__actions">
           <CopyButton disabled={!isReady} label={t('viewer.copyText')} value={isReady ? state.content : ''} />
-          <QdnDownloadButton loadedResource={loadedResource} resource={resource} />
         </div>
       </div>
 
@@ -989,7 +1001,6 @@ function QdnTextContent({
         <div className={`qdn-viewer__empty qdn-viewer__empty--${state.phase === 'error' ? 'error' : 'ready'}`}>
           <div className="qdn-viewer__details">
             <p className="qdn-viewer__message">{state.message}</p>
-            <QdnResourceActions loadedResource={loadedResource} resource={resource} />
             <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
           </div>
         </div>
@@ -1064,7 +1075,6 @@ function QdnDetailsContent({
     <div className="qdn-viewer__empty qdn-viewer__empty--ready">
       <div className="qdn-viewer__details">
         <p className="qdn-viewer__message">{message}</p>
-        <QdnResourceActions loadedResource={loadedResource} resource={resource} />
         <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
       </div>
     </div>
@@ -1110,7 +1120,6 @@ function QdnMediaContent({
 
       <div className="qdn-viewer__details qdn-viewer__media-details">
         {mediaError ? <p className="qdn-viewer__message qdn-viewer__message--error">{mediaError.message}</p> : null}
-        <QdnResourceActions loadedResource={loadedResource} resource={resource} />
         <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
       </div>
     </div>
@@ -1426,7 +1435,6 @@ function QdnGifRepositoryContent({
         })}
       </div>
       <div className="qdn-viewer__details qdn-viewer__gif-details">
-        <QdnResourceActions loadedResource={loadedResource} resource={resource} />
         <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
       </div>
     </div>
@@ -1938,33 +1946,76 @@ export function QdnViewer({
   tabId,
 }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
+  const [statusHidden, setStatusHidden] = useState(false);
+  const statusRegionId = useId();
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
   const progressText = getProgressText(state.status);
   const statusLabel = state.phase === 'ready' ? t('qdnStatus.ready') : formatQdnStatus(state.status);
 
+  // Navigating to a different resource re-reveals the status bar so the new
+  // URL and its actions are always visible after a load.
+  useEffect(() => {
+    setStatusHidden(false);
+  }, [resource.displayUrl]);
+
   return (
     <section className="qdn-viewer" aria-label={t('viewer.ariaLabel')}>
-      <div className="qdn-viewer__status" aria-live="polite">
-        <div className="qdn-viewer__status-text">
-          <span className="qdn-viewer__status-label">{statusLabel}</span>
-          <span className="qdn-viewer__resource">{resource.displayUrl}</span>
-        </div>
-        {typeof progress === 'number' && state.phase !== 'ready' ? (
-          <div className="qdn-viewer__progress" aria-label={t('viewer.progressAriaLabel')}>
-            <div
-              className="qdn-viewer__progress-bar"
-              role="progressbar"
-              aria-valuemax={100}
-              aria-valuemin={0}
-              aria-valuenow={Math.round(progress)}
-            >
-              <span style={{ width: `${progress}%` }} />
+      {statusHidden ? (
+        <button
+          className="qdn-viewer__status-handle"
+          type="button"
+          aria-expanded={false}
+          title={t('viewer.showStatusBar')}
+          aria-label={t('viewer.showStatusBar')}
+          onClick={() => setStatusHidden(false)}
+        >
+          <ChevronDown aria-hidden="true" size={16} strokeWidth={2} />
+        </button>
+      ) : (
+        <div className="qdn-viewer__status" id={statusRegionId} aria-live="polite">
+          <div className="qdn-viewer__status-main">
+            <div className="qdn-viewer__status-text">
+              <span className="qdn-viewer__status-label">{statusLabel}</span>
+              <span className="qdn-viewer__resource">{resource.displayUrl}</span>
             </div>
-            {progressText ? <span className="qdn-viewer__progress-text">{progressText}</span> : null}
+            {state.phase === 'ready' ? (
+              <div className="qdn-viewer__status-controls">
+                <QdnStatusActions
+                  loadedResource={state.loadedResource}
+                  onOpenNewTab={onOpenNewTab}
+                  resource={resource}
+                />
+                <button
+                  className="icon-button qdn-viewer__status-close"
+                  type="button"
+                  aria-expanded
+                  aria-controls={statusRegionId}
+                  title={t('viewer.hideStatusBar')}
+                  aria-label={t('viewer.hideStatusBar')}
+                  onClick={() => setStatusHidden(true)}
+                >
+                  <X aria-hidden="true" size={18} strokeWidth={2} />
+                </button>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+          {typeof progress === 'number' && state.phase !== 'ready' ? (
+            <div className="qdn-viewer__progress" aria-label={t('viewer.progressAriaLabel')}>
+              <div
+                className="qdn-viewer__progress-bar"
+                role="progressbar"
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={Math.round(progress)}
+              >
+                <span style={{ width: `${progress}%` }} />
+              </div>
+              {progressText ? <span className="qdn-viewer__progress-text">{progressText}</span> : null}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {state.phase === 'ready' ? (
         <QdnReadyContent

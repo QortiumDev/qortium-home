@@ -443,6 +443,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.download.saved": "已儲存",
   "viewer.fileNotFound": "找不到檔案。",
   "viewer.loadFailed": "無法載入 QDN 資源。",
+  "viewer.hideStatusBar": "隱藏狀態列",
   "viewer.loadingResource": "正在載入 QDN 資源…",
   "viewer.media.aborted": "媒體載入已取消。",
   "viewer.media.decode": "此應用程式無法解碼這個媒體檔案。",
@@ -450,6 +451,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.media.network": "無法從設定的節點載入媒體。",
   "viewer.media.unsupported": "此應用程式不支援這種媒體格式。",
   "viewer.noDedicatedViewer": "{service} 資源目前尚無專用檢視器。",
+  "viewer.openInNewTab": "在新分頁開啟",
   "viewer.preview.failed": "預覽失敗",
   "viewer.preview.loading": "正在載入文字預覽…",
   "viewer.preview.tooLarge": "此資源過大，無法內嵌預覽。內嵌預覽上限為 {limit}。",
@@ -461,5 +463,6 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "此資源已可下載。",
   "viewer.readyToOpen": "此資源已可開啟。",
   "viewer.renderRequestFailed": "QDN 轉譯要求失敗，HTTP {status}。",
+  "viewer.showStatusBar": "顯示狀態列",
   "viewer.statusRequestFailed": "QDN 狀態要求失敗，HTTP {status}。",
 };
