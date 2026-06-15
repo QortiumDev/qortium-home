@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-15 - qdn: add group kick and ban read bridge actions
+
+QDN apps can now query group kick and ban history through four new named bridge actions: `GET_GROUP_KICKS`, `GET_GROUP_BANS`, `GET_MEMBER_KICKS`, and `GET_MEMBER_BANS`.
+
+`GET_GROUP_KICKS` returns all confirmed kicks that have occurred in a given group, with optional filters for kicked member address, timestamp range, pagination, and sort order. `GET_GROUP_BANS` returns all current bans in a given group. `GET_MEMBER_KICKS` returns all kicks for a given address across all groups (defaulting to the selected account). `GET_MEMBER_BANS` returns all current bans for a given address across all groups (defaulting to the selected account).
+
+All four are read-only actions and pass through the node API without requiring account access or approval prompts. They complete the symmetric read surface for kicks and bans, matching the pattern used by the other group read actions.
+
 ### 2026-06-14 - release: prepare home preview 14
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.14` with Android `versionCode` 15 so the persistent Q-App storage fix, the expanded QDN bridge actions (group management, payments, polls, and group approval voting), the shared desktop/Android bridge action lists, and GIF repository image viewing can be published as the next QortiumDev prerelease target.
