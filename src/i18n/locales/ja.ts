@@ -341,6 +341,7 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.action.leaveGroup": "グループから退出",
   "qdnWrite.action.publishResource": "QDNリソースを公開",
   "qdnWrite.action.publishResources": "複数のQDNリソースを公開",
+  "qdnWrite.action.rateAccount": "アカウントを評価",
   "qdnWrite.action.registerName": "名前を登録",
   "qdnWrite.action.removeGroupAdmin": "グループ管理者を削除",
   "qdnWrite.action.removeMintingAccount": "ミンティングキーを削除",

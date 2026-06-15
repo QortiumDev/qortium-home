@@ -341,6 +341,7 @@ export const sv: Record<TranslationKey, string> = {
   "qdnWrite.action.leaveGroup": "Lämna grupp",
   "qdnWrite.action.publishResource": "Publicera QDN-resurs",
   "qdnWrite.action.publishResources": "Publicera QDN-resurser",
+  "qdnWrite.action.rateAccount": "Betygsätt konto",
   "qdnWrite.action.registerName": "Registrera namn",
   "qdnWrite.action.removeGroupAdmin": "Ta bort gruppadministratör",
   "qdnWrite.action.removeMintingAccount": "Ta bort minting-nyckel",

@@ -14,6 +14,7 @@ import {
   QDN_PAYMENT_ACTIONS,
   QDN_POLL_ACTIONS,
   QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS,
+  QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
 import { PUBLIC_QDN_SERVICES, type QdnDisplaySettings } from './qdn';
@@ -185,6 +186,7 @@ type QdnGroupAction = (typeof QDN_GROUP_ACTIONS)[number];
 type QdnNameAction = (typeof QDN_NAME_ACTIONS)[number];
 type QdnPaymentAction = (typeof QDN_PAYMENT_ACTIONS)[number];
 type QdnPollAction = (typeof QDN_POLL_ACTIONS)[number];
+type QdnTrustAction = (typeof QDN_TRUST_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnWriteApprovalAction =
@@ -193,6 +195,7 @@ type QdnWriteApprovalAction =
   | QdnNameAction
   | QdnPaymentAction
   | QdnPollAction
+  | QdnTrustAction
   | QdnChatAction
   | QdnPrivateGroupChatWriteAction
   | 'START_MINTING'
@@ -4208,6 +4211,69 @@ async function voteOnPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
   };
 }
 
+// Rating range is -4..+4 inclusive; 0 means "remove the existing rating" (not a
+// neutral score). Core is the final authority on validity (cooldown, self-rating,
+// unknown account, no-op) — this only screens out values that can never be valid.
+function getRequiredRatingValue(request: QdnAppRequest) {
+  const rating = getInteger(getRequestValue(request, 'rating'));
+
+  if (typeof rating !== 'number') {
+    throw new Error('Rating is required.');
+  }
+
+  if (rating < -4 || rating > 4) {
+    throw new Error('Rating must be an integer between -4 and 4 (0 removes the rating).');
+  }
+
+  return rating;
+}
+
+function describeRating(rating: number) {
+  return rating === 0 ? 'remove rating' : `rating ${rating > 0 ? '+' : ''}${rating}`;
+}
+
+async function rateAccountForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const targetPublicKey = getRequiredRequestString(request, 'targetPublicKey', 'Target public key');
+  const category = getRequiredRequestString(request, 'category', 'Rating category');
+  const rating = getRequiredRatingValue(request);
+  const writeContext = await getQdnWriteContext(context);
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'RATE_ACCOUNT',
+    name: `${category} · ${describeRating(rating)}`,
+    permissionScope: 'single-request',
+  });
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/account-ratings/rate',
+    JSON.stringify({
+      type: 'RATE_ACCOUNT',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      raterPublicKey: writeContext.publicKey58,
+      targetPublicKey,
+      category,
+      rating,
+    }),
+    writeContext.apiKey,
+    'Rate account transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'RATE_ACCOUNT',
+    targetPublicKey,
+    category,
+    rating,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
 async function updatePollForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
   const newPollName = getRequiredRequestString(request, 'newPollName', 'New poll name');
@@ -6106,6 +6172,59 @@ function buildGroupJoinRequestsPath(request: QdnAppRequest) {
   return `/groups/joinrequests/${encodeURIComponent(String(getRequiredGroupId(request, 1)))}`;
 }
 
+function buildGroupKicksPath(request: QdnAppRequest) {
+  const groupId = getRequiredGroupId(request, 1);
+  const queryParams = new URLSearchParams();
+
+  appendRequestQueryFields(queryParams, request, {
+    address: 'address',
+    before: 'before',
+    after: 'after',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  const queryString = queryParams.toString();
+
+  return `/groups/kicks/${encodeURIComponent(String(groupId))}${queryString ? `?${queryString}` : ''}`;
+}
+
+function buildGroupBansPath(request: QdnAppRequest) {
+  const groupId = getRequiredGroupId(request, 1);
+
+  return `/groups/bans/${encodeURIComponent(String(groupId))}`;
+}
+
+async function buildMemberKicksPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams({ address });
+
+  appendRequestQueryFields(queryParams, request, {
+    groupId: 'groupId',
+    before: 'before',
+    after: 'after',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  return `/groups/kicks/member?${queryParams.toString()}`;
+}
+
+async function buildMemberBansPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams({ address });
+
+  appendRequestQueryFields(queryParams, request, {
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+  });
+
+  return `/groups/bans/member?${queryParams.toString()}`;
+}
+
 async function buildAccountGroupJoinRequestsPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const address = await getAddressForQdnRequest(request, context, 'Address');
 
@@ -6359,11 +6478,23 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'GET_ADMIN_GROUP_JOIN_REQUESTS':
       return fetchNodeApiPayload(await buildAdminGroupJoinRequestsPath(request, context), request);
 
+    case 'GET_GROUP_BANS':
+      return fetchNodeApiPayload(buildGroupBansPath(request), request);
+
     case 'GET_GROUP_JOIN_REQUESTS':
       return fetchNodeApiPayload(buildGroupJoinRequestsPath(request), request);
 
+    case 'GET_GROUP_KICKS':
+      return fetchNodeApiPayload(buildGroupKicksPath(request), request);
+
     case 'GET_GROUP_MEMBERS':
       return fetchNodeApiPayload(buildGroupMembersPath(request), request);
+
+    case 'GET_MEMBER_BANS':
+      return fetchNodeApiPayload(await buildMemberBansPath(request, context), request);
+
+    case 'GET_MEMBER_KICKS':
+      return fetchNodeApiPayload(await buildMemberKicksPath(request, context), request);
 
     case 'GET_MINTING_STATUS':
       return getMintingStatusForApp(request, context);
@@ -6514,6 +6645,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'UPDATE_POLL':
       return updatePollForApp(request, context);
+
+    case 'RATE_ACCOUNT':
+      return rateAccountForApp(request, context);
 
     case 'REGISTER_NAME':
       return registerNameForApp(request, context);

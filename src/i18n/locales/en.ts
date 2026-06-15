@@ -339,6 +339,7 @@ export const en = {
   "qdnWrite.action.leaveGroup": "Leave Group",
   "qdnWrite.action.publishResource": "Publish QDN Resource",
   "qdnWrite.action.publishResources": "Publish QDN Resources",
+  "qdnWrite.action.rateAccount": "Rate Account",
   "qdnWrite.action.registerName": "Register Name",
   "qdnWrite.action.removeGroupAdmin": "Remove Group Admin",
   "qdnWrite.action.removeMintingAccount": "Remove Minting Key",
