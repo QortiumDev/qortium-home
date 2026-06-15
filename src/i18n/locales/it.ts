@@ -443,6 +443,7 @@ export const it: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvato",
   "viewer.fileNotFound": "File non trovato.",
   "viewer.loadFailed": "Impossibile caricare la risorsa QDN.",
+  "viewer.hideStatusBar": "Nascondi la barra di stato",
   "viewer.loadingResource": "Caricamento della risorsa QDN…",
   "viewer.media.aborted": "Il caricamento del contenuto multimediale è stato annullato.",
   "viewer.media.decode": "Il file multimediale non può essere decodificato da questa app.",
@@ -450,6 +451,7 @@ export const it: Record<TranslationKey, string> = {
   "viewer.media.network": "Impossibile caricare il contenuto multimediale dal nodo configurato.",
   "viewer.media.unsupported": "Questo formato multimediale non è supportato da questa app.",
   "viewer.noDedicatedViewer": "Le risorse {service} non hanno ancora un visualizzatore dedicato.",
+  "viewer.openInNewTab": "Apri in una nuova scheda",
   "viewer.preview.failed": "Anteprima non riuscita",
   "viewer.preview.loading": "Caricamento dell'anteprima del testo…",
   "viewer.preview.tooLarge": "Questa risorsa è troppo grande per l'anteprima in linea. Il limite per l'anteprima in linea è {limit}.",
@@ -461,5 +463,6 @@ export const it: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Questa risorsa è pronta per il download.",
   "viewer.readyToOpen": "Questa risorsa è pronta per essere aperta.",
   "viewer.renderRequestFailed": "Richiesta di rendering QDN non riuscita con HTTP {status}.",
+  "viewer.showStatusBar": "Mostra la barra di stato",
   "viewer.statusRequestFailed": "Richiesta di stato QDN non riuscita con HTTP {status}.",
 };

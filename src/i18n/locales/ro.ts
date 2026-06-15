@@ -443,6 +443,7 @@ export const ro: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvat",
   "viewer.fileNotFound": "Fișierul nu a fost găsit.",
   "viewer.loadFailed": "Nu s-a putut încărca resursa QDN.",
+  "viewer.hideStatusBar": "Ascunde bara de stare",
   "viewer.loadingResource": "Se încarcă resursa QDN…",
   "viewer.media.aborted": "Încărcarea conținutului media a fost anulată.",
   "viewer.media.decode": "Fișierul media nu a putut fi decodat de această aplicație.",
@@ -450,6 +451,7 @@ export const ro: Record<TranslationKey, string> = {
   "viewer.media.network": "Conținutul media nu a putut fi încărcat de pe nodul configurat.",
   "viewer.media.unsupported": "Acest format media nu este acceptat de această aplicație.",
   "viewer.noDedicatedViewer": "Resursele {service} nu au încă un vizualizator dedicat.",
+  "viewer.openInNewTab": "Deschide într-o filă nouă",
   "viewer.preview.failed": "Previzualizarea a eșuat",
   "viewer.preview.loading": "Se încarcă previzualizarea textului…",
   "viewer.preview.tooLarge": "Această resursă este prea mare pentru previzualizare în pagină. Limita previzualizării în pagină este {limit}.",
@@ -461,5 +463,6 @@ export const ro: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Această resursă este gata de descărcat.",
   "viewer.readyToOpen": "Această resursă este gata de deschis.",
   "viewer.renderRequestFailed": "Cererea de randare QDN a eșuat cu HTTP {status}.",
+  "viewer.showStatusBar": "Afișează bara de stare",
   "viewer.statusRequestFailed": "Cererea de stare QDN a eșuat cu HTTP {status}.",
 };

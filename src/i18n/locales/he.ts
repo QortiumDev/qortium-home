@@ -443,6 +443,7 @@ export const he: Record<TranslationKey, string> = {
   "viewer.download.saved": "נשמר",
   "viewer.fileNotFound": "הקובץ לא נמצא.",
   "viewer.loadFailed": "לא ניתן לטעון את משאב ה-QDN.",
+  "viewer.hideStatusBar": "הסתרת שורת הסטטוס",
   "viewer.loadingResource": "טוען משאב QDN…",
   "viewer.media.aborted": "טעינת המדיה בוטלה.",
   "viewer.media.decode": "האפליקציה לא הצליחה לפענח את קובץ המדיה.",
@@ -450,6 +451,7 @@ export const he: Record<TranslationKey, string> = {
   "viewer.media.network": "לא ניתן היה לטעון את המדיה מהצומת המוגדר.",
   "viewer.media.unsupported": "פורמט מדיה זה אינו נתמך באפליקציה זו.",
   "viewer.noDedicatedViewer": "למשאבי {service} אין עדיין מציג ייעודי.",
+  "viewer.openInNewTab": "פתיחה בכרטיסייה חדשה",
   "viewer.preview.failed": "התצוגה המקדימה נכשלה",
   "viewer.preview.loading": "טוען תצוגה מקדימה של טקסט…",
   "viewer.preview.tooLarge": "משאב זה גדול מדי לתצוגה מקדימה מוטבעת. מגבלת התצוגה המקדימה המוטבעת היא {limit}.",
@@ -461,5 +463,6 @@ export const he: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "משאב זה מוכן להורדה.",
   "viewer.readyToOpen": "משאב זה מוכן לפתיחה.",
   "viewer.renderRequestFailed": "בקשת העיבוד של QDN נכשלה עם סטטוס HTTP {status}.",
+  "viewer.showStatusBar": "הצגת שורת הסטטוס",
   "viewer.statusRequestFailed": "בקשת הסטטוס של QDN נכשלה עם סטטוס HTTP {status}.",
 };

@@ -443,6 +443,7 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.download.saved": "Zapisano",
   "viewer.fileNotFound": "Nie znaleziono pliku.",
   "viewer.loadFailed": "Nie można wczytać zasobu QDN.",
+  "viewer.hideStatusBar": "Ukryj pasek statusu",
   "viewer.loadingResource": "Wczytywanie zasobu QDN…",
   "viewer.media.aborted": "Wczytywanie multimediów zostało anulowane.",
   "viewer.media.decode": "Ta aplikacja nie mogła zdekodować tego pliku multimedialnego.",
@@ -450,6 +451,7 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.media.network": "Nie można wczytać multimediów ze skonfigurowanego węzła.",
   "viewer.media.unsupported": "Ten format multimediów nie jest obsługiwany przez tę aplikację.",
   "viewer.noDedicatedViewer": "Zasoby {service} nie mają jeszcze dedykowanej przeglądarki.",
+  "viewer.openInNewTab": "Otwórz w nowej karcie",
   "viewer.preview.failed": "Podgląd nie powiódł się",
   "viewer.preview.loading": "Wczytywanie podglądu tekstu…",
   "viewer.preview.tooLarge": "Ten zasób jest zbyt duży, aby wyświetlić podgląd w aplikacji. Limit podglądu w aplikacji to {limit}.",
@@ -461,5 +463,6 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Ten zasób jest gotowy do pobrania.",
   "viewer.readyToOpen": "Ten zasób jest gotowy do otwarcia.",
   "viewer.renderRequestFailed": "Żądanie renderowania QDN nie powiodło się z kodem HTTP {status}.",
+  "viewer.showStatusBar": "Pokaż pasek statusu",
   "viewer.statusRequestFailed": "Żądanie statusu QDN nie powiodło się z kodem HTTP {status}.",
 };

@@ -443,6 +443,7 @@ export const fi: Record<TranslationKey, string> = {
   "viewer.download.saved": "Tallennettu",
   "viewer.fileNotFound": "Tiedostoa ei löytynyt.",
   "viewer.loadFailed": "QDN-resurssia ei voitu ladata.",
+  "viewer.hideStatusBar": "Piilota tilapalkki",
   "viewer.loadingResource": "Ladataan QDN-resurssia…",
   "viewer.media.aborted": "Median lataus peruutettiin.",
   "viewer.media.decode": "Tämä sovellus ei voinut purkaa mediatiedostoa.",
@@ -450,6 +451,7 @@ export const fi: Record<TranslationKey, string> = {
   "viewer.media.network": "Mediaa ei voitu ladata määritetyltä solmulta.",
   "viewer.media.unsupported": "Tämä sovellus ei tue tätä mediamuotoa.",
   "viewer.noDedicatedViewer": "{service}-resursseille ei ole vielä omaa katselinta.",
+  "viewer.openInNewTab": "Avaa uudessa välilehdessä",
   "viewer.preview.failed": "Esikatselu epäonnistui",
   "viewer.preview.loading": "Ladataan tekstin esikatselua…",
   "viewer.preview.tooLarge": "Tämä resurssi on liian suuri upotettuun esikatseluun. Upotetun esikatselun raja on {limit}.",
@@ -461,5 +463,6 @@ export const fi: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Tämä resurssi on valmis ladattavaksi.",
   "viewer.readyToOpen": "Tämä resurssi on valmis avattavaksi.",
   "viewer.renderRequestFailed": "QDN-renderöintipyyntö epäonnistui (HTTP {status}).",
+  "viewer.showStatusBar": "Näytä tilapalkki",
   "viewer.statusRequestFailed": "QDN-tilapyyntö epäonnistui (HTTP {status}).",
 };

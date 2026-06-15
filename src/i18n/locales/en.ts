@@ -440,6 +440,7 @@ export const en = {
   "viewer.download.saveFailed": "Save failed",
   "viewer.download.saved": "Saved",
   "viewer.fileNotFound": "File not found.",
+  "viewer.hideStatusBar": "Hide status bar",
   "viewer.loadFailed": "Unable to load QDN resource.",
   "viewer.loadingResource": "Loading QDN resource…",
   "viewer.media.aborted": "Media loading was canceled.",
@@ -448,6 +449,7 @@ export const en = {
   "viewer.media.network": "The media could not be loaded from the configured node.",
   "viewer.media.unsupported": "This media format is not supported by this app.",
   "viewer.noDedicatedViewer": "{service} resources do not have a dedicated viewer yet.",
+  "viewer.openInNewTab": "Open in new tab",
   "viewer.preview.failed": "Preview failed",
   "viewer.preview.loading": "Loading text preview…",
   "viewer.preview.tooLarge": "This resource is too large to preview inline. The inline preview limit is {limit}.",
@@ -459,6 +461,7 @@ export const en = {
   "viewer.readyToDownload": "This resource is ready to download.",
   "viewer.readyToOpen": "This resource is ready to open.",
   "viewer.renderRequestFailed": "QDN render request failed with HTTP {status}.",
+  "viewer.showStatusBar": "Show status bar",
   "viewer.statusRequestFailed": "QDN status request failed with HTTP {status}.",
 } as const;
 

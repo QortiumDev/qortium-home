@@ -277,6 +277,27 @@ export function getQdnViewerKind(service: QdnService): QdnViewerKind {
   return 'unsupported';
 }
 
+export function isGifFilename(value: string) {
+  return /\.gif$/i.test(value.split('?')[0] ?? '');
+}
+
+// Resolves the viewer kind once a resource is loaded. This refines the
+// service-only classification from getQdnViewerKind: a GIF_REPOSITORY resource
+// that points at a single .gif file (via path or properties) renders as an image.
+export function getLoadedViewerKind(
+  resource: QdnResource,
+  properties: QdnResourceProperties | undefined,
+): QdnViewerKind {
+  if (
+    resource.service === 'GIF_REPOSITORY' &&
+    ((properties?.filename && isGifFilename(properties.filename)) || isGifFilename(resource.path))
+  ) {
+    return 'image';
+  }
+
+  return getQdnViewerKind(resource.service);
+}
+
 function buildQdnServiceUrl(service: QdnService) {
   return `qdn://${service}`;
 }

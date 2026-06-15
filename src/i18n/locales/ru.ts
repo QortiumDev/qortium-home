@@ -443,6 +443,7 @@ export const ru: Record<TranslationKey, string> = {
   "viewer.download.saved": "Сохранено",
   "viewer.fileNotFound": "Файл не найден.",
   "viewer.loadFailed": "Не удалось загрузить ресурс QDN.",
+  "viewer.hideStatusBar": "Скрыть строку состояния",
   "viewer.loadingResource": "Загрузка ресурса QDN…",
   "viewer.media.aborted": "Загрузка медиафайла отменена.",
   "viewer.media.decode": "Это приложение не смогло декодировать медиафайл.",
@@ -450,6 +451,7 @@ export const ru: Record<TranslationKey, string> = {
   "viewer.media.network": "Не удалось загрузить медиафайл с настроенного узла.",
   "viewer.media.unsupported": "Этот медиаформат не поддерживается этим приложением.",
   "viewer.noDedicatedViewer": "Для ресурсов {service} пока нет специального средства просмотра.",
+  "viewer.openInNewTab": "Открыть в новой вкладке",
   "viewer.preview.failed": "Ошибка предпросмотра",
   "viewer.preview.loading": "Загрузка текстового предпросмотра…",
   "viewer.preview.tooLarge": "Этот ресурс слишком велик для встроенного предпросмотра. Лимит встроенного предпросмотра — {limit}.",
@@ -461,5 +463,6 @@ export const ru: Record<TranslationKey, string> = {
   "viewer.readyToDownload": "Этот ресурс готов к скачиванию.",
   "viewer.readyToOpen": "Этот ресурс готов к открытию.",
   "viewer.renderRequestFailed": "Запрос отрисовки QDN завершился ошибкой HTTP {status}.",
+  "viewer.showStatusBar": "Показать строку состояния",
   "viewer.statusRequestFailed": "Запрос статуса QDN завершился ошибкой HTTP {status}.",
 };
