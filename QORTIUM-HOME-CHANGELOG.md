@@ -33,6 +33,30 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-14 - release: prepare home preview 14
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.14` with Android `versionCode` 15 so the persistent Q-App storage fix, the expanded QDN bridge actions (group management, payments, polls, and group approval voting), the shared desktop/Android bridge action lists, and GIF repository image viewing can be published as the next QortiumDev prerelease target.
+
+### 2026-06-14 - fix: persist Q-App localStorage across Qortium Home restarts
+
+Settings and other data that QDN apps saved in the browser's local storage were lost every time Qortium Home was closed and reopened, because each app's storage area was kept only in memory and under a name that changed on every launch. Each app now gets a stable, disk-backed storage area derived from its QDN address, so the same app always reuses the same storage no matter which tab or window opened it, and its saved preferences now survive restarts.
+
+### 2026-06-14 - qdn: add group, payment, and poll transaction actions to the bridge
+
+QDN apps can now ask Home to carry out a wider set of on-chain actions through the same mediated bridge used for other signed actions: creating and administering groups (adding and removing admins, banning and unbanning, kicking, cancelling invites, and updating group settings), sending payments and transferring assets, and creating, voting on, and updating polls. Each action still requires the user's per-request approval and is signed inside Home through the feeless proof-of-work path, so the account's private key never leaves Home and the fee defaults to zero. The new actions behave the same on desktop and Android, and their approval labels are translated in every language.
+
+### 2026-06-14 - qdn: share QDN app-bridge action lists across desktop and Android
+
+The list of bridge actions a QDN app may request used to be written out twice — once for the desktop bridge and once for the Android/renderer bridge — which made the two easy to drift apart. Both now read from a single shared list, so the set of available actions stays identical across desktop and Android. This is an internal tidy-up only; the actions an app can request are unchanged.
+
+### 2026-06-14 - Support GIF repository image viewing
+
+Home can now browse and display images published to the QDN GIF repository service. These resources are recognised in the QDN explorer and open in the viewer with animated GIFs playing as expected, so GIF collections shared on QDN can be viewed directly inside Home.
+
+### 2026-06-14 - Add group approval QDN bridge support
+
+QDN apps can now ask Home to cast a group-transaction approval vote through the bridge, used to approve or oppose group-administered actions that require member approval. As with every signing action, the user is asked to approve each request and can see which account and group are involved; Home casts the vote and the account's private key stays inside Home. The action works on desktop and Android with translated approval labels.
+
 ### 2026-06-14 - ui: scroll qdn browser pages when content overflows
 
 Browsing a QDN address such as qdn://APP shows a list of resources, but when that list was longer than the window it was cut off at the bottom with no scrollbar, leaving the rest unreachable. The browsing area now bounds those pages to the window's height, so any page whose content overflows — the QDN service and resource listings, and the node API and API-docs pages that share the same area — scrolls within the window as expected. The full-screen content viewers (rendered QDN apps and media) are unaffected.
