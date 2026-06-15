@@ -786,7 +786,7 @@ h1 {
 
 .dashboard-pin {
   position: relative;
-  width: 7rem;
+  width: 5rem;
   min-width: 0;
   /* Displaced tiles slide to their new slot (FLIP); the dragged tile overrides
      this with transition:none so it tracks the pointer with no lag. */
@@ -806,12 +806,13 @@ h1 {
   transition: var(--transition-control);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   justify-content: center;
   width: 100%;
   aspect-ratio: 1 / 1;
-  padding: 10px 8px;
+  padding: 6px;
+  overflow: hidden;
   color: var(--color-text);
   text-align: center;
   background: var(--color-control-bg);
@@ -890,7 +891,9 @@ h1 {
   line-height: var(--line-height-tight);
   text-overflow: ellipsis;
   word-break: break-word;
-  -webkit-line-clamp: 2;
+  /* Single line keeps the icon prominent on the compact (5rem) tile and avoids
+     clipping the label against a large icon (app-grid style). */
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
 
@@ -1876,7 +1879,7 @@ h1 {
   }
 
   .top-bar__tab-avatar + .app-icon--tab {
-    margin-inline-start: -8px;
+    margin-inline-start: -12px;
     box-shadow: 0 0 0 2px var(--color-control-bg);
   }
 }
@@ -1885,8 +1888,8 @@ h1 {
   position: relative;
   display: grid;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   overflow: hidden;
   background: var(--color-control-bg);
@@ -1910,7 +1913,7 @@ h1 {
   height: 100%;
   place-items: center;
   color: var(--color-page-bg);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   background: var(--color-accent);

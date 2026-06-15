@@ -928,7 +928,7 @@ function BrowserTabs({
                 <span className="top-bar__tab-icons">
                   <TabAvatar account={tab.account} nodeApiUrl={nodeApiUrl} nodeEpoch={nodeEpoch} />
                   {iconResolution ? (
-                    <AppIcon resolution={iconResolution} size={16} variant="tab" />
+                    <AppIcon resolution={iconResolution} size={26} variant="tab" />
                   ) : null}
                 </span>
                 <span className="top-bar__tab-label">{tab.label}</span>
