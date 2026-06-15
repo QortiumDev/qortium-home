@@ -786,7 +786,7 @@ h1 {
 
 .dashboard-pin {
   position: relative;
-  width: 5rem;
+  width: 4.5rem;
   min-width: 0;
   /* Displaced tiles slide to their new slot (FLIP); the dragged tile overrides
      this with transition:none so it tracks the pointer with no lag. */
@@ -806,12 +806,12 @@ h1 {
   transition: var(--transition-control);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
   justify-content: center;
   width: 100%;
   aspect-ratio: 1 / 1;
-  padding: 6px;
+  padding: 4px;
   overflow: hidden;
   color: var(--color-text);
   text-align: center;

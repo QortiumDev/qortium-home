@@ -412,7 +412,7 @@ function HomeUpdateDashboardCard({
 
 const PIN_DRAG_START_MIN_DISTANCE_PX = 8;
 const PIN_LONG_PRESS_MS = 500;
-const PIN_TILE_REM = 5;
+const PIN_TILE_REM = 4.5;
 const PIN_GAP_PX = 10;
 
 type PinContextMenuState = { pinId: string; x: number; y: number } | null;
@@ -1149,9 +1149,9 @@ function DashboardPins({
                 }}
               >
                 {iconResolution ? (
-                  <AppIcon resolution={iconResolution} size={40} variant="pin" />
+                  <AppIcon resolution={iconResolution} size={42} variant="pin" />
                 ) : (
-                  <display.Icon aria-hidden="true" size={28} strokeWidth={2} />
+                  <display.Icon aria-hidden="true" size={32} strokeWidth={2} />
                 )}
                 {isRenaming ? (
                   <input
