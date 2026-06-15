@@ -249,6 +249,7 @@ type QortiumAppUpdatePlatform = {
 type QortiumAppUpdateEnvironment = {
   currentVersion: string;
   installDir?: string;
+  installFile?: string;
   platform: QortiumAppUpdatePlatform;
   updatesDir?: string;
 };

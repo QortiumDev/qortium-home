@@ -322,14 +322,16 @@ export function getHomeVersionRowValue(
 ): ReactNode {
   const tag = formatReleaseTag(environment?.currentVersion);
   const text = tag || t('common.checking');
-  const installDir = environment?.installDir ?? '';
+  // Prefer the install file so the file manager highlights the actual app
+  // (e.g. the .AppImage), falling back to the containing directory.
+  const revealTarget = environment?.installFile || environment?.installDir || '';
 
-  if (!installDir) {
+  if (!revealTarget) {
     return text;
   }
 
   return (
-    <RevealValue className={linkClassName} path={installDir}>
+    <RevealValue className={linkClassName} path={revealTarget}>
       {text}
     </RevealValue>
   );

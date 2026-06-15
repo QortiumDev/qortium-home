@@ -248,10 +248,16 @@ function isSupportedPlatform(os: AppUpdatePlatformOs, arch: string) {
 function getUpdateEnvironment() {
   const os = getPlatformOs();
   const arch = process.arch;
+  // For AppImage builds app.getPath('exe') points at the temporary FUSE mount
+  // (/tmp/.../.mount_...), not the real .AppImage on disk. The AppImage runtime
+  // exposes the actual file path in the APPIMAGE environment variable; fall back
+  // to the executable path on every other platform/packaging.
+  const installFile = process.env.APPIMAGE || app.getPath('exe');
 
   return {
     currentVersion: app.getVersion(),
-    installDir: path.dirname(app.getPath('exe')),
+    installDir: path.dirname(installFile),
+    installFile,
     platform: {
       arch,
       label: getPlatformLabel(os, arch),
