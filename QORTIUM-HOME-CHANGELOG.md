@@ -33,6 +33,42 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-15 - release: prepare home preview 15
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.15` with Android `versionCode` 16 so the consolidated Core/Home information views, the redesigned draggable pinned tiles with QDN app icons on pins and tabs, the Linux AppImage Home-folder fix, and the standardized QDN resource viewer (shared copy and download actions in the status bar, context-sensitive GIF repository actions, APP/WEBSITE and whole-repository downloads saved as zip archives, image copying, and the fit-to-space video player) can be published as the next QortiumDev prerelease target.
+
+### 2026-06-15 - qdn: scale video to fill viewer space; label zip downloads
+
+Videos in the QDN viewer now scale to fill the available space above the resource details instead of staying at their original (often small) size. Downloads that save a whole multi-file resource as a single archive — APP and WEBSITE apps and an entire GIF repository — now show "(zip)" on the download button so it is clear a zip file will be saved.
+
+### 2026-06-15 - qdn: context-sensitive viewer actions, video fill, copy image
+
+The QDN viewer's top-bar actions now follow what is on screen. Copying text from JSON and other text resources moved into the top bar alongside the link and download actions; image resources gained a "Copy image" action that places the picture on the clipboard; and a GIF repository copies or downloads the whole collection while browsing the gallery but switches to the individual image once one is opened. APP and WEBSITE resources can now be downloaded (saved as a zip), the video player gained a button to expand it to the full content area and back, and the redundant "Open in new tab" action was removed since a tab can already be duplicated.
+
+### 2026-06-15 - qdn: standardize resource viewer actions in status bar
+
+The copy-link and download actions are now shown consistently in the QDN viewer's top status bar for every kind of resource — images, audio, video, text, files, GIF repositories, and apps — rather than appearing in different places for different types. Images gained the copy and download actions they previously lacked, the status bar can be collapsed to a slim handle to reclaim screen space, and the video player was adjusted to fit within the page.
+
+### 2026-06-15 - style: larger pin icons on smaller tiles
+
+Pinned link icons now render larger on the smaller dashboard tiles, keeping them legible after the tiles were made more compact.
+
+### 2026-06-15 - fix: robust pin drag, compact tiles, larger tab icons
+
+Dragging pinned tiles to reorder them is now more reliable, the dashboard tiles are more compact so more fit on screen, and tab icons are larger and easier to recognise.
+
+### 2026-06-15 - fix: resolve real AppImage install location for Home folder/reveal
+
+On Linux, opening or revealing the Home data folder from a packaged AppImage now resolves the real install location instead of a temporary mount path, so the action points at the correct folder.
+
+### 2026-06-15 - feat: smooth pin drag-reorder and QDN app icons on pins + tabs
+
+Pinned dashboard links can now be reordered by dragging them with a smooth animation, and pinned links and open tabs now display the QDN app's own icon where available, making them easier to tell apart at a glance.
+
+### 2026-06-15 - feat: consolidate Core/Home info across popup, dashboard, settings
+
+Information about the local Qortium Core and the Home app — version, status, and related details — used to be shown inconsistently in different places. It is now presented consistently across the node popup, the dashboard, and the settings screens, so the same facts read the same way wherever you look.
+
 ### 2026-06-15 - qdn: add OPEN_CURRENT_TAB bridge action
 
 QDN apps can now navigate the tab they are running in to a different Qortium address through a new `OPEN_CURRENT_TAB` bridge action, instead of always opening a new tab. The destination is pushed onto the tab's history so the user can hit Back to return to the originating app, and asking to navigate to the address that is already showing leaves the history unchanged.
@@ -46,6 +82,10 @@ QDN apps can now query group kick and ban history through four new named bridge 
 `GET_GROUP_KICKS` returns all confirmed kicks that have occurred in a given group, with optional filters for kicked member address, timestamp range, pagination, and sort order. `GET_GROUP_BANS` returns all current bans in a given group. `GET_MEMBER_KICKS` returns all kicks for a given address across all groups (defaulting to the selected account). `GET_MEMBER_BANS` returns all current bans for a given address across all groups (defaulting to the selected account).
 
 All four are read-only actions and pass through the node API without requiring account access or approval prompts. They complete the symmetric read surface for kicks and bans, matching the pattern used by the other group read actions.
+
+### 2026-06-15 - qdn: add RATE_ACCOUNT bridge action for trust apps
+
+QDN apps such as trust apps can now ask Home to submit an account rating through the bridge using a new `RATE_ACCOUNT` action. As with other signing actions, the user approves each request and the rating is signed inside Home through the feeless proof-of-work path, so the account's private key never leaves Home. It works the same way on desktop and Android, with translated approval labels.
 
 ### 2026-06-14 - release: prepare home preview 14
 
