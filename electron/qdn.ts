@@ -4877,17 +4877,14 @@ async function getQdnResourceUrl(request: QdnAppRequest, context: QdnViewContext
   const connection = await getNodeConnection();
   const { pathOnly, queryString } = splitPathAndQuery(resource.path);
   const encodedPath = getEncodedResourcePath(pathOnly);
+  const identifierSegment = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
   const queryParams = new URLSearchParams(queryString);
-
-  if (resource.identifier) {
-    queryParams.set('identifier', resource.identifier);
-  }
 
   applyQdnDisplaySettings(queryParams, context);
 
   const renderQueryString = queryParams.toString();
 
-  return `${connection.nodeApiUrl}/render/${resource.service}/${encodeURIComponent(resource.name)}${
+  return `${connection.nodeApiUrl}/render/${resource.service}/${encodeURIComponent(resource.name)}${identifierSegment}${
     encodedPath ? `/${encodedPath}` : ''
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }

@@ -77,6 +77,11 @@ type QdnViewEntry = {
   accountId: string | null;
   accountUnlocked: boolean;
   currentUrl: string | null;
+  // The renderUrl React last asked us to load. Unlike `currentUrl`, this is not
+  // mutated by in-app navigation, so it tells us whether a `qdn-views:show`
+  // carries a genuinely new destination (reload) or is a pure suspend→show of
+  // the same page (no reload, preserving the live in-app location).
+  requestedUrl: string | null;
   // What the loaded page last received; `undefined` means nothing delivered
   // yet, so state messages are only sent when these fall out of sync.
   deliveredAccountStateKey: string | undefined;
@@ -625,6 +630,7 @@ function createViewEntry(
     accountId,
     accountUnlocked: false,
     currentUrl: null,
+    requestedUrl: null,
     deliveredAccountStateKey: undefined,
     deliveredDisplaySettings: undefined,
     displaySettings,
@@ -730,7 +736,13 @@ export function registerQdnViewIpcHandlers() {
     window.contentView.addChildView(entry.view);
     entry.view.setVisible(true);
 
-    if (entry.currentUrl !== request.renderUrl) {
+    // Reload only when React actually asked for a different page. A pure
+    // suspend→show with the same requested URL must NOT reload, otherwise an
+    // inactive tab loses its in-app navigation when you switch away and back:
+    // `entry.currentUrl` has drifted to the live in-app location, so comparing
+    // against it would force a reload to the original render URL.
+    if (entry.requestedUrl !== request.renderUrl) {
+      entry.requestedUrl = request.renderUrl;
       entry.currentUrl = request.renderUrl;
       void entry.view.webContents
         .loadURL(request.renderUrl)
