@@ -37,6 +37,10 @@ with its own clear scope.
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.15` with Android `versionCode` 16 so the consolidated Core/Home information views, the redesigned draggable pinned tiles with QDN app icons on pins and tabs, the Linux AppImage Home-folder fix, and the standardized QDN resource viewer (shared copy and download actions in the status bar, context-sensitive GIF repository actions, APP/WEBSITE and whole-repository downloads saved as zip archives, image copying, and the fit-to-space video player) can be published as the next QortiumDev prerelease target.
 
+### 2026-06-15 - fix: rename app-icon helper module to avoid a case-insensitive build clash
+
+The app-icon helper module (`appIcon.ts`) and the app-icon component (`AppIcon.tsx`) differed only by capitalization. That built fine on Linux, whose filesystem is case-sensitive, but collided on the case-insensitive filesystems used by macOS and Windows, which broke the macOS packaging build. The helper module was renamed to `appIconUtils.ts` so Qortium Home builds correctly on every platform.
+
 ### 2026-06-15 - qdn: scale video to fill viewer space; label zip downloads
 
 Videos in the QDN viewer now scale to fill the available space above the resource details instead of staying at their original (often small) size. Downloads that save a whole multi-file resource as a single archive — APP and WEBSITE apps and an entire GIF repository — now show "(zip)" on the download button so it is clear a zip file will be saved.

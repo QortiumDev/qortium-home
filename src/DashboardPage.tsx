@@ -2,8 +2,8 @@ import { Braces, Download, FolderOpen, Globe2, Pencil, Play, Settings as Setting
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
-import type { AppIconResolution } from './appIcon';
-import { getAppIconResolution } from './appIcon';
+import type { AppIconResolution } from './appIconUtils';
+import { getAppIconResolution } from './appIconUtils';
 import { AppIcon } from './AppIcon';
 import {
   getOpenDownloadedFileLabel,

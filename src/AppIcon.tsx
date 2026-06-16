@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AppIconResolution } from './appIcon';
-import { readCachedIconIndex, writeCachedIconIndex } from './appIcon';
+import type { AppIconResolution } from './appIconUtils';
+import { readCachedIconIndex, writeCachedIconIndex } from './appIconUtils';
 
 // Renders an APP/WEBSITE icon as a square chip. A name-seeded monogram is always
 // drawn as the base so there is never a broken-image flash or layout shift; the
