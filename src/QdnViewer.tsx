@@ -916,7 +916,9 @@ function QdnDownloadButton({
 }) {
   const [downloadState, setDownloadState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
   const opensNativeDownload = isNativePlatform();
-  const actionLabel = opensNativeDownload ? t('common.open') : t('common.download');
+  // Multi-file resources save as a single archive, so the action makes the
+  // .zip outcome explicit (e.g. "Download (zip)").
+  const actionLabel = `${opensNativeDownload ? t('common.open') : t('common.download')}${multiFile ? ' (zip)' : ''}`;
   const buttonLabel =
     downloadState === 'saving'
       ? opensNativeDownload
@@ -930,9 +932,7 @@ function QdnDownloadButton({
           ? opensNativeDownload
             ? t('viewer.download.openFailed')
             : t('viewer.download.saveFailed')
-          : opensNativeDownload
-            ? t('common.open')
-            : t('common.download');
+          : actionLabel;
 
   useEffect(() => {
     if (downloadState !== 'saved' && downloadState !== 'error') {
