@@ -433,6 +433,7 @@ export const ar: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "صفحة المتصفح",
   "viewer.checkingResource": "جارٍ التحقق من مورد QDN…",
   "viewer.codeLabel": "الشيفرة",
+  "viewer.copyImage": "نسخ الصورة",
   "viewer.copyQdnUrl": "نسخ عنوان URL الخاص بـ QDN",
   "viewer.copyText": "نسخ النص",
   "viewer.detail.file": "الملف",
@@ -451,7 +452,6 @@ export const ar: Record<TranslationKey, string> = {
   "viewer.media.network": "تعذّر تحميل الوسائط من العقدة المهيأة.",
   "viewer.media.unsupported": "تنسيق الوسائط هذا غير مدعوم في هذا التطبيق.",
   "viewer.noDedicatedViewer": "لا يوجد عارض مخصص لموارد {service} حتى الآن.",
-  "viewer.openInNewTab": "فتح في علامة تبويب جديدة",
   "viewer.preview.failed": "فشلت المعاينة",
   "viewer.preview.loading": "جارٍ تحميل معاينة النص…",
   "viewer.preview.tooLarge": "هذا المورد أكبر من أن يُعايَن مضمّنًا. حد المعاينة المضمّنة هو {limit}.",
@@ -465,4 +465,6 @@ export const ar: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "فشل طلب عرض QDN برمز HTTP {status}.",
   "viewer.showStatusBar": "إظهار شريط الحالة",
   "viewer.statusRequestFailed": "فشل طلب حالة QDN برمز HTTP {status}.",
+  "viewer.video.exitFill": "إنهاء العرض الكامل",
+  "viewer.video.fill": "ملء الصفحة",
 };

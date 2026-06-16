@@ -433,6 +433,7 @@ export const es: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Página del navegador",
   "viewer.checkingResource": "Comprobando recurso de QDN…",
   "viewer.codeLabel": "Código",
+  "viewer.copyImage": "Copiar imagen",
   "viewer.copyQdnUrl": "Copiar URL de QDN",
   "viewer.copyText": "Copiar texto",
   "viewer.detail.file": "Archivo",
@@ -451,7 +452,6 @@ export const es: Record<TranslationKey, string> = {
   "viewer.media.network": "No se pudo cargar el contenido multimedia desde el nodo configurado.",
   "viewer.media.unsupported": "Esta aplicación no admite este formato multimedia.",
   "viewer.noDedicatedViewer": "Los recursos de {service} aún no tienen un visor dedicado.",
-  "viewer.openInNewTab": "Abrir en una pestaña nueva",
   "viewer.preview.failed": "Error en la vista previa",
   "viewer.preview.loading": "Cargando vista previa de texto…",
   "viewer.preview.tooLarge": "Este recurso es demasiado grande para la vista previa integrada. El límite de la vista previa integrada es {limit}.",
@@ -465,4 +465,6 @@ export const es: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "La solicitud de renderizado de QDN falló con HTTP {status}.",
   "viewer.showStatusBar": "Mostrar la barra de estado",
   "viewer.statusRequestFailed": "La solicitud de estado de QDN falló con HTTP {status}.",
+  "viewer.video.exitFill": "Salir de la vista completa",
+  "viewer.video.fill": "Llenar la página",
 };

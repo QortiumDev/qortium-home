@@ -433,6 +433,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "浏览器页面",
   "viewer.checkingResource": "正在检查 QDN 资源…",
   "viewer.codeLabel": "代码",
+  "viewer.copyImage": "复制图片",
   "viewer.copyQdnUrl": "复制 QDN URL",
   "viewer.copyText": "复制文本",
   "viewer.detail.file": "文件",
@@ -451,7 +452,6 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.media.network": "无法从配置的节点加载该媒体。",
   "viewer.media.unsupported": "此应用不支持该媒体格式。",
   "viewer.noDedicatedViewer": "{service} 资源暂无专用查看器。",
-  "viewer.openInNewTab": "在新标签页中打开",
   "viewer.preview.failed": "预览失败",
   "viewer.preview.loading": "正在加载文本预览…",
   "viewer.preview.tooLarge": "此资源过大，无法内联预览。内联预览上限为 {limit}。",
@@ -465,4 +465,6 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN 渲染请求失败，HTTP {status}。",
   "viewer.showStatusBar": "显示状态栏",
   "viewer.statusRequestFailed": "QDN 状态请求失败，HTTP {status}。",
+  "viewer.video.exitFill": "退出全屏视图",
+  "viewer.video.fill": "铺满页面",
 };

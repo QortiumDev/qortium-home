@@ -433,6 +433,7 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Strona przeglądarki",
   "viewer.checkingResource": "Sprawdzanie zasobu QDN…",
   "viewer.codeLabel": "Kod",
+  "viewer.copyImage": "Kopiuj obraz",
   "viewer.copyQdnUrl": "Kopiuj URL QDN",
   "viewer.copyText": "Kopiuj tekst",
   "viewer.detail.file": "Plik",
@@ -451,7 +452,6 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.media.network": "Nie można wczytać multimediów ze skonfigurowanego węzła.",
   "viewer.media.unsupported": "Ten format multimediów nie jest obsługiwany przez tę aplikację.",
   "viewer.noDedicatedViewer": "Zasoby {service} nie mają jeszcze dedykowanej przeglądarki.",
-  "viewer.openInNewTab": "Otwórz w nowej karcie",
   "viewer.preview.failed": "Podgląd nie powiódł się",
   "viewer.preview.loading": "Wczytywanie podglądu tekstu…",
   "viewer.preview.tooLarge": "Ten zasób jest zbyt duży, aby wyświetlić podgląd w aplikacji. Limit podglądu w aplikacji to {limit}.",
@@ -465,4 +465,6 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "Żądanie renderowania QDN nie powiodło się z kodem HTTP {status}.",
   "viewer.showStatusBar": "Pokaż pasek statusu",
   "viewer.statusRequestFailed": "Żądanie statusu QDN nie powiodło się z kodem HTTP {status}.",
+  "viewer.video.exitFill": "Zamknij pełny widok",
+  "viewer.video.fill": "Wypełnij stronę",
 };

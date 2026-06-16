@@ -433,6 +433,7 @@ export const nl: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Browserpagina",
   "viewer.checkingResource": "QDN-resource controleren…",
   "viewer.codeLabel": "Code",
+  "viewer.copyImage": "Afbeelding kopiëren",
   "viewer.copyQdnUrl": "QDN-URL kopiëren",
   "viewer.copyText": "Tekst kopiëren",
   "viewer.detail.file": "Bestand",
@@ -451,7 +452,6 @@ export const nl: Record<TranslationKey, string> = {
   "viewer.media.network": "De media konden niet worden geladen vanaf de geconfigureerde node.",
   "viewer.media.unsupported": "Dit mediaformaat wordt niet ondersteund door deze app.",
   "viewer.noDedicatedViewer": "{service}-resources hebben nog geen eigen viewer.",
-  "viewer.openInNewTab": "Openen in nieuw tabblad",
   "viewer.preview.failed": "Voorbeeld mislukt",
   "viewer.preview.loading": "Tekstvoorbeeld laden…",
   "viewer.preview.tooLarge": "Deze resource is te groot voor een inline voorbeeld. De limiet voor inline voorbeelden is {limit}.",
@@ -465,4 +465,6 @@ export const nl: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN-renderverzoek mislukt met HTTP {status}.",
   "viewer.showStatusBar": "Statusbalk tonen",
   "viewer.statusRequestFailed": "QDN-statusverzoek mislukt met HTTP {status}.",
+  "viewer.video.exitFill": "Volledige weergave verlaten",
+  "viewer.video.fill": "Pagina vullen",
 };

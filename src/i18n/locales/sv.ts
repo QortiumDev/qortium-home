@@ -433,6 +433,7 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Webbläsarsida",
   "viewer.checkingResource": "Kontrollerar QDN-resurs…",
   "viewer.codeLabel": "Kod",
+  "viewer.copyImage": "Kopiera bild",
   "viewer.copyQdnUrl": "Kopiera QDN-URL",
   "viewer.copyText": "Kopiera text",
   "viewer.detail.file": "Fil",
@@ -451,7 +452,6 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.media.network": "Mediet kunde inte läsas in från den konfigurerade noden.",
   "viewer.media.unsupported": "Det här medieformatet stöds inte av den här appen.",
   "viewer.noDedicatedViewer": "{service}-resurser har ingen egen visare ännu.",
-  "viewer.openInNewTab": "Öppna i ny flik",
   "viewer.preview.failed": "Förhandsvisning misslyckades",
   "viewer.preview.loading": "Läser in förhandsvisning av text…",
   "viewer.preview.tooLarge": "Den här resursen är för stor för att förhandsvisas direkt. Gränsen för direkt förhandsvisning är {limit}.",
@@ -465,4 +465,6 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN-renderingsbegäran misslyckades med HTTP {status}.",
   "viewer.showStatusBar": "Visa statusrad",
   "viewer.statusRequestFailed": "QDN-statusbegäran misslyckades med HTTP {status}.",
+  "viewer.video.exitFill": "Avsluta helvy",
+  "viewer.video.fill": "Fyll sidan",
 };

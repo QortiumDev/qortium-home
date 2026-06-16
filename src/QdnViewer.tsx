@@ -1,4 +1,4 @@
-import { ChevronDown, Copy, Download, ExternalLink, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, ClipboardCopy, Copy, Download, Image as ImageIcon, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
 import type {
@@ -34,6 +34,19 @@ type LoadedQdnResource = {
   status: QdnResourceStatus;
   viewerKind: QdnViewerKind;
 };
+
+// Lets the active content component refine the top-bar actions for what is
+// actually on screen (e.g. the selected image inside a GIF repository, or the
+// loaded JSON text), without each viewer owning its own copy/download buttons.
+type ViewerActionContext = {
+  copyText?: string;
+  isImage?: boolean;
+  isMultiFile?: boolean;
+  properties?: QdnResourceProperties;
+  resource?: QdnResource;
+};
+
+type SetViewerActionContext = (context: ViewerActionContext) => void;
 
 type QdnViewerState =
   | {
@@ -358,6 +371,85 @@ async function writeClipboardText(value: string) {
   } finally {
     textArea.remove();
   }
+}
+
+function base64ToBlob(base64: string, contentType: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: contentType || 'application/octet-stream' });
+}
+
+// The clipboard image API only reliably accepts PNG, so non-PNG (and animated)
+// images are flattened to a PNG of the first frame via a canvas.
+async function blobToPngBlob(blob: Blob): Promise<Blob> {
+  if (blob.type === 'image/png') {
+    return blob;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    const image = new Image();
+
+    image.src = objectUrl;
+    await image.decode();
+
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+
+    if (!width || !height) {
+      // e.g. an SVG with no intrinsic size — there is nothing to rasterize, so
+      // fail clearly rather than copying a blank image to the clipboard.
+      throw new Error('Image has no intrinsic size to copy.');
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('Canvas 2D context was not available.');
+    }
+
+    context.drawImage(image, 0, 0);
+
+    const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+
+    if (!pngBlob) {
+      throw new Error('Image could not be converted to PNG.');
+    }
+
+    return pngBlob;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+// Copies an image resource to the clipboard. Bytes are fetched through the
+// Home bridge (not a direct fetch) so the node API key and CORS are handled in
+// the trusted layer and the canvas is never tainted.
+async function copyImageResourceToClipboard(resource: QdnResource) {
+  const result = await window.qortiumHome.qdn.fetchResourceData({
+    service: resource.service,
+    name: resource.name,
+    identifier: resource.identifier,
+    path: resource.path,
+  });
+
+  if (result.tooLarge || !result.data) {
+    throw new Error('Image is too large to copy to the clipboard.');
+  }
+
+  const pngBlob = await blobToPngBlob(base64ToBlob(result.data, result.contentType));
+
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
 }
 
 async function readStatus(response: Response) {
@@ -702,12 +794,14 @@ function CopyButton({
   compact,
   disabled,
   label,
+  textVariant,
   value,
 }: {
   className?: string;
   compact?: boolean;
   disabled?: boolean;
   label: string;
+  textVariant?: boolean;
   value: string;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'error' | 'idle'>('idle');
@@ -739,7 +833,52 @@ function CopyButton({
         }
       }}
     >
-      <Copy aria-hidden="true" size={18} strokeWidth={2} />
+      {textVariant ? (
+        <ClipboardCopy aria-hidden="true" size={18} strokeWidth={2} />
+      ) : (
+        <Copy aria-hidden="true" size={18} strokeWidth={2} />
+      )}
+      <span className="button__label">{buttonLabel}</span>
+    </button>
+  );
+}
+
+// A copyable image resource → clipboard, with the same transient feedback as CopyButton.
+function CopyImageButton({ compact, resource }: { compact?: boolean; resource: QdnResource }) {
+  const [copyState, setCopyState] = useState<'copied' | 'copying' | 'error' | 'idle'>('idle');
+  const label = t('viewer.copyImage');
+  const buttonLabel =
+    copyState === 'copied' ? t('common.copied') : copyState === 'error' ? t('common.copyFailed') : label;
+
+  useEffect(() => {
+    if (copyState !== 'copied' && copyState !== 'error') {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setCopyState('idle'), 1_600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [copyState]);
+
+  return (
+    <button
+      className={`button button--secondary${compact ? ' button--compact' : ''}`}
+      type="button"
+      disabled={copyState === 'copying'}
+      title={compact ? label : undefined}
+      aria-label={compact ? label : undefined}
+      onClick={async () => {
+        setCopyState('copying');
+
+        try {
+          await copyImageResourceToClipboard(resource);
+          setCopyState('copied');
+        } catch {
+          setCopyState('error');
+        }
+      }}
+    >
+      <ImageIcon aria-hidden="true" size={18} strokeWidth={2} />
       <span className="button__label">{buttonLabel}</span>
     </button>
   );
@@ -756,13 +895,23 @@ function getSuggestedResourceFilename(resource: QdnResource, properties: QdnReso
   return suffix || `${resource.service}_${resource.name}_${identifier}`;
 }
 
+// Multi-file resources (APP/WEBSITE, a whole GIF repository) are served by the
+// node as a single zip archive, so they save with a .zip name.
+function getMultiFileDownloadName(resource: QdnResource) {
+  const base = resource.name || resource.service || 'qdn-resource';
+
+  return `${base}.zip`;
+}
+
 function QdnDownloadButton({
   compact,
-  loadedResource,
+  multiFile,
+  properties,
   resource,
 }: {
   compact?: boolean;
-  loadedResource: LoadedQdnResource;
+  multiFile?: boolean;
+  properties?: QdnResourceProperties;
   resource: QdnResource;
 }) {
   const [downloadState, setDownloadState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
@@ -811,7 +960,9 @@ function QdnDownloadButton({
             name: resource.name,
             identifier: resource.identifier,
             path: resource.path,
-            suggestedFilename: getSuggestedResourceFilename(resource, loadedResource.properties),
+            suggestedFilename: multiFile
+              ? getMultiFileDownloadName(resource)
+              : getSuggestedResourceFilename(resource, properties),
           });
 
           setDownloadState(result.canceled ? 'idle' : 'saved');
@@ -827,34 +978,26 @@ function QdnDownloadButton({
 }
 
 function QdnStatusActions({
-  loadedResource,
-  onOpenNewTab,
+  copyText,
+  isImage,
+  isMultiFile,
+  properties,
   resource,
 }: {
-  loadedResource: LoadedQdnResource;
-  onOpenNewTab?: (address: string) => void;
+  copyText?: string;
+  isImage?: boolean;
+  isMultiFile?: boolean;
+  properties?: QdnResourceProperties;
   resource: QdnResource;
 }) {
-  // APP/WEBSITE resources have no single downloadable file, so the download
-  // action is hidden for them; every other resource type can be saved.
-  const canDownload = loadedResource.viewerKind !== 'iframe';
-
   return (
     <div className="qdn-viewer__status-actions">
       <CopyButton compact label={t('viewer.copyQdnUrl')} value={resource.displayUrl} />
-      {canDownload ? <QdnDownloadButton compact loadedResource={loadedResource} resource={resource} /> : null}
-      {onOpenNewTab ? (
-        <button
-          className="button button--secondary button--compact"
-          type="button"
-          title={t('viewer.openInNewTab')}
-          aria-label={t('viewer.openInNewTab')}
-          onClick={() => onOpenNewTab(resource.displayUrl)}
-        >
-          <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
-          <span className="button__label">{t('viewer.openInNewTab')}</span>
-        </button>
+      {typeof copyText === 'string' ? (
+        <CopyButton compact textVariant label={t('viewer.copyText')} value={copyText} />
       ) : null}
+      {isImage ? <CopyImageButton compact resource={resource} /> : null}
+      <QdnDownloadButton compact multiFile={isMultiFile} properties={properties} resource={resource} />
     </div>
   );
 }
@@ -919,14 +1062,23 @@ async function readTextPreview({
 
 function QdnTextContent({
   loadedResource,
+  onActionContextChange,
   resource,
 }: {
   loadedResource: LoadedQdnResource;
+  onActionContextChange: SetViewerActionContext;
   resource: QdnResource;
 }) {
   const [state, setState] = useState<TextPreviewState>({
     phase: 'loading',
   });
+
+  // Surface the loaded text as a "Copy text" action in the top bar.
+  useEffect(() => {
+    onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
+
+    return () => onActionContextChange({});
+  }, [onActionContextChange, state]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -966,7 +1118,6 @@ function QdnTextContent({
     };
   }, [loadedResource, resource]);
 
-  const isReady = state.phase === 'ready';
   const statusText =
     state.phase === 'loading'
       ? t('viewer.preview.loading')
@@ -980,9 +1131,6 @@ function QdnTextContent({
     <div className="qdn-viewer__text">
       <div className="qdn-viewer__text-toolbar">
         <span className="qdn-viewer__type-label">{statusText}</span>
-        <div className="qdn-viewer__actions">
-          <CopyButton disabled={!isReady} label={t('viewer.copyText')} value={isReady ? state.content : ''} />
-        </div>
       </div>
 
       {state.phase === 'loading' ? (
@@ -1089,22 +1237,49 @@ function QdnMediaContent({
   resource: QdnResource;
 }) {
   const [mediaError, setMediaError] = useState<MediaErrorState>(null);
+  const [isFilled, setIsFilled] = useState(false);
   const isVideo = loadedResource.viewerKind === 'video';
+  const showFilled = isVideo && isFilled;
+
+  // A new media source starts in the default fit-to-space layout.
+  useEffect(() => {
+    setIsFilled(false);
+  }, [loadedResource.renderUrl]);
 
   return (
-    <div className={`qdn-viewer__media qdn-viewer__media--${isVideo ? 'video' : 'audio'}`}>
+    <div
+      className={`qdn-viewer__media qdn-viewer__media--${isVideo ? 'video' : 'audio'}${
+        showFilled ? ' qdn-viewer__media--filled' : ''
+      }`}
+    >
       <div className="qdn-viewer__media-stage">
         {isVideo ? (
-          <video
-            className="qdn-viewer__media-player qdn-viewer__media-player--video"
-            controls
-            key={loadedResource.renderUrl}
-            preload="metadata"
-            playsInline
-            src={loadedResource.renderUrl}
-            onCanPlay={() => setMediaError(null)}
-            onError={(event) => setMediaError({ message: getMediaErrorMessage(event.currentTarget) })}
-          />
+          <>
+            <button
+              className="qdn-viewer__media-fill-toggle"
+              type="button"
+              aria-pressed={isFilled}
+              title={isFilled ? t('viewer.video.exitFill') : t('viewer.video.fill')}
+              aria-label={isFilled ? t('viewer.video.exitFill') : t('viewer.video.fill')}
+              onClick={() => setIsFilled((value) => !value)}
+            >
+              {isFilled ? (
+                <Minimize2 aria-hidden="true" size={18} strokeWidth={2} />
+              ) : (
+                <Maximize2 aria-hidden="true" size={18} strokeWidth={2} />
+              )}
+            </button>
+            <video
+              className="qdn-viewer__media-player qdn-viewer__media-player--video"
+              controls
+              key={loadedResource.renderUrl}
+              preload="metadata"
+              playsInline
+              src={loadedResource.renderUrl}
+              onCanPlay={() => setMediaError(null)}
+              onError={(event) => setMediaError({ message: getMediaErrorMessage(event.currentTarget) })}
+            />
+          </>
         ) : (
           <audio
             className="qdn-viewer__media-player qdn-viewer__media-player--audio"
@@ -1118,10 +1293,12 @@ function QdnMediaContent({
         )}
       </div>
 
-      <div className="qdn-viewer__details qdn-viewer__media-details">
-        {mediaError ? <p className="qdn-viewer__message qdn-viewer__message--error">{mediaError.message}</p> : null}
-        <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
-      </div>
+      {showFilled ? null : (
+        <div className="qdn-viewer__details qdn-viewer__media-details">
+          {mediaError ? <p className="qdn-viewer__message qdn-viewer__message--error">{mediaError.message}</p> : null}
+          <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1302,12 +1479,14 @@ function QdnGifRepositoryContent({
   displaySettings,
   loadedResource,
   nodeApiUrl,
+  onActionContextChange,
   onOpenNewTab,
   resource,
 }: {
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  onActionContextChange: SetViewerActionContext;
   onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
 }) {
@@ -1315,6 +1494,20 @@ function QdnGifRepositoryContent({
     phase: 'loading',
   });
   const [selectedFile, setSelectedFile] = useState('');
+
+  // Make the top-bar copy/download target what is on screen: the whole
+  // repository (a zip) in the gallery, or the selected image when one is open.
+  useEffect(() => {
+    if (state.phase !== 'ready' || state.files.length === 0) {
+      onActionContextChange({});
+    } else if (selectedFile) {
+      onActionContextChange({ isImage: true, resource: getQdnResourceWithPath(resource, selectedFile) });
+    } else {
+      onActionContextChange({ isMultiFile: true });
+    }
+
+    return () => onActionContextChange({});
+  }, [onActionContextChange, resource, selectedFile, state]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -1840,6 +2033,7 @@ function QdnReadyContent({
   account,
   displaySettings,
   nodeApiUrl,
+  onActionContextChange,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -1851,6 +2045,7 @@ function QdnReadyContent({
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  onActionContextChange: SetViewerActionContext;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -1896,7 +2091,13 @@ function QdnReadyContent({
   }
 
   if (loadedResource.viewerKind === 'text') {
-    return <QdnTextContent loadedResource={loadedResource} resource={resource} />;
+    return (
+      <QdnTextContent
+        loadedResource={loadedResource}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
   }
 
   if (loadedResource.viewerKind === 'audio' || loadedResource.viewerKind === 'video') {
@@ -1909,6 +2110,7 @@ function QdnReadyContent({
         displaySettings={displaySettings}
         loadedResource={loadedResource}
         nodeApiUrl={nodeApiUrl}
+        onActionContextChange={onActionContextChange}
         onOpenNewTab={onOpenNewTab}
         resource={resource}
       />
@@ -1947,6 +2149,7 @@ export function QdnViewer({
 }: QdnViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const [statusHidden, setStatusHidden] = useState(false);
+  const [actionContext, setActionContext] = useState<ViewerActionContext>({});
   const statusRegionId = useId();
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
@@ -1982,9 +2185,11 @@ export function QdnViewer({
             {state.phase === 'ready' ? (
               <div className="qdn-viewer__status-controls">
                 <QdnStatusActions
-                  loadedResource={state.loadedResource}
-                  onOpenNewTab={onOpenNewTab}
-                  resource={resource}
+                  copyText={actionContext.copyText}
+                  isImage={actionContext.isImage ?? state.loadedResource.viewerKind === 'image'}
+                  isMultiFile={actionContext.isMultiFile ?? state.loadedResource.viewerKind === 'iframe'}
+                  properties={actionContext.resource ? actionContext.properties : state.loadedResource.properties}
+                  resource={actionContext.resource ?? resource}
                 />
                 <button
                   className="icon-button qdn-viewer__status-close"
@@ -2023,6 +2228,7 @@ export function QdnViewer({
           account={account}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
+          onActionContextChange={setActionContext}
           onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}

@@ -433,6 +433,7 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "ブラウザーページ",
   "viewer.checkingResource": "QDNリソースを確認中…",
   "viewer.codeLabel": "コード",
+  "viewer.copyImage": "画像をコピー",
   "viewer.copyQdnUrl": "QDN URLをコピー",
   "viewer.copyText": "テキストをコピー",
   "viewer.detail.file": "ファイル",
@@ -451,7 +452,6 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.media.network": "設定されたノードからメディアを読み込めませんでした。",
   "viewer.media.unsupported": "このアプリはこのメディア形式に対応していません。",
   "viewer.noDedicatedViewer": "{service}リソース専用のビューアーはまだありません。",
-  "viewer.openInNewTab": "新しいタブで開く",
   "viewer.preview.failed": "プレビュー失敗",
   "viewer.preview.loading": "テキストプレビューを読み込み中…",
   "viewer.preview.tooLarge": "このリソースは大きすぎるためインラインでプレビューできません。インラインプレビューの上限は{limit}です。",
@@ -465,4 +465,6 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDNレンダーリクエストがHTTP {status}で失敗しました。",
   "viewer.showStatusBar": "ステータスバーを表示",
   "viewer.statusRequestFailed": "QDNステータスリクエストがHTTP {status}で失敗しました。",
+  "viewer.video.exitFill": "全画面表示を終了",
+  "viewer.video.fill": "全画面に表示",
 };

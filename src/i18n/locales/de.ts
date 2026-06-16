@@ -433,6 +433,7 @@ export const de: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Browserseite",
   "viewer.checkingResource": "QDN-Ressource wird geprüft…",
   "viewer.codeLabel": "Code",
+  "viewer.copyImage": "Bild kopieren",
   "viewer.copyQdnUrl": "QDN-URL kopieren",
   "viewer.copyText": "Text kopieren",
   "viewer.detail.file": "Datei",
@@ -451,7 +452,6 @@ export const de: Record<TranslationKey, string> = {
   "viewer.media.network": "Die Medien konnten nicht vom konfigurierten Node geladen werden.",
   "viewer.media.unsupported": "Dieses Medienformat wird von dieser App nicht unterstützt.",
   "viewer.noDedicatedViewer": "Für {service}-Ressourcen gibt es noch keinen eigenen Viewer.",
-  "viewer.openInNewTab": "In neuem Tab öffnen",
   "viewer.preview.failed": "Vorschau fehlgeschlagen",
   "viewer.preview.loading": "Textvorschau wird geladen…",
   "viewer.preview.tooLarge": "Diese Ressource ist zu groß für die Inline-Vorschau. Das Limit für die Inline-Vorschau beträgt {limit}.",
@@ -465,4 +465,6 @@ export const de: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN-Render-Anfrage mit HTTP {status} fehlgeschlagen.",
   "viewer.showStatusBar": "Statusleiste einblenden",
   "viewer.statusRequestFailed": "QDN-Status-Anfrage mit HTTP {status} fehlgeschlagen.",
+  "viewer.video.exitFill": "Vollansicht beenden",
+  "viewer.video.fill": "Seite ausfüllen",
 };

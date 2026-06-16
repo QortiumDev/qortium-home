@@ -433,6 +433,7 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Page du navigateur",
   "viewer.checkingResource": "Vérification de la ressource QDN…",
   "viewer.codeLabel": "Code",
+  "viewer.copyImage": "Copier l'image",
   "viewer.copyQdnUrl": "Copier l'URL QDN",
   "viewer.copyText": "Copier le texte",
   "viewer.detail.file": "Fichier",
@@ -451,7 +452,6 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.media.network": "Le média n'a pas pu être chargé depuis le nœud configuré.",
   "viewer.media.unsupported": "Ce format de média n'est pas pris en charge par cette application.",
   "viewer.noDedicatedViewer": "Les ressources {service} n'ont pas encore de visionneuse dédiée.",
-  "viewer.openInNewTab": "Ouvrir dans un nouvel onglet",
   "viewer.preview.failed": "Échec de l'aperçu",
   "viewer.preview.loading": "Chargement de l'aperçu du texte…",
   "viewer.preview.tooLarge": "Cette ressource est trop volumineuse pour un aperçu intégré. La limite d'aperçu intégré est de {limit}.",
@@ -465,4 +465,6 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "La requête de rendu QDN a échoué avec HTTP {status}.",
   "viewer.showStatusBar": "Afficher la barre de statut",
   "viewer.statusRequestFailed": "La requête de statut QDN a échoué avec HTTP {status}.",
+  "viewer.video.exitFill": "Quitter l'affichage plein",
+  "viewer.video.fill": "Remplir la page",
 };

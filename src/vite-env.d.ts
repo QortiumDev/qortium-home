@@ -357,6 +357,13 @@ type QortiumQdnTextResult =
       tooLarge: true;
     };
 
+type QortiumQdnResourceDataResult = {
+  data: string;
+  contentType: string;
+  contentLength: number;
+  tooLarge?: boolean;
+};
+
 type QortiumNodeApiRequest = {
   maxBytes?: number;
   method?: 'GET' | 'HEAD';
@@ -676,6 +683,9 @@ interface Window {
       fetchResourceText: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnTextResult>;
+      fetchResourceData: (
+        request: QortiumQdnRawResourceRequest,
+      ) => Promise<QortiumQdnResourceDataResult>;
       prepareArchiveRender: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnArchiveRenderResult>;
