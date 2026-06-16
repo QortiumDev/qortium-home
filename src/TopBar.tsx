@@ -2,8 +2,8 @@ import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin,
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAccountProfile } from './accountProfile';
-import type { AppIconResolution } from './appIcon';
-import { getAppIconResolution } from './appIcon';
+import type { AppIconResolution } from './appIconUtils';
+import { getAppIconResolution } from './appIconUtils';
 import { AppIcon } from './AppIcon';
 import { NodeStatusButton } from './NodeStatusButton';
 import { Popover } from './components/Popover';
