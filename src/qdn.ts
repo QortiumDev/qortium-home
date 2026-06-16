@@ -552,20 +552,17 @@ function applyQdnDisplaySettings(queryParams: URLSearchParams, displaySettings: 
 export function buildQdnRenderUrl(resource: QdnResource, nodeApiUrl: string, displaySettings?: QdnDisplaySettings) {
   const { pathOnly, queryString } = splitPathAndQuery(resource.path);
   const encodedPath = encodePath(pathOnly);
+  const identifierSegment = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
   const pathSuffix = encodedPath ? `/${encodedPath}` : '';
   const queryParams = new URLSearchParams(queryString);
-
-  if (resource.identifier) {
-    queryParams.set('identifier', resource.identifier);
-  }
 
   applyQdnDisplaySettings(queryParams, displaySettings);
 
   const renderQueryString = queryParams.toString();
 
-  return `${getNodeApiUrlBase(nodeApiUrl)}/render/${resource.service}/${encodeURIComponent(resource.name)}${pathSuffix}${
-    renderQueryString ? `?${renderQueryString}` : ''
-  }`;
+  return `${getNodeApiUrlBase(nodeApiUrl)}/render/${resource.service}/${encodeURIComponent(
+    resource.name,
+  )}${identifierSegment}${pathSuffix}${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
 export function isTerminalQdnStatus(status: string | undefined) {
