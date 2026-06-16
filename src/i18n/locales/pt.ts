@@ -433,6 +433,7 @@ export const pt: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Página do navegador",
   "viewer.checkingResource": "Verificando recurso QDN…",
   "viewer.codeLabel": "Código",
+  "viewer.copyImage": "Copiar imagem",
   "viewer.copyQdnUrl": "Copiar URL QDN",
   "viewer.copyText": "Copiar texto",
   "viewer.detail.file": "Arquivo",
@@ -451,7 +452,6 @@ export const pt: Record<TranslationKey, string> = {
   "viewer.media.network": "Não foi possível carregar a mídia a partir do nó configurado.",
   "viewer.media.unsupported": "Este formato de mídia não é suportado por este app.",
   "viewer.noDedicatedViewer": "Recursos {service} ainda não têm um visualizador dedicado.",
-  "viewer.openInNewTab": "Abrir em nova aba",
   "viewer.preview.failed": "Falha na pré-visualização",
   "viewer.preview.loading": "Carregando pré-visualização de texto…",
   "viewer.preview.tooLarge": "Este recurso é grande demais para ser pré-visualizado aqui. O limite da pré-visualização integrada é {limit}.",
@@ -465,4 +465,6 @@ export const pt: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "O pedido de renderização QDN falhou com HTTP {status}.",
   "viewer.showStatusBar": "Mostrar barra de estado",
   "viewer.statusRequestFailed": "O pedido de estado QDN falhou com HTTP {status}.",
+  "viewer.video.exitFill": "Sair da visualização completa",
+  "viewer.video.fill": "Preencher a página",
 };

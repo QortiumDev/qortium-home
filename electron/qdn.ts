@@ -5395,6 +5395,42 @@ export function registerQdnIpcHandlers() {
     };
   });
 
+  ipcMain.handle('qdn:fetchResourceData', async (_event, request: QdnRawResourceRequest) => {
+    const resource = getRawResourceRequest(request);
+    const maxBytes = Math.max(0, Math.floor(getNumber(request.maxBytes) ?? 0));
+    const response = await fetchConfiguredRawResource(resource);
+    const contentLength = getContentLength(response);
+    const contentType = response.headers.get('content-type') ?? '';
+
+    if (maxBytes > 0 && typeof contentLength === 'number' && contentLength > maxBytes) {
+      await response.body?.cancel();
+
+      return {
+        data: '',
+        contentLength,
+        contentType,
+        tooLarge: true,
+      };
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+
+    if (maxBytes > 0 && arrayBuffer.byteLength > maxBytes) {
+      return {
+        data: '',
+        contentLength: arrayBuffer.byteLength,
+        contentType,
+        tooLarge: true,
+      };
+    }
+
+    return {
+      data: Buffer.from(arrayBuffer).toString('base64'),
+      contentLength: contentLength ?? arrayBuffer.byteLength,
+      contentType,
+    };
+  });
+
   ipcMain.handle('qdn:prepareArchiveRender', async (_event, request: QdnRawResourceRequest) => {
     const resource = getRawResourceRequest(request);
 

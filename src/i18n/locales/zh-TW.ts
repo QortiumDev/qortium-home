@@ -433,6 +433,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "瀏覽器頁面",
   "viewer.checkingResource": "正在檢查 QDN 資源…",
   "viewer.codeLabel": "程式碼",
+  "viewer.copyImage": "複製圖片",
   "viewer.copyQdnUrl": "複製 QDN URL",
   "viewer.copyText": "複製文字",
   "viewer.detail.file": "檔案",
@@ -451,7 +452,6 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.media.network": "無法從設定的節點載入媒體。",
   "viewer.media.unsupported": "此應用程式不支援這種媒體格式。",
   "viewer.noDedicatedViewer": "{service} 資源目前尚無專用檢視器。",
-  "viewer.openInNewTab": "在新分頁開啟",
   "viewer.preview.failed": "預覽失敗",
   "viewer.preview.loading": "正在載入文字預覽…",
   "viewer.preview.tooLarge": "此資源過大，無法內嵌預覽。內嵌預覽上限為 {limit}。",
@@ -465,4 +465,6 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN 轉譯要求失敗，HTTP {status}。",
   "viewer.showStatusBar": "顯示狀態列",
   "viewer.statusRequestFailed": "QDN 狀態要求失敗，HTTP {status}。",
+  "viewer.video.exitFill": "退出全頁檢視",
+  "viewer.video.fill": "填滿頁面",
 };

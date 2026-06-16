@@ -433,6 +433,7 @@ export const ko: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "브라우저 페이지",
   "viewer.checkingResource": "QDN 리소스를 확인하는 중…",
   "viewer.codeLabel": "코드",
+  "viewer.copyImage": "이미지 복사",
   "viewer.copyQdnUrl": "QDN URL 복사",
   "viewer.copyText": "텍스트 복사",
   "viewer.detail.file": "파일",
@@ -451,7 +452,6 @@ export const ko: Record<TranslationKey, string> = {
   "viewer.media.network": "구성된 노드에서 미디어를 불러올 수 없습니다.",
   "viewer.media.unsupported": "이 미디어 형식은 이 앱에서 지원되지 않습니다.",
   "viewer.noDedicatedViewer": "{service} 리소스에는 아직 전용 뷰어가 없습니다.",
-  "viewer.openInNewTab": "새 탭에서 열기",
   "viewer.preview.failed": "미리보기 실패",
   "viewer.preview.loading": "텍스트 미리보기를 불러오는 중…",
   "viewer.preview.tooLarge": "이 리소스는 너무 커서 인라인으로 미리 볼 수 없습니다. 인라인 미리보기 제한은 {limit}입니다.",
@@ -465,4 +465,6 @@ export const ko: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN 렌더링 요청이 HTTP {status} 오류로 실패했습니다.",
   "viewer.showStatusBar": "상태 표시줄 표시",
   "viewer.statusRequestFailed": "QDN 상태 요청이 HTTP {status} 오류로 실패했습니다.",
+  "viewer.video.exitFill": "전체 보기 종료",
+  "viewer.video.fill": "페이지에 채우기",
 };

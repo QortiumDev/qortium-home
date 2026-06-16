@@ -433,6 +433,7 @@ export const et: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Brauserileht",
   "viewer.checkingResource": "QDN-i ressursi kontrollimine…",
   "viewer.codeLabel": "Kood",
+  "viewer.copyImage": "Kopeeri pilt",
   "viewer.copyQdnUrl": "Kopeeri QDN-i URL",
   "viewer.copyText": "Kopeeri tekst",
   "viewer.detail.file": "Fail",
@@ -451,7 +452,6 @@ export const et: Record<TranslationKey, string> = {
   "viewer.media.network": "Meediat ei õnnestunud seadistatud sõlmest laadida.",
   "viewer.media.unsupported": "See rakendus ei toeta seda meediavormingut.",
   "viewer.noDedicatedViewer": "Teenuse {service} ressurssidel pole veel eraldi vaaturit.",
-  "viewer.openInNewTab": "Ava uuel vahekaardil",
   "viewer.preview.failed": "Eelvaade ebaõnnestus",
   "viewer.preview.loading": "Teksti eelvaate laadimine…",
   "viewer.preview.tooLarge": "See ressurss on rakendusesisese eelvaate jaoks liiga suur. Eelvaate limiit on {limit}.",
@@ -465,4 +465,6 @@ export const et: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "QDN-i renderdamispäring ebaõnnestus HTTP olekuga {status}.",
   "viewer.showStatusBar": "Näita olekuriba",
   "viewer.statusRequestFailed": "QDN-i olekupäring ebaõnnestus HTTP olekuga {status}.",
+  "viewer.video.exitFill": "Välju täisvaatest",
+  "viewer.video.fill": "Täida leht",
 };

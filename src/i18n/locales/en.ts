@@ -431,6 +431,7 @@ export const en = {
   "viewer.browserPageAria": "Browser page",
   "viewer.checkingResource": "Checking QDN resource…",
   "viewer.codeLabel": "Code",
+  "viewer.copyImage": "Copy image",
   "viewer.copyQdnUrl": "Copy QDN URL",
   "viewer.copyText": "Copy text",
   "viewer.detail.file": "File",
@@ -449,7 +450,6 @@ export const en = {
   "viewer.media.network": "The media could not be loaded from the configured node.",
   "viewer.media.unsupported": "This media format is not supported by this app.",
   "viewer.noDedicatedViewer": "{service} resources do not have a dedicated viewer yet.",
-  "viewer.openInNewTab": "Open in new tab",
   "viewer.preview.failed": "Preview failed",
   "viewer.preview.loading": "Loading text preview…",
   "viewer.preview.tooLarge": "This resource is too large to preview inline. The inline preview limit is {limit}.",
@@ -463,6 +463,8 @@ export const en = {
   "viewer.renderRequestFailed": "QDN render request failed with HTTP {status}.",
   "viewer.showStatusBar": "Show status bar",
   "viewer.statusRequestFailed": "QDN status request failed with HTTP {status}.",
+  "viewer.video.exitFill": "Exit full view",
+  "viewer.video.fill": "Fill the page",
 } as const;
 
 export type TranslationKey = keyof typeof en;

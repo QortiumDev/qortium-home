@@ -7037,6 +7037,25 @@ function createFallbackApi(): PlatformApi {
           tooLarge: false,
         };
       },
+      async fetchResourceData(request) {
+        const maxBytes = Math.max(0, Math.floor(getNumber(request.maxBytes) ?? 0));
+        const result = await fetchConfiguredRawResourceBase64(request);
+
+        if (maxBytes > 0 && result.contentLength > maxBytes) {
+          return {
+            data: '',
+            contentType: result.contentType,
+            contentLength: result.contentLength,
+            tooLarge: true,
+          };
+        }
+
+        return {
+          data: result.content,
+          contentType: result.contentType,
+          contentLength: result.contentLength,
+        };
+      },
       async prepareArchiveRender() {
         throw new Error('Inline archive app rendering is only available in the desktop app right now.');
       },

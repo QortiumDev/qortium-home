@@ -433,6 +433,7 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.browserPageAria": "Böngészőoldal",
   "viewer.checkingResource": "QDN-erőforrás ellenőrzése…",
   "viewer.codeLabel": "Kód",
+  "viewer.copyImage": "Kép másolása",
   "viewer.copyQdnUrl": "QDN-URL másolása",
   "viewer.copyText": "Szöveg másolása",
   "viewer.detail.file": "Fájl",
@@ -451,7 +452,6 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.media.network": "A média nem tölthető be a beállított csomópontról.",
   "viewer.media.unsupported": "Ezt a médiaformátumot nem támogatja ez az alkalmazás.",
   "viewer.noDedicatedViewer": "A(z) {service} erőforrásokhoz még nincs dedikált megjelenítő.",
-  "viewer.openInNewTab": "Megnyitás új lapon",
   "viewer.preview.failed": "Előnézet sikertelen",
   "viewer.preview.loading": "Szöveg-előnézet betöltése…",
   "viewer.preview.tooLarge": "Ez az erőforrás túl nagy a beágyazott előnézethez. A beágyazott előnézet korlátja {limit}.",
@@ -465,4 +465,6 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.renderRequestFailed": "A QDN-megjelenítési kérés HTTP {status} hibával meghiúsult.",
   "viewer.showStatusBar": "Állapotsáv megjelenítése",
   "viewer.statusRequestFailed": "A QDN-állapotkérés HTTP {status} hibával meghiúsult.",
+  "viewer.video.exitFill": "Teljes nézet bezárása",
+  "viewer.video.fill": "Oldal kitöltése",
 };
