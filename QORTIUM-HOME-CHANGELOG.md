@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-18 - qdn: add list management bridge actions
+
+QDN apps can now inspect and update local Core lists through Home using `GET_ALL_LISTS`, `GET_LIST`, `ADD_TO_LIST`, and `REMOVE_FROM_LIST`. Apps can ask for the available list names, read a single list's contents, and add or remove items without exposing the node API key directly to the app. Home only allows these actions through a local Core or trusted custom node so public Previewnet nodes are not used for private or write-style list changes, and the bridge exposes the same actions on desktop and Android.
+
 ### 2026-06-18 - app: accept compatible Core chain updates
 
 Qortium Home now records the same effective Previewnet chain identity that Qortium Core uses when deciding whether nodes are compatible. Existing runtime metadata that stored the older raw `previewchain.json` hash is upgraded in place when it matches the currently installed Core, stale blocked-runtime markers are cleared after the compatibility check passes, and updates that only change rollout-safe fields such as checkpoints or unpinned feature-trigger heights can continue using the existing Core database instead of forcing the user to reset runtime data.
