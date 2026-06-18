@@ -21,6 +21,11 @@ const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'),
 const commandTimeoutMs = 120_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
+const chainConfigHashExcludedFields = new Set([
+  'checkpoints',
+  'onlineAccountsSignatureV2Height',
+  'assetOrderBoundsHeight',
+]);
 
 function log(message) {
   console.log(`[desktop-core-runtime-smoke] ${message}`);
@@ -244,24 +249,35 @@ class CdpClient {
 }
 
 async function evaluate(client, expression) {
-  const result = await client.send('Runtime.evaluate', {
-    awaitPromise: true,
-    expression,
-    returnByValue: true,
-  });
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const result = await client.send('Runtime.evaluate', {
+        awaitPromise: true,
+        expression,
+        returnByValue: true,
+      });
 
-  if (result.exceptionDetails) {
-    fail(result.exceptionDetails.text || 'CDP evaluation failed.');
+      if (result.exceptionDetails) {
+        fail(result.exceptionDetails.text || 'CDP evaluation failed.');
+      }
+
+      return result.result?.value;
+    } catch (error) {
+      if (attempt < 3 && error instanceof Error && error.message.includes('Execution context was destroyed')) {
+        await delay(500);
+        continue;
+      }
+
+      throw error;
+    }
   }
 
-  return result.result?.value;
+  return undefined;
 }
 
 async function closeBrowser(client) {
-  await Promise.race([
-    client.send('Browser.close').catch(() => undefined),
-    delay(1_000),
-  ]);
+  client.close();
+  await delay(250);
 }
 
 async function getPageTarget(cdpPort, predicate, label) {
@@ -296,6 +312,34 @@ function sha256File(filePath) {
   return `sha256:${createHash('sha256').update(readFileSync(filePath)).digest('hex')}`;
 }
 
+function canonicalJsonStringify(value) {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalJsonStringify(entry)).join(',')}]`;
+  }
+
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify(value[key])}`)
+    .join(',')}}`;
+}
+
+function coreCompatiblePreviewChainSha256File(filePath) {
+  const previewChain = readJson(filePath);
+  const compatibleChain = {};
+
+  for (const [key, value] of Object.entries(previewChain)) {
+    if (!chainConfigHashExcludedFields.has(key)) {
+      compatibleChain[key] = value;
+    }
+  }
+
+  return `sha256:${createHash('sha256').update(canonicalJsonStringify(compatibleChain)).digest('hex')}`;
+}
+
 function getPaths(tempRoot) {
   const userDataDir = path.join(tempRoot, 'user-data');
   const configDir = path.join(tempRoot, 'config');
@@ -313,6 +357,7 @@ function getPaths(tempRoot) {
 function createPreviewInstall({
   installPath,
   networkId = 'qortium-preview',
+  previewChainOverrides = {},
   runtimePath,
   tagName = 'vsmoke-preview.1',
 }) {
@@ -323,6 +368,7 @@ function createPreviewInstall({
   writeJson(path.join(previewPath, 'previewchain.json'), {
     blockTimestampMargin: 2000,
     networkId,
+    ...previewChainOverrides,
   });
   writeText(path.join(previewPath, process.platform === 'win32' ? 'start.bat' : 'start.sh'), 'echo start\n');
   writeText(path.join(previewPath, process.platform === 'win32' ? 'stop.bat' : 'stop.sh'), 'echo stop\n');
@@ -488,7 +534,11 @@ async function runLegacyMigrationScenario() {
     assert(existsSync(path.join(paths.coreRuntime, 'db-preview', 'marker.txt')), 'Migrated db-preview marker was not found.');
     assert(existsSync(path.join(paths.coreRuntime, 'data-preview', 'marker.txt')), 'Migrated data-preview marker was not found.');
     assert(runtimeChain.networkId === 'qortium-preview', 'Runtime chain metadata did not record the Previewnet network id.');
-    assert(runtimeChain.previewChainSha256 === sha256File(previewChainPath), 'Runtime chain metadata hash does not match previewchain.json.');
+    assert(
+      runtimeChain.previewChainSha256 === coreCompatiblePreviewChainSha256File(previewChainPath),
+      'Runtime chain metadata hash does not match the Core-compatible previewchain.json identity.',
+    );
+    assert(runtimeChain.rawPreviewChainSha256 === sha256File(previewChainPath), 'Runtime chain metadata did not record the raw previewchain.json hash.');
 
     log('Legacy managed-core migration preserved runtime data.');
   } finally {
@@ -551,6 +601,130 @@ async function runRuntimeMismatchScenario() {
   }
 }
 
+async function runCompatibleChainUpdateScenario() {
+  const legacyTempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-core-compatible-chain-legacy-'));
+  const paths = getPaths(legacyTempRoot);
+  const oldCore = createPreviewInstall({
+    installPath: paths.coreInstall,
+    runtimePath: paths.coreRuntime,
+    tagName: 'vsmoke-preview.14',
+  });
+  const oldPreviewChainPath = path.join(paths.coreInstall, 'preview', 'previewchain.json');
+  const oldRawPreviewChainSha256 = sha256File(oldPreviewChainPath);
+  const oldCompatiblePreviewChainSha256 = coreCompatiblePreviewChainSha256File(oldPreviewChainPath);
+  const legacyRuntimeChain = {
+    coreTagName: oldCore.tagName,
+    networkId: 'qortium-preview',
+    previewChainSha256: oldRawPreviewChainSha256,
+    recordedAt: new Date().toISOString(),
+    version: 1,
+  };
+
+  try {
+    createRuntimeEntries(paths.coreRuntime, 'compatible-chain');
+    writeJson(path.join(paths.coreBase, 'current.json'), oldCore);
+    writeJson(path.join(paths.coreRuntime, 'runtime-chain.json'), legacyRuntimeChain);
+    writeJson(path.join(paths.coreRuntime, 'runtime-migration-blocked.json'), {
+      blockedAt: new Date().toISOString(),
+      current: {
+        coreTagName: 'vsmoke-preview.16',
+        networkId: 'qortium-preview',
+        previewChainSha256: `sha256:${'1'.repeat(64)}`,
+      },
+      existing: legacyRuntimeChain,
+      message: 'stale blocked marker from a previous raw previewchain hash comparison',
+      version: 1,
+    });
+
+    await withHomeClient(legacyTempRoot, async (client) => {
+      const status = await getCoreStatus(client);
+
+      assert(!status?.runtime?.blocked, 'Legacy raw runtime-chain metadata still blocked the current installed Core.');
+    });
+
+    const migratedRuntimeChain = readJson(path.join(paths.coreRuntime, 'runtime-chain.json'));
+
+    assert(!existsSync(path.join(paths.coreRuntime, 'runtime-migration-blocked.json')), 'Compatible legacy raw hash did not clear the blocked marker.');
+    assert(
+      migratedRuntimeChain.previewChainSha256 === oldCompatiblePreviewChainSha256,
+      'Legacy raw runtime-chain metadata was not rewritten to the Core-compatible hash.',
+    );
+    assert(
+      migratedRuntimeChain.rawPreviewChainSha256 === oldRawPreviewChainSha256,
+      'Legacy raw runtime-chain migration did not retain the raw previewchain hash.',
+    );
+  } finally {
+    if (process.env.QORTIUM_HOME_KEEP_DESKTOP_SMOKE_DATA !== '1') {
+      rmSync(legacyTempRoot, { force: true, recursive: true });
+    } else {
+      log(`Kept compatible chain legacy smoke data at ${legacyTempRoot}.`);
+    }
+  }
+
+  const updateTempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-core-compatible-chain-update-'));
+  const updatePaths = getPaths(updateTempRoot);
+
+  try {
+    createRuntimeEntries(updatePaths.coreRuntime, 'compatible-update');
+    writeJson(path.join(updatePaths.coreRuntime, 'runtime-chain.json'), {
+      coreTagName: oldCore.tagName,
+      networkId: 'qortium-preview',
+      previewChainSha256: oldCompatiblePreviewChainSha256,
+      rawPreviewChainSha256: oldRawPreviewChainSha256,
+      recordedAt: new Date().toISOString(),
+      version: 1,
+    });
+    const updatedCore = createPreviewInstall({
+      installPath: updatePaths.coreInstall,
+      previewChainOverrides: {
+        assetOrderBoundsHeight: 27000,
+        checkpoints: [
+          {
+            height: 24000,
+            signature: 'smoke-checkpoint-signature',
+          },
+        ],
+        onlineAccountsSignatureV2Height: 27000,
+      },
+      runtimePath: updatePaths.coreRuntime,
+      tagName: 'vsmoke-preview.16',
+    });
+    const updatedPreviewChainPath = path.join(updatePaths.coreInstall, 'preview', 'previewchain.json');
+
+    writeJson(path.join(updatePaths.coreBase, 'current.json'), updatedCore);
+
+    await withHomeClient(updateTempRoot, async (client) => {
+      const status = await getCoreStatus(client);
+
+      assert(!status?.runtime?.blocked, 'Compatible excluded previewchain fields blocked the Core update.');
+    });
+
+    const updatedRuntimeChain = readJson(path.join(updatePaths.coreRuntime, 'runtime-chain.json'));
+
+    assert(existsSync(path.join(updatePaths.coreRuntime, 'db-preview', 'marker.txt')), 'Compatible Core update removed existing runtime DB data.');
+    assert(
+      updatedRuntimeChain.previewChainSha256 === oldCompatiblePreviewChainSha256,
+      'Compatible Core update changed the effective runtime chain hash.',
+    );
+    assert(
+      updatedRuntimeChain.previewChainSha256 === coreCompatiblePreviewChainSha256File(updatedPreviewChainPath),
+      'Updated Core previewchain did not match the stored Core-compatible hash.',
+    );
+    assert(
+      updatedRuntimeChain.rawPreviewChainSha256 === sha256File(updatedPreviewChainPath),
+      'Updated Core runtime metadata did not record the new raw previewchain hash.',
+    );
+
+    log('Compatible Previewnet chain update preserved runtime data and cleared stale blocks.');
+  } finally {
+    if (process.env.QORTIUM_HOME_KEEP_DESKTOP_SMOKE_DATA !== '1') {
+      rmSync(updateTempRoot, { force: true, recursive: true });
+    } else {
+      log(`Kept compatible chain update smoke data at ${updateTempRoot}.`);
+    }
+  }
+}
+
 async function main() {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const electronBin = getBin('electron');
@@ -563,6 +737,7 @@ async function main() {
   await run(npm, ['run', 'build:electron']);
   await runLegacyMigrationScenario();
   await runRuntimeMismatchScenario();
+  await runCompatibleChainUpdateScenario();
   log('Desktop Core runtime smoke test passed.');
 }
 

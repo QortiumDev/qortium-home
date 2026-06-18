@@ -55,6 +55,11 @@ const RUNTIME_ENTRY_NAMES = [
   'settings-preview-seed-local.json',
   'settings-preview-seed-netcup-local.json',
 ];
+const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set([
+  'checkpoints',
+  'onlineAccountsSignatureV2Height',
+  'assetOrderBoundsHeight',
+]);
 
 type CoreChannel = 'prerelease' | 'stable';
 type JavaArchiveType = 'tar.gz' | 'zip';
@@ -207,6 +212,7 @@ type CoreStatus = {
 type CoreRuntimeChainIdentity = {
   networkId: string;
   previewChainPath: string;
+  rawPreviewChainSha256: string;
   previewChainSha256: string;
 };
 
@@ -214,6 +220,7 @@ type CoreRuntimeChainMetadata = {
   coreTagName: string;
   networkId: string;
   previewChainSha256: string;
+  rawPreviewChainSha256?: string;
   recordedAt: string;
   version: 1;
 };
@@ -239,6 +246,21 @@ function getString(value: unknown) {
 
 function getNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function canonicalJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalJsonStringify(entry)).join(',')}]`;
+  }
+
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify((value as Record<string, unknown>)[key])}`)
+    .join(',')}}`;
 }
 
 function getCoreBasePath() {
@@ -388,6 +410,18 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
   }
 }
 
+function getCoreCompatiblePreviewChainSha256(parsedChain: Record<string, unknown>) {
+  const compatibleChain: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(parsedChain)) {
+    if (!CHAIN_CONFIG_HASH_EXCLUDED_FIELDS.has(key)) {
+      compatibleChain[key] = value;
+    }
+  }
+
+  return `sha256:${createHash('sha256').update(canonicalJsonStringify(compatibleChain)).digest('hex')}`;
+}
+
 async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRuntimeChainIdentity> {
   const previewChainPath = path.join(previewPath, CORE_CHAIN_FILE);
   let previewChainBytes: Buffer;
@@ -399,13 +433,17 @@ async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRu
   }
 
   let networkId = 'unknown';
+  let parsedChain: Record<string, unknown>;
 
   try {
-    const parsedChain: unknown = JSON.parse(previewChainBytes.toString('utf8'));
+    const parsedPreviewChain: unknown = JSON.parse(previewChainBytes.toString('utf8'));
 
-    if (isObject(parsedChain)) {
-      networkId = getString(parsedChain.networkId) || networkId;
+    if (!isObject(parsedPreviewChain) || Array.isArray(parsedPreviewChain)) {
+      throw new Error('Previewnet chain config root is not a JSON object.');
     }
+
+    parsedChain = parsedPreviewChain;
+    networkId = getString(parsedChain.networkId) || networkId;
   } catch {
     throw new Error(`The installed Core release has an invalid ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
   }
@@ -413,7 +451,8 @@ async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRu
   return {
     networkId,
     previewChainPath,
-    previewChainSha256: `sha256:${createHash('sha256').update(previewChainBytes).digest('hex')}`,
+    rawPreviewChainSha256: `sha256:${createHash('sha256').update(previewChainBytes).digest('hex')}`,
+    previewChainSha256: getCoreCompatiblePreviewChainSha256(parsedChain),
   };
 }
 
@@ -433,6 +472,7 @@ function parseRuntimeChainMetadata(value: unknown): CoreRuntimeChainMetadata | n
     coreTagName: getString(value.coreTagName),
     networkId,
     previewChainSha256,
+    rawPreviewChainSha256: getString(value.rawPreviewChainSha256) || undefined,
     recordedAt: getString(value.recordedAt),
     version: 1,
   };
@@ -471,6 +511,7 @@ async function writeRuntimeChainMetadata(
     coreTagName,
     networkId: identity.networkId,
     previewChainSha256: identity.previewChainSha256,
+    rawPreviewChainSha256: identity.rawPreviewChainSha256,
     recordedAt: new Date().toISOString(),
     version: 1,
   };
@@ -484,6 +525,13 @@ function isRuntimeChainMetadataMatch(
   identity: CoreRuntimeChainIdentity,
 ) {
   return metadata.networkId === identity.networkId && metadata.previewChainSha256 === identity.previewChainSha256;
+}
+
+function isLegacyRawRuntimeChainMetadataMatch(
+  metadata: CoreRuntimeChainMetadata,
+  identity: CoreRuntimeChainIdentity,
+) {
+  return metadata.networkId === identity.networkId && metadata.previewChainSha256 === identity.rawPreviewChainSha256;
 }
 
 function getRuntimeChainMismatchMessage(
@@ -518,6 +566,7 @@ async function writeRuntimeMigrationBlocked(
           coreTagName,
           networkId: identity.networkId,
           previewChainPath: identity.previewChainPath,
+          rawPreviewChainSha256: identity.rawPreviewChainSha256,
           previewChainSha256: identity.previewChainSha256,
         },
         existing: metadata,
@@ -587,9 +636,16 @@ async function ensureRuntimeChainCompatible(
   const metadata = await readRuntimeChainMetadata(runtimePath);
 
   if (metadata) {
-    if (!isRuntimeChainMetadataMatch(metadata, identity)) {
+    const matchesCurrentIdentity = isRuntimeChainMetadataMatch(metadata, identity);
+    const matchesLegacyRawIdentity = isLegacyRawRuntimeChainMetadataMatch(metadata, identity);
+
+    if (!matchesCurrentIdentity && !matchesLegacyRawIdentity) {
       await writeRuntimeMigrationBlocked(runtimePath, metadata, coreTagName, identity);
       throw new Error(getRuntimeChainMismatchMessage(metadata, coreTagName, identity));
+    }
+
+    if (!matchesCurrentIdentity || metadata.rawPreviewChainSha256 !== identity.rawPreviewChainSha256) {
+      await writeRuntimeChainMetadata(runtimePath, coreTagName, identity);
     }
 
     await rm(getRuntimeMigrationBlockedPath(runtimePath), { force: true });
