@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-18 - copy: refer to local wallets as labels
+
+Changed the account setup and wallet-loading copy to say "wallet label" so the local wallet label is clearly separate from an on-chain registered name. The updated wording is applied to Home's account dialogs, validation messages, platform fallback errors, and all supported language catalogs.
+
 ### 2026-06-18 - style: update app icons to thick-line home mark
 
 Updated the shared Qortium Home icon source to the newer thick-line home mark, regenerated the Android launcher icons with the existing padded safe-zone sizing so circular launcher masks do not cut into the artwork, and refreshed the Linux, macOS, and Windows desktop icon assets from the same source.
