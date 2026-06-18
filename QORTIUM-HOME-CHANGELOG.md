@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-18 - release: prepare home preview 16
+
+Updated Qortium Home's package and Android version metadata to `1.0.1-preview.16` with Android `versionCode` 17 so the Core runtime compatibility fix and the new QDN list-management bridge actions can be published as the next QortiumDev prerelease target. This preview lets Home accept compatible Core updates whose Previewnet configuration only changed rollout-safe fields, and gives QDN apps mediated access to local Core list discovery and updates without exposing the node API key directly.
+
 ### 2026-06-18 - qdn: add list management bridge actions
 
 QDN apps can now inspect and update local Core lists through Home using `GET_ALL_LISTS`, `GET_LIST`, `ADD_TO_LIST`, and `REMOVE_FROM_LIST`. Apps can ask for the available list names, read a single list's contents, and add or remove items without exposing the node API key directly to the app. Home only allows these actions through a local Core or trusted custom node so public Previewnet nodes are not used for private or write-style list changes, and the bridge exposes the same actions on desktop and Android.
