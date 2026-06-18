@@ -64,12 +64,16 @@ asset name, download URL, digest when available, install time, and runtime path.
 the runtime folder.
 
 `runtime/runtime-chain.json` records the installed release's Previewnet
-`networkId` and `previewchain.json` SHA-256 identity. Home should refuse to
-reuse an existing runtime when that identity differs from the installed Core
-release, and should leave the runtime data in place for an explicit reset or
-manual migration decision. When that happens, Home writes
-`runtime/runtime-migration-blocked.json` and reports the runtime as blocked in
-Core status instead of offering another install/start action.
+`networkId` and Core-compatible `previewchain.json` SHA-256 identity. The
+identity uses the same effective chain-config hash as Core, so rollout-only
+fields such as checkpoints and unpinned feature-trigger heights do not force a
+database reset when Core can safely continue with the existing repository. Home
+also records the raw `previewchain.json` SHA-256 when available for diagnostics.
+Home should refuse to reuse an existing runtime when the effective identity
+differs from the installed Core release, and should leave the runtime data in
+place for an explicit reset or manual migration decision. When that happens,
+Home writes `runtime/runtime-migration-blocked.json` and reports the runtime as
+blocked in Core status instead of offering another install/start action.
 
 Legacy Home-created installs under `qortium-home/managed-core` should migrate
 into this layout. If a local Core process is already running from a source

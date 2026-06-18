@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-18 - app: accept compatible Core chain updates
+
+Qortium Home now records the same effective Previewnet chain identity that Qortium Core uses when deciding whether nodes are compatible. Existing runtime metadata that stored the older raw `previewchain.json` hash is upgraded in place when it matches the currently installed Core, stale blocked-runtime markers are cleared after the compatibility check passes, and updates that only change rollout-safe fields such as checkpoints or unpinned feature-trigger heights can continue using the existing Core database instead of forcing the user to reset runtime data.
+
 ### 2026-06-15 - release: prepare home preview 15
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.15` with Android `versionCode` 16 so the consolidated Core/Home information views, the redesigned draggable pinned tiles with QDN app icons on pins and tabs, the Linux AppImage Home-folder fix, and the standardized QDN resource viewer (shared copy and download actions in the status bar, context-sensitive GIF repository actions, APP/WEBSITE and whole-repository downloads saved as zip archives, image copying, and the fit-to-space video player) can be published as the next QortiumDev prerelease target.
