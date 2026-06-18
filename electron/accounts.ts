@@ -642,7 +642,7 @@ function assertValidWalletName(name: string, store: WalletStore, exceptWalletId?
   const nextName = normalizeWalletName(name);
 
   if (!nextName) {
-    throw new Error('Enter the wallet name.');
+    throw new Error('Enter a wallet label.');
   }
 
   const duplicateWallet = store.wallets.find(
@@ -650,7 +650,7 @@ function assertValidWalletName(name: string, store: WalletStore, exceptWalletId?
   );
 
   if (duplicateWallet) {
-    throw new Error('Wallet name already exists.');
+    throw new Error('Wallet label already exists.');
   }
 
   return nextName;
