@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-18 - style: update app icons to thick-line home mark
+
+Updated the shared Qortium Home icon source to the newer thick-line home mark, regenerated the Android launcher icons with the existing padded safe-zone sizing so circular launcher masks do not cut into the artwork, and refreshed the Linux, macOS, and Windows desktop icon assets from the same source.
+
 ### 2026-06-18 - release: prepare home preview 16
 
 Updated Qortium Home's package and Android version metadata to `1.0.1-preview.16` with Android `versionCode` 17 so the Core runtime compatibility fix and the new QDN list-management bridge actions can be published as the next QortiumDev prerelease target. This preview lets Home accept compatible Core updates whose Previewnet configuration only changed rollout-safe fields, and gives QDN apps mediated access to local Core list discovery and updates without exposing the node API key directly.
