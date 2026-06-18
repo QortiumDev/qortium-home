@@ -4889,6 +4889,117 @@ async function getQdnResourceUrl(request: QdnAppRequest, context: QdnViewContext
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
+function getRequiredListName(request: QdnAppRequest) {
+  const listName = getRequiredRequestString(request, 'listName', 'List name');
+
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(listName)) {
+    throw new Error('List name must start with a letter and contain only letters, numbers, or underscores.');
+  }
+
+  return listName;
+}
+
+function getRequiredListItems(request: QdnAppRequest) {
+  const items = getRequestValue(request, 'items');
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Items must be a non-empty array.');
+  }
+
+  const itemStrings = items.map(getString).filter(Boolean);
+
+  if (itemStrings.length === 0) {
+    throw new Error('Items must contain at least one non-empty string.');
+  }
+
+  return itemStrings;
+}
+
+async function getAllListsForApp() {
+  const connection = await getNodeConnection();
+
+  assertLocalWriteConnection(connection);
+
+  const apiKey = getNodeApiKey(connection);
+  const response = await fetchNode(
+    '/lists',
+    { headers: { 'X-API-KEY': apiKey } },
+    connection.nodeApiUrl,
+  );
+  const result = await readNodeApiResponse(response, connection, QDN_APP_DEFAULT_MAX_BYTES);
+
+  if (!result.ok) {
+    throw new Error(result.body || `Failed to get lists with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+async function getListForApp(request: QdnAppRequest) {
+  const listName = getRequiredListName(request);
+  const connection = await getNodeConnection();
+
+  assertLocalWriteConnection(connection);
+
+  const apiKey = getNodeApiKey(connection);
+  const response = await fetchNode(
+    `/lists/${encodeURIComponent(listName)}`,
+    { headers: { 'X-API-KEY': apiKey } },
+    connection.nodeApiUrl,
+  );
+  const result = await readNodeApiResponse(response, connection, QDN_APP_DEFAULT_MAX_BYTES);
+
+  if (response.status === 404) {
+    return [];
+  }
+
+  if (!result.ok) {
+    throw new Error(result.body || `Failed to get list with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+async function addToListForApp(request: QdnAppRequest) {
+  const listName = getRequiredListName(request);
+  const itemStrings = getRequiredListItems(request);
+  const connection = await getNodeConnection();
+
+  assertLocalWriteConnection(connection);
+
+  const apiKey = getNodeApiKey(connection);
+  const result = await postLocalNodeText(
+    connection,
+    `/lists/${encodeURIComponent(listName)}`,
+    JSON.stringify({ items: itemStrings }),
+    apiKey,
+    'Failed to add items to list.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
+async function removeFromListForApp(request: QdnAppRequest) {
+  const listName = getRequiredListName(request);
+  const itemStrings = getRequiredListItems(request);
+  const connection = await getNodeConnection();
+
+  assertLocalWriteConnection(connection);
+
+  const apiKey = getNodeApiKey(connection);
+  const result = await deleteLocalNodeText(
+    connection,
+    `/lists/${encodeURIComponent(listName)}`,
+    JSON.stringify({ items: itemStrings }),
+    apiKey,
+    'Failed to remove items from list.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
 async function handleQdnAppRequest(
   value: unknown,
   context: QdnViewContext | null,
@@ -5238,6 +5349,18 @@ async function handleQdnAppRequest(
 
       return true;
     }
+
+    case 'GET_ALL_LISTS':
+      return getAllListsForApp();
+
+    case 'GET_LIST':
+      return getListForApp(request);
+
+    case 'ADD_TO_LIST':
+      return addToListForApp(request);
+
+    case 'REMOVE_FROM_LIST':
+      return removeFromListForApp(request);
 
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ELECTRON';

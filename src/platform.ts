@@ -6410,6 +6410,141 @@ async function getQdnResourceUrl(request: QdnAppRequest, context: QdnAppRequestC
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
+function getRequiredListName(request: QdnAppRequest) {
+  const listName = getRequiredRequestString(request, 'listName', 'List name');
+
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(listName)) {
+    throw new Error('List name must start with a letter and contain only letters, numbers, or underscores.');
+  }
+
+  return listName;
+}
+
+function getRequiredListItems(request: QdnAppRequest) {
+  const items = getRequestValue(request, 'items');
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Items must be a non-empty array.');
+  }
+
+  const itemStrings = items.map(getString).filter(Boolean);
+
+  if (itemStrings.length === 0) {
+    throw new Error('Items must contain at least one non-empty string.');
+  }
+
+  return itemStrings;
+}
+
+async function getAllListsForApp() {
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+
+  assertLocalWriteConnection(settings, nodeApiUrl);
+
+  const apiKey = getNodeApiKey(settings);
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}/lists`,
+      method: 'GET',
+      headers: { 'X-API-KEY': apiKey },
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const result = readNodeApiResponse(response, settings, QDN_APP_DEFAULT_MAX_BYTES);
+
+  if (!result.ok) {
+    throw new Error(result.body || `Failed to get lists with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+async function getListForApp(request: QdnAppRequest) {
+  const listName = getRequiredListName(request);
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+
+  assertLocalWriteConnection(settings, nodeApiUrl);
+
+  const apiKey = getNodeApiKey(settings);
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}/lists/${encodeURIComponent(listName)}`,
+      method: 'GET',
+      headers: { 'X-API-KEY': apiKey },
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const result = readNodeApiResponse(response, settings, QDN_APP_DEFAULT_MAX_BYTES);
+
+  if (response.status === 404) {
+    return [];
+  }
+
+  if (!result.ok) {
+    throw new Error(result.body || `Failed to get list with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+async function addToListForApp(request: QdnAppRequest) {
+  const listName = getRequiredListName(request);
+  const itemStrings = getRequiredListItems(request);
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+
+  assertLocalWriteConnection(settings, nodeApiUrl);
+
+  const apiKey = getNodeApiKey(settings);
+  const result = await postLocalNodeText(
+    nodeApiUrl,
+    `/lists/${encodeURIComponent(listName)}`,
+    JSON.stringify({ items: itemStrings }),
+    apiKey,
+    'Failed to add items to list.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
+async function removeFromListForApp(request: QdnAppRequest) {
+  const listName = getRequiredListName(request);
+  const itemStrings = getRequiredListItems(request);
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+
+  assertLocalWriteConnection(settings, nodeApiUrl);
+
+  const apiKey = getNodeApiKey(settings);
+  const result = await deleteLocalNodeText(
+    nodeApiUrl,
+    `/lists/${encodeURIComponent(listName)}`,
+    JSON.stringify({ items: itemStrings }),
+    apiKey,
+    'Failed to remove items from list.',
+    'application/json',
+  );
+
+  return parseLocalPostData(result);
+}
+
 export async function handleQdnAppRequest(value: unknown, context?: QdnAppRequestContext) {
   if (!isRecord(value)) {
     throw new Error('QDN app requests must be objects.');
@@ -6645,6 +6780,18 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'RATE_ACCOUNT':
       return rateAccountForApp(request, context);
+
+    case 'GET_ALL_LISTS':
+      return getAllListsForApp();
+
+    case 'GET_LIST':
+      return getListForApp(request);
+
+    case 'ADD_TO_LIST':
+      return addToListForApp(request);
+
+    case 'REMOVE_FROM_LIST':
+      return removeFromListForApp(request);
 
     case 'REGISTER_NAME':
       return registerNameForApp(request, context);
