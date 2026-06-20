@@ -51,6 +51,7 @@ export const ko: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "지금은 home://dashboard와 home://settings만 열 수 있습니다.",
   "address.error.homeScheme": "Home 주소는 home://으로 시작해야 합니다.",
   "address.error.nameAfterWildcard": "qdn://*/ 접두사 뒤에 이름을 입력하세요.",
+  "address.error.privateServicesNotSupported": "비공개(암호화된) QDN 리소스는 아직 Home에서 열 수 없습니다.",
   "address.error.publicServicesOnly": "지금은 공개 QDN 서비스만 탐색할 수 있습니다.",
   "address.error.qdnScheme": "QDN 주소는 qdn://으로 시작해야 합니다.",
   "address.error.unknownScheme": "qdn://, core:// 또는 home://으로 시작하는 주소를 입력하세요.",

@@ -51,6 +51,7 @@ export const nl: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Alleen home://dashboard en home://settings kunnen op dit moment worden geladen.",
   "address.error.homeScheme": "Home-adressen moeten beginnen met home://.",
   "address.error.nameAfterWildcard": "Voer een naam in na het voorvoegsel qdn://*/.",
+  "address.error.privateServicesNotSupported": "Privé (versleutelde) QDN-bronnen kunnen nog niet in Home worden geopend.",
   "address.error.publicServicesOnly": "Alleen openbare QDN-services kunnen op dit moment worden bekeken.",
   "address.error.qdnScheme": "QDN-adressen moeten beginnen met qdn://.",
   "address.error.unknownScheme": "Voer een adres in dat begint met qdn://, core:// of home://.",

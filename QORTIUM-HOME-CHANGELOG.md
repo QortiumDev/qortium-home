@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - qdn: recognize private resources with a clear unsupported message
+
+Made Home explain itself when it meets one of Core v1.1.0's new private (end-to-end encrypted) QDN resources. These use service names ending in `_PRIVATE`, and opening one requires a decryption key Home does not handle yet, so Home does not browse them. Previously a private address fell through the same gate as a typo and produced the generic "only public QDN services can be browsed" error. Home now spots the `_PRIVATE` suffix at every entry point — the address bar, the renderer's QDN bridge, and the desktop bridge's load/browse checks — and shows a specific message: that private, encrypted resources cannot be opened in Home yet. The message is translated across all supported languages. This is a labeling stopgap only: it adds no decryption and does not expose any private content; full support for opening private resources remains future work.
+
 ### 2026-06-20 - test: guard QDN service whitelists against Core drift
 
 Added a lightweight smoke check (`npm run smoke:qdn-services`) that keeps Home's list of browsable QDN services honest against the node. Home deliberately curates a subset of Core's services in two places — the renderer and the desktop bridge — and those copies can quietly fall out of step with each other or with Core as services are added, renamed, or made private. The new check reads both lists from source, confirms they are identical, and compares them to Core v1.1.0's `/arbitrary/services` catalogue: it fails if Home lists a service Core no longer reports or one Core marks as private, and it simply notes the public services Home chooses not to surface (the system and chat-internal ones). It only needs a reachable node and is documented in the README alongside the other smoke tests. Verified passing against a live Previewnet node.

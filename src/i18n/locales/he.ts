@@ -51,6 +51,7 @@ export const he: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "כרגע ניתן לטעון רק את home://dashboard ואת home://settings.",
   "address.error.homeScheme": "כתובות Home חייבות להתחיל ב-home://.",
   "address.error.nameAfterWildcard": "יש להזין שם אחרי הקידומת qdn://*/.",
+  "address.error.privateServicesNotSupported": "לא ניתן עדיין לפתוח משאבי QDN פרטיים (מוצפנים) ב-Home.",
   "address.error.publicServicesOnly": "כרגע ניתן לעיין רק בשירותי QDN ציבוריים.",
   "address.error.qdnScheme": "כתובות QDN חייבות להתחיל ב-qdn://.",
   "address.error.unknownScheme": "יש להזין כתובת שמתחילה ב-qdn://, core:// או home://.",

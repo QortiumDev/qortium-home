@@ -51,6 +51,7 @@ export const ro: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Momentan pot fi încărcate doar home://dashboard și home://settings.",
   "address.error.homeScheme": "Adresele Home trebuie să înceapă cu home://.",
   "address.error.nameAfterWildcard": "Introdu un nume după prefixul qdn://*/.",
+  "address.error.privateServicesNotSupported": "Resursele QDN private (criptate) nu pot fi încă deschise în Home.",
   "address.error.publicServicesOnly": "Momentan pot fi răsfoite doar serviciile QDN publice.",
   "address.error.qdnScheme": "Adresele QDN trebuie să înceapă cu qdn://.",
   "address.error.unknownScheme": "Introdu o adresă care începe cu qdn://, core:// sau home://.",

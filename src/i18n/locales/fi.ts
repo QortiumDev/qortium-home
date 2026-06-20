@@ -51,6 +51,7 @@ export const fi: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Tällä hetkellä voidaan ladata vain home://dashboard ja home://settings.",
   "address.error.homeScheme": "Home-osoitteiden on alettava etuliitteellä home://.",
   "address.error.nameAfterWildcard": "Anna nimi qdn://*/-etuliitteen jälkeen.",
+  "address.error.privateServicesNotSupported": "Yksityisiä (salattuja) QDN-resursseja ei voi vielä avata Homessa.",
   "address.error.publicServicesOnly": "Tällä hetkellä voi selata vain julkisia QDN-palveluja.",
   "address.error.qdnScheme": "QDN-osoitteiden on alettava etuliitteellä qdn://.",
   "address.error.unknownScheme": "Anna osoite, joka alkaa etuliitteellä qdn://, core:// tai home://.",

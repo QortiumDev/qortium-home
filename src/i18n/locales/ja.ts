@@ -51,6 +51,7 @@ export const ja: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "現在読み込めるのはhome://dashboardとhome://settingsのみです。",
   "address.error.homeScheme": "Homeアドレスはhome://で始まる必要があります。",
   "address.error.nameAfterWildcard": "qdn://*/の後に名前を入力してください。",
+  "address.error.privateServicesNotSupported": "プライベート（暗号化された）QDN リソースはまだ Home で開けません。",
   "address.error.publicServicesOnly": "現在閲覧できるのは公開QDNサービスのみです。",
   "address.error.qdnScheme": "QDNアドレスはqdn://で始まる必要があります。",
   "address.error.unknownScheme": "qdn://、core://、またはhome://で始まるアドレスを入力してください。",

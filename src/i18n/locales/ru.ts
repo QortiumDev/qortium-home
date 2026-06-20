@@ -51,6 +51,7 @@ export const ru: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Сейчас можно открыть только home://dashboard и home://settings.",
   "address.error.homeScheme": "Адреса Home должны начинаться с home://.",
   "address.error.nameAfterWildcard": "Укажите имя после префикса qdn://*/.",
+  "address.error.privateServicesNotSupported": "Приватные (зашифрованные) ресурсы QDN пока нельзя открыть в Home.",
   "address.error.publicServicesOnly": "Сейчас доступен просмотр только публичных сервисов QDN.",
   "address.error.qdnScheme": "Адреса QDN должны начинаться с qdn://.",
   "address.error.unknownScheme": "Введите адрес, начинающийся с qdn://, core:// или home://.",

@@ -51,6 +51,7 @@ export const es: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Por ahora solo se pueden cargar home://dashboard y home://settings.",
   "address.error.homeScheme": "Las direcciones de Home deben comenzar con home://.",
   "address.error.nameAfterWildcard": "Ingresa un nombre después del prefijo qdn://*/.",
+  "address.error.privateServicesNotSupported": "Los recursos QDN privados (cifrados) todavía no se pueden abrir en Home.",
   "address.error.publicServicesOnly": "Por ahora solo se pueden explorar los servicios públicos de QDN.",
   "address.error.qdnScheme": "Las direcciones de QDN deben comenzar con qdn://.",
   "address.error.unknownScheme": "Ingresa una dirección que comience con qdn://, core:// o home://.",

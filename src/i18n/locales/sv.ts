@@ -51,6 +51,7 @@ export const sv: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Endast home://dashboard och home://settings kan läsas in just nu.",
   "address.error.homeScheme": "Home-adresser måste börja med home://.",
   "address.error.nameAfterWildcard": "Ange ett namn efter prefixet qdn://*/.",
+  "address.error.privateServicesNotSupported": "Privata (krypterade) QDN-resurser kan ännu inte öppnas i Home.",
   "address.error.publicServicesOnly": "Endast offentliga QDN-tjänster kan utforskas just nu.",
   "address.error.qdnScheme": "QDN-adresser måste börja med qdn://.",
   "address.error.unknownScheme": "Ange en adress som börjar med qdn://, core:// eller home://.",
