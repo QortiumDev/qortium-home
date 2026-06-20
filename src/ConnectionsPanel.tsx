@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { getI2pModeLabel, getI2pPeersValue, getI2pStateLabel } from './connectionsDisplay';
 import { t } from './i18n';
-import { buildAllowedTransports, type I2pActivity, type I2pStatus, type PeerTransportCounts, type TransportState } from './i2p';
+import { buildAllowedTransports, type I2pStatus } from './i2p';
 import { useI2pConnections } from './i2pState';
 import { DetailList, type DetailRow } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
@@ -16,44 +17,12 @@ type ConnectionsPanelProps = {
 // re-reading the status so the refreshed view reflects the new transport.
 const RESTART_REFRESH_DELAY_MS = 6000;
 
-function getStateLabel(activity: I2pActivity): string {
-  switch (activity) {
-    case 'active':
-      return t('connections.state.active');
-    case 'idle':
-      return t('connections.state.idle');
-    case 'disabled':
-    default:
-      return t('connections.state.disabled');
-  }
-}
-
-function getModeLabel(transport: TransportState): string {
-  if (transport.isI2POnly) {
-    return t('connections.mode.i2pOnly');
-  }
-
-  if (!transport.isI2PEnabled) {
-    return t('connections.mode.ipOnly');
-  }
-
-  if (transport.isI2PPreferred) {
-    return t('connections.mode.preferI2p');
-  }
-
-  return t('connections.mode.default');
-}
-
-function getPeersValue(counts: PeerTransportCounts): string {
-  return t('connections.peersValue', { total: counts.total, i2p: counts.i2p });
-}
-
 function getStatusRows(status: I2pStatus): DetailRow[] {
   return [
-    { label: t('connections.activityLabel'), value: getStateLabel(status.activity) },
-    { label: t('connections.modeLabel'), value: getModeLabel(status.transport) },
-    { label: t('connections.networkPeers'), value: getPeersValue(status.chainPeers) },
-    { label: t('connections.qdnPeers'), value: getPeersValue(status.dataPeers) },
+    { label: t('connections.activityLabel'), value: getI2pStateLabel(status.activity) },
+    { label: t('connections.modeLabel'), value: getI2pModeLabel(status.transport) },
+    { label: t('connections.networkPeers'), value: getI2pPeersValue(status.chainPeers) },
+    { label: t('connections.qdnPeers'), value: getI2pPeersValue(status.dataPeers) },
   ];
 }
 
@@ -77,7 +46,7 @@ export function ConnectionsPanel({
   const summary = isUnavailable
     ? t('connections.state.unavailable')
     : status
-      ? `I2P · ${getStateLabel(status.activity)}`
+      ? `I2P · ${getI2pStateLabel(status.activity)}`
       : t('common.checking');
 
   async function applyMode(mode: 'i2p-only' | 'default') {
