@@ -1009,6 +1009,10 @@ h1 {
   min-width: 0;
 }
 
+.dashboard-page__grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .dashboard-card {
   display: grid;
   gap: 12px;
