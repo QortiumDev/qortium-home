@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: show I2P connection status on the dashboard
+
+Added a Connections card to the dashboard so the node's I2P status is visible at a glance alongside the Core and Home cards. It shows whether the I2P fallback is Active, Enabled but idle, or Disabled, and the current transport mode, refreshes on demand, and its gear jumps straight to the Connections section in Settings where the privacy control lives. It reuses the same status read as the settings panel (shared through a small display-label helper), and the dashboard grid now always flows as a responsive multi-column layout. This completes the first phase of Home's I2P support — detecting and showing the transport state and letting you change it on a node you control. Automatically installing and running an I2P router from Home remains the next phase.
+
 ### 2026-06-20 - feat: add the "Hide IP address" (I2P only) privacy control
 
 Added a privacy control to the Settings Connections panel that routes the node's traffic only over I2P, hiding its IP address. Turning it on shows a short warning first — it needs a running I2P router, can be slower or less reliable for reaching public peers, and restarts Core to take effect — and then asks for confirmation. Once on, the panel shows that the IP is hidden and offers a one-click "Show IP address" to return to the normal direct + I2P-fallback mode. The control changes Core's transport list through the node settings API and is only offered for a local or custom node you control (not public network mode). The wording is translated across all supported languages.
