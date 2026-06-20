@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - fix: exclude featureTriggers from chain-config compatibility hash
+
+Brought Home's Core chain-compatibility check in line with Qortium Core v1.1.0. Core now treats the `featureTriggers` container as "hash-neutral" — it leaves that field out of the chain-config fingerprint it advertises during peer handshakes, so a coordinated release can add or adjust feature-trigger activation heights without otherwise-compatible nodes rejecting each other. Home computes the same kind of fingerprint to decide whether an existing Core database can be reused after a Core update, but it was still missing `featureTriggers` from the fields it ignores. That gap is harmless today because no chain config ships a `featureTriggers` block yet, but the moment a future coordinated activation populates one, Home would wrongly flag the runtime as belonging to a different chain and refuse to reuse the database, forcing an unnecessary reset. Home now ignores the same four fields as Core (`checkpoints`, `featureTriggers`, `onlineAccountsSignatureV2Height`, `assetOrderBoundsHeight`) in both the Core manager and its runtime smoke test, so the upgrade path stays smooth when that activation lands.
+
 ### 2026-06-18 - copy: refer to local wallets as labels
 
 Changed the account setup and wallet-loading copy to say "wallet label" so the local wallet label is clearly separate from an on-chain registered name. The updated wording is applied to Home's account dialogs, validation messages, platform fallback errors, and all supported language catalogs.
