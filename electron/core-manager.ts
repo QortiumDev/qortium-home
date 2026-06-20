@@ -57,6 +57,7 @@ const RUNTIME_ENTRY_NAMES = [
 ];
 const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set([
   'checkpoints',
+  'featureTriggers',
   'onlineAccountsSignatureV2Height',
   'assetOrderBoundsHeight',
 ]);

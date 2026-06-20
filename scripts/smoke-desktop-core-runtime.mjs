@@ -23,6 +23,7 @@ const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
 const chainConfigHashExcludedFields = new Set([
   'checkpoints',
+  'featureTriggers',
   'onlineAccountsSignatureV2Height',
   'assetOrderBoundsHeight',
 ]);
