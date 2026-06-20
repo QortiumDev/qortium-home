@@ -46,6 +46,14 @@ export type I2pStatus = {
   transport: TransportState;
 };
 
+// The raw read produced by the platform layer from the node's open endpoints,
+// before deriveI2pStatus turns it into the UI-facing I2pStatus.
+export type CoreTransportStatusSnapshot = {
+  settings: CoreTransportSettings;
+  chainPeers: { transport?: unknown }[];
+  dataPeers: { transport?: unknown }[];
+};
+
 // Normalizes a raw allowedTransports entry the way Core does: trim + uppercase.
 // Unknown values are dropped here (Core rejects them at validation time; for a
 // read-only view we simply ignore anything that is not a known transport).

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: add a Connections panel showing I2P transport status
+
+Added a new "Connections" section to Settings that surfaces the node's I2P state, the first user-facing piece of Home's managed-I2P support. It reads the node's open endpoints (no API key, so it works on desktop and Android and on any node you can reach) and shows whether the I2P fallback is Active (a peer is actually connected over I2P), Enabled but idle, or Disabled; the current transport mode (Direct + I2P fallback, I2P preferred, I2P only, or Direct only); and how many network and QDN peers are connected, including how many of them over I2P. The panel refreshes on demand and reflects the live transport list Core advertises. This is the status/detection foundation; the controls to turn the privacy ("hide IP") mode on and off come next.
+
 ### 2026-06-20 - feat: add pure I2P transport read/derive layer
 
 Added the internal foundation for Home's I2P features: a small, self-contained module that works out the node's I2P state purely from two pieces of public node information, with no network calls of its own. It determines whether I2P is enabled, preferred, or the only transport (matching how Core decides), builds the transport list for each mode the UI offers (normal, prefer I2P, I2P only, IP only), and reads the connected-peer lists to tell whether I2P is disabled, enabled-but-idle, or actively carrying a connection. Groundwork with no visible change yet — the Settings panel and live data wiring build on it.

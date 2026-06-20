@@ -17,6 +17,7 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
+import type { CoreTransportStatusSnapshot } from './i2p';
 import { PUBLIC_QDN_SERVICES, isPrivateQdnService, type QdnDisplaySettings } from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
@@ -1962,6 +1963,49 @@ async function fetchNodeJson(pathname: string, nodeApiUrl: string) {
   } catch {
     return null;
   }
+}
+
+// Reads the node's I2P transport state from its open endpoints (no API key
+// required): GET /admin/settings for the transport configuration, and
+// /peers + /peers/data for the live per-peer transport. Works in any node mode
+// and on both desktop and Android. Returns null when the node is unreachable.
+export async function fetchCoreTransportStatus(): Promise<CoreTransportStatusSnapshot | null> {
+  const settings = await readNodeSettings();
+
+  let nodeApiUrl: string;
+
+  try {
+    nodeApiUrl = await resolveNodeApiUrl(settings);
+  } catch {
+    return null;
+  }
+
+  const rawSettings = await fetchNodeJson('/admin/settings', nodeApiUrl);
+
+  if (!isRecord(rawSettings)) {
+    return null;
+  }
+
+  const allowedTransportsRaw = rawSettings.allowedTransports;
+  const allowedTransports = Array.isArray(allowedTransportsRaw)
+    ? allowedTransportsRaw.filter((entry): entry is string => typeof entry === 'string')
+    : null;
+
+  const chainPeers = await fetchNodeJson('/peers', nodeApiUrl);
+  const dataPeers = await fetchNodeJson('/peers/data', nodeApiUrl);
+
+  return {
+    settings: {
+      allowedTransports,
+      i2pSamHost: getString(rawSettings.i2pSamHost) || '127.0.0.1',
+      i2pSamPort: getInteger(rawSettings.i2pSamPort) ?? 7656,
+      i2pChainKeyFile: getString(rawSettings.i2pChainKeyFile),
+      i2pDataKeyFile: getString(rawSettings.i2pDataKeyFile),
+      i2pEmbeddedRouter: getBoolean(rawSettings.i2pEmbeddedRouter) ?? false,
+    },
+    chainPeers: Array.isArray(chainPeers) ? chainPeers : [],
+    dataPeers: Array.isArray(dataPeers) ? dataPeers : [],
+  };
 }
 
 async function getPrimaryName(address: string, nodeApiUrl: string) {

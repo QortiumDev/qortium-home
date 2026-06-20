@@ -1,5 +1,6 @@
 import { AppUpdatePanel } from './AppUpdatePanel';
 import type { AppUpdatesState } from './appUpdateState';
+import { ConnectionsPanel } from './ConnectionsPanel';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
 import { DisplaySettingsPanel } from './DisplaySettingsPanel';
@@ -14,7 +15,7 @@ import { t } from './i18n';
 import { NodeSettingsPanel } from './NodeSettingsPanel';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
+export type SettingsSectionId = 'connections' | 'core' | 'display' | 'home' | 'node';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -71,6 +72,11 @@ export function SettingsPage({
           onExpandedChange={(isExpanded) => onSectionExpansionChange('node', isExpanded)}
           onResolvedNodeApiUrl={onResolvedNodeApiUrl}
           onSaveNodeSettings={onSaveNodeSettings}
+        />
+        <ConnectionsPanel
+          isExpanded={sectionExpansion.connections}
+          nodeApiUrl={nodeSettings.nodeApiUrl}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('connections', isExpanded)}
         />
         <CoreManagerPanel
           coreManager={coreManager}

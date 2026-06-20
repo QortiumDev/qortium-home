@@ -137,6 +137,7 @@ const NAVIGATION_SWIPE_MAX_VERTICAL_PX = 80;
 const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
 const NAVIGATION_SWIPE_VERTICAL_CANCEL_PX = 48;
 const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
+  connections: false,
   core: false,
   display: true,
   home: false,
@@ -1184,6 +1185,7 @@ export function App() {
     // Open Settings with only the requested section expanded, so the Dashboard
     // tile gears jump straight to the relevant controls.
     setSettingsExpansion({
+      connections: sectionId === 'connections',
       core: sectionId === 'core',
       display: sectionId === 'display',
       home: sectionId === 'home',
