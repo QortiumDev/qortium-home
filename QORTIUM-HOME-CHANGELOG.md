@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - fix: let the QDN explorer scroll long lists
+
+Fixed a longstanding bug where the `qdn://` explorer could not scroll. When a service or name listing had more items than fit on screen, the extra rows were simply cut off at the bottom of the window with no scroll bar, so the rest of the list was unreachable. The explorer panel was not claiming the full height of its content area, so its built-in scrolling had nothing to scroll against and the overflow was clipped by the surrounding frame. The panel now fills its area like the resource viewer already does, so long lists scroll normally and every item can be reached.
+
 ### 2026-06-20 - qdn: recognize private resources with a clear unsupported message
 
 Made Home explain itself when it meets one of Core v1.1.0's new private (end-to-end encrypted) QDN resources. These use service names ending in `_PRIVATE`, and opening one requires a decryption key Home does not handle yet, so Home does not browse them. Previously a private address fell through the same gate as a typo and produced the generic "only public QDN services can be browsed" error. Home now spots the `_PRIVATE` suffix at every entry point — the address bar, the renderer's QDN bridge, and the desktop bridge's load/browse checks — and shows a specific message: that private, encrypted resources cannot be opened in Home yet. The message is translated across all supported languages. This is a labeling stopgap only: it adds no decryption and does not expose any private content; full support for opening private resources remains future work.
