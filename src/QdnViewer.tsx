@@ -20,7 +20,7 @@ import {
   formatQdnStatus,
   getLoadedViewerKind,
   getQdnResourceKey,
-  isGifFilename,
+  isGalleryImageFilename,
   isTerminalQdnStatus,
 } from './qdn';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
@@ -99,7 +99,7 @@ type MediaErrorState = {
   message: string;
 } | null;
 
-type GifRepositoryState =
+type GalleryState =
   | {
       phase: 'loading';
     }
@@ -499,6 +499,7 @@ function isQdnResourceMetadata(value: unknown): value is QdnResourceMetadata {
 
   return (
     (value.description === undefined || typeof value.description === 'string') &&
+    (value.entryPoint === undefined || typeof value.entryPoint === 'string') &&
     (value.files === undefined ||
       (Array.isArray(value.files) && value.files.every((file) => typeof file === 'string'))) &&
     (value.mimeType === undefined || typeof value.mimeType === 'string') &&
@@ -895,8 +896,8 @@ function getSuggestedResourceFilename(resource: QdnResource, properties: QdnReso
   return suffix || `${resource.service}_${resource.name}_${identifier}`;
 }
 
-// Multi-file resources (APP/WEBSITE, a whole GIF repository) are served by the
-// node as a single zip archive, so they save with a .zip name.
+// Multi-file resources (APP/WEBSITE, a whole GIF repository or image gallery) are
+// served by the node as a single zip archive, so they save with a .zip name.
 function getMultiFileDownloadName(resource: QdnResource) {
   const base = resource.name || resource.service || 'qdn-resource';
 
@@ -1443,20 +1444,20 @@ function QdnImageButton({
   );
 }
 
-function isGifRepositoryFile(value: string) {
+function isGalleryFile(value: string) {
   const normalized = value.trim();
 
   return (
     !!normalized &&
     !normalized.includes('\\') &&
     !normalized.split('/').some((segment) => !segment) &&
-    isGifFilename(normalized)
+    isGalleryImageFilename(normalized)
   );
 }
 
-function getSortedGifRepositoryFiles(metadata: QdnResourceMetadata | undefined) {
+function getSortedGalleryFiles(metadata: QdnResourceMetadata | undefined) {
   return (metadata?.files ?? [])
-    .filter(isGifRepositoryFile)
+    .filter(isGalleryFile)
     .slice()
     .sort((first, second) => first.localeCompare(second, undefined, { sensitivity: 'base' }));
 }
@@ -1475,7 +1476,7 @@ function getQdnResourceWithPath(resource: QdnResource, path: string): QdnResourc
   };
 }
 
-function QdnGifRepositoryContent({
+function QdnGalleryContent({
   displaySettings,
   loadedResource,
   nodeApiUrl,
@@ -1490,7 +1491,7 @@ function QdnGifRepositoryContent({
   onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
 }) {
-  const [state, setState] = useState<GifRepositoryState>({
+  const [state, setState] = useState<GalleryState>({
     phase: 'loading',
   });
   const [selectedFile, setSelectedFile] = useState('');
@@ -1513,14 +1514,14 @@ function QdnGifRepositoryContent({
     const abortController = new AbortController();
     let isDisposed = false;
 
-    async function loadGifList() {
+    async function loadGalleryList() {
       setState({
         phase: 'loading',
       });
 
       try {
         const metadata = await loadResourceMetadata(resource, nodeApiUrl, abortController.signal);
-        const files = getSortedGifRepositoryFiles(metadata);
+        const files = getSortedGalleryFiles(metadata);
 
         if (!isDisposed) {
           setSelectedFile('');
@@ -1543,7 +1544,7 @@ function QdnGifRepositoryContent({
       }
     }
 
-    void loadGifList();
+    void loadGalleryList();
 
     return () => {
       isDisposed = true;
@@ -1593,7 +1594,7 @@ function QdnGifRepositoryContent({
     <div className="qdn-viewer__gif-repository">
       <div className="qdn-viewer__gif-grid">
         {state.files.map((file) => {
-          const gifResource = getQdnResourceWithPath(resource, file);
+          const fileResource = getQdnResourceWithPath(resource, file);
 
           return (
             <figure className="qdn-viewer__gif-card" key={file}>
@@ -1608,16 +1609,16 @@ function QdnGifRepositoryContent({
                   className="qdn-viewer__gif-image"
                   alt={file}
                   loading="lazy"
-                  src={buildQdnRenderUrl(gifResource, nodeApiUrl, displaySettings)}
+                  src={buildQdnRenderUrl(fileResource, nodeApiUrl, displaySettings)}
                 />
               </button>
               <figcaption className="qdn-viewer__gif-caption">
                 <a
                   className="qdn-viewer__gif-link"
-                  href={gifResource.displayUrl}
+                  href={fileResource.displayUrl}
                   onClick={(event) => {
                     event.preventDefault();
-                    onOpenNewTab?.(gifResource.displayUrl);
+                    onOpenNewTab?.(fileResource.displayUrl);
                   }}
                 >
                   {file}
@@ -2106,7 +2107,7 @@ function QdnReadyContent({
 
   if (loadedResource.viewerKind === 'gif-repository') {
     return (
-      <QdnGifRepositoryContent
+      <QdnGalleryContent
         displaySettings={displaySettings}
         loadedResource={loadedResource}
         nodeApiUrl={nodeApiUrl}

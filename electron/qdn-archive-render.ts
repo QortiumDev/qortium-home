@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { access, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import extract from 'extract-zip';
@@ -9,7 +9,9 @@ import extract from 'extract-zip';
 const ARCHIVE_RENDER_DIR = 'qdn-archive-render';
 const ARCHIVE_FILENAME = 'resource.zip';
 const CONTENTS_DIR = 'contents';
-const INDEX_FILENAME = 'index.html';
+// Conventional entry files, in priority order. Mirrors Core's ArbitraryDataRenderer
+// index-file fallback so desktop inline rendering matches the node's /render behavior.
+const INDEX_FILENAMES = ['index.html', 'index.htm', 'default.html', 'default.htm', 'home.html', 'home.htm'];
 
 type QdnArchiveRenderResource = {
   identifier?: string;
@@ -114,14 +116,49 @@ async function pathExists(filePath: string) {
   }
 }
 
-async function getArchiveRenderTargetPath(contentsDir: string, resourcePath: string) {
-  const indexPath = path.join(contentsDir, INDEX_FILENAME);
+async function directoryHasEntries(directoryPath: string) {
+  try {
+    return (await readdir(directoryPath)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// Resolves the entry/fallback file for an extracted archive: a declared entryPoint
+// (Core v1.1.0 metadata, when it safely resolves inside the archive) takes
+// precedence, otherwise the first conventional index file that exists. Returns the
+// absolute path, or undefined when the archive has no usable entry file.
+async function resolveEntryFilePath(contentsDir: string, entryPoint?: string) {
+  const resolvedContentsDir = await realpath(contentsDir);
+
+  const normalizedEntryPoint = entryPoint ? normalizeArchivePath(entryPoint) : '';
+
+  if (normalizedEntryPoint) {
+    const candidatePath = path.resolve(path.join(contentsDir, normalizedEntryPoint));
+
+    if (isPathInsideDirectory(candidatePath, resolvedContentsDir) && (await pathExists(candidatePath))) {
+      return candidatePath;
+    }
+  }
+
+  for (const indexFilename of INDEX_FILENAMES) {
+    const indexPath = path.join(contentsDir, indexFilename);
+
+    if (await pathExists(indexPath)) {
+      return indexPath;
+    }
+  }
+
+  return undefined;
+}
+
+async function getArchiveRenderTargetPath(contentsDir: string, resourcePath: string, fallbackPath: string) {
   const { pathOnly, queryString } = splitPathAndQuery(resourcePath);
   const normalizedPath = normalizeArchivePath(pathOnly);
 
   if (!normalizedPath) {
     return {
-      filePath: indexPath,
+      filePath: fallbackPath,
       queryString,
     };
   }
@@ -141,7 +178,7 @@ async function getArchiveRenderTargetPath(contentsDir: string, resourcePath: str
   }
 
   return {
-    filePath: indexPath,
+    filePath: fallbackPath,
     queryString,
   };
 }
@@ -159,6 +196,7 @@ function buildFileUrl(filePath: string, queryString: string) {
 export async function prepareQdnArchiveRender(
   resource: QdnArchiveRenderResource,
   archiveBuffer: Buffer,
+  entryPoint?: string,
 ): Promise<QdnArchiveRenderResult> {
   const resourceHash = getHash(
     JSON.stringify({
@@ -171,9 +209,8 @@ export async function prepareQdnArchiveRender(
   const contentHash = getHash(archiveBuffer);
   const cacheDir = path.join(getQdnArchiveRenderRoot(), `${resource.service.toLowerCase()}-${resourceHash}-${contentHash}`);
   const contentsDir = path.join(cacheDir, CONTENTS_DIR);
-  const indexPath = path.join(contentsDir, INDEX_FILENAME);
 
-  if (!(await pathExists(indexPath))) {
+  if (!(await directoryHasEntries(contentsDir))) {
     const archivePath = path.join(cacheDir, ARCHIVE_FILENAME);
 
     await rm(cacheDir, { force: true, recursive: true });
@@ -187,11 +224,13 @@ export async function prepareQdnArchiveRender(
     }
   }
 
-  if (!(await pathExists(indexPath))) {
-    throw new Error('QDN archive app did not contain a top-level index.html file.');
+  const fallbackPath = await resolveEntryFilePath(contentsDir, entryPoint);
+
+  if (!fallbackPath) {
+    throw new Error('QDN archive did not contain an index.html or a declared entry point.');
   }
 
-  const target = await getArchiveRenderTargetPath(contentsDir, resource.path);
+  const target = await getArchiveRenderTargetPath(contentsDir, resource.path, fallbackPath);
 
   return {
     renderUrl: buildFileUrl(target.filePath, target.queryString),
