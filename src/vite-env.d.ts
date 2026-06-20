@@ -667,6 +667,7 @@ interface Window {
       getSettings: () => Promise<QortiumNodeSettings>;
       installCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       saveSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+      setAllowedTransports: (transports: string[]) => Promise<void>;
       testConnection: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeStatusResult>;
       getStatus: () => Promise<QortiumNodeStatusResult>;
     };

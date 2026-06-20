@@ -688,6 +688,42 @@ h1 {
   color: var(--color-danger);
 }
 
+.connections {
+  display: grid;
+  gap: 16px;
+}
+
+.connections__privacy {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-control-selected);
+}
+
+.connections__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.connections__privacy-state,
+.connections__privacy-warning,
+.connections__message {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.connections__privacy-state {
+  color: var(--color-text);
+}
+
+.connections__message--error {
+  color: var(--color-danger);
+}
+
 .app-main {
   display: grid;
   min-height: 0;

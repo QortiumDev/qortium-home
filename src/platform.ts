@@ -5421,6 +5421,31 @@ async function enableNodeApiDocumentation() {
   );
 }
 
+async function setNodeAllowedTransports(transports: string[]) {
+  const settingsContext = await getProtectedNodeRequestContext();
+
+  await requestProtectedNodeText(
+    settingsContext.nodeApiUrl,
+    settingsContext.apiKey,
+    '/admin/settings',
+    'PATCH',
+    { allowedTransports: transports },
+    'Node settings update request failed.',
+  );
+
+  // allowedTransports is restart-required: persisted now, effective after restart.
+  const restartContext = await getProtectedNodeRequestContext();
+
+  await requestProtectedNodeText(
+    restartContext.nodeApiUrl,
+    restartContext.apiKey,
+    '/admin/restart',
+    'GET',
+    undefined,
+    'Node restart request failed.',
+  );
+}
+
 async function requestConfiguredNode(
   settings: StoredNodeSettings,
   pathname: string,
@@ -7097,6 +7122,9 @@ function createFallbackApi(): PlatformApi {
         await writeNodeSettings(settings);
 
         return getNodeSettingsSnapshot(settings);
+      },
+      async setAllowedTransports(transports) {
+        return setNodeAllowedTransports(transports);
       },
       async testConnection(request) {
         return testNodeSettings(normalizeNodeSettingsRequest(request));

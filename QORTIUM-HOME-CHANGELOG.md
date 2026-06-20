@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: add the "Hide IP address" (I2P only) privacy control
+
+Added a privacy control to the Settings Connections panel that routes the node's traffic only over I2P, hiding its IP address. Turning it on shows a short warning first — it needs a running I2P router, can be slower or less reliable for reaching public peers, and restarts Core to take effect — and then asks for confirmation. Once on, the panel shows that the IP is hidden and offers a one-click "Show IP address" to return to the normal direct + I2P-fallback mode. The control changes Core's transport list through the node settings API and is only offered for a local or custom node you control (not public network mode). The wording is translated across all supported languages.
+
 ### 2026-06-20 - feat: add a Connections panel showing I2P transport status
 
 Added a new "Connections" section to Settings that surfaces the node's I2P state, the first user-facing piece of Home's managed-I2P support. It reads the node's open endpoints (no API key, so it works on desktop and Android and on any node you can reach) and shows whether the I2P fallback is Active (a peer is actually connected over I2P), Enabled but idle, or Disabled; the current transport mode (Direct + I2P fallback, I2P preferred, I2P only, or Direct only); and how many network and QDN peers are connected, including how many of them over I2P. The panel refreshes on demand and reflects the live transport list Core advertises. This is the status/detection foundation; the controls to turn the privacy ("hide IP") mode on and off come next.

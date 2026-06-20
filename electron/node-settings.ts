@@ -844,6 +844,54 @@ async function enableApiDocumentation() {
   );
 }
 
+// Accepts only the transports Core understands today, normalized like Core does
+// (trim/upper, dedupe). Rejects an empty result so we never disable all transports.
+function sanitizeAllowedTransports(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Allowed transports must be a list.');
+  }
+
+  const normalized: string[] = [];
+
+  for (const entry of value) {
+    const transport = typeof entry === 'string' ? entry.trim().toUpperCase() : '';
+
+    if ((transport === 'IP' || transport === 'I2P') && !normalized.includes(transport)) {
+      normalized.push(transport);
+    }
+  }
+
+  if (normalized.length === 0) {
+    throw new Error('Allowed transports must include IP or I2P.');
+  }
+
+  return normalized;
+}
+
+async function setAllowedTransports(transports: unknown) {
+  const allowedTransports = sanitizeAllowedTransports(transports);
+  const settings = readNodeSettings();
+  const updateResult = (await requestProtectedNodeJson(
+    settings,
+    '/admin/settings',
+    'PATCH',
+    'Node settings update request failed.',
+    JSON.stringify({ allowedTransports }),
+  )) as { saved?: unknown } | null;
+
+  if (updateResult && updateResult.saved === false) {
+    throw new Error('The node declined the settings update.');
+  }
+
+  // allowedTransports is restart-required: persisted now, effective after restart.
+  await requestProtectedNodeJson(
+    settings,
+    '/admin/restart',
+    'GET',
+    'Node restart request failed.',
+  );
+}
+
 export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<NodeConnection> {
   const settings = await resolveLocalApiKey(readNodeSettings());
 
@@ -871,6 +919,10 @@ export function registerNodeSettingsIpcHandlers() {
 
   ipcMain.handle('node:enableApiDocumentation', () => {
     return enableApiDocumentation();
+  });
+
+  ipcMain.handle('node:setAllowedTransports', (_event, transports: unknown) => {
+    return setAllowedTransports(transports);
   });
 
   ipcMain.handle('node:saveSettings', async (_event, request: NodeSettingsRequest) => {
