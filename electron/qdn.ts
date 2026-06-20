@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron';
 import extract from 'extract-zip';
+import { zipSync } from 'fflate';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
@@ -162,6 +163,7 @@ type QdnAuthorizeResourceRequest = {
 
 type QdnRawResourceRequest = QdnAuthorizeResourceRequest & {
   maxBytes?: unknown;
+  multiFile?: unknown;
   path?: unknown;
   suggestedFilename?: unknown;
 };
@@ -1417,6 +1419,69 @@ async function fetchResourceEntryPoint(resource: QdnResourceRequest): Promise<st
   } catch {
     return undefined;
   }
+}
+
+// Guards so a pathological resource can't exhaust memory while we build the zip.
+const MAX_ZIP_FILE_COUNT = 5000;
+const MAX_ZIP_TOTAL_BYTES = 512 * 1024 * 1024;
+
+// Read a multi-file resource's relative file paths from its metadata. The node's
+// metadata endpoint always includes the file list.
+async function fetchResourceFileList(resource: QdnResourceRequest): Promise<string[]> {
+  const connection = await getNodeConnection();
+  const headers: Record<string, string> = {};
+
+  if (connection.mode !== 'network') {
+    headers['X-API-KEY'] = getNodeApiKey(connection);
+  }
+
+  const identifier = resource.identifier ? resource.identifier : 'default';
+  const metadataPath = `/arbitrary/metadata/${resource.service}/${encodeURIComponent(
+    resource.name,
+  )}/${encodeURIComponent(identifier)}`;
+  const response = await fetchNode(metadataPath, { headers }, connection.nodeApiUrl);
+
+  if (!response.ok) {
+    throw new Error(`Unable to read the resource file list (HTTP ${response.status}).`);
+  }
+
+  const metadata: unknown = await response.json();
+
+  return isRecord(metadata) && Array.isArray(metadata.files)
+    ? metadata.files.map(getString).filter(Boolean)
+    : [];
+}
+
+// Multi-file resources have no single artifact to download, so assemble the
+// archive client-side: list the files, fetch each one by its relative path, and
+// zip them in-process.
+async function buildResourceZip(resource: QdnResourceRequest): Promise<Buffer> {
+  const files = await fetchResourceFileList(resource);
+
+  if (files.length === 0) {
+    throw new Error('This resource has no files to download.');
+  }
+
+  if (files.length > MAX_ZIP_FILE_COUNT) {
+    throw new Error(`This resource has too many files to download as a zip (${files.length}).`);
+  }
+
+  const entries: Record<string, Uint8Array> = {};
+  let totalBytes = 0;
+
+  for (const file of files) {
+    const response = await fetchConfiguredRawResource({ ...resource, path: file });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    totalBytes += bytes.byteLength;
+
+    if (totalBytes > MAX_ZIP_TOTAL_BYTES) {
+      throw new Error('This resource is too large to download as a zip.');
+    }
+
+    entries[file] = bytes;
+  }
+
+  return Buffer.from(zipSync(entries));
 }
 
 async function postAuthorizeResource(
@@ -5923,6 +5988,7 @@ export function registerQdnIpcHandlers() {
 
   ipcMain.handle('qdn:downloadResource', async (event, request: QdnRawResourceRequest) => {
     const resource = getRawResourceRequest(request);
+    const multiFile = getBoolean(request.multiFile) === true;
     const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     const saveDialogOptions = {
       title: 'Save QDN Resource',
@@ -5938,8 +6004,11 @@ export function registerQdnIpcHandlers() {
       };
     }
 
-    const response = await fetchConfiguredRawResource(resource, true);
-    const content = Buffer.from(await response.arrayBuffer());
+    // Multi-file resources have no single artifact on the node, so build the zip
+    // client-side from the file list; single-file resources are served directly.
+    const content = multiFile
+      ? await buildResourceZip(resource)
+      : Buffer.from(await (await fetchConfiguredRawResource(resource, true)).arrayBuffer());
     writeFileSync(result.filePath, content);
 
     return {

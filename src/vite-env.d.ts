@@ -331,6 +331,7 @@ type QortiumQdnAuthorizeResult = {
 
 type QortiumQdnRawResourceRequest = QortiumQdnAuthorizeRequest & {
   maxBytes?: number;
+  multiFile?: boolean;
   path?: string;
   suggestedFilename?: string;
 };

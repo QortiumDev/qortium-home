@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - fix: download multi-file QDN resources as a client-side zip (desktop)
+
+Downloading a multi-file QDN resource (an APP, WEBSITE, GIF_REPO, or other resource shown as a .zip) on the desktop now works — previously it failed with "save failed". These resources are stored on the node as many separate files with no single downloadable archive, so Home now reads the resource's file list, fetches each file, and assembles the .zip on your own device before saving it. A size/count guard avoids problems with unusually large resources. Single-file downloads are unchanged. The same fix for Android is a follow-up.
+
 ### 2026-06-20 - ux: reveal the saved file after a desktop QDN download
 
 After you download a QDN item on the desktop, the Download button now turns into a folder icon — the same one used elsewhere to open the Core and Home install locations — that opens the saved file's location in your file manager. It stays that way until the tab is reloaded, so you can find the file right away and won't re-download it by accident; reload the tab if you do want to download it again. There is no extra button and no new wording. On Android the file still opens directly as before.
