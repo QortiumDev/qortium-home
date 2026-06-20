@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     installCoreUpdate: () => ipcRenderer.invoke('node:installCoreUpdate'),
     saveSettings: (request: { apiKey?: string; customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
       ipcRenderer.invoke('node:saveSettings', request),
+    setAllowedTransports: (transports: string[]) =>
+      ipcRenderer.invoke('node:setAllowedTransports', transports),
     testConnection: (request: { apiKey?: string; customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
       ipcRenderer.invoke('node:testConnection', request),
     getStatus: () => ipcRenderer.invoke('node:getStatus'),

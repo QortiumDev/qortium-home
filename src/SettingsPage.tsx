@@ -74,6 +74,7 @@ export function SettingsPage({
           onSaveNodeSettings={onSaveNodeSettings}
         />
         <ConnectionsPanel
+          canManageTransports={nodeSettings.mode !== 'network'}
           isExpanded={sectionExpansion.connections}
           nodeApiUrl={nodeSettings.nodeApiUrl}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('connections', isExpanded)}
