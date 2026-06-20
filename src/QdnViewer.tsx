@@ -990,6 +990,7 @@ function QdnDownloadButton({
             identifier: resource.identifier,
             path: resource.path,
             suggestedFilename,
+            multiFile,
           });
 
           if (result.canceled) {
