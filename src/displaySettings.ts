@@ -138,6 +138,8 @@ export const TEXT_SIZE_OPTIONS = [
 
 export type TextSizeSetting = (typeof TEXT_SIZE_OPTIONS)[number]['value'];
 
+export const TEXT_SIZE_VALUES = TEXT_SIZE_OPTIONS.map((option) => option.value);
+
 export const ACCENT_OPTIONS = [
   {
     labelKey: 'display.accent.green',
@@ -245,6 +247,26 @@ export function getLanguageLabel(language: LanguageSetting) {
 
 export function getTextSizeLabel(textSize: TextSizeSetting) {
   return t(TEXT_SIZE_OPTIONS.find((option) => option.value === textSize)?.labelKey ?? 'display.textSize.medium');
+}
+
+export function nextTextSize(textSize: TextSizeSetting): TextSizeSetting {
+  const index = TEXT_SIZE_VALUES.indexOf(textSize);
+  if (index === -1) {
+    return DEFAULT_TEXT_SIZE;
+  }
+  const nextIndex = Math.min(index + 1, TEXT_SIZE_VALUES.length - 1);
+
+  return TEXT_SIZE_VALUES[nextIndex];
+}
+
+export function prevTextSize(textSize: TextSizeSetting): TextSizeSetting {
+  const index = TEXT_SIZE_VALUES.indexOf(textSize);
+  if (index === -1) {
+    return DEFAULT_TEXT_SIZE;
+  }
+  const prevIndex = Math.max(index - 1, 0);
+
+  return TEXT_SIZE_VALUES[prevIndex];
 }
 
 function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEXT_SIZE): DisplaySettings {

@@ -14,6 +14,7 @@ import {
   type ThemeSetting,
 } from './displaySettings';
 import { t } from './i18n';
+import { isMacOs, isNativePlatform } from './platform';
 import { SettingsSection } from './SettingsSection';
 
 type DisplaySettingsPanelProps = {
@@ -42,6 +43,11 @@ export function DisplaySettingsPanel({
   });
   const accentSwatch = ACCENT_OPTIONS.find((option) => option.value === displaySettings.accent)?.swatch;
   const accentLabel = t('display.accentLabel');
+  // Desktop-only keyboard hint; hidden on Android (no hardware keyboard). The
+  // modifier matches the renderer/Electron shortcut: ⌘⇧ on macOS, Ctrl+Shift elsewhere.
+  const textSizeShortcutHint = isNativePlatform()
+    ? null
+    : t('display.textSizeShortcutHint', { modifier: isMacOs() ? '⌘⇧' : 'Ctrl+Shift' });
 
   return (
     <SettingsSection
@@ -120,7 +126,12 @@ export function DisplaySettingsPanel({
           </select>
         </label>
         <div className="display-settings__field">
-          <span className="field__label">{t('display.textSizeLabel')}</span>
+          <span className="field__label">
+            {t('display.textSizeLabel')}
+            {textSizeShortcutHint ? (
+              <span className="field__label-hint">{textSizeShortcutHint}</span>
+            ) : null}
+          </span>
           <div className="segmented-control" role="radiogroup" aria-label={t('display.textSizeLabel')}>
             {TEXT_SIZE_OPTIONS.map((option) => (
               <button

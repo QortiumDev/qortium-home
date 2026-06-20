@@ -1815,6 +1815,12 @@ h1 {
   line-height: var(--line-height-small);
 }
 
+.field__label-hint {
+  margin-left: 8px;
+  color: var(--color-text-faint);
+  font-weight: 400;
+}
+
 .top-bar {
   z-index: 12;
   display: grid;
