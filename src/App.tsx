@@ -19,10 +19,13 @@ import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
 import {
   applyDisplaySettings,
+  DEFAULT_TEXT_SIZE,
   getInitialDisplaySettings,
   getSystemLanguage,
   getSystemTheme,
   loadDisplaySettings,
+  nextTextSize,
+  prevTextSize,
   resolveDisplaySettings,
   saveDisplaySettings,
   subscribeToSystemLanguageChange,
@@ -686,6 +689,10 @@ export function App() {
     ((address: string, sourceTabId: string | null) => void) | null
   >(null);
   const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
+  const textSizeControlRef = useRef<{
+    current: DisplaySettings['textSize'];
+    update: (nextTextSize: DisplaySettings['textSize']) => void;
+  } | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
@@ -976,12 +983,15 @@ export function App() {
         redo: t('menu.redo'),
         reloadTab: t('tabs.reloadTab'),
         reopenClosedTab: t('tabs.reopenClosedTab'),
+        resetZoom: t('menu.resetZoom'),
         selectAll: t('menu.selectAll'),
         toggleFullScreen: t('menu.toggleFullScreen'),
         undo: t('menu.undo'),
         view: t('menu.view'),
         window: t('menu.window'),
         zoom: t('menu.zoom'),
+        zoomIn: t('menu.zoomIn'),
+        zoomOut: t('menu.zoomOut'),
       })
       .catch((error) => {
         console.warn('Unable to update application menu labels.', error);
@@ -1694,6 +1704,10 @@ export function App() {
   openAppLinkInNewTabRef.current = openAppLinkInNewTab;
   openInCurrentTabRef.current = openInCurrentTab;
   openQdnMediaPlayerRef.current = openQdnMediaPlayer;
+  textSizeControlRef.current = {
+    current: effectiveDisplaySettings.textSize,
+    update: updateTextSize,
+  };
 
   useEffect(() => {
     return window.qortiumHome.menu?.onCommand((command) => {
@@ -1853,6 +1867,39 @@ export function App() {
 
       if (windowsApi && primaryOnly && event.shiftKey && key === 'w') {
         runCommand(event, actions.closeCurrentWindow);
+        return;
+      }
+
+      if (primaryOnly && event.shiftKey && (key === '+' || key === '=')) {
+        const textSizeControl = textSizeControlRef.current;
+
+        if (textSizeControl) {
+          runCommand(event, () => {
+            textSizeControl.update(nextTextSize(textSizeControl.current));
+          });
+        }
+        return;
+      }
+
+      if (primaryOnly && event.shiftKey && (key === '-' || key === '_')) {
+        const textSizeControl = textSizeControlRef.current;
+
+        if (textSizeControl) {
+          runCommand(event, () => {
+            textSizeControl.update(prevTextSize(textSizeControl.current));
+          });
+        }
+        return;
+      }
+
+      if (primaryOnly && event.shiftKey && (key === '0' || key === ')')) {
+        const textSizeControl = textSizeControlRef.current;
+
+        if (textSizeControl) {
+          runCommand(event, () => {
+            textSizeControl.update(DEFAULT_TEXT_SIZE);
+          });
+        }
         return;
       }
 

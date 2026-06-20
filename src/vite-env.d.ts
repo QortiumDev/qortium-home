@@ -528,12 +528,15 @@ type QortiumHomeMenuLabels = {
   redo: string;
   reloadTab: string;
   reopenClosedTab: string;
+  resetZoom: string;
   selectAll: string;
   toggleFullScreen: string;
   undo: string;
   view: string;
   window: string;
   zoom: string;
+  zoomIn: string;
+  zoomOut: string;
 };
 
 type QortiumQdnWriteApprovalRequest = {

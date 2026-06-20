@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: add keyboard zoom and text-size shortcuts
+
+Added keyboard shortcuts for zooming and for changing the app's text size. On desktop, holding Ctrl (Cmd on macOS) with the +, -, or 0 key now zooms the whole window in, out, or back to normal — no Shift required — and the same three actions are available from a new View menu (Zoom In / Zoom Out / Reset Zoom) with their shortcuts shown. Separately, adding Shift — Ctrl/Cmd+Shift with +, -, or 0 — steps the Settings "Text size" preset up, down, or back to the default; this one also works on Android with a hardware keyboard. The Display settings now show the matching shortcut next to "Text size" on desktop (⌘⇧ on macOS, Ctrl+Shift elsewhere, and nothing on Android where there is no keyboard). The macOS window Zoom menu item is unchanged on Mac but is no longer shown on Windows/Linux, where it did nothing.
+
 ### 2026-06-20 - feat: show accepted transports as a Connections line in the Core tile
 
 Surfaced the node's accepted transports on the dashboard as a single "Connections" line in the Core tile, reading "IP, I2P" (or just "IP", or just "I2P") to match the node's current configuration. This keeps the dashboard uncluttered — no separate card — while still showing at a glance whether the I2P fallback is in the mix, with the full status and the privacy controls living in the Settings Connections section. It reuses the same status read as the settings panel. This completes the first phase of Home's I2P support — detecting and showing the transport state and letting you change it on a node you control. Automatically installing and running an I2P router from Home remains the next phase.

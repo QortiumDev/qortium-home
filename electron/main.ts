@@ -6,6 +6,7 @@ import {
   screen,
   type MenuItemConstructorOptions,
   type Rectangle,
+  type WebContents,
 } from 'electron';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -353,6 +354,30 @@ function getInitialWindowState(options: CreateWindowOptions): WindowState | unde
   return savedState;
 }
 
+const ZOOM_LEVEL_STEP = 0.5;
+const MIN_ZOOM_LEVEL = -3;
+const MAX_ZOOM_LEVEL = 3;
+
+function zoomIn(webContents: WebContents) {
+  webContents.setZoomLevel(Math.min(webContents.getZoomLevel() + ZOOM_LEVEL_STEP, MAX_ZOOM_LEVEL));
+}
+
+function zoomOut(webContents: WebContents) {
+  webContents.setZoomLevel(Math.max(webContents.getZoomLevel() - ZOOM_LEVEL_STEP, MIN_ZOOM_LEVEL));
+}
+
+function resetZoom(webContents: WebContents) {
+  webContents.setZoomLevel(0);
+}
+
+function zoomFocusedWindow(action: (webContents: WebContents) => void) {
+  const window = BrowserWindow.getFocusedWindow();
+
+  if (window) {
+    action(window.webContents);
+  }
+}
+
 function createWindow(options: CreateWindowOptions = {}) {
   const windowState = getInitialWindowState(options);
   const window = new BrowserWindow({
@@ -398,6 +423,43 @@ function createWindow(options: CreateWindowOptions = {}) {
     window.webContents.send('menu:command', menuCommand);
   });
 
+  // Native content zoom. We handle this here (rather than relying on the menu
+  // accelerators alone) so that Ctrl/Cmd + '=' works WITHOUT requiring Shift,
+  // which the accelerator-only approach cannot express. preventDefault() stops
+  // the matching menu accelerator from firing too, so zoom never double-steps.
+  // Shift is deliberately excluded: Ctrl/Cmd+Shift +/-/0 is reserved for the
+  // renderer's text-size shortcut, so we must let those keydowns reach the DOM.
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') {
+      return;
+    }
+
+    const primaryModifier = process.platform === 'darwin' ? input.meta : input.control;
+
+    if (!primaryModifier || input.alt || input.shift) {
+      return;
+    }
+
+    const key = input.key;
+
+    if (key === '=' || key === '+' || input.code === 'NumpadAdd') {
+      zoomIn(window.webContents);
+      event.preventDefault();
+      return;
+    }
+
+    if (key === '-' || input.code === 'NumpadSubtract') {
+      zoomOut(window.webContents);
+      event.preventDefault();
+      return;
+    }
+
+    if (key === '0' || input.code === 'Numpad0') {
+      resetZoom(window.webContents);
+      event.preventDefault();
+    }
+  });
+
   if (windowState?.isMaximized) {
     window.maximize();
   }
@@ -431,12 +493,15 @@ const DEFAULT_MENU_LABELS = {
   redo: 'Redo',
   reloadTab: 'Reload Tab',
   reopenClosedTab: 'Reopen Closed Tab',
+  resetZoom: 'Reset Zoom',
   selectAll: 'Select All',
   toggleFullScreen: 'Toggle Full Screen',
   undo: 'Undo',
   view: 'View',
   window: 'Window',
   zoom: 'Zoom',
+  zoomIn: 'Zoom In',
+  zoomOut: 'Zoom Out',
 };
 
 type MenuLabels = typeof DEFAULT_MENU_LABELS;
@@ -534,6 +599,22 @@ function buildApplicationMenu() {
           click: () => sendMenuCommand('focus-address-bar'),
         },
         { type: 'separator' },
+        {
+          label: menuLabels.zoomIn,
+          accelerator: 'CommandOrControl+Plus',
+          click: () => zoomFocusedWindow(zoomIn),
+        },
+        {
+          label: menuLabels.zoomOut,
+          accelerator: 'CommandOrControl+-',
+          click: () => zoomFocusedWindow(zoomOut),
+        },
+        {
+          label: menuLabels.resetZoom,
+          accelerator: 'CommandOrControl+0',
+          click: () => zoomFocusedWindow(resetZoom),
+        },
+        { type: 'separator' },
         { role: 'togglefullscreen', label: menuLabels.toggleFullScreen },
       ],
     },
@@ -541,9 +622,9 @@ function buildApplicationMenu() {
       label: menuLabels.window,
       submenu: [
         { role: 'minimize', label: menuLabels.minimize },
-        { role: 'zoom', label: menuLabels.zoom },
         ...(process.platform === 'darwin'
           ? ([
+              { role: 'zoom', label: menuLabels.zoom },
               { type: 'separator' },
               { role: 'front' },
             ] satisfies MenuItemConstructorOptions[])

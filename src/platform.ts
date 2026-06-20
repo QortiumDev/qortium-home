@@ -300,6 +300,14 @@ export function isNativePlatform() {
   return Capacitor.isNativePlatform();
 }
 
+export function isMacOs() {
+  if (isAndroid()) {
+    return false;
+  }
+
+  return window.navigator.userAgent.toLowerCase().includes('mac os');
+}
+
 export async function fetchNativeHttpBlobUrl({
   contentType,
   readTimeoutMs = REQUEST_TIMEOUT_MS,
