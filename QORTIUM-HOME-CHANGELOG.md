@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - ux: auto-collapse the QDN viewer status bar when ready
+
+The resource viewer shows a status bar across the top that reports loading progress (Published, Building, Ready) along with the resource address and its actions. It already had a manual collapse control, but it stayed open after a resource finished loading, taking space away from the content. The status bar now collapses on its own the moment a resource reaches the Ready state, leaving the small handle to reopen it when the status actions are needed. It still reappears automatically while a new resource is loading, so progress is always visible when it matters.
+
 ### 2026-06-20 - fix: scroll long QDN explorer lists and pin the column header
 
 Fixed a longstanding bug where the `qdn://` explorer could not scroll: when a service or name listing had more items than fit on screen, the extra rows were cut off at the bottom of the window with no scroll bar, so the rest of the list was unreachable. The explorer now scrolls the same way the settings and dashboard pages do (the page area itself owns the scrollbar), which reliably reveals the whole list. While doing this, the column header row (Name / Count / Updated, with its sort controls) is now pinned to the top so it stays visible and usable as you scroll through a long list, on every explorer page. An earlier attempt to fix the scrolling by having the panel claim its own height did not work in the packaged app; this replaces it with the proven page-level scrolling approach.

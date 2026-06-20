@@ -2158,10 +2158,19 @@ export function QdnViewer({
   const statusLabel = state.phase === 'ready' ? t('qdnStatus.ready') : formatQdnStatus(state.status);
 
   // Navigating to a different resource re-reveals the status bar so the new
-  // URL and its actions are always visible after a load.
+  // URL and its actions are always visible while it loads.
   useEffect(() => {
     setStatusHidden(false);
   }, [resource.displayUrl]);
+
+  // Once the resource is ready the progress bar has nothing left to report, so
+  // collapse the status bar to give the content the full view. The user can
+  // re-open it with the handle to reach the status actions.
+  useEffect(() => {
+    if (state.phase === 'ready') {
+      setStatusHidden(true);
+    }
+  }, [state.phase]);
 
   return (
     <section className="qdn-viewer" aria-label={t('viewer.ariaLabel')}>
