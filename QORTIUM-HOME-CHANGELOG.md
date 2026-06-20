@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: show the Core build commit in the version display
+
+The Core version shown on the Dashboard and in Settings now includes the build commit as a suffix (for example "v1.1.0-b886a78" instead of just "v1.1.0"), so you can tell exactly which build of Core is running. The suffix is read from the running Core, so it appears while Core is running; a stopped-but-installed Core still shows the plain version.
+
 ### 2026-06-20 - perf: speed up CHAT memory-pow with 32-bit integer math
 
 Made the on-device proof-of-work used for public-node chat sending dramatically faster — about 40 times — so finding a valid nonce now takes a few seconds instead of over two minutes. The memory-hard computation was rewritten to use 32-bit integer arithmetic over a reused buffer instead of big-number math. The result is bit-for-bit identical to what Qortium Core expects: it was checked against Core's own known-answer test values and confirmed to produce exactly the same output as the previous implementation across thousands of randomized inputs.

@@ -200,19 +200,23 @@ export function getCoreVersionValue(status: QortiumCoreStatus | null) {
     return t('common.unavailable');
   }
 
+  // The build commit is parsed from the running core's /admin/info buildVersion,
+  // so it is only known while the core is running. Append it as a build suffix
+  // (e.g. "v1.1.0-b886a78") so the exact running build is identifiable.
+  const commit = status.runtime.runningCommit?.trim();
+  const withCommit = (tag: string) => (commit ? `${tag}-${commit}` : tag);
+
   // The installed jar tag is the most specific identifier, so prefer it. When
   // the jar metadata is gone but a core is still running, fall back to the
   // version reported by the running core API so the user still sees something
   // useful (and can tell it apart from "not installed").
   if (status.installed) {
-    return status.installed.tagName;
+    return withCommit(status.installed.tagName);
   }
 
   if (status.runtime.running) {
     if (status.runtime.runningVersion) {
-      const runningTag = formatReleaseTag(status.runtime.runningVersion);
-
-      return status.runtime.runningCommit ? `${runningTag} (${status.runtime.runningCommit})` : runningTag;
+      return withCommit(formatReleaseTag(status.runtime.runningVersion));
     }
 
     return t('common.detected');
