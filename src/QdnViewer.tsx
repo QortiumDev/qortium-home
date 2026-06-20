@@ -1,4 +1,4 @@
-import { ChevronDown, ClipboardCopy, Copy, Download, Image as ImageIcon, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, ClipboardCopy, Copy, Download, FolderOpen, Image as ImageIcon, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
 import type {
@@ -916,9 +916,17 @@ function QdnDownloadButton({
   resource: QdnResource;
 }) {
   const [downloadState, setDownloadState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
+  // After a successful desktop download, keep a persistent "open location"
+  // affordance (cleared only when the view reloads). This stops the same file
+  // from being re-downloaded by accident and lets the user jump to where it was
+  // saved. Re-downloading is still possible by reloading the tab.
+  const [revealTarget, setRevealTarget] = useState<{ label: string; path: string } | null>(null);
   const opensNativeDownload = isNativePlatform();
   // Multi-file resources save as a single archive, so the action makes the
   // .zip outcome explicit (e.g. "Download (zip)").
+  const suggestedFilename = multiFile
+    ? getMultiFileDownloadName(resource)
+    : getSuggestedResourceFilename(resource, properties);
   const actionLabel = `${opensNativeDownload ? t('common.open') : t('common.download')}${multiFile ? ' (zip)' : ''}`;
   const buttonLabel =
     downloadState === 'saving'
@@ -945,6 +953,26 @@ function QdnDownloadButton({
     return () => window.clearTimeout(timeoutId);
   }, [downloadState]);
 
+  // Desktop after a successful save: reuse the same folder icon the dashboard
+  // and settings use to reveal install locations, as an icon-only button.
+  if (revealTarget) {
+    const revealLabel = t('common.revealItem', { target: revealTarget.label });
+
+    return (
+      <button
+        className={`button qdn-viewer__action-button${compact ? ' button--compact' : ''}`}
+        type="button"
+        title={revealLabel}
+        aria-label={revealLabel}
+        onClick={() => {
+          void window.qortiumHome.system?.revealPath(revealTarget.path);
+        }}
+      >
+        <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
+      </button>
+    );
+  }
+
   return (
     <button
       className={`button qdn-viewer__action-button${compact ? ' button--compact' : ''}`}
@@ -961,12 +989,24 @@ function QdnDownloadButton({
             name: resource.name,
             identifier: resource.identifier,
             path: resource.path,
-            suggestedFilename: multiFile
-              ? getMultiFileDownloadName(resource)
-              : getSuggestedResourceFilename(resource, properties),
+            suggestedFilename,
           });
 
-          setDownloadState(result.canceled ? 'idle' : 'saved');
+          if (result.canceled) {
+            setDownloadState('idle');
+            return;
+          }
+
+          // Desktop: switch to the persistent reveal affordance for the saved
+          // file. Native (Android) opens the file directly and has no folder to
+          // reveal, so it keeps the transient "Opened" feedback.
+          if (!opensNativeDownload && result.filePath && window.qortiumHome.system?.revealPath) {
+            setRevealTarget({ label: result.fileName ?? suggestedFilename, path: result.filePath });
+            setDownloadState('idle');
+            return;
+          }
+
+          setDownloadState('saved');
         } catch {
           setDownloadState('error');
         }
