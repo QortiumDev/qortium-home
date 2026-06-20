@@ -73,6 +73,8 @@ export const hu: Record<TranslationKey, string> = {
   "api.loadFailed": "A csomóponti API-végpont nem tölthető be.",
   "api.loadingEndpoint": "Csomóponti API-végpont betöltése…",
   "api.previewTooLarge": "Ez a válasz túl nagy a beágyazott előnézethez. A beágyazott előnézet korlátja {limit}.",
+  "chat.error.directRequiresLocalNode": "A közvetlen (privát) csevegéshez helyi Core vagy megbízható egyéni csomópont szükséges, hogy a Home soha ne küldje el a privát kulcsodat egy nyilvános csomópontnak.",
+  "chat.error.privateGroupRequiresLocalNode": "Zárt vagy privát csoportba küldéshez helyi Core vagy megbízható egyéni csomópont szükséges, hogy a Home soha ne küldje el a privát kulcsodat egy nyilvános csomópontnak.",
   "common.appName": "Qortium Home",
   "common.available": "Elérhető",
   "common.back": "Vissza",

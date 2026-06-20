@@ -73,6 +73,8 @@ export const nl: Record<TranslationKey, string> = {
   "api.loadFailed": "Kan node-API-endpoint niet laden.",
   "api.loadingEndpoint": "Node-API-endpoint laden…",
   "api.previewTooLarge": "Dit antwoord is te groot voor een inline voorbeeld. De limiet voor inline voorbeelden is {limit}.",
+  "chat.error.directRequiresLocalNode": "Directe (privé) chat vereist een lokale Core of een vertrouwd aangepast knooppunt, zodat Home je privésleutel nooit naar een openbaar knooppunt stuurt.",
+  "chat.error.privateGroupRequiresLocalNode": "Verzenden naar een gesloten of privégroep vereist een lokale Core of een vertrouwd aangepast knooppunt, zodat Home je privésleutel nooit naar een openbaar knooppunt stuurt.",
   "common.appName": "Qortium Home",
   "common.available": "Beschikbaar",
   "common.back": "Terug",

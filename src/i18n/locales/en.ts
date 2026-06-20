@@ -71,6 +71,8 @@ export const en = {
   "api.loadFailed": "Unable to load node API endpoint.",
   "api.loadingEndpoint": "Loading node API endpoint…",
   "api.previewTooLarge": "This response is too large to preview inline. The inline preview limit is {limit}.",
+  "chat.error.directRequiresLocalNode": "Direct (private) chat requires a local Core or a trusted custom node so Home never sends your private key to a public node.",
+  "chat.error.privateGroupRequiresLocalNode": "Sending to a closed or private group requires a local Core or a trusted custom node so Home never sends your private key to a public node.",
   "common.appName": "Qortium Home",
   "common.available": "Available",
   "common.back": "Back",

@@ -73,6 +73,8 @@ export const fi: Record<TranslationKey, string> = {
   "api.loadFailed": "Solmun API-päätepistettä ei voitu ladata.",
   "api.loadingEndpoint": "Ladataan solmun API-päätepistettä…",
   "api.previewTooLarge": "Tämä vastaus on liian suuri upotettuun esikatseluun. Upotetun esikatselun raja on {limit}.",
+  "chat.error.directRequiresLocalNode": "Suora (yksityinen) keskustelu edellyttää paikallista Corea tai luotettua mukautettua solmua, jotta Home ei koskaan lähetä yksityistä avaintasi julkiselle solmulle.",
+  "chat.error.privateGroupRequiresLocalNode": "Suljettuun tai yksityiseen ryhmään lähettäminen edellyttää paikallista Corea tai luotettua mukautettua solmua, jotta Home ei koskaan lähetä yksityistä avaintasi julkiselle solmulle.",
   "common.appName": "Qortium Home",
   "common.available": "Saatavilla",
   "common.back": "Takaisin",

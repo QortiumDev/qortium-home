@@ -17,7 +17,9 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
+import { signChatTransaction } from './chatSign';
 import type { CoreTransportStatusSnapshot } from './i2p';
+import { t } from './i18n';
 import { PUBLIC_QDN_SERVICES, isPrivateQdnService, type QdnDisplaySettings } from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
@@ -67,6 +69,9 @@ const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
+// Required leading-zero bits for the CHAT memory-pow. Tracks the chain config
+// (Previewnet previewchain.json chatDifficulty); keep in sync with Qortium Core.
+const CHAT_POW_DIFFICULTY = 8;
 const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
 const QDN_MEDIA_PLAYER_SERVICES = new Set(['AUDIO', 'PODCAST', 'VIDEO', 'VOICE']);
 const QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH = 1024;
@@ -2449,6 +2454,66 @@ async function getAccountSigningKey(accountId: string) {
   };
 }
 
+// Resolves the 64-byte ed25519 secret key (and base58 public key) for an
+// account WITHOUT base58-encoding the private key. Used by the keyless
+// open-group chat path so the raw key is signed with locally and never sent to
+// any node. Still requires the account to be unlocked.
+async function getAccountSecretKey(accountId: string) {
+  const store = await readWalletStore();
+  const { address: accountAddress, addressIndex, wallet } = requireWalletAccount(store, accountId);
+  const seed = unlockedWalletSeeds.get(wallet.id);
+
+  if (!seed) {
+    throw new Error('Selected account is locked.');
+  }
+
+  const privateKey =
+    isPrivateKeyWallet(wallet.encryptedWallet) && addressIndex === 0
+      ? seed
+      : deriveAddressSeed(seed, addressIndex);
+  const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
+  const address = await publicKeyToAddress(keyPair.publicKey);
+
+  if (address !== accountAddress) {
+    throw new Error('Selected account signing key does not match the saved account address.');
+  }
+
+  return {
+    address,
+    publicKey58: base58Encode(keyPair.publicKey),
+    secretKey: keyPair.secretKey,
+  };
+}
+
+// Like getQdnWriteContext but for the keyless open-group chat path: it allows a
+// public/network node because the private key is NEVER sent to it (the message
+// is signed locally). It still requires a selected, unlocked account and the
+// caller still runs the SEND_CHAT_MESSAGE approval prompt.
+async function getKeylessChatContext(context: QdnAppRequestContext | undefined) {
+  if (!context) {
+    throw new Error('QDN app requests are only available from a QDN app frame.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = settings.apiKey;
+  const profile = await getAccountProfile(context.accountId);
+  const signingKey = await getAccountSecretKey(context.accountId);
+
+  return {
+    accountId: context.accountId,
+    apiKey,
+    nodeApiUrl,
+    profile,
+    publicKey58: signingKey.publicKey58,
+    secretKey: signingKey.secretKey,
+  };
+}
+
 async function getQdnWriteContext(context: QdnAppRequestContext | undefined): Promise<QdnWriteContext> {
   if (!context) {
     throw new Error('QDN app requests are only available from a QDN app frame.');
@@ -4594,6 +4659,111 @@ async function buyNameForApp(request: QdnAppRequest, context: QdnAppRequestConte
   };
 }
 
+type MemoryPowWorkerResponse =
+  | { id: string; nonce: number }
+  | { id: string; error: string };
+
+let memoryPowWorker: Worker | null = null;
+
+function getMemoryPowWorker(): Worker {
+  if (!memoryPowWorker) {
+    // Vite statically detects this exact form and emits the worker as a separate
+    // chunk referenced relatively (base './'), which works under Electron
+    // loadFile and the Capacitor file:// webview.
+    const worker = new Worker(new URL('./pow/memoryPow.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    // Drop the cached instance if the worker dies, so the next send respawns it
+    // instead of hanging on a dead worker.
+    worker.addEventListener('error', () => {
+      if (memoryPowWorker === worker) {
+        memoryPowWorker = null;
+      }
+      worker.terminate();
+    });
+    memoryPowWorker = worker;
+  }
+
+  return memoryPowWorker;
+}
+
+// Runs the CHAT memory-pow off the UI thread and resolves with the nonce.
+function computeChatNonce(data: Uint8Array, difficulty: number): Promise<number> {
+  const worker = getMemoryPowWorker();
+  const id = createRequestId();
+
+  return new Promise<number>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<MemoryPowWorkerResponse>) => {
+      if (event.data.id !== id) {
+        return;
+      }
+
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+
+      if ('error' in event.data) {
+        reject(new Error(event.data.error));
+        return;
+      }
+
+      resolve(event.data.nonce);
+    };
+
+    const onError = (event: ErrorEvent) => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      reject(new Error(event.message || 'Memory-pow computation failed.'));
+    };
+
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+    worker.postMessage({ id, data, difficulty });
+  });
+}
+
+// Keyless open-group chat send for PUBLIC/network nodes. Builds the unsigned
+// CHAT bytes via the keyless /chat/public/build endpoint, computes the
+// memory-pow nonce locally, signs locally with the account's ed25519 key, then
+// broadcasts the fully signed bytes. The private key is NEVER sent to the node.
+async function sendKeylessPublicGroupChatMessage(
+  keylessContext: Awaited<ReturnType<typeof getKeylessChatContext>>,
+  groupId: number,
+  message: string,
+) {
+  const unsignedTransaction = await postLocalNodeText(
+    keylessContext.nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify({
+      senderPublicKey: keylessContext.publicKey58,
+      data: encodeChatTextData(message),
+      isText: true,
+      isEncrypted: false,
+      txGroupId: groupId,
+      timestamp: Date.now(),
+      fee: 0,
+    }),
+    keylessContext.apiKey,
+    'Chat transaction build failed.',
+    'application/json',
+  );
+
+  const unsignedBytes = base58Decode(unsignedTransaction.body);
+  // The build endpoint returns nonce-free bytes (nonce field already zeroed), so
+  // we hash the bytes as-is to seed the memory-pow.
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY);
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, keylessContext.secretKey);
+
+  const processedTransaction = await postLocalNodeText(
+    keylessContext.nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    keylessContext.apiKey,
+    'Chat transaction processing failed.',
+  );
+
+  return parseLocalPostData(processedTransaction);
+}
+
 async function sendPublicGroupChatMessage(
   writeContext: QdnWriteContext,
   groupId: number,
@@ -4675,10 +4845,74 @@ async function sendDirectPrivateChatMessage(
   return parseLocalPostData(result);
 }
 
+// Keyless open-group send path for PUBLIC/network nodes. Direct messages and
+// closed/private groups are rejected here because they would require sending the
+// private key to a public node. Returns null when the node is not in network
+// mode so the caller falls back to the existing server-side signing path.
+async function trySendChatMessageOnNetworkNode(
+  context: QdnAppRequestContext | undefined,
+  target: QdnChatMessageTarget,
+  message: string,
+) {
+  const settings = await readNodeSettings();
+
+  if (settings.mode !== 'network') {
+    return null;
+  }
+
+  if (target.kind === 'direct') {
+    throw new Error(t('chat.error.directRequiresLocalNode'));
+  }
+
+  const keylessContext = await getKeylessChatContext(context);
+  const groupId = target.groupId;
+  const groupData = await getGroupDataForChat(keylessContext.nodeApiUrl, groupId);
+  const groupName = getGroupName(groupData);
+  // Fail closed on a public node: only send when the group is confirmed open.
+  // An unverifiable/missing group lookup is treated as not-open and rejected.
+  const isOpenGroup = groupId === 0 || (isRecord(groupData) && groupData.isOpen === true);
+
+  if (!isOpenGroup) {
+    throw new Error(t('chat.error.privateGroupRequiresLocalNode'));
+  }
+
+  await requestQdnChatPermissionApproval(
+    context as QdnAppRequestContext,
+    keylessContext.profile,
+    'SEND_CHAT_MESSAGE',
+    {
+      chatMessagePreview: getChatMessagePreview(message),
+      groupId,
+      groupName,
+    },
+  );
+
+  const result = await sendKeylessPublicGroupChatMessage(keylessContext, groupId, message);
+
+  return {
+    accepted: true,
+    action: 'SEND_CHAT_MESSAGE' as const,
+    encrypted: false,
+    groupId,
+    groupName,
+    result,
+  };
+}
+
 async function sendChatMessageForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const target = getChatMessageTarget(request);
   const message = getChatMessageText(request);
   const chatReference = getOptionalBase58RequestString(request, 'chatReference');
+
+  // Network (public) nodes get the keyless local-sign path for open groups; any
+  // path that would leak the private key is rejected. Local/custom nodes keep
+  // the existing server-side signing behavior below.
+  const networkResult = await trySendChatMessageOnNetworkNode(context, target, message);
+
+  if (networkResult) {
+    return networkResult;
+  }
+
   const writeContext = await getQdnWriteContext(context);
 
   if (target.kind === 'direct') {

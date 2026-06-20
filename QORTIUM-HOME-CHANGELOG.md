@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: send open-group chat on public network nodes
+
+Home can now send chat messages to open groups while connected to a public network node, not just to a local Core or a trusted custom node. On a public node it builds the message, performs the required proof-of-work, and signs it entirely on your own device, then broadcasts only the finished, signed message — your private key never leaves your device or reaches the public node. Direct/private messages and closed or private groups remain available only on a local or trusted node, and Home clearly blocks them (with an explanatory message) when you are on a public node. Local and trusted-node behavior is unchanged. One caveat: the on-device proof-of-work currently takes a noticeable moment when sending on a public node, so a send can feel slow; a speed-up is planned.
+
 ### 2026-06-20 - feat: add keyboard zoom and text-size shortcuts
 
 Added keyboard shortcuts for zooming and for changing the app's text size. On desktop, holding Ctrl (Cmd on macOS) with the +, -, or 0 key now zooms the whole window in, out, or back to normal — no Shift required — and the same three actions are available from a new View menu (Zoom In / Zoom Out / Reset Zoom) with their shortcuts shown. Separately, adding Shift — Ctrl/Cmd+Shift with +, -, or 0 — steps the Settings "Text size" preset up, down, or back to the default; this one also works on Android with a hardware keyboard. The Display settings now show the matching shortcut next to "Text size" on desktop (⌘⇧ on macOS, Ctrl+Shift elsewhere, and nothing on Android where there is no keyboard). The macOS window Zoom menu item is unchanged on Mac but is no longer shown on Windows/Linux, where it did nothing.

@@ -73,6 +73,8 @@ export const es: Record<TranslationKey, string> = {
   "api.loadFailed": "No se pudo cargar el endpoint de la API del nodo.",
   "api.loadingEndpoint": "Cargando endpoint de la API del nodo…",
   "api.previewTooLarge": "Esta respuesta es demasiado grande para la vista previa integrada. El límite de la vista previa integrada es {limit}.",
+  "chat.error.directRequiresLocalNode": "El chat directo (privado) requiere un Core local o un nodo personalizado de confianza para que Home nunca envíe tu clave privada a un nodo público.",
+  "chat.error.privateGroupRequiresLocalNode": "Enviar a un grupo cerrado o privado requiere un Core local o un nodo personalizado de confianza para que Home nunca envíe tu clave privada a un nodo público.",
   "common.appName": "Qortium Home",
   "common.available": "Disponible",
   "common.back": "Atrás",

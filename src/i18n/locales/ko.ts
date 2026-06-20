@@ -73,6 +73,8 @@ export const ko: Record<TranslationKey, string> = {
   "api.loadFailed": "노드 API 엔드포인트를 불러올 수 없습니다.",
   "api.loadingEndpoint": "노드 API 엔드포인트를 불러오는 중…",
   "api.previewTooLarge": "응답이 너무 커서 인라인으로 미리 볼 수 없습니다. 인라인 미리보기 제한은 {limit}입니다.",
+  "chat.error.directRequiresLocalNode": "다이렉트(비공개) 채팅은 Home이 개인 키를 공개 노드로 절대 전송하지 않도록 로컬 Core 또는 신뢰할 수 있는 사용자 지정 노드가 필요합니다.",
+  "chat.error.privateGroupRequiresLocalNode": "비공개 또는 폐쇄형 그룹으로 보내려면 Home이 개인 키를 공개 노드로 절대 전송하지 않도록 로컬 Core 또는 신뢰할 수 있는 사용자 지정 노드가 필요합니다.",
   "common.appName": "Qortium Home",
   "common.available": "사용 가능",
   "common.back": "뒤로",

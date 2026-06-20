@@ -73,6 +73,8 @@ export const he: Record<TranslationKey, string> = {
   "api.loadFailed": "לא ניתן לטעון את נקודת הקצה של ה-API של הצומת.",
   "api.loadingEndpoint": "טוען נקודת קצה של ה-API של הצומת…",
   "api.previewTooLarge": "התגובה גדולה מדי לתצוגה מקדימה מוטבעת. מגבלת התצוגה המקדימה המוטבעת היא {limit}.",
+  "chat.error.directRequiresLocalNode": "צ'אט ישיר (פרטי) דורש Core מקומי או צומת מותאם אישית מהימן כדי ש-Home לעולם לא ישלח את המפתח הפרטי שלך לצומת ציבורי.",
+  "chat.error.privateGroupRequiresLocalNode": "שליחה לקבוצה סגורה או פרטית דורשת Core מקומי או צומת מותאם אישית מהימן כדי ש-Home לעולם לא ישלח את המפתח הפרטי שלך לצומת ציבורי.",
   "common.appName": "Qortium Home",
   "common.available": "זמין",
   "common.back": "חזרה",

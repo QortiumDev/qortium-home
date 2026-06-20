@@ -73,6 +73,8 @@ export const et: Record<TranslationKey, string> = {
   "api.loadFailed": "Sõlme API lõpp-punkti ei õnnestunud laadida.",
   "api.loadingEndpoint": "Sõlme API lõpp-punkti laadimine…",
   "api.previewTooLarge": "See vastus on rakendusesisese eelvaate jaoks liiga suur. Eelvaate limiit on {limit}.",
+  "chat.error.directRequiresLocalNode": "Otsene (privaatne) vestlus nõuab kohalikku Core'i või usaldusväärset kohandatud sõlme, et Home ei saadaks kunagi sinu privaatvõtit avalikku sõlme.",
+  "chat.error.privateGroupRequiresLocalNode": "Suletud või privaatsesse rühma saatmine nõuab kohalikku Core'i või usaldusväärset kohandatud sõlme, et Home ei saadaks kunagi sinu privaatvõtit avalikku sõlme.",
   "common.appName": "Qortium Home",
   "common.available": "Saadaval",
   "common.back": "Tagasi",
