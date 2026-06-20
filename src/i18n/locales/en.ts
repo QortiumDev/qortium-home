@@ -49,6 +49,7 @@ export const en = {
   "address.error.homePathUnsupported": "Only home://dashboard and home://settings can be loaded right now.",
   "address.error.homeScheme": "Home addresses must start with home://.",
   "address.error.nameAfterWildcard": "Enter a name after the qdn://*/ prefix.",
+  "address.error.privateServicesNotSupported": "Private (encrypted) QDN resources cannot be opened in Home yet.",
   "address.error.publicServicesOnly": "Only public QDN services can be browsed right now.",
   "address.error.qdnScheme": "QDN addresses must start with qdn://.",
   "address.error.unknownScheme": "Enter an address starting with qdn://, core://, or home://.",

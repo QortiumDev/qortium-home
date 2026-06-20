@@ -17,7 +17,7 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
-import { PUBLIC_QDN_SERVICES, type QdnDisplaySettings } from './qdn';
+import { PUBLIC_QDN_SERVICES, isPrivateQdnService, type QdnDisplaySettings } from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
 const NODE_DISCOVERY_CACHE_KEY = 'qortium-home-node-discovery-cache';
@@ -5845,7 +5845,11 @@ function getService(value: unknown) {
   }
 
   if (!PUBLIC_QDN_SERVICES.includes(service as (typeof PUBLIC_QDN_SERVICES)[number])) {
-    throw new Error('Only public QDN services can be browsed right now.');
+    throw new Error(
+      isPrivateQdnService(service)
+        ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
+        : 'Only public QDN services can be browsed right now.',
+    );
   }
 
   return service;

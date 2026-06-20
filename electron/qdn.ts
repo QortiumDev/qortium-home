@@ -129,6 +129,13 @@ const PUBLIC_QDN_SERVICES = new Set([
   'MESSAGE',
 ]);
 
+// Core marks its encrypted services with a `_PRIVATE` suffix. Home cannot decrypt
+// these yet, so it recognizes them only to return a clearer message than the
+// generic public-service rejection.
+function isPrivateService(service: string) {
+  return /^[A-Z0-9_]+_PRIVATE$/.test(service);
+}
+
 type QdnAuthorizeResourceRequest = {
   identifier?: unknown;
   name?: unknown;
@@ -864,7 +871,11 @@ function getAuthorizeRequest(value: QdnAuthorizeResourceRequest) {
   const identifier = getString(value.identifier);
 
   if (!PUBLIC_QDN_SERVICES.has(service)) {
-    throw new Error('Only public QDN resources can be loaded right now.');
+    throw new Error(
+      isPrivateService(service)
+        ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
+        : 'Only public QDN resources can be loaded right now.',
+    );
   }
 
   if (!name) {
@@ -886,7 +897,11 @@ function getService(value: unknown) {
   }
 
   if (!PUBLIC_QDN_SERVICES.has(service)) {
-    throw new Error('Only public QDN services can be browsed right now.');
+    throw new Error(
+      isPrivateService(service)
+        ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
+        : 'Only public QDN services can be browsed right now.',
+    );
   }
 
   return service;

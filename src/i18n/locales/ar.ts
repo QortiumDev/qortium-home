@@ -51,6 +51,7 @@ export const ar: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "لا يمكن حاليًا تحميل سوى home://dashboard وhome://settings.",
   "address.error.homeScheme": "يجب أن تبدأ عناوين Home بـ home://.",
   "address.error.nameAfterWildcard": "أدخل اسمًا بعد البادئة qdn://*/.",
+  "address.error.privateServicesNotSupported": "لا يمكن بعد فتح موارد QDN الخاصة (المشفّرة) في Home.",
   "address.error.publicServicesOnly": "لا يمكن حاليًا تصفح سوى خدمات QDN العامة.",
   "address.error.qdnScheme": "يجب أن تبدأ عناوين QDN بـ qdn://.",
   "address.error.unknownScheme": "أدخل عنوانًا يبدأ بـ qdn:// أو core:// أو home://.",

@@ -51,6 +51,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "目前僅能載入 home://dashboard 和 home://settings。",
   "address.error.homeScheme": "Home 位址必須以 home:// 開頭。",
   "address.error.nameAfterWildcard": "請在 qdn://*/ 前綴之後輸入名稱。",
+  "address.error.privateServicesNotSupported": "私有（加密）QDN 資源暫時無法在 Home 中開啟。",
   "address.error.publicServicesOnly": "目前僅能瀏覽公開的 QDN 服務。",
   "address.error.qdnScheme": "QDN 位址必須以 qdn:// 開頭。",
   "address.error.unknownScheme": "請輸入以 qdn://、core:// 或 home:// 開頭的位址。",

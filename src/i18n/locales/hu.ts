@@ -51,6 +51,7 @@ export const hu: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Jelenleg csak a home://dashboard és a home://settings tölthető be.",
   "address.error.homeScheme": "A Home-címeknek a home:// előtaggal kell kezdődniük.",
   "address.error.nameAfterWildcard": "Adjon meg egy nevet a qdn://*/ előtag után.",
+  "address.error.privateServicesNotSupported": "A privát (titkosított) QDN-erőforrások még nem nyithatók meg a Home-ban.",
   "address.error.publicServicesOnly": "Jelenleg csak a nyilvános QDN-szolgáltatások böngészhetők.",
   "address.error.qdnScheme": "A QDN-címeknek a qdn:// előtaggal kell kezdődniük.",
   "address.error.unknownScheme": "Adjon meg egy qdn://, core:// vagy home:// kezdetű címet.",

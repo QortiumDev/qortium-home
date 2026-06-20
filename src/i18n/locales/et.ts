@@ -51,6 +51,7 @@ export const et: Record<TranslationKey, string> = {
   "address.error.homePathUnsupported": "Praegu saab laadida ainult aadresse home://dashboard ja home://settings.",
   "address.error.homeScheme": "Home-aadressid peavad algama eesliitega home://.",
   "address.error.nameAfterWildcard": "Sisesta nimi pärast eesliidet qdn://*/.",
+  "address.error.privateServicesNotSupported": "Privaatseid (krüpteeritud) QDN-ressursse ei saa veel Home’is avada.",
   "address.error.publicServicesOnly": "Praegu saab sirvida ainult avalikke QDN-i teenuseid.",
   "address.error.qdnScheme": "QDN-aadressid peavad algama eesliitega qdn://.",
   "address.error.unknownScheme": "Sisesta aadress, mis algab eesliitega qdn://, core:// või home://.",
