@@ -30,6 +30,7 @@ export const PUBLIC_QDN_SERVICES = [
   'PLAYLIST',
   'GIT_REPOSITORY',
   'GIF_REPOSITORY',
+  'IMAGE_GALLERY',
   'STORE',
   'PRODUCT',
   'OFFER',
@@ -54,7 +55,9 @@ const IFRAME_QDN_SERVICES = ['APP', 'WEBSITE'] as const;
 const IMAGE_QDN_SERVICES = ['IMAGE', 'THUMBNAIL', 'QCHAT_IMAGE'] as const;
 const AUDIO_QDN_SERVICES = ['AUDIO', 'VOICE', 'PODCAST'] as const;
 const VIDEO_QDN_SERVICES = ['VIDEO'] as const;
-const GIF_REPOSITORY_QDN_SERVICES = ['GIF_REPOSITORY'] as const;
+// Multi-file image collections. GIF_REPOSITORY (gifs only) and IMAGE_GALLERY
+// (the broader image set added in Core v1.1.0) share the same gallery viewer.
+const GALLERY_QDN_SERVICES = ['GIF_REPOSITORY', 'IMAGE_GALLERY'] as const;
 const TEXT_QDN_SERVICES = [
   'JSON',
   'METADATA',
@@ -73,7 +76,7 @@ const RENDERABLE_QDN_SERVICES = [
   ...IMAGE_QDN_SERVICES,
   ...AUDIO_QDN_SERVICES,
   ...VIDEO_QDN_SERVICES,
-  ...GIF_REPOSITORY_QDN_SERVICES,
+  ...GALLERY_QDN_SERVICES,
   ...TEXT_QDN_SERVICES,
   ...DOWNLOAD_QDN_SERVICES,
 ] as const;
@@ -161,6 +164,7 @@ export type QdnResourceProperties = {
 
 export type QdnResourceMetadata = {
   description?: string;
+  entryPoint?: string;
   files?: string[];
   mimeType?: string;
   title?: string;
@@ -262,7 +266,9 @@ export function getQdnViewerKind(service: QdnService): QdnViewerKind {
     return 'video';
   }
 
-  if (GIF_REPOSITORY_QDN_SERVICES.includes(service as (typeof GIF_REPOSITORY_QDN_SERVICES)[number])) {
+  // Both gallery services (GIF_REPOSITORY, IMAGE_GALLERY) use the same multi-file
+  // gallery viewer; the 'gif-repository' kind name is kept for back-compat.
+  if (GALLERY_QDN_SERVICES.includes(service as (typeof GALLERY_QDN_SERVICES)[number])) {
     return 'gif-repository';
   }
 
@@ -277,20 +283,24 @@ export function getQdnViewerKind(service: QdnService): QdnViewerKind {
   return 'unsupported';
 }
 
-export function isGifFilename(value: string) {
-  return /\.gif$/i.test(value.split('?')[0] ?? '');
+// Image extensions accepted inside a gallery resource. Mirrors the mime types
+// Core's IMAGE_GALLERY service validates (and is a superset of GIF_REPOSITORY).
+export function isGalleryImageFilename(value: string) {
+  return /\.(?:png|jpe?g|gif|webp|bmp|avif|tiff?)$/i.test(value.split('?')[0] ?? '');
 }
 
 // Resolves the viewer kind once a resource is loaded. This refines the
-// service-only classification from getQdnViewerKind: a GIF_REPOSITORY resource
-// that points at a single .gif file (via path or properties) renders as an image.
+// service-only classification from getQdnViewerKind: a gallery resource
+// (GIF_REPOSITORY / IMAGE_GALLERY) that points at a single image file (via path
+// or properties) renders as that single image rather than the gallery grid.
 export function getLoadedViewerKind(
   resource: QdnResource,
   properties: QdnResourceProperties | undefined,
 ): QdnViewerKind {
   if (
-    resource.service === 'GIF_REPOSITORY' &&
-    ((properties?.filename && isGifFilename(properties.filename)) || isGifFilename(resource.path))
+    GALLERY_QDN_SERVICES.includes(resource.service as (typeof GALLERY_QDN_SERVICES)[number]) &&
+    ((properties?.filename && isGalleryImageFilename(properties.filename)) ||
+      isGalleryImageFilename(resource.path))
   ) {
     return 'image';
   }

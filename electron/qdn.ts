@@ -108,6 +108,7 @@ const PUBLIC_QDN_SERVICES = new Set([
   'PLAYLIST',
   'GIT_REPOSITORY',
   'GIF_REPOSITORY',
+  'IMAGE_GALLERY',
   'STORE',
   'PRODUCT',
   'OFFER',
@@ -1335,6 +1336,41 @@ async function fetchConfiguredRawResource(resource: QdnResourceRequest, attachme
     }
 
     return await fetchRawResource(resource, retryConnection, attachment);
+  }
+}
+
+// Best-effort lookup of a multi-file resource's declared entry point (Core v1.1.0
+// metadata.entryPoint). Used to render APP/WEBSITE archives whose entry file is not
+// index.html. Any failure returns undefined so the renderer falls back to the
+// conventional index file.
+async function fetchResourceEntryPoint(resource: QdnResourceRequest): Promise<string | undefined> {
+  try {
+    const connection = await getNodeConnection();
+    const headers: Record<string, string> = {};
+
+    if (connection.mode !== 'network') {
+      headers['X-API-KEY'] = getNodeApiKey(connection);
+    }
+
+    const identifier = resource.identifier ? resource.identifier : 'default';
+    const metadataPath = `/arbitrary/metadata/${resource.service}/${encodeURIComponent(
+      resource.name,
+    )}/${encodeURIComponent(identifier)}`;
+    const response = await fetchNode(metadataPath, { headers }, connection.nodeApiUrl);
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const metadata: unknown = await response.json();
+    const entryPoint =
+      metadata && typeof metadata === 'object'
+        ? (metadata as { entryPoint?: unknown }).entryPoint
+        : undefined;
+
+    return typeof entryPoint === 'string' && entryPoint ? entryPoint : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -5560,8 +5596,9 @@ export function registerQdnIpcHandlers() {
 
     const response = await fetchConfiguredRawResource(resource);
     const archiveBuffer = Buffer.from(await response.arrayBuffer());
+    const entryPoint = await fetchResourceEntryPoint(resource);
 
-    return prepareQdnArchiveRender(resource, archiveBuffer);
+    return prepareQdnArchiveRender(resource, archiveBuffer, entryPoint);
   });
 
   ipcMain.handle('qdn:previewContent', async (event, request: QdnPreviewContentRequest) => {
