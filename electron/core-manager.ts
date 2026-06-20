@@ -45,6 +45,7 @@ const RUNTIME_ENTRY_NAMES = [
   'apikey.txt',
   'db-preview',
   'data-preview',
+  'i2p',
   'qortium-backup-preview',
   'qortal-backup-preview',
   'qortium.log',
