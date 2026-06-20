@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: add pure I2P transport read/derive layer
+
+Added the internal foundation for Home's I2P features: a small, self-contained module that works out the node's I2P state purely from two pieces of public node information, with no network calls of its own. It determines whether I2P is enabled, preferred, or the only transport (matching how Core decides), builds the transport list for each mode the UI offers (normal, prefer I2P, I2P only, IP only), and reads the connected-peer lists to tell whether I2P is disabled, enabled-but-idle, or actively carrying a connection. Groundwork with no visible change yet — the Settings panel and live data wiring build on it.
+
 ### 2026-06-20 - fix: preserve Core's i2p key directory across runtime migration
 
 Fixed a problem where updating the managed Core could discard the node's stable I2P identity. Core keeps its long-lived I2P destination keys in its runtime i2p folder so the node's .b32.i2p address stays the same across restarts, but Home's runtime migration only copied a fixed allowlist that left this folder out — so a migration would make Core generate a brand-new I2P address. Home now carries the i2p key directory over with the rest of the runtime data. Groundwork for managed I2P support.
