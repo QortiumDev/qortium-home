@@ -694,7 +694,12 @@ export function App() {
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
-  const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
+  const isExplorerRoute =
+    currentRoute.kind === 'services' ||
+    currentRoute.kind === 'service' ||
+    currentRoute.kind === 'name' ||
+    currentRoute.kind === 'name-services';
+  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isExplorerRoute;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
@@ -1977,6 +1982,7 @@ export function App() {
     'app-main',
     isDashboardRoute ? 'app-main--dashboard' : '',
     isViewerRoute ? 'app-main--viewer' : '',
+    isExplorerRoute ? 'app-main--explorer' : '',
     isSettingsRoute ? 'app-main--settings' : '',
     isNativeApp ? 'app-main--gesture-nav' : '',
   ].filter(Boolean).join(' ');
