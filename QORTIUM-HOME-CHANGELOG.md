@@ -33,9 +33,9 @@ with its own clear scope.
 
 ## Change Entries
 
-### 2026-06-20 - fix: let the QDN explorer scroll long lists
+### 2026-06-20 - fix: scroll long QDN explorer lists and pin the column header
 
-Fixed a longstanding bug where the `qdn://` explorer could not scroll. When a service or name listing had more items than fit on screen, the extra rows were simply cut off at the bottom of the window with no scroll bar, so the rest of the list was unreachable. The explorer panel was not claiming the full height of its content area, so its built-in scrolling had nothing to scroll against and the overflow was clipped by the surrounding frame. The panel now fills its area like the resource viewer already does, so long lists scroll normally and every item can be reached.
+Fixed a longstanding bug where the `qdn://` explorer could not scroll: when a service or name listing had more items than fit on screen, the extra rows were cut off at the bottom of the window with no scroll bar, so the rest of the list was unreachable. The explorer now scrolls the same way the settings and dashboard pages do (the page area itself owns the scrollbar), which reliably reveals the whole list. While doing this, the column header row (Name / Count / Updated, with its sort controls) is now pinned to the top so it stays visible and usable as you scroll through a long list, on every explorer page. An earlier attempt to fix the scrolling by having the panel claim its own height did not work in the packaged app; this replaces it with the proven page-level scrolling approach.
 
 ### 2026-06-20 - qdn: recognize private resources with a clear unsupported message
 

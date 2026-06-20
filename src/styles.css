@@ -730,6 +730,14 @@ h1 {
   background: radial-gradient(640px 240px at 50% -40px, var(--color-accent-soft), transparent 70%);
 }
 
+.app-main--explorer {
+  place-items: start stretch;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  background: var(--color-frame-bg);
+}
+
 .app-main--gesture-nav {
   overscroll-behavior-x: contain;
   touch-action: pan-y;
@@ -3187,16 +3195,17 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* The explorer scrolls at the .app-main--explorer level (like the settings and
+   dashboard pages), so it lays out at its natural height here and lets that
+   ancestor own the scrollbar. Keeping overflow visible also lets the column
+   header (.qdn-explorer__head) stick to the scroll viewport. */
 .qdn-explorer {
   display: grid;
   align-content: start;
   gap: 16px;
   width: 100%;
-  height: 100%;
   min-width: 0;
-  min-height: 0;
   padding: 24px;
-  overflow: auto;
   color: var(--color-text);
   background: var(--color-frame-bg);
 }
@@ -3324,7 +3333,8 @@ h1 {
 
   display: grid;
   min-width: 0;
-  overflow: hidden;
+  /* No overflow clipping here: it would trap the sticky header in this box.
+     Corner rounding is handled on the header and last row instead. */
   border: 1px solid var(--color-control-selected);
   border-radius: var(--radius-md);
 }
@@ -3338,6 +3348,9 @@ h1 {
 }
 
 .qdn-explorer__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: grid;
   grid-template-columns: var(--qdn-explorer-columns);
   gap: 12px;
@@ -3346,6 +3359,8 @@ h1 {
   padding: 8px 14px;
   background: var(--color-control-bg);
   border-bottom: 1px solid var(--color-control-selected);
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
 }
 
 .qdn-explorer__column {
@@ -3403,6 +3418,8 @@ h1 {
 
 .qdn-explorer__row:last-child {
   border-bottom: 0;
+  border-bottom-left-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
 }
 
 .qdn-explorer__row:hover,
