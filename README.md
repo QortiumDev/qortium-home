@@ -365,6 +365,20 @@ account, locked account, missing API key, non-local node, and stale QDN view
 approval cases. To run one case directly, pass
 `--scenario=<name>` to `scripts/smoke-desktop-qdn-write.mjs`.
 
+Check that Home's QDN service whitelists have not drifted from the node's
+catalogue:
+
+```sh
+npm run smoke:qdn-services
+```
+
+This reads Home's curated service lists from `src/qdn.ts` and `electron/qdn.ts`,
+confirms the two copies match, and verifies every listed service still exists in
+`GET /arbitrary/services` and is public — so a service Core renames, removes, or
+makes private cannot silently rot in Home. Public Core services Home does not
+surface (system/chat-internal ones) are reported, not failed. It only needs a
+reachable node; override the URL with `QORTIUM_HOME_NODE_API_URL`.
+
 Release artifacts are written to `dist-release/`. Generated build output should
 not be committed to git. The release checker and publisher default to the public
 `QortiumDev/qortium-home` GitHub repository.
