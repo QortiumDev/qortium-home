@@ -83,10 +83,12 @@ export function upsertDashboardPin(currentPins: DashboardPin[], nextPin: Dashboa
   const existingCustomLabel = currentPins.find((pin) => pin.displayUrl === nextPin.displayUrl)?.customLabel;
   const mergedPin = existingCustomLabel ? { ...nextPin, customLabel: existingCustomLabel } : nextPin;
 
+  // New pins go to the end of the list (bottom of the dashboard grid). When at
+  // the cap, keep the most recent pins by dropping the oldest from the front.
   return [
-    mergedPin,
     ...currentPins.filter((pin) => pin.displayUrl !== nextPin.displayUrl),
-  ].slice(0, MAX_DASHBOARD_PINS);
+    mergedPin,
+  ].slice(-MAX_DASHBOARD_PINS);
 }
 
 export function removeDashboardPin(currentPins: DashboardPin[], pinId: string): DashboardPin[] {

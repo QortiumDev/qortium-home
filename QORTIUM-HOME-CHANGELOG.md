@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - ux: add new dashboard pins at the end of the list
+
+When you pin something to the dashboard, the new pin is now added at the end of the list (bottom of the grid) instead of jumping to the front. Existing pins keep their place, and re-pinning a page moves it to the end. When the pin grid is full, the oldest pin is dropped to make room for the new one.
+
 ### 2026-06-20 - feat: show the Core build commit in the version display
 
 The Core version shown on the Dashboard and in Settings now includes the build commit as a suffix (for example "v1.1.0-b886a78" instead of just "v1.1.0"), so you can tell exactly which build of Core is running. The suffix is read from the running Core, so it appears while Core is running; a stopped-but-installed Core still shows the plain version.
