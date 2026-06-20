@@ -10,10 +10,8 @@ import {
   type AppUpdatesState,
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
-import { getI2pModeLabel, getI2pStateLabel } from './connectionsDisplay';
 import { getCoreRuntimeAction, getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
 import { DashboardCardHeader } from './DashboardCardActions';
-import type { I2pStatus } from './i2p';
 import { useI2pConnections } from './i2pState';
 import { getDashboardPinDisplay } from './dashboardPinDisplay';
 import type { DashboardPin, DashboardPinDropPosition } from './dashboardPins';
@@ -134,6 +132,7 @@ function getCoreRows({
   releases,
   stableUpdateAvailable,
   status,
+  transports,
 }: {
   coreMessage: CoreManagerState['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
@@ -141,6 +140,7 @@ function getCoreRows({
   releases: QortiumCoreReleases | null;
   stableUpdateAvailable: boolean;
   status: QortiumCoreStatus | null;
+  transports: string;
 }): DetailRow[] {
   const releaseTarget = getPreferredCoreReleaseTarget({
     releases,
@@ -162,6 +162,10 @@ function getCoreRows({
     {
       label: t('common.version'),
       value: getCoreVersionRowValue(status, 'dashboard-card__version-link'),
+    },
+    {
+      label: t('connections.title'),
+      value: transports,
     },
   ];
 
@@ -190,13 +194,21 @@ function getCoreRows({
 
 function ManagedCoreDashboardCard({
   coreManager,
+  nodeApiUrl,
   onChainCoreUpdate,
   onOpenSettingsSection,
 }: {
   coreManager: CoreManagerState;
+  nodeApiUrl: string;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
 }) {
+  const connections = useI2pConnections(nodeApiUrl);
+  const transports = connections.status
+    ? connections.status.transport.effectiveTransports.join(', ')
+    : connections.isUnavailable
+      ? t('common.unavailable')
+      : t('common.checking');
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
   const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
@@ -230,6 +242,7 @@ function ManagedCoreDashboardCard({
         releases: coreManager.releases,
         stableUpdateAvailable: coreManager.stableUpdateAvailable,
         status: coreManager.status,
+        transports,
       }),
     [
       coreManager.message,
@@ -239,6 +252,7 @@ function ManagedCoreDashboardCard({
       coreManager.status,
       language,
       onChainCoreUpdate.status,
+      transports,
     ],
   );
   const runtimeAction = getCoreRuntimeAction(coreManager);
@@ -409,46 +423,6 @@ function HomeUpdateDashboardCard({
           ) : null}
         </div>
       ) : null}
-    </section>
-  );
-}
-
-function getConnectionsDashboardRows(status: I2pStatus | null, isUnavailable: boolean): DetailRow[] {
-  if (!status) {
-    return [
-      {
-        label: t('common.status'),
-        value: isUnavailable ? t('connections.state.unavailable') : t('common.checking'),
-      },
-    ];
-  }
-
-  return [
-    { label: t('common.status'), value: getI2pStateLabel(status.activity) },
-    { label: t('connections.modeLabel'), value: getI2pModeLabel(status.transport) },
-  ];
-}
-
-function ConnectionsDashboardCard({
-  nodeApiUrl,
-  onOpenSettingsSection,
-}: {
-  nodeApiUrl: string;
-  onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
-}) {
-  const connections = useI2pConnections(nodeApiUrl);
-  const rows = getConnectionsDashboardRows(connections.status, connections.isUnavailable);
-
-  return (
-    <section className="dashboard-card dashboard-card--connections" aria-label={t('connections.title')}>
-      <DashboardCardHeader
-        isRefreshing={connections.isLoading}
-        title={t('connections.title')}
-        onOpenSettings={() => onOpenSettingsSection('connections')}
-        onRefresh={connections.refresh}
-      />
-
-      <DetailList className="dashboard-card__details" rows={rows} />
     </section>
   );
 }
@@ -1336,15 +1310,15 @@ export function DashboardPage({
         />
       </section>
 
-      <div className="dashboard-page__grid">
+      <div className={`dashboard-page__grid${hasManagedCore ? '' : ' dashboard-page__grid--single'}`}>
         {hasManagedCore ? (
           <ManagedCoreDashboardCard
             coreManager={coreManager}
+            nodeApiUrl={nodeApiUrl}
             onChainCoreUpdate={onChainCoreUpdate}
             onOpenSettingsSection={onOpenSettingsSection}
           />
         ) : null}
-        <ConnectionsDashboardCard nodeApiUrl={nodeApiUrl} onOpenSettingsSection={onOpenSettingsSection} />
         <HomeUpdateDashboardCard updates={appUpdates} onOpenSettingsSection={onOpenSettingsSection} />
       </div>
     </div>
