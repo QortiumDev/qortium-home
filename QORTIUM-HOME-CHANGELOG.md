@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - ux: reveal the saved file after a desktop QDN download
+
+After you download a QDN item on the desktop, the Download button now turns into a folder icon — the same one used elsewhere to open the Core and Home install locations — that opens the saved file's location in your file manager. It stays that way until the tab is reloaded, so you can find the file right away and won't re-download it by accident; reload the tab if you do want to download it again. There is no extra button and no new wording. On Android the file still opens directly as before.
+
 ### 2026-06-20 - ux: add new dashboard pins at the end of the list
 
 When you pin something to the dashboard, the new pin is now added at the end of the list (bottom of the grid) instead of jumping to the front. Existing pins keep their place, and re-pinning a page moves it to the end. When the pin grid is full, the oldest pin is dropped to make room for the new one.
