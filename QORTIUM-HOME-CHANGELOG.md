@@ -33,9 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - perf: speed up CHAT memory-pow with 32-bit integer math
+
+Made the on-device proof-of-work used for public-node chat sending dramatically faster — about 40 times — so finding a valid nonce now takes a few seconds instead of over two minutes. The memory-hard computation was rewritten to use 32-bit integer arithmetic over a reused buffer instead of big-number math. The result is bit-for-bit identical to what Qortium Core expects: it was checked against Core's own known-answer test values and confirmed to produce exactly the same output as the previous implementation across thousands of randomized inputs.
+
 ### 2026-06-20 - feat: send open-group chat on public network nodes
 
-Home can now send chat messages to open groups while connected to a public network node, not just to a local Core or a trusted custom node. On a public node it builds the message, performs the required proof-of-work, and signs it entirely on your own device, then broadcasts only the finished, signed message — your private key never leaves your device or reaches the public node. Direct/private messages and closed or private groups remain available only on a local or trusted node, and Home clearly blocks them (with an explanatory message) when you are on a public node. Local and trusted-node behavior is unchanged. One caveat: the on-device proof-of-work currently takes a noticeable moment when sending on a public node, so a send can feel slow; a speed-up is planned.
+Home can now send chat messages to open groups while connected to a public network node, not just to a local Core or a trusted custom node. On a public node it builds the message, performs the required proof-of-work, and signs it entirely on your own device, then broadcasts only the finished, signed message — your private key never leaves your device or reaches the public node. Direct/private messages and closed or private groups remain available only on a local or trusted node, and Home clearly blocks them (with an explanatory message) when you are on a public node. Local and trusted-node behavior is unchanged. One caveat: the on-device proof-of-work currently takes a noticeable moment when sending on a public node, so a send takes a few seconds.
 
 ### 2026-06-20 - feat: add keyboard zoom and text-size shortcuts
 
