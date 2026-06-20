@@ -73,6 +73,8 @@ export const de: Record<TranslationKey, string> = {
   "api.loadFailed": "Node-API-Endpunkt kann nicht geladen werden.",
   "api.loadingEndpoint": "Node-API-Endpunkt wird geladen…",
   "api.previewTooLarge": "Diese Antwort ist zu groß für die Inline-Vorschau. Das Limit für die Inline-Vorschau beträgt {limit}.",
+  "chat.error.directRequiresLocalNode": "Direkter (privater) Chat erfordert einen lokalen Core oder einen vertrauenswürdigen benutzerdefinierten Node, damit Home Ihren privaten Schlüssel niemals an einen öffentlichen Node sendet.",
+  "chat.error.privateGroupRequiresLocalNode": "Das Senden an eine geschlossene oder private Gruppe erfordert einen lokalen Core oder einen vertrauenswürdigen benutzerdefinierten Node, damit Home Ihren privaten Schlüssel niemals an einen öffentlichen Node sendet.",
   "common.appName": "Qortium Home",
   "common.available": "Verfügbar",
   "common.back": "Zurück",

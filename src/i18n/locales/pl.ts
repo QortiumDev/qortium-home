@@ -73,6 +73,8 @@ export const pl: Record<TranslationKey, string> = {
   "api.loadFailed": "Nie można wczytać punktu końcowego API węzła.",
   "api.loadingEndpoint": "Wczytywanie punktu końcowego API węzła…",
   "api.previewTooLarge": "Ta odpowiedź jest zbyt duża, aby wyświetlić podgląd w aplikacji. Limit podglądu w aplikacji to {limit}.",
+  "chat.error.directRequiresLocalNode": "Czat bezpośredni (prywatny) wymaga lokalnego Core lub zaufanego węzła niestandardowego, aby Home nigdy nie wysyłał Twojego klucza prywatnego do węzła publicznego.",
+  "chat.error.privateGroupRequiresLocalNode": "Wysyłanie do grupy zamkniętej lub prywatnej wymaga lokalnego Core lub zaufanego węzła niestandardowego, aby Home nigdy nie wysyłał Twojego klucza prywatnego do węzła publicznego.",
   "common.appName": "Qortium Home",
   "common.available": "Dostępna",
   "common.back": "Wstecz",

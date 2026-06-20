@@ -73,6 +73,8 @@ export const ar: Record<TranslationKey, string> = {
   "api.loadFailed": "تعذّر تحميل نقطة نهاية API للعقدة.",
   "api.loadingEndpoint": "جارٍ تحميل نقطة نهاية API للعقدة…",
   "api.previewTooLarge": "هذه الاستجابة أكبر من أن تُعايَن مضمّنة. حد المعاينة المضمّنة هو {limit}.",
+  "chat.error.directRequiresLocalNode": "تتطلب الدردشة المباشرة (الخاصة) نواة محلية أو عقدة مخصصة موثوقة كي لا يرسل Home مفتاحك الخاص أبدًا إلى عقدة عامة.",
+  "chat.error.privateGroupRequiresLocalNode": "يتطلب الإرسال إلى مجموعة مغلقة أو خاصة نواة محلية أو عقدة مخصصة موثوقة كي لا يرسل Home مفتاحك الخاص أبدًا إلى عقدة عامة.",
   "common.appName": "Qortium Home",
   "common.available": "متوفر",
   "common.back": "رجوع",

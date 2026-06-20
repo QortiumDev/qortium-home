@@ -73,6 +73,8 @@ export const ru: Record<TranslationKey, string> = {
   "api.loadFailed": "Не удалось загрузить конечную точку API узла.",
   "api.loadingEndpoint": "Загрузка конечной точки API узла…",
   "api.previewTooLarge": "Этот ответ слишком велик для встроенного предпросмотра. Лимит встроенного предпросмотра — {limit}.",
+  "chat.error.directRequiresLocalNode": "Прямой (личный) чат требует локального Core или доверенного пользовательского узла, чтобы Home никогда не отправлял ваш приватный ключ на публичный узел.",
+  "chat.error.privateGroupRequiresLocalNode": "Отправка в закрытую или приватную группу требует локального Core или доверенного пользовательского узла, чтобы Home никогда не отправлял ваш приватный ключ на публичный узел.",
   "common.appName": "Qortium Home",
   "common.available": "Доступно",
   "common.back": "Назад",

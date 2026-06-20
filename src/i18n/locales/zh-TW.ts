@@ -73,6 +73,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "api.loadFailed": "無法載入節點 API 端點。",
   "api.loadingEndpoint": "正在載入節點 API 端點…",
   "api.previewTooLarge": "此回應過大，無法內嵌預覽。內嵌預覽上限為 {limit}。",
+  "chat.error.directRequiresLocalNode": "私聊（私密）需要本機 Core 或受信任的自訂節點，以確保 Home 絕不會將你的私鑰傳送到公開節點。",
+  "chat.error.privateGroupRequiresLocalNode": "傳送到封閉或私密群組需要本機 Core 或受信任的自訂節點，以確保 Home 絕不會將你的私鑰傳送到公開節點。",
   "common.appName": "Qortium Home",
   "common.available": "可用",
   "common.back": "返回",

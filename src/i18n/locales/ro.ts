@@ -73,6 +73,8 @@ export const ro: Record<TranslationKey, string> = {
   "api.loadFailed": "Nu s-a putut încărca endpoint-ul API al nodului.",
   "api.loadingEndpoint": "Se încarcă endpoint-ul API al nodului…",
   "api.previewTooLarge": "Acest răspuns este prea mare pentru previzualizare în pagină. Limita previzualizării în pagină este {limit}.",
+  "chat.error.directRequiresLocalNode": "Chatul direct (privat) necesită un Core local sau un nod personalizat de încredere, astfel încât Home să nu trimită niciodată cheia ta privată către un nod public.",
+  "chat.error.privateGroupRequiresLocalNode": "Trimiterea către un grup închis sau privat necesită un Core local sau un nod personalizat de încredere, astfel încât Home să nu trimită niciodată cheia ta privată către un nod public.",
   "common.appName": "Qortium Home",
   "common.available": "Disponibil",
   "common.back": "Înapoi",

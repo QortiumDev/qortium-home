@@ -73,6 +73,8 @@ export const ja: Record<TranslationKey, string> = {
   "api.loadFailed": "ノードAPIエンドポイントを読み込めません。",
   "api.loadingEndpoint": "ノードAPIエンドポイントを読み込み中…",
   "api.previewTooLarge": "このレスポンスは大きすぎるためインラインでプレビューできません。インラインプレビューの上限は{limit}です。",
+  "chat.error.directRequiresLocalNode": "ダイレクト（プライベート）チャットには、Home が秘密鍵を公開ノードに送信しないよう、ローカル Core または信頼できるカスタムノードが必要です。",
+  "chat.error.privateGroupRequiresLocalNode": "クローズドまたはプライベートグループへの送信には、Home が秘密鍵を公開ノードに送信しないよう、ローカル Core または信頼できるカスタムノードが必要です。",
   "common.appName": "Qortium Home",
   "common.available": "利用可能",
   "common.back": "戻る",

@@ -73,6 +73,8 @@ export const fr: Record<TranslationKey, string> = {
   "api.loadFailed": "Impossible de charger le point de terminaison de l'API du nœud.",
   "api.loadingEndpoint": "Chargement du point de terminaison de l'API du nœud…",
   "api.previewTooLarge": "Cette réponse est trop volumineuse pour un aperçu intégré. La limite d'aperçu intégré est de {limit}.",
+  "chat.error.directRequiresLocalNode": "Le chat direct (privé) nécessite un Core local ou un nœud personnalisé de confiance afin que Home n'envoie jamais votre clé privée à un nœud public.",
+  "chat.error.privateGroupRequiresLocalNode": "L'envoi à un groupe fermé ou privé nécessite un Core local ou un nœud personnalisé de confiance afin que Home n'envoie jamais votre clé privée à un nœud public.",
   "common.appName": "Qortium Home",
   "common.available": "Disponible",
   "common.back": "Précédent",

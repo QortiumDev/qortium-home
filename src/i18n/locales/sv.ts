@@ -73,6 +73,8 @@ export const sv: Record<TranslationKey, string> = {
   "api.loadFailed": "Det gick inte att läsa in nod-API-slutpunkten.",
   "api.loadingEndpoint": "Läser in nod-API-slutpunkt…",
   "api.previewTooLarge": "Det här svaret är för stort för att förhandsvisas direkt. Gränsen för direkt förhandsvisning är {limit}.",
+  "chat.error.directRequiresLocalNode": "Direkt (privat) chatt kräver en lokal Core eller en betrodd anpassad nod så att Home aldrig skickar din privata nyckel till en offentlig nod.",
+  "chat.error.privateGroupRequiresLocalNode": "Att skicka till en sluten eller privat grupp kräver en lokal Core eller en betrodd anpassad nod så att Home aldrig skickar din privata nyckel till en offentlig nod.",
   "common.appName": "Qortium Home",
   "common.available": "Tillgänglig",
   "common.back": "Bakåt",
