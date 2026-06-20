@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - fix: preserve Core's i2p key directory across runtime migration
+
+Fixed a problem where updating the managed Core could discard the node's stable I2P identity. Core keeps its long-lived I2P destination keys in its runtime i2p folder so the node's .b32.i2p address stays the same across restarts, but Home's runtime migration only copied a fixed allowlist that left this folder out — so a migration would make Core generate a brand-new I2P address. Home now carries the i2p key directory over with the rest of the runtime data. Groundwork for managed I2P support.
+
 ### 2026-06-20 - ux: auto-collapse the QDN viewer status bar when ready
 
 The resource viewer shows a status bar across the top that reports loading progress (Published, Building, Ready) along with the resource address and its actions. It already had a manual collapse control, but it stayed open after a resource finished loading, taking space away from the content. The status bar now collapses on its own the moment a resource reaches the Ready state, leaving the small handle to reopen it when the status actions are needed. It still reappears automatically while a new resource is loading, so progress is always visible when it matters.
