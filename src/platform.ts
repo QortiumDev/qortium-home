@@ -295,6 +295,10 @@ function isAndroid() {
   return Capacitor.getPlatform() === 'android';
 }
 
+export function isIos() {
+  return Capacitor.getPlatform() === 'ios';
+}
+
 export function isNativePlatform() {
   return Capacitor.isNativePlatform();
 }
@@ -328,6 +332,13 @@ export async function fetchNativeHttpBlobUrl({
 function getFallbackUpdatePlatformOs(): QortiumAppUpdatePlatformOs {
   if (isAndroid()) {
     return 'android';
+  }
+
+  // iOS cannot self-install updates (no sideload); App Store/TestFlight delivers
+  // them. Return 'unsupported' before UA sniffing, since the iOS WebView UA
+  // contains "like Mac OS X" and would otherwise be misdetected as macOS.
+  if (isIos()) {
+    return 'unsupported';
   }
 
   const userAgent = window.navigator.userAgent.toLowerCase();
@@ -693,7 +704,7 @@ function getDefaultNodeSettings(): StoredNodeSettings {
   return {
     apiKey: '',
     customUrl: '',
-    mode: isAndroid() ? 'network' : 'local',
+    mode: isNativePlatform() ? 'network' : 'local',
   };
 }
 
@@ -745,14 +756,14 @@ function parseStoredNodeSettings(value: unknown): StoredNodeSettings {
     return {
       apiKey: '',
       customUrl,
-      mode: isAndroid() ? 'network' : 'local',
+      mode: isNativePlatform() ? 'network' : 'local',
     };
   }
 
   return {
     apiKey,
     customUrl,
-    mode: isAndroid() ? 'network' : 'local',
+    mode: isNativePlatform() ? 'network' : 'local',
   };
 }
 
@@ -6952,7 +6963,7 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
 function createFallbackApi(): PlatformApi {
   return {
     appName: 'Qortium Home',
-    accounts: isAndroid() ? createStoredAccountsApi() : createUnsupportedAccountsApi(),
+    accounts: isNativePlatform() ? createStoredAccountsApi() : createUnsupportedAccountsApi(),
     qdnPermissions: {
       onUnlockRequest(callback) {
         qdnUnlockListeners.add(callback);
@@ -7244,7 +7255,7 @@ function createFallbackApi(): PlatformApi {
         };
       },
       async downloadResource(request) {
-        if (!isAndroid()) {
+        if (!isNativePlatform()) {
           throw new Error('Saving QDN downloads is only available in the desktop app and Android app.');
         }
 
