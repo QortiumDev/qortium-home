@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - feat: scaffold the managed i2pd download/run manager (desktop)
+
+Added the internal foundation for Home to manage an I2P router (i2pd) itself on the desktop, so the I2P fallback can work without the user installing anything by hand. This new piece can download a verified i2pd build for the current platform from Qortium's own i2pd build (checking it against a published checksum so a tampered or corrupted download is rejected), install it into Home's managed data area, write a safe configuration that only opens the local SAM bridge Core talks to (with the web console and proxies turned off), and start, supervise, and stop the router as a managed process. It also detects when an I2P router is already running on the machine — for example one a standalone operator installed themselves — and steps aside rather than starting a second, conflicting one. There is no visible change yet: this is the groundwork the upcoming Settings controls and the dropdown's "I2P available?" check will build on. It is desktop-only, since the phone app connects to a remote node and never runs a local router.
+
 ### 2026-06-21 - feat: auto-open the lone resource for identifier-less QDN links
 
 Made Home open a QDN page directly when a link names only a service and a name (no identifier) and that combination turns out to have exactly one published resource. Previously such a link always showed a listing view, even when there was only a single thing to list. Now, after Home checks what exists under that service and name, a single match opens straight away, while zero or multiple matches still show the listing as before. This works the same whether the link comes from the address bar, a click inside Home, or a QDN app asking Home to open an address through its bridge. The address bar updates to show the full resolved link (including its identifier), and the unresolved step is not left in the back/forward history, so the Back button behaves naturally.
