@@ -17,6 +17,7 @@ import {
   signChatTransaction,
 } from './accounts.js';
 import {
+  getNodeApiUrl,
   getNodeConnection,
   isInvalidApiKeyResponse,
   refreshNodeConnectionApiKey,
@@ -255,7 +256,6 @@ type QdnWriteSourceSelection = {
 type QdnWriteProfile = {
   accountId: string;
   address: string;
-  avatarUrl: string | null;
   label: string;
   name: string | null;
 };
@@ -494,6 +494,22 @@ async function requestQdnChatPermissionApproval(
   approvedQdnChatPermissions.add(cacheKey);
 }
 
+// Home's own UI resolves account avatars itself now, but QDN apps still receive the
+// selected account's avatar URL through the account bridge.
+async function getAccountAvatarUrl(name: string | null) {
+  if (!name) {
+    return null;
+  }
+
+  try {
+    const nodeApiUrl = await getNodeApiUrl();
+
+    return `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`;
+  } catch {
+    return null;
+  }
+}
+
 async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
   if (!context) {
     throw new Error('QDN app requests are only available to isolated QDN app views.');
@@ -507,7 +523,7 @@ async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
 
   return {
     address: profile.address,
-    avatarUrl: profile.avatarUrl,
+    avatarUrl: await getAccountAvatarUrl(profile.name),
     isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
@@ -616,7 +632,6 @@ function getQdnWriteSmokeProfile(resource: QdnWriteResourceRequest) {
   return {
     accountId: `preview:${role}`,
     address,
-    avatarUrl: null,
     label: `Preview ${role}`,
     name: resource.name,
   } satisfies QdnWriteProfile;

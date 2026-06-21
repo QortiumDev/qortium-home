@@ -2071,17 +2071,33 @@ async function getAccountProfile(accountId: string): Promise<QortiumAccountProfi
     ? (await getPrimaryName(accountAddress, nodeApiUrl)) ??
       (await getFirstOwnedName(accountAddress, nodeApiUrl))
     : null;
-  const avatarUrl = name
-    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
-    : null;
 
   return {
     accountId,
     address: accountAddress,
-    avatarUrl,
     label: addressIndex === 0 ? wallet.label : `${wallet.label} · ${addressIndex}`,
     name,
   };
+}
+
+// Home's own UI resolves account avatars itself now (see src/accountAvatar.ts), but
+// QDN apps still receive the selected account's avatar URL through the account bridge.
+async function getAccountAvatarUrl(name: string | null) {
+  if (!name) {
+    return null;
+  }
+
+  let nodeApiUrl = '';
+
+  try {
+    nodeApiUrl = await resolveNodeApiUrl(await readNodeSettings());
+  } catch {
+    return null;
+  }
+
+  return nodeApiUrl
+    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
+    : null;
 }
 
 function isAccountUnlocked(accountId: string) {
@@ -2101,7 +2117,7 @@ async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undef
 
   return {
     address: profile.address,
-    avatarUrl: profile.avatarUrl,
+    avatarUrl: await getAccountAvatarUrl(profile.name),
     isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
@@ -7353,7 +7369,6 @@ function createUnsupportedAccountsApi(): PlatformApi['accounts'] {
     getProfile: async (accountId) => ({
       accountId,
       address: '',
-      avatarUrl: null,
       label: '',
       name: null,
     }),

@@ -1,5 +1,6 @@
 import { Download, Lock, Plus, Unlock, Wallet, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { AccountAvatar } from './AccountAvatar';
 import { getAccountProfile } from './accountProfile';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
@@ -131,13 +132,11 @@ export function AccountsPanel({
     [accountsState.accounts, selectedAccountId],
   );
   const [activeProfile, setActiveProfile] = useState<QortiumAccountProfile | null>(null);
-  const [hasAvatarError, setHasAvatarError] = useState(false);
 
   useEffect(() => {
     let isDisposed = false;
 
     setActiveProfile(null);
-    setHasAvatarError(false);
 
     if (!activeAccount) {
       return () => {
@@ -785,15 +784,13 @@ export function AccountsPanel({
           </div>
           {activeAccount ? (
             <div className="account-selector__identity">
-              {activeProfile?.avatarUrl && !hasAvatarError ? (
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="account-selector__avatar"
-                  src={activeProfile.avatarUrl}
-                  onError={() => setHasAvatarError(true)}
-                />
-              ) : null}
+              <AccountAvatar
+                name={activeProfile?.name ?? null}
+                nodeApiUrl={nodeApiUrl}
+                nodeEpoch={nodeEpoch}
+                imageClassName="account-selector__avatar"
+                fallback={null}
+              />
               <div className="account-selector__identity-text">
                 {activeProfile?.name ? (
                   <p className="account-selector__name">{activeProfile.name}</p>
