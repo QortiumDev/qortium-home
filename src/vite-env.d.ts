@@ -700,6 +700,7 @@ interface Window {
       downloadResource: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnDownloadResult>;
+      openDownloadedResource?: (request: { uri: string; mimeType?: string }) => Promise<void>;
     };
     qdnViews?: {
       capture: (tabId: string) => Promise<string | null>;

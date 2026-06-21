@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: save QDN downloads on Android to a chosen location
+
+Downloading a QDN item on Android now lets you pick where to save it with the system "Save to…" file picker, just like the desktop, instead of only opening a temporary copy you couldn't find later. Multi-file resources (apps, websites, gif repos) are assembled into a .zip on your device and saved. While a download is being prepared the button shows a spinner, and once it has saved you get a button to open the file (on desktop this opens the file's folder instead). Separately, on small screens the Preview and Refresh buttons in the qdn:// browser are now icon-only so they take less space.
+
 ### 2026-06-20 - fix: download multi-file QDN resources as a client-side zip (desktop)
 
 Downloading a multi-file QDN resource (an APP, WEBSITE, GIF_REPO, or other resource shown as a .zip) on the desktop now works — previously it failed with "save failed". These resources are stored on the node as many separate files with no single downloadable archive, so Home now reads the resource's file list, fetches each file, and assembles the .zip on your own device before saving it. A size/count guard avoids problems with unusually large resources. Single-file downloads are unchanged. The same fix for Android is a follow-up.

@@ -559,19 +559,23 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
           <button
             className="button button--secondary qdn-explorer__preview"
             type="button"
+            title={t('explorer.previewButton')}
+            aria-label={t('explorer.previewButton')}
             onClick={() => setPreviewDialog({ isWorking: false })}
           >
             <Eye aria-hidden="true" size={18} strokeWidth={2} />
-            {t('explorer.previewButton')}
+            <span className="button__label">{t('explorer.previewButton')}</span>
           </button>
           <button
             className="button button--secondary qdn-explorer__refresh"
             type="button"
+            title={t('common.refresh')}
+            aria-label={t('common.refresh')}
             disabled={state.phase === 'loading'}
             onClick={() => setRetryToken((currentToken) => currentToken + 1)}
           >
             <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-            {t('common.refresh')}
+            <span className="button__label">{t('common.refresh')}</span>
           </button>
         </div>
       </header>
