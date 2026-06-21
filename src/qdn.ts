@@ -316,15 +316,15 @@ export function getLoadedViewerKind(
   return getQdnViewerKind(resource.service);
 }
 
-function buildQdnServiceUrl(service: QdnService) {
+export function buildQdnServiceUrl(service: QdnService) {
   return `qdn://${service}`;
 }
 
-function buildQdnNameUrl(service: QdnService, name: string) {
+export function buildQdnNameUrl(service: QdnService, name: string) {
   return `${buildQdnServiceUrl(service)}/${encodeURIComponent(name)}`;
 }
 
-function buildQdnWildcardNameUrl(name: string) {
+export function buildQdnWildcardNameUrl(name: string) {
   return `qdn://*/${encodeURIComponent(name)}`;
 }
 
@@ -332,6 +332,110 @@ export function buildQdnDisplayUrl(resource: Omit<QdnResource, 'displayUrl'>) {
   return `qdn://${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
     resource.identifier ?? 'default',
   )}${resource.path ? encodeDisplayPath(resource.path) : ''}`;
+}
+
+// Which segment of an in-progress qdn:// address the caret is sitting in, so the
+// address bar can offer suggestions for it.
+export type QdnDraftContext =
+  | { kind: 'service'; prefix: string }
+  | { kind: 'name'; prefix: string; service: QdnService }
+  | { kind: 'identifier'; name: string; prefix: string; service: QdnService }
+  | { kind: 'wildcard-name'; prefix: string };
+
+// Lightweight parser for an address the user is still typing (caret assumed at
+// the end). Unlike parseQdnUrl it never errors; it reports the segment under the
+// caret. Returns null when the value isn't a qdn:// address or the caret has
+// moved past the suggestible segments (e.g. into a file path).
+export function parseQdnAddressDraft(value: string): QdnDraftContext | null {
+  const input = value.trimStart();
+
+  if (!/^qdn:\/\//i.test(input)) {
+    return null;
+  }
+
+  const rest = input.replace(/^qdn:\/\//i, '');
+
+  // No slash yet → still typing the service. A leading '*' is the wildcard form,
+  // which only becomes suggestible once the user adds the "*/" separator.
+  if (!rest.includes('/')) {
+    if (rest.startsWith('*')) {
+      return null;
+    }
+
+    return { kind: 'service', prefix: rest.trim() };
+  }
+
+  const segments = rest.split('/');
+  const first = segments[0];
+
+  if (first === '*') {
+    if (segments.length === 2) {
+      return { kind: 'wildcard-name', prefix: segments[1].trim() };
+    }
+
+    return null;
+  }
+
+  const service = first.toUpperCase();
+
+  if (!isQdnService(service)) {
+    return null;
+  }
+
+  if (segments.length === 2) {
+    return { kind: 'name', service, prefix: segments[1].trim() };
+  }
+
+  if (segments.length === 3) {
+    const name = segments[1].trim();
+
+    if (!name) {
+      return null;
+    }
+
+    return { kind: 'identifier', service, name, prefix: segments[2].trim() };
+  }
+
+  return null;
+}
+
+// Narrow the untyped /arbitrary/resources/search response to valid list items.
+export function readQdnResourceListItems(data: unknown): QdnResourceListItem[] {
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data.filter((item): item is QdnResourceListItem => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+
+    const candidate = item as Partial<QdnResourceListItem>;
+
+    return (
+      typeof candidate.name === 'string' &&
+      typeof candidate.service === 'string' &&
+      isQdnService(candidate.service) &&
+      (candidate.identifier === undefined || typeof candidate.identifier === 'string')
+    );
+  });
+}
+
+// Pull the registered-name strings out of the untyped /names/search response.
+export function readQdnRegisteredNames(data: unknown): string[] {
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  const names: string[] = [];
+
+  for (const item of data) {
+    if (item && typeof item === 'object' && typeof (item as { name?: unknown }).name === 'string') {
+      names.push((item as { name: string }).name);
+    }
+  }
+
+  return names;
 }
 
 export function parseQdnUrl(value: string): QdnParseResult {

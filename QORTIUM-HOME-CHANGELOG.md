@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: live QDN address-bar autocomplete (services, names, identifiers)
+
+Typing a QDN address now offers live suggestions for whichever part of the address you are on. After `qdn://` it lists the available QDN services; once a service is chosen it suggests registered names that have content there; after a name it suggests that resource's identifiers; and the `qdn://*/` wildcard form suggests matching registered names from across the network. Name and identifier suggestions are fetched from the connected Qortium node as you type — they update after a short pause, are briefly remembered to avoid repeat lookups, and quietly fall back to just the service list when no node is reachable, so they never get in the way of typing. Pressing Enter now goes to exactly what you typed whenever that is already a complete address, so a highlighted suggestion can no longer send you somewhere unexpected, and clicking into the address bar selects the whole address so you can type straight over it. The new suggestion labels are translated into every supported language.
+
 ### 2026-06-20 - fix: keep Android content clear of the status bar, cutout, and navigation bar
 
 On newer Android phones (Android 15 and later), the app was drawing all the way to the screen edges, so the top bar slid under the status bar and camera cutout and the content ran beneath the on-screen navigation buttons. Phones on older Android were unaffected, which is why only some testers saw it. Qortium Home now detects the safe areas around the system bars and cutout and keeps its content clear of them, while still using the full screen with transparent system bars for the modern edge-to-edge look. This adds the `@capacitor-community/safe-area` plugin and adjusts the QDN explorer, the content viewer, the dashboard/settings pages, and dialogs so nothing is hidden behind the system bars. A stray "Qortium Home" title bar that briefly appeared at the very top has also been removed.

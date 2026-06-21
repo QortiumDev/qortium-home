@@ -342,7 +342,14 @@ type QortiumQdnResourcesSearchRequest = {
   includeStatus?: boolean;
   limit?: number;
   name?: string;
+  prefix?: boolean;
   service?: string;
+};
+
+type QortiumQdnNamesSearchRequest = {
+  limit?: number;
+  prefix?: boolean;
+  query: string;
 };
 
 type QortiumQdnTextResult =
@@ -681,6 +688,9 @@ interface Window {
       ) => Promise<QortiumQdnAuthorizeResult>;
       listResources: (
         request: QortiumQdnResourcesSearchRequest,
+      ) => Promise<unknown>;
+      searchNames: (
+        request: QortiumQdnNamesSearchRequest,
       ) => Promise<unknown>;
       fetchNodeApi: (
         request: QortiumNodeApiRequest,
