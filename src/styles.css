@@ -783,6 +783,9 @@ h1 {
   overflow: auto;
   overscroll-behavior: contain;
   padding: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
   background: var(--color-frame-bg);
 }
 
@@ -1666,6 +1669,10 @@ h1 {
   display: grid;
   place-items: center;
   padding: 24px;
+  padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-right: calc(24px + env(safe-area-inset-right, 0px));
+  padding-left: calc(24px + env(safe-area-inset-left, 0px));
   background: var(--color-modal-backdrop);
   backdrop-filter: blur(16px);
 }
@@ -3594,10 +3601,13 @@ h1 {
   .app-main {
     padding: var(--space-6);
     padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+    padding-right: calc(var(--space-6) + env(safe-area-inset-right, 0px));
+    padding-left: calc(var(--space-6) + env(safe-area-inset-left, 0px));
   }
 
   .app-main--viewer {
     padding: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .top-bar {

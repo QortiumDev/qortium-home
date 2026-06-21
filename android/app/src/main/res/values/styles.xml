@@ -13,10 +13,18 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Lay out into the camera cutout so safe-area insets cover it on
+             notched Android 9-14 devices (edge-to-edge already does this on 15+). -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!-- Theme.SplashScreen does NOT inherit AppTheme.NoActionBar; suppress the
+             action bar here too as insurance against the app-name title/handle
+             reappearing at the top under edge-to-edge. -->
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
     </style>
 </resources>
