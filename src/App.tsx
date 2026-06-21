@@ -1133,7 +1133,7 @@ export function App() {
     });
   }
 
-  function navigateToRoute(route: AppRoute) {
+  function navigateToRoute(route: AppRoute, options?: { replace?: boolean }) {
     const defaultAccountId = getDefaultAccountId(accountsState);
 
     updateActiveTab((tab) => {
@@ -1142,10 +1142,17 @@ export function App() {
       const history =
         currentEntry?.displayUrl === route.displayUrl
           ? tab.history
-          : {
-              entries: [...tab.history.entries.slice(0, tab.history.index + 1), route],
-              index: tab.history.index + 1,
-            };
+          : options?.replace
+            ? {
+                // Swap the current entry in place (dropping any forward entries) so an
+                // auto-resolved route does not leave the unresolved one behind in history.
+                entries: [...tab.history.entries.slice(0, tab.history.index), route],
+                index: tab.history.index,
+              }
+            : {
+                entries: [...tab.history.entries.slice(0, tab.history.index + 1), route],
+                index: tab.history.index + 1,
+              };
 
       if (history === tab.history && accountId === tab.accountId) {
         return tab;

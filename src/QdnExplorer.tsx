@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Eye, File, FileAudio, FileImage, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
 import { isNativePlatform } from './platform';
@@ -20,7 +20,7 @@ import {
 type QdnExplorerProps = {
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
-  onNavigate: (route: QdnRoute) => void;
+  onNavigate: (route: QdnRoute, options?: { replace?: boolean }) => void;
   route: QdnExplorerRoute;
 };
 
@@ -504,6 +504,11 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
     });
   }
 
+  // Keep a stable handle to onNavigate so the load effect can auto-resolve without
+  // re-running every render (onNavigate is recreated on each parent render).
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
+
   useEffect(() => {
     setSort(DEFAULT_EXPLORER_SORT);
   }, [route]);
@@ -521,6 +526,15 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
         const resources = route.kind === 'services' ? await loadAllResources() : await loadRouteResources(route);
 
         if (!isDisposed) {
+          // An identifier-less name link that resolves to exactly one resource opens
+          // that resource directly instead of showing a one-row listing. We stay in
+          // the loading phase and replace history so the unresolved route is not left
+          // behind (avoids a Back-button loop back into this auto-resolve).
+          if (route.kind === 'name' && resources.length === 1) {
+            onNavigateRef.current(buildQdnRouteFromListItem(resources[0]), { replace: true });
+            return;
+          }
+
           setState({
             phase: 'idle',
             resources,
