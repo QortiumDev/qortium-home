@@ -216,8 +216,9 @@ is the practical path:
 
 - **`simulator-build`** — runs on PRs / manual dispatch, **no secrets**. Runs
   `scripts/setup-ios-macos.sh` then `xcodebuild … -sdk iphonesimulator
-  CODE_SIGNING_ALLOWED=NO`. This is the "does it compile on a real toolchain"
-  gate and the first thing to get green.
+  CODE_SIGNING_ALLOWED=NO`. **Passing** as of PR #50 (BUILD SUCCEEDED): `cap add
+  ios` generates a shared `App` scheme, SPM resolves, and all five staged Swift
+  plugins compile.
 - **`testflight`** — signed archive + upload, gated on `workflow_dispatch`
   (`upload_testflight=true`) or an `ios-v*` tag. Skips/fails clearly until the
   Apple secrets are set (listed in the workflow header):
@@ -226,9 +227,9 @@ is the practical path:
   `IOS_DIST_CERT_PASSWORD`. Needs the Apple Developer account + an App Store
   Connect record for `org.qortium.home`.
 
-Unverified until first run: the `App` scheme must be shared for `xcodebuild
--scheme App` (a `-list` diagnostic step surfaces it if not); the TestFlight job's
-signing/export chain needs real credentials to exercise.
+Still unverified: the TestFlight job's signing/export chain needs real
+credentials to exercise. (The `App`-scheme-sharing concern is resolved — `cap add
+ios` produces a shared scheme, confirmed by the green `simulator-build`.)
 
 ---
 
@@ -238,7 +239,7 @@ signing/export chain needs real credentials to exercise.
 - [x] Stage QDN bridge as a self-registering `WKUserScript` plugin (`QdnBridgePlugin.swift`).
 - [x] Write `scripts/setup-ios-macos.sh` (cap add ios + plugins + Info.plist + sync; refuses on Xcode < 15).
 - [x] Draft GitHub Actions iOS workflow (`.github/workflows/ios.yml`) — simulator build + gated TestFlight.
-- [ ] Get the `simulator-build` CI job green (first real compile on Xcode 16; fix any scheme/SPM issues).
+- [x] Get the `simulator-build` CI job green — **passing** (BUILD SUCCEEDED on Xcode 26.3; `App` scheme is shared, all 5 staged Swift plugins compile, SPM resolves).
 - [ ] (Optional) Run `scripts/setup-ios-macos.sh` on a capable Mac for interactive Xcode debugging.
 - [ ] **Verify the QDN bridge on device** (window.qdnRequest in a live QDN APP frame).
 - [ ] Confirm `Info.plist` ATS patch applied (script does it; sanity-check).
