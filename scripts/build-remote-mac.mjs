@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const macos11UniversalTarget = 'dist:mac:macos11:universal';
+const macos11ElectronVersion = '38.8.6';
 const allowedTargets = new Set(['dist:mac:x64', 'dist:mac:arm64', 'dist:mac:universal', macos11UniversalTarget]);
 const defaultRemoteHost = 'qortium-macmini';
 const defaultRemotePath = 'build/qortium-home';
@@ -193,7 +194,16 @@ function getRemoteBuildScript(target) {
 set -euo pipefail
 version="$(node -p "require('./package.json').version")"
 npm run build
-npx electron-builder --mac dmg --universal --publish never -c.mac.minimumSystemVersion=11.0.0
+./node_modules/.bin/electron-builder --mac dmg --universal --publish never -c.electronVersion=${macos11ElectronVersion} -c.mac.minimumSystemVersion=11.0.0
+app_path="dist-release/mac-universal/Qortium Home.app"
+if [ ! -d "$app_path" ]; then
+  app_path="$(find dist-release -maxdepth 3 -type d -name 'Qortium Home.app' -print -quit)"
+fi
+if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
+  echo "Expected macOS app bundle not found for legacy verification." >&2
+  exit 1
+fi
+node scripts/verify-macos-min-version.mjs "$app_path" 11.0.0
 normal_dmg="dist-release/Qortium-Home-$version-universal.dmg"
 legacy_dmg="dist-release/Qortium-Home-$version-macos11-universal.dmg"
 if [ ! -f "$normal_dmg" ]; then

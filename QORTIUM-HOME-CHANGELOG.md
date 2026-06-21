@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - build: make macOS 11 dmg use Electron 38
+
+Changed the remote macOS 11 legacy DMG build so it packages with Electron 38, the newest Electron line that still supports macOS Big Sur, instead of only renaming a normal Electron 39 universal build. The legacy target still sets the app minimum system version to `11.0.0`, but now it also scans the generated `.app` bundle's Mach-O load commands and fails the build if any bundled executable or framework still requires macOS 12 or newer. This prevents a `macos11-universal.dmg` release asset from being uploaded unless the actual app binaries are compatible with macOS 11.
+
 ### 2026-06-20 - feat: pick the IP/I2P transport mode from a Connections dropdown
 
 Replaced the "Hide IP address" / "Show IP address" buttons in Settings → Connections with a single dropdown that lets you choose how the node connects: Direct + I2P fallback (the default, using direct IP with I2P as a backup), Direct only, or I2P only. The "Direct only" choice is new — it turns off the I2P fallback entirely so the node connects over direct IP, which the old buttons could not do. Choosing "I2P only" still shows the privacy warning that it hides your IP and needs a running I2P router, and "Direct only" now explains that it disables the fallback and won't reach I2P-only peers; switching back to the default needs no warning. A Save button appears only when you have picked a different mode, and applying it restarts Core to take effect, just as before. The control is still offered only on a local or custom node you control (not in public network mode), and the new wording is translated across all supported languages.

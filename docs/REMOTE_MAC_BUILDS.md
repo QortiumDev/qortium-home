@@ -50,6 +50,7 @@ Other supported targets:
 ```bash
 npm run dist:mac:arm64:remote
 npm run dist:mac:universal:remote
+npm run dist:mac:macos11:universal:remote
 ```
 
 ## Behavior
@@ -62,6 +63,13 @@ The script does not require the commits to be pushed. It streams `git archive
 HEAD` to the Mac, extracts it under `~/build/qortium-home`, runs `npm ci`, runs
 the selected macOS dist script, and copies `dist-release/*.dmg` back to the
 local checkout.
+
+The `dist:mac:macos11:universal:remote` target is the legacy macOS 11 build. It
+packages the app with Electron 38, sets the app minimum system version to
+`11.0.0`, and checks the generated `.app` bundle's Mach-O load commands before
+renaming the DMG to `Qortium-Home-<version>-macos11-universal.dmg`. If any
+bundled binary still requires a newer macOS release, the build fails before the
+artifact is copied back.
 
 Use the existing local scripts for other platforms:
 
