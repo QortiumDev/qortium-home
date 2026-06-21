@@ -260,12 +260,19 @@ export function getCoreLatestRows({
   const showQdn = !!onChain?.updateAvailable;
   const sameCommit = !!release && !!onChain && commitsMatch(release.commit, onChain.commitHash);
 
+  // Show the build commit suffix alongside the GitHub release tag (e.g.
+  // "v1.1.0-b886a78"), matching how the running Core version is displayed.
+  const githubLabel = release
+    ? release.commit
+      ? `${release.tagName}-${release.commit.slice(0, 7)}`
+      : release.tagName
+    : '';
   const githubEntry: CoreLatestEntry | null = release
-    ? { label: release.tagName, source: 'github', url: release.htmlUrl || undefined }
+    ? { label: githubLabel, source: 'github', url: release.htmlUrl || undefined }
     : null;
   const qdnCommitLabel = onChain?.commitHash ? onChain.commitHash.slice(0, 7) : t('common.available');
   const qdnEntry: CoreLatestEntry | null = onChain
-    ? { label: sameCommit && release ? release.tagName : qdnCommitLabel, source: 'qdn' }
+    ? { label: sameCommit && release ? githubLabel : qdnCommitLabel, source: 'qdn' }
     : null;
 
   let entries: CoreLatestEntry[] = [];
