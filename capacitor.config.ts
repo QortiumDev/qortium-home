@@ -12,6 +12,23 @@ const config: CapacitorConfig = {
     CapacitorHttp: {
       enabled: true,
     },
+    // Android 15+ enforces edge-to-edge: the WebView draws under the status bar,
+    // camera cutout and navigation bar. @capacitor-community/safe-area owns inset
+    // handling and feeds real env(safe-area-inset-*) values to the renderer, which
+    // our CSS already consumes. SystemBars.insetsHandling:'disable' stops
+    // @capacitor/core's built-in inset handling from also padding the WebView
+    // (which would double-inset).
+    SystemBars: {
+      insetsHandling: 'disable',
+    },
+    SafeArea: {
+      // Plugin enum is counter-intuitive: 'DARK' = light (white) system-bar
+      // icons for a dark background, which is what our #0e1312 app needs.
+      statusBarStyle: 'DARK',
+      navigationBarStyle: 'DARK',
+      detectViewportFitCoverChanges: true,
+      initialViewportFitCover: true,
+    },
   },
 };
 
