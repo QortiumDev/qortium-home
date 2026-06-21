@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { registerAccountIpcHandlers } from './accounts.js';
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import { registerCoreManagerIpcHandlers } from './core-manager.js';
+import { registerI2pdManagerIpcHandlers } from './i2pd-manager.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerQdnIpcHandlers } from './qdn.js';
 import { registerQdnViewIpcHandlers } from './qdn-views.js';
@@ -688,6 +689,7 @@ app.whenReady().then(() => {
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
   registerCoreManagerIpcHandlers();
+  registerI2pdManagerIpcHandlers();
   registerNodeSettingsIpcHandlers();
   registerQdnIpcHandlers();
   registerQdnViewIpcHandlers();

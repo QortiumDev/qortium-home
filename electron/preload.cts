@@ -51,6 +51,23 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       };
     },
   },
+  i2pd: {
+    getStatus: () => ipcRenderer.invoke('i2pd:getStatus'),
+    install: () => ipcRenderer.invoke('i2pd:install'),
+    start: () => ipcRenderer.invoke('i2pd:start'),
+    stop: () => ipcRenderer.invoke('i2pd:stop'),
+    onProgress: (callback: (progress: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => {
+        callback(progress);
+      };
+
+      ipcRenderer.on('i2pd:progress', listener);
+
+      return () => {
+        ipcRenderer.removeListener('i2pd:progress', listener);
+      };
+    },
+  },
   updates: {
     downloadAsset: (request: {
       asset: { digest: string | null; downloadUrl: string; name: string; size: number };

@@ -234,6 +234,23 @@ type QortiumCoreProgress = {
   percent?: number;
 };
 
+type QortiumI2pdProgress = QortiumCoreProgress;
+
+// How i2pd is provided: 'managed' = Home runs it; 'external' = another SAM bridge
+// is already listening (don't clobber it); 'none' = no router available.
+type QortiumI2pdMode = 'external' | 'managed' | 'none';
+
+type QortiumI2pdStatus = {
+  supported: boolean;
+  installed: boolean;
+  version: string | null;
+  running: boolean;
+  mode: QortiumI2pdMode;
+  samHost: string;
+  samPort: number;
+  binaryPath: string | null;
+};
+
 type QortiumAppUpdateChannel = 'prerelease' | 'stable';
 
 type QortiumAppUpdatePlatformOs = 'android' | 'linux' | 'macos' | 'unsupported' | 'windows';
@@ -646,6 +663,13 @@ interface Window {
       onProgress: (callback: (progress: QortiumCoreProgress) => void) => () => void;
       start: () => Promise<QortiumCoreStatus>;
       stop: () => Promise<QortiumCoreStatus>;
+    };
+    i2pd?: {
+      getStatus: () => Promise<QortiumI2pdStatus>;
+      install: () => Promise<QortiumI2pdStatus>;
+      start: () => Promise<QortiumI2pdStatus>;
+      stop: () => Promise<QortiumI2pdStatus>;
+      onProgress: (callback: (progress: QortiumI2pdProgress) => void) => () => void;
     };
     updates: {
       downloadAsset: (
