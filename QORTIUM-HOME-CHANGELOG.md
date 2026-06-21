@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-20 - feat: pick the IP/I2P transport mode from a Connections dropdown
+
+Replaced the "Hide IP address" / "Show IP address" buttons in Settings → Connections with a single dropdown that lets you choose how the node connects: Direct + I2P fallback (the default, using direct IP with I2P as a backup), Direct only, or I2P only. The "Direct only" choice is new — it turns off the I2P fallback entirely so the node connects over direct IP, which the old buttons could not do. Choosing "I2P only" still shows the privacy warning that it hides your IP and needs a running I2P router, and "Direct only" now explains that it disables the fallback and won't reach I2P-only peers; switching back to the default needs no warning. A Save button appears only when you have picked a different mode, and applying it restarts Core to take effect, just as before. The control is still offered only on a local or custom node you control (not in public network mode), and the new wording is translated across all supported languages.
+
 ### 2026-06-20 - feat: live QDN address-bar autocomplete (services, names, identifiers)
 
 Typing a QDN address now offers live suggestions for whichever part of the address you are on. After `qdn://` it lists the available QDN services; once a service is chosen it suggests registered names that have content there; after a name it suggests that resource's identifiers; and the `qdn://*/` wildcard form suggests matching registered names from across the network. Name and identifier suggestions are fetched from the connected Qortium node as you type — they update after a short pause, are briefly remembered to avoid repeat lookups, and quietly fall back to just the service list when no node is reachable, so they never get in the way of typing. Pressing Enter now goes to exactly what you typed whenever that is already a complete address, so a highlighted suggestion can no longer send you somewhere unexpected, and clicking into the address bar selects the whole address so you can type straight over it. The new suggestion labels are translated into every supported language.
