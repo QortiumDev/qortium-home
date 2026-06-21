@@ -1,5 +1,5 @@
 import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
-import type { FormEvent, MouseEvent, PointerEvent } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAccountProfile } from './accountProfile';
 import type { AppIconResolution } from './appIconUtils';
@@ -856,6 +856,48 @@ function BrowserTabs({
     void command();
   }
 
+  function focusTabSelect(index: number) {
+    const targetTab = tabs[index];
+
+    if (!targetTab) {
+      return;
+    }
+
+    const tabElement = tabElementsRef.current.get(targetTab.id);
+    const selectButton = tabElement?.querySelector<HTMLButtonElement>('.top-bar__tab-select');
+
+    selectButton?.focus();
+  }
+
+  // Browser-style Left/Right (and Home/End) move focus between tab buttons while
+  // focus is in the tab strip. Focus only — Enter/Space still activates the tab.
+  function handleTabSelectKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) {
+    const currentIndex = tabs.findIndex((tab) => tab.id === tabId);
+
+    if (currentIndex === -1) {
+      return;
+    }
+
+    let nextIndex: number | null = null;
+
+    if (event.key === 'ArrowLeft') {
+      nextIndex = Math.max(0, currentIndex - 1);
+    } else if (event.key === 'ArrowRight') {
+      nextIndex = Math.min(tabs.length - 1, currentIndex + 1);
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = tabs.length - 1;
+    }
+
+    if (nextIndex === null || nextIndex === currentIndex) {
+      return;
+    }
+
+    event.preventDefault();
+    focusTabSelect(nextIndex);
+  }
+
   const tabIconResolutions = useMemo(() => {
     const resolutions = new Map<string, AppIconResolution | null>();
 
@@ -915,6 +957,7 @@ function BrowserTabs({
                 type="button"
                 title={tab.label}
                 aria-selected={isActive}
+                onKeyDown={(event) => handleTabSelectKeyDown(event, tab.id)}
                 onClick={(event) => {
                   if (suppressedClickTabIdRef.current === tab.id) {
                     suppressedClickTabIdRef.current = null;
@@ -1187,17 +1230,32 @@ export function TopBar({
     setAddressValue(suggestion.value);
     setAddressError('');
     setAddressSuggestionsOpen(false);
+
+    // The input is controlled, so refocus and place the caret at the end after
+    // React has committed the new value. This also covers the mouse-click path,
+    // where focus would otherwise stay on the suggestion button.
+    const caretPosition = suggestion.value.length;
+
+    window.requestAnimationFrame(() => {
+      const input = addressInputRef.current;
+
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      input.setSelectionRange(caretPosition, caretPosition);
+    });
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (selectedAddressSuggestion) {
-      applyAddressSuggestion();
-      return;
-    }
-
-    const parsedUrl = parseAppAddress(addressValue);
+    // Enter accepts the highlighted suggestion and navigates. All four scheme
+    // suggestions resolve to a valid route (qdn:// → services, core:// → API
+    // docs, home://dashboard, home://settings), so parsing always succeeds here.
+    const valueToNavigate = selectedAddressSuggestion ? selectedAddressSuggestion.value : addressValue;
+    const parsedUrl = parseAppAddress(valueToNavigate);
 
     if (!parsedUrl.success) {
       setAddressError(parsedUrl.message);
@@ -1206,6 +1264,7 @@ export function TopBar({
 
     setAddressError('');
     setAddressValue(parsedUrl.route.displayUrl);
+    setAddressSuggestionsOpen(false);
     onNavigate(parsedUrl.route);
   }
 
@@ -1308,7 +1367,25 @@ export function TopBar({
                 return;
               }
 
-              if ((event.key === 'Tab' || event.key === 'Enter') && selectedAddressSuggestion) {
+              // Right arrow accepts the highlighted suggestion (fill only, no
+              // navigation) when the caret is at the end with nothing selected;
+              // otherwise it moves the cursor normally.
+              if (event.key === 'ArrowRight' && selectedAddressSuggestion) {
+                const input = event.currentTarget;
+                const caretAtEnd =
+                  input.selectionStart === input.selectionEnd &&
+                  input.selectionStart === input.value.length;
+
+                if (caretAtEnd) {
+                  event.preventDefault();
+                  applyAddressSuggestion();
+                  return;
+                }
+              }
+
+              // Tab fills only (like Right). Enter is intentionally left to the
+              // form submit so it can accept and navigate (see handleSubmit).
+              if (event.key === 'Tab' && selectedAddressSuggestion) {
                 event.preventDefault();
                 applyAddressSuggestion();
               }

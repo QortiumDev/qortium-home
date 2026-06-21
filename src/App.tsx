@@ -1842,6 +1842,65 @@ export function App() {
       void command();
     }
 
+    // F6 / Shift+F6 cycle focus through the three browser-like regions:
+    // 0 = tab strip, 1 = address bar, 2 = main page content.
+    function getCurrentRegionIndex() {
+      const active = document.activeElement;
+
+      if (!(active instanceof Element)) {
+        return -1;
+      }
+
+      if (active.closest('.top-bar__tab-list')) {
+        return 0;
+      }
+
+      if (active.closest('#browser-address')) {
+        return 1;
+      }
+
+      if (active.closest('.app-main')) {
+        return 2;
+      }
+
+      return -1;
+    }
+
+    function focusRegion(index: number) {
+      if (index === 0) {
+        const activeTabButton = document.querySelector<HTMLElement>(
+          '.top-bar__tab--active .top-bar__tab-select',
+        );
+        activeTabButton?.focus();
+        return;
+      }
+
+      if (index === 1) {
+        // Reuse focusAddressBar so F6 select-alls, consistent with Ctrl/Cmd+L.
+        const actions = tabCommandActionsRef.current;
+        actions?.focusAddressBar();
+        return;
+      }
+
+      const mainRegion = document.querySelector<HTMLElement>('.app-main');
+      mainRegion?.focus();
+    }
+
+    function cycleRegionFocus(forward: boolean) {
+      const current = getCurrentRegionIndex();
+      let nextIndex: number;
+
+      if (current === -1) {
+        // Focus is outside all three regions (e.g. a popover): start at the
+        // address bar going forward, the main page going backward.
+        nextIndex = forward ? 1 : 2;
+      } else {
+        nextIndex = forward ? (current + 1) % 3 : (current + 2) % 3;
+      }
+
+      focusRegion(nextIndex);
+    }
+
     function handleGlobalKeyDown(event: KeyboardEvent) {
       if (!shouldUseKeyboardShortcut(event)) {
         return;
@@ -1952,6 +2011,20 @@ export function App() {
 
       if (key === 'f5') {
         runCommand(event, actions.reloadActiveTab);
+        return;
+      }
+
+      // F6 / Shift+F6 cycle focus between tab strip, address bar, and main page.
+      // Placed above the editable-target guard so it works from any field.
+      if (key === 'f6') {
+        runCommand(event, () => cycleRegionFocus(!event.shiftKey));
+        return;
+      }
+
+      // Alt+D focuses the address bar (browser alias for Ctrl/Cmd+L). Needs its
+      // own branch because primaryOnly excludes Alt.
+      if (event.altKey && !primaryModifier && !event.shiftKey && key === 'd') {
+        runCommand(event, actions.focusAddressBar);
         return;
       }
 
@@ -2173,6 +2246,7 @@ export function App() {
       <section
         className={appMainClassName}
         aria-label={isDashboardRoute ? t('common.dashboard') : isSettingsRoute ? t('common.settings') : t('viewer.browserPageAria')}
+        tabIndex={-1}
         onPointerCancel={clearNavigationSwipe}
         onPointerDown={handleMainPointerDown}
         onPointerMove={handleMainPointerMove}
