@@ -26,22 +26,28 @@ What still needs a **Mac with Xcode + CocoaPods** (and is NOT done yet):
 
 ## One-time setup (on the Mac)
 
+**Requires Xcode 15+ (ideally 16).** Capacitor 8's iOS SPM manifest is
+`swift-tools-version: 5.9`, which Xcode 14.2 cannot parse — see "Build
+environment" below. Capacitor 8 uses **Swift Package Manager**, so CocoaPods is
+**not** required for this project.
+
+Run the helper from the repo root — it is idempotent and refuses on Xcode < 15:
+
 ```bash
-# from the worktree root
-npm install
-npx cap add ios          # generates ios/ (Xcode project + Pods)
-npm run ios:sync         # build:renderer + cap sync ios
-
-# copy the staged Swift plugins into the app target
-cp ios-staging/plugins/*.swift ios/App/App/
-
-npm run ios:open         # opens Xcode
+bash scripts/setup-ios-macos.sh
 ```
 
-The four plugins conform to `CAPBridgedPlugin`, so Capacitor 8 auto-registers
-them once the `.swift` files are members of the `App` target — no manual
-`AppDelegate` registration needed. Confirm they appear at runtime by checking the
-Xcode console for the Capacitor "Loading app plugin: <jsName>" lines.
+It runs `npx cap add ios`, copies the staged Swift plugins into `ios/App/App/`,
+patches `Info.plist` (ATS + Local Network), and `npm run ios:sync`. Then:
+
+```bash
+npm run ios:open         # opens Xcode; set a signing team, build & run
+```
+
+The plugins conform to `CAPBridgedPlugin`, so Capacitor 8 auto-registers them
+(no `AppDelegate` wiring); Cap 8's template uses Xcode synchronized file groups,
+so files dropped into `ios/App/App/` join the target automatically. Confirm at
+runtime via the Capacitor "Loading app plugin: <jsName>" console lines.
 
 ---
 
@@ -53,6 +59,7 @@ Xcode console for the Capacitor "Loading app plugin: <jsName>" lines.
 | `QdnFileOpener` | `QdnFileOpenerPlugin.java` | `ios-staging/plugins/QdnFileOpenerPlugin.swift` | Uses `UIDocumentInteractionController` "open in" sheet. Path-containment check targets the Documents dir — confirmed equal to Capacitor `Directory.Data` on iOS. |
 | `WalletBackup` | `WalletBackupPlugin.java` | `ios-staging/plugins/WalletBackupPlugin.swift` | Writes a temp file, exports via `UIDocumentPickerViewController(forExporting:)` to the Files app. |
 | `QdnPublishSource` | `QdnPublishSourcePlugin.java` | `ios-staging/plugins/QdnPublishSourcePlugin.swift` | `UIDocumentPickerViewController(forOpeningContentTypes:)`, reads bytes, enforces `maxBytes`, returns base64. |
+| `QdnBridge` (new) | `QdnBridgeWebViewClient.java` | `ios-staging/plugins/QdnBridgePlugin.swift` | Not a JS-callable plugin. On `load()` registers an all-frames `WKUserScript` that injects the QDN bridge (see below). Auto-registers via `CAPBridgedPlugin`; no AppDelegate wiring. |
 
 All four are line-for-line behavioural ports but have **not been compiled** (no
 Xcode here). Treat first-build warnings as expected; verify each picker/sheet on
@@ -69,9 +76,12 @@ DOM `postMessage` (`qortium:qdn-request` / `qortium:qdn-response`) — **no nati
 round-trip for the messages themselves**. The native layer's only job is getting
 the bridge script into the QDN app frame.
 
+This is **staged** as `ios-staging/plugins/QdnBridgePlugin.swift` (copied in by
+the setup script) but is **unverified on device** — it's the biggest open item.
+
 iOS WKWebView **cannot** intercept `http(s)` responses for injection
 (`WKURLSchemeHandler` only handles custom schemes). The equivalent — and
-arguably cleaner — approach:
+arguably cleaner — approach (what `QdnBridgePlugin` implements):
 
 - Inject the bridge as a **`WKUserScript`** with
   `injectionTime: .atDocumentStart` and `forMainFrameOnly: false`, added to the
@@ -165,27 +175,26 @@ need `'ios'` added to the `QortiumAppUpdatePlatformOs` type (`src/vite-env.d.ts`
 ## Build environment — IMPORTANT
 
 The `qortium-macmini` (`Macmini7,1`, **Mac mini Late 2014**, macOS 12.7.6
-Monterey, Intel) is the desktop DMG builder and is set up with Command Line Tools
-+ Node only — **no full Xcode, no CocoaPods**. That model's max OS is Monterey,
-which caps Xcode at **14.2**. Apple has required **Xcode 15+ / iOS 17 SDK** for
-all App Store / TestFlight uploads since April 2024.
+Monterey, Intel) is the desktop DMG builder (Command Line Tools + Node only).
+That model's max OS is Monterey, which caps Xcode at **14.2**.
 
-Consequence: **this Mac can never produce a distributable iOS build.** Decision
-(2026-06-21): use it for **local simulator/device development only** (defer
-distribution). To actually ship to TestFlight/App Store later, use a modern Mac
-or GitHub Actions macOS runners (Xcode 16).
+Two independent walls make this Mac unusable for iOS — **even for local
+simulator dev**, not just distribution:
 
-To use this Mac for local dev you still need to, on the Mac (interactively):
+1. **Build tool:** Capacitor 8's iOS SPM manifest is `swift-tools-version: 5.9`,
+   which needs **Xcode 15+** (Xcode 14.2 ships Swift 5.7 and can't parse it).
+   Xcode 15 requires macOS Ventura 13+, which this 2014 model can't install.
+2. **Distribution:** Apple requires **Xcode 15+ / iOS 17 SDK** for all App Store
+   / TestFlight uploads since April 2024 anyway.
 
-1. Install **Xcode 14.2** from the App Store / Apple Developer downloads
-   (~10 GB, needs an Apple ID at the GUI — not automatable over SSH), then
-   `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and
-   `sudo xcodebuild -license accept`.
-2. Install **CocoaPods** (system Ruby is 2.6.10 — pin a compatible version,
-   e.g. `sudo gem install cocoapods -v 1.11.3`, or use a Ruby manager).
-3. Get this branch onto the Mac (it is **not pushed** yet — either push
-   `qdn/ios-capacitor` to origin and add a worktree there, or rsync the tree).
-4. Then run the "One-time setup" steps above.
+Decision (2026-06-21): the iOS build needs a **different machine** — a Mac on
+Ventura+ (ideally Xcode 16), a cloud Mac, or **GitHub Actions macOS runners**
+(Xcode 16, no hardware). The original "local dev on the 2014 Mac" idea is not
+viable. Note also: Cap 8 defaults to **SPM**, so CocoaPods is not needed.
+
+On a capable Mac: get this branch there (it is pushed — `git fetch` +
+`git worktree add`), then run `bash scripts/setup-ios-macos.sh` (see One-time
+setup). The script verifies Xcode >= 15 and refuses otherwise.
 
 ---
 
@@ -205,10 +214,12 @@ To use this Mac for local dev you still need to, on the Mac (interactively):
 ## Remaining work checklist
 
 - [x] Add `isIos()` + renderer gating (app updates, default node mode, accounts, QDN downloads).
-- [ ] On the Mac: install Xcode 14.2 + CocoaPods (interactive), get the branch there.
-- [ ] `npx cap add ios`, drop in staged plugins, compile.
-- [ ] Implement the QDN bridge `WKUserScript` injection + verify on device.
-- [ ] `Info.plist`: ATS exceptions + `NSLocalNetworkUsageDescription`.
+- [x] Stage QDN bridge as a self-registering `WKUserScript` plugin (`QdnBridgePlugin.swift`).
+- [x] Write `scripts/setup-ios-macos.sh` (cap add ios + plugins + Info.plist + sync; refuses on Xcode < 15).
+- [ ] Get a **capable Mac** (Ventura+/Xcode 16, cloud Mac, or GH Actions) — the 2014 Mac mini can't.
+- [ ] Run `scripts/setup-ios-macos.sh` on it, then compile in Xcode.
+- [ ] **Verify the QDN bridge on device** (window.qdnRequest in a live QDN APP frame).
+- [ ] Confirm `Info.plist` ATS patch applied (script does it; sanity-check).
 - [ ] iOS app icons / launch screen (reuse `build/` art via `cap` or `icons:*`).
 - [ ] Verify each plugin (file open, wallet export, publish-file pick) in the simulator.
 - [ ] Smoke-test QDN read + a wallet flow against a Previewnet node over the ATS exception.
