@@ -701,6 +701,11 @@ h1 {
   border-top: 1px solid var(--color-control-selected);
 }
 
+.connections__mode-field {
+  width: 100%;
+  justify-self: stretch;
+}
+
 .connections__actions {
   display: flex;
   flex-wrap: wrap;
