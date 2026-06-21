@@ -120,8 +120,11 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       includeStatus?: boolean;
       limit?: number;
       name?: string;
+      prefix?: boolean;
       service?: string;
     }) => ipcRenderer.invoke('qdn:listResources', request),
+    searchNames: (request: { limit?: number; prefix?: boolean; query: string }) =>
+      ipcRenderer.invoke('qdn:searchNames', request),
     fetchNodeApi: (request: { maxBytes?: number; method?: 'GET' | 'HEAD'; path: string }) =>
       ipcRenderer.invoke('qdn:fetchNodeApi', request),
     fetchResourceText: (request: {

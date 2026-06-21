@@ -6196,6 +6196,7 @@ function normalizeResourceRequest(value: QortiumQdnAuthorizeRequest) {
 function buildResourcesSearchPath(request: QortiumQdnResourcesSearchRequest) {
   const service = getService(request.service);
   const name = getString(request.name);
+  const prefix = getBoolean(request.prefix) ?? false;
   const limit = Math.max(0, Math.floor(getNumber(request.limit) ?? 0));
   const queryParams = new URLSearchParams({
     mode: 'ALL',
@@ -6210,10 +6211,35 @@ function buildResourcesSearchPath(request: QortiumQdnResourcesSearchRequest) {
 
   if (name) {
     queryParams.set('name', name);
-    queryParams.set('exactmatchnames', String(getBoolean(request.exactMatchNames) ?? true));
+
+    // `prefix` and `exactmatchnames` are mutually exclusive on the node — prefix
+    // search matches name/identifier prefixes, so skip exact matching for it.
+    if (!prefix) {
+      queryParams.set('exactmatchnames', String(getBoolean(request.exactMatchNames) ?? true));
+    }
+  }
+
+  if (prefix) {
+    queryParams.set('prefix', 'true');
   }
 
   return `/arbitrary/resources/search?${queryParams.toString()}`;
+}
+
+function buildNamesSearchPath(request: QortiumQdnNamesSearchRequest) {
+  const query = getString(request.query);
+  const limit = Math.max(0, Math.floor(getNumber(request.limit) ?? 0));
+  const queryParams = new URLSearchParams({ query });
+
+  if (limit > 0) {
+    queryParams.set('limit', String(limit));
+  }
+
+  if (getBoolean(request.prefix) ?? false) {
+    queryParams.set('prefix', 'true');
+  }
+
+  return `/names/search?${queryParams.toString()}`;
 }
 
 function splitPathAndQuery(resourcePath: string) {
@@ -7481,6 +7507,30 @@ function createFallbackApi(): PlatformApi {
               ? getNetworkRestrictionMessage()
               : stringifyResponseData(response.data) ||
               `QDN resource search failed with HTTP ${response.status}.`,
+          );
+        }
+
+        return response.data;
+      },
+      async searchNames(request) {
+        // Guard against an empty query, which would list every registered name.
+        if (!getString(request.query)) {
+          return [];
+        }
+
+        const settings = await readNodeSettings();
+        const { response } = await requestConfiguredNode(
+          settings,
+          buildNamesSearchPath(request),
+          'json',
+        );
+
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error(
+            response.status === 403 && settings.mode === 'network'
+              ? getNetworkRestrictionMessage()
+              : stringifyResponseData(response.data) ||
+              `QDN name search failed with HTTP ${response.status}.`,
           );
         }
 

@@ -10,6 +10,17 @@ import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 import type { AppRoute } from './routes';
 import { parseAppAddress } from './routes';
+import {
+  buildQdnDisplayUrl,
+  buildQdnNameUrl,
+  buildQdnServiceUrl,
+  buildQdnWildcardNameUrl,
+  parseQdnAddressDraft,
+  PUBLIC_QDN_SERVICES,
+  readQdnRegisteredNames,
+  readQdnResourceListItems,
+  type QdnDraftContext,
+} from './qdn';
 
 type TopBarProps = {
   activeAccount: QortiumAccountSummary | null;
@@ -76,21 +87,38 @@ type HistoryMenuItem = {
   index: number;
 };
 
-const ADDRESS_SCHEME_SUGGESTIONS: Array<{ descriptionKey: TranslationKey; value: string }> = [
+type AddressSuggestionKind = 'scheme' | 'service' | 'name' | 'identifier' | 'registered-name';
+
+type AddressSuggestion = {
+  descriptionKey: TranslationKey;
+  kind: AddressSuggestionKind;
+  value: string;
+};
+
+const SUGGESTION_DEBOUNCE_MS = 280;
+const MIN_NAME_QUERY_LENGTH = 1;
+const MAX_ADDRESS_SUGGESTIONS = 8;
+const SUGGESTION_FETCH_LIMIT = 50;
+
+const ADDRESS_SCHEME_SUGGESTIONS: AddressSuggestion[] = [
   {
     descriptionKey: 'address.suggestionQdn',
+    kind: 'scheme',
     value: 'qdn://',
   },
   {
     descriptionKey: 'address.suggestionCore',
+    kind: 'scheme',
     value: 'core://',
   },
   {
     descriptionKey: 'address.suggestionHome',
+    kind: 'scheme',
     value: 'home://dashboard',
   },
   {
     descriptionKey: 'common.settings',
+    kind: 'scheme',
     value: 'home://settings',
   },
 ];
@@ -119,14 +147,121 @@ function getDisplayInitial(value: string) {
   return character ? character.toUpperCase() : '?';
 }
 
-function getAddressSchemeSuggestions(value: string) {
+// Sort + case-insensitively de-duplicate a list of names/identifiers.
+function dedupeStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const key = value.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(value);
+  }
+
+  return result.sort((first, second) => first.localeCompare(second));
+}
+
+function buildSuggestionCacheKey(draft: QdnDraftContext) {
+  const prefix = draft.prefix.toLowerCase();
+
+  if (draft.kind === 'identifier') {
+    return `identifier|${draft.service}|${draft.name.toLowerCase()}|${prefix}`;
+  }
+
+  if (draft.kind === 'name') {
+    return `name|${draft.service}|${prefix}`;
+  }
+
+  if (draft.kind === 'wildcard-name') {
+    return `registered|${prefix}`;
+  }
+
+  return `service|${prefix}`;
+}
+
+// Fetch live suggestions for the segment under the caret. Names within a chosen
+// service come from the resource index (so every suggestion is navigable); the
+// wildcard form falls back to the full registered-name index.
+async function fetchDraftSuggestions(draft: QdnDraftContext): Promise<AddressSuggestion[]> {
+  if (draft.kind === 'wildcard-name') {
+    const data = await window.qortiumHome.qdn.searchNames({
+      query: draft.prefix.trim(),
+      prefix: true,
+      limit: SUGGESTION_FETCH_LIMIT,
+    });
+
+    return dedupeStrings(readQdnRegisteredNames(data))
+      .slice(0, MAX_ADDRESS_SUGGESTIONS)
+      .map((name): AddressSuggestion => ({
+        descriptionKey: 'address.suggestionRegisteredName',
+        kind: 'registered-name',
+        value: buildQdnWildcardNameUrl(name),
+      }));
+  }
+
+  if (draft.kind === 'name') {
+    const data = await window.qortiumHome.qdn.listResources({
+      service: draft.service,
+      name: draft.prefix || undefined,
+      prefix: true,
+      includeStatus: false,
+      includeMetadata: false,
+      limit: SUGGESTION_FETCH_LIMIT,
+    });
+
+    return dedupeStrings(readQdnResourceListItems(data).map((item) => item.name))
+      .slice(0, MAX_ADDRESS_SUGGESTIONS)
+      .map((name): AddressSuggestion => ({
+        descriptionKey: 'address.suggestionName',
+        kind: 'name',
+        value: buildQdnNameUrl(draft.service, name),
+      }));
+  }
+
+  if (draft.kind === 'identifier') {
+    const data = await window.qortiumHome.qdn.listResources({
+      service: draft.service,
+      name: draft.name,
+      prefix: true,
+      includeStatus: false,
+      includeMetadata: false,
+      limit: SUGGESTION_FETCH_LIMIT,
+    });
+
+    const prefixLower = draft.prefix.toLowerCase();
+    const identifiers = readQdnResourceListItems(data)
+      .filter((item) => item.name.toLowerCase() === draft.name.toLowerCase())
+      .map((item) => item.identifier)
+      .filter((identifier): identifier is string => typeof identifier === 'string' && identifier.length > 0)
+      .filter((identifier) => identifier.toLowerCase().startsWith(prefixLower));
+
+    return dedupeStrings(identifiers)
+      .slice(0, MAX_ADDRESS_SUGGESTIONS)
+      .map((identifier): AddressSuggestion => ({
+        descriptionKey: 'address.suggestionIdentifier',
+        kind: 'identifier',
+        value: buildQdnDisplayUrl({ service: draft.service, name: draft.name, identifier, path: '' }),
+      }));
+  }
+
+  return [];
+}
+
+// Suggestions that need no network call: the scheme stubs, plus QDN services
+// once the user is typing the service segment (qdn://, qdn://ima, …).
+function getStaticAddressSuggestions(value: string): AddressSuggestion[] {
   const input = value.trim().toLowerCase();
 
   if (!input) {
     return [];
   }
 
-  return ADDRESS_SCHEME_SUGGESTIONS.filter((suggestion) => {
+  const schemeSuggestions = ADDRESS_SCHEME_SUGGESTIONS.filter((suggestion) => {
     const suggestionValue = suggestion.value.toLowerCase();
     const scheme = suggestionValue.slice(0, suggestionValue.indexOf(':'));
 
@@ -135,6 +270,25 @@ function getAddressSchemeSuggestions(value: string) {
       (suggestionValue.startsWith(input) || scheme.startsWith(input))
     );
   });
+
+  const draft = parseQdnAddressDraft(value);
+
+  if (draft?.kind === 'service') {
+    const prefix = draft.prefix.toLowerCase();
+    const serviceSuggestions: AddressSuggestion[] = PUBLIC_QDN_SERVICES.filter((service) =>
+      service.toLowerCase().startsWith(prefix),
+    )
+      .slice(0, MAX_ADDRESS_SUGGESTIONS)
+      .map((service) => ({
+        descriptionKey: 'address.suggestionService',
+        kind: 'service',
+        value: buildQdnServiceUrl(service),
+      }));
+
+    return [...schemeSuggestions, ...serviceSuggestions];
+  }
+
+  return schemeSuggestions;
 }
 
 function getAccountTooltip(account: QortiumAccountSummary, profile: QortiumAccountProfile | null) {
@@ -1130,7 +1284,16 @@ export function TopBar({
   const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(true);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const addressSuggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const addressSuggestions = useMemo(() => getAddressSchemeSuggestions(addressValue), [addressValue]);
+  const addressSuggestionCacheRef = useRef(new Map<string, AddressSuggestion[]>());
+  // True while a click is bringing the (previously unfocused) address bar into
+  // focus, so the focus-time select-all isn't immediately collapsed by mouseup.
+  const selectAddressOnFocusRef = useRef(false);
+  const [dynamicAddressSuggestions, setDynamicAddressSuggestions] = useState<AddressSuggestion[]>([]);
+  const staticAddressSuggestions = useMemo(() => getStaticAddressSuggestions(addressValue), [addressValue]);
+  const addressSuggestions = useMemo(
+    () => [...staticAddressSuggestions, ...dynamicAddressSuggestions].slice(0, MAX_ADDRESS_SUGGESTIONS),
+    [staticAddressSuggestions, dynamicAddressSuggestions],
+  );
   const activeAddressSuggestionIndex = addressSuggestions.length > 0
     ? Math.min(addressSuggestionIndex, addressSuggestions.length - 1)
     : -1;
@@ -1171,6 +1334,63 @@ export function TopBar({
   useEffect(() => {
     setAddressSuggestionIndex(0);
   }, [addressValue]);
+
+  // Live name / identifier / registered-name suggestions for the segment under
+  // the caret. Debounced, cached, and ignored if superseded by a newer keystroke
+  // or if the node is unreachable — never blocks typing or surfaces an error.
+  useEffect(() => {
+    // Skip while the dropdown is closed (e.g. right after navigating, when the
+    // address bar holds a fully-resolved URL) — nothing would consume the result.
+    if (!addressSuggestionsOpen) {
+      setDynamicAddressSuggestions([]);
+      return undefined;
+    }
+
+    const draft = parseQdnAddressDraft(addressValue);
+
+    if (!draft || draft.kind === 'service') {
+      setDynamicAddressSuggestions([]);
+      return undefined;
+    }
+
+    if (draft.kind === 'wildcard-name' && draft.prefix.trim().length < MIN_NAME_QUERY_LENGTH) {
+      setDynamicAddressSuggestions([]);
+      return undefined;
+    }
+
+    const cacheKey = buildSuggestionCacheKey(draft);
+    const cached = addressSuggestionCacheRef.current.get(cacheKey);
+
+    if (cached) {
+      setDynamicAddressSuggestions(cached);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const suggestions = await fetchDraftSuggestions(draft);
+
+          if (cancelled) {
+            return;
+          }
+
+          addressSuggestionCacheRef.current.set(cacheKey, suggestions);
+          setDynamicAddressSuggestions(suggestions);
+        } catch {
+          if (!cancelled) {
+            setDynamicAddressSuggestions([]);
+          }
+        }
+      })();
+    }, SUGGESTION_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [addressValue, addressSuggestionsOpen]);
 
   useEffect(() => {
     if (!addressSuggestionsOpen || addressSuggestions.length === 0) {
@@ -1251,21 +1471,34 @@ export function TopBar({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    // Enter accepts the highlighted suggestion and navigates. All four scheme
-    // suggestions resolve to a valid route (qdn:// → services, core:// → API
-    // docs, home://dashboard, home://settings), so parsing always succeeds here.
-    const valueToNavigate = selectedAddressSuggestion ? selectedAddressSuggestion.value : addressValue;
-    const parsedUrl = parseAppAddress(valueToNavigate);
+    const navigate = (route: AppRoute) => {
+      setAddressError('');
+      setAddressValue(route.displayUrl);
+      setAddressSuggestionsOpen(false);
+      onNavigate(route);
+    };
 
-    if (!parsedUrl.success) {
-      setAddressError(parsedUrl.message);
+    // Prefer the address the user actually typed when it already resolves to a
+    // valid route, so an auto-highlighted completion can't hijack a complete
+    // address on Enter. Fall back to the highlighted suggestion only for partial
+    // input (e.g. "qd" → qdn://, "qdn://im" → the first matching service).
+    const typed = parseAppAddress(addressValue);
+
+    if (typed.success) {
+      navigate(typed.route);
       return;
     }
 
-    setAddressError('');
-    setAddressValue(parsedUrl.route.displayUrl);
-    setAddressSuggestionsOpen(false);
-    onNavigate(parsedUrl.route);
+    if (selectedAddressSuggestion) {
+      const parsedSuggestion = parseAppAddress(selectedAddressSuggestion.value);
+
+      if (parsedSuggestion.success) {
+        navigate(parsedSuggestion.route);
+        return;
+      }
+    }
+
+    setAddressError(typed.message);
   }
 
   return (
@@ -1343,7 +1576,23 @@ export function TopBar({
               setAddressError('');
               setAddressSuggestionsOpen(true);
             }}
-            onFocus={() => {
+            onMouseDown={(event) => {
+              // Select-all only on the click that first focuses the field; later
+              // clicks should position the caret / allow manual selection.
+              if (document.activeElement !== event.currentTarget) {
+                selectAddressOnFocusRef.current = true;
+              }
+            }}
+            onMouseUp={(event) => {
+              if (selectAddressOnFocusRef.current) {
+                event.preventDefault();
+                selectAddressOnFocusRef.current = false;
+              }
+            }}
+            onFocus={(event) => {
+              // Highlight the whole address so the user can type straight over it.
+              event.currentTarget.select();
+
               if (addressSuggestions.length > 0) {
                 setAddressSuggestionsOpen(true);
               }
@@ -1405,7 +1654,7 @@ export function TopBar({
                     index === activeAddressSuggestionIndex ? 'top-bar__address-suggestion--active' : '',
                   ].filter(Boolean).join(' ')}
                   id={`browser-address-suggestion-${index}`}
-                  key={suggestion.value}
+                  key={`${suggestion.kind}:${suggestion.value}`}
                   ref={(element) => {
                     addressSuggestionRefs.current[index] = element;
                   }}

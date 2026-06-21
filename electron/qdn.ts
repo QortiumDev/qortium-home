@@ -174,7 +174,14 @@ type QdnResourcesSearchRequest = {
   includeStatus?: unknown;
   limit?: unknown;
   name?: unknown;
+  prefix?: unknown;
   service?: unknown;
+};
+
+type QdnNamesSearchRequest = {
+  limit?: unknown;
+  prefix?: unknown;
+  query?: unknown;
 };
 
 type NodeApiRequest = {
@@ -1551,6 +1558,7 @@ async function authorizeResource(
 function buildResourcesSearchPath(request: QdnResourcesSearchRequest) {
   const service = getService(request.service);
   const name = getString(request.name);
+  const prefix = getBoolean(request.prefix) ?? false;
   const limit = Math.max(0, Math.floor(getNumber(request.limit) ?? 0));
   const queryParams = new URLSearchParams({
     mode: 'ALL',
@@ -1565,10 +1573,35 @@ function buildResourcesSearchPath(request: QdnResourcesSearchRequest) {
 
   if (name) {
     queryParams.set('name', name);
-    queryParams.set('exactmatchnames', String(getBoolean(request.exactMatchNames) ?? true));
+
+    // `prefix` and `exactmatchnames` are mutually exclusive on the node — prefix
+    // search matches name/identifier prefixes, so skip exact matching for it.
+    if (!prefix) {
+      queryParams.set('exactmatchnames', String(getBoolean(request.exactMatchNames) ?? true));
+    }
+  }
+
+  if (prefix) {
+    queryParams.set('prefix', 'true');
   }
 
   return `/arbitrary/resources/search?${queryParams.toString()}`;
+}
+
+function buildNamesSearchPath(request: QdnNamesSearchRequest) {
+  const query = getString(request.query);
+  const limit = Math.max(0, Math.floor(getNumber(request.limit) ?? 0));
+  const queryParams = new URLSearchParams({ query });
+
+  if (limit > 0) {
+    queryParams.set('limit', String(limit));
+  }
+
+  if (getBoolean(request.prefix) ?? false) {
+    queryParams.set('prefix', 'true');
+  }
+
+  return `/names/search?${queryParams.toString()}`;
 }
 
 function getQdnAppMaxBytes(value: unknown) {
@@ -5780,6 +5813,26 @@ export function registerQdnIpcHandlers() {
 
   ipcMain.handle('qdn:listResources', async (_event, request: QdnResourcesSearchRequest) => {
     const { connection, response } = await fetchConfiguredNode(buildResourcesSearchPath(request));
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(
+        response.status === 403 && connection.mode === 'network'
+          ? getNetworkRestrictionMessage()
+          : text || `Qortium node request failed with HTTP ${response.status}.`,
+      );
+    }
+
+    return text ? (JSON.parse(text) as unknown) : null;
+  });
+
+  ipcMain.handle('qdn:searchNames', async (_event, request: QdnNamesSearchRequest) => {
+    // Guard against an empty query, which would list every registered name.
+    if (!getString(request.query)) {
+      return [];
+    }
+
+    const { connection, response } = await fetchConfiguredNode(buildNamesSearchPath(request));
     const text = await response.text();
 
     if (!response.ok) {
