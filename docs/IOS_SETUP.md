@@ -209,6 +209,27 @@ setup). The script verifies Xcode >= 15 and refuses otherwise.
   full App Store submission — a preview-stage crypto wallet with
   `NSAllowsArbitraryLoads` will draw review scrutiny.
 
+### CI: `.github/workflows/ios.yml`
+
+Since no local Mac can build this, CI on GitHub's `macos-15` runners (Xcode 16)
+is the practical path:
+
+- **`simulator-build`** — runs on PRs / manual dispatch, **no secrets**. Runs
+  `scripts/setup-ios-macos.sh` then `xcodebuild … -sdk iphonesimulator
+  CODE_SIGNING_ALLOWED=NO`. This is the "does it compile on a real toolchain"
+  gate and the first thing to get green.
+- **`testflight`** — signed archive + upload, gated on `workflow_dispatch`
+  (`upload_testflight=true`) or an `ios-v*` tag. Skips/fails clearly until the
+  Apple secrets are set (listed in the workflow header):
+  `APPLE_TEAM_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_ID`,
+  `APP_STORE_CONNECT_PRIVATE_KEY`, `IOS_DIST_CERT_P12_BASE64`,
+  `IOS_DIST_CERT_PASSWORD`. Needs the Apple Developer account + an App Store
+  Connect record for `org.qortium.home`.
+
+Unverified until first run: the `App` scheme must be shared for `xcodebuild
+-scheme App` (a `-list` diagnostic step surfaces it if not); the TestFlight job's
+signing/export chain needs real credentials to exercise.
+
 ---
 
 ## Remaining work checklist
@@ -216,8 +237,9 @@ setup). The script verifies Xcode >= 15 and refuses otherwise.
 - [x] Add `isIos()` + renderer gating (app updates, default node mode, accounts, QDN downloads).
 - [x] Stage QDN bridge as a self-registering `WKUserScript` plugin (`QdnBridgePlugin.swift`).
 - [x] Write `scripts/setup-ios-macos.sh` (cap add ios + plugins + Info.plist + sync; refuses on Xcode < 15).
-- [ ] Get a **capable Mac** (Ventura+/Xcode 16, cloud Mac, or GH Actions) — the 2014 Mac mini can't.
-- [ ] Run `scripts/setup-ios-macos.sh` on it, then compile in Xcode.
+- [x] Draft GitHub Actions iOS workflow (`.github/workflows/ios.yml`) — simulator build + gated TestFlight.
+- [ ] Get the `simulator-build` CI job green (first real compile on Xcode 16; fix any scheme/SPM issues).
+- [ ] (Optional) Run `scripts/setup-ios-macos.sh` on a capable Mac for interactive Xcode debugging.
 - [ ] **Verify the QDN bridge on device** (window.qdnRequest in a live QDN APP frame).
 - [ ] Confirm `Info.plist` ATS patch applied (script does it; sanity-check).
 - [ ] iOS app icons / launch screen (reuse `build/` art via `cap` or `icons:*`).

@@ -1,0 +1,202 @@
+name: iOS
+
+# Builds the Capacitor iOS app on GitHub's macOS runners (Xcode 16), since the
+# local Mac mini (2014/Monterey) can't run Xcode 15+. See docs/IOS_SETUP.md.
+#
+#   * simulator-build — no secrets; compiles for the iOS Simulator on every PR /
+#     manual run. This is the "does it build" gate.
+#   * testflight — signed archive + TestFlight upload. Runs only on manual dispatch
+#     with upload_testflight=true, or on an `ios-v*` tag. Requires the Apple
+#     secrets listed below; it is a no-op skip until they are configured.
+#
+# Required repo secrets for the testflight job (Settings → Secrets → Actions):
+#   APPLE_TEAM_ID                  Apple Developer team id (10 chars)
+#   APP_STORE_CONNECT_ISSUER_ID    App Store Connect API key issuer id (UUID)
+#   APP_STORE_CONNECT_KEY_ID       App Store Connect API key id
+#   APP_STORE_CONNECT_PRIVATE_KEY  contents of the AuthKey_<KEYID>.p8 file
+#   IOS_DIST_CERT_P12_BASE64       base64 of the Apple Distribution cert (.p12)
+#   IOS_DIST_CERT_PASSWORD         password for that .p12
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: "Build a signed archive and upload to TestFlight (needs Apple secrets)"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "src/**"
+      - "ios-staging/**"
+      - "scripts/setup-ios-macos.sh"
+      - "capacitor.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ios.yml"
+  push:
+    tags:
+      - "ios-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  IOS_BUNDLE_ID: org.qortium.home
+  XCODE_PROJECT: ios/App/App.xcodeproj
+  XCODE_SCHEME: App
+
+jobs:
+  simulator-build:
+    name: Simulator build (no signing)
+    # Skip on tag pushes (those go straight to the testflight job).
+    if: github.event_name != 'push'
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Select Xcode 16
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - run: npm ci
+
+      - name: Generate iOS project (cap add ios + plugins + Info.plist)
+        run: bash scripts/setup-ios-macos.sh
+
+      - name: Resolve Swift package dependencies
+        run: xcodebuild -resolvePackageDependencies -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
+
+      - name: Show available schemes (diagnostic)
+        run: xcodebuild -list -project "$XCODE_PROJECT"
+
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+  testflight:
+    name: TestFlight (signed)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.upload_testflight) ||
+      startsWith(github.ref, 'refs/tags/ios-v')
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: testflight
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Guard — require Apple secrets
+        env:
+          ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          CERT: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+        run: |
+          if [ -z "$ISSUER" ] || [ -z "$CERT" ]; then
+            echo "::error::TestFlight secrets are not configured — see .github/workflows/ios.yml header."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Select Xcode 16
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - run: npm ci
+
+      - name: Generate iOS project (cap add ios + plugins + Info.plist)
+        run: bash scripts/setup-ios-macos.sh
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+
+      - name: Download provisioning profile
+        uses: apple-actions/download-provisioning-profiles@v3
+        with:
+          bundle-id: ${{ env.IOS_BUNDLE_ID }}
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+
+      - name: Write ExportOptions.plist
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>uploadSymbols</key><true/>
+            <key>destination</key><string>export</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            DEVELOPMENT_TEAM='${{ secrets.APPLE_TEAM_ID }}' \
+            archive
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates
+
+      - name: Upload to TestFlight
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          IPA=$(find "$RUNNER_TEMP/export" -name '*.ipa' | head -1)
+          if [ -z "$IPA" ]; then echo "::error::No .ipa produced"; exit 1; fi
+          xcrun altool --upload-app --type ios --file "$IPA" \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qortium-home-ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: ignore
