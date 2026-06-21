@@ -37,6 +37,10 @@ with its own clear scope.
 
 On newer Android phones (Android 15 and later), the app was drawing all the way to the screen edges, so the top bar slid under the status bar and camera cutout and the content ran beneath the on-screen navigation buttons. Phones on older Android were unaffected, which is why only some testers saw it. Qortium Home now detects the safe areas around the system bars and cutout and keeps its content clear of them, while still using the full screen with transparent system bars for the modern edge-to-edge look. This adds the `@capacitor-community/safe-area` plugin and adjusts the QDN explorer, the content viewer, the dashboard/settings pages, and dialogs so nothing is hidden behind the system bars. A stray "Qortium Home" title bar that briefly appeared at the very top has also been removed.
 
+### 2026-06-20 - feat: browser-style keyboard navigation for tabs and address bar
+
+Qortium Home now supports browser-style keyboard navigation. F6 (and Shift+F6 in reverse) moves focus between the tab strip, the address bar, and the page, and Alt+D jumps straight to the address bar. Within the tab strip, the Left/Right arrows and Home/End keys move between tabs, and a tab's close button shows on the active tab and appears on hover or focus for the others without shifting the layout. In the address bar's suggestion list, the Right arrow or Tab fills in the highlighted suggestion (leaving the cursor at the end) while Enter accepts it and navigates; clicking a suggestion now also returns the cursor to the end of the address bar.
+
 ### 2026-06-20 - feat: show the build commit on the latest GitHub Core release
 
 The latest GitHub Core release shown on the Dashboard and in Settings now includes the build commit as a suffix (for example "v1.1.0-b886a78"), matching how the currently running Core version is already displayed. When the QDN release points at the same commit, it shows the same suffixed label so the two sources read consistently.
