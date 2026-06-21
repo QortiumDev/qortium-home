@@ -19,7 +19,6 @@ type QortiumAccountsState = {
 type QortiumAccountProfile = {
   accountId: string;
   address: string;
-  avatarUrl: string | null;
   label: string;
   name: string | null;
 };

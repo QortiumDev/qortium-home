@@ -131,7 +131,6 @@ type AccountsState = {
 type AccountProfile = {
   accountId: string;
   address: string;
-  avatarUrl: string | null;
   label: string;
   name: string | null;
 };
@@ -758,14 +757,10 @@ export async function getAccountProfile(accountId: string): Promise<AccountProfi
     ? (await getPrimaryName(accountAddress, nodeApiUrl)) ??
       (await getFirstOwnedName(accountAddress, nodeApiUrl))
     : null;
-  const avatarUrl = name
-    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
-    : null;
 
   return {
     accountId,
     address: accountAddress,
-    avatarUrl,
     label: addressIndex === 0 ? wallet.label : `${wallet.label} · ${addressIndex}`,
     name,
   };

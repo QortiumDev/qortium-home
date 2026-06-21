@@ -1,6 +1,7 @@
 import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccountAvatar } from './AccountAvatar';
 import { getAccountProfile } from './accountProfile';
 import type { AppIconResolution } from './appIconUtils';
 import { getAppIconResolution } from './appIconUtils';
@@ -321,7 +322,6 @@ function AccountChip({
   onMenuOpenChange?: (isOpen: boolean) => void;
 }) {
   const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
-  const [hasAvatarError, setHasAvatarError] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [password, setPassword] = useState('');
@@ -331,7 +331,6 @@ function AccountChip({
     let isDisposed = false;
 
     setProfile(null);
-    setHasAvatarError(false);
 
     if (!account) {
       return () => {
@@ -426,8 +425,6 @@ function AccountChip({
   const accountChipTitle = account
     ? t('account.chipTitle', { accountDetails: getAccountTooltip(account, profile), status: statusLabel })
     : statusLabel;
-  const avatarUrl = profile?.avatarUrl;
-  const showAvatar = !!avatarUrl && !hasAvatarError;
 
   return (
     <Popover
@@ -449,19 +446,17 @@ function AccountChip({
           }
           onClick={toggle}
         >
-          {showAvatar ? (
-            <img
-              className="account-chip__avatar"
-              src={avatarUrl}
-              alt=""
-              aria-hidden="true"
-              onError={() => setHasAvatarError(true)}
-            />
-          ) : (
-            <span className="account-chip__fallback" aria-hidden="true">
-              {getDisplayInitial(displayName)}
-            </span>
-          )}
+          <AccountAvatar
+            name={profile?.name ?? null}
+            nodeApiUrl={nodeApiUrl}
+            nodeEpoch={nodeEpoch}
+            imageClassName="account-chip__avatar"
+            fallback={
+              <span className="account-chip__fallback" aria-hidden="true">
+                {getDisplayInitial(displayName)}
+              </span>
+            }
+          />
           {account ? (
             <span
               className={`account-chip__status account-chip__status--${account.isUnlocked ? 'unlocked' : 'locked'}`}
@@ -650,13 +645,11 @@ function TabAvatar({
   nodeEpoch: number;
 }) {
   const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
-  const [hasAvatarError, setHasAvatarError] = useState(false);
 
   useEffect(() => {
     let isDisposed = false;
 
     setProfile(null);
-    setHasAvatarError(false);
 
     if (!account) {
       return () => {
@@ -686,27 +679,23 @@ function TabAvatar({
   }
 
   const displayName = profile?.name ?? account.label;
-  const avatarUrl = profile?.avatarUrl;
-  const showAvatar = !!avatarUrl && !hasAvatarError;
 
   return (
     <span
       className={`top-bar__tab-avatar${account.isUnlocked ? ' top-bar__tab-avatar--unlocked' : ''}`}
       title={displayName}
     >
-      {showAvatar ? (
-        <img
-          className="top-bar__tab-avatar-image"
-          src={avatarUrl}
-          alt=""
-          aria-hidden="true"
-          onError={() => setHasAvatarError(true)}
-        />
-      ) : (
-        <span className="top-bar__tab-avatar-fallback" aria-hidden="true">
-          {getDisplayInitial(displayName)}
-        </span>
-      )}
+      <AccountAvatar
+        name={profile?.name ?? null}
+        nodeApiUrl={nodeApiUrl}
+        nodeEpoch={nodeEpoch}
+        imageClassName="top-bar__tab-avatar-image"
+        fallback={
+          <span className="top-bar__tab-avatar-fallback" aria-hidden="true">
+            {getDisplayInitial(displayName)}
+          </span>
+        }
+      />
     </span>
   );
 }
