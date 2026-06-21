@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - feat: auto-open the lone resource for identifier-less QDN links
+
+Made Home open a QDN page directly when a link names only a service and a name (no identifier) and that combination turns out to have exactly one published resource. Previously such a link always showed a listing view, even when there was only a single thing to list. Now, after Home checks what exists under that service and name, a single match opens straight away, while zero or multiple matches still show the listing as before. This works the same whether the link comes from the address bar, a click inside Home, or a QDN app asking Home to open an address through its bridge. The address bar updates to show the full resolved link (including its identifier), and the unresolved step is not left in the back/forward history, so the Back button behaves naturally.
+
 ### 2026-06-21 - build: make macOS 11 dmg use Electron 38
 
 Changed the remote macOS 11 legacy DMG build so it packages with Electron 38, the newest Electron line that still supports macOS Big Sur, instead of only renaming a normal Electron 39 universal build. The legacy target still sets the app minimum system version to `11.0.0`, but now it also scans the generated `.app` bundle's Mach-O load commands and fails the build if any bundled executable or framework still requires macOS 12 or newer. This prevents a `macos11-universal.dmg` release asset from being uploaded unless the actual app binaries are compatible with macOS 11.
