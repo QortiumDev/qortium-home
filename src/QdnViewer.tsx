@@ -1,4 +1,4 @@
-import { ChevronDown, ClipboardCopy, Copy, Download, FolderOpen, Image as ImageIcon, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, ClipboardCopy, Copy, Download, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
 import type {
@@ -916,31 +916,26 @@ function QdnDownloadButton({
   resource: QdnResource;
 }) {
   const [downloadState, setDownloadState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
-  // After a successful desktop download, keep a persistent "open location"
-  // affordance (cleared only when the view reloads). This stops the same file
-  // from being re-downloaded by accident and lets the user jump to where it was
-  // saved. Re-downloading is still possible by reloading the tab.
-  const [revealTarget, setRevealTarget] = useState<{ label: string; path: string } | null>(null);
-  const opensNativeDownload = isNativePlatform();
+  // After a successful download, keep a persistent affordance (cleared only when
+  // the view reloads): desktop reveals the saved file in the file manager,
+  // Android opens it. This stops the same file from being re-downloaded by
+  // accident; reload the tab to download again.
+  const [savedAffordance, setSavedAffordance] = useState<
+    { mode: 'open' | 'reveal'; label: string; path: string } | null
+  >(null);
   // Multi-file resources save as a single archive, so the action makes the
   // .zip outcome explicit (e.g. "Download (zip)").
   const suggestedFilename = multiFile
     ? getMultiFileDownloadName(resource)
     : getSuggestedResourceFilename(resource, properties);
-  const actionLabel = `${opensNativeDownload ? t('common.open') : t('common.download')}${multiFile ? ' (zip)' : ''}`;
+  const actionLabel = `${t('common.download')}${multiFile ? ' (zip)' : ''}`;
   const buttonLabel =
     downloadState === 'saving'
-      ? opensNativeDownload
-        ? t('viewer.download.opening')
-        : t('common.saving')
+      ? t('common.saving')
       : downloadState === 'saved'
-        ? opensNativeDownload
-          ? t('viewer.download.opened')
-          : t('viewer.download.saved')
+        ? t('viewer.download.saved')
         : downloadState === 'error'
-          ? opensNativeDownload
-            ? t('viewer.download.openFailed')
-            : t('viewer.download.saveFailed')
+          ? t('viewer.download.saveFailed')
           : actionLabel;
 
   useEffect(() => {
@@ -953,22 +948,34 @@ function QdnDownloadButton({
     return () => window.clearTimeout(timeoutId);
   }, [downloadState]);
 
-  // Desktop after a successful save: reuse the same folder icon the dashboard
-  // and settings use to reveal install locations, as an icon-only button.
-  if (revealTarget) {
-    const revealLabel = t('common.revealItem', { target: revealTarget.label });
+  // After a successful save, show an icon-only affordance: desktop reveals the
+  // file in the file manager (FolderOpen); Android opens the saved file (no
+  // folder-reveal exists on Android).
+  if (savedAffordance) {
+    const isReveal = savedAffordance.mode === 'reveal';
+    const affordanceLabel = isReveal
+      ? t('common.revealItem', { target: savedAffordance.label })
+      : t('common.openItem', { target: savedAffordance.label });
 
     return (
       <button
         className={`button qdn-viewer__action-button${compact ? ' button--compact' : ''}`}
         type="button"
-        title={revealLabel}
-        aria-label={revealLabel}
+        title={affordanceLabel}
+        aria-label={affordanceLabel}
         onClick={() => {
-          void window.qortiumHome.system?.revealPath(revealTarget.path);
+          if (isReveal) {
+            void window.qortiumHome.system?.revealPath(savedAffordance.path);
+          } else {
+            void window.qortiumHome.qdn.openDownloadedResource?.({ uri: savedAffordance.path });
+          }
         }}
       >
-        <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
+        {isReveal ? (
+          <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
+        ) : (
+          <FileIcon aria-hidden="true" size={18} strokeWidth={2} />
+        )}
       </button>
     );
   }
@@ -998,11 +1005,19 @@ function QdnDownloadButton({
             return;
           }
 
-          // Desktop: switch to the persistent reveal affordance for the saved
-          // file. Native (Android) opens the file directly and has no folder to
-          // reveal, so it keeps the transient "Opened" feedback.
-          if (!opensNativeDownload && result.filePath && window.qortiumHome.system?.revealPath) {
-            setRevealTarget({ label: result.fileName ?? suggestedFilename, path: result.filePath });
+          // Swap to a persistent post-download affordance: desktop reveals the
+          // saved file in the file manager; Android opens it (Android has no
+          // folder-reveal). Anything else falls through to a transient "Saved".
+          const savedLabel = result.fileName ?? suggestedFilename;
+
+          if (!isNativePlatform() && result.filePath && window.qortiumHome.system?.revealPath) {
+            setSavedAffordance({ mode: 'reveal', label: savedLabel, path: result.filePath });
+            setDownloadState('idle');
+            return;
+          }
+
+          if (isNativePlatform() && result.filePath && window.qortiumHome.qdn.openDownloadedResource) {
+            setSavedAffordance({ mode: 'open', label: savedLabel, path: result.filePath });
             setDownloadState('idle');
             return;
           }
@@ -1013,7 +1028,11 @@ function QdnDownloadButton({
         }
       }}
     >
-      <Download aria-hidden="true" size={18} strokeWidth={2} />
+      {downloadState === 'saving' ? (
+        <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
+      ) : (
+        <Download aria-hidden="true" size={18} strokeWidth={2} />
+      )}
       <span className="button__label">{buttonLabel}</span>
     </button>
   );
@@ -2163,7 +2182,7 @@ function QdnReadyContent({
     return (
       <QdnDetailsContent
         loadedResource={loadedResource}
-        message={isNativePlatform() ? t('viewer.readyToOpen') : t('viewer.readyToDownload')}
+        message={t('viewer.readyToDownload')}
         resource={resource}
       />
     );

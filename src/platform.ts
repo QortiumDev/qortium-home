@@ -3,6 +3,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { AES_CBC, HmacSha512, Sha512, bytes_to_base64 } from 'asmcrypto.js';
 import bcrypt from 'bcryptjs';
+import { zipSync } from 'fflate';
 import nacl from 'tweetnacl';
 import packageJson from '../package.json';
 import { compareAppVersions } from './appUpdates';
@@ -143,8 +144,11 @@ type UpdateInstallerPlugin = {
   installApk: (request: { filePath: string }) => Promise<{ opened?: boolean }>;
 };
 
-type QdnFileOpenerPlugin = {
-  openFile: (request: { filePath: string; mimeType?: string }) => Promise<{ opened?: boolean }>;
+type QdnFileSaverPlugin = {
+  saveFile: (
+    request: { path: string; fileName: string; mimeType?: string },
+  ) => Promise<{ canceled: true } | { canceled: false; uri: string; name: string; size: number }>;
+  openSavedFile: (request: { uri: string; mimeType?: string }) => Promise<{ opened: boolean }>;
 };
 
 type WalletBackupPlugin = {
@@ -264,7 +268,7 @@ type PendingQdnApproval = {
 };
 
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
-const QdnFileOpener = registerPlugin<QdnFileOpenerPlugin>('QdnFileOpener');
+const QdnFileSaver = registerPlugin<QdnFileSaverPlugin>('QdnFileSaver');
 const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
 const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
@@ -537,8 +541,7 @@ function base64ToBytes(value: string) {
   return bytes;
 }
 
-function arrayBufferToBase64(value: ArrayBuffer) {
-  const bytes = new Uint8Array(value);
+function bytesToBase64(bytes: Uint8Array) {
   let binary = '';
 
   for (let index = 0; index < bytes.length; index += 1) {
@@ -546,6 +549,10 @@ function arrayBufferToBase64(value: ArrayBuffer) {
   }
 
   return window.btoa(binary);
+}
+
+function arrayBufferToBase64(value: ArrayBuffer) {
+  return bytesToBase64(new Uint8Array(value));
 }
 
 async function sha256(data: Uint8Array) {
@@ -6286,6 +6293,81 @@ async function fetchConfiguredRawResourceBase64(request: QortiumQdnRawResourceRe
   };
 }
 
+// Guards so a pathological multi-file resource can't exhaust memory while we
+// build the zip. Mirrors electron/qdn.ts.
+const MAX_QDN_ZIP_FILE_COUNT = 5000;
+const MAX_QDN_ZIP_TOTAL_BYTES = 512 * 1024 * 1024;
+
+// On Android an 'arraybuffer' response comes back from CapacitorHttp as a base64
+// string, so a raw fetch must decode to real bytes here (unlike electron, which
+// gets a true ArrayBuffer). Shares the configured-node fetch + error handling
+// with both the single-file and per-file (multi-file) download paths.
+async function fetchConfiguredRawResourceBytes(
+  request: QortiumQdnRawResourceRequest,
+): Promise<Uint8Array> {
+  const { content } = await fetchConfiguredRawResourceBase64(request);
+
+  return base64ToBytes(content);
+}
+
+// Read a multi-file resource's relative file paths from its metadata. Mirrors
+// electron/qdn.ts fetchResourceFileList: the metadata endpoint always lists the
+// files, and the identifier defaults to the literal 'default'.
+async function fetchQdnResourceFileList(
+  request: QortiumQdnRawResourceRequest,
+): Promise<string[]> {
+  const resource = normalizeResourceRequest(request);
+  const identifier = resource.identifier ? resource.identifier : 'default';
+  const metadataPath = `/arbitrary/metadata/${resource.service}/${encodeURIComponent(
+    resource.name,
+  )}/${encodeURIComponent(identifier)}`;
+  const settings = await readNodeSettings();
+  const { response } = await requestConfiguredNode(settings, metadataPath, 'json');
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      response.status === 403 && settings.mode === 'network'
+        ? getNetworkRestrictionMessage()
+        : `Unable to read the resource file list (HTTP ${response.status}).`,
+    );
+  }
+
+  return isRecord(response.data) && Array.isArray(response.data.files)
+    ? response.data.files.map(getString).filter(Boolean)
+    : [];
+}
+
+// Multi-file resources have no single artifact to download, so assemble the
+// archive client-side: list the files, fetch each one by its relative path, and
+// zip them in-process. Mirrors electron/qdn.ts buildResourceZip.
+async function buildQdnResourceZip(request: QortiumQdnRawResourceRequest): Promise<Uint8Array> {
+  const files = await fetchQdnResourceFileList(request);
+
+  if (files.length === 0) {
+    throw new Error('This resource has no files to download.');
+  }
+
+  if (files.length > MAX_QDN_ZIP_FILE_COUNT) {
+    throw new Error(`This resource has too many files to download as a zip (${files.length}).`);
+  }
+
+  const entries: Record<string, Uint8Array> = {};
+  let totalBytes = 0;
+
+  for (const file of files) {
+    const bytes = await fetchConfiguredRawResourceBytes({ ...request, path: file });
+    totalBytes += bytes.byteLength;
+
+    if (totalBytes > MAX_QDN_ZIP_TOTAL_BYTES) {
+      throw new Error('This resource is too large to download as a zip.');
+    }
+
+    entries[file] = bytes;
+  }
+
+  return zipSync(entries);
+}
+
 function getQdnAppResourceRequest(request: QdnAppRequest): QdnAppResourceRequest {
   const service = getService(getRequestValue(request, 'service'));
   const name = getString(getRequestValue(request, 'name'));
@@ -7567,33 +7649,68 @@ function createFallbackApi(): PlatformApi {
         }
 
         const fileName = getSuggestedQdnDownloadFilename(request);
-        const downloadPath = `${QDN_DOWNLOADS_DIR}/${Date.now()}-${fileName}`;
-        const downloadedResource = await fetchConfiguredRawResourceBase64(request);
+
+        // Assemble the bytes the same way the desktop does: single-file fetches
+        // the resource directly; multi-file zips the metadata file list
+        // client-side with fflate. The bridge can't carry huge base64 payloads,
+        // so stage the result in a temp cache file and let the native SAF plugin
+        // stream it to the user-chosen content:// URI.
+        let bytes: Uint8Array;
+        let mimeType: string | undefined;
+
+        if (request.multiFile) {
+          bytes = await buildQdnResourceZip(request);
+          mimeType = 'application/zip';
+        } else {
+          const downloadedResource = await fetchConfiguredRawResourceBase64(request);
+          bytes = base64ToBytes(downloadedResource.content);
+          mimeType = downloadedResource.contentType || undefined;
+        }
+
+        const tempPath = `${QDN_DOWNLOADS_DIR}/${Date.now()}-${fileName}`;
 
         await Filesystem.writeFile({
-          path: downloadPath,
-          data: downloadedResource.content,
-          directory: Directory.Data,
+          path: tempPath,
+          data: bytesToBase64(bytes),
+          directory: Directory.Cache,
           recursive: true,
         });
 
-        const fileUri = await Filesystem.getUri({
-          path: downloadPath,
-          directory: Directory.Data,
+        const tempUri = await Filesystem.getUri({
+          path: tempPath,
+          directory: Directory.Cache,
         });
 
-        await QdnFileOpener.openFile({
-          filePath: fileUri.uri,
-          mimeType: downloadedResource.contentType || undefined,
-        });
+        try {
+          const saved = await QdnFileSaver.saveFile({
+            path: tempUri.uri,
+            fileName,
+            mimeType,
+          });
 
-        return {
-          canceled: false,
-          fileName,
-          filePath: fileUri.uri,
-          opened: true,
-          size: downloadedResource.contentLength,
-        };
+          if (saved.canceled) {
+            return { canceled: true };
+          }
+
+          return {
+            canceled: false,
+            fileName: saved.name,
+            filePath: saved.uri,
+            size: saved.size,
+          };
+        } finally {
+          // The native plugin best-effort deletes the temp file after a
+          // successful copy; remove it here too so a cancel or error never
+          // leaves staged bytes in the cache.
+          await Filesystem.deleteFile({ path: tempPath, directory: Directory.Cache }).catch(() => undefined);
+        }
+      },
+      async openDownloadedResource(request) {
+        if (!isAndroid()) {
+          throw new Error('Opening a saved QDN download is only available in the Android app.');
+        }
+
+        await QdnFileSaver.openSavedFile({ uri: request.uri, mimeType: request.mimeType });
       },
     },
   };

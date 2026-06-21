@@ -3544,6 +3544,12 @@ h1 {
 }
 
 @media (max-width: 600px) {
+  /* The QDN explorer Preview/Refresh actions are tight on phones, so drop their
+     text and show icon-only (the title/aria-label keep them accessible). */
+  .qdn-explorer__header-actions .button__label {
+    display: none;
+  }
+
   .popover-panel {
     min-width: min(280px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
