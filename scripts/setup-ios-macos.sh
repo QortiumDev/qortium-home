@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Qortium Home — iOS (Capacitor) one-shot setup. macOS only.
+# Qortium Home - iOS (Capacitor) one-shot setup. macOS only.
 #
 # Run AFTER a full Xcode (15+, ideally 16) and Node are installed, from the repo
-# root. Idempotent: safe to re-run. Does NOT need CocoaPods — Capacitor 8 uses
+# root. Idempotent: safe to re-run. Does NOT need CocoaPods - Capacitor 8 uses
 # Swift Package Manager for this project.
 #
 #   bash scripts/setup-ios-macos.sh
@@ -55,30 +55,30 @@ XCODE_MAJOR="${XCODE_VER%%.*}"
 if [ -z "$XCODE_MAJOR" ] || [ "$XCODE_MAJOR" -lt 15 ]; then
   die "Xcode $XCODE_VER detected. Capacitor 8 iOS needs Xcode 15+ (its SPM
        manifest is swift-tools 5.9). A 2014 Mac mini / macOS Monterey caps at
-       Xcode 14.2 and cannot build this — use a Mac on Ventura+ (ideally Xcode
+       Xcode 14.2 and cannot build this - use a Mac on Ventura+ (ideally Xcode
        16) or GitHub Actions macOS runners. See docs/IOS_SETUP.md."
 fi
 info "Xcode $XCODE_VER OK."
 
 # --- 2. deps ---------------------------------------------------------------
 if [ ! -d node_modules ]; then
-  info "Installing npm dependencies…"
+  info "Installing npm dependencies..."
   npm install
 fi
-[ -d node_modules/@capacitor/ios ] || die "@capacitor/ios missing — run 'npm install'."
+[ -d node_modules/@capacitor/ios ] || die "@capacitor/ios missing - run 'npm install'."
 
 # --- 3. cap add ios --------------------------------------------------------
 if [ -d ios ]; then
-  info "ios/ already exists — skipping 'cap add ios'."
+  info "ios/ already exists - skipping 'cap add ios'."
 else
-  info "Adding iOS platform (npx cap add ios)…"
+  info "Adding iOS platform (npx cap add ios)..."
   npm run build:renderer
   npx cap add ios
 fi
-[ -d "$APP_TARGET_DIR" ] || die "Expected $APP_TARGET_DIR after cap add ios — layout changed?"
+[ -d "$APP_TARGET_DIR" ] || die "Expected $APP_TARGET_DIR after cap add ios - layout changed?"
 
 # --- 4. copy staged Swift plugins ------------------------------------------
-info "Copying staged Swift plugins into $APP_TARGET_DIR…"
+info "Copying staged Swift plugins into $APP_TARGET_DIR..."
 cp "$STAGED_PLUGINS"/*.swift "$APP_TARGET_DIR"/
 # Cap 8's template uses Xcode synchronized file groups, so files dropped into the
 # App folder are picked up by the target automatically. If a plugin is missing at
@@ -86,7 +86,7 @@ cp "$STAGED_PLUGINS"/*.swift "$APP_TARGET_DIR"/
 
 # --- 5. patch Info.plist ---------------------------------------------------
 [ -f "$PLIST" ] || die "Missing $PLIST."
-info "Patching $PLIST (App Transport Security + Local Network)…"
+info "Patching $PLIST (App Transport Security + Local Network)..."
 
 # Idempotent set-or-add helpers.
 pb_dict() { "$PB" -c "Print :$1" "$PLIST" >/dev/null 2>&1 || "$PB" -c "Add :$1 dict" "$PLIST"; }
@@ -95,14 +95,14 @@ pb_str()  { "$PB" -c "Set :$1 $2" "$PLIST" 2>/dev/null || "$PB" -c "Add :$1 stri
 
 # Nodes are user-entered cleartext http endpoints (localhost + Previewnet IPs);
 # iOS URLSession enforces ATS, so arbitrary loads must be allowed. This is an App
-# Store review risk — justify it (decentralized, user-entered node endpoints).
+# Store review risk - justify it (decentralized, user-entered node endpoints).
 pb_dict "NSAppTransportSecurity"
 pb_bool "NSAppTransportSecurity:NSAllowsArbitraryLoads" true
 pb_bool "NSAppTransportSecurity:NSAllowsLocalNetworking" true
 pb_str  "NSLocalNetworkUsageDescription" "$LOCAL_NET_DESC"
 
 # --- 6. sync ---------------------------------------------------------------
-info "Syncing web assets + native deps (npm run ios:sync)…"
+info "Syncing web assets + native deps (npm run ios:sync)..."
 npm run ios:sync
 
 cat <<EOF
@@ -113,7 +113,7 @@ Next (manual, in Xcode):
   - Select a signing team (Apple Developer account) for the App target.
   - Build & run on the iOS Simulator.
   - VERIFY the QDN bridge: open a QDN APP/WEBSITE view and confirm window.qdnRequest
-    works (QdnBridgePlugin injects it as an all-frames WKUserScript — unverified).
+    works (QdnBridgePlugin injects it as an all-frames WKUserScript - unverified).
   - Smoke-test a node read + a wallet flow against a Previewnet node.
 
 Note: ATS NSAllowsArbitraryLoads is enabled (cleartext http nodes). Review-risk;
