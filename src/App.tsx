@@ -46,6 +46,7 @@ import { setTranslationLanguage, t, type TranslationKey } from './i18n';
 import { buildQdnDisplayUrl, type QdnDisplaySettings, type QdnResource, type QdnService } from './qdn';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnPreviewViewer } from './QdnPreview';
+import { DocumentViewer } from './DocumentViewer';
 import { QdnViewer } from './QdnViewer';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
 import { TopBar } from './TopBar';
@@ -549,6 +550,7 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
 }
 
 const QDN_MEDIA_PLAYER_SERVICES: readonly QdnService[] = ['AUDIO', 'PODCAST', 'VIDEO', 'VOICE'];
+const QDN_DOCUMENT_VIEWER_SERVICES: readonly QdnService[] = ['ATTACHMENT', 'DOCUMENT', 'FILE', 'FILES'];
 
 type QdnMediaPlayerDialogProps = {
   displaySettings: QdnDisplaySettings;
@@ -588,6 +590,25 @@ function QdnMediaPlayerDialog({ displaySettings, nodeApiUrl, onDismiss, resource
           />
         </div>
       </section>
+    </ModalDialog>
+  );
+}
+
+type QdnDocumentViewerDialogProps = {
+  displaySettings: QdnDisplaySettings;
+  onDismiss: () => void;
+  resource: QdnResource;
+};
+
+function QdnDocumentViewerDialog({ displaySettings, onDismiss, resource }: QdnDocumentViewerDialogProps) {
+  return (
+    <ModalDialog onDismiss={onDismiss}>
+      <DocumentViewer
+        key={resource.displayUrl}
+        displaySettings={displaySettings}
+        onDismiss={onDismiss}
+        resource={resource}
+      />
     </ModalDialog>
   );
 }
@@ -667,6 +688,7 @@ export function App() {
   const [qdnUnlockRequests, setQdnUnlockRequests] = useState<QortiumQdnUnlockRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
+  const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
@@ -685,6 +707,7 @@ export function App() {
     ((address: string, sourceTabId: string | null) => void) | null
   >(null);
   const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
+  const openQdnDocumentViewerRef = useRef<((request: QortiumQdnDocumentViewerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
@@ -700,7 +723,7 @@ export function App() {
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnUnlockRequest || !!activeQdnWriteRequest;
-  const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource;
+  const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource || !!qdnDocumentViewerResource;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
@@ -1375,6 +1398,24 @@ export function App() {
     setQdnMediaPlayerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
   }
 
+  function openQdnDocumentViewer(request: QortiumQdnDocumentViewerRequest) {
+    const service = request.service.toUpperCase() as QdnService;
+
+    if (!QDN_DOCUMENT_VIEWER_SERVICES.includes(service) || !request.name) {
+      console.warn('Ignoring QDN app document viewer request for an unsupported resource.', request);
+      return;
+    }
+
+    const resource: Omit<QdnResource, 'displayUrl'> = {
+      ...(request.identifier ? { identifier: request.identifier } : {}),
+      name: request.name,
+      path: request.path ?? '',
+      service,
+    };
+
+    setQdnDocumentViewerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
+  }
+
   function selectTab(tabId: string) {
     setTabState((currentTabState) => {
       if (!currentTabState.tabs.some((tab) => tab.id === tabId)) {
@@ -1687,6 +1728,7 @@ export function App() {
   openAppLinkInNewTabRef.current = openAppLinkInNewTab;
   openInCurrentTabRef.current = openInCurrentTab;
   openQdnMediaPlayerRef.current = openQdnMediaPlayer;
+  openQdnDocumentViewerRef.current = openQdnDocumentViewer;
 
   useEffect(() => {
     return window.qortiumHome.menu?.onCommand((command) => {
@@ -1767,6 +1809,18 @@ export function App() {
 
     return qdnEvents.onOpenMediaPlayer((event) => {
       openQdnMediaPlayerRef.current?.(event);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onOpenDocumentViewer) {
+      return undefined;
+    }
+
+    return qdnEvents.onOpenDocumentViewer((event) => {
+      openQdnDocumentViewerRef.current?.(event);
     });
   }, []);
 
@@ -2145,6 +2199,7 @@ export function App() {
                   account={tabAccount}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
@@ -2233,6 +2288,13 @@ export function App() {
           nodeApiUrl={nodeSettings.nodeApiUrl}
           onDismiss={() => setQdnMediaPlayerResource(null)}
           resource={qdnMediaPlayerResource}
+        />
+      ) : null}
+      {qdnDocumentViewerResource && !activeQdnWriteRequest && !activeQdnUnlockRequest ? (
+        <QdnDocumentViewerDialog
+          displaySettings={effectiveDisplaySettings}
+          onDismiss={() => setQdnDocumentViewerResource(null)}
+          resource={qdnDocumentViewerResource}
         />
       ) : null}
     </main>

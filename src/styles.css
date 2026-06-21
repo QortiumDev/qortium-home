@@ -3867,3 +3867,186 @@ h1 {
 .qdn-viewer__status-text {
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Document Viewer ---- */
+
+.doc-viewer-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 80em);
+  height: min(100%, 92vh);
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-modal);
+}
+
+.doc-viewer__toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 6px var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.doc-viewer__toolbar-left,
+.doc-viewer__toolbar-right {
+  display: flex;
+  flex: 1;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.doc-viewer__toolbar-right {
+  justify-content: flex-end;
+}
+
+.doc-viewer__toolbar-center {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.doc-viewer__format-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-subtle);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 24em;
+}
+
+.doc-viewer__nav-btn {
+  flex: 0 0 auto;
+}
+
+.doc-viewer__page-indicator,
+.doc-viewer__zoom-level {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+  padding: 0 var(--space-1);
+}
+
+.doc-viewer__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--color-frame-bg, var(--color-surface-sunken));
+  min-height: 0;
+}
+
+.doc-viewer__content--status {
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.doc-viewer__status-text {
+  margin: 0;
+  text-align: center;
+  color: var(--color-text-subtle);
+}
+
+.doc-viewer__pdf-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.doc-viewer__pdf-canvas-wrap canvas {
+  max-width: 100%;
+  box-shadow: var(--shadow-card);
+}
+
+.doc-viewer__epub-frame {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+}
+
+.doc-viewer__txt-body {
+  margin: 0;
+  padding: var(--space-4);
+  font-family: var(--font-mono, monospace);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  tab-size: 4;
+}
+
+.doc-viewer__cbz-stage {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-4);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.doc-viewer__cbz-img {
+  max-width: 100%;
+  display: block;
+  box-shadow: var(--shadow-card);
+}
+
+.doc-viewer__toc-panel {
+  flex: 0 0 auto;
+  overflow-y: auto;
+  max-height: 40vh;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--space-2) 0;
+}
+
+.doc-viewer__toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.doc-viewer__toc-item {
+  display: flex;
+}
+
+.doc-viewer__toc-link {
+  display: block;
+  width: 100%;
+  padding: var(--space-1) var(--space-3);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  transition: background 120ms ease;
+}
+
+.doc-viewer__toc-link:hover {
+  background: var(--color-hover);
+}
+
+.doc-viewer__toc-link:active {
+  background: var(--color-active);
+}
+
+/* "Open in Document Viewer" button shown in download branch of QdnViewer */
+.qdn-viewer__doc-open-wrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}

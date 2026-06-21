@@ -1,4 +1,4 @@
-import type { TranslationKey } from './en';
+﻿import type { TranslationKey } from './en';
 
 // Russian (Русский) catalog.
 export const ru: Record<TranslationKey, string> = {
@@ -251,7 +251,24 @@ export const ru: Record<TranslationKey, string> = {
   "explorer.publishedResource": "Опубликованный ресурс QDN",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "Ответ со списком ресурсов QDN не соответствует ожидаемой структуре.",
-  "mediaPlayer.close": "Закрыть",
+  "docViewer.close": "Close",
+  "docViewer.dialogLabel": "Document viewer",
+  "docViewer.download": "Download",
+  "docViewer.error": "Unable to load document.",
+  "docViewer.format.cbz": "Comic (CBZ)",
+  "docViewer.format.epub": "EPUB",
+  "docViewer.format.pdf": "PDF",
+  "docViewer.format.txt": "Text",
+  "docViewer.nextPage": "Next page",
+  "docViewer.openIn": "Open in Document Viewer",
+  "docViewer.page": "{current} / {total}",
+  "docViewer.prevPage": "Previous page",
+  "docViewer.tableOfContents": "Table of contents",
+  "docViewer.tooLarge": "This document is too large to preview inline (limit: 5 MB). Download it to open it.",
+  "docViewer.unsupported": "This format cannot be displayed inline. Download the file to open it.",
+  "docViewer.zoomIn": "Zoom in",
+  "docViewer.zoomLevel": "{percent}%",
+  "docViewer.zoomOut": "Zoom out",  "mediaPlayer.close": "Закрыть",
   "mediaPlayer.dialogLabel": "Медиаплеер",
   "menu.closeWindow": "Закрыть окно",
   "menu.copy": "Копировать",

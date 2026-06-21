@@ -1,4 +1,4 @@
-import type { TranslationKey } from './en';
+﻿import type { TranslationKey } from './en';
 
 // Hungarian (Magyar) catalog.
 export const hu: Record<TranslationKey, string> = {
@@ -251,7 +251,24 @@ export const hu: Record<TranslationKey, string> = {
   "explorer.publishedResource": "Közzétett QDN-erőforrás",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "A QDN-erőforráslista válasza nem felelt meg a várt formátumnak.",
-  "mediaPlayer.close": "Bezárás",
+  "docViewer.close": "Close",
+  "docViewer.dialogLabel": "Document viewer",
+  "docViewer.download": "Download",
+  "docViewer.error": "Unable to load document.",
+  "docViewer.format.cbz": "Comic (CBZ)",
+  "docViewer.format.epub": "EPUB",
+  "docViewer.format.pdf": "PDF",
+  "docViewer.format.txt": "Text",
+  "docViewer.nextPage": "Next page",
+  "docViewer.openIn": "Open in Document Viewer",
+  "docViewer.page": "{current} / {total}",
+  "docViewer.prevPage": "Previous page",
+  "docViewer.tableOfContents": "Table of contents",
+  "docViewer.tooLarge": "This document is too large to preview inline (limit: 5 MB). Download it to open it.",
+  "docViewer.unsupported": "This format cannot be displayed inline. Download the file to open it.",
+  "docViewer.zoomIn": "Zoom in",
+  "docViewer.zoomLevel": "{percent}%",
+  "docViewer.zoomOut": "Zoom out",  "mediaPlayer.close": "Bezárás",
   "mediaPlayer.dialogLabel": "Médialejátszó",
   "menu.closeWindow": "Ablak bezárása",
   "menu.copy": "Másolás",

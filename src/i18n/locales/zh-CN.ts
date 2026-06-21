@@ -1,4 +1,4 @@
-import type { TranslationKey } from './en';
+﻿import type { TranslationKey } from './en';
 
 // Simplified Chinese (中文（简体）) catalog.
 export const zhCN: Record<TranslationKey, string> = {
@@ -251,7 +251,24 @@ export const zhCN: Record<TranslationKey, string> = {
   "explorer.publishedResource": "已发布的 QDN 资源",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN 资源列表响应与预期格式不符。",
-  "mediaPlayer.close": "关闭",
+  "docViewer.close": "Close",
+  "docViewer.dialogLabel": "Document viewer",
+  "docViewer.download": "Download",
+  "docViewer.error": "Unable to load document.",
+  "docViewer.format.cbz": "Comic (CBZ)",
+  "docViewer.format.epub": "EPUB",
+  "docViewer.format.pdf": "PDF",
+  "docViewer.format.txt": "Text",
+  "docViewer.nextPage": "Next page",
+  "docViewer.openIn": "Open in Document Viewer",
+  "docViewer.page": "{current} / {total}",
+  "docViewer.prevPage": "Previous page",
+  "docViewer.tableOfContents": "Table of contents",
+  "docViewer.tooLarge": "This document is too large to preview inline (limit: 5 MB). Download it to open it.",
+  "docViewer.unsupported": "This format cannot be displayed inline. Download the file to open it.",
+  "docViewer.zoomIn": "Zoom in",
+  "docViewer.zoomLevel": "{percent}%",
+  "docViewer.zoomOut": "Zoom out",  "mediaPlayer.close": "关闭",
   "mediaPlayer.dialogLabel": "媒体播放器",
   "menu.closeWindow": "关闭窗口",
   "menu.copy": "复制",

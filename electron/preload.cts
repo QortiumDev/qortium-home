@@ -250,6 +250,27 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:open-media-player', listener);
       };
     },
+    onOpenDocumentViewer: (
+      callback: (event: {
+        identifier: string | null;
+        name: string;
+        path: string | null;
+        service: string;
+      }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { identifier: string | null; name: string; path: string | null; service: string },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:open-document-viewer', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:open-document-viewer', listener);
+      };
+    },
     onOpenCurrentTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,

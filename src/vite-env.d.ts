@@ -477,6 +477,13 @@ type QortiumQdnMediaPlayerRequest = {
   service: string;
 };
 
+type QortiumQdnDocumentViewerRequest = {
+  identifier: string | null;
+  name: string;
+  path: string | null;
+  service: string;
+};
+
 type QortiumHomeRouteSnapshot = {
   displayUrl: string;
   kind: string;
@@ -721,6 +728,9 @@ interface Window {
       ) => () => void;
       onOpenMediaPlayer: (
         callback: (event: QortiumQdnMediaPlayerRequest) => void,
+      ) => () => void;
+      onOpenDocumentViewer: (
+        callback: (event: QortiumQdnDocumentViewerRequest) => void,
       ) => () => void;
       onOpenCurrentTab: (
         callback: (event: { address: string; sourceTabId: string | null }) => void,

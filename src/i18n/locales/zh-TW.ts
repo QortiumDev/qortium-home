@@ -1,4 +1,4 @@
-import type { TranslationKey } from './en';
+﻿import type { TranslationKey } from './en';
 
 // Traditional Chinese (中文（繁體）) catalog.
 export const zhTW: Record<TranslationKey, string> = {
@@ -251,7 +251,24 @@ export const zhTW: Record<TranslationKey, string> = {
   "explorer.publishedResource": "已發布的 QDN 資源",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "QDN 資源清單回應不符合預期格式。",
-  "mediaPlayer.close": "關閉",
+  "docViewer.close": "Close",
+  "docViewer.dialogLabel": "Document viewer",
+  "docViewer.download": "Download",
+  "docViewer.error": "Unable to load document.",
+  "docViewer.format.cbz": "Comic (CBZ)",
+  "docViewer.format.epub": "EPUB",
+  "docViewer.format.pdf": "PDF",
+  "docViewer.format.txt": "Text",
+  "docViewer.nextPage": "Next page",
+  "docViewer.openIn": "Open in Document Viewer",
+  "docViewer.page": "{current} / {total}",
+  "docViewer.prevPage": "Previous page",
+  "docViewer.tableOfContents": "Table of contents",
+  "docViewer.tooLarge": "This document is too large to preview inline (limit: 5 MB). Download it to open it.",
+  "docViewer.unsupported": "This format cannot be displayed inline. Download the file to open it.",
+  "docViewer.zoomIn": "Zoom in",
+  "docViewer.zoomLevel": "{percent}%",
+  "docViewer.zoomOut": "Zoom out",  "mediaPlayer.close": "關閉",
   "mediaPlayer.dialogLabel": "媒體播放器",
   "menu.closeWindow": "關閉視窗",
   "menu.copy": "複製",

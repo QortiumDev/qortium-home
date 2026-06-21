@@ -1,4 +1,4 @@
-import type { TranslationKey } from './en';
+﻿import type { TranslationKey } from './en';
 
 // Polish (Polski) translation catalog.
 export const pl: Record<TranslationKey, string> = {
@@ -251,7 +251,24 @@ export const pl: Record<TranslationKey, string> = {
   "explorer.publishedResource": "Opublikowany zasób QDN",
   "explorer.serviceAndNameHeading": "{service} / {name}",
   "explorer.unexpectedListResponse": "Odpowiedź z listą zasobów QDN nie miała oczekiwanego formatu.",
-  "mediaPlayer.close": "Zamknij",
+  "docViewer.close": "Close",
+  "docViewer.dialogLabel": "Document viewer",
+  "docViewer.download": "Download",
+  "docViewer.error": "Unable to load document.",
+  "docViewer.format.cbz": "Comic (CBZ)",
+  "docViewer.format.epub": "EPUB",
+  "docViewer.format.pdf": "PDF",
+  "docViewer.format.txt": "Text",
+  "docViewer.nextPage": "Next page",
+  "docViewer.openIn": "Open in Document Viewer",
+  "docViewer.page": "{current} / {total}",
+  "docViewer.prevPage": "Previous page",
+  "docViewer.tableOfContents": "Table of contents",
+  "docViewer.tooLarge": "This document is too large to preview inline (limit: 5 MB). Download it to open it.",
+  "docViewer.unsupported": "This format cannot be displayed inline. Download the file to open it.",
+  "docViewer.zoomIn": "Zoom in",
+  "docViewer.zoomLevel": "{percent}%",
+  "docViewer.zoomOut": "Zoom out",  "mediaPlayer.close": "Zamknij",
   "mediaPlayer.dialogLabel": "Odtwarzacz multimediów",
   "menu.closeWindow": "Zamknij okno",
   "menu.copy": "Kopiuj",
