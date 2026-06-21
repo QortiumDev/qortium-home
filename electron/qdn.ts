@@ -106,6 +106,7 @@ const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
 const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
 const QDN_MEDIA_PLAYER_SERVICES = new Set(['AUDIO', 'PODCAST', 'VIDEO', 'VOICE']);
 const QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH = 1024;
+const QDN_DOCUMENT_VIEWER_SERVICES = new Set(['DOCUMENT', 'FILE', 'FILES', 'ATTACHMENT']);
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const PUBLIC_QDN_SERVICES = new Set([
   'APP',
@@ -5866,6 +5867,41 @@ async function handleQdnAppRequest(
       }
 
       hostWindow.webContents.send('qdn-app:open-media-player', {
+        identifier: identifier || null,
+        name,
+        path: resourcePath || null,
+        service,
+      });
+
+      return true;
+    }
+
+    case 'OPEN_QDN_DOCUMENT_VIEWER': {
+      const service = getRequiredRequestString(request, 'service', 'Service').toUpperCase();
+
+      if (!QDN_DOCUMENT_VIEWER_SERVICES.has(service)) {
+        throw new Error('OPEN_QDN_DOCUMENT_VIEWER only supports DOCUMENT, FILE, FILES, and ATTACHMENT resources.');
+      }
+
+      const name = getRequiredRequestString(request, 'name', 'Name');
+      const identifier = getString(getRequestValue(request, 'identifier'));
+      const resourcePath = getString(getRequestValue(request, 'path'));
+
+      if (
+        name.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
+        identifier.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
+        resourcePath.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH
+      ) {
+        throw new Error('QDN document viewer request fields are too long.');
+      }
+
+      const hostWindow = context ? getQdnViewHostWindow(context) : null;
+
+      if (!context || !hostWindow) {
+        throw new Error('QDN document viewer request does not belong to an active window.');
+      }
+
+      hostWindow.webContents.send('qdn-app:open-document-viewer', {
         identifier: identifier || null,
         name,
         path: resourcePath || null,

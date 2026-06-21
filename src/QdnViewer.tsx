@@ -24,6 +24,7 @@ import {
   isTerminalQdnStatus,
 } from './qdn';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
+import { detectDocumentFormat } from './DocumentViewer';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -69,6 +70,7 @@ type QdnViewerProps = {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -1951,6 +1953,7 @@ function QdnIframeContent({
   account,
   displaySettings,
   loadedResource,
+  onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -1959,6 +1962,7 @@ function QdnIframeContent({
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -1968,10 +1972,12 @@ function QdnIframeContent({
   const onOpenNewTabRef = useRef(onOpenNewTab);
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
+  const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
 
   onOpenNewTabRef.current = onOpenNewTab;
   onOpenInCurrentTabRef.current = onOpenInCurrentTab;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
+  onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
@@ -2023,6 +2029,9 @@ function QdnIframeContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
+          onOpenDocumentViewer: (docRequest: QortiumQdnDocumentViewerRequest) => {
+            onOpenDocumentViewerRef.current?.(docRequest);
+          },
           onOpenMediaPlayer: (mediaRequest: QortiumQdnMediaPlayerRequest) => {
             onOpenMediaPlayerRef.current?.(mediaRequest);
           },
@@ -2095,6 +2104,7 @@ function QdnReadyContent({
   displaySettings,
   nodeApiUrl,
   onActionContextChange,
+  onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -2107,6 +2117,7 @@ function QdnReadyContent({
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   onActionContextChange: SetViewerActionContext;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -2134,6 +2145,7 @@ function QdnReadyContent({
         account={account}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
+        onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
@@ -2179,12 +2191,36 @@ function QdnReadyContent({
   }
 
   if (loadedResource.viewerKind === 'download') {
+    const docFormat = detectDocumentFormat(
+      loadedResource.properties?.filename,
+      loadedResource.properties?.mimeType,
+    );
     return (
-      <QdnDetailsContent
-        loadedResource={loadedResource}
-        message={t('viewer.readyToDownload')}
-        resource={resource}
-      />
+      <>
+        <QdnDetailsContent
+          loadedResource={loadedResource}
+          message={isNativePlatform() ? t('viewer.readyToOpen') : t('viewer.readyToDownload')}
+          resource={resource}
+        />
+        {docFormat !== 'unsupported' && onOpenDocumentViewer && (
+          <div className="qdn-viewer__doc-open-wrap">
+            <button
+              className="button"
+              type="button"
+              onClick={() =>
+                onOpenDocumentViewer({
+                  identifier: resource.identifier ?? null,
+                  name: resource.name,
+                  path: resource.path || null,
+                  service: resource.service,
+                })
+              }
+            >
+              {t('docViewer.openIn')}
+            </button>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -2201,6 +2237,7 @@ export function QdnViewer({
   account,
   displaySettings,
   nodeApiUrl,
+  onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -2299,6 +2336,7 @@ export function QdnViewer({
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           onActionContextChange={setActionContext}
+          onOpenDocumentViewer={onOpenDocumentViewer}
           onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}
