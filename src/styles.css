@@ -737,6 +737,18 @@ h1 {
   grid-row: 1 / -1;
 }
 
+/* The main region is programmatically focusable (tabIndex -1) so F6 can land on
+   it. Suppress the default outline for pointer focus; show a subtle inset ring
+   only for keyboard focus. */
+.app-main:focus {
+  outline: none;
+}
+
+.app-main:focus-visible {
+  outline: 2px solid var(--color-border-strong);
+  outline-offset: -2px;
+}
+
 /* Tab content stays mounted across tab switches so pages keep their state;
    inactive tabs are hidden, the active tab's page lays out as a direct child. */
 .app-main__tab {
@@ -1992,6 +2004,16 @@ h1 {
   display: grid;
   place-items: center;
   color: var(--color-text-subtle);
+  visibility: hidden;
+}
+
+/* Match the browser: the close button shows on the active tab, and reveals on
+   hover (or keyboard focus) for inactive tabs. The grid reserves its column
+   either way, so toggling visibility avoids any layout shift. */
+.top-bar__tab--active .top-bar__tab-close,
+.top-bar__tab:hover .top-bar__tab-close,
+.top-bar__tab-close:focus-visible {
+  visibility: visible;
 }
 
 .top-bar__tab-close:hover:not(:disabled),
