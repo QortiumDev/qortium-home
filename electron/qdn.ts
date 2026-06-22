@@ -25,6 +25,7 @@ import {
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import {
   QDN_APP_BRIDGE_ACTIONS,
+  QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
   QDN_CHAT_ACTIONS,
   QDN_GROUP_ACTIONS,
   QDN_NAME_ACTIONS,
@@ -1829,6 +1830,13 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
 
   if (!result.ok) {
     throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+  }
+
+  // Opt-in: return the status + response headers alongside the body, so apps can
+  // read headers such as X-Total-Count (used by the paginated trust-derivation
+  // listing). Default stays the bare body for backward compatibility.
+  if (getBoolean(getRequestValue(request, 'includeHeaders')) ?? false) {
+    return { status: result.status, headers: result.headers, data: result.data };
   }
 
   return result.data;
@@ -5882,8 +5890,16 @@ async function handleQdnAppRequest(
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ELECTRON';
 
-    case 'SHOW_ACTIONS':
-      return [...QDN_APP_BRIDGE_ACTIONS];
+    case 'SHOW_ACTIONS': {
+      // On a public/network node, only report actions that can actually succeed
+      // there, so apps that gate UI off SHOW_ACTIONS don't show controls (e.g.
+      // RATE_ACCOUNT) that would throw for lack of a local write connection.
+      const connection = await getNodeConnection();
+
+      return connection.mode === 'network'
+        ? [...QDN_PUBLIC_NODE_BRIDGE_ACTIONS]
+        : [...QDN_APP_BRIDGE_ACTIONS];
+    }
 
     default:
       throw new Error(`${action || 'This'} QDN app request is not supported yet.`);
