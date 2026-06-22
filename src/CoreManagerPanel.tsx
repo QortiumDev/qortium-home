@@ -121,10 +121,41 @@ function getCoreSettingsRows({
     },
   ];
 
+  const runtime = coreManager.status?.runtime;
   const installPath = coreManager.status?.installed?.installPath;
+  // The folder where the *running* core lives (directory of its jar, falling
+  // back to its runtime dir). Only known when Home can introspect the process,
+  // so it may be undefined for an unmanaged core (e.g. on macOS).
+  const runningJarPath = runtime?.running ? runtime.jarPath : undefined;
+  const runningRuntimePath = runtime?.running ? runtime.runtimePath : undefined;
+  const runningFolder = runningJarPath
+    ? runningJarPath.replace(/[/\\][^/\\]*$/, '')
+    : (runningRuntimePath ?? undefined);
+  const isManagedRunning = runtime?.running && runtime.owner === 'home';
+  const externalRunning = !!runtime?.running && runtime.owner !== 'home';
 
-  if (installPath) {
+  if (isManagedRunning && installPath) {
+    // The running core IS the managed install — keep the single folder row.
     rows.push({ label: t('core.folderLabel'), path: installPath });
+  } else {
+    // Default the location to the running core when its path is known.
+    if (runningFolder) {
+      rows.push({ label: t('core.runningFolderLabel'), path: runningFolder });
+    } else if (externalRunning) {
+      // Running core path is unknown and it was not started by Home.
+      rows.push({ label: t('core.runningFolderLabel'), value: t('core.externalRunningNote') });
+    }
+
+    // Show the managed install as its own clearly-distinct row whenever it
+    // exists and differs from the running folder (or the running folder is
+    // unknown), so both managed install and running core are visible.
+    if (installPath && installPath !== runningFolder) {
+      rows.push({ label: t('core.managedInstallLabel'), path: installPath });
+
+      if (externalRunning) {
+        rows.push({ label: '', value: t('core.managedDifferentRunningNote') });
+      }
+    }
   }
 
   const runtimeBlockedMessage = getCoreRuntimeBlockedMessage(coreManager.status);
