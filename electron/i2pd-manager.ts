@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -425,14 +425,62 @@ function probeSamBridge(host = DEFAULT_SAM_HOST, port = DEFAULT_SAM_PORT): Promi
   });
 }
 
-function isManagedRunning() {
-  return managedChild !== null && managedChild.exitCode === null && !managedChild.killed;
+async function readPidFile(): Promise<number | null> {
+  try {
+    const pid = Number.parseInt((await readFile(getI2pdPidPath(), 'utf8')).trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but we can't signal it — still alive.
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+// Is `pid` one of OUR i2pd processes? We match our runtime datadir on the command
+// line (passed as --datadir=<runtime>) so a reused pid for an unrelated process
+// isn't mistaken for ours. Best-effort liveness-only on Windows.
+function isOurI2pd(pid: number): boolean {
+  if (!isPidAlive(pid)) {
+    return false;
+  }
+  if (process.platform === 'win32') {
+    return true;
+  }
+  try {
+    const out = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+    return out.includes(getI2pdRuntimePath());
+  } catch {
+    return false;
+  }
+}
+
+// The pid of the managed router we're responsible for: our live child, or an
+// orphan we previously spawned (recovered from the pidfile after a Home restart
+// or crash) so we can still stop it instead of treating it as someone else's.
+async function getManagedPid(): Promise<number | null> {
+  if (managedChild && managedChild.exitCode === null && !managedChild.killed && managedChild.pid) {
+    return managedChild.pid;
+  }
+  const pid = await readPidFile();
+  return pid !== null && isOurI2pd(pid) ? pid : null;
+}
+
+async function isManagedRunning(): Promise<boolean> {
+  return (await getManagedPid()) !== null;
 }
 
 export async function getStatus(): Promise<I2pdStatus> {
   const target = getI2pdTarget();
   const installed = await readInstalledI2pd();
-  const managedRunning = isManagedRunning();
+  const managedRunning = (await getManagedPid()) !== null;
   const samUp = managedRunning ? true : await probeSamBridge();
 
   const mode: I2pdMode = managedRunning ? 'managed' : samUp ? 'external' : 'none';
@@ -477,7 +525,7 @@ async function launchI2pd(installed: InstalledI2pd) {
 // usable router. (Tunnel build + LeaseSet publication — what Core needs for a
 // session — take longer; this only confirms i2pd accepted SAM connections.)
 export async function start(): Promise<I2pdStatus> {
-  if (isManagedRunning()) {
+  if (await isManagedRunning()) {
     return getStatus();
   }
 
@@ -497,7 +545,7 @@ export async function start(): Promise<I2pdStatus> {
 
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!isManagedRunning()) {
+    if (!(await isManagedRunning())) {
       throw new Error('i2pd exited during startup; see the i2pd log.');
     }
     if (await probeSamBridge()) {
@@ -511,25 +559,28 @@ export async function start(): Promise<I2pdStatus> {
 }
 
 export async function stop(): Promise<I2pdStatus> {
-  const child = managedChild;
-  if (!child || !isManagedRunning()) {
+  // Kill by pid so this works for both our live child and an orphan we adopted
+  // from the pidfile after a restart.
+  const pid = await getManagedPid();
+  if (pid === null) {
     managedChild = null;
+    await rm(getI2pdPidPath(), { force: true }).catch(() => undefined);
     return getStatus();
   }
 
   publishProgress({ action: 'stopping', kind: 'info', message: 'Stopping i2pd.', percent: 10 });
 
   for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
-    if (!isManagedRunning()) {
+    if (!isPidAlive(pid)) {
       break;
     }
     try {
-      child.kill(signal);
+      process.kill(pid, signal);
     } catch {
       break;
     }
     const deadline = Date.now() + STOP_TIMEOUT_MS;
-    while (Date.now() < deadline && isManagedRunning()) {
+    while (Date.now() < deadline && isPidAlive(pid)) {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
@@ -547,7 +598,7 @@ export async function stop(): Promise<I2pdStatus> {
 // is already up (start() handles that).
 export async function startIfManaged(): Promise<void> {
   try {
-    if (!getI2pdTarget() || isManagedRunning()) {
+    if (!getI2pdTarget() || (await isManagedRunning())) {
       return;
     }
     // Don't clobber an existing/operator router.

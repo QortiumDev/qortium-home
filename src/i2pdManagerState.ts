@@ -72,6 +72,17 @@ export function useI2pdManager(enabled: boolean): I2pdManagerState {
     return bridge.onProgress((next) => setProgress(next.message ?? null));
   }, [bridge]);
 
+  // Light poll so the router state (warming up, an external router appearing or
+  // going away, an adopted orphan) stays current without a manual refresh.
+  useEffect(() => {
+    if (!bridge || !enabled) {
+      return;
+    }
+
+    const id = window.setInterval(() => setRefreshToken((token) => token + 1), 8000);
+    return () => window.clearInterval(id);
+  }, [bridge, enabled]);
+
   const run = useCallback(
     async (action: () => Promise<QortiumI2pdStatus>) => {
       setIsBusy(true);

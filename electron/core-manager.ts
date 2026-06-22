@@ -2158,6 +2158,28 @@ async function stopCoreByPid(pid: number) {
   }
 }
 
+// Stop a Core that Home did not start, through its own admin API (GET /admin/stop),
+// authenticated with the running node's API key. Used when the local Core was
+// launched outside Home, so the user isn't stuck having to stop it by hand.
+async function stopCoreViaApi() {
+  const runningCore = readRunningLocalCoreApiKey();
+
+  if (!runningCore?.apiKey) {
+    throw new Error(
+      "Could not read the running Core's API key to stop it. Stop it from where it was started.",
+    );
+  }
+
+  const response = await fetch(`${LOCAL_CORE_API_URL}/admin/stop`, {
+    headers: { 'X-API-KEY': runningCore.apiKey },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `Core stop request failed with HTTP ${response.status}.`);
+  }
+}
+
 async function stopCore(options: { quiet?: boolean } = {}) {
   const installedCore = await readInstalledCore();
   const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
@@ -2166,16 +2188,9 @@ async function stopCore(options: { quiet?: boolean } = {}) {
     return await getStatus();
   }
 
-  if (currentRuntime.owner === 'external') {
-    throw new Error('The local Qortium Core was started outside Home. Stop it from the launcher or terminal that started it.');
-  }
-
-  if (currentRuntime.owner !== 'home') {
-    throw new Error('Home could not confirm it manages the running Qortium Core, so it was not stopped.');
-  }
-
   const logPaths = installedCore?.logPaths ?? getCoreLogPaths(getCoreRuntimePath());
   const stopScript = installedCore ? getStopScript(installedCore.previewPath) : null;
+  const isHomeOwned = currentRuntime.owner === 'home';
 
   publishProgress({
     action: 'stopping',
@@ -2184,14 +2199,14 @@ async function stopCore(options: { quiet?: boolean } = {}) {
     percent: 5,
   });
   try {
-    if (installedCore && stopScript && existsSync(stopScript)) {
+    if (isHomeOwned && installedCore && stopScript && existsSync(stopScript)) {
       await runScript(
         stopScript,
         [`--runtime-dir=${installedCore.runtimePath}`],
         installedCore.previewPath,
         getJavaRuntimeEnv(await getJavaStatus()),
       );
-    } else {
+    } else if (isHomeOwned) {
       // The install files are gone (e.g. the jar was deleted) but the core is
       // still running: terminate the recorded process directly so the user is
       // not stuck with a running-but-unmanageable core.
@@ -2203,6 +2218,10 @@ async function stopCore(options: { quiet?: boolean } = {}) {
       }
 
       await stopCoreByPid(pid);
+    } else {
+      // Core was started outside Home (external/unknown owner). Stop it through
+      // its own admin API using the running node's API key, rather than refusing.
+      await stopCoreViaApi();
     }
 
     await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
