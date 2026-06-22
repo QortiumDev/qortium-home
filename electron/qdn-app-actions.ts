@@ -109,3 +109,27 @@ export const QDN_APP_BRIDGE_ACTIONS = [
   'WHICH_UI',
   'SHOW_ACTIONS',
 ] as const;
+
+export const QDN_MINTING_ACTIONS = ['START_MINTING', 'REMOVE_MINTING_ACCOUNT'] as const;
+
+// Actions that require a local write connection (signing / local-only writes), so
+// they cannot succeed on a public/network node and are filtered out of
+// SHOW_ACTIONS there — apps that gate UI off SHOW_ACTIONS then hide controls that
+// would otherwise throw. SEND_CHAT_MESSAGE is intentionally NOT here: its keyless
+// open-group path signs locally and works against public nodes.
+const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
+  ...QDN_WRITE_ACTIONS,
+  ...QDN_GROUP_ACTIONS,
+  ...QDN_NAME_ACTIONS,
+  ...QDN_PAYMENT_ACTIONS,
+  ...QDN_POLL_ACTIONS,
+  ...QDN_TRUST_ACTIONS,
+  ...QDN_LIST_ACTIONS,
+  ...QDN_MINTING_ACTIONS,
+]);
+
+// The actions SHOW_ACTIONS reports on a public/network node (everything that can
+// actually succeed there).
+export const QDN_PUBLIC_NODE_BRIDGE_ACTIONS: readonly string[] = QDN_APP_BRIDGE_ACTIONS.filter(
+  (action) => !QDN_LOCAL_WRITE_ONLY_ACTIONS.has(action),
+);

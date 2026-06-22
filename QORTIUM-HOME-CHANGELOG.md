@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: node-aware QDN actions + opt-in response headers for apps
+
+Two improvements to the QDN app bridge. First, the list of available actions an app sees (SHOW_ACTIONS) now reflects the node it is connected to: on a public network node, actions that need a local, write-capable connection — publishing, group/name/payment/poll/list management, account rating, and minting — are no longer advertised, so an app that shows or hides controls based on this list won't offer buttons that can't work there (open-group chat sending stays available, since it works on public nodes). Second, node API requests made through the bridge can now opt in to receive the response status and headers alongside the body, so an app can read values such as the total-count header used for paging long lists.
+
 ### 2026-06-22 - feat: batch identity lookup for QDN apps (RESOLVE_IDENTITIES)
 
 Added a new read-only bridge action, RESOLVE_IDENTITIES, that lets a QDN app resolve many accounts' display identities in one call: given a list of addresses it returns each address's registered name and avatar URL, instead of the app making several node requests per address. It works on desktop and Android, works on public nodes, reuses Home's existing name and avatar resolution, and de-duplicates addresses (capped per call). Apps that show lists of accounts — such as Qortium Trust — can replace their per-address name/avatar fetching and bespoke image handling with this single call.
