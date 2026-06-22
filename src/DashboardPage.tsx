@@ -11,6 +11,7 @@ import {
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeAction, getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
+import { NodeModeSelect } from './NodeConnection';
 import { DashboardCardHeader } from './DashboardCardActions';
 import { useI2pConnections } from './i2pState';
 import { getDashboardPinDisplay } from './dashboardPinDisplay';
@@ -47,7 +48,10 @@ type DashboardPageProps = {
   isLoadingAccounts: boolean;
   nodeApiUrl: string;
   nodeEpoch: number;
+  nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
+  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
+  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onBrowseQdn: () => void;
   onOpenDashboardPin: (pin: DashboardPin) => void;
   onOpenCoreApiDocs: () => void;
@@ -195,13 +199,19 @@ function getCoreRows({
 function ManagedCoreDashboardCard({
   coreManager,
   nodeApiUrl,
+  nodeSettings,
   onChainCoreUpdate,
   onOpenSettingsSection,
+  onResolvedNodeApiUrl,
+  onSaveNodeSettings,
 }: {
   coreManager: CoreManagerState;
   nodeApiUrl: string;
+  nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
+  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
+  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 }) {
   const connections = useI2pConnections(nodeApiUrl);
   const transports = connections.status
@@ -256,7 +266,6 @@ function ManagedCoreDashboardCard({
     ],
   );
   const runtimeAction = getCoreRuntimeAction(coreManager);
-  const hasAction = showOnChainInstallAction || showReleaseUpdateAction || !!runtimeAction;
 
   if (!coreManager.coreApi) {
     return null;
@@ -292,54 +301,58 @@ function ManagedCoreDashboardCard({
         </div>
       ) : null}
 
-      {hasAction ? (
-        <div className="dashboard-card__actions">
-          {showOnChainInstallAction ? (
-            <button
-              className="button"
-              disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainInstallAttemptActive}
-              type="button"
-              onClick={onChainCoreUpdate.installUpdate}
-            >
-              <Download aria-hidden="true" size={18} strokeWidth={2} />
-              {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
+      <div className="dashboard-card__actions">
+        <NodeModeSelect
+          className="field__input dashboard-card__node-mode"
+          nodeSettings={nodeSettings}
+          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+          onSaveNodeSettings={onSaveNodeSettings}
+        />
+        {showOnChainInstallAction ? (
+          <button
+            className="button"
+            disabled={coreManager.isBusy || onChainCoreUpdate.isBusy || onChainInstallAttemptActive}
+            type="button"
+            onClick={onChainCoreUpdate.installUpdate}
+          >
+            <Download aria-hidden="true" size={18} strokeWidth={2} />
+            {onChainCoreUpdate.status.state === 'installing' || onChainStatus?.installing
+              ? t('common.installing')
+              : t('core.installApprovedUpdate')}
+          </button>
+        ) : null}
+        {showReleaseUpdateAction && releaseTarget ? (
+          <button
+            className="button"
+            disabled={coreManager.isBusy}
+            type="button"
+            onClick={() => coreManager.installCore(releaseTarget.channel)}
+          >
+            <Download aria-hidden="true" size={18} strokeWidth={2} />
+            {coreManager.busyAction === 'updating'
+              ? t('common.updating')
+              : coreManager.busyAction === releaseTargetBusyAction
                 ? t('common.installing')
-                : t('core.installApprovedUpdate')}
-            </button>
-          ) : null}
-          {showReleaseUpdateAction && releaseTarget ? (
-            <button
-              className="button"
-              disabled={coreManager.isBusy}
-              type="button"
-              onClick={() => coreManager.installCore(releaseTarget.channel)}
-            >
-              <Download aria-hidden="true" size={18} strokeWidth={2} />
-              {coreManager.busyAction === 'updating'
-                ? t('common.updating')
-                : coreManager.busyAction === releaseTargetBusyAction
-                  ? t('common.installing')
-                  : t('updates.installUpdate')}
-            </button>
-          ) : null}
-          {runtimeAction ? (
-            <button
-              className="button button--secondary"
-              disabled={runtimeAction.disabled}
-              title={runtimeAction.title}
-              type="button"
-              onClick={runtimeAction.onClick}
-            >
-              {runtimeAction.kind === 'start' ? (
-                <Play aria-hidden="true" size={18} strokeWidth={2} />
-              ) : (
-                <Square aria-hidden="true" size={18} strokeWidth={2} />
-              )}
-              {runtimeAction.label}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+                : t('updates.installUpdate')}
+          </button>
+        ) : null}
+        {runtimeAction ? (
+          <button
+            className="button button--secondary"
+            disabled={runtimeAction.disabled}
+            title={runtimeAction.title}
+            type="button"
+            onClick={runtimeAction.onClick}
+          >
+            {runtimeAction.kind === 'start' ? (
+              <Play aria-hidden="true" size={18} strokeWidth={2} />
+            ) : (
+              <Square aria-hidden="true" size={18} strokeWidth={2} />
+            )}
+            {runtimeAction.label}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -1246,7 +1259,10 @@ export function DashboardPage({
   isLoadingAccounts,
   nodeApiUrl,
   nodeEpoch,
+  nodeSettings,
   onChainCoreUpdate,
+  onResolvedNodeApiUrl,
+  onSaveNodeSettings,
   onBrowseQdn,
   onOpenDashboardPin,
   onOpenCoreApiDocs,
@@ -1315,8 +1331,11 @@ export function DashboardPage({
           <ManagedCoreDashboardCard
             coreManager={coreManager}
             nodeApiUrl={nodeApiUrl}
+            nodeSettings={nodeSettings}
             onChainCoreUpdate={onChainCoreUpdate}
             onOpenSettingsSection={onOpenSettingsSection}
+            onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+            onSaveNodeSettings={onSaveNodeSettings}
           />
         ) : null}
         <HomeUpdateDashboardCard updates={appUpdates} onOpenSettingsSection={onOpenSettingsSection} />

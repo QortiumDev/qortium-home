@@ -2383,7 +2383,10 @@ export function App() {
                   isLoadingAccounts={isLoadingAccounts}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   nodeEpoch={nodeEpoch}
+                  nodeSettings={nodeSettings}
                   onChainCoreUpdate={onChainCoreUpdate}
+                  onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
+                  onSaveNodeSettings={saveNodeSettings}
                   onBrowseQdn={browseQdn}
                   onOpenDashboardPin={openDashboardPin}
                   onOpenCoreApiDocs={openCoreApiDocs}
