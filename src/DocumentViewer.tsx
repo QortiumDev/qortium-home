@@ -22,10 +22,90 @@ export function detectDocumentFormat(filename?: string, mimeType?: string): Docu
 
   if (ext === 'pdf' || mime === 'application/pdf') return 'pdf';
   if (ext === 'epub' || mime === 'application/epub+zip') return 'epub';
-  if (ext === 'cbz' || mime === 'application/vnd.comicbook+zip' || mime === 'application/x-cbz') return 'cbz';
+  // CBZ (zip) and CBR (rar) are the same comic-page idea with a different
+  // container; both resolve to the internal 'cbz' comic path, which sniffs the
+  // real archive type by magic bytes at extraction time.
+  if (
+    ext === 'cbz' ||
+    ext === 'cbr' ||
+    mime === 'application/vnd.comicbook+zip' ||
+    mime === 'application/x-cbz' ||
+    mime === 'application/vnd.comicbook-rar' ||
+    mime === 'application/x-cbr'
+  ) {
+    return 'cbz';
+  }
   if (ext === 'txt' || mime.startsWith('text/')) return 'txt';
 
   return 'unsupported';
+}
+
+const COMIC_IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp)$/i;
+
+// Comic page files are usually zero-padded but not always — sort numerically so
+// "page2" precedes "page10".
+function sortComicPageNames(names: string[]): string[] {
+  return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+async function extractZipComicPages(bytes: Uint8Array): Promise<string[]> {
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(bytes);
+  const names = sortComicPageNames(
+    Object.keys(zip.files).filter((name) => !zip.files[name].dir && COMIC_IMAGE_EXT.test(name)),
+  );
+
+  return Promise.all(names.map((name) => zip.files[name].async('blob').then((blob) => URL.createObjectURL(blob))));
+}
+
+async function extractRarComicPages(bytes: Uint8Array): Promise<string[]> {
+  const { createExtractorFromData } = await import('node-unrar-js');
+  const wasmBinary = await fetch(new URL('node-unrar-js/esm/js/unrar.wasm', import.meta.url)).then((response) =>
+    response.arrayBuffer(),
+  );
+  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const extractor = await createExtractorFromData({ data, wasmBinary });
+
+  const names = sortComicPageNames(
+    [...extractor.getFileList().fileHeaders]
+      .filter((header) => !header.flags.directory && COMIC_IMAGE_EXT.test(header.name))
+      .map((header) => header.name),
+  );
+
+  const dataByName = new Map<string, Uint8Array>();
+  for (const file of extractor.extract({ files: names }).files) {
+    if (file.extraction) {
+      dataByName.set(file.fileHeader.name, file.extraction);
+    }
+  }
+
+  return names
+    .map((name) => dataByName.get(name))
+    .filter((data): data is Uint8Array => Boolean(data))
+    .map((data) => URL.createObjectURL(new Blob([data as BlobPart])));
+}
+
+// Magic-byte-aware comic extraction. CBZ/CBR files are frequently mislabeled, so
+// the real container is decided by signature, not by the .cbz/.cbr extension:
+// "PK" → ZIP (jszip), "Rar!" → RAR (node-unrar-js, lazy WASM). Unknown signatures
+// try ZIP then RAR defensively. Returns ordered page object-URLs to revoke later.
+async function extractComicPages(bytes: Uint8Array): Promise<string[]> {
+  const isZip = bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+  const isRar =
+    bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x61 && bytes[2] === 0x72 && bytes[3] === 0x21;
+
+  if (isRar) {
+    return extractRarComicPages(bytes);
+  }
+  if (isZip) {
+    return extractZipComicPages(bytes);
+  }
+
+  try {
+    return await extractZipComicPages(bytes);
+  } catch {
+    return extractRarComicPages(bytes);
+  }
 }
 
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -266,17 +346,7 @@ export function DocumentViewer({ onDismiss, resource }: DocumentViewerProps) {
         }
 
         if (format === 'cbz') {
-          const { default: JSZip } = await import('jszip');
-          if (canceled) return;
-          const zip = await JSZip.loadAsync(bytes);
-          if (canceled) return;
-          const imageExt = /\.(jpe?g|png|gif|webp|bmp)$/i;
-          const names = Object.keys(zip.files)
-            .filter((n) => !zip.files[n].dir && imageExt.test(n))
-            .sort();
-          const pages = await Promise.all(
-            names.map(async (n) => URL.createObjectURL(await zip.files[n].async('blob'))),
-          );
+          const pages = await extractComicPages(bytes);
           if (canceled) { pages.forEach(URL.revokeObjectURL); return; }
           cleanup = () => { pages.forEach(URL.revokeObjectURL); };
           setState({ format: 'cbz', pageCount: pages.length, pages, phase: 'ready' });
@@ -363,7 +433,7 @@ export function DocumentViewer({ onDismiss, resource }: DocumentViewerProps) {
         : state.format === 'epub'
           ? t('docViewer.format.epub')
           : state.format === 'cbz'
-            ? t('docViewer.format.cbz')
+            ? t('docViewer.format.comic')
             : state.format === 'txt'
               ? t('docViewer.format.txt')
               : ''

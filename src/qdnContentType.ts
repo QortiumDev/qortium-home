@@ -65,6 +65,7 @@ const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   ogv: 'video',
   webm: 'video',
   // documents (handed to the modal DocumentViewer)
+  cbr: 'document',
   cbz: 'document',
   epub: 'document',
   pdf: 'document',
@@ -134,6 +135,8 @@ const MIME_TO_KIND: Readonly<Record<string, ContentKind>> = {
   'application/epub+zip': 'document',
   'application/pdf': 'document',
   'application/vnd.comicbook+zip': 'document',
+  'application/vnd.comicbook-rar': 'document',
+  'application/x-cbr': 'document',
   'application/x-cbz': 'document',
   'application/json': 'json',
   'application/xml': 'code',
