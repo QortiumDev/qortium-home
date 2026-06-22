@@ -13,8 +13,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerAccountIpcHandlers } from './accounts.js';
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
-import { registerCoreManagerIpcHandlers } from './core-manager.js';
-import { registerI2pdManagerIpcHandlers, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
+import {
+  isManagedCoreRuntimeRunning,
+  isManagedCoreUsingI2p,
+  registerCoreManagerIpcHandlers,
+} from './core-manager.js';
+import {
+  registerI2pdManagerIpcHandlers,
+  startIfManaged as startI2pdIfManaged,
+  stopIfManaged as stopI2pdIfManaged,
+} from './i2pd-manager.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerQdnIpcHandlers } from './qdn.js';
 import { registerQdnViewIpcHandlers } from './qdn-views.js';
@@ -685,6 +693,23 @@ function registerWindowIpcHandlers() {
   });
 }
 
+// Reconcile the managed i2pd router with Core on launch, enforcing the invariant
+// "i2pd runs iff Core is running and I2P is enabled". This self-heals a router
+// left over from a previous session: if Core is up and using I2P we (re)start /
+// re-adopt it; otherwise we stop an orphan that outlived a Core shutdown that
+// happened while Home was closed. Best-effort — I2P is only a fallback transport.
+async function reconcileI2pdWithCore(): Promise<void> {
+  try {
+    if (await isManagedCoreUsingI2p()) {
+      await startI2pdIfManaged();
+    } else {
+      await stopI2pdIfManaged();
+    }
+  } catch {
+    // Never block startup on the I2P fallback.
+  }
+}
+
 app.whenReady().then(() => {
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
@@ -699,6 +724,10 @@ app.whenReady().then(() => {
   buildApplicationMenu();
   createWindow();
 
+  // Bring the managed i2pd router in line with Core's current state (e.g. adopt a
+  // router that survived a previous Home session, or clean up an orphan).
+  void reconcileI2pdWithCore();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -712,9 +741,12 @@ app.on('window-all-closed', () => {
   }
 });
 
-// Stop the managed i2pd we spawned before quitting. A child process is not
-// auto-killed when Home exits on Unix (it would be reparented and keep holding
-// the SAM port), so shut it down gracefully. Defer the quit until cleanup runs.
+// The managed i2pd router tracks Core's lifetime, not Home's window. Core is
+// designed to keep running after Home closes, so on quit we stop i2pd ONLY when
+// Core is also stopped — otherwise we'd strand a still-running Core without its
+// I2P fallback transport. When we leave i2pd running, the detached router holds
+// the SAM port for Core and the next Home launch reconciles it (see app.whenReady
+// below). Defer the quit until this check runs.
 let i2pdShutdownComplete = false;
 app.on('before-quit', (event) => {
   if (i2pdShutdownComplete) {
@@ -722,8 +754,14 @@ app.on('before-quit', (event) => {
   }
 
   event.preventDefault();
-  void stopI2pdIfManaged().finally(() => {
-    i2pdShutdownComplete = true;
-    app.quit();
-  });
+  void (async () => {
+    try {
+      if (!(await isManagedCoreRuntimeRunning())) {
+        await stopI2pdIfManaged();
+      }
+    } finally {
+      i2pdShutdownComplete = true;
+      app.quit();
+    }
+  })();
 });

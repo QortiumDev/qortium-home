@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - fix: tie the managed I2P router to Core's lifetime, not Home's window
+
+When Home runs its own I2P router for the local Core, the router's lifetime now
+follows Core instead of the Home window. Closing Home while Core is still running
+no longer shuts the router down and strands the running Core without its I2P
+fallback transport; the router keeps running and Home reattaches to it next time
+it starts. Closing Home only stops the router when Core is already stopped. The
+router is still started before Core and stopped when you stop Core through Home,
+as before. To make this possible it now runs as an independent background process
+with its own log file, and each time Home starts it reconciles the router against
+Core — adopting one that is still running, or cleaning up one that was left behind
+because Core stopped while Home was closed.
+
 ### 2026-06-22 - build: pin the macOS 11 legacy DMG to Electron 36
 
 Corrected the macOS 11 legacy build, which was set to package with Electron 38 on

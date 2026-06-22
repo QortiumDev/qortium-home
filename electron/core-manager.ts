@@ -964,6 +964,20 @@ export async function isManagedCoreRuntimeRunning() {
   return await isInstalledCoreRuntimeRunning(installedCore);
 }
 
+// True when a managed Core is running AND its node has I2P enabled — i.e. the
+// managed i2pd router *should* be up to serve Core's fallback transport. Used to
+// reconcile the router with Core (on Home launch / quit) so i2pd's lifetime
+// tracks Core's, not Home's window.
+export async function isManagedCoreUsingI2p(): Promise<boolean> {
+  const installedCore = await readInstalledCore();
+
+  if (!installedCore || !(await isInstalledCoreRuntimeRunning(installedCore))) {
+    return false;
+  }
+
+  return await isCoreI2pEnabled(installedCore.runtimePath);
+}
+
 async function writeInstalledCore(installedCore: InstalledCore) {
   await mkdir(getCoreBasePath(), { recursive: true });
   await writeFile(getCurrentCorePath(), `${JSON.stringify(installedCore, null, 2)}\n`, 'utf8');
