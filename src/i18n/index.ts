@@ -11,6 +11,7 @@ import { hu } from './locales/hu';
 import { it } from './locales/it';
 import { ja } from './locales/ja';
 import { ko } from './locales/ko';
+import { nb } from './locales/nb';
 import { nl } from './locales/nl';
 import { pl } from './locales/pl';
 import { pt } from './locales/pt';
@@ -37,6 +38,7 @@ const CATALOGS: Record<ConcreteLanguageSetting, Record<TranslationKey, string>> 
   it,
   ja,
   ko,
+  nb,
   nl,
   pl,
   pt,

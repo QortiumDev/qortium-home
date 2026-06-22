@@ -73,6 +73,10 @@ export const LANGUAGE_OPTIONS = [
     value: 'ko',
   },
   {
+    label: 'Norsk bokmål',
+    value: 'nb',
+  },
+  {
     label: 'Nederlands',
     value: 'nl',
   },
@@ -344,6 +348,10 @@ export function getSystemLanguage(): ConcreteLanguageSetting {
     }
 
     const base = tag.split('-')[0];
+    if (base === 'no') {
+      return 'nb';
+    }
+
     const baseMatch = LANGUAGE_OPTIONS.find((option) => option.value === base);
 
     if (baseMatch) {
