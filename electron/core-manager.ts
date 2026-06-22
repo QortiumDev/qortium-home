@@ -10,6 +10,7 @@ import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
 import {
   ensurePreviewApiKey,
+  readPreviewApiKey,
   readRunningLocalCoreApiKey,
   type RunningCoreApiKeyResult,
 } from './local-api-key.js';
@@ -2161,17 +2162,25 @@ async function stopCoreByPid(pid: number) {
 // Stop a Core that Home did not start, through its own admin API (GET /admin/stop),
 // authenticated with the running node's API key. Used when the local Core was
 // launched outside Home, so the user isn't stuck having to stop it by hand.
-async function stopCoreViaApi() {
-  const runningCore = readRunningLocalCoreApiKey();
+async function stopCoreViaApi(installedCore: InstalledCore | null) {
+  // Resolve the running node's API key. Prefer introspecting the live process
+  // (works on Linux); fall back to the managed runtime's apikey.txt so a
+  // Home-managed core whose ownership can't be confirmed — e.g. on macOS, where
+  // process introspection isn't available — can still be stopped.
+  const apiKey =
+    readRunningLocalCoreApiKey()?.apiKey ??
+    readPreviewApiKey(getCoreRuntimePath())?.apiKey ??
+    (installedCore ? readPreviewApiKey(installedCore.runtimePath)?.apiKey : null) ??
+    null;
 
-  if (!runningCore?.apiKey) {
+  if (!apiKey) {
     throw new Error(
       "Could not read the running Core's API key to stop it. Stop it from where it was started.",
     );
   }
 
   const response = await fetch(`${LOCAL_CORE_API_URL}/admin/stop`, {
-    headers: { 'X-API-KEY': runningCore.apiKey },
+    headers: { 'X-API-KEY': apiKey },
   });
 
   if (!response.ok) {
@@ -2219,9 +2228,9 @@ async function stopCore(options: { quiet?: boolean } = {}) {
 
       await stopCoreByPid(pid);
     } else {
-      // Core was started outside Home (external/unknown owner). Stop it through
-      // its own admin API using the running node's API key, rather than refusing.
-      await stopCoreViaApi();
+      // Core was started outside Home, or Home can't confirm ownership (e.g. on
+      // macOS). Stop it through its own admin API rather than refusing.
+      await stopCoreViaApi(installedCore);
     }
 
     await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
