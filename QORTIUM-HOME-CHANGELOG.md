@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: smoother I2P + Core handling when the Core was started outside Home
+
+Improved how Home deals with an I2P router and a Core it did not start itself. Home can now stop a local Core that was started outside Home — for example from a terminal — by using the Core's own stop command with the running node's key, instead of refusing and telling you to stop it by hand. If Home's managed I2P router is left running after Home is closed unexpectedly, Home now recognises it as its own on the next launch (by the record it keeps of the router it started) and lets you stop it from Settings, rather than treating it as someone else's router and leaving you stuck. And the I2P router status in Settings now refreshes on its own every few seconds and when you press the refresh button, so it no longer shows stale information — such as still showing a router as running for a while after it was stopped, which previously hid the "Enable I2P" option.
+
 ### 2026-06-21 - fix: rename a file so the app builds on macOS
 
 Fixed a problem that stopped the app from building on macOS. Two source files had names that differed only in capitalization — a component "AccountAvatar" and its helper "accountAvatar". On Linux these are two separate files, so builds there worked, but macOS's filesystem treats names as case-insensitive, so the two collided during a Mac build and the build failed. Renamed the helper to "useAccountAvatar" (matching the function it provides) so the names no longer clash and Mac builds succeed again. No behaviour changes.

@@ -164,7 +164,10 @@ export function ConnectionsPanel({
       summary={summary}
       title={t('connections.title')}
       onExpandedChange={onExpandedChange}
-      onRefresh={connections.refresh}
+      onRefresh={() => {
+        connections.refresh();
+        manager.refresh();
+      }}
     >
       <div className="connections">
         {status ? (
