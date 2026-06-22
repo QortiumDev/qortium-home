@@ -33,6 +33,10 @@ export const LANGUAGE_OPTIONS = [
     value: 'de',
   },
   {
+    label: 'Ελληνικά',
+    value: 'el',
+  },
+  {
     label: 'English',
     value: 'en',
   },
@@ -55,6 +59,10 @@ export const LANGUAGE_OPTIONS = [
   {
     label: 'עברית',
     value: 'he',
+  },
+  {
+    label: 'हिन्दी',
+    value: 'hi',
   },
   {
     label: 'Magyar',

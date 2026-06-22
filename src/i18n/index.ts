@@ -1,12 +1,14 @@
 import type { ConcreteLanguageSetting } from '../displaySettings';
 import { ar } from './locales/ar';
 import { de } from './locales/de';
+import { el } from './locales/el';
 import { en, type TranslationKey } from './locales/en';
 import { es } from './locales/es';
 import { et } from './locales/et';
 import { fi } from './locales/fi';
 import { fr } from './locales/fr';
 import { he } from './locales/he';
+import { hi } from './locales/hi';
 import { hu } from './locales/hu';
 import { it } from './locales/it';
 import { ja } from './locales/ja';
@@ -28,12 +30,14 @@ export type TranslationParams = Record<string, string | number>;
 const CATALOGS: Record<ConcreteLanguageSetting, Record<TranslationKey, string>> = {
   ar,
   de,
+  el,
   en,
   es,
   et,
   fi,
   fr,
   he,
+  hi,
   hu,
   it,
   ja,
