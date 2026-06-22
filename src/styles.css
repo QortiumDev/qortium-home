@@ -706,6 +706,13 @@ h1 {
   justify-self: stretch;
 }
 
+.connections__router {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  width: 100%;
+}
+
 .connections__actions {
   display: flex;
   flex-wrap: wrap;
