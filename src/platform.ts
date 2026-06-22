@@ -7484,6 +7484,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       return true;
     }
 
+    case 'SAVE_QDN_RESOURCE':
+      throw new Error('SAVE_QDN_RESOURCE is only available in the desktop app.');
+
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ANDROID';
 
