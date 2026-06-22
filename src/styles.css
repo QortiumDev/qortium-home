@@ -4177,3 +4177,157 @@ h1 {
   border: 0;
   background: var(--color-surface);
 }
+
+/* CSV table viewer */
+.qdn-viewer__csv-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.qdn-viewer__csv-table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.qdn-viewer__csv-table th,
+.qdn-viewer__csv-table td {
+  padding: 5px 10px;
+  border: 1px solid var(--color-border);
+  text-align: left;
+  white-space: pre-wrap;
+  vertical-align: top;
+}
+
+.qdn-viewer__csv-table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-frame-surface);
+  font-weight: 650;
+}
+
+.qdn-viewer__csv-table tbody tr:nth-child(even) {
+  background: var(--color-surface-sunken);
+}
+
+.qdn-viewer__csv-truncated {
+  margin: 10px 2px 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+/* JSON tree viewer */
+.qdn-viewer__json {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.qdn-json__row {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.qdn-json__toggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.qdn-json__caret {
+  display: inline-block;
+  width: 1em;
+  color: var(--color-text-secondary);
+}
+
+.qdn-json__key {
+  color: var(--color-accent);
+}
+
+.qdn-json__summary {
+  color: var(--color-text-secondary);
+}
+
+.qdn-json__value--string {
+  color: #2e9e57;
+}
+
+.qdn-json__value--number {
+  color: #c07b1a;
+}
+
+.qdn-json__value--boolean {
+  color: #9168d6;
+}
+
+.qdn-json__value--null {
+  color: var(--color-text-secondary);
+}
+
+/* highlight.js token theme, mapped onto the app palette so it follows light/dark */
+.hljs {
+  color: var(--color-text);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-doctag,
+.hljs-type {
+  color: #9168d6;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: #2e9e57;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #c07b1a;
+}
+
+.hljs-title,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-built_in {
+  color: var(--color-accent);
+}
+
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable {
+  color: #c0504d;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}

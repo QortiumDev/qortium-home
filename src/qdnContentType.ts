@@ -4,8 +4,9 @@
 // is publisher-chosen and frequently wrong: an image published as DOCUMENT, audio
 // as ATTACHMENT, a PDF as FILE. This module resolves the *content kind* of a
 // single-file resource from the signals that actually describe its bytes — the
-// publisher mimeType (weak), the filename extension, and (post-fetch) the response
-// Content-Type header — so the viewer renders what the bytes really are.
+// publisher mimeType (weak), the filename extension, the response Content-Type
+// header, and finally the leading magic bytes — so the viewer renders what the
+// bytes really are.
 //
 // Container shape (APP/WEBSITE iframes, multi-file galleries) is decided upstream
 // by service in `qdn.ts`; this module only classifies single-file content.
@@ -15,14 +16,28 @@ import type { QdnViewerKind } from './qdn';
 // The subset of QdnViewerKind that can be resolved from content type alone.
 export type ContentKind = Extract<
   QdnViewerKind,
-  'audio' | 'document' | 'html' | 'image' | 'markdown' | 'text' | 'video'
+  | 'audio'
+  | 'code'
+  | 'csv'
+  | 'document'
+  | 'html'
+  | 'image'
+  | 'json'
+  | 'markdown'
+  | 'text'
+  | 'video'
 >;
 
 // Filename extension → content kind. Lower-case, no leading dot. The publisher
 // mimeType is unreliable (often absent or application/octet-stream), so the
 // extension is usually the strongest single signal we have pre-fetch.
+//
+// Only formats the platform can actually decode are mapped to image/audio/video —
+// e.g. TIFF and Matroska (.mkv) are deliberately omitted because browsers can't
+// render them, so they fall through to the download/document path instead of
+// showing a broken element.
 const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
-  // images
+  // images (browser-renderable only)
   apng: 'image',
   avif: 'image',
   bmp: 'image',
@@ -32,8 +47,6 @@ const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   jpg: 'image',
   png: 'image',
   svg: 'image',
-  tif: 'image',
-  tiff: 'image',
   webp: 'image',
   // audio
   aac: 'audio',
@@ -45,9 +58,8 @@ const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   opus: 'audio',
   wav: 'audio',
   weba: 'audio',
-  // video
+  // video (browser-renderable containers only)
   m4v: 'video',
-  mkv: 'video',
   mov: 'video',
   mp4: 'video',
   ogv: 'video',
@@ -63,15 +75,56 @@ const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   md: 'markdown',
   mdown: 'markdown',
   mkd: 'markdown',
-  // plain text / data → inline text viewer (which already pretty-prints JSON)
-  csv: 'text',
-  json: 'text',
+  // structured data with dedicated viewers
+  csv: 'csv',
+  json: 'json',
+  // source code → syntax-highlighted viewer
+  bash: 'code',
+  c: 'code',
+  cc: 'code',
+  clj: 'code',
+  cpp: 'code',
+  cs: 'code',
+  css: 'code',
+  dart: 'code',
+  ex: 'code',
+  exs: 'code',
+  go: 'code',
+  gradle: 'code',
+  h: 'code',
+  hpp: 'code',
+  ini: 'code',
+  java: 'code',
+  js: 'code',
+  jsx: 'code',
+  kt: 'code',
+  less: 'code',
+  lua: 'code',
+  mjs: 'code',
+  php: 'code',
+  pl: 'code',
+  py: 'code',
+  r: 'code',
+  rb: 'code',
+  rs: 'code',
+  scala: 'code',
+  scss: 'code',
+  sh: 'code',
+  sql: 'code',
+  svelte: 'code',
+  swift: 'code',
+  toml: 'code',
+  ts: 'code',
+  tsx: 'code',
+  vue: 'code',
+  xml: 'code',
+  yaml: 'code',
+  yml: 'code',
+  zsh: 'code',
+  // plain text → inline text viewer
   log: 'text',
   text: 'text',
   txt: 'text',
-  xml: 'text',
-  yaml: 'text',
-  yml: 'text',
 };
 
 // Exact MIME type → content kind, for types whose `type/subtype` we recognise
@@ -82,12 +135,14 @@ const MIME_TO_KIND: Readonly<Record<string, ContentKind>> = {
   'application/pdf': 'document',
   'application/vnd.comicbook+zip': 'document',
   'application/x-cbz': 'document',
-  'application/json': 'text',
-  'application/xml': 'text',
+  'application/json': 'json',
+  'application/xml': 'code',
   'application/xhtml+xml': 'html',
+  'text/csv': 'csv',
   'text/html': 'html',
   'text/markdown': 'markdown',
   'text/x-markdown': 'markdown',
+  'text/xml': 'code',
 };
 
 function extensionOf(filename?: string): string {
@@ -138,7 +193,8 @@ function kindFromMime(mime: string): ContentKind | null {
 // The extension is checked first because it is the most reliable publisher-set
 // signal in practice; mimeType and the response header are honoured next so a
 // resource with no/strange extension still resolves. Returns null when nothing
-// determines a kind — callers fall back to service-based routing.
+// determines a kind — callers fall back to magic-byte sniffing and/or
+// service-based routing.
 export function detectContentKind(
   filename?: string,
   mimeType?: string,
@@ -156,4 +212,40 @@ export function detectContentKind(
   }
 
   return kindFromMime(normalizeMime(responseContentType));
+}
+
+function startsWith(bytes: Uint8Array, signature: readonly number[], offset = 0): boolean {
+  if (bytes.length < offset + signature.length) {
+    return false;
+  }
+
+  for (let i = 0; i < signature.length; i += 1) {
+    if (bytes[offset + i] !== signature[i]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Last-resort classification from the leading bytes of the resource, for content
+// that has no usable filename extension and an unhelpful mimeType
+// (application/octet-stream or empty). Recognises the common renderable
+// signatures; returns null when the bytes are not a format we display inline.
+export function sniffMagicBytes(bytes: Uint8Array): ContentKind | null {
+  // Images
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47])) return 'image'; // PNG
+  if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image'; // JPEG
+  if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return 'image'; // GIF8
+  if (startsWith(bytes, [0x42, 0x4d])) return 'image'; // BMP
+  if (startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes, [0x57, 0x45, 0x42, 0x50], 8)) {
+    return 'image'; // RIFF....WEBP
+  }
+  // Documents
+  if (startsWith(bytes, [0x25, 0x50, 0x44, 0x46])) return 'document'; // %PDF
+  // Audio
+  if (startsWith(bytes, [0x49, 0x44, 0x33])) return 'audio'; // ID3 (mp3)
+  if (startsWith(bytes, [0x4f, 0x67, 0x67, 0x53])) return 'audio'; // OggS (treat as audio)
+  if (startsWith(bytes, [0x66, 0x4c, 0x61, 0x43])) return 'audio'; // fLaC
+  return null;
 }

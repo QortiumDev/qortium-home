@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: code/CSV/JSON viewers, magic-byte detection, and viewer fixes
+
+Rounds out the content-type viewer with three more in-page views and some fixes.
+Source code now displays with syntax highlighting (the highlighter loads only when
+a code file is opened), CSV files render as a real table with sticky headers, and
+JSON shows as a collapsible tree you can expand and collapse instead of a wall of
+text. Detection also gained a last-resort step: a file published with no name and
+no type information is now identified by its first few bytes, so a bare image or
+PDF still previews instead of falling back to a download.
+
+Fixes: the document-viewer "too large" message now shows the correct size limit
+(it previously said 5 MB while the real limit is 100 MB), the "Open in Document
+Viewer" button now works for documents regardless of how they were published, and
+a few file types browsers can't actually display (TIFF, Matroska video) no longer
+route to a viewer that would show nothing. All new labels are fully translated.
+
 ### 2026-06-22 - feat: content-type QDN viewer routing + in-app document reader
 
 The QDN viewer now decides how to display a resource from what the file actually

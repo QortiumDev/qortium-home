@@ -86,12 +86,15 @@ export type QdnService = (typeof PUBLIC_QDN_SERVICES)[number];
 export type QdnRenderableService = (typeof RENDERABLE_QDN_SERVICES)[number];
 export type QdnViewerKind =
   | 'audio'
+  | 'code'
+  | 'csv'
   | 'document'
   | 'download'
   | 'gif-repository'
   | 'html'
   | 'iframe'
   | 'image'
+  | 'json'
   | 'markdown'
   | 'text'
   | 'unsupported'
@@ -330,6 +333,17 @@ export function getLoadedViewerKind(
     const contentKind = detectContentKind(properties?.filename, properties?.mimeType);
     if (contentKind) {
       return contentKind;
+    }
+
+    // Service-name hints for data services whose single file usually has no
+    // extension and no reliable mimeType: the JSON service is JSON (tree viewer),
+    // the CODE service is source (highlighted). Content detection above still
+    // wins when the bytes say otherwise (e.g. a markdown file under CODE).
+    if (resource.service === 'JSON') {
+      return 'json';
+    }
+    if (resource.service === 'CODE') {
+      return 'code';
     }
   }
 
