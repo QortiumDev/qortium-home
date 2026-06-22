@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - feat: don't run the managed I2P router when I2P is turned off
+
+Made the managed I2P router respect the node's transport choice. When the local Core is set to "Direct only" (I2P turned off), Home no longer starts the router alongside Core — there's no point running a router the node won't use. And when you switch the node to "Direct only" yourself, Home shuts down the router it was running (an I2P router you run yourself is still left alone). I2P is treated as enabled whenever the node uses its normal default or any mode that includes I2P, so the router still comes up automatically in those cases.
+
 ### 2026-06-21 - feat: start/stop the managed I2P router with the local Core
 
 Tied the managed I2P router's lifecycle to the Core that Home runs. When Home starts the local Core it now also brings up the installed I2P router first, so the router's bridge is ready as Core looks for it; this is best-effort and never delays or blocks Core from starting — if the router is slow or unavailable, Core simply starts on its direct connection as before and picks up I2P once it's ready. When Home stops the local Core, or when you quit Home, the router Home started is shut down cleanly so it isn't left running in the background holding the connection. If you run your own I2P router, Home continues to leave it untouched. Nothing happens here unless you've enabled the managed router from Settings.

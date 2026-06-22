@@ -2044,6 +2044,27 @@ function getStopScript(previewPath: string) {
     : path.join(previewPath, 'stop.sh');
 }
 
+// Whether the managed Core has I2P enabled, read from its on-disk participant
+// settings (Core isn't running yet at this point). A null/empty/absent
+// allowedTransports means Core's default ["IP","I2P"] — I2P enabled. Defaults to
+// true on any uncertainty so we never suppress the fallback by accident; only a
+// list that positively excludes I2P (e.g. ["IP"]) returns false.
+async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
+  try {
+    const raw = await readFile(path.join(runtimePath, 'settings-preview-local.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { allowedTransports?: unknown };
+    const list = parsed.allowedTransports;
+
+    if (!Array.isArray(list) || list.length === 0) {
+      return true;
+    }
+
+    return list.some((entry) => typeof entry === 'string' && entry.trim().toUpperCase() === 'I2P');
+  } catch {
+    return true;
+  }
+}
+
 async function startCore(options: { quiet?: boolean } = {}) {
   const installedCore = await readInstalledCore();
 
@@ -2067,7 +2088,11 @@ async function startCore(options: { quiet?: boolean } = {}) {
 
   // Bring up the managed I2P router (if installed) before Core, so its SAM bridge
   // is ready when Core looks for it. Best-effort — never blocks Core startup.
-  await startI2pdIfManaged();
+  // Skip it when the node has I2P disabled (IP-only): no point running a router
+  // Core won't use.
+  if (await isCoreI2pEnabled(installedCore.runtimePath)) {
+    await startI2pdIfManaged();
+  }
 
   const startScript = getStartScript(installedCore.previewPath);
 
