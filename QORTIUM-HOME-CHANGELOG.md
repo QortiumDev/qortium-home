@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - ui: fold node selection into the Qortium Core section and dashboard tile
+
+Streamlined how you choose which node Home talks to. On the desktop the separate
+"Node Settings" section is gone; its node selector (Local / Network / Custom) now
+lives at the top of the Qortium Core section, next to the Local API endpoint that
+was already shown there. Changing the selector applies right away — Home saves and
+reconnects on its own, so there is no longer a separate Test and Save button; if
+the chosen node can't be reached you simply see the usual disconnected state. The
+same selector now also sits on the dashboard's Qortium Core tile, in line with the
+Start/Stop button and left-aligned, so you can switch nodes without opening
+Settings. On Android and the web, where there is no managed Core, the node selector
+keeps its own Settings section.
+
 ### 2026-06-22 - feat: let Q-Apps save a QDN resource to a file (desktop, Android, and web)
 
 QDN apps can now ask Home to download a resource to a file through a new

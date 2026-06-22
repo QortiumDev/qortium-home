@@ -12,8 +12,9 @@ import type {
   ThemeSetting,
 } from './displaySettings';
 import { t } from './i18n';
-import { NodeSettingsPanel } from './NodeSettingsPanel';
+import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
+import { SettingsSection } from './SettingsSection';
 
 export type SettingsSectionId = 'connections' | 'core' | 'display' | 'home' | 'node';
 
@@ -50,6 +51,11 @@ export function SettingsPage({
   onTextSizeChange,
   sectionExpansion,
 }: SettingsPageProps) {
+  // On desktop the node-connection controls live inside the Qortium Core section.
+  // Android/web have no managed Core (so that section is hidden), so they keep a
+  // dedicated node section — otherwise there would be nowhere to choose the node.
+  const hasManagedCore = !!window.qortiumHome.core;
+
   return (
     <div className="settings-page">
       <header className="settings-page__header">
@@ -66,13 +72,21 @@ export function SettingsPage({
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
         />
-        <NodeSettingsPanel
-          isExpanded={sectionExpansion.node}
-          nodeSettings={nodeSettings}
-          onExpandedChange={(isExpanded) => onSectionExpansionChange('node', isExpanded)}
-          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
-          onSaveNodeSettings={onSaveNodeSettings}
-        />
+        {hasManagedCore ? null : (
+          <SettingsSection
+            defaultExpanded
+            isExpanded={sectionExpansion.node}
+            summary={nodeSettings.mode === 'network' ? t('node.mode.network') : nodeSettings.nodeApiUrl}
+            title={t('node.sectionTitle')}
+            onExpandedChange={(isExpanded) => onSectionExpansionChange('node', isExpanded)}
+          >
+            <NodeConnectionSettings
+              nodeSettings={nodeSettings}
+              onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+              onSaveNodeSettings={onSaveNodeSettings}
+            />
+          </SettingsSection>
+        )}
         <ConnectionsPanel
           canManageTransports={nodeSettings.mode !== 'network'}
           isManagedNode={nodeSettings.mode === 'local'}
@@ -83,8 +97,11 @@ export function SettingsPage({
         <CoreManagerPanel
           coreManager={coreManager}
           isExpanded={sectionExpansion.core}
+          nodeSettings={nodeSettings}
           onChainCoreUpdate={onChainCoreUpdate}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('core', isExpanded)}
+          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+          onSaveNodeSettings={onSaveNodeSettings}
         />
         <AppUpdatePanel
           isExpanded={sectionExpansion.home}

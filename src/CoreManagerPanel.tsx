@@ -8,6 +8,7 @@ import {
   type CoreManagerState,
 } from './coreManagerState';
 import { getTranslationLanguage, t } from './i18n';
+import { NodeConnectionSettings } from './NodeConnection';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
@@ -26,8 +27,11 @@ import { SettingsSection } from './SettingsSection';
 type CoreManagerPanelProps = {
   coreManager: CoreManagerState;
   isExpanded: boolean;
+  nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onExpandedChange: (isExpanded: boolean) => void;
+  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
+  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 };
 
 function getCoreSettingsStatusText({
@@ -191,8 +195,11 @@ function getCoreSettingsRows({
 export function CoreManagerPanel({
   coreManager,
   isExpanded,
+  nodeSettings,
   onChainCoreUpdate,
   onExpandedChange,
+  onResolvedNodeApiUrl,
+  onSaveNodeSettings,
 }: CoreManagerPanelProps) {
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
@@ -250,6 +257,12 @@ export function CoreManagerPanel({
       onRefresh={handleRefresh}
     >
       <div className="core-manager">
+        <NodeConnectionSettings
+          nodeSettings={nodeSettings}
+          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+          onSaveNodeSettings={onSaveNodeSettings}
+        />
+
         <DetailList className="core-manager__details" rows={rows} />
 
         {coreManager.progress && coreManager.progress.action !== 'idle' ? (

@@ -2578,6 +2578,49 @@ h1 {
   text-align: end;
 }
 
+/* Node connection controls embedded at the top of the Qortium Core section. */
+.node-connection {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.node-connection__preset {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.node-connection__preset span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  text-align: end;
+}
+
+.node-connection__message--error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+/* The node-mode dropdown shares the Core tile's action row with Start/Stop;
+   keep it compact and left-aligned so the buttons stay on the right. */
+.dashboard-card__node-mode {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 140px;
+  max-width: 220px;
+  margin-right: auto;
+}
+
 .node-settings,
 .app-updates,
 .core-manager {
