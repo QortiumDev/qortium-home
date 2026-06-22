@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - build: exclude unused @napi-rs/canvas from packaging
+
+Stopped bundling `@napi-rs/canvas`, a native module that the PDF library lists as
+an optional dependency but Qortium Home never uses (the in-app PDF viewer draws to
+the browser's own canvas). Including it had no benefit and broke the macOS
+universal build, which could not merge the module's processor-specific binary
+across the Intel and Apple Silicon halves of the app; it also needlessly enlarged
+the Linux and Windows builds. Excluding it fixes the macOS build and slims every
+desktop package.
+
 ### 2026-06-22 - release: prepare home 1.1.0
 
 Moved Qortium Home off the `-preview.N` versioning scheme to a plain `1.1.0`, matching how Qortium Core is versioned, and set the Android `versionCode` to 18 so this release can install over previous preview builds. This is the first stable-numbered release and gathers everything added since the last preview: a content-type-driven QDN viewer that opens Markdown, HTML, code, CSV, and JSON files in-app; an in-app document reader for PDF, EPUB, plain text, and comic archives (CBZ and CBR); a general ZIP/RAR archive browser and a Git repository browser that both present their contents as a collapsible file tree; node-aware QDN app actions with opt-in response headers; batch identity lookup for apps; and a managed I2P router with selectable IP/I2P transport modes, alongside assorted Core-handling, navigation, and QDN browsing improvements.
