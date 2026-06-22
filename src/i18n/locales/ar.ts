@@ -455,6 +455,8 @@ export const ar: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "موافقة",
   "qdnWrite.voteDirection": "التصويت",
   "qdnWrite.voteOppose": "معارضة",
+  "repository.empty": "لا يحتوي هذا المستودع على ملفات.",
+  "repository.title": "ملفات المستودع",
   "tabs.closeNamed": "إغلاق {label}",
   "tabs.closeOtherTabs": "إغلاق علامات التبويب الأخرى",
   "tabs.closeTab": "إغلاق علامة التبويب",

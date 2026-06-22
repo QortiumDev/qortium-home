@@ -59,6 +59,9 @@ const VIDEO_QDN_SERVICES = ['VIDEO'] as const;
 // Multi-file image collections. GIF_REPOSITORY (gifs only) and IMAGE_GALLERY
 // (the broader image set added in Core v1.1.0) share the same gallery viewer.
 const GALLERY_QDN_SERVICES = ['GIF_REPOSITORY', 'IMAGE_GALLERY'] as const;
+// Multi-file source/working-tree directories browsed as a file tree. Core serves
+// GIT_REPOSITORY as a plain directory of files (no git refs), like a website.
+const REPOSITORY_QDN_SERVICES = ['GIT_REPOSITORY'] as const;
 const TEXT_QDN_SERVICES = [
   'JSON',
   'METADATA',
@@ -78,6 +81,7 @@ const RENDERABLE_QDN_SERVICES = [
   ...AUDIO_QDN_SERVICES,
   ...VIDEO_QDN_SERVICES,
   ...GALLERY_QDN_SERVICES,
+  ...REPOSITORY_QDN_SERVICES,
   ...TEXT_QDN_SERVICES,
   ...DOWNLOAD_QDN_SERVICES,
 ] as const;
@@ -97,6 +101,7 @@ export type QdnViewerKind =
   | 'image'
   | 'json'
   | 'markdown'
+  | 'repository'
   | 'text'
   | 'unsupported'
   | 'video';
@@ -288,6 +293,10 @@ export function getQdnViewerKind(service: QdnService): QdnViewerKind {
     return 'gif-repository';
   }
 
+  if (REPOSITORY_QDN_SERVICES.includes(service as (typeof REPOSITORY_QDN_SERVICES)[number])) {
+    return 'repository';
+  }
+
   if (TEXT_QDN_SERVICES.includes(service as (typeof TEXT_QDN_SERVICES)[number])) {
     return 'text';
   }
@@ -329,7 +338,8 @@ export function getLoadedViewerKind(
   // routing when no content signal is available.
   if (
     !IFRAME_QDN_SERVICES.includes(resource.service as (typeof IFRAME_QDN_SERVICES)[number]) &&
-    !GALLERY_QDN_SERVICES.includes(resource.service as (typeof GALLERY_QDN_SERVICES)[number])
+    !GALLERY_QDN_SERVICES.includes(resource.service as (typeof GALLERY_QDN_SERVICES)[number]) &&
+    !REPOSITORY_QDN_SERVICES.includes(resource.service as (typeof REPOSITORY_QDN_SERVICES)[number])
   ) {
     const contentKind = detectContentKind(properties?.filename, properties?.mimeType);
     if (contentKind) {

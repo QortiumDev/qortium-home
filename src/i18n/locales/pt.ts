@@ -455,6 +455,8 @@ export const pt: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "A favor",
   "qdnWrite.voteDirection": "Voto",
   "qdnWrite.voteOppose": "Contra",
+  "repository.empty": "Este repositório não tem arquivos.",
+  "repository.title": "Arquivos do repositório",
   "tabs.closeNamed": "Fechar {label}",
   "tabs.closeOtherTabs": "Fechar outras abas",
   "tabs.closeTab": "Fechar aba",

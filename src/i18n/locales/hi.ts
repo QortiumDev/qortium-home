@@ -456,6 +456,8 @@ export const hi: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "समर्थन करें",
   "qdnWrite.voteDirection": "वोट",
   "qdnWrite.voteOppose": "विरोध करें",
+  "repository.empty": "इस रिपॉजिटरी में कोई फाइल नहीं है।",
+  "repository.title": "रिपॉजिटरी फाइलें",
   "tabs.closeNamed": "{label} बंद करें",
   "tabs.closeOtherTabs": "अन्य टैब बंद करें",
   "tabs.closeTab": "टैब बंद करें",

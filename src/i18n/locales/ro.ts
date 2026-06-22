@@ -455,6 +455,8 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Pentru",
   "qdnWrite.voteDirection": "Vot",
   "qdnWrite.voteOppose": "Împotrivă",
+  "repository.empty": "Acest repository nu are fișiere.",
+  "repository.title": "Fișiere repository",
   "tabs.closeNamed": "Închide {label}",
   "tabs.closeOtherTabs": "Închide celelalte file",
   "tabs.closeTab": "Închide fila",

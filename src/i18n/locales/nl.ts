@@ -455,6 +455,8 @@ export const nl: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Voor",
   "qdnWrite.voteDirection": "Stem",
   "qdnWrite.voteOppose": "Tegen",
+  "repository.empty": "Deze repository bevat geen bestanden.",
+  "repository.title": "Repositorybestanden",
   "tabs.closeNamed": "{label} sluiten",
   "tabs.closeOtherTabs": "Andere tabbladen sluiten",
   "tabs.closeTab": "Tabblad sluiten",

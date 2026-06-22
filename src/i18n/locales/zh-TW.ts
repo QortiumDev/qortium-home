@@ -455,6 +455,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "贊成",
   "qdnWrite.voteDirection": "投票",
   "qdnWrite.voteOppose": "反對",
+  "repository.empty": "此儲存庫沒有檔案。",
+  "repository.title": "儲存庫檔案",
   "tabs.closeNamed": "關閉 {label}",
   "tabs.closeOtherTabs": "關閉其他分頁",
   "tabs.closeTab": "關閉分頁",

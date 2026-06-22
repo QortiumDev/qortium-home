@@ -455,6 +455,8 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "찬성",
   "qdnWrite.voteDirection": "투표",
   "qdnWrite.voteOppose": "반대",
+  "repository.empty": "이 저장소에는 파일이 없습니다.",
+  "repository.title": "저장소 파일",
   "tabs.closeNamed": "{label} 닫기",
   "tabs.closeOtherTabs": "다른 탭 닫기",
   "tabs.closeTab": "탭 닫기",

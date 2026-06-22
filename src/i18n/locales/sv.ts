@@ -455,6 +455,8 @@ export const sv: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "För",
   "qdnWrite.voteDirection": "Röst",
   "qdnWrite.voteOppose": "Emot",
+  "repository.empty": "Detta kodförråd har inga filer.",
+  "repository.title": "Kodförrådsfiler",
   "tabs.closeNamed": "Stäng {label}",
   "tabs.closeOtherTabs": "Stäng övriga flikar",
   "tabs.closeTab": "Stäng flik",

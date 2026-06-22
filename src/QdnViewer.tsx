@@ -1,4 +1,4 @@
-import { ChevronDown, ClipboardCopy, Copy, Download, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ClipboardCopy, Copy, Download, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t } from './i18n';
 import type {
@@ -24,9 +24,10 @@ import {
   isTerminalQdnStatus,
 } from './qdn';
 import { marked } from 'marked';
-import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
+import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform, saveBytesToFile } from './platform';
 import { ArchiveViewer } from './ArchiveViewer';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
+import { FileTree, type FileTreeEntry } from './FileTree';
 import { detectContentKind, sniffMagicBytes } from './qdnContentType';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
@@ -2023,67 +2024,82 @@ function QdnImageContent({
 // text-family kinds decode locally via entrySource, and documents (pdf/epub/cbz)
 // open the in-place DocumentViewer. Nested archives are handled by ArchiveViewer
 // itself, so they never reach here.
+// Where an entry's bytes come from: an already-extracted in-memory buffer (archive
+// entry) or a node-served sub-resource fetched by path (repository file). Media and
+// documents render directly from the node URL/path in 'node' mode; only 'bytes'
+// mode needs a transient object-URL and an in-memory text source.
+export type EntryViewerSource =
+  | { kind: 'bytes'; bytes: Uint8Array }
+  | { kind: 'node'; renderUrl: string };
+
 export function QdnEntryContent({
-  bytes,
   displaySettings,
   filename,
   onActionContextChange,
   onBack,
-  parentResource,
+  resource,
+  source,
 }: {
-  bytes: Uint8Array;
   displaySettings: QdnDisplaySettings;
   filename: string;
   onActionContextChange: SetViewerActionContext;
   onBack: () => void;
-  parentResource: QdnResource;
+  resource: QdnResource;
+  source: EntryViewerSource;
 }) {
   const kind = detectContentKind(filename) ?? 'download';
 
-  const resource = useMemo<QdnResource>(
-    () => ({ ...parentResource, path: filename }),
-    [parentResource, filename],
-  );
+  const sourceBytes = source.kind === 'bytes' ? source.bytes : null;
+  const nodeRenderUrl = source.kind === 'node' ? source.renderUrl : null;
+  const isMedia = kind === 'image' || kind === 'audio' || kind === 'video';
+  const needsObjectUrl = isMedia && sourceBytes !== null;
 
-  const needsObjectUrl = kind === 'image' || kind === 'audio' || kind === 'video';
-  // Create the blob URL in an effect (not useMemo) so it is allocated exactly once
-  // per lifecycle and always revoked on change/unmount — useMemo can be
-  // double-invoked (StrictMode) or discarded, which would leak the URL.
+  // For in-memory media, create the blob URL in an effect (not useMemo) so it is
+  // allocated exactly once per lifecycle and always revoked on change/unmount —
+  // useMemo can be double-invoked (StrictMode) or discarded, leaking the URL.
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!needsObjectUrl) {
+    if (!needsObjectUrl || !sourceBytes) {
       setObjectUrl(null);
       return;
     }
 
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
+    const url = URL.createObjectURL(new Blob([sourceBytes as BlobPart]));
     setObjectUrl(url);
 
     return () => URL.revokeObjectURL(url);
-  }, [bytes, needsObjectUrl]);
+  }, [sourceBytes, needsObjectUrl]);
+
+  // The URL media viewers render from: the in-memory blob URL, or the node path URL.
+  const mediaUrl = sourceBytes ? objectUrl ?? '' : nodeRenderUrl ?? '';
 
   const loadedResource = useMemo<LoadedQdnResource>(
     () => ({
-      properties: { filename, size: bytes.length },
-      renderUrl: objectUrl ?? '',
+      properties: { filename, ...(sourceBytes ? { size: sourceBytes.length } : {}) },
+      renderUrl: mediaUrl,
       status: {},
       viewerKind: kind,
     }),
-    [filename, bytes, objectUrl, kind],
+    [filename, sourceBytes, mediaUrl, kind],
   );
 
-  const entrySource = useMemo<TextEntrySource>(() => ({ bytes }), [bytes]);
+  // In 'node' mode there is no in-memory source — the text viewers fetch the file
+  // by resource.path through the bridge (?filepath=), exactly like a normal resource.
+  const entrySource = useMemo<TextEntrySource | undefined>(
+    () => (sourceBytes ? { bytes: sourceBytes } : undefined),
+    [sourceBytes],
+  );
 
   switch (kind) {
     case 'image':
-      return <QdnImageContent alt={filename} renderUrl={objectUrl ?? ''} />;
+      return <QdnImageContent alt={filename} renderUrl={mediaUrl} />;
     case 'audio':
     case 'video':
       return <QdnMediaContent loadedResource={loadedResource} resource={resource} />;
     case 'document':
       return (
         <DocumentViewer
-          bytes={bytes}
+          bytes={sourceBytes ?? undefined}
           displaySettings={displaySettings}
           onDismiss={onBack}
           resource={resource}
@@ -2283,6 +2299,204 @@ function getQdnResourceWithPath(resource: QdnResource, path: string): QdnResourc
     ...nextResource,
     displayUrl: buildQdnDisplayUrl(nextResource),
   };
+}
+
+const REPOSITORY_FILE_MAX_BYTES = 100 * 1024 * 1024;
+
+function pathBasename(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+function isNestedArchivePath(path: string): boolean {
+  return /\.(zip|rar)$/i.test(path);
+}
+
+function entryBase64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Pick the file a repository opens to: an explicit metadata entryPoint if present,
+// otherwise a top-level README; falls back to the tree when neither exists.
+function pickInitialRepositoryFile(files: string[], entryPoint?: string): string {
+  if (entryPoint && files.includes(entryPoint)) {
+    return entryPoint;
+  }
+  return files.find((file) => !file.includes('/') && /^readme(\.|$)/i.test(file)) ?? '';
+}
+
+type RepositoryState =
+  | { phase: 'loading' }
+  | { phase: 'error'; message: string }
+  | { phase: 'ready'; files: string[] };
+
+// Browses a GIT_REPOSITORY (a multi-file, node-served QDN resource) as a
+// collapsible file tree, previewing each file in place with the matching content
+// viewer. Unlike the archive browser there is no in-memory extraction: every file
+// is fetched by path (?filepath=) the same way the gallery fetches images.
+function QdnRepositoryContent({
+  displaySettings,
+  nodeApiUrl,
+  onActionContextChange,
+  resource,
+}: {
+  displaySettings: QdnDisplaySettings;
+  nodeApiUrl: string;
+  onActionContextChange: SetViewerActionContext;
+  resource: QdnResource;
+}) {
+  const [state, setState] = useState<RepositoryState>({ phase: 'loading' });
+  const [selectedPath, setSelectedPath] = useState('');
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    let isDisposed = false;
+    setState({ phase: 'loading' });
+    setSelectedPath('');
+
+    async function loadList() {
+      try {
+        const metadata = await loadResourceMetadata(resource, nodeApiUrl, abortController.signal);
+        const files = (metadata?.files ?? [])
+          .slice()
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+        if (isDisposed) {
+          return;
+        }
+
+        setSelectedPath(pickInitialRepositoryFile(files, metadata?.entryPoint));
+        setState({ phase: 'ready', files });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+        if (!isDisposed) {
+          setState({ phase: 'error', message: formatError(error) });
+        }
+      }
+    }
+
+    void loadList();
+
+    return () => {
+      isDisposed = true;
+      abortController.abort();
+    };
+  }, [nodeApiUrl, resource]);
+
+  const fileTreeEntries = useMemo<FileTreeEntry[]>(
+    () => (state.phase === 'ready' ? state.files.map((path) => ({ path, dir: false })) : []),
+    [state],
+  );
+
+  async function downloadPath(path: string) {
+    setDownloadError(null);
+    try {
+      const sub = getQdnResourceWithPath(resource, path);
+      const result = await window.qortiumHome.qdn.fetchResourceData({
+        identifier: sub.identifier,
+        maxBytes: REPOSITORY_FILE_MAX_BYTES,
+        name: sub.name,
+        path: sub.path || undefined,
+        service: sub.service,
+      });
+
+      if (result.tooLarge) {
+        const limit = `${Math.round(REPOSITORY_FILE_MAX_BYTES / (1024 * 1024))} MB`;
+        setDownloadError(t('docViewer.tooLarge', { limit }));
+        return;
+      }
+
+      await saveBytesToFile(pathBasename(path), entryBase64ToBytes(result.data));
+    } catch {
+      setDownloadError(t('archive.downloadFailed'));
+    }
+  }
+
+  if (state.phase === 'loading') {
+    return (
+      <div className="qdn-archive">
+        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
+          <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.phase === 'error') {
+    return (
+      <div className="qdn-archive">
+        <div className="qdn-viewer__empty qdn-viewer__empty--error">
+          <p className="qdn-viewer__message">{state.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedPath) {
+    const back = () => setSelectedPath('');
+    const sub = getQdnResourceWithPath(resource, selectedPath);
+    const filename = pathBasename(selectedPath);
+
+    return (
+      <div className="qdn-archive">
+        <div className="qdn-archive__bar">
+          <button className="button button--ghost qdn-archive__back" type="button" onClick={back}>
+            <ArrowLeft size={16} aria-hidden="true" />
+            {t('archive.back')}
+          </button>
+          <span className="qdn-archive__crumb" title={selectedPath}>
+            {selectedPath}
+          </span>
+        </div>
+        <div className="qdn-archive__entry">
+          {isNestedArchivePath(filename) ? (
+            <ArchiveViewer
+              displaySettings={displaySettings}
+              onActionContextChange={onActionContextChange}
+              resource={sub}
+            />
+          ) : (
+            <QdnEntryContent
+              displaySettings={displaySettings}
+              filename={filename}
+              onActionContextChange={onActionContextChange}
+              onBack={back}
+              resource={sub}
+              source={{ kind: 'node', renderUrl: buildQdnRenderUrl(sub, nodeApiUrl, displaySettings) }}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="qdn-archive">
+      <div className="qdn-archive__bar">
+        <span className="qdn-viewer__type-label">{t('repository.title')}</span>
+        {downloadError ? (
+          <span className="qdn-archive__count qdn-viewer__message--error">{downloadError}</span>
+        ) : (
+          <span className="qdn-archive__count">{t('archive.fileCount', { count: String(state.files.length) })}</span>
+        )}
+      </div>
+      {state.files.length === 0 ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--ready">
+          <p className="qdn-viewer__message">{t('repository.empty')}</p>
+        </div>
+      ) : (
+        <FileTree entries={fileTreeEntries} onOpen={setSelectedPath} onDownload={downloadPath} />
+      )}
+    </div>
+  );
 }
 
 function QdnGalleryContent({
@@ -2982,6 +3196,17 @@ function QdnReadyContent({
     return (
       <ArchiveViewer
         displaySettings={displaySettings}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'repository') {
+    return (
+      <QdnRepositoryContent
+        displaySettings={displaySettings}
+        nodeApiUrl={nodeApiUrl}
         onActionContextChange={onActionContextChange}
         resource={resource}
       />

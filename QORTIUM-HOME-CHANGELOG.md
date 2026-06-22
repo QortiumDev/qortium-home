@@ -33,6 +33,20 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: browse GIT_REPOSITORY resources as a file tree
+
+Git repository QDN resources now open as a browsable file tree, the same way the
+new archive browser works. The repository's files are served directly by the node
+(no extraction or decompression needed), so opening one is fast: the tree lists the
+repo's structure, every folder is collapsed by default to keep large repos
+manageable, and clicking a file previews it in place with the right viewer — a
+README renders as formatted Markdown, source files get syntax highlighting, images
+and PDFs display, and so on. If the repository declares an entry point (or has a
+top-level README), it opens to that file first. Individual files can be downloaded,
+and a zip/rar checked into the repo opens in the archive browser. This is a file
+browser, not a git client — the node serves working-tree files only, with no
+branches or history. All new labels are translated across every language.
+
 ### 2026-06-22 - feat: browse ZIP and RAR archives as a file tree
 
 QDN resources that are ZIP or RAR archives now open as a browsable, collapsible

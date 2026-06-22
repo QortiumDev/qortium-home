@@ -455,6 +455,8 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Jóváhagyás",
   "qdnWrite.voteDirection": "Szavazat",
   "qdnWrite.voteOppose": "Ellenzés",
+  "repository.empty": "Ez a tároló nem tartalmaz fájlokat.",
+  "repository.title": "Tároló fájlok",
   "tabs.closeNamed": "{label} bezárása",
   "tabs.closeOtherTabs": "Többi lap bezárása",
   "tabs.closeTab": "Lap bezárása",

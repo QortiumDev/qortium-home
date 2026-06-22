@@ -456,6 +456,8 @@ export const nb: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Godkjenn",
   "qdnWrite.voteDirection": "Stemme",
   "qdnWrite.voteOppose": "Stem imot",
+  "repository.empty": "Dette repositoryet har ingen filer.",
+  "repository.title": "Repositoryfiler",
   "tabs.closeNamed": "Lukk {label}",
   "tabs.closeOtherTabs": "Lukk andre faner",
   "tabs.closeTab": "Lukk fane",
