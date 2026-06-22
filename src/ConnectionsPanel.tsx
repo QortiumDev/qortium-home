@@ -3,11 +3,15 @@ import { getI2pModeLabel, getI2pPeersValue, getI2pStateLabel } from './connectio
 import { t } from './i18n';
 import { buildAllowedTransports, type I2pStatus, type TransportState } from './i2p';
 import { useI2pConnections } from './i2pState';
+import { useI2pdManager } from './i2pdManagerState';
 import { DetailList, type DetailRow } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
 
 type ConnectionsPanelProps = {
   canManageTransports: boolean;
+  // True only for the local Core that Home manages — the one whose i2pd Home can
+  // install and run. Custom/remote nodes manage their own router.
+  isManagedNode: boolean;
   isExpanded: boolean;
   nodeApiUrl: string;
   onExpandedChange: (isExpanded: boolean) => void;
@@ -36,6 +40,22 @@ function currentMode(transport: TransportState): TransportMode {
   return 'default';
 }
 
+function getRouterStateLabel(status: QortiumI2pdStatus | null): string {
+  if (!status) {
+    return t('common.checking');
+  }
+
+  if (status.mode === 'managed') {
+    return t('connections.routerRunning');
+  }
+
+  if (status.mode === 'external') {
+    return t('connections.routerExternal');
+  }
+
+  return t('connections.routerOff');
+}
+
 function getStatusRows(status: I2pStatus): DetailRow[] {
   return [
     { label: t('connections.activityLabel'), value: getI2pStateLabel(status.activity) },
@@ -47,12 +67,22 @@ function getStatusRows(status: I2pStatus): DetailRow[] {
 
 export function ConnectionsPanel({
   canManageTransports,
+  isManagedNode,
   isExpanded,
   nodeApiUrl,
   onExpandedChange,
 }: ConnectionsPanelProps) {
   const connections = useI2pConnections(nodeApiUrl);
   const { status, isLoading, isUnavailable } = connections;
+
+  const manager = useI2pdManager(isManagedNode);
+  // The managed-router controls only apply to the local Core on a desktop build
+  // with the i2pd bridge present.
+  const managerSupported = manager.supported && isManagedNode;
+  // When Home can manage the router, gate I2P on it actually being available;
+  // otherwise (remote/custom node, Android) leave the transport choice ungated.
+  const i2pAvailable = !managerSupported || (manager.status?.running ?? false);
+  const i2pOptionsDisabled = managerSupported && !i2pAvailable;
 
   const [selectedMode, setSelectedMode] = useState<TransportMode | null>(null);
   const [isApplying, setIsApplying] = useState(false);
@@ -69,7 +99,7 @@ export function ConnectionsPanel({
     }
   }, [activeMode]);
 
-  const isBusy = isApplying || isRestarting;
+  const controlsBusy = isApplying || isRestarting || manager.isBusy;
   const hasPendingChange =
     selectedMode !== null && activeMode !== null && selectedMode !== activeMode;
 
@@ -99,6 +129,16 @@ export function ConnectionsPanel({
     } finally {
       setIsApplying(false);
     }
+  }
+
+  async function toggleRouter() {
+    if (manager.status?.mode === 'managed') {
+      await manager.disable();
+    } else {
+      await manager.enable();
+    }
+    // The node's I2P session/peers change once the router comes up or down.
+    connections.refresh();
   }
 
   // Only the IP-hiding (I2P-only) mode carries a privacy warning; switching off
@@ -136,19 +176,56 @@ export function ConnectionsPanel({
 
         {status && canManageTransports ? (
           <div className="connections__privacy">
+            {managerSupported ? (
+              <div className="connections__router">
+                <DetailList
+                  className="connections__details"
+                  rows={[{ label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) }]}
+                />
+                {manager.status?.mode === 'external' ? null : (
+                  <div className="connections__actions">
+                    <button
+                      className={`button ${manager.status?.mode === 'managed' ? 'button--secondary' : 'button--primary'}`}
+                      disabled={controlsBusy}
+                      type="button"
+                      onClick={() => void toggleRouter()}
+                    >
+                      {manager.status?.mode === 'managed'
+                        ? t('connections.disableI2p')
+                        : t('connections.enableI2p')}
+                    </button>
+                  </div>
+                )}
+                {manager.isBusy && manager.progress ? (
+                  <p className="connections__message">{manager.progress}</p>
+                ) : null}
+                {manager.error ? (
+                  <p className="connections__message connections__message--error">{manager.error}</p>
+                ) : null}
+              </div>
+            ) : null}
+
             <label className="field connections__mode-field">
               <span className="field__label">{t('connections.modeLabel')}</span>
               <select
                 className="select"
-                disabled={isBusy}
+                disabled={controlsBusy}
                 value={selectedMode ?? activeMode ?? 'default'}
                 onChange={(event) => setSelectedMode(event.target.value as TransportMode)}
               >
-                <option value="default">{t('connections.mode.default')}</option>
+                <option value="default" disabled={i2pOptionsDisabled}>
+                  {t('connections.mode.default')}
+                </option>
                 <option value="ip-only">{t('connections.mode.ipOnly')}</option>
-                <option value="i2p-only">{t('connections.mode.i2pOnly')}</option>
+                <option value="i2p-only" disabled={i2pOptionsDisabled}>
+                  {t('connections.mode.i2pOnly')}
+                </option>
               </select>
             </label>
+
+            {i2pOptionsDisabled ? (
+              <p className="connections__message">{t('connections.routerHint')}</p>
+            ) : null}
 
             {hasPendingChange ? (
               <>
@@ -166,7 +243,7 @@ export function ConnectionsPanel({
                 <div className="connections__actions">
                   <button
                     className={`button ${selectedMode === 'i2p-only' ? 'button--danger' : 'button--primary'}`}
-                    disabled={isBusy}
+                    disabled={controlsBusy}
                     type="button"
                     onClick={() => void applySelectedMode()}
                   >
