@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - feat: make installing the I2P router more robust
+
+Hardened how Home downloads and installs the managed I2P router. A failed download (a network blip or a server hiccup) is now retried a few times with a growing delay instead of giving up at once, while a file that fails its checksum is rejected immediately and never retried, since that points to a bad or tampered download rather than a temporary glitch. The download is written to a temporary file and only moved into place once it has been verified, so a half-finished or corrupt download can never be mistaken for a working router. After a successful update Home also clears out the previous router version it had downloaded, while always keeping the router's saved identity and network data so updating the program doesn't make it start over from scratch.
+
 ### 2026-06-21 - feat: don't run the managed I2P router when I2P is turned off
 
 Made the managed I2P router respect the node's transport choice. When the local Core is set to "Direct only" (I2P turned off), Home no longer starts the router alongside Core — there's no point running a router the node won't use. And when you switch the node to "Direct only" yourself, Home shuts down the router it was running (an I2P router you run yourself is still left alone). I2P is treated as enabled whenever the node uses its normal default or any mode that includes I2P, so the router still comes up automatically in those cases.

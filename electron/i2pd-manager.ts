@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
@@ -51,6 +51,8 @@ const SAM_PROBE_TIMEOUT_MS = 2_000;
 const START_TIMEOUT_MS = 60_000;
 const START_POLL_INTERVAL_MS = 1_000;
 const STOP_TIMEOUT_MS = 10_000;
+const DOWNLOAD_MAX_ATTEMPTS = 3;
+const DOWNLOAD_RETRY_BASE_MS = 1_000;
 
 export type I2pdProgressAction =
   | 'checking'
@@ -214,9 +216,16 @@ async function fetchManifest(tag: string): Promise<I2pdManifest> {
   return manifest;
 }
 
-// Streamed download with sha256 verification against the manifest's expected hex.
+// A deterministic verification failure — the wrong bytes for a pinned hash (bad
+// pin or tampering). Never retried, unlike transient network errors.
+class ChecksumError extends Error {}
+
+// Streamed download to a temp file with sha256 verification against the
+// manifest's expected hex, then an atomic rename into place — so a half-finished
+// or corrupt download can never be mistaken for a good binary.
 async function downloadAndVerify(tag: string, entry: I2pdManifestEntry, destinationPath: string) {
   const url = `${I2PD_RELEASE_BASE}/${tag}/${entry.asset}`;
+  const tempPath = `${destinationPath}.part`;
   const response = await fetch(url, {
     headers: { Accept: 'application/octet-stream,*/*', 'User-Agent': GITHUB_USER_AGENT },
   });
@@ -242,16 +251,46 @@ async function downloadAndVerify(tag: string, entry: I2pdManifestEntry, destinat
     },
   });
 
-  await pipeline(
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-    progressStream,
-    createWriteStream(destinationPath),
-  );
+  try {
+    await pipeline(
+      Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+      progressStream,
+      createWriteStream(tempPath),
+    );
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    throw error;
+  }
 
   const digest = hash.digest('hex');
   if (digest !== entry.sha256) {
-    await rm(destinationPath, { force: true });
-    throw new Error(`Downloaded i2pd did not match the expected sha256 (got ${digest}).`);
+    await rm(tempPath, { force: true });
+    throw new ChecksumError(`Downloaded i2pd did not match the expected sha256 (got ${digest}).`);
+  }
+
+  await rename(tempPath, destinationPath);
+}
+
+// Retry transient download failures (network blips, 5xx, dropped streams) with
+// exponential backoff + jitter. A ChecksumError is deterministic and is never
+// retried.
+async function downloadWithRetry(tag: string, entry: I2pdManifestEntry, destinationPath: string) {
+  for (let attempt = 1; attempt <= DOWNLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await downloadAndVerify(tag, entry, destinationPath);
+      return;
+    } catch (error) {
+      if (error instanceof ChecksumError || attempt === DOWNLOAD_MAX_ATTEMPTS) {
+        throw error;
+      }
+      const delay = DOWNLOAD_RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
+      publishProgress({
+        action: 'downloading',
+        kind: 'info',
+        message: `Download attempt ${attempt} failed; retrying in ${Math.round(delay / 1000)}s.`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 }
 
@@ -261,6 +300,20 @@ async function extractArchive(archiveType: I2pdTarget['archiveType'], archivePat
     return;
   }
   await extractTar({ cwd: destination, file: archivePath });
+}
+
+// Remove stale version dirs after a successful install, keeping only the current
+// one. Operates ONLY on versions/ — never on runtime/, which holds i2pd's router
+// identity (router.keys) and netDb and must persist across binary updates.
+async function pruneOldVersions(keepDirName: string) {
+  const versionsPath = getI2pdVersionsPath();
+  const entries = await readdir(versionsPath, { withFileTypes: true }).catch(() => []);
+
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name !== keepDirName) {
+      await rm(path.join(versionsPath, entry.name), { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
 }
 
 async function readInstalledI2pd(): Promise<InstalledI2pd | null> {
@@ -292,10 +345,11 @@ export async function install(): Promise<I2pdStatus> {
   }
 
   const archivePath = path.join(getI2pdDownloadsPath(), entry.asset);
-  await downloadAndVerify(PINNED_RELEASE, entry, archivePath);
+  await downloadWithRetry(PINNED_RELEASE, entry, archivePath);
 
   publishProgress({ action: 'extracting', kind: 'info', message: 'Installing i2pd.', percent: 90 });
-  const versionPath = path.join(getI2pdVersionsPath(), `${PINNED_RELEASE}-${target.key}`);
+  const versionDirName = `${PINNED_RELEASE}-${target.key}`;
+  const versionPath = path.join(getI2pdVersionsPath(), versionDirName);
   await rm(versionPath, { recursive: true, force: true });
   await mkdir(versionPath, { recursive: true });
   await extractArchive(target.archiveType, archivePath, versionPath);
@@ -320,6 +374,9 @@ export async function install(): Promise<I2pdStatus> {
     installedAt: new Date().toISOString(),
   };
   await writeFile(getCurrentI2pdPath(), JSON.stringify(installed, null, 2), 'utf8');
+
+  // Best-effort cleanup of superseded binaries (keeps runtime/ untouched).
+  await pruneOldVersions(versionDirName);
 
   publishProgress({ action: 'idle', kind: 'success', message: 'i2pd installed.', percent: 100 });
   return getStatus();
