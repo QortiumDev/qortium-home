@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: CBR comic archive support in the document viewer
+
+The in-app comic reader now opens CBR comics (RAR archives) in addition to the
+existing CBZ (ZIP) comics, using the same page view, navigation, and zoom. The
+reader figures out the real archive type from the file's contents rather than its
+name, so a comic that is mislabeled (a CBR named .cbz, or the reverse) still opens
+correctly. The RAR decoder is loaded only the first time a RAR comic is opened, so
+it adds nothing to normal startup. The format label now reads simply "Comic" for
+both kinds, translated in every language.
+
 ### 2026-06-22 - feat: code/CSV/JSON viewers, magic-byte detection, and viewer fixes
 
 Rounds out the content-type viewer with three more in-page views and some fixes.

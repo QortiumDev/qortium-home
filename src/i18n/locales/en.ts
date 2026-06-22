@@ -291,7 +291,7 @@ export const en = {
   "docViewer.dialogLabel": "Document viewer",
   "docViewer.download": "Download",
   "docViewer.error": "Unable to load document.",
-  "docViewer.format.cbz": "Comic (CBZ)",
+  "docViewer.format.comic": "Comic",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",
   "docViewer.format.txt": "Text",
