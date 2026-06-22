@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - build: pin the macOS 11 legacy DMG to Electron 36
+
+Corrected the macOS 11 legacy build, which was set to package with Electron 38 on
+the assumption that it still supported macOS Big Sur. It does not: Electron 37 and
+newer require macOS 12, so every bundled binary was marked as needing macOS 12 and
+the build's own minimum-version check (correctly) refused to produce the asset.
+Pinned the legacy build to Electron 36, the last line that still targets macOS 11,
+so the `macos11-universal.dmg` is genuinely runnable on Big Sur. The regular
+universal DMG continues to use the current Electron line for macOS 12 and newer.
+
 ### 2026-06-22 - build: exclude unused @napi-rs/canvas from packaging
 
 Stopped bundling `@napi-rs/canvas`, a native module that the PDF library lists as

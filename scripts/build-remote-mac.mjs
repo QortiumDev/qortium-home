@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const macos11UniversalTarget = 'dist:mac:macos11:universal';
-const macos11ElectronVersion = '38.8.6';
+// Electron 36 (Chromium 136) is the last line that still targets macOS 11 (Big
+// Sur); Electron 37+ (Chromium 138+) bumped the minimum to macOS 12, so their
+// binaries' LC_BUILD_VERSION fails verify-macos-min-version against 11.0.0.
+const macos11ElectronVersion = '36.9.5';
 const allowedTargets = new Set(['dist:mac:x64', 'dist:mac:arm64', 'dist:mac:universal', macos11UniversalTarget]);
 const defaultRemoteHost = 'qortium-macmini';
 const defaultRemotePath = 'build/qortium-home';
