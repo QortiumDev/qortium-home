@@ -119,6 +119,11 @@ export function ConnectionsPanel({
 
     try {
       await window.qortiumHome.node.setAllowedTransports(buildAllowedTransports(selectedMode));
+      // Switching the node to Direct-only? Shut down the router Home runs — the
+      // node won't use it anymore. (An external router is left untouched.)
+      if (selectedMode === 'ip-only' && managerSupported && manager.status?.mode === 'managed') {
+        await manager.disable();
+      }
       setIsRestarting(true);
       window.setTimeout(() => {
         setIsRestarting(false);
