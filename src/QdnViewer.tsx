@@ -23,6 +23,7 @@ import {
   isGalleryImageFilename,
   isTerminalQdnStatus,
 } from './qdn';
+import { marked } from 'marked';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
 import { detectDocumentFormat } from './DocumentViewer';
 
@@ -1220,6 +1221,183 @@ function QdnTextContent({
   );
 }
 
+// Wrap rendered HTML (compiled markdown, or a raw HTML document) in a minimal,
+// theme-aware page shell. Inlined into the iframe srcDoc below.
+function buildRichTextSrcDoc(bodyHtml: string, isRawHtmlDocument: boolean) {
+  if (isRawHtmlDocument) {
+    return bodyHtml;
+  }
+
+  return [
+    '<!DOCTYPE html>',
+    '<html><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<style>',
+    ':root{color-scheme:light dark}',
+    'body{margin:0;padding:16px 20px;font:14px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;',
+    'color:#1a1a1a;background:#fff;word-wrap:break-word;overflow-wrap:break-word}',
+    '@media (prefers-color-scheme:dark){body{color:#e6e6e6;background:#161616}a{color:#7db4ff}}',
+    'img,video,canvas,svg{max-width:100%;height:auto}',
+    'pre{white-space:pre-wrap;background:rgba(127,127,127,.12);padding:12px;border-radius:6px;overflow:auto}',
+    'code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}',
+    'pre code{background:none;padding:0}',
+    'table{border-collapse:collapse}td,th{border:1px solid rgba(127,127,127,.4);padding:6px 10px}',
+    'blockquote{margin:0;padding:0 0 0 14px;border-left:3px solid rgba(127,127,127,.4);color:inherit;opacity:.85}',
+    '</style></head><body>',
+    bodyHtml,
+    '</body></html>',
+  ].join('');
+}
+
+// Renders markdown or HTML resources inline. The compiled/raw HTML is injected
+// into an iframe via `srcDoc` with a maximally restrictive `sandbox` attribute:
+// no `allow-scripts` and no `allow-same-origin`, so scripts and inline handlers in
+// the content cannot execute or reach the privileged app context. This makes the
+// preview XSS-safe by construction — untrusted publisher content can render images
+// and CSS but never run code.
+function QdnRichTextContent({
+  kind,
+  loadedResource,
+  onActionContextChange,
+  resource,
+}: {
+  kind: 'html' | 'markdown';
+  loadedResource: LoadedQdnResource;
+  onActionContextChange: SetViewerActionContext;
+  resource: QdnResource;
+}) {
+  const [state, setState] = useState<TextPreviewState>({ phase: 'loading' });
+
+  useEffect(() => {
+    onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
+
+    return () => onActionContextChange({});
+  }, [onActionContextChange, state]);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    setState({ phase: 'loading' });
+
+    async function loadSource() {
+      try {
+        const nextState = await readTextPreview({ loadedResource, resource });
+
+        if (!isDisposed) {
+          setState(nextState);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+
+        if (!isDisposed) {
+          setState({ phase: 'error', message: formatError(error) });
+        }
+      }
+    }
+
+    void loadSource();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [loadedResource, resource]);
+
+  const srcDoc = useMemo(() => {
+    if (state.phase !== 'ready') {
+      return '';
+    }
+
+    if (kind === 'markdown') {
+      const html = marked.parse(state.content, { async: false, gfm: true }) as string;
+      return buildRichTextSrcDoc(html, false);
+    }
+
+    return buildRichTextSrcDoc(state.content, true);
+  }, [kind, state]);
+
+  const typeLabel = kind === 'markdown' ? t('viewer.type.markdown') : t('viewer.type.html');
+
+  return (
+    <div className="qdn-viewer__richtext">
+      <div className="qdn-viewer__text-toolbar">
+        <span className="qdn-viewer__type-label">{typeLabel}</span>
+      </div>
+
+      {state.phase === 'loading' ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
+          <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
+        </div>
+      ) : null}
+
+      {state.phase === 'ready' ? (
+        <iframe
+          className="qdn-viewer__richtext-frame"
+          sandbox=""
+          srcDoc={srcDoc}
+          title={loadedResource.properties?.filename || resource.displayUrl}
+        />
+      ) : null}
+
+      {state.phase === 'too-large' || state.phase === 'error' ? (
+        <div className={`qdn-viewer__empty qdn-viewer__empty--${state.phase === 'error' ? 'error' : 'ready'}`}>
+          <div className="qdn-viewer__details">
+            <p className="qdn-viewer__message">{state.message}</p>
+            <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Routes PDF / EPUB / CBZ resources (resolved by content type, regardless of the
+// publishing service) to the modal DocumentViewer. The reader itself is heavy and
+// lazy-loaded, so this branch surfaces a prominent entry point rather than
+// mounting it inline.
+function QdnDocumentContent({
+  loadedResource,
+  onOpenDocumentViewer,
+  resource,
+}: {
+  loadedResource: LoadedQdnResource;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  resource: QdnResource;
+}) {
+  const docFormat = detectDocumentFormat(
+    loadedResource.properties?.filename,
+    loadedResource.properties?.mimeType,
+  );
+
+  return (
+    <div className="qdn-viewer__empty qdn-viewer__empty--ready">
+      <div className="qdn-viewer__details">
+        <p className="qdn-viewer__message">{t('viewer.readyToRead')}</p>
+        {docFormat !== 'unsupported' && onOpenDocumentViewer ? (
+          <div className="qdn-viewer__doc-open-wrap">
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() =>
+                onOpenDocumentViewer({
+                  identifier: resource.identifier ?? null,
+                  name: resource.name,
+                  path: resource.path || null,
+                  service: resource.service,
+                })
+              }
+            >
+              {t('docViewer.openIn')}
+            </button>
+          </div>
+        ) : null}
+        <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
+      </div>
+    </div>
+  );
+}
+
 function QdnResourceDetailList({
   loadedResource,
   resource,
@@ -2185,6 +2363,27 @@ function QdnReadyContent({
         nodeApiUrl={nodeApiUrl}
         onActionContextChange={onActionContextChange}
         onOpenNewTab={onOpenNewTab}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'markdown' || loadedResource.viewerKind === 'html') {
+    return (
+      <QdnRichTextContent
+        kind={loadedResource.viewerKind}
+        loadedResource={loadedResource}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'document') {
+    return (
+      <QdnDocumentContent
+        loadedResource={loadedResource}
+        onOpenDocumentViewer={onOpenDocumentViewer}
         resource={resource}
       />
     );

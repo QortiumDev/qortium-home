@@ -33,6 +33,25 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: content-type QDN viewer routing + in-app document reader
+
+The QDN viewer now decides how to display a resource from what the file actually
+is, not just from the service label the publisher chose. Previously an image
+published as a "document", or a PDF filed under the wrong service, would show
+nothing useful; now the viewer reads the file's type and renders it correctly.
+Several services that used to show a blank preview (mail, playlists, stores, and
+similar text-based data) now display their contents.
+
+Two genuinely new in-page viewers are added. Markdown and HTML resources are
+rendered for real — Markdown is formatted into a readable page, and both are shown
+inside a tightly locked-down sandbox that cannot run scripts, so untrusted content
+is safe to preview by construction. A new in-app document reader opens PDF, EPUB,
+and CBZ (comic) files, and TXT, directly inside the app with page navigation, zoom,
+and a table of contents, instead of forcing a download. Apps can also ask to open
+the document reader through the QDN bridge. PDF, EPUB and comic support is loaded
+only when a document is actually opened, so it adds nothing to normal startup. All
+of the new wording is fully translated across every supported language.
+
 ### 2026-06-22 - feat: node-aware QDN actions + opt-in response headers for apps
 
 Two improvements to the QDN app bridge. First, the list of available actions an app sees (SHOW_ACTIONS) now reflects the node it is connected to: on a public network node, actions that need a local, write-capable connection — publishing, group/name/payment/poll/list management, account rating, and minting — are no longer advertised, so an app that shows or hides controls based on this list won't offer buttons that can't work there (open-group chat sending stays available, since it works on public nodes). Second, node API requests made through the bridge can now opt in to receive the response status and headers alongside the body, so an app can read values such as the total-count header used for paging long lists.

@@ -1,4 +1,5 @@
 import type { ResolvedDisplaySettings } from './displaySettings';
+import { detectContentKind } from './qdnContentType';
 import { t, type TranslationKey } from './i18n';
 
 const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
@@ -85,10 +86,13 @@ export type QdnService = (typeof PUBLIC_QDN_SERVICES)[number];
 export type QdnRenderableService = (typeof RENDERABLE_QDN_SERVICES)[number];
 export type QdnViewerKind =
   | 'audio'
+  | 'document'
   | 'download'
   | 'gif-repository'
+  | 'html'
   | 'iframe'
   | 'image'
+  | 'markdown'
   | 'text'
   | 'unsupported'
   | 'video';
@@ -311,6 +315,22 @@ export function getLoadedViewerKind(
       isGalleryImageFilename(resource.path))
   ) {
     return 'image';
+  }
+
+  // Container-shape services (APP/WEBSITE iframes, multi-file galleries) are
+  // routed by service — their bytes are an archive, not a single renderable file.
+  // For everything else, the resolved *content type* of the single file wins over
+  // the publisher-chosen service, so an image published as DOCUMENT (or a PDF
+  // published as FILE, etc.) still renders correctly. Falls back to service-based
+  // routing when no content signal is available.
+  if (
+    !IFRAME_QDN_SERVICES.includes(resource.service as (typeof IFRAME_QDN_SERVICES)[number]) &&
+    !GALLERY_QDN_SERVICES.includes(resource.service as (typeof GALLERY_QDN_SERVICES)[number])
+  ) {
+    const contentKind = detectContentKind(properties?.filename, properties?.mimeType);
+    if (contentKind) {
+      return contentKind;
+    }
   }
 
   return getQdnViewerKind(resource.service);
