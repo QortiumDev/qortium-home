@@ -510,6 +510,112 @@ async function getAccountAvatarUrl(name: string | null) {
   }
 }
 
+function getNameValue(value: unknown): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const name = (value as { name?: unknown }).name;
+
+  return typeof name === 'string' && name.trim() ? name.trim() : null;
+}
+
+async function getPrimaryName(address: string, nodeApiUrl: string): Promise<string | null> {
+  try {
+    const response = await fetchNode(`/names/primary/${encodeURIComponent(address)}`, {}, nodeApiUrl);
+
+    return response.ok ? getNameValue(await response.json()) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getFirstOwnedName(address: string, nodeApiUrl: string): Promise<string | null> {
+  try {
+    const response = await fetchNode(
+      `/names/address/${encodeURIComponent(address)}?limit=0`,
+      {},
+      nodeApiUrl,
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data: unknown = await response.json();
+
+    if (!Array.isArray(data)) {
+      return null;
+    }
+
+    for (const entry of data) {
+      const name = getNameValue(entry);
+
+      if (name) {
+        return name;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const MAX_RESOLVE_IDENTITIES = 500;
+
+// Batch-resolves display identities (registered name + avatar URL) for arbitrary
+// addresses so a QDN app that shows many accounts makes one bridge call instead
+// of several node round-trips per address. Read-only — works on public nodes.
+async function resolveIdentitiesForQdnApp(request: QdnAppRequest) {
+  const rawAddresses = request.addresses;
+
+  if (!Array.isArray(rawAddresses)) {
+    throw new Error('RESOLVE_IDENTITIES requires an "addresses" array.');
+  }
+
+  const addresses: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of rawAddresses) {
+    const address = getString(value);
+
+    if (address && !seen.has(address)) {
+      seen.add(address);
+      addresses.push(address);
+    }
+  }
+
+  if (addresses.length > MAX_RESOLVE_IDENTITIES) {
+    throw new Error(`RESOLVE_IDENTITIES accepts at most ${MAX_RESOLVE_IDENTITIES} addresses.`);
+  }
+
+  let nodeApiUrl = '';
+
+  try {
+    nodeApiUrl = await getNodeApiUrl();
+  } catch {
+    nodeApiUrl = '';
+  }
+
+  return Promise.all(
+    addresses.map(async (address) => {
+      let name: string | null = null;
+
+      if (nodeApiUrl) {
+        name = (await getPrimaryName(address, nodeApiUrl)) ?? (await getFirstOwnedName(address, nodeApiUrl));
+      }
+
+      const avatarSrc =
+        name && nodeApiUrl
+          ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
+          : null;
+
+      return { address, name, avatarSrc };
+    }),
+  );
+}
+
 async function getSelectedAccountForQdnApp(context: QdnViewContext | null) {
   if (!context) {
     throw new Error('QDN app requests are only available to isolated QDN app views.');
@@ -5452,6 +5558,9 @@ async function handleQdnAppRequest(
 
     case 'GET_SELECTED_ACCOUNT':
       return getSelectedAccountForQdnApp(context);
+
+    case 'RESOLVE_IDENTITIES':
+      return resolveIdentitiesForQdnApp(request);
 
     case 'UNLOCK_SELECTED_ACCOUNT':
       return unlockSelectedAccountForQdnApp(context);

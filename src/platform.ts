@@ -2104,6 +2104,65 @@ function isAccountUnlocked(accountId: string) {
   return unlockedWalletSeeds.has(getWalletIdForAccountId(accountId));
 }
 
+const MAX_RESOLVE_IDENTITIES = 500;
+
+// Batch-resolves display identities (registered name + avatar URL) for arbitrary
+// addresses so a QDN app that shows many accounts makes one bridge call instead
+// of several node round-trips per address. Read-only — works on public nodes.
+async function resolveIdentitiesForQdnApp(request: QdnAppRequest) {
+  const rawAddresses = request.addresses;
+
+  if (!Array.isArray(rawAddresses)) {
+    throw new Error('RESOLVE_IDENTITIES requires an "addresses" array.');
+  }
+
+  const addresses: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of rawAddresses) {
+    const address = getString(value);
+
+    if (address && !seen.has(address)) {
+      seen.add(address);
+      addresses.push(address);
+    }
+  }
+
+  if (addresses.length > MAX_RESOLVE_IDENTITIES) {
+    throw new Error(`RESOLVE_IDENTITIES accepts at most ${MAX_RESOLVE_IDENTITIES} addresses.`);
+  }
+
+  let nodeApiUrl = '';
+
+  try {
+    nodeApiUrl = await resolveNodeApiUrl(await readNodeSettings());
+  } catch {
+    nodeApiUrl = '';
+  }
+
+  return Promise.all(
+    addresses.map(async (address) => {
+      let name: string | null = null;
+
+      if (nodeApiUrl) {
+        try {
+          name =
+            (await getPrimaryName(address, nodeApiUrl)) ?? (await getFirstOwnedName(address, nodeApiUrl));
+        } catch {
+          name = null;
+        }
+      }
+
+      const avatarSrc =
+        name && nodeApiUrl
+          ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
+          : null;
+
+      return { address, name, avatarSrc };
+    }),
+  );
+}
+
 async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undefined) {
   if (!context) {
     throw new Error('GET_SELECTED_ACCOUNT is only available from a QDN app frame.');
@@ -7030,6 +7089,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'GET_SELECTED_ACCOUNT':
       return getSelectedAccountForQdnApp(context);
+
+    case 'RESOLVE_IDENTITIES':
+      return resolveIdentitiesForQdnApp(request);
 
     case 'UNLOCK_SELECTED_ACCOUNT':
       return unlockSelectedAccountForQdnApp(context);
