@@ -116,7 +116,8 @@
           "**/*"
         ]
       },
-      "package.json"
+      "package.json",
+      "!**/node_modules/@napi-rs/**"
     ],
     "extraResources": [
       {
