@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - fix: rename a file so the app builds on macOS
+
+Fixed a problem that stopped the app from building on macOS. Two source files had names that differed only in capitalization — a component "AccountAvatar" and its helper "accountAvatar". On Linux these are two separate files, so builds there worked, but macOS's filesystem treats names as case-insensitive, so the two collided during a Mac build and the build failed. Renamed the helper to "useAccountAvatar" (matching the function it provides) so the names no longer clash and Mac builds succeed again. No behaviour changes.
+
 ### 2026-06-21 - feat: make installing the I2P router more robust
 
 Hardened how Home downloads and installs the managed I2P router. A failed download (a network blip or a server hiccup) is now retried a few times with a growing delay instead of giving up at once, while a file that fails its checksum is rejected immediately and never retried, since that points to a bad or tampered download rather than a temporary glitch. The download is written to a temporary file and only moved into place once it has been verified, so a half-finished or corrupt download can never be mistaken for a working router. After a successful update Home also clears out the previous router version it had downloaded, while always keeping the router's saved identity and network data so updating the program doesn't make it start over from scratch.
