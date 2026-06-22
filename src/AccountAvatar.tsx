@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useAccountAvatar } from './accountAvatar';
+import { useAccountAvatar } from './useAccountAvatar';
 
 // Renders an account's QDN avatar (`THUMBNAIL/{name}/avatar`). The resolver polls
 // Core for download status and only yields a URL once the resource is READY, so the
