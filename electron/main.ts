@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { registerAccountIpcHandlers } from './accounts.js';
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import { registerCoreManagerIpcHandlers } from './core-manager.js';
-import { registerI2pdManagerIpcHandlers } from './i2pd-manager.js';
+import { registerI2pdManagerIpcHandlers, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerQdnIpcHandlers } from './qdn.js';
 import { registerQdnViewIpcHandlers } from './qdn-views.js';
@@ -710,4 +710,20 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// Stop the managed i2pd we spawned before quitting. A child process is not
+// auto-killed when Home exits on Unix (it would be reparented and keep holding
+// the SAM port), so shut it down gracefully. Defer the quit until cleanup runs.
+let i2pdShutdownComplete = false;
+app.on('before-quit', (event) => {
+  if (i2pdShutdownComplete) {
+    return;
+  }
+
+  event.preventDefault();
+  void stopI2pdIfManaged().finally(() => {
+    i2pdShutdownComplete = true;
+    app.quit();
+  });
 });

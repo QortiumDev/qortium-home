@@ -392,26 +392,10 @@ export async function getStatus(): Promise<I2pdStatus> {
   };
 }
 
-export async function start(): Promise<I2pdStatus> {
-  if (isManagedRunning()) {
-    return getStatus();
-  }
-
-  // Respect an existing SAM bridge (standalone operator / Whonix): don't start a
-  // conflicting managed router.
-  if (await probeSamBridge()) {
-    return getStatus();
-  }
-
-  const installed = await readInstalledI2pd();
-  if (!installed) {
-    throw new Error('Install i2pd before starting it.');
-  }
-
+// Spawn the router child (no waiting). Returns once the process is launched.
+async function launchI2pd(installed: InstalledI2pd) {
   await ensureLayout();
   await writeI2pdConf();
-
-  publishProgress({ action: 'starting', kind: 'info', message: 'Starting i2pd.', percent: 10 });
 
   const logStream = createWriteStream(getI2pdLogPath(), { flags: 'a' });
   const child = spawn(
@@ -430,10 +414,30 @@ export async function start(): Promise<I2pdStatus> {
   if (child.pid !== undefined) {
     await writeFile(getI2pdPidPath(), String(child.pid), 'utf8').catch(() => undefined);
   }
+}
 
-  // Wait for the SAM bridge to come up. (Tunnel build + LeaseSet publication —
-  // what Core needs for a usable session — take longer; this only confirms the
-  // router accepted SAM connections.)
+// User-facing start: launch and wait for the SAM bridge so the UI reflects a
+// usable router. (Tunnel build + LeaseSet publication — what Core needs for a
+// session — take longer; this only confirms i2pd accepted SAM connections.)
+export async function start(): Promise<I2pdStatus> {
+  if (isManagedRunning()) {
+    return getStatus();
+  }
+
+  // Respect an existing SAM bridge (standalone operator / Whonix): don't start a
+  // conflicting managed router.
+  if (await probeSamBridge()) {
+    return getStatus();
+  }
+
+  const installed = await readInstalledI2pd();
+  if (!installed) {
+    throw new Error('Install i2pd before starting it.');
+  }
+
+  publishProgress({ action: 'starting', kind: 'info', message: 'Starting i2pd.', percent: 10 });
+  await launchI2pd(installed);
+
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (!isManagedRunning()) {
@@ -477,6 +481,42 @@ export async function stop(): Promise<I2pdStatus> {
   await rm(getI2pdPidPath(), { force: true }).catch(() => undefined);
   publishProgress({ action: 'idle', kind: 'success', message: 'i2pd is stopped.', percent: 100 });
   return getStatus();
+}
+
+// Best-effort: bring up the managed router (if installed) before Core, so its SAM
+// bridge is ready when Core looks for it. Never throws — I2P is a fallback and
+// must not block Core startup (direct TCP stays active either way). No-op when
+// i2pd isn't installed (the user enables it from Settings) or another SAM bridge
+// is already up (start() handles that).
+export async function startIfManaged(): Promise<void> {
+  try {
+    if (!getI2pdTarget() || isManagedRunning()) {
+      return;
+    }
+    // Don't clobber an existing/operator router.
+    if (await probeSamBridge()) {
+      return;
+    }
+    const installed = await readInstalledI2pd();
+    if (!installed) {
+      return;
+    }
+    // Launch without waiting for SAM readiness — Core retries SAM on its own, so
+    // this must not delay Core startup.
+    await launchI2pd(installed);
+  } catch {
+    // Swallow — never block Core on the I2P fallback.
+  }
+}
+
+// Best-effort stop of the router we started (app quit / managed Core stop). Only
+// affects the child Home spawned; an external/operator router is left untouched.
+export async function stopIfManaged(): Promise<void> {
+  try {
+    await stop();
+  } catch {
+    // Ignore — shutting down anyway.
+  }
 }
 
 export function registerI2pdManagerIpcHandlers() {

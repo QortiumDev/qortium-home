@@ -13,6 +13,7 @@ import {
   readRunningLocalCoreApiKey,
   type RunningCoreApiKeyResult,
 } from './local-api-key.js';
+import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
@@ -2064,6 +2065,10 @@ async function startCore(options: { quiet?: boolean } = {}) {
 
   await ensureInstalledCoreRuntimeChain(installedCore, { recordIfMissing: true });
 
+  // Bring up the managed I2P router (if installed) before Core, so its SAM bridge
+  // is ready when Core looks for it. Best-effort — never blocks Core startup.
+  await startI2pdIfManaged();
+
   const startScript = getStartScript(installedCore.previewPath);
 
   if (!existsSync(startScript)) {
@@ -2179,6 +2184,9 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), logPaths));
   }
+
+  // Stop the router we started alongside Core (no-op for an external router).
+  await stopI2pdIfManaged();
 
   if (!options.quiet) {
     publishProgress({

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-21 - feat: start/stop the managed I2P router with the local Core
+
+Tied the managed I2P router's lifecycle to the Core that Home runs. When Home starts the local Core it now also brings up the installed I2P router first, so the router's bridge is ready as Core looks for it; this is best-effort and never delays or blocks Core from starting — if the router is slow or unavailable, Core simply starts on its direct connection as before and picks up I2P once it's ready. When Home stops the local Core, or when you quit Home, the router Home started is shut down cleanly so it isn't left running in the background holding the connection. If you run your own I2P router, Home continues to leave it untouched. Nothing happens here unless you've enabled the managed router from Settings.
+
 ### 2026-06-21 - feat: manage the I2P router from Settings → Connections
 
 Wired the new managed I2P router into the Settings → Connections panel for a local Core that Home runs. The panel now shows whether an I2P router is running, and offers a one-click "Enable I2P" that downloads, installs, and starts the router for you (or "Stop I2P router" to turn it off). If you already run your own I2P router on the machine, Home detects it, shows "Already running on this machine", and leaves it alone instead of starting a second one. Until a router is available, the transport dropdown's I2P choices ("Direct + I2P fallback" and "I2P only") are greyed out with a short note to enable the router first, so you can't switch the node to a mode that wouldn't work yet. This only appears for the local Core that Home manages; on a custom or remote node — or on the phone app — the transport choices stay as before, since Home can't manage a router it doesn't run. The new wording is translated across all supported languages.
