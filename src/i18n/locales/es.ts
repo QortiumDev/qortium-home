@@ -467,6 +467,8 @@ export const es: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Fijar al panel",
   "tabs.reloadTab": "Recargar pestaña",
   "tabs.reopenClosedTab": "Reabrir pestaña cerrada",
+  "repository.empty": "Este repositorio no tiene archivos.",
+  "repository.title": "Archivos del repositorio",
   "updates.assetLabel": "Activo",
   "updates.available": "{tag} está disponible para {platform}.",
   "updates.channelLabel": "Canal",

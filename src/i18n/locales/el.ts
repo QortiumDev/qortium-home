@@ -532,6 +532,8 @@ export const el: Record<TranslationKey, string> = {
   "viewer.progressChunksWithPercent": "Τμήματα: {local} / {total} ({percent}%)",
   "viewer.readyToDownload": "Αυτός ο πόρος είναι έτοιμος για λήψη.",
   "viewer.readyToOpen": "Αυτός ο πόρος είναι έτοιμος για άνοιγμα.",
+  "repository.empty": "Αυτό το αποθετήριο δεν έχει αρχεία.",
+  "repository.title": "Αρχεία αποθετηρίου",
   "viewer.readyToRead": "Αυτό το έγγραφο είναι έτοιμο για ανάγνωση.",
   "viewer.renderRequestFailed": "Το αίτημα απόδοσης QDN απέτυχε με HTTP {status}.",
   "viewer.showStatusBar": "Εμφάνιση γραμμής κατάστασης",

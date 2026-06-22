@@ -530,6 +530,8 @@ export const en = {
   "viewer.progressChunksWithPercent": "Chunks: {local} / {total} ({percent}%)",
   "viewer.readyToDownload": "This resource is ready to download.",
   "viewer.readyToOpen": "This resource is ready to open.",
+  "repository.empty": "This repository has no files.",
+  "repository.title": "Repository files",
   "viewer.readyToRead": "This document is ready to read.",
   "viewer.renderRequestFailed": "QDN render request failed with HTTP {status}.",
   "viewer.showStatusBar": "Show status bar",

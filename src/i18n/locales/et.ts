@@ -455,6 +455,8 @@ export const et: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Poolt",
   "qdnWrite.voteDirection": "Hääl",
   "qdnWrite.voteOppose": "Vastu",
+  "repository.empty": "Sellel repositooriumil pole faile.",
+  "repository.title": "Repositooriumi failid",
   "tabs.closeNamed": "Sulge {label}",
   "tabs.closeOtherTabs": "Sulge teised vahekaardid",
   "tabs.closeTab": "Sulge vahekaart",

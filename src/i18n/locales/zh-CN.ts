@@ -386,6 +386,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "preview.failed": "预览失败。",
   "preview.previewingAs": "以 {service} 预览",
   "preview.supported": "选择包含 index.html 网站的文件夹或 zip、独立的 HTML 文件，或图片、视频、音频文件。",
+  "repository.empty": "此代码仓库没有文件。",
+  "repository.title": "代码仓库文件",
   "qdnStatus.blocked": "已屏蔽",
   "qdnStatus.buildFailed": "构建失败",
   "qdnStatus.building": "构建中",

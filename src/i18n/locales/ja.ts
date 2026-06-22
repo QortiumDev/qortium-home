@@ -455,6 +455,8 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "賛成",
   "qdnWrite.voteDirection": "投票",
   "qdnWrite.voteOppose": "反対",
+  "repository.empty": "このリポジトリにはファイルがありません。",
+  "repository.title": "リポジトリのファイル",
   "tabs.closeNamed": "{label}を閉じる",
   "tabs.closeOtherTabs": "他のタブを閉じる",
   "tabs.closeTab": "タブを閉じる",

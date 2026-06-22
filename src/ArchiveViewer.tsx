@@ -1,9 +1,10 @@
-import { ArrowLeft, ChevronDown, ChevronRight, Download, File as FileIcon, Folder } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { openArchive, UnsupportedArchiveError, type ArchiveEntry } from './archive';
+import { FileTree, type FileTreeEntry } from './FileTree';
 import { t } from './i18n';
 import { saveBytesToFile } from './platform';
-import { formatByteSize, type QdnDisplaySettings, type QdnResource } from './qdn';
+import type { QdnDisplaySettings, QdnResource } from './qdn';
 import { QdnEntryContent, type SetViewerActionContext } from './QdnViewer';
 
 // Matches the DocumentViewer ceiling — archives are fetched whole before listing.
@@ -24,131 +25,20 @@ function isNestedArchiveName(name: string): boolean {
   return /\.(zip|rar)$/i.test(name);
 }
 
-type TreeNode = {
-  name: string;
-  path: string;
-  dir: boolean;
-  size: number;
-  entry?: ArchiveEntry;
-  children: TreeNode[];
-};
-
-// Build a directory tree from the flat entry list, synthesizing intermediate
-// folders from file paths (archives don't always store explicit dir entries).
-function buildTree(entries: ArchiveEntry[]): TreeNode[] {
-  const root: TreeNode = { name: '', path: '', dir: true, size: 0, children: [] };
-  const dirs = new Map<string, TreeNode>([['', root]]);
-
-  function ensureDir(path: string): TreeNode {
-    const existing = dirs.get(path);
-    if (existing) {
-      return existing;
-    }
-    const slash = path.lastIndexOf('/');
-    const parentPath = slash >= 0 ? path.slice(0, slash) : '';
-    const name = slash >= 0 ? path.slice(slash + 1) : path;
-    const node: TreeNode = { name, path, dir: true, size: 0, children: [] };
-    ensureDir(parentPath).children.push(node);
-    dirs.set(path, node);
-    return node;
-  }
-
-  for (const entry of entries) {
-    const path = entry.path.replace(/\/+$/, '');
-    if (!path) {
-      continue;
-    }
-    if (entry.dir) {
-      ensureDir(path);
-      continue;
-    }
-    const slash = path.lastIndexOf('/');
-    const parentPath = slash >= 0 ? path.slice(0, slash) : '';
-    const name = slash >= 0 ? path.slice(slash + 1) : path;
-    ensureDir(parentPath).children.push({ name, path, dir: false, size: entry.size, entry, children: [] });
-  }
-
-  function sortNode(node: TreeNode) {
-    node.children.sort((a, b) =>
-      a.dir !== b.dir
-        ? a.dir
-          ? -1
-          : 1
-        : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
-    );
-    node.children.forEach(sortNode);
-  }
-  sortNode(root);
-
-  return root.children;
-}
-
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
-  | { phase: 'ready'; tree: TreeNode[]; fileCount: number };
+  | {
+      phase: 'ready';
+      entryByPath: Map<string, ArchiveEntry>;
+      fileTreeEntries: FileTreeEntry[];
+      fileCount: number;
+    };
 
 type Selection =
   | { entry: ArchiveEntry; phase: 'loading' }
   | { entry: ArchiveEntry; phase: 'error'; message: string }
   | { entry: ArchiveEntry; phase: 'ready'; bytes: Uint8Array };
-
-function ArchiveTreeRow({
-  node,
-  depth,
-  onOpen,
-  onDownload,
-}: {
-  node: TreeNode;
-  depth: number;
-  onOpen: (entry: ArchiveEntry) => void;
-  onDownload: (entry: ArchiveEntry) => void;
-}) {
-  const [open, setOpen] = useState(depth < 1);
-  const indent = { paddingLeft: `${depth * 16 + 8}px` };
-
-  if (node.dir) {
-    return (
-      <div className="qdn-archive__node">
-        <button
-          className="qdn-archive__row qdn-archive__row--dir"
-          style={indent}
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
-          <Folder size={14} aria-hidden="true" />
-          <span className="qdn-archive__name">{node.name}</span>
-        </button>
-        {open
-          ? node.children.map((child) => (
-              <ArchiveTreeRow key={child.path} node={child} depth={depth + 1} onOpen={onOpen} onDownload={onDownload} />
-            ))
-          : null}
-      </div>
-    );
-  }
-
-  return (
-    <div className="qdn-archive__row qdn-archive__row--file" style={indent}>
-      <button className="qdn-archive__open" type="button" onClick={() => node.entry && onOpen(node.entry)}>
-        <FileIcon size={14} aria-hidden="true" />
-        <span className="qdn-archive__name">{node.name}</span>
-        {node.size > 0 ? <span className="qdn-archive__size">{formatByteSize(node.size)}</span> : null}
-      </button>
-      <button
-        className="icon-button qdn-archive__download"
-        type="button"
-        title={t('archive.download')}
-        aria-label={t('archive.download')}
-        onClick={() => node.entry && onDownload(node.entry)}
-      >
-        <Download size={14} aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
 
 // Browses a general ZIP/RAR archive as a collapsible file tree, previewing each
 // entry in-place with the matching content viewer (and recursing into nested
@@ -209,7 +99,10 @@ export function ArchiveViewer({
 
         setLoad({
           phase: 'ready',
-          tree: buildTree(entries),
+          // Key by the normalized path (no trailing slash) so lookups match the
+          // paths FileTree emits from buildFileTree.
+          entryByPath: new Map(entries.map((entry) => [entry.path.replace(/\/+$/, ''), entry])),
+          fileTreeEntries: entries.map((entry) => ({ path: entry.path, dir: entry.dir, size: entry.size })),
           fileCount: entries.filter((entry) => !entry.dir).length,
         });
       } catch (error) {
@@ -231,7 +124,15 @@ export function ArchiveViewer({
     };
   }, [providedBytes, resource]);
 
-  async function openEntry(entry: ArchiveEntry) {
+  function entryForPath(path: string): ArchiveEntry | undefined {
+    return load.phase === 'ready' ? load.entryByPath.get(path) : undefined;
+  }
+
+  async function openPath(path: string) {
+    const entry = entryForPath(path);
+    if (!entry || entry.dir) {
+      return;
+    }
     setSelection({ entry, phase: 'loading' });
     try {
       const bytes = await entry.read();
@@ -249,7 +150,11 @@ export function ArchiveViewer({
     }
   }
 
-  async function downloadEntry(entry: ArchiveEntry) {
+  async function downloadPath(path: string) {
+    const entry = entryForPath(path);
+    if (!entry || entry.dir) {
+      return;
+    }
     setDownloadError(null);
     try {
       const bytes = await entry.read();
@@ -299,12 +204,12 @@ export function ArchiveViewer({
             )
           ) : (
             <QdnEntryContent
-              bytes={selection.bytes}
               displaySettings={displaySettings}
               filename={selection.entry.name}
               onActionContextChange={onActionContextChange}
               onBack={back}
-              parentResource={resource}
+              resource={{ ...resource, path: selection.entry.path }}
+              source={{ kind: 'bytes', bytes: selection.bytes }}
             />
           )}
         </div>
@@ -322,21 +227,22 @@ export function ArchiveViewer({
           <span className="qdn-archive__count">{t('archive.fileCount', { count: String(load.fileCount) })}</span>
         ) : null}
       </div>
-      <div className="qdn-archive__tree">
-        {load.phase === 'loading' ? (
-          <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-            <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
-          </div>
-        ) : load.phase === 'error' ? (
-          <div className="qdn-viewer__empty qdn-viewer__empty--error">
-            <p className="qdn-viewer__message">{load.message}</p>
-          </div>
-        ) : (
-          load.tree.map((node) => (
-            <ArchiveTreeRow key={node.path} node={node} depth={0} onOpen={openEntry} onDownload={downloadEntry} />
-          ))
-        )}
-      </div>
+      {load.phase === 'loading' ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
+          <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
+        </div>
+      ) : load.phase === 'error' ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--error">
+          <p className="qdn-viewer__message">{load.message}</p>
+        </div>
+      ) : (
+        <FileTree
+          entries={load.fileTreeEntries}
+          defaultOpen={(treeDepth) => treeDepth < 1}
+          onOpen={openPath}
+          onDownload={downloadPath}
+        />
+      )}
     </div>
   );
 }

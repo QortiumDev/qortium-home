@@ -531,6 +531,8 @@ export const it: Record<TranslationKey, string> = {
   "viewer.progressChunksWithPercent": "Frammenti: {local} / {total} ({percent}%)",
   "viewer.readyToDownload": "Questa risorsa è pronta per il download.",
   "viewer.readyToOpen": "Questa risorsa è pronta per essere aperta.",
+  "repository.empty": "Questo repository non contiene file.",
+  "repository.title": "File del repository",
   "viewer.readyToRead": "Questo documento è pronto per la lettura.",
   "viewer.renderRequestFailed": "Richiesta di rendering QDN non riuscita con HTTP {status}.",
   "viewer.showStatusBar": "Mostra la barra di stato",

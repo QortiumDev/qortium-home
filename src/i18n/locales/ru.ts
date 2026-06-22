@@ -386,6 +386,8 @@ export const ru: Record<TranslationKey, string> = {
   "preview.failed": "Не удалось выполнить предпросмотр.",
   "preview.previewingAs": "Предпросмотр как {service}",
   "preview.supported": "Выберите папку или zip с сайтом index.html, отдельный HTML-файл либо файл изображения, видео или аудио.",
+  "repository.empty": "В этом репозитории нет файлов.",
+  "repository.title": "Файлы репозитория",
   "qdnStatus.blocked": "Заблокировано",
   "qdnStatus.buildFailed": "Ошибка сборки",
   "qdnStatus.building": "Сборка",

@@ -455,6 +455,8 @@ export const he: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "בעד",
   "qdnWrite.voteDirection": "הצבעה",
   "qdnWrite.voteOppose": "נגד",
+  "repository.empty": "למאגר זה אין קבצים.",
+  "repository.title": "קבצי מאגר",
   "tabs.closeNamed": "סגירת {label}",
   "tabs.closeOtherTabs": "סגירת הכרטיסיות האחרות",
   "tabs.closeTab": "סגירת כרטיסייה",

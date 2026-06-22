@@ -455,6 +455,8 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.voteApprove": "Puolesta",
   "qdnWrite.voteDirection": "Ääni",
   "qdnWrite.voteOppose": "Vastaan",
+  "repository.empty": "Tällä tietovarastolla ei ole tiedostoja.",
+  "repository.title": "Tietovaraston tiedostot",
   "tabs.closeNamed": "Sulje {label}",
   "tabs.closeOtherTabs": "Sulje muut välilehdet",
   "tabs.closeTab": "Sulje välilehti",
