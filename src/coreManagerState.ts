@@ -244,9 +244,11 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
   const canInstallStable = !!releases?.stable.available;
   const canInstallJava = !!status && !runtimeBlocked && !status.java.available && status.supported;
   const canStart = !!status?.installed && !runtimeBlocked && !!status.java.available && !status.runtime.running;
-  // A running core can be stopped whenever Home owns it, even if its install
-  // files (jar/metadata) were since removed — the backend stops it by pid.
-  const canStop = !!status?.runtime.running && status.runtime.owner === 'home';
+  // Any running local core can be stopped: Home-owned ones via the stop script /
+  // pid, and cores Home didn't start (or can't confirm ownership of, e.g. on
+  // macOS) via the Core admin API. So the control is offered whenever a core is
+  // running, not only when ownership is confirmed.
+  const canStop = !!status?.runtime.running;
   const stableUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.stable, status?.installed);
   const prereleaseUpdateAvailable = isCoreReleaseUpdateAvailable(releases?.prerelease, status?.installed);
   const canInstallOrUpdatePrerelease =
@@ -473,15 +475,6 @@ export function getCoreRuntimeAction(
       kind: 'stop',
       label: coreManager.busyAction === 'stopping' ? t('common.stopping') : t('core.stopCore'),
       onClick: coreManager.stopCore,
-    };
-  }
-
-  if (coreManager.status?.runtime.running && coreManager.status.runtime.owner === 'external') {
-    return {
-      disabled: true,
-      kind: 'stop',
-      label: t('core.stopCore'),
-      title: t('core.stopExternalHint'),
     };
   }
 

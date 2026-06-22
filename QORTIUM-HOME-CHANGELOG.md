@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - fix: show a working Stop button for a running Core Home can't confirm it owns
+
+Completed the previous change so it actually reaches the button. Home now shows an active Stop control for any running local Core — including one it didn't start, or one it can't confirm it owns (which happens on macOS, where Home can't inspect a running process the way it can on Linux). Previously such a Core showed no Stop button at all. Stopping it uses the Core's own stop command, and Home now falls back to reading the key it needs from the managed Core's own files when it can't read it from the running process, so the Stop button works on macOS for a Core that Home installed.
+
 ### 2026-06-22 - feat: smoother I2P + Core handling when the Core was started outside Home
 
 Improved how Home deals with an I2P router and a Core it did not start itself. Home can now stop a local Core that was started outside Home — for example from a terminal — by using the Core's own stop command with the running node's key, instead of refusing and telling you to stop it by hand. If Home's managed I2P router is left running after Home is closed unexpectedly, Home now recognises it as its own on the next launch (by the record it keeps of the router it started) and lets you stop it from Settings, rather than treating it as someone else's router and leaving you stuck. And the I2P router status in Settings now refreshes on its own every few seconds and when you press the refresh button, so it no longer shows stale information — such as still showing a router as running for a while after it was stopped, which previously hid the "Enable I2P" option.
