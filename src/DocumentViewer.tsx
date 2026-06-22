@@ -222,7 +222,8 @@ export function DocumentViewer({ onDismiss, resource }: DocumentViewerProps) {
         if (canceled) return;
 
         if (result.tooLarge) {
-          setState({ message: t('docViewer.tooLarge'), phase: 'error' });
+          const limit = `${Math.round(DOCUMENT_VIEWER_MAX_BYTES / (1024 * 1024))} MB`;
+          setState({ message: t('docViewer.tooLarge', { limit }), phase: 'error' });
           return;
         }
 

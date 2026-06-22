@@ -554,7 +554,6 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
 }
 
 const QDN_MEDIA_PLAYER_SERVICES: readonly QdnService[] = ['AUDIO', 'PODCAST', 'VIDEO', 'VOICE'];
-const QDN_DOCUMENT_VIEWER_SERVICES: readonly QdnService[] = ['ATTACHMENT', 'DOCUMENT', 'FILE', 'FILES'];
 
 type QdnMediaPlayerDialogProps = {
   displaySettings: QdnDisplaySettings;
@@ -1425,8 +1424,13 @@ export function App() {
   function openQdnDocumentViewer(request: QortiumQdnDocumentViewerRequest) {
     const service = request.service.toUpperCase() as QdnService;
 
-    if (!QDN_DOCUMENT_VIEWER_SERVICES.includes(service) || !request.name) {
-      console.warn('Ignoring QDN app document viewer request for an unsupported resource.', request);
+    // The Q-App bridge already restricts which services an app may request to the
+    // document whitelist (electron/qdn.ts + platform.ts) before this runs, so the
+    // only check needed here is a usable name. This lets the user-initiated
+    // "Open in Document Viewer" button work for any resource that resolved to a
+    // document content kind, regardless of its publishing service.
+    if (!request.name) {
+      console.warn('Ignoring QDN document viewer request without a name.', request);
       return;
     }
 

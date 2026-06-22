@@ -1,5 +1,5 @@
 import { ChevronDown, ClipboardCopy, Copy, Download, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t } from './i18n';
 import type {
   QdnDisplaySettings,
@@ -26,6 +26,7 @@ import {
 import { marked } from 'marked';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
 import { detectDocumentFormat } from './DocumentViewer';
+import { sniffMagicBytes } from './qdnContentType';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -581,6 +582,41 @@ function getBlobContentType(viewerKind: QdnViewerKind, mimeType = '', responseCo
   return mimeType || responseContentType || 'application/octet-stream';
 }
 
+// When extension + mimeType leave a resource classified as a bare download,
+// peek at the leading bytes to recover a renderable kind (an image/PDF/audio file
+// published with no extension and an octet-stream mimeType). Reads only the first
+// response chunk and aborts, so it costs ~nothing. Desktop only — CapacitorHttp on
+// Android does not expose a streaming body to read a prefix from.
+async function sniffRenderUrlKind(
+  renderUrl: string,
+  signal: AbortSignal,
+): Promise<QdnViewerKind | null> {
+  if (isNativePlatform()) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(renderUrl, { signal });
+
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      return null;
+    }
+
+    const reader = response.body.getReader();
+    const { value } = await reader.read();
+    await reader.cancel();
+
+    return value && value.length > 0 ? sniffMagicBytes(value) : null;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
+
+    return null;
+  }
+}
+
 async function createBlobRenderUrl({
   mimeType,
   renderUrl,
@@ -664,8 +700,18 @@ function useQdnResourceLoader(
 
     async function setReadyState(status: QdnResourceStatus) {
       const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
-      const viewerKind = getLoadedViewerKind(resource, properties);
+      let viewerKind = getLoadedViewerKind(resource, properties);
       const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl, displaySettings);
+
+      // Inconclusive descriptive signals (no extension, octet-stream mime) leave a
+      // single-file resource as a bare download — try recovering a renderable kind
+      // from its magic bytes. FILES is multi-file, so it is excluded.
+      if ((viewerKind === 'download' || viewerKind === 'unsupported') && resource.service !== 'FILES') {
+        const sniffed = await sniffRenderUrlKind(directRenderUrl, abortController.signal);
+        if (sniffed) {
+          viewerKind = sniffed;
+        }
+      }
       const useArchiveRenderUrl = shouldUseArchiveRenderUrl(resource, properties, viewerKind);
       const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
       let renderUrl = directRenderUrl;
@@ -1218,6 +1264,373 @@ function QdnTextContent({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Shared loader for the text-backed preview viewers (code / csv / json). Fetches
+// the resource text once and exposes the same loading/ready/too-large/error state
+// machine that QdnTextContent uses inline.
+function useTextPreviewState(
+  loadedResource: LoadedQdnResource,
+  resource: QdnResource,
+): TextPreviewState {
+  const [state, setState] = useState<TextPreviewState>({ phase: 'loading' });
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    setState({ phase: 'loading' });
+
+    async function load() {
+      try {
+        const nextState = await readTextPreview({ loadedResource, resource });
+
+        if (!isDisposed) {
+          setState(nextState);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+
+        if (!isDisposed) {
+          setState({ phase: 'error', message: formatError(error) });
+        }
+      }
+    }
+
+    void load();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [loadedResource, resource]);
+
+  return state;
+}
+
+// Shared chrome (toolbar + loading/too-large/error states) for the text-backed
+// preview viewers. `children` is rendered only in the ready state.
+function QdnPreviewShell({
+  className,
+  label,
+  loadedResource,
+  resource,
+  state,
+  children,
+}: {
+  className: string;
+  label: string;
+  loadedResource: LoadedQdnResource;
+  resource: QdnResource;
+  state: TextPreviewState;
+  children: ReactNode;
+}) {
+  return (
+    <div className={className}>
+      <div className="qdn-viewer__text-toolbar">
+        <span className="qdn-viewer__type-label">{label}</span>
+      </div>
+
+      {state.phase === 'loading' ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
+          <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
+        </div>
+      ) : null}
+
+      {state.phase === 'ready' ? children : null}
+
+      {state.phase === 'too-large' || state.phase === 'error' ? (
+        <div className={`qdn-viewer__empty qdn-viewer__empty--${state.phase === 'error' ? 'error' : 'ready'}`}>
+          <div className="qdn-viewer__details">
+            <p className="qdn-viewer__message">{state.message}</p>
+            <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Syntax-highlighted source viewer. highlight.js is loaded lazily (only when a
+// code resource is opened) and runs purely as a string transform — the resulting
+// markup is static tokens, never executed.
+function QdnCodeContent({
+  loadedResource,
+  onActionContextChange,
+  resource,
+}: {
+  loadedResource: LoadedQdnResource;
+  onActionContextChange: SetViewerActionContext;
+  resource: QdnResource;
+}) {
+  const state = useTextPreviewState(loadedResource, resource);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+
+  useEffect(() => {
+    onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
+
+    return () => onActionContextChange({});
+  }, [onActionContextChange, state]);
+
+  useEffect(() => {
+    if (state.phase !== 'ready') {
+      setHighlighted(null);
+      return;
+    }
+
+    let isDisposed = false;
+
+    async function highlight() {
+      try {
+        const { default: hljs } = await import('highlight.js');
+        const result = hljs.highlightAuto(state.phase === 'ready' ? state.content : '');
+
+        if (!isDisposed) {
+          setHighlighted(result.value);
+        }
+      } catch {
+        if (!isDisposed) {
+          setHighlighted(null);
+        }
+      }
+    }
+
+    void highlight();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [state]);
+
+  const rawContent = state.phase === 'ready' ? state.content : '';
+
+  return (
+    <QdnPreviewShell
+      className="qdn-viewer__text"
+      label={t('viewer.type.code')}
+      loadedResource={loadedResource}
+      resource={resource}
+      state={state}
+    >
+      <pre className="qdn-viewer__text-content hljs">
+        {highlighted !== null ? (
+          <code dangerouslySetInnerHTML={{ __html: highlighted }} />
+        ) : (
+          <code>{rawContent}</code>
+        )}
+      </pre>
+    </QdnPreviewShell>
+  );
+}
+
+// Minimal RFC-4180-ish CSV parser: handles quoted fields, embedded commas,
+// newlines, and "" escapes. Good enough for previewing published CSV data.
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[i + 1] === '\n') {
+        i += 1;
+      }
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += char;
+    }
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows.filter((r) => r.length > 1 || (r[0] ?? '').length > 0);
+}
+
+const CSV_MAX_ROWS = 2000;
+
+// Tabular CSV viewer — first row as headers, remaining rows in a table.
+function QdnCsvContent({
+  loadedResource,
+  onActionContextChange,
+  resource,
+}: {
+  loadedResource: LoadedQdnResource;
+  onActionContextChange: SetViewerActionContext;
+  resource: QdnResource;
+}) {
+  const state = useTextPreviewState(loadedResource, resource);
+
+  useEffect(() => {
+    onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
+
+    return () => onActionContextChange({});
+  }, [onActionContextChange, state]);
+
+  const rows = useMemo(
+    () => (state.phase === 'ready' ? parseCsv(state.content) : []),
+    [state],
+  );
+
+  const header = rows[0] ?? [];
+  const body = rows.slice(1, CSV_MAX_ROWS + 1);
+  const truncated = rows.length - 1 > CSV_MAX_ROWS;
+
+  return (
+    <QdnPreviewShell
+      className="qdn-viewer__text"
+      label={t('viewer.type.csv')}
+      loadedResource={loadedResource}
+      resource={resource}
+      state={state}
+    >
+      <div className="qdn-viewer__csv-scroll">
+        <table className="qdn-viewer__csv-table">
+          {header.length > 0 ? (
+            <thead>
+              <tr>
+                {header.map((cell, index) => (
+                  <th key={index}>{cell}</th>
+                ))}
+              </tr>
+            </thead>
+          ) : null}
+          <tbody>
+            {body.map((cells, rowIndex) => (
+              <tr key={rowIndex}>
+                {cells.map((cell, cellIndex) => (
+                  <td key={cellIndex}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {truncated ? (
+          <p className="qdn-viewer__csv-truncated">{t('viewer.csv.truncated', { limit: String(CSV_MAX_ROWS) })}</p>
+        ) : null}
+      </div>
+    </QdnPreviewShell>
+  );
+}
+
+// One node of the collapsible JSON tree.
+function JsonTreeNode({ name, value, depth }: { name: string | null; value: unknown; depth: number }) {
+  const isObject = value !== null && typeof value === 'object';
+  const [open, setOpen] = useState(depth < 1);
+
+  if (!isObject) {
+    return (
+      <div className="qdn-json__row" style={{ paddingLeft: `${depth * 14}px` }}>
+        {name !== null ? <span className="qdn-json__key">{name}: </span> : null}
+        <span className={`qdn-json__value qdn-json__value--${value === null ? 'null' : typeof value}`}>
+          {value === null ? 'null' : typeof value === 'string' ? `"${value}"` : String(value)}
+        </span>
+      </div>
+    );
+  }
+
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value as Record<string, unknown>);
+  const summary = Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`;
+
+  return (
+    <div className="qdn-json__node">
+      <button
+        className="qdn-json__toggle"
+        type="button"
+        style={{ paddingLeft: `${depth * 14}px` }}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="qdn-json__caret">{open ? '▾' : '▸'}</span>
+        {name !== null ? <span className="qdn-json__key">{name}: </span> : null}
+        <span className="qdn-json__summary">{summary}</span>
+      </button>
+      {open
+        ? entries.map(([key, child]) => (
+            <JsonTreeNode key={key} name={key} value={child} depth={depth + 1} />
+          ))
+        : null}
+    </div>
+  );
+}
+
+// Collapsible JSON tree viewer; falls back to the raw text on a parse failure.
+function QdnJsonContent({
+  loadedResource,
+  onActionContextChange,
+  resource,
+}: {
+  loadedResource: LoadedQdnResource;
+  onActionContextChange: SetViewerActionContext;
+  resource: QdnResource;
+}) {
+  const state = useTextPreviewState(loadedResource, resource);
+
+  useEffect(() => {
+    onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
+
+    return () => onActionContextChange({});
+  }, [onActionContextChange, state]);
+
+  const parsed = useMemo(() => {
+    if (state.phase !== 'ready') {
+      return { ok: false as const };
+    }
+    try {
+      return { ok: true as const, value: JSON.parse(state.content) as unknown };
+    } catch {
+      return { ok: false as const };
+    }
+  }, [state]);
+
+  return (
+    <QdnPreviewShell
+      className="qdn-viewer__text"
+      label={t('viewer.type.json')}
+      loadedResource={loadedResource}
+      resource={resource}
+      state={state}
+    >
+      {parsed.ok ? (
+        <div className="qdn-viewer__json">
+          <JsonTreeNode name={null} value={parsed.value} depth={0} />
+        </div>
+      ) : (
+        <pre className="qdn-viewer__text-content">
+          <code>{state.phase === 'ready' ? state.content : ''}</code>
+        </pre>
+      )}
+    </QdnPreviewShell>
   );
 }
 
@@ -2344,6 +2757,36 @@ function QdnReadyContent({
   if (loadedResource.viewerKind === 'text') {
     return (
       <QdnTextContent
+        loadedResource={loadedResource}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'code') {
+    return (
+      <QdnCodeContent
+        loadedResource={loadedResource}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'csv') {
+    return (
+      <QdnCsvContent
+        loadedResource={loadedResource}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'json') {
+    return (
+      <QdnJsonContent
         loadedResource={loadedResource}
         onActionContextChange={onActionContextChange}
         resource={resource}
