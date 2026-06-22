@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: batch identity lookup for QDN apps (RESOLVE_IDENTITIES)
+
+Added a new read-only bridge action, RESOLVE_IDENTITIES, that lets a QDN app resolve many accounts' display identities in one call: given a list of addresses it returns each address's registered name and avatar URL, instead of the app making several node requests per address. It works on desktop and Android, works on public nodes, reuses Home's existing name and avatar resolution, and de-duplicates addresses (capped per call). Apps that show lists of accounts — such as Qortium Trust — can replace their per-address name/avatar fetching and bespoke image handling with this single call.
+
 ### 2026-06-22 - fix: keep a QDN app tab bound to its launch account
 
 Hardened the desktop QDN app views so a tab stays bound to the account it was opened under for its whole life. The bound account is now fixed when the view is created and is never changed by re-showing the tab or by account-state updates — only the lock/unlock state of that same account is still tracked. This guarantees that switching the selected account elsewhere in Home can't leak into an already-open app view: a Trust tab showing what *you* rated keeps showing the original account's view even after you switch accounts in another tab.
