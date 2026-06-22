@@ -519,9 +519,12 @@ export const en = {
   "viewer.progressChunksWithPercent": "Chunks: {local} / {total} ({percent}%)",
   "viewer.readyToDownload": "This resource is ready to download.",
   "viewer.readyToOpen": "This resource is ready to open.",
+  "viewer.readyToRead": "This document is ready to read.",
   "viewer.renderRequestFailed": "QDN render request failed with HTTP {status}.",
   "viewer.showStatusBar": "Show status bar",
   "viewer.statusRequestFailed": "QDN status request failed with HTTP {status}.",
+  "viewer.type.html": "HTML",
+  "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Exit full view",
   "viewer.video.fill": "Fill the page",
 } as const;
