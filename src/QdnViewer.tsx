@@ -25,8 +25,9 @@ import {
 } from './qdn';
 import { marked } from 'marked';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform } from './platform';
-import { detectDocumentFormat } from './DocumentViewer';
-import { sniffMagicBytes } from './qdnContentType';
+import { ArchiveViewer } from './ArchiveViewer';
+import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
+import { detectContentKind, sniffMagicBytes } from './qdnContentType';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -49,7 +50,7 @@ type ViewerActionContext = {
   resource?: QdnResource;
 };
 
-type SetViewerActionContext = (context: ViewerActionContext) => void;
+export type SetViewerActionContext = (context: ViewerActionContext) => void;
 
 type QdnViewerState =
   | {
@@ -327,7 +328,7 @@ function isArchiveResourceProperties(properties: QdnResourceProperties | undefin
   const filename = properties?.filename ?? '';
   const mimeType = properties?.mimeType ?? '';
 
-  return /\.zip$/i.test(filename) || /\bzip\b/i.test(mimeType);
+  return /\.(?:zip|rar)$/i.test(filename) || /\b(?:zip|rar)\b/i.test(mimeType);
 }
 
 function shouldUseArchiveRenderUrl(
@@ -1112,14 +1113,22 @@ function QdnStatusActions({
   );
 }
 
+// An already-extracted in-memory source (an archive entry) to render instead of
+// fetching the resource text from the node.
+type TextEntrySource = {
+  bytes: Uint8Array;
+};
+
 async function readTextPreview({
+  entrySource,
   loadedResource,
   resource,
 }: {
+  entrySource?: TextEntrySource;
   loadedResource: LoadedQdnResource;
   resource: QdnResource;
 }): Promise<TextPreviewState> {
-  const knownSize = loadedResource.properties?.size;
+  const knownSize = entrySource ? entrySource.bytes.length : loadedResource.properties?.size;
 
   if (typeof knownSize === 'number' && knownSize > TEXT_PREVIEW_MAX_BYTES) {
     return {
@@ -1128,13 +1137,18 @@ async function readTextPreview({
     };
   }
 
-  const result = await window.qortiumHome.qdn.fetchResourceText({
-    service: resource.service,
-    name: resource.name,
-    identifier: resource.identifier,
-    path: resource.path,
-    maxBytes: TEXT_PREVIEW_MAX_BYTES,
-  });
+  // Archive entries are decoded locally from their bytes; node-hosted resources go
+  // through the bridge. Everything downstream (JSON formatting, the label, and the
+  // per-kind viewers) is source-agnostic.
+  const result = entrySource
+    ? { content: new TextDecoder().decode(entrySource.bytes), contentType: '', tooLarge: false, contentLength: 0 }
+    : await window.qortiumHome.qdn.fetchResourceText({
+        service: resource.service,
+        name: resource.name,
+        identifier: resource.identifier,
+        path: resource.path,
+        maxBytes: TEXT_PREVIEW_MAX_BYTES,
+      });
 
   if (result.tooLarge) {
     return {
@@ -1171,10 +1185,12 @@ async function readTextPreview({
 }
 
 function QdnTextContent({
+  entrySource,
   loadedResource,
   onActionContextChange,
   resource,
 }: {
+  entrySource?: TextEntrySource;
   loadedResource: LoadedQdnResource;
   onActionContextChange: SetViewerActionContext;
   resource: QdnResource;
@@ -1200,6 +1216,7 @@ function QdnTextContent({
     async function loadTextPreview() {
       try {
         const nextState = await readTextPreview({
+          entrySource,
           loadedResource,
           resource,
         });
@@ -1226,7 +1243,7 @@ function QdnTextContent({
     return () => {
       isDisposed = true;
     };
-  }, [loadedResource, resource]);
+  }, [entrySource, loadedResource, resource]);
 
   const statusText =
     state.phase === 'loading'
@@ -1273,6 +1290,7 @@ function QdnTextContent({
 function useTextPreviewState(
   loadedResource: LoadedQdnResource,
   resource: QdnResource,
+  entrySource?: TextEntrySource,
 ): TextPreviewState {
   const [state, setState] = useState<TextPreviewState>({ phase: 'loading' });
 
@@ -1283,7 +1301,7 @@ function useTextPreviewState(
 
     async function load() {
       try {
-        const nextState = await readTextPreview({ loadedResource, resource });
+        const nextState = await readTextPreview({ entrySource, loadedResource, resource });
 
         if (!isDisposed) {
           setState(nextState);
@@ -1304,7 +1322,7 @@ function useTextPreviewState(
     return () => {
       isDisposed = true;
     };
-  }, [loadedResource, resource]);
+  }, [entrySource, loadedResource, resource]);
 
   return state;
 }
@@ -1356,15 +1374,17 @@ function QdnPreviewShell({
 // code resource is opened) and runs purely as a string transform — the resulting
 // markup is static tokens, never executed.
 function QdnCodeContent({
+  entrySource,
   loadedResource,
   onActionContextChange,
   resource,
 }: {
+  entrySource?: TextEntrySource;
   loadedResource: LoadedQdnResource;
   onActionContextChange: SetViewerActionContext;
   resource: QdnResource;
 }) {
-  const state = useTextPreviewState(loadedResource, resource);
+  const state = useTextPreviewState(loadedResource, resource, entrySource);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1479,15 +1499,17 @@ const CSV_MAX_ROWS = 2000;
 
 // Tabular CSV viewer — first row as headers, remaining rows in a table.
 function QdnCsvContent({
+  entrySource,
   loadedResource,
   onActionContextChange,
   resource,
 }: {
+  entrySource?: TextEntrySource;
   loadedResource: LoadedQdnResource;
   onActionContextChange: SetViewerActionContext;
   resource: QdnResource;
 }) {
-  const state = useTextPreviewState(loadedResource, resource);
+  const state = useTextPreviewState(loadedResource, resource, entrySource);
 
   useEffect(() => {
     onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
@@ -1586,15 +1608,17 @@ function JsonTreeNode({ name, value, depth }: { name: string | null; value: unkn
 
 // Collapsible JSON tree viewer; falls back to the raw text on a parse failure.
 function QdnJsonContent({
+  entrySource,
   loadedResource,
   onActionContextChange,
   resource,
 }: {
+  entrySource?: TextEntrySource;
   loadedResource: LoadedQdnResource;
   onActionContextChange: SetViewerActionContext;
   resource: QdnResource;
 }) {
-  const state = useTextPreviewState(loadedResource, resource);
+  const state = useTextPreviewState(loadedResource, resource, entrySource);
 
   useEffect(() => {
     onActionContextChange(state.phase === 'ready' ? { copyText: state.content } : {});
@@ -1669,11 +1693,13 @@ function buildRichTextSrcDoc(bodyHtml: string, isRawHtmlDocument: boolean) {
 // preview XSS-safe by construction — untrusted publisher content can render images
 // and CSS but never run code.
 function QdnRichTextContent({
+  entrySource,
   kind,
   loadedResource,
   onActionContextChange,
   resource,
 }: {
+  entrySource?: TextEntrySource;
   kind: 'html' | 'markdown';
   loadedResource: LoadedQdnResource;
   onActionContextChange: SetViewerActionContext;
@@ -1694,7 +1720,7 @@ function QdnRichTextContent({
 
     async function loadSource() {
       try {
-        const nextState = await readTextPreview({ loadedResource, resource });
+        const nextState = await readTextPreview({ entrySource, loadedResource, resource });
 
         if (!isDisposed) {
           setState(nextState);
@@ -1715,7 +1741,7 @@ function QdnRichTextContent({
     return () => {
       isDisposed = true;
     };
-  }, [loadedResource, resource]);
+  }, [entrySource, loadedResource, resource]);
 
   const srcDoc = useMemo(() => {
     if (state.phase !== 'ready') {
@@ -1989,6 +2015,136 @@ function QdnImageContent({
       />
     </div>
   );
+}
+
+// Renders one already-extracted archive entry (in-memory bytes) using the same
+// per-kind viewers as node-hosted resources. The content kind is resolved from the
+// entry filename; media kinds get a transient object-URL (revoked on unmount),
+// text-family kinds decode locally via entrySource, and documents (pdf/epub/cbz)
+// open the in-place DocumentViewer. Nested archives are handled by ArchiveViewer
+// itself, so they never reach here.
+export function QdnEntryContent({
+  bytes,
+  displaySettings,
+  filename,
+  onActionContextChange,
+  onBack,
+  parentResource,
+}: {
+  bytes: Uint8Array;
+  displaySettings: QdnDisplaySettings;
+  filename: string;
+  onActionContextChange: SetViewerActionContext;
+  onBack: () => void;
+  parentResource: QdnResource;
+}) {
+  const kind = detectContentKind(filename) ?? 'download';
+
+  const resource = useMemo<QdnResource>(
+    () => ({ ...parentResource, path: filename }),
+    [parentResource, filename],
+  );
+
+  const needsObjectUrl = kind === 'image' || kind === 'audio' || kind === 'video';
+  // Create the blob URL in an effect (not useMemo) so it is allocated exactly once
+  // per lifecycle and always revoked on change/unmount — useMemo can be
+  // double-invoked (StrictMode) or discarded, which would leak the URL.
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!needsObjectUrl) {
+      setObjectUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
+    setObjectUrl(url);
+
+    return () => URL.revokeObjectURL(url);
+  }, [bytes, needsObjectUrl]);
+
+  const loadedResource = useMemo<LoadedQdnResource>(
+    () => ({
+      properties: { filename, size: bytes.length },
+      renderUrl: objectUrl ?? '',
+      status: {},
+      viewerKind: kind,
+    }),
+    [filename, bytes, objectUrl, kind],
+  );
+
+  const entrySource = useMemo<TextEntrySource>(() => ({ bytes }), [bytes]);
+
+  switch (kind) {
+    case 'image':
+      return <QdnImageContent alt={filename} renderUrl={objectUrl ?? ''} />;
+    case 'audio':
+    case 'video':
+      return <QdnMediaContent loadedResource={loadedResource} resource={resource} />;
+    case 'document':
+      return (
+        <DocumentViewer
+          bytes={bytes}
+          displaySettings={displaySettings}
+          onDismiss={onBack}
+          resource={resource}
+        />
+      );
+    case 'markdown':
+    case 'html':
+      return (
+        <QdnRichTextContent
+          entrySource={entrySource}
+          kind={kind}
+          loadedResource={loadedResource}
+          onActionContextChange={onActionContextChange}
+          resource={resource}
+        />
+      );
+    case 'code':
+      return (
+        <QdnCodeContent
+          entrySource={entrySource}
+          loadedResource={loadedResource}
+          onActionContextChange={onActionContextChange}
+          resource={resource}
+        />
+      );
+    case 'csv':
+      return (
+        <QdnCsvContent
+          entrySource={entrySource}
+          loadedResource={loadedResource}
+          onActionContextChange={onActionContextChange}
+          resource={resource}
+        />
+      );
+    case 'json':
+      return (
+        <QdnJsonContent
+          entrySource={entrySource}
+          loadedResource={loadedResource}
+          onActionContextChange={onActionContextChange}
+          resource={resource}
+        />
+      );
+    case 'text':
+      return (
+        <QdnTextContent
+          entrySource={entrySource}
+          loadedResource={loadedResource}
+          onActionContextChange={onActionContextChange}
+          resource={resource}
+        />
+      );
+    default:
+      return (
+        <div className="qdn-viewer__empty qdn-viewer__empty--ready">
+          <div className="qdn-viewer__details">
+            <p className="qdn-viewer__message">{t('archive.entryNotPreviewable')}</p>
+          </div>
+        </div>
+      );
+  }
 }
 
 function getElementSize(element: HTMLElement): ElementSize {
@@ -2816,6 +2972,16 @@ function QdnReadyContent({
       <QdnRichTextContent
         kind={loadedResource.viewerKind}
         loadedResource={loadedResource}
+        onActionContextChange={onActionContextChange}
+        resource={resource}
+      />
+    );
+  }
+
+  if (loadedResource.viewerKind === 'archive') {
+    return (
+      <ArchiveViewer
+        displaySettings={displaySettings}
         onActionContextChange={onActionContextChange}
         resource={resource}
       />
