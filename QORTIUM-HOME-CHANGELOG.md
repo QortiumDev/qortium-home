@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - fix: keep a QDN app tab bound to its launch account
+
+Hardened the desktop QDN app views so a tab stays bound to the account it was opened under for its whole life. The bound account is now fixed when the view is created and is never changed by re-showing the tab or by account-state updates — only the lock/unlock state of that same account is still tracked. This guarantees that switching the selected account elsewhere in Home can't leak into an already-open app view: a Trust tab showing what *you* rated keeps showing the original account's view even after you switch accounts in another tab.
+
 ### 2026-06-22 - feat: tell the running Core apart from the installed one (and find it on macOS)
 
 The Settings Core panel now distinguishes the Core that is actually running from the one Home has installed. When a Core that Home didn't install is the one running, Home shows the running Core's folder when it can locate it, lists the managed install as its own separate entry, and adds a note that a different Core is running — instead of mislabelling the managed install as if it were the running Core. On macOS, Home can now identify a running Core by inspecting the running process's open files, so it correctly recognises a Core it manages (which is what makes the Stop button and folder display behave correctly there) and can find the details it needs even for a Core started outside Home. New wording is translated across all supported languages.

@@ -701,7 +701,8 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
   const existingEntry = windowViews.get(request.tabId);
 
   if (existingEntry && existingEntry.nodeOrigin === request.nodeOrigin) {
-    existingEntry.accountId = request.accountId;
+    // accountId is pinned at creation: a QDN app tab stays bound to its launch
+    // account for its lifetime, so a re-show must never rebind it.
     existingEntry.displaySettings = request.displaySettings;
     existingEntry.resourceUrl = request.resourceUrl;
     return existingEntry;
@@ -824,7 +825,14 @@ export function registerQdnViewIpcHandlers() {
       return;
     }
 
-    entry.accountId = request.accountId;
+    // The bound account is pinned at view creation and never changes for the
+    // tab's lifetime. Only track unlock transitions of that same account; ignore
+    // any spurious account swap so a global account change can't leak into an
+    // already-open app view.
+    if (request.accountId !== entry.accountId) {
+      return;
+    }
+
     entry.accountUnlocked = request.isUnlocked;
     queueQdnViewStateDelivery(entry);
   });
