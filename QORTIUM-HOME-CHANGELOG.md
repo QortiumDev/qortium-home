@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - release: prepare home 1.1.0
+
+Moved Qortium Home off the `-preview.N` versioning scheme to a plain `1.1.0`, matching how Qortium Core is versioned, and set the Android `versionCode` to 18 so this release can install over previous preview builds. This is the first stable-numbered release and gathers everything added since the last preview: a content-type-driven QDN viewer that opens Markdown, HTML, code, CSV, and JSON files in-app; an in-app document reader for PDF, EPUB, plain text, and comic archives (CBZ and CBR); a general ZIP/RAR archive browser and a Git repository browser that both present their contents as a collapsible file tree; node-aware QDN app actions with opt-in response headers; batch identity lookup for apps; and a managed I2P router with selectable IP/I2P transport modes, alongside assorted Core-handling, navigation, and QDN browsing improvements.
+
 ### 2026-06-22 - feat: browse GIT_REPOSITORY resources as a file tree
 
 Git repository QDN resources now open as a browsable file tree, the same way the
