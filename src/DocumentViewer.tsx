@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { openArchive } from './archive';
 import { t } from './i18n';
 import type { QdnDisplaySettings, QdnResource } from './qdn';
 
@@ -42,70 +43,21 @@ export function detectDocumentFormat(filename?: string, mimeType?: string): Docu
 
 const COMIC_IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp)$/i;
 
-// Comic page files are usually zero-padded but not always — sort numerically so
-// "page2" precedes "page10".
-function sortComicPageNames(names: string[]): string[] {
-  return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-}
-
-async function extractZipComicPages(bytes: Uint8Array): Promise<string[]> {
-  const { default: JSZip } = await import('jszip');
-  const zip = await JSZip.loadAsync(bytes);
-  const names = sortComicPageNames(
-    Object.keys(zip.files).filter((name) => !zip.files[name].dir && COMIC_IMAGE_EXT.test(name)),
-  );
-
-  return Promise.all(names.map((name) => zip.files[name].async('blob').then((blob) => URL.createObjectURL(blob))));
-}
-
-async function extractRarComicPages(bytes: Uint8Array): Promise<string[]> {
-  const { createExtractorFromData } = await import('node-unrar-js');
-  const wasmBinary = await fetch(new URL('node-unrar-js/esm/js/unrar.wasm', import.meta.url)).then((response) =>
-    response.arrayBuffer(),
-  );
-  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const extractor = await createExtractorFromData({ data, wasmBinary });
-
-  const names = sortComicPageNames(
-    [...extractor.getFileList().fileHeaders]
-      .filter((header) => !header.flags.directory && COMIC_IMAGE_EXT.test(header.name))
-      .map((header) => header.name),
-  );
-
-  const dataByName = new Map<string, Uint8Array>();
-  for (const file of extractor.extract({ files: names }).files) {
-    if (file.extraction) {
-      dataByName.set(file.fileHeader.name, file.extraction);
-    }
-  }
-
-  return names
-    .map((name) => dataByName.get(name))
-    .filter((data): data is Uint8Array => Boolean(data))
-    .map((data) => URL.createObjectURL(new Blob([data as BlobPart])));
-}
-
-// Magic-byte-aware comic extraction. CBZ/CBR files are frequently mislabeled, so
-// the real container is decided by signature, not by the .cbz/.cbr extension:
-// "PK" → ZIP (jszip), "Rar!" → RAR (node-unrar-js, lazy WASM). Unknown signatures
-// try ZIP then RAR defensively. Returns ordered page object-URLs to revoke later.
+// Extract the ordered comic pages from a CBZ/CBR archive. The shared archive
+// decoder picks ZIP vs RAR by magic bytes (so mislabeled .cbz/.cbr both open);
+// here we keep only image entries, order them numerically ("page2" before
+// "page10"), and turn each into a page object-URL to revoke on cleanup.
 async function extractComicPages(bytes: Uint8Array): Promise<string[]> {
-  const isZip = bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
-  const isRar =
-    bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x61 && bytes[2] === 0x72 && bytes[3] === 0x21;
+  const { entries } = await openArchive(bytes);
+  const images = entries
+    .filter((entry) => !entry.dir && COMIC_IMAGE_EXT.test(entry.name))
+    .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }));
 
-  if (isRar) {
-    return extractRarComicPages(bytes);
-  }
-  if (isZip) {
-    return extractZipComicPages(bytes);
-  }
-
-  try {
-    return await extractZipComicPages(bytes);
-  } catch {
-    return extractRarComicPages(bytes);
-  }
+  // Read every page first, then mint object-URLs. Doing the reads up front means a
+  // failure leaves zero URLs created (Promise.all rejects before the map), so the
+  // caller never leaks partially-created pages.
+  const pageBytes = await Promise.all(images.map((entry) => entry.read()));
+  return pageBytes.map((data) => URL.createObjectURL(new Blob([data as BlobPart])));
 }
 
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -265,12 +217,14 @@ type ViewerState =
 // ----- Main component -----
 
 type DocumentViewerProps = {
+  /** In-memory bytes to render instead of fetching from the node (archive entry). */
+  bytes?: Uint8Array;
   displaySettings: QdnDisplaySettings;
   onDismiss: () => void;
   resource: QdnResource;
 };
 
-export function DocumentViewer({ onDismiss, resource }: DocumentViewerProps) {
+export function DocumentViewer({ bytes: providedBytes, onDismiss, resource }: DocumentViewerProps) {
   const [state, setState] = useState<ViewerState>({ message: t('viewer.loadingResource'), phase: 'loading' });
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);
@@ -291,25 +245,35 @@ export function DocumentViewer({ onDismiss, resource }: DocumentViewerProps) {
         setEpubRendition(null);
         setEpubChapter('');
 
-        const result = await window.qortiumHome.qdn.fetchResourceData({
-          identifier: resource.identifier,
-          maxBytes: DOCUMENT_VIEWER_MAX_BYTES,
-          name: resource.name,
-          path: resource.path || undefined,
-          service: resource.service,
-        });
+        let bytes: Uint8Array;
+        let contentType: string | undefined;
 
-        if (canceled) return;
+        if (providedBytes) {
+          // Rendering an already-extracted archive entry — no node fetch.
+          bytes = providedBytes;
+        } else {
+          const result = await window.qortiumHome.qdn.fetchResourceData({
+            identifier: resource.identifier,
+            maxBytes: DOCUMENT_VIEWER_MAX_BYTES,
+            name: resource.name,
+            path: resource.path || undefined,
+            service: resource.service,
+          });
 
-        if (result.tooLarge) {
-          const limit = `${Math.round(DOCUMENT_VIEWER_MAX_BYTES / (1024 * 1024))} MB`;
-          setState({ message: t('docViewer.tooLarge', { limit }), phase: 'error' });
-          return;
+          if (canceled) return;
+
+          if (result.tooLarge) {
+            const limit = `${Math.round(DOCUMENT_VIEWER_MAX_BYTES / (1024 * 1024))} MB`;
+            setState({ message: t('docViewer.tooLarge', { limit }), phase: 'error' });
+            return;
+          }
+
+          bytes = base64ToUint8Array(result.data);
+          contentType = result.contentType;
         }
 
-        const bytes = base64ToUint8Array(result.data);
         const filename = resource.path ? resource.path.split('/').pop() : undefined;
-        const format = detectDocumentFormat(filename, result.contentType);
+        const format = detectDocumentFormat(filename, contentType);
 
         if (format === 'txt') {
           const content = new TextDecoder().decode(bytes);
@@ -365,7 +329,7 @@ export function DocumentViewer({ onDismiss, resource }: DocumentViewerProps) {
       canceled = true;
       cleanup?.();
     };
-  }, [resource]);
+  }, [providedBytes, resource]);
 
   // Track EPUB location changes
   useEffect(() => {

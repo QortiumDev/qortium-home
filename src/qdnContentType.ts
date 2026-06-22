@@ -16,6 +16,7 @@ import type { QdnViewerKind } from './qdn';
 // The subset of QdnViewerKind that can be resolved from content type alone.
 export type ContentKind = Extract<
   QdnViewerKind,
+  | 'archive'
   | 'audio'
   | 'code'
   | 'csv'
@@ -64,6 +65,9 @@ const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   mp4: 'video',
   ogv: 'video',
   webm: 'video',
+  // general archives → file-tree browser (comics .cbz/.cbr stay 'document')
+  rar: 'archive',
+  zip: 'archive',
   // documents (handed to the modal DocumentViewer)
   cbr: 'document',
   cbz: 'document',
@@ -138,6 +142,11 @@ const MIME_TO_KIND: Readonly<Record<string, ContentKind>> = {
   'application/vnd.comicbook-rar': 'document',
   'application/x-cbr': 'document',
   'application/x-cbz': 'document',
+  'application/zip': 'archive',
+  'application/x-zip-compressed': 'archive',
+  'application/vnd.rar': 'archive',
+  'application/x-rar': 'archive',
+  'application/x-rar-compressed': 'archive',
   'application/json': 'json',
   'application/xml': 'code',
   'application/xhtml+xml': 'html',

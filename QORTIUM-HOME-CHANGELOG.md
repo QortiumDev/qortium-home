@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: browse ZIP and RAR archives as a file tree
+
+QDN resources that are ZIP or RAR archives now open as a browsable, collapsible
+file tree instead of a plain download. Each file inside can be previewed in place —
+images, audio, video, text, code, CSV, JSON, Markdown, HTML, and PDFs/EPUBs/comics
+all render with the same viewers used elsewhere — and any entry can be downloaded on
+its own. Archives nested inside archives open too (up to a sensible depth), and an
+archive's decoder (shared with the comic reader) loads only when one is opened.
+Comics (.cbz/.cbr) still open in the comic reader rather than the file browser.
+All new labels are translated across every language.
+
 ### 2026-06-22 - feat: CBR comic archive support in the document viewer
 
 The in-app comic reader now opens CBR comics (RAR archives) in addition to the

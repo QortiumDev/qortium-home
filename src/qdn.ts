@@ -85,6 +85,7 @@ const RENDERABLE_QDN_SERVICES = [
 export type QdnService = (typeof PUBLIC_QDN_SERVICES)[number];
 export type QdnRenderableService = (typeof RENDERABLE_QDN_SERVICES)[number];
 export type QdnViewerKind =
+  | 'archive'
   | 'audio'
   | 'code'
   | 'csv'

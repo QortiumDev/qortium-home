@@ -320,6 +320,46 @@ export function isMacOs() {
   return window.navigator.userAgent.toLowerCase().includes('mac os');
 }
 
+// Save arbitrary in-memory bytes to a user-chosen file. Used for per-entry archive
+// downloads (the bytes are already extracted in the renderer). Desktop/web uses an
+// anchor download; Android stages the bytes to a cache temp file and hands them to
+// the SAF file saver, mirroring downloadResource's native flow.
+export async function saveBytesToFile(fileName: string, bytes: Uint8Array, mimeType?: string): Promise<void> {
+  if (isAndroid()) {
+    const tempPath = `${QDN_DOWNLOADS_DIR}/${Date.now()}-${fileName}`;
+
+    await Filesystem.writeFile({
+      path: tempPath,
+      data: bytesToBase64(bytes),
+      directory: Directory.Cache,
+      recursive: true,
+    });
+
+    const tempUri = await Filesystem.getUri({ path: tempPath, directory: Directory.Cache });
+
+    try {
+      await QdnFileSaver.saveFile({ path: tempUri.uri, fileName, mimeType });
+    } finally {
+      await Filesystem.deleteFile({ path: tempPath, directory: Directory.Cache }).catch(() => undefined);
+    }
+
+    return;
+  }
+
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], mimeType ? { type: mimeType } : undefined));
+
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function fetchNativeHttpBlobUrl({
   contentType,
   readTimeoutMs = REQUEST_TIMEOUT_MS,
