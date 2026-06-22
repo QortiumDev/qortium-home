@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: let Q-Apps save a QDN resource to a file (desktop, Android, and web)
+
+QDN apps can now ask Home to download a resource to a file through a new
+`SAVE_QDN_RESOURCE` bridge action. On the desktop this opens a native save dialog;
+on Android the file goes through the same system "save to a location you choose"
+flow the QDN explorer already uses, and on the web build it downloads through the
+browser. The app is told whether the save was canceled. The desktop action was
+contributed by 7r15; this also wires it up for Android and web so the same app
+request works everywhere Home runs.
+
 ### 2026-06-22 - fix: tie the managed I2P router to Core's lifetime, not Home's window
 
 When Home runs its own I2P router for the local Core, the router's lifetime now

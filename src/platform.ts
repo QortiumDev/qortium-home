@@ -324,7 +324,11 @@ export function isMacOs() {
 // downloads (the bytes are already extracted in the renderer). Desktop/web uses an
 // anchor download; Android stages the bytes to a cache temp file and hands them to
 // the SAF file saver, mirroring downloadResource's native flow.
-export async function saveBytesToFile(fileName: string, bytes: Uint8Array, mimeType?: string): Promise<void> {
+export async function saveBytesToFile(
+  fileName: string,
+  bytes: Uint8Array,
+  mimeType?: string,
+): Promise<{ canceled: boolean }> {
   if (isAndroid()) {
     const tempPath = `${QDN_DOWNLOADS_DIR}/${Date.now()}-${fileName}`;
 
@@ -338,12 +342,11 @@ export async function saveBytesToFile(fileName: string, bytes: Uint8Array, mimeT
     const tempUri = await Filesystem.getUri({ path: tempPath, directory: Directory.Cache });
 
     try {
-      await QdnFileSaver.saveFile({ path: tempUri.uri, fileName, mimeType });
+      const saved = await QdnFileSaver.saveFile({ path: tempUri.uri, fileName, mimeType });
+      return { canceled: saved.canceled };
     } finally {
       await Filesystem.deleteFile({ path: tempPath, directory: Directory.Cache }).catch(() => undefined);
     }
-
-    return;
   }
 
   const url = URL.createObjectURL(new Blob([bytes as BlobPart], mimeType ? { type: mimeType } : undefined));
@@ -358,6 +361,9 @@ export async function saveBytesToFile(fileName: string, bytes: Uint8Array, mimeT
   } finally {
     URL.revokeObjectURL(url);
   }
+
+  // A browser anchor download can't report cancellation.
+  return { canceled: false };
 }
 
 export async function fetchNativeHttpBlobUrl({
@@ -7484,8 +7490,24 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       return true;
     }
 
-    case 'SAVE_QDN_RESOURCE':
-      throw new Error('SAVE_QDN_RESOURCE is only available in the desktop app.');
+    case 'SAVE_QDN_RESOURCE': {
+      // Mirror the desktop handler (electron/qdn.ts): fetch the resource's raw
+      // bytes and let the user save them. Desktop shows a native save dialog;
+      // here we reuse Home's existing Android SAF / web-anchor download path
+      // (saveBytesToFile), so a Q-App's SAVE_QDN_RESOURCE works on mobile too.
+      const resource = getQdnAppResourceRequest(request);
+      const rawResource: QortiumQdnRawResourceRequest = {
+        service: resource.service,
+        name: resource.name,
+        identifier: resource.identifier,
+        path: resource.path || undefined,
+        suggestedFilename: getString(getRequestValue(request, 'filename')) || undefined,
+      };
+      const fileName = getSuggestedQdnDownloadFilename(rawResource);
+      const { content, contentType } = await fetchConfiguredRawResourceBase64(rawResource);
+      const { canceled } = await saveBytesToFile(fileName, base64ToBytes(content), contentType || undefined);
+      return { canceled };
+    }
 
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ANDROID';
