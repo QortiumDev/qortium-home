@@ -5923,6 +5923,25 @@ async function handleQdnAppRequest(
     case 'REMOVE_FROM_LIST':
       return removeFromListForApp(request);
 
+    case 'SAVE_QDN_RESOURCE': {
+      const resource = getQdnAppResourceRequest(request);
+      const rawFilename = getString(getRequestValue(request, 'filename')) ||
+        `${resource.service}_${resource.name}_${resource.identifier ?? 'default'}`;
+      const filename = sanitizeFilename(rawFilename);
+      const hostWindow = context ? getQdnViewHostWindow(context) : null;
+      const saveDialogOptions = {
+        title: 'Save QDN Resource',
+        defaultPath: getDefaultDownloadPath(filename),
+      };
+      const result = hostWindow
+        ? await dialog.showSaveDialog(hostWindow, saveDialogOptions)
+        : await dialog.showSaveDialog(saveDialogOptions);
+      if (result.canceled || !result.filePath) return { canceled: true };
+      const response = await fetchConfiguredRawResource(resource, false);
+      writeFileSync(result.filePath, Buffer.from(await response.arrayBuffer()));
+      return { canceled: false };
+    }
+
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ELECTRON';
 
