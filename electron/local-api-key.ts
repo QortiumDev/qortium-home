@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
@@ -11,6 +12,7 @@ import {
 import path from 'node:path';
 
 const API_KEY_FILE = 'apikey.txt';
+const LOCAL_CORE_API_PORT = 24891;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
 type PreviewApiKeyResult = {
@@ -145,9 +147,162 @@ function getConfiguredApiKeyDirectory(settingsPath: string, cwd: string) {
   return cwd;
 }
 
+function runLsof(args: string[]): string | null {
+  try {
+    return execFileSync('lsof', args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    // lsof may be absent, or exit non-zero when nothing matches.
+    return null;
+  }
+}
+
+function findLocalCorePidViaLsof(): number | null {
+  const output = runLsof([
+    '-nP',
+    `-iTCP:${LOCAL_CORE_API_PORT}`,
+    '-sTCP:LISTEN',
+    '-t',
+  ]);
+
+  if (!output) {
+    return null;
+  }
+
+  for (const line of output.split('\n')) {
+    const pid = Number(line.trim());
+
+    if (Number.isInteger(pid) && pid > 0) {
+      return pid;
+    }
+  }
+
+  return null;
+}
+
+function getProcessFilesViaLsof(pid: number): { cwd: string; files: string[] } | null {
+  const output = runLsof(['-p', String(pid), '-Fn']);
+
+  if (!output) {
+    return null;
+  }
+
+  // `lsof -F` emits one field per line, prefixed by a single-letter type.
+  // `n` carries a path; `f` carries the file descriptor of the following `n`.
+  const files: string[] = [];
+  let cwd = '';
+  let currentFd = '';
+
+  for (const line of output.split('\n')) {
+    const type = line[0];
+    const value = line.slice(1);
+
+    if (type === 'f') {
+      currentFd = value;
+    } else if (type === 'n') {
+      if (currentFd === 'cwd' && !cwd) {
+        cwd = value;
+      }
+
+      if (value) {
+        files.push(value);
+      }
+    }
+  }
+
+  if (!cwd) {
+    return null;
+  }
+
+  return { cwd, files };
+}
+
+function readRunningLocalCoreApiKeyViaLsof(): RunningCoreApiKeyResult | null {
+  try {
+    const pid = findLocalCorePidViaLsof();
+
+    if (pid === null) {
+      return null;
+    }
+
+    const processFiles = getProcessFilesViaLsof(pid);
+
+    if (!processFiles) {
+      return null;
+    }
+
+    const { cwd, files } = processFiles;
+    const jarPath = files.find((file) => {
+      const name = path.basename(file).toLowerCase();
+
+      return name.startsWith('qortium') && name.endsWith('.jar');
+    });
+
+    // Guard: only trust this PID if it actually has a Qortium core jar open,
+    // so an unrelated process listening on the port is never mistaken for the core.
+    if (!jarPath) {
+      return null;
+    }
+
+    const absoluteJarPath = path.isAbsolute(jarPath) ? jarPath : path.resolve(cwd, jarPath);
+    const installDir = path.dirname(absoluteJarPath);
+
+    // The Linux path reads the settings file referenced on the command line.
+    // lsof does not expose the command line, so prefer an open settings file,
+    // then fall back to the conventional settings.json next to the jar.
+    const openSettingsPath = files.find((file) => {
+      const name = path.basename(file).toLowerCase();
+
+      return name === 'settings.json' || (name.startsWith('settings') && name.endsWith('.json'));
+    });
+    const settingsPath = openSettingsPath
+      ? path.isAbsolute(openSettingsPath)
+        ? openSettingsPath
+        : path.resolve(cwd, openSettingsPath)
+      : path.join(installDir, 'settings.json');
+
+    const candidateDirectories: string[] = [];
+
+    if (existsSync(settingsPath)) {
+      candidateDirectories.push(getConfiguredApiKeyDirectory(settingsPath, cwd));
+    }
+
+    candidateDirectories.push(cwd, installDir);
+
+    const seen = new Set<string>();
+
+    for (const directory of candidateDirectories) {
+      if (!directory || seen.has(directory)) {
+        continue;
+      }
+
+      seen.add(directory);
+
+      const apiKey = readPreviewApiKey(directory);
+
+      if (apiKey) {
+        return {
+          ...apiKey,
+          apiKeyDirectory: directory,
+          cwd,
+          jarPath: absoluteJarPath,
+          pid,
+          settingsPath,
+        };
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
   if (process.platform !== 'linux') {
-    return null;
+    return readRunningLocalCoreApiKeyViaLsof();
   }
 
   const apiKeys = new Map<string, RunningCoreApiKeyResult>();
@@ -189,7 +344,13 @@ export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
     }
   }
 
-  return apiKeys.size === 1 ? [...apiKeys.values()][0] : null;
+  if (apiKeys.size === 1) {
+    return [...apiKeys.values()][0];
+  }
+
+  // Fall back to lsof when the /proc scan is inconclusive (e.g. the core runs
+  // under a different user whose /proc/<pid>/cwd is not readable).
+  return readRunningLocalCoreApiKeyViaLsof();
 }
 
 export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - feat: tell the running Core apart from the installed one (and find it on macOS)
+
+The Settings Core panel now distinguishes the Core that is actually running from the one Home has installed. When a Core that Home didn't install is the one running, Home shows the running Core's folder when it can locate it, lists the managed install as its own separate entry, and adds a note that a different Core is running — instead of mislabelling the managed install as if it were the running Core. On macOS, Home can now identify a running Core by inspecting the running process's open files, so it correctly recognises a Core it manages (which is what makes the Stop button and folder display behave correctly there) and can find the details it needs even for a Core started outside Home. New wording is translated across all supported languages.
+
 ### 2026-06-22 - fix: show a working Stop button for a running Core Home can't confirm it owns
 
 Completed the previous change so it actually reaches the button. Home now shows an active Stop control for any running local Core — including one it didn't start, or one it can't confirm it owns (which happens on macOS, where Home can't inspect a running process the way it can on Linux). Previously such a Core showed no Stop button at all. Stopping it uses the Core's own stop command, and Home now falls back to reading the key it needs from the managed Core's own files when it can't read it from the running process, so the Stop button works on macOS for a Core that Home installed.
