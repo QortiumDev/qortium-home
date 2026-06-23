@@ -12,8 +12,10 @@ import {
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeAction, getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
 import { NodeModeSelect } from './NodeConnection';
+import { I2pRouterButton, TransportModeSelect } from './TransportControls';
 import { DashboardCardHeader } from './DashboardCardActions';
 import { useI2pConnections } from './i2pState';
+import { useI2pdManager } from './i2pdManagerState';
 import { getDashboardPinDisplay } from './dashboardPinDisplay';
 import type { DashboardPin, DashboardPinDropPosition } from './dashboardPins';
 import { reorderDashboardPins } from './dashboardPins';
@@ -385,17 +387,26 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 }
 
 function HomeUpdateDashboardCard({
+  canManageTransports,
+  isManagedNode,
+  nodeApiUrl,
   updates,
   onOpenSettingsSection,
 }: {
+  canManageTransports: boolean;
+  isManagedNode: boolean;
+  nodeApiUrl: string;
   updates: AppUpdatesState;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
 }) {
+  const connections = useI2pConnections(nodeApiUrl);
+  const i2pdManager = useI2pdManager(isManagedNode);
   const rows = getHomeUpdateRows(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =
     !showDownloadedAction && updates.updateAvailable && !!updates.result?.asset && !!updates.result.release;
-  const hasAction = showDownloadAction || showDownloadedAction;
+  const showRouter = i2pdManager.supported && isManagedNode;
+  const hasActions = canManageTransports || showRouter || showDownloadAction || showDownloadedAction;
 
   return (
     <section className="dashboard-card dashboard-card--updates" aria-label={t('common.appName')}>
@@ -410,31 +421,40 @@ function HomeUpdateDashboardCard({
 
       <AppUpdateProgress progress={updates.downloadProgress} />
 
-      {hasAction ? (
-        <div className="dashboard-card__actions">
-          {showDownloadAction ? (
-            <button
-              className="button"
-              disabled={updates.isChecking || updates.isDownloading}
-              type="button"
-              onClick={updates.downloadUpdate}
-            >
-              <Download aria-hidden="true" size={18} strokeWidth={2} />
-              {updates.isDownloading ? t('common.downloading') : t('updates.downloadUpdate')}
-            </button>
-          ) : null}
-          {showDownloadedAction ? (
-            <button
-              className="button"
-              disabled={updates.isChecking || updates.isDownloading}
-              type="button"
-              onClick={updates.openDownloadedUpdate}
-            >
-              <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
-              {getOpenDownloadedFileLabel(updates.updatePlatform)}
-            </button>
-          ) : null}
-        </div>
+      {hasActions ? (
+      <div className="dashboard-card__actions">
+        {canManageTransports ? (
+          <TransportModeSelect
+            className="field__input dashboard-card__node-mode"
+            connections={connections}
+            isManagedNode={isManagedNode}
+            manager={i2pdManager}
+          />
+        ) : null}
+        <I2pRouterButton connections={connections} isManagedNode={isManagedNode} manager={i2pdManager} />
+        {showDownloadAction ? (
+          <button
+            className="button"
+            disabled={updates.isChecking || updates.isDownloading}
+            type="button"
+            onClick={updates.downloadUpdate}
+          >
+            <Download aria-hidden="true" size={18} strokeWidth={2} />
+            {updates.isDownloading ? t('common.downloading') : t('updates.downloadUpdate')}
+          </button>
+        ) : null}
+        {showDownloadedAction ? (
+          <button
+            className="button"
+            disabled={updates.isChecking || updates.isDownloading}
+            type="button"
+            onClick={updates.openDownloadedUpdate}
+          >
+            <FolderOpen aria-hidden="true" size={18} strokeWidth={2} />
+            {getOpenDownloadedFileLabel(updates.updatePlatform)}
+          </button>
+        ) : null}
+      </div>
       ) : null}
     </section>
   );
@@ -1338,7 +1358,13 @@ export function DashboardPage({
             onSaveNodeSettings={onSaveNodeSettings}
           />
         ) : null}
-        <HomeUpdateDashboardCard updates={appUpdates} onOpenSettingsSection={onOpenSettingsSection} />
+        <HomeUpdateDashboardCard
+          canManageTransports={nodeSettings.mode !== 'network'}
+          isManagedNode={nodeSettings.mode === 'local'}
+          nodeApiUrl={nodeApiUrl}
+          updates={appUpdates}
+          onOpenSettingsSection={onOpenSettingsSection}
+        />
       </div>
     </div>
   );

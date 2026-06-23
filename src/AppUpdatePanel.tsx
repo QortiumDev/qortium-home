@@ -7,6 +7,8 @@ import {
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { t } from './i18n';
+import { useI2pConnections } from './i2pState';
+import { useI2pdManager } from './i2pdManagerState';
 import {
   areReleaseTagsEqual,
   DetailList,
@@ -17,9 +19,12 @@ import {
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
+import { I2pRouterButton } from './TransportControls';
 
 type AppUpdatePanelProps = {
   isExpanded: boolean;
+  isManagedNode: boolean;
+  nodeApiUrl: string;
   onExpandedChange: (isExpanded: boolean) => void;
   updates: AppUpdatesState;
 };
@@ -90,9 +95,13 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 
 export function AppUpdatePanel({
   isExpanded,
+  isManagedNode,
+  nodeApiUrl,
   onExpandedChange,
   updates,
 }: AppUpdatePanelProps) {
+  const connections = useI2pConnections(nodeApiUrl);
+  const i2pdManager = useI2pdManager(isManagedNode);
   const rows = getHomeUpdateRows(updates);
   const showChannelSelect = hasDistinctAvailableChannels(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
@@ -131,6 +140,13 @@ export function AppUpdatePanel({
         ) : null}
 
         <DetailList className="app-updates__details" rows={rows} />
+
+        <I2pRouterButton
+          connections={connections}
+          isManagedNode={isManagedNode}
+          manager={i2pdManager}
+          showStatus
+        />
 
         <AppUpdateProgress progress={updates.downloadProgress} />
 
