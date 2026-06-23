@@ -4342,6 +4342,8 @@ h1 {
 }
 
 .qdn-archive__entry {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: auto;

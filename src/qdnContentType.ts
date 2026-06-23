@@ -157,6 +157,59 @@ const MIME_TO_KIND: Readonly<Record<string, ContentKind>> = {
   'text/xml': 'code',
 };
 
+// Exact (lower-cased) basename → content kind, for the common files that carry
+// no extension yet are plainly text or source. Without this they fall through to
+// the bare "download" path (e.g. a repo's LICENSE showing "can't be previewed").
+const FILENAME_TO_KIND: Readonly<Record<string, ContentKind>> = {
+  // licences / notices / project docs → plain text
+  authors: 'text',
+  changelog: 'text',
+  changes: 'text',
+  contributing: 'text',
+  contributors: 'text',
+  copying: 'text',
+  copyright: 'text',
+  install: 'text',
+  license: 'text',
+  licence: 'text',
+  news: 'text',
+  notice: 'text',
+  readme: 'text',
+  todo: 'text',
+  // build / tooling files → source viewer
+  brewfile: 'code',
+  containerfile: 'code',
+  dockerfile: 'code',
+  gemfile: 'code',
+  jenkinsfile: 'code',
+  makefile: 'code',
+  procfile: 'code',
+  rakefile: 'code',
+  vagrantfile: 'code',
+  // common dotfiles (extensionOf treats the leading dot as the name, so these
+  // never match the extension table)
+  '.bashrc': 'code',
+  '.editorconfig': 'code',
+  '.env': 'code',
+  '.gitattributes': 'text',
+  '.gitignore': 'text',
+  '.gitmodules': 'code',
+  '.npmrc': 'code',
+  '.profile': 'code',
+  '.zshrc': 'code',
+};
+
+function basenameOf(filename?: string): string {
+  if (!filename) {
+    return '';
+  }
+
+  const clean = filename.split(/[?#]/)[0] ?? '';
+  const slash = clean.lastIndexOf('/');
+
+  return (slash >= 0 ? clean.slice(slash + 1) : clean).toLowerCase();
+}
+
 function extensionOf(filename?: string): string {
   if (!filename) {
     return '';
@@ -216,6 +269,11 @@ export function detectContentKind(
   const byExtension = ext ? EXTENSION_TO_KIND[ext] : undefined;
   if (byExtension) {
     return byExtension;
+  }
+
+  const byFilename = FILENAME_TO_KIND[basenameOf(filename)];
+  if (byFilename) {
+    return byFilename;
   }
 
   const byMime = kindFromMime(normalizeMime(mimeType));

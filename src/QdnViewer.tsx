@@ -20,6 +20,7 @@ import {
   formatQdnStatus,
   getLoadedViewerKind,
   getQdnResourceKey,
+  getQdnViewerKind,
   isGalleryImageFilename,
   isTerminalQdnStatus,
 } from './qdn';
@@ -669,6 +670,19 @@ function useQdnResourceLoader(
   });
   const resourceKey = useMemo(() => getQdnResourceKey(resource), [resource]);
 
+  // The repository browser navigates between files under one resource by changing
+  // only the path. Keying the loader on the repo identity (ignoring the path)
+  // keeps the view mounted during file navigation instead of reloading — the live
+  // `resource` prop still flows to the content, so the selected file updates. For
+  // every other service the key is the full resource key (path-sensitive).
+  const reloadKey = useMemo(
+    () =>
+      getQdnViewerKind(resource.service) === 'repository'
+        ? `${resource.service}:${resource.name}:${resource.identifier ?? 'default'}`
+        : resourceKey,
+    [resource.service, resource.name, resource.identifier, resourceKey],
+  );
+
   useEffect(() => {
     const abortController = new AbortController();
     let isDisposed = false;
@@ -836,7 +850,10 @@ function useQdnResourceLoader(
     };
     // Display setting changes are sent to active apps without reloading them.
     // The latest settings are still used when the resource is loaded or manually reloaded.
-  }, [nodeApiUrl, resource, resourceKey, retryToken]);
+    // `resource`/`resourceKey` are intentionally omitted: `reloadKey` already
+    // captures every change that must trigger a reload, while collapsing path-only
+    // repository navigation into a single key so the view does not flash/reload.
+  }, [nodeApiUrl, reloadKey, retryToken]);
 
   return state;
 }
@@ -2323,13 +2340,6 @@ function entryBase64ToBytes(base64: string): Uint8Array {
 
 // Pick the file a repository opens to: an explicit metadata entryPoint if present,
 // otherwise a top-level README; falls back to the tree when neither exists.
-function pickInitialRepositoryFile(files: string[], entryPoint?: string): string {
-  if (entryPoint && files.includes(entryPoint)) {
-    return entryPoint;
-  }
-  return files.find((file) => !file.includes('/') && /^readme(\.|$)/i.test(file)) ?? '';
-}
-
 type RepositoryState =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
@@ -2343,22 +2353,54 @@ function QdnRepositoryContent({
   displaySettings,
   nodeApiUrl,
   onActionContextChange,
+  onOpenInCurrentTab,
   resource,
 }: {
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   onActionContextChange: SetViewerActionContext;
+  onOpenInCurrentTab?: (address: string) => void;
   resource: QdnResource;
 }) {
   const [state, setState] = useState<RepositoryState>({ phase: 'loading' });
-  const [selectedPath, setSelectedPath] = useState('');
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // The open file is driven by the resource path (the bit after the identifier in
+  // the qdn:// URL), so file selection is reflected in the address bar and any
+  // file can be deep-linked. When no current-tab navigator is available we keep a
+  // local fallback so the browser still works in isolation.
+  const routePath = useMemo(() => {
+    const raw = resource.path ?? '';
+    return raw.split('?')[0]?.replace(/^\/+/, '') ?? '';
+  }, [resource.path]);
+  const [fallbackPath, setFallbackPath] = useState(routePath);
+  const canNavigate = typeof onOpenInCurrentTab === 'function';
+  const selectedPath = canNavigate ? routePath : fallbackPath;
+
+  // Loading the file list depends only on the repository identity, not the open
+  // file, so navigating between files does not refetch the tree.
+  const repoIdentityKey = `${resource.service}:${resource.name}:${resource.identifier ?? 'default'}`;
+
+  function openFile(path: string) {
+    if (onOpenInCurrentTab) {
+      onOpenInCurrentTab(getQdnResourceWithPath(resource, path).displayUrl);
+    } else {
+      setFallbackPath(path);
+    }
+  }
+
+  function closeFile() {
+    if (onOpenInCurrentTab) {
+      onOpenInCurrentTab(getQdnResourceWithPath(resource, '').displayUrl);
+    } else {
+      setFallbackPath('');
+    }
+  }
 
   useEffect(() => {
     const abortController = new AbortController();
     let isDisposed = false;
     setState({ phase: 'loading' });
-    setSelectedPath('');
 
     async function loadList() {
       try {
@@ -2371,7 +2413,6 @@ function QdnRepositoryContent({
           return;
         }
 
-        setSelectedPath(pickInitialRepositoryFile(files, metadata?.entryPoint));
         setState({ phase: 'ready', files });
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -2389,11 +2430,33 @@ function QdnRepositoryContent({
       isDisposed = true;
       abortController.abort();
     };
-  }, [nodeApiUrl, resource]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeApiUrl, repoIdentityKey]);
 
   const fileTreeEntries = useMemo<FileTreeEntry[]>(
     () => (state.phase === 'ready' ? state.files.map((path) => ({ path, dir: false })) : []),
     [state],
+  );
+
+  // At the file tree, the top-bar download targets the whole repository (a zip).
+  // When a file is open its own viewer owns the action context (copy text, etc.);
+  // we deliberately avoid a clearing cleanup here so we don't race that child's
+  // setup. Returning to the tree re-asserts the multi-file context after the
+  // child viewer unmounts and clears it.
+  useEffect(() => {
+    if (!selectedPath) {
+      onActionContextChange({ isMultiFile: true });
+    }
+  }, [onActionContextChange, selectedPath]);
+
+  // The selected sub-file resource must keep a stable identity across renders.
+  // getQdnResourceWithPath() allocates a fresh object, and the entry viewers key
+  // their fetch effects on `resource`; recomputing it every render (combined with
+  // onActionContextChange re-rendering this component) would spin an infinite
+  // fetch/render loop that exhausts memory.
+  const selectedSub = useMemo(
+    () => (selectedPath ? getQdnResourceWithPath(resource, selectedPath) : null),
+    [resource, selectedPath],
   );
 
   async function downloadPath(path: string) {
@@ -2440,9 +2503,9 @@ function QdnRepositoryContent({
     );
   }
 
-  if (selectedPath) {
-    const back = () => setSelectedPath('');
-    const sub = getQdnResourceWithPath(resource, selectedPath);
+  if (selectedPath && selectedSub) {
+    const back = closeFile;
+    const sub = selectedSub;
     const filename = pathBasename(selectedPath);
 
     return (
@@ -2493,7 +2556,7 @@ function QdnRepositoryContent({
           <p className="qdn-viewer__message">{t('repository.empty')}</p>
         </div>
       ) : (
-        <FileTree entries={fileTreeEntries} onOpen={setSelectedPath} onDownload={downloadPath} />
+        <FileTree entries={fileTreeEntries} onOpen={openFile} onDownload={downloadPath} />
       )}
     </div>
   );
@@ -3208,6 +3271,7 @@ function QdnReadyContent({
         displaySettings={displaySettings}
         nodeApiUrl={nodeApiUrl}
         onActionContextChange={onActionContextChange}
+        onOpenInCurrentTab={onOpenInCurrentTab}
         resource={resource}
       />
     );
