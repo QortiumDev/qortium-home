@@ -1042,10 +1042,10 @@ h1 {
 
 .dashboard-card {
   display: grid;
-  /* Pack rows at the top so a short card (e.g. the Home tile) keeps the same tight
-     row rhythm as a taller one (the Core tile) when the grid stretches them to
-     equal height, instead of spreading its few rows out. */
-  align-content: start;
+  /* Tiles in a row stretch to equal height (the tallest one wins). Distribute a
+     shorter card's spare vertical space between its rows so the content spreads
+     evenly down the tile instead of bunching at the top. */
+  align-content: space-between;
   gap: 12px;
   min-width: 0;
   padding: 16px;
