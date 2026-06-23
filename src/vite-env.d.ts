@@ -691,6 +691,7 @@ interface Window {
     system?: {
       openPath: (filePath: string) => Promise<void>;
       revealPath: (filePath: string) => Promise<void>;
+      reportStartupPaint?: (navToPaintMs: number) => Promise<void>;
     };
     windows?: {
       closeCurrentWindow: () => Promise<void>;

@@ -93,6 +93,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   system: {
     openPath: (filePath: string) => ipcRenderer.invoke('system:openPath', filePath),
     revealPath: (filePath: string) => ipcRenderer.invoke('system:revealPath', filePath),
+    reportStartupPaint: (navToPaintMs: number) =>
+      ipcRenderer.invoke('system:reportStartupPaint', navToPaintMs),
   },
   windows: {
     closeCurrentWindow: () => ipcRenderer.invoke('windows:closeCurrentWindow'),

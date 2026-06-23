@@ -387,6 +387,39 @@ function zoomFocusedWindow(action: (webContents: WebContents) => void) {
   }
 }
 
+// --- Startup timing instrumentation ------------------------------------------
+// Logs coarse cold-start milestones to stdout (visible when launched from a
+// terminal) so slow-startup reports can be measured instead of guessed. Only the
+// first window is instrumented; the renderer reports its own first paint over IPC.
+// STARTUP_T0_MS is captured at main-module load — close enough to process start
+// for relative milestones.
+const STARTUP_T0_MS = Date.now();
+let startupTimingCaptured = false;
+let startupPaintReported = false;
+
+function logStartupMilestone(label: string, extra = '') {
+  console.log(`[startup] ${label}: +${Date.now() - STARTUP_T0_MS}ms${extra}`);
+}
+
+function instrumentStartupTiming(window: BrowserWindow) {
+  if (startupTimingCaptured) {
+    return;
+  }
+  startupTimingCaptured = true;
+  logStartupMilestone('first window created');
+  window.webContents.once('did-finish-load', () => logStartupMilestone('renderer did-finish-load'));
+  window.once('ready-to-show', () => logStartupMilestone('window ready-to-show'));
+}
+
+ipcMain.handle('system:reportStartupPaint', (_event, navToPaintMs: unknown) => {
+  if (startupPaintReported) {
+    return;
+  }
+  startupPaintReported = true;
+  const paint = typeof navToPaintMs === 'number' ? Math.round(navToPaintMs) : 0;
+  logStartupMilestone('renderer first paint', ` (renderer nav→paint ${paint}ms)`);
+});
+
 function createWindow(options: CreateWindowOptions = {}) {
   const windowState = getInitialWindowState(options);
   const window = new BrowserWindow({
@@ -418,6 +451,7 @@ function createWindow(options: CreateWindowOptions = {}) {
   }
 
   watchWindowState(window);
+  instrumentStartupTiming(window);
 
   window.on('app-command', (_event, command) => {
     if (command !== 'browser-backward' && command !== 'browser-forward') {
@@ -735,6 +769,7 @@ app.whenReady().then(() => {
     return;
   }
 
+  logStartupMilestone('main process ready');
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
   registerCoreManagerIpcHandlers();

@@ -17,3 +17,14 @@ createRoot(document.getElementById('root') as HTMLElement).render(
     <App />
   </StrictMode>
 );
+
+// Report first paint to the main process for startup timing (best-effort; absent
+// on web/Android where the bridge has no system channel). Two rAFs ensure we
+// measure after the first frame is actually painted, not just committed.
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    const navToPaintMs = performance.now();
+    console.log(`[startup] renderer first paint at ${Math.round(navToPaintMs)}ms since navigation start`);
+    void window.qortiumHome.system?.reportStartupPaint?.(navToPaintMs);
+  });
+});
