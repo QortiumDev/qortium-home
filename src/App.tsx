@@ -1082,11 +1082,26 @@ export function App() {
   }, []);
 
   async function saveNodeSettings(request: QortiumNodeSettingsRequest) {
-    const settings = await window.qortiumHome.node.saveSettings(request);
+    // Reflect the chosen mode immediately so mode-gated UI (e.g. the transport
+    // dropdown, which is hidden for Previewnet network) updates the moment the
+    // selection changes, rather than after node discovery finishes. Revert if the
+    // save fails so the UI doesn't show a mode that wasn't applied.
+    let previous: QortiumNodeSettings | null = null;
+    setNodeSettings((current) => {
+      previous = current;
+      return current ? { ...current, mode: request.mode } : current;
+    });
 
-    setNodeSettings(settings);
+    try {
+      const settings = await window.qortiumHome.node.saveSettings(request);
 
-    return settings;
+      setNodeSettings(settings);
+
+      return settings;
+    } catch (error) {
+      setNodeSettings(previous);
+      throw error;
+    }
   }
 
   const updateResolvedNodeApiUrl = useCallback((nodeApiUrl: string) => {

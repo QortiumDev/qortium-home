@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - ui: equal-height dashboard tiles and instant transport-control hiding
+
+Two refinements to the dashboard and node controls. The Qortium Core and Home
+dashboard tiles are now always the same height (the shorter one grows to match the
+taller), and each tile's contents spread evenly down its height instead of bunching
+at the top. The transport selector also disappears the instant you switch the node
+to Previewnet network mode (where transports can't be managed), rather than waiting
+for the node switch to finish.
+
 ### 2026-06-22 - ui: move the I2P transport and router controls out of a separate Connections section
 
 Continues streamlining Settings and the dashboard. The standalone Connections
