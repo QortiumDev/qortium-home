@@ -33,6 +33,25 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - ui: move the I2P transport and router controls out of a separate Connections section
+
+Continues streamlining Settings and the dashboard. The standalone Connections
+section is gone and its controls moved to where they fit:
+
+- The transport selector (Direct + I2P fallback / Direct only / I2P only) now sits
+  in the Qortium Core section, just below the node selector, and also on the
+  dashboard's Home tile. Like the node selector, it applies the moment you change
+  it — no Save button — while still showing the I2P-only "hides your IP / needs a
+  running router" note.
+- The button that sets up Home's I2P router moved to the Home section and onto the
+  dashboard Home tile, matching the one that used to live under Connections.
+- The Connections section's detailed status rows (activity, peer counts) were
+  removed; that information is already surfaced elsewhere.
+- The dashboard Home tile's rows now use the same tight spacing as the Core tile.
+
+Settings now has just Display, Qortium Core, and Home sections (with a node section
+still shown on Android and the web, which have no managed Core to host it).
+
 ### 2026-06-22 - ui: fold node selection into the Qortium Core section and dashboard tile
 
 Streamlined how you choose which node Home talks to. On the desktop the separate

@@ -1,6 +1,5 @@
 import { AppUpdatePanel } from './AppUpdatePanel';
 import type { AppUpdatesState } from './appUpdateState';
-import { ConnectionsPanel } from './ConnectionsPanel';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
 import { DisplaySettingsPanel } from './DisplaySettingsPanel';
@@ -16,7 +15,7 @@ import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
 
-export type SettingsSectionId = 'connections' | 'core' | 'display' | 'home' | 'node';
+export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -87,13 +86,6 @@ export function SettingsPage({
             />
           </SettingsSection>
         )}
-        <ConnectionsPanel
-          canManageTransports={nodeSettings.mode !== 'network'}
-          isManagedNode={nodeSettings.mode === 'local'}
-          isExpanded={sectionExpansion.connections}
-          nodeApiUrl={nodeSettings.nodeApiUrl}
-          onExpandedChange={(isExpanded) => onSectionExpansionChange('connections', isExpanded)}
-        />
         <CoreManagerPanel
           coreManager={coreManager}
           isExpanded={sectionExpansion.core}
@@ -105,6 +97,8 @@ export function SettingsPage({
         />
         <AppUpdatePanel
           isExpanded={sectionExpansion.home}
+          isManagedNode={nodeSettings.mode === 'local'}
+          nodeApiUrl={nodeSettings.nodeApiUrl}
           updates={appUpdates}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('home', isExpanded)}
         />

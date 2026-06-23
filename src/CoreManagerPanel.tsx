@@ -8,6 +8,8 @@ import {
   type CoreManagerState,
 } from './coreManagerState';
 import { getTranslationLanguage, t } from './i18n';
+import { useI2pConnections } from './i2pState';
+import { useI2pdManager } from './i2pdManagerState';
 import { NodeConnectionSettings } from './NodeConnection';
 import {
   getOnChainCoreUpdateSummary,
@@ -23,6 +25,7 @@ import {
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
+import { TransportModeSelect } from './TransportControls';
 
 type CoreManagerPanelProps = {
   coreManager: CoreManagerState;
@@ -201,6 +204,13 @@ export function CoreManagerPanel({
   onResolvedNodeApiUrl,
   onSaveNodeSettings,
 }: CoreManagerPanelProps) {
+  // Transport (IP/I2P) controls — the node's own connection mode. Only managed for
+  // a local/custom node (not public network mode).
+  const canManageTransports = nodeSettings.mode !== 'network';
+  const isManagedNode = nodeSettings.mode === 'local';
+  const connections = useI2pConnections(nodeSettings.nodeApiUrl);
+  const i2pdManager = useI2pdManager(isManagedNode);
+
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
   const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
@@ -262,6 +272,16 @@ export function CoreManagerPanel({
           onResolvedNodeApiUrl={onResolvedNodeApiUrl}
           onSaveNodeSettings={onSaveNodeSettings}
         />
+
+        {canManageTransports ? (
+          <TransportModeSelect
+            connections={connections}
+            isManagedNode={isManagedNode}
+            label={t('connections.modeLabel')}
+            manager={i2pdManager}
+            showWarning
+          />
+        ) : null}
 
         <DetailList className="core-manager__details" rows={rows} />
 
