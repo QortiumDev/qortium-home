@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-22 - release: prepare home 1.1.1
+
+Bumped Qortium Home to `1.1.1` (Android `versionCode` 19) for the next QortiumDev
+prerelease. This release lets QDN apps save a resource to a file on desktop,
+Android, and the web; ties Home's managed I2P router to the local Core's lifetime
+instead of the Home window; and streamlines Settings and the dashboard — node and
+transport selection now live in the Qortium Core section (and on the dashboard
+tiles), the standalone Node Settings and Connections sections are gone, and the
+Core and Home dashboard tiles share an equal height with evenly spread contents.
+
 ### 2026-06-22 - ui: equal-height dashboard tiles and instant transport-control hiding
 
 Two refinements to the dashboard and node controls. The Qortium Core and Home
