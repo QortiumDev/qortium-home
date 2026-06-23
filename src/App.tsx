@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type FormEvent as ReactFormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { ApiViewer } from './ApiViewer';
@@ -461,6 +462,25 @@ function QdnUnlockDialog({ request, onAccountsStateChange, onResolve }: QdnUnloc
 }
 
 function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
+  const denyButtonRef = useRef<HTMLButtonElement>(null);
+  const approveButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Keyboard model for this approval dialog: ModalDialog focuses the first action
+  // (Deny) by default and handles Escape (deny) + Tab cycling. We deliberately do
+  // NOT auto-focus Approve, so Enter never approves by accident — the focus ring on
+  // Deny makes that obvious. Arrow keys move between the two actions (Left/Up to
+  // Deny, Right/Down to Approve) so Approve is still quick to reach, after which
+  // Enter/Space approves.
+  function handleActionsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      approveButtonRef.current?.focus();
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      denyButtonRef.current?.focus();
+    }
+  }
+
   return (
     <ModalDialog onDismiss={() => onResolve(request.id, false)}>
       <section
@@ -545,11 +565,21 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             </div>
           ) : null}
         </dl>
-        <div className="unlock-dialog__actions">
-          <button className="button button--secondary" type="button" onClick={() => onResolve(request.id, false)}>
+        <div className="unlock-dialog__actions" onKeyDown={handleActionsKeyDown}>
+          <button
+            ref={denyButtonRef}
+            className="button button--secondary"
+            type="button"
+            onClick={() => onResolve(request.id, false)}
+          >
             {t('qdnWrite.deny')}
           </button>
-          <button className="button button--primary" type="button" onClick={() => onResolve(request.id, true)}>
+          <button
+            ref={approveButtonRef}
+            className="button button--primary"
+            type="button"
+            onClick={() => onResolve(request.id, true)}
+          >
             {t('qdnWrite.approve')}
           </button>
         </div>

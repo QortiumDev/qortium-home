@@ -801,6 +801,15 @@ export function registerQdnViewIpcHandlers() {
     const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
 
     entry?.view.setVisible(false);
+
+    // The isolated view is an out-of-process WebContentsView that holds OS keyboard
+    // focus while it is on screen. Hiding it (e.g. when a permission dialog opens)
+    // does not move focus back to the host, so keystrokes would keep going to the
+    // now-hidden app view — leaving a permission/unlock dialog unable to autofocus
+    // its field or receive Enter/Escape. Return focus to the host web contents.
+    if (!window.isDestroyed()) {
+      window.webContents.focus();
+    }
   });
 
   ipcMain.handle('qdn-views:updateDisplaySettings', (event, rawRequest: unknown) => {

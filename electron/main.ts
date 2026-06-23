@@ -710,7 +710,34 @@ async function reconcileI2pdWithCore(): Promise<void> {
   }
 }
 
+// Home keeps all its state in one fixed userData directory and manages shared
+// singletons (the i2pd router, Core). A second launch must not spin up a rival
+// process tree fighting over that state — take a single-instance lock and, if
+// another instance already holds it, surface that instance's window and exit.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  const existingWindow = BrowserWindow.getAllWindows()[0];
+  if (!existingWindow) {
+    createWindow();
+    return;
+  }
+  if (existingWindow.isMinimized()) {
+    existingWindow.restore();
+  }
+  existingWindow.show();
+  existingWindow.focus();
+});
+
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) {
+    return;
+  }
+
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
   registerCoreManagerIpcHandlers();
@@ -747,18 +774,33 @@ app.on('window-all-closed', () => {
 // I2P fallback transport. When we leave i2pd running, the detached router holds
 // the SAM port for Core and the next Home launch reconciles it (see app.whenReady
 // below). Defer the quit until this check runs.
+const QUIT_I2PD_SHUTDOWN_TIMEOUT_MS = 4000;
 let i2pdShutdownComplete = false;
 app.on('before-quit', (event) => {
-  if (i2pdShutdownComplete) {
+  // A redundant second instance (no lock) never started the shared i2pd/Core, so
+  // it must quit immediately without touching them. Same once shutdown has run.
+  if (!gotSingleInstanceLock || i2pdShutdownComplete) {
     return;
   }
 
   event.preventDefault();
   void (async () => {
     try {
-      if (!(await isManagedCoreRuntimeRunning())) {
-        await stopI2pdIfManaged();
-      }
+      // Bound the shutdown so a hung i2pd/Core check can never block the quit and
+      // leave the user force-killing the app — which is what orphans the helper
+      // processes and the AppImage FUSE mount in the first place.
+      await Promise.race([
+        (async () => {
+          if (!(await isManagedCoreRuntimeRunning())) {
+            await stopI2pdIfManaged();
+          }
+        })(),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, QUIT_I2PD_SHUTDOWN_TIMEOUT_MS);
+        }),
+      ]);
+    } catch {
+      // Quit regardless of any i2pd shutdown error.
     } finally {
       i2pdShutdownComplete = true;
       app.quit();

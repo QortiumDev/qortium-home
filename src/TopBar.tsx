@@ -322,7 +322,6 @@ function AccountChip({
   onMenuOpenChange?: (isOpen: boolean) => void;
 }) {
   const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
-  const [isUnlocking, setIsUnlocking] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [password, setPassword] = useState('');
   const [accountError, setAccountError] = useState('');
@@ -356,25 +355,27 @@ function AccountChip({
   }, [account, nodeApiUrl, nodeEpoch]);
 
   useEffect(() => {
-    setIsUnlocking(false);
     setIsBusy(false);
     setPassword('');
     setAccountError('');
   }, [account?.id]);
 
-  async function handleLockToggle(closeMenu: () => void) {
-    if (!account || isBusy) {
+  // Clear any typed password (and error) whenever the menu closes, so a locked
+  // account always reopens to a fresh, empty unlock field.
+  function handleMenuOpenChange(isOpen: boolean) {
+    if (!isOpen) {
+      setPassword('');
+      setAccountError('');
+    }
+    onMenuOpenChange?.(isOpen);
+  }
+
+  async function handleLock(closeMenu: () => void) {
+    if (!account || isBusy || !account.isUnlocked) {
       return;
     }
 
     setAccountError('');
-
-    if (!account.isUnlocked) {
-      setPassword('');
-      setIsUnlocking(true);
-      return;
-    }
-
     setIsBusy(true);
 
     try {
@@ -406,7 +407,6 @@ function AccountChip({
     try {
       const nextAccountsState = await window.qortiumHome.accounts.unlockWallet(account.id, password);
       onAccountsStateChange(nextAccountsState);
-      setIsUnlocking(false);
       setPassword('');
       closeMenu();
     } catch (error) {
@@ -432,7 +432,7 @@ function AccountChip({
       contentClassName="account-menu__popover"
       contentId="top-bar-account-menu"
       contentLabel={t('account.menuLabel')}
-      onOpenChange={onMenuOpenChange}
+      onOpenChange={handleMenuOpenChange}
       renderTrigger={({ contentId, isOpen, toggle }) => (
         <button
           className={`account-chip${account?.isUnlocked ? ' account-chip--unlocked' : ''}`}
@@ -487,7 +487,7 @@ function AccountChip({
 
           {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
 
-          {account && isUnlocking ? (
+          {account && !account.isUnlocked ? (
             <form className="account-menu__unlock" onSubmit={(event) => void handleUnlockSubmit(event, close)}>
               <label className="field">
                 <span className="field__label">{t('common.password')}</span>
@@ -505,9 +505,9 @@ function AccountChip({
                   disabled={isBusy}
                   type="button"
                   onClick={() => {
-                    setIsUnlocking(false);
                     setPassword('');
                     setAccountError('');
+                    close();
                   }}
                 >
                   {t('common.cancel')}
@@ -524,15 +524,13 @@ function AccountChip({
             </form>
           ) : account ? (
             <div className="account-menu__actions">
-              <button className="button" disabled={isBusy} type="button" onClick={() => void handleLockToggle(close)}>
+              <button className="button" disabled={isBusy} type="button" onClick={() => void handleLock(close)}>
                 {isBusy ? (
                   <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
-                ) : account.isUnlocked ? (
-                  <Lock aria-hidden="true" size={18} strokeWidth={2} />
                 ) : (
-                  <Unlock aria-hidden="true" size={18} strokeWidth={2} />
+                  <Lock aria-hidden="true" size={18} strokeWidth={2} />
                 )}
-                {isBusy ? t('common.updating') : account.isUnlocked ? t('common.lock') : t('common.unlock')}
+                {isBusy ? t('common.updating') : t('common.lock')}
               </button>
             </div>
           ) : null}
