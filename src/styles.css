@@ -1115,8 +1115,14 @@ h1 {
   color: var(--color-danger);
 }
 
-.dashboard-card__details {
-  gap: 8px;
+/* Promote the detail rows into the card's own space-between rhythm so every line
+   (header, each detail row, the action row) is distributed with equal vertical
+   spacing, instead of the detail rows bunching tightly in the middle while large
+   gaps sit above and below the block. Scoped to the dashboard card so other
+   DetailList usages keep their normal grouped layout. Higher specificity than the
+   base `.detail-list { display: grid }` so the promotion wins. */
+.dashboard-card .dashboard-card__details {
+  display: contents;
 }
 
 .dashboard-card__version-link,
@@ -2615,20 +2621,30 @@ h1 {
   line-height: var(--line-height-small);
 }
 
-/* The node-mode dropdown shares the Core tile's action row with Start/Stop;
-   keep it compact and left-aligned so the buttons stay on the right. */
+/* The node-mode dropdown shares the Core tile's action row with Start/Stop.
+   Let it grow to absorb the row's free space (so its text is never truncated
+   while space sits unused next to it), but keep a small flex-basis so it never
+   forces the buttons onto a second row — the buttons keep their intrinsic width
+   (flex-shrink: 0 below) and the dropdown yields first. */
 .dashboard-card__node-mode {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   width: auto;
-  min-width: 140px;
-  max-width: 220px;
-  margin-right: auto;
+  min-width: 120px;
 }
 
 /* The transport dropdown on the Home tile is wrapped in .transport-control, so the
-   wrapper (not the inner select) is the flex item that left-aligns. */
+   wrapper (not the inner select) is the flex item; grow it the same way. The inner
+   select stretches to fill the wrapper (it is a grid item). */
 .dashboard-card__actions > .transport-control {
-  margin-right: auto;
+  flex: 1 1 0;
+  min-width: 120px;
+}
+
+/* Buttons (and the router-button wrapper) keep their intrinsic width so the
+   dropdown is the element that flexes within the row. */
+.dashboard-card__actions > .button,
+.dashboard-card__actions > .i2p-router-control {
+  flex-shrink: 0;
 }
 
 /* Stacked node-connection / transport / router controls in a settings section
