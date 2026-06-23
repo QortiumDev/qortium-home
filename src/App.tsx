@@ -46,7 +46,7 @@ import {
 } from './dashboardPins';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
-import { setTranslationLanguage, t, type TranslationKey } from './i18n';
+import { setTranslationLanguage, subscribeTranslationChange, t, type TranslationKey } from './i18n';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
@@ -779,6 +779,11 @@ export function App() {
   // t() reads module state, so the active language must be set before children render;
   // the layout effect that applies document-level settings runs too late for that.
   setTranslationLanguage(effectiveDisplaySettings.language);
+
+  // Locales other than English load lazily, so re-render once the active language's
+  // catalog finishes loading to swap the English fallback for the real strings.
+  const [, bumpLocaleVersion] = useState(0);
+  useEffect(() => subscribeTranslationChange(() => bumpLocaleVersion((version) => version + 1)), []);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
