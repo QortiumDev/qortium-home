@@ -407,9 +407,13 @@ function createWindow(options: CreateWindowOptions = {}) {
   });
 
   if (options.startupPayload) {
-    windowStartupPayloads.set(window.webContents.id, options.startupPayload);
+    // Capture the id now: by the time 'closed' fires the webContents is already
+    // destroyed, so reading window.webContents there throws "Object has been
+    // destroyed" and surfaces as an uncaught main-process exception.
+    const webContentsId = window.webContents.id;
+    windowStartupPayloads.set(webContentsId, options.startupPayload);
     window.once('closed', () => {
-      windowStartupPayloads.delete(window.webContents.id);
+      windowStartupPayloads.delete(webContentsId);
     });
   }
 
@@ -721,16 +725,9 @@ if (!gotSingleInstanceLock) {
 }
 
 app.on('second-instance', () => {
-  const existingWindow = BrowserWindow.getAllWindows()[0];
-  if (!existingWindow) {
-    createWindow();
-    return;
-  }
-  if (existingWindow.isMinimized()) {
-    existingWindow.restore();
-  }
-  existingWindow.show();
-  existingWindow.focus();
+  // Keep a single process / userData owner, but let a relaunch open another
+  // window (offset from the focused one) within this instance.
+  createWindow({ placement: 'secondary' });
 });
 
 app.whenReady().then(() => {
