@@ -46,7 +46,13 @@ import {
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, t, type TranslationKey } from './i18n';
-import { buildQdnDisplayUrl, type QdnDisplaySettings, type QdnResource, type QdnService } from './qdn';
+import {
+  buildQdnDisplayUrl,
+  getQdnViewerKind,
+  type QdnDisplaySettings,
+  type QdnResource,
+  type QdnService,
+} from './qdn';
 import { QdnExplorer } from './QdnExplorer';
 import { QdnPreviewViewer } from './QdnPreview';
 import { DocumentViewer } from './DocumentViewer';
@@ -2335,7 +2341,15 @@ export function App() {
           const tabRoute = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
           const tabAccount =
             accountsState.accounts.find((account) => account.id === tab.accountId) ?? null;
-          const tabRenderKey = `${tab.id}:${tab.reloadNonce}:${tabRoute.displayUrl}`;
+          // Repository file navigation only changes the path within one resource;
+          // collapse it to the repo root so the viewer is not remounted (and the
+          // file tree refetched) on every file open — the live resource prop still
+          // carries the selected path down to the browser.
+          const tabRenderKeyUrl =
+            tabRoute.kind === 'resource' && getQdnViewerKind(tabRoute.resource.service) === 'repository'
+              ? buildQdnDisplayUrl({ ...tabRoute.resource, path: '' })
+              : tabRoute.displayUrl;
+          const tabRenderKey = `${tab.id}:${tab.reloadNonce}:${tabRenderKeyUrl}`;
 
           return (
             <div
