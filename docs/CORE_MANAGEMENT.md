@@ -54,6 +54,7 @@ Electron app data root/
       qortium.log
       db-preview/
       data-preview/
+      lists/
 ```
 
 `current.json` should identify the selected installed release, install path,
@@ -95,6 +96,7 @@ Electron app data root/
       qortium.log
       db-preview/
       data-preview/
+      lists/
 ```
 
 `java/current-java.json` should identify the selected managed Java runtime,
