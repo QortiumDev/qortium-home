@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-23 - release: prepare home 1.1.2
+
+Bump to 1.1.2 (Android versionCode 20) for the next prerelease. It covers proper
+GIT_REPOSITORY handling in the QDN viewer, dashboard tile dropdown sizing and
+spacing fixes, dialog focus/keyboard and app-instance robustness fixes, a fix so
+relaunch opens a new window without crashing on destroyed web contents, lazy-loaded
+locales with startup timing instrumentation, and keeping the Core block/follow
+lists directory intact across Core updates.
+
 ### 2026-06-23 - core: preserve the Core lists directory across updates
 
 Adds the Core `lists/` directory (the user's QDN block and follow lists) to the
