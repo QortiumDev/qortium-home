@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { access, chmod, constants as fsConstants, mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -71,6 +71,28 @@ function getPlatformOs(): AppUpdatePlatformOs {
 
 function getAppUpdatesPath() {
   return path.join(app.getPath('userData'), APP_UPDATES_DIR);
+}
+
+function getInstallFile() {
+  // For AppImage builds app.getPath('exe') points at the temporary FUSE mount
+  // (/tmp/.../.mount_...), not the real .AppImage on disk. The AppImage runtime
+  // exposes the actual file path in the APPIMAGE environment variable; fall back
+  // to the executable path on every other platform/packaging.
+  return process.env.APPIMAGE || app.getPath('exe');
+}
+
+function getInstallDir() {
+  return path.dirname(getInstallFile());
+}
+
+async function isDirectoryWritable(dir: string) {
+  try {
+    await access(dir, fsConstants.W_OK);
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sanitizePathSegment(value: string, fallback: string) {
@@ -248,11 +270,7 @@ function isSupportedPlatform(os: AppUpdatePlatformOs, arch: string) {
 function getUpdateEnvironment() {
   const os = getPlatformOs();
   const arch = process.arch;
-  // For AppImage builds app.getPath('exe') points at the temporary FUSE mount
-  // (/tmp/.../.mount_...), not the real .AppImage on disk. The AppImage runtime
-  // exposes the actual file path in the APPIMAGE environment variable; fall back
-  // to the executable path on every other platform/packaging.
-  const installFile = process.env.APPIMAGE || app.getPath('exe');
+  const installFile = getInstallFile();
 
   return {
     currentVersion: app.getVersion(),
@@ -308,12 +326,33 @@ function publishDownloadProgress(progress: AppUpdateDownloadProgress) {
   }
 }
 
+function getFallbackDownloadDir(releaseTag: string) {
+  return path.join(getAppUpdatesPath(), sanitizePathSegment(releaseTag, 'release'));
+}
+
+// Prefer saving the update next to the running instance so the new build lands
+// in the same folder the user launched from. Fall back to the managed
+// app-updates directory when the install folder is read-only (packaged macOS
+// .app bundles, Windows Program Files installs) or when the download would
+// collide with the currently-running executable.
+async function resolveDownloadDir(assetName: string, releaseTag: string) {
+  const installDir = getInstallDir();
+  const fileName = sanitizePathSegment(assetName, 'update');
+  const wouldOverwriteRunningFile = path.join(installDir, fileName) === getInstallFile();
+
+  if (!wouldOverwriteRunningFile && (await isDirectoryWritable(installDir))) {
+    return installDir;
+  }
+
+  return getFallbackDownloadDir(releaseTag);
+}
+
 async function downloadAsset(request: AppUpdateDownloadRequest) {
   const normalizedRequest = normalizeDownloadRequest(request);
 
   assertUpdateIsNewer(normalizedRequest.releaseTag);
 
-  const releasePath = path.join(getAppUpdatesPath(), sanitizePathSegment(normalizedRequest.releaseTag, 'release'));
+  const releasePath = await resolveDownloadDir(normalizedRequest.asset.name, normalizedRequest.releaseTag);
   const fileName = sanitizePathSegment(normalizedRequest.asset.name, 'update');
   const finalPath = path.join(releasePath, fileName);
   const partialPath = `${finalPath}.download`;
@@ -409,12 +448,18 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
   };
 }
 
+function isInsideDir(parent: string, filePath: string) {
+  const relativePath = path.relative(parent, filePath);
+
+  return !!relativePath && !path.isAbsolute(relativePath) && !relativePath.startsWith('..');
+}
+
 function normalizeDownloadedFilePath(value: unknown) {
   const filePath = getString(value);
-  const updatesPath = getAppUpdatesPath();
-  const relativePath = path.relative(updatesPath, filePath);
+  const allowedRoots = [getAppUpdatesPath(), getInstallDir()];
+  const isAllowed = allowedRoots.some((root) => isInsideDir(root, filePath));
 
-  if (!filePath || path.isAbsolute(relativePath) || relativePath.startsWith('..') || !existsSync(filePath)) {
+  if (!filePath || !isAllowed || !existsSync(filePath)) {
     throw new Error('Downloaded update file was not found.');
   }
 

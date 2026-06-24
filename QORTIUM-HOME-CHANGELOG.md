@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-24 - feat: download Home updates into the running install folder
+
+Changes where Home saves a downloaded application update. It now writes the update
+into the same folder the running app was launched from, so the new build lands right
+next to the current one instead of in a separate internal updates folder. When that
+folder can't be written to — for example a packaged macOS app bundle or a Windows
+"Program Files" install — or when the download would overwrite the app that is
+currently running, Home falls back to its previous internal updates location. The
+"Open" and "Reveal in folder" actions continue to work wherever the file was saved.
+
 ### 2026-06-23 - release: prepare home 1.1.2
 
 Bump to 1.1.2 (Android versionCode 20) for the next prerelease. It covers proper
