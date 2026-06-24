@@ -962,7 +962,7 @@ export async function isManagedCoreRuntimeRunning() {
     return false;
   }
 
-  return await isInstalledCoreRuntimeRunning(installedCore);
+  return await isInstalledCoreRunning(installedCore);
 }
 
 // True when a managed Core is running AND its node has I2P enabled — i.e. the
@@ -972,7 +972,7 @@ export async function isManagedCoreRuntimeRunning() {
 export async function isManagedCoreUsingI2p(): Promise<boolean> {
   const installedCore = await readInstalledCore();
 
-  if (!installedCore || !(await isInstalledCoreRuntimeRunning(installedCore))) {
+  if (!installedCore || !(await isInstalledCoreRunning(installedCore))) {
     return false;
   }
 
@@ -1474,6 +1474,41 @@ async function isInstalledCoreRuntimeRunning(installedCore: InstalledCore) {
   const pid = await readInstalledCoreRuntimePid(installedCore);
 
   return pid !== null && isPidRunning(pid);
+}
+
+// True when a live Home-managed Core process is detectable via the live-process
+// scan (the same scanner the UI status path uses), independent of run.pid. This
+// is the resilient fallback for a stale run.pid: Core's run.pid is only written
+// by start.sh at launch, and a Core that relaunches its JVM without going back
+// through start.sh — notably /admin/restart, which enabling I2P triggers — leaves
+// run.pid pointing at the old, now-dead pid while a new live node runs under a
+// different, unrecorded pid. The scan resolves the live process's own jar / api-key
+// directory and confirms it lives inside our managed install/runtime paths.
+// readRunningLocalCoreApiKey() is Linux-only, so this is a no-op (returns false)
+// on macOS/Windows — there the pid-file check above remains the only signal.
+function isInstalledCoreRunningViaProcessScan(installedCore: InstalledCore) {
+  const runningCore = readRunningLocalCoreApiKey();
+
+  if (!runningCore) {
+    return false;
+  }
+
+  return (
+    isRunningCoreWithinPath(runningCore, getCoreRuntimePath()) ||
+    isRunningCoreWithinPath(runningCore, getCoreInstallPath()) ||
+    isRunningCoreWithinPath(runningCore, installedCore.runtimePath) ||
+    isRunningCoreWithinPath(runningCore, installedCore.installPath)
+  );
+}
+
+// Robust "is this managed Core running?" — prefers the cheap run.pid check, then
+// falls back to the live-process scan so a stale run.pid can't make a genuinely
+// running Core look stopped (which would strand its managed i2pd fallback).
+async function isInstalledCoreRunning(installedCore: InstalledCore) {
+  return (
+    (await isInstalledCoreRuntimeRunning(installedCore)) ||
+    isInstalledCoreRunningViaProcessScan(installedCore)
+  );
 }
 
 async function resolveRuntimeStatusOwner(
