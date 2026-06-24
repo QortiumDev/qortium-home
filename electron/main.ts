@@ -397,6 +397,12 @@ const STARTUP_T0_MS = Date.now();
 let startupTimingCaptured = false;
 let startupPaintReported = false;
 
+// Absolute epoch anchor for t0 (main-module load). Lets an external launcher diff
+// its own wall-clock launch time against t0 to measure the pre-t0 boot — process
+// spawn + AppImage FUSE mount + Electron binary/V8 init — which the relative
+// milestones below (all measured from t0) cannot see.
+console.log(`[startup] main module loaded (epoch ${STARTUP_T0_MS}ms, ${new Date(STARTUP_T0_MS).toISOString()})`);
+
 function logStartupMilestone(label: string, extra = '') {
   console.log(`[startup] ${label}: +${Date.now() - STARTUP_T0_MS}ms${extra}`);
 }
