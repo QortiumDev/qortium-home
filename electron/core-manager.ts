@@ -48,6 +48,7 @@ const RUNTIME_ENTRY_NAMES = [
   'db-preview',
   'data-preview',
   'i2p',
+  'lists',
   'qortium-backup-preview',
   'qortal-backup-preview',
   'qortium.log',

@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-23 - core: preserve the Core lists directory across updates
+
+Adds the Core `lists/` directory (the user's QDN block and follow lists) to the
+set of runtime files Home keeps when it relocates a managed Core install, so a
+list folder that already sits in the runtime directory is never left behind
+during a migration. The primary fix for lists being wiped on update lives in the
+Core preview launcher, which now stores the lists in the runtime directory rather
+than inside the install folder Home replaces on each update; this change makes
+Home's own runtime handling consistent with that.
+
 ### 2026-06-22 - release: prepare home 1.1.1
 
 Bumped Qortium Home to `1.1.1` (Android `versionCode` 19) for the next QortiumDev
