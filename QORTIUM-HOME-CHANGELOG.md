@@ -33,6 +33,20 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-24 - fix: keep managed i2pd alive when Core's run.pid is stale
+
+Fixes a problem where closing Home could shut down the managed I2P router even
+though the Qortium Core was still running, which forced users to turn I2P back on
+every time they reopened Home. Home decides whether to keep the I2P router running
+by checking whether its managed Core is alive, and it had been trusting only the
+small `run.pid` file the Core writes when it first starts. That file can fall out
+of date — most notably after the Core restarts itself to apply an I2P setting
+change — so Home mistook a running Core for a stopped one and stopped I2P with it.
+Home now falls back to detecting the live Core process directly when the pid file
+looks stale, so the I2P router is kept running whenever the Core genuinely is. (On
+Linux this fully resolves the issue; a companion Core-side fix keeps the pid file
+accurate on macOS and Windows too.)
+
 ### 2026-06-24 - feat: download Home updates into the running install folder
 
 Changes where Home saves a downloaded application update. It now writes the update
