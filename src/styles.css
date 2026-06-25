@@ -103,8 +103,12 @@
   --color-accent-ring: rgb(33 130 74 / 18%);
   --color-accent-soft: rgb(33 130 74 / 10%);
   --color-accent-glow: rgb(33 130 74 / 22%);
-  --gradient-primary: linear-gradient(180deg, #2c9258 0%, #21824a 55%, #1d7341 100%);
-  --gradient-primary-hover: linear-gradient(180deg, #33a263 0%, #279155 55%, #218049 100%);
+  --color-syntax-string: #1b6f3a;
+  --color-syntax-number: #82540d;
+  --color-syntax-boolean: #6c43b8;
+  --color-syntax-attr: #a13e3b;
+  --gradient-primary: linear-gradient(180deg, #21824a 0%, #21824a 55%, #1d7341 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #23854e 0%, #22834c 55%, #1f7845 100%);
   --gradient-primary-active: linear-gradient(180deg, #1d7341 0%, #196a3a 100%);
   --shadow-primary-button:
     inset 0 1px 0 rgb(255 255 255 / 18%),
@@ -176,6 +180,10 @@
   --color-accent-ring: rgb(135 217 155 / 20%);
   --color-accent-soft: rgb(135 217 155 / 12%);
   --color-accent-glow: rgb(135 217 155 / 22%);
+  --color-syntax-string: #79d897;
+  --color-syntax-number: #e0b060;
+  --color-syntax-boolean: #c7a2ff;
+  --color-syntax-attr: #ffaaa5;
   --gradient-primary: linear-gradient(180deg, #95e0a7 0%, #87d99b 55%, #79cf8e 100%);
   --gradient-primary-hover: linear-gradient(180deg, #a2e6b2 0%, #93e0a5 55%, #84d698 100%);
   --gradient-primary-active: linear-gradient(180deg, #79cf8e 0%, #6fc683 100%);
@@ -198,14 +206,14 @@
 }
 
 :root[data-accent="blue"] {
-  --color-accent: #2a79f3;
+  --color-accent: #2368cf;
   --color-accent-strong: #1e5ec3;
   --color-accent-contrast: #ffffff;
-  --color-accent-ring: rgb(42 121 243 / 20%);
-  --color-accent-soft: rgb(42 121 243 / 10%);
-  --color-accent-glow: rgb(42 121 243 / 22%);
-  --gradient-primary: linear-gradient(180deg, #4d8cf6 0%, #2a79f3 55%, #2167db 100%);
-  --gradient-primary-hover: linear-gradient(180deg, #6398f8 0%, #4084f5 55%, #2e73e5 100%);
+  --color-accent-ring: rgb(35 104 207 / 20%);
+  --color-accent-soft: rgb(35 104 207 / 10%);
+  --color-accent-glow: rgb(35 104 207 / 22%);
+  --gradient-primary: linear-gradient(180deg, #286ed4 0%, #2368cf 55%, #1e5ec3 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #2b70d8 0%, #286ed4 55%, #2265ca 100%);
   --gradient-primary-active: linear-gradient(180deg, #2167db 0%, #1e5ec3 100%);
   --shadow-primary-button:
     inset 0 1px 0 rgb(255 255 255 / 18%),
@@ -223,7 +231,7 @@
 :root[data-accent="orange"] {
   --color-accent: #de8b23;
   --color-accent-strong: #bf6e0f;
-  --color-accent-contrast: #ffffff;
+  --color-accent-contrast: #2a1c00;
   --color-accent-ring: rgb(222 139 35 / 20%);
   --color-accent-soft: rgb(222 139 35 / 10%);
   --color-accent-glow: rgb(222 139 35 / 22%);
@@ -250,8 +258,8 @@
   --color-accent-ring: rgb(123 68 218 / 20%);
   --color-accent-soft: rgb(123 68 218 / 10%);
   --color-accent-glow: rgb(123 68 218 / 22%);
-  --gradient-primary: linear-gradient(180deg, #9460e3 0%, #7b44da 55%, #6b35c5 100%);
-  --gradient-primary-hover: linear-gradient(180deg, #a06df0 0%, #9057e0 55%, #7b4ad2 100%);
+  --gradient-primary: linear-gradient(180deg, #8650d3 0%, #7b44da 55%, #6b35c5 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #8c55d8 0%, #8350d0 55%, #7440c5 100%);
   --gradient-primary-active: linear-gradient(180deg, #6b35c5 0%, #622fbd 100%);
   --shadow-primary-button:
     inset 0 1px 0 rgb(255 255 255 / 18%),
@@ -267,14 +275,14 @@
 }
 
 :root[data-accent="red"] {
-  --color-accent: #d53e3e;
+  --color-accent: #c63838;
   --color-accent-strong: #b63232;
   --color-accent-contrast: #ffffff;
-  --color-accent-ring: rgb(213 62 62 / 20%);
-  --color-accent-soft: rgb(213 62 62 / 10%);
-  --color-accent-glow: rgb(213 62 62 / 22%);
-  --gradient-primary: linear-gradient(180deg, #e65a5a 0%, #d53e3e 55%, #c52e2e 100%);
-  --gradient-primary-hover: linear-gradient(180deg, #ea7676 0%, #de4b4b 55%, #cf3c3c 100%);
+  --color-accent-ring: rgb(198 56 56 / 20%);
+  --color-accent-soft: rgb(198 56 56 / 10%);
+  --color-accent-glow: rgb(198 56 56 / 22%);
+  --gradient-primary: linear-gradient(180deg, #c83b3b 0%, #c63838 55%, #b63232 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #cc4141 0%, #c83b3b 55%, #bd3838 100%);
   --gradient-primary-active: linear-gradient(180deg, #c52e2e 0%, #b63232 100%);
   --shadow-primary-button:
     inset 0 1px 0 rgb(255 255 255 / 18%),
@@ -292,7 +300,7 @@
 :root[data-accent="teal"] {
   --color-accent: #17a398;
   --color-accent-strong: #12857a;
-  --color-accent-contrast: #ffffff;
+  --color-accent-contrast: #031817;
   --color-accent-ring: rgb(23 163 152 / 20%);
   --color-accent-soft: rgb(23 163 152 / 10%);
   --color-accent-glow: rgb(23 163 152 / 22%);
@@ -315,7 +323,7 @@
 :root[data-accent="cyan"] {
   --color-accent: #1298d8;
   --color-accent-strong: #0f79aa;
-  --color-accent-contrast: #ffffff;
+  --color-accent-contrast: #000a12;
   --color-accent-ring: rgb(18 152 216 / 20%);
   --color-accent-soft: rgb(18 152 216 / 10%);
   --color-accent-glow: rgb(18 152 216 / 22%);
@@ -336,14 +344,14 @@
 }
 
 :root[data-accent="pink"] {
-  --color-accent: #d43f86;
+  --color-accent: #bd3673;
   --color-accent-strong: #bd3673;
   --color-accent-contrast: #ffffff;
-  --color-accent-ring: rgb(212 63 134 / 20%);
-  --color-accent-soft: rgb(212 63 134 / 10%);
-  --color-accent-glow: rgb(212 63 134 / 22%);
-  --gradient-primary: linear-gradient(180deg, #e15fa0 0%, #d43f86 55%, #c43578 100%);
-  --gradient-primary-hover: linear-gradient(180deg, #e775b0 0%, #da4c90 55%, #c94a89 100%);
+  --color-accent-ring: rgb(189 54 115 / 20%);
+  --color-accent-soft: rgb(189 54 115 / 10%);
+  --color-accent-glow: rgb(189 54 115 / 22%);
+  --gradient-primary: linear-gradient(180deg, #c03978 0%, #bd3673 55%, #ad2f69 100%);
+  --gradient-primary-hover: linear-gradient(180deg, #c43d7c 0%, #c03978 55%, #b93470 100%);
   --gradient-primary-active: linear-gradient(180deg, #c43578 0%, #bd3673 100%);
   --shadow-primary-button:
     inset 0 1px 0 rgb(255 255 255 / 18%),
@@ -918,7 +926,7 @@ h1 {
   flex-shrink: 0;
   place-items: center;
   overflow: hidden;
-  color: var(--color-accent);
+  color: var(--color-text);
   background: var(--color-control-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -951,7 +959,7 @@ h1 {
 
 .dashboard-pin__tile svg {
   flex-shrink: 0;
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
 }
 
 .dashboard-pin__label {
@@ -1108,7 +1116,7 @@ h1 {
 }
 
 .dashboard-card__message--success {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .dashboard-card__message--error {
@@ -1157,7 +1165,7 @@ h1 {
 .dashboard-card__version-link:focus-visible,
 .value-link:hover,
 .value-link:focus-visible {
-  color: var(--color-accent);
+  color: var(--color-link);
   text-decoration-color: currentcolor;
 }
 
@@ -1227,7 +1235,7 @@ h1 {
 
 .settings-section__toggle:hover,
 .settings-section__toggle:focus-visible {
-  color: var(--color-accent);
+  color: var(--color-link);
   outline: none;
 }
 
@@ -1451,9 +1459,11 @@ h1 {
 }
 
 .button:disabled {
-  color: var(--color-text-faint);
+  color: var(--color-text-secondary);
+  background: var(--color-control-bg);
+  border-color: var(--color-border);
   cursor: not-allowed;
-  opacity: 0.72;
+  opacity: 1;
 }
 
 .button__spinner {
@@ -1501,7 +1511,7 @@ h1 {
 }
 
 .button--danger {
-  color: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .icon-button {
@@ -1527,9 +1537,11 @@ h1 {
 }
 
 .icon-button:disabled {
-  color: var(--color-text-faint);
+  color: var(--color-text-secondary);
+  background: var(--color-control-bg);
+  border-color: var(--color-border);
   cursor: not-allowed;
-  opacity: 0.72;
+  opacity: 1;
 }
 
 .accounts-panel {
@@ -1602,7 +1614,7 @@ h1 {
 }
 
 .account-selector__lock-button--unlocked {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .account-selector__remove-button {
@@ -1791,7 +1803,7 @@ h1 {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-  color: var(--color-text-faint);
+  color: var(--color-text-subtle);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
 }
@@ -1851,14 +1863,14 @@ h1 {
 }
 
 .field__hint {
-  color: var(--color-text-faint);
+  color: var(--color-text-subtle);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
 }
 
 .field__label-hint {
   margin-left: 8px;
-  color: var(--color-text-faint);
+  color: var(--color-text-subtle);
   font-weight: 400;
 }
 
@@ -2012,7 +2024,7 @@ h1 {
   width: 100%;
   height: 100%;
   place-items: center;
-  color: var(--color-page-bg);
+  color: var(--color-accent-contrast);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -2107,7 +2119,7 @@ h1 {
 }
 
 .top-bar__tab-menu-item:disabled {
-  color: var(--color-text-faint);
+  color: var(--color-text-secondary);
   cursor: default;
 }
 
@@ -2220,7 +2232,7 @@ h1 {
 }
 
 .top-bar__address-icon {
-  color: var(--color-accent);
+  color: var(--color-info);
 }
 
 .top-bar__address-input {
@@ -2236,7 +2248,7 @@ h1 {
 }
 
 .top-bar__address-input::placeholder {
-  color: var(--color-text-faint);
+  color: var(--color-text-secondary);
 }
 
 .top-bar__address-input:focus {
@@ -2244,7 +2256,7 @@ h1 {
 }
 
 .top-bar__go-button {
-  color: var(--color-accent);
+  color: var(--color-info);
 }
 
 .top-bar__address-suggestions {
@@ -2358,7 +2370,7 @@ h1 {
   width: 100%;
   height: 100%;
   place-items: center;
-  color: var(--color-page-bg);
+  color: var(--color-accent-contrast);
   font-size: var(--font-size-ui);
   font-weight: 700;
   line-height: 1;
@@ -2381,7 +2393,7 @@ h1 {
 }
 
 .account-chip__status--locked {
-  color: #ffffff;
+  color: var(--color-page-bg);
   background: var(--color-danger);
 }
 
@@ -2516,12 +2528,12 @@ h1 {
 .node-status__button--behind,
 .node-status__button--connecting,
 .node-status__button--synchronizing {
-  color: var(--color-link);
+  color: var(--color-info);
 }
 
 .node-status__button--synced,
 .node-status__button--minting {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .node-status__button--unavailable {
@@ -2548,7 +2560,7 @@ h1 {
   place-items: center;
   width: 14px;
   height: 14px;
-  color: var(--color-link);
+  color: var(--color-info);
   background: var(--color-control-bg);
   border-radius: var(--radius-pill);
 }
@@ -2757,7 +2769,7 @@ h1 {
 .node-settings__message--success,
 .app-updates__message--success,
 .core-manager__message--success {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .node-settings__message--error,
@@ -2913,7 +2925,7 @@ h1 {
 }
 
 .qdn-viewer__status-label {
-  color: var(--color-accent);
+  color: var(--color-text);
   font-weight: 650;
 }
 
@@ -3203,7 +3215,7 @@ h1 {
 }
 
 .qdn-viewer__gif-link {
-  color: var(--color-accent);
+  color: var(--color-link);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
@@ -3211,7 +3223,7 @@ h1 {
 
 .qdn-viewer__gif-link:hover,
 .qdn-viewer__gif-link:focus-visible {
-  color: var(--color-accent-strong);
+  color: var(--color-info);
   outline: none;
 }
 
@@ -3552,7 +3564,7 @@ h1 {
 }
 
 .qdn-explorer__column--active {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .qdn-explorer__row {
@@ -3598,7 +3610,7 @@ h1 {
 }
 
 .qdn-explorer__row-icon {
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
 }
 
 .qdn-explorer__row-preview {
@@ -3608,7 +3620,7 @@ h1 {
   min-width: 0;
   place-items: center;
   overflow: hidden;
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
   background: var(--color-control-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -3622,7 +3634,7 @@ h1 {
 }
 
 .qdn-explorer__row-preview--fallback {
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
 }
 
 .qdn-explorer__row-main {
@@ -4043,7 +4055,7 @@ h1 {
   width: 56px;
   height: 56px;
   place-items: center;
-  color: var(--color-accent);
+  color: var(--color-text);
   background: var(--color-accent-soft);
   border-radius: var(--radius-pill);
 }
@@ -4439,7 +4451,7 @@ h1 {
 }
 
 .qdn-json__key {
-  color: var(--color-accent);
+  color: var(--color-link);
 }
 
 .qdn-json__summary {
@@ -4447,15 +4459,15 @@ h1 {
 }
 
 .qdn-json__value--string {
-  color: #2e9e57;
+  color: var(--color-syntax-string);
 }
 
 .qdn-json__value--number {
-  color: #c07b1a;
+  color: var(--color-syntax-number);
 }
 
 .qdn-json__value--boolean {
-  color: #9168d6;
+  color: var(--color-syntax-boolean);
 }
 
 .qdn-json__value--null {
@@ -4479,7 +4491,7 @@ h1 {
 .hljs-section,
 .hljs-doctag,
 .hljs-type {
-  color: #9168d6;
+  color: var(--color-syntax-boolean);
 }
 
 .hljs-string,
@@ -4487,14 +4499,14 @@ h1 {
 .hljs-addition,
 .hljs-attribute,
 .hljs-meta .hljs-string {
-  color: #2e9e57;
+  color: var(--color-syntax-string);
 }
 
 .hljs-number,
 .hljs-symbol,
 .hljs-bullet,
 .hljs-link {
-  color: #c07b1a;
+  color: var(--color-syntax-number);
 }
 
 .hljs-title,
@@ -4502,13 +4514,13 @@ h1 {
 .hljs-selector-id,
 .hljs-selector-class,
 .hljs-built_in {
-  color: var(--color-accent);
+  color: var(--color-link);
 }
 
 .hljs-attr,
 .hljs-variable,
 .hljs-template-variable {
-  color: #c0504d;
+  color: var(--color-syntax-attr);
 }
 
 .hljs-emphasis {
