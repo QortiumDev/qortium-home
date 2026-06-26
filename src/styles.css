@@ -2551,6 +2551,9 @@ h1 {
   z-index: 10;
 }
 
+/* Just the core-status mark — no bounded control box — so the glyph can be larger
+   and read as a status icon rather than a button. A 40px footprint is kept as an
+   (invisible) tap area, so there's no layout shift and it stays easy to hit. */
 .node-status__button {
   transition: var(--transition-control);
   position: relative;
@@ -2560,17 +2563,19 @@ h1 {
   place-items: center;
   padding: 0;
   color: var(--color-text);
-  background: var(--color-control-bg);
-  border: 1px solid var(--color-border);
+  background: none;
+  border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
 }
 
-.node-status__button:hover,
+.node-status__button:hover {
+  transform: scale(1.1);
+}
+
 .node-status__button:focus-visible {
-  background: var(--color-control-hover);
-  border-color: var(--color-border-strong);
   outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
 }
 
 .node-status__button--behind,
@@ -3918,12 +3923,26 @@ h1 {
 
 @media (pointer: coarse) {
   .top-bar__tab {
-    grid-template-columns: minmax(0, 1fr) 36px;
-    min-height: 40px;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    min-height: 44px;
   }
 
-  .top-bar__new-tab {
-    height: 40px;
+  /* Touch has no hover, so the inactive-tab close button (hover-revealed on
+     desktop) must stay reachable. */
+  .top-bar__tab-close {
+    visibility: visible;
+  }
+
+  /* Finger-friendly tap targets (>= 44px) for the top-bar controls. */
+  .top-bar__new-tab,
+  .top-bar__history .top-bar__history-button,
+  .top-bar__reload-button,
+  .top-bar__go-button,
+  .account-chip,
+  .node-status__button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 
   .dashboard-card__refresh,
