@@ -28,6 +28,18 @@ const CURRENT_CORE_FILE = 'current.json';
 const CURRENT_JAVA_FILE = 'current-java.json';
 const RUNTIME_CHAIN_FILE = 'runtime-chain.json';
 const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
+const QORTIUM_PREVIEWNET_INITIAL_PEERS = [
+  '146.103.42.59:24892',
+  '185.207.104.78:24892',
+  '3u25ana5e5hvriqqiuh6fcetxezsqm7la276ljtjxaoxt767n4hq.b32.i2p',
+  'zqcackxkhjzfbbc6daigc73zqhzdpgwua3mjc7xgn3hwjed5z3ca.b32.i2p',
+];
+const QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS = [
+  '146.103.42.59:24894',
+  '185.207.104.78:24894',
+  'qhk6g5hl7vqf5fmlgj6knbajtiszotaf2w26fwjapsr75kbz7fma.b32.i2p',
+  'hg3seiuul4pcz6a2svatdahzudphbm464vwqcmiejc77kumglwaq.b32.i2p',
+];
 const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
 const LOCAL_CORE_STATUS_PATH = '/admin/status';
 const LOCAL_CORE_INFO_PATH = '/admin/info';
@@ -241,6 +253,10 @@ type CoreInstallRequest = {
   channel?: unknown;
 };
 
+type RunScriptOptions = {
+  stdio?: 'pipe' | 'ignore';
+};
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';
 }
@@ -412,6 +428,79 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
     }
 
     await movePath(sourceEntryPath, destinationEntryPath);
+  }
+}
+
+function mergeBootstrapPeerList(value: unknown, canonicalPeers: string[]) {
+  const existingPeers = Array.isArray(value) ? value : [];
+  const mergedPeers: unknown[] = [];
+  const seenPeers = new Set<string>();
+  let changed = !Array.isArray(value);
+
+  for (const peer of existingPeers) {
+    if (typeof peer === 'string') {
+      if (seenPeers.has(peer)) {
+        changed = true;
+        continue;
+      }
+
+      seenPeers.add(peer);
+    }
+
+    mergedPeers.push(peer);
+  }
+
+  for (const peer of canonicalPeers) {
+    if (!seenPeers.has(peer)) {
+      mergedPeers.push(peer);
+      seenPeers.add(peer);
+      changed = true;
+    }
+  }
+
+  return { changed, peers: mergedPeers };
+}
+
+async function ensureBootstrapPeers(installPath: string) {
+  const settingsPath = path.join(installPath, 'preview', 'settings-preview.json');
+
+  if (!existsSync(settingsPath)) {
+    console.warn(`Unable to ensure Previewnet bootstrap peers; settings template was not found at ${settingsPath}.`);
+    return;
+  }
+
+  let parsedSettings: unknown;
+
+  try {
+    parsedSettings = JSON.parse(await readFile(settingsPath, 'utf8'));
+  } catch (error) {
+    console.warn(`Unable to ensure Previewnet bootstrap peers; settings template is not valid JSON at ${settingsPath}.`, error);
+    return;
+  }
+
+  if (!isObject(parsedSettings)) {
+    console.warn(`Unable to ensure Previewnet bootstrap peers; settings template is not an object at ${settingsPath}.`);
+    return;
+  }
+
+  const settings = parsedSettings as Record<string, unknown>;
+  const initialPeers = mergeBootstrapPeerList(settings.initialPeers, QORTIUM_PREVIEWNET_INITIAL_PEERS);
+  const initialDataPeers = mergeBootstrapPeerList(
+    settings.initialDataPeers,
+    QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS,
+  );
+
+  if (!initialPeers.changed && !initialDataPeers.changed) {
+    return;
+  }
+
+  settings.initialPeers = initialPeers.peers;
+  settings.initialDataPeers = initialDataPeers.peers;
+
+  try {
+    await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    console.warn(`Unable to write Previewnet bootstrap peers to ${settingsPath}.`, error);
   }
 }
 
@@ -1124,6 +1213,7 @@ async function migrateLegacyCoreLayout() {
   await ensureRuntimeChainCompatible(migratedCore.runtimePath, migratedCore.tagName, runtimeIdentity);
 
   await movePathReplacingDestination(sourceInstallPath, migratedCore.installPath);
+  await ensureBootstrapPeers(migratedCore.installPath);
   await chmodPreviewScripts(migratedCore.previewPath);
   await moveRuntimeEntries(getCoreBasePath(), migratedCore.runtimePath);
   await moveRuntimeEntries(legacyRuntimePath, migratedCore.runtimePath);
@@ -1937,8 +2027,15 @@ async function installCore(request: CoreInstallRequest) {
     }
 
     await movePathReplacingDestination(extractedCorePaths.installPath, installPath);
-    const previewPath = path.join(installPath, path.relative(extractedCorePaths.installPath, extractedCorePaths.previewPath));
-    const jarPath = path.join(installPath, path.relative(extractedCorePaths.installPath, extractedCorePaths.jarPath));
+    await ensureBootstrapPeers(installPath);
+    const previewPath = path.join(
+      installPath,
+      path.relative(extractedCorePaths.installPath, extractedCorePaths.previewPath),
+    );
+    const jarPath = path.join(
+      installPath,
+      path.relative(extractedCorePaths.installPath, extractedCorePaths.jarPath),
+    );
 
     await chmodPreviewScripts(previewPath);
 
@@ -1975,6 +2072,7 @@ async function installCore(request: CoreInstallRequest) {
     if (backupInUse && existsSync(backupPath)) {
       try {
         await movePathReplacingDestination(backupPath, getCoreInstallPath());
+        await ensureBootstrapPeers(getCoreInstallPath());
         backupInUse = false;
       } catch {
         // leave the backup in place for manual recovery
@@ -2026,29 +2124,36 @@ async function runScript(
   args: string[],
   cwd: string,
   env?: NodeJS.ProcessEnv,
+  options: RunScriptOptions = {},
 ) {
   return new Promise<void>((resolve, reject) => {
     let output = '';
+    const ignoreStdio = options.stdio === 'ignore';
     const child =
       process.platform === 'win32'
         ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `""${command}" ${args.map(quoteWindowsCommandArg).join(' ')}"`], {
             cwd,
             env,
+            ...(ignoreStdio ? { stdio: 'ignore' as const } : {}),
             windowsHide: true,
             windowsVerbatimArguments: true,
           })
         : spawn(command, args, {
             cwd,
             env,
+            ...(ignoreStdio ? { stdio: 'ignore' as const } : {}),
             windowsHide: true,
           });
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      output += chunk.toString();
-    });
+    if (!ignoreStdio) {
+      child.stdout!.on('data', (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.stderr!.on('data', (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+    }
+
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) {
@@ -2056,7 +2161,13 @@ async function runScript(
         return;
       }
 
-      reject(new Error(output.trim() || `${path.basename(command)} exited with code ${code}.`));
+      reject(
+        new Error(
+          ignoreStdio
+            ? `${path.basename(command)} exited with code ${code}.`
+            : output.trim() || `${path.basename(command)} exited with code ${code}.`,
+        ),
+      );
     });
   });
 }
@@ -2169,6 +2280,8 @@ async function startCore(options: { quiet?: boolean } = {}) {
       ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
+      // This only covers fd 0/1/2; closing fd >= 3 belongs in Core's start.sh.
+      { stdio: 'ignore' },
     );
     await waitForRuntimeState(true, START_TIMEOUT_MS, 'starting');
   } catch (error) {
