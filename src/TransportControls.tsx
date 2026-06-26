@@ -201,6 +201,10 @@ export function I2pRouterButton({
   const isExternal = manager.status?.mode === 'external';
   const hasBusyMessage = manager.isBusy && !!manager.progress;
   const hasError = !!manager.error;
+  const detailRows = [{ label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) }];
+  if (isExternal && manager.status?.externalBinaryPath) {
+    detailRows.push({ label: t('core.folderLabel'), value: manager.status.externalBinaryPath });
+  }
 
   // On the compact dashboard control (showStatus=false) an external router has no
   // button, status row, busy message or error to show — render nothing rather than
@@ -222,10 +226,7 @@ export function I2pRouterButton({
   return (
     <div className="i2p-router-control">
       {showStatus ? (
-        <DetailList
-          className="connections__details"
-          rows={[{ label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) }]}
-        />
+        <DetailList className="connections__details" rows={detailRows} />
       ) : null}
       {isExternal ? null : (
         <button
