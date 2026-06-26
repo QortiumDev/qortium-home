@@ -1520,11 +1520,19 @@ h1 {
    text — illegible (black-on-green in dark themes, white-on-light in light themes).
    The :not(:disabled) guards above stop that; this forces the readable neutral disabled
    treatment to win for primary/danger regardless of focus or source order. */
-.button--primary:disabled,
+.button--primary:disabled {
+  color: var(--color-text-secondary);
+  /* Faint accent tint so a disabled primary stays distinguishable from a neutral
+     disabled button; the muted text remains AA-legible on the soft tint. */
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  box-shadow: none;
+}
+
 .button--danger:disabled {
   color: var(--color-text-secondary);
   background: var(--color-control-bg);
-  border-color: var(--color-border);
+  border-color: var(--color-danger);
   box-shadow: none;
 }
 
