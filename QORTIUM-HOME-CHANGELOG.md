@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-26 - core-docs: pass Home display settings to Swagger UI
+
+Passes Home's current theme, accent, and text-size settings into the Core API
+documentation iframe and sends live display-setting messages when those settings
+change. This lets the Core-served Swagger UI match Home's display preferences
+without reloading the documentation view after every settings change, once the
+matching Core-side Swagger theme layer is present.
+
 ### 2026-06-24 - fix: keep managed i2pd alive when Core's run.pid is stale
 
 Fixes a problem where closing Home could shut down the managed I2P router even

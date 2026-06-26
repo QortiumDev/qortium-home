@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n';
 import { buildAllowedTransports, type TransportState } from './i2p';
 import type { useI2pConnections } from './i2pState';
@@ -84,6 +84,7 @@ export function TransportModeSelect({
   const [isApplying, setIsApplying] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const restartRefreshTimeoutRef = useRef<number | null>(null);
 
   const activeMode = status ? currentMode(status.transport) : null;
 
@@ -94,6 +95,14 @@ export function TransportModeSelect({
       setSelectedMode(activeMode);
     }
   }, [activeMode]);
+
+  useEffect(() => {
+    return () => {
+      if (restartRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(restartRefreshTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (!status) {
     return null;
@@ -115,12 +124,17 @@ export function TransportModeSelect({
         await manager.disable();
       }
       setIsRestarting(true);
-      window.setTimeout(() => {
+      if (restartRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(restartRefreshTimeoutRef.current);
+      }
+      restartRefreshTimeoutRef.current = window.setTimeout(() => {
+        restartRefreshTimeoutRef.current = null;
         setIsRestarting(false);
         connections.refresh();
       }, RESTART_REFRESH_DELAY_MS);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
+      setSelectedMode(activeMode);
     } finally {
       setIsApplying(false);
     }

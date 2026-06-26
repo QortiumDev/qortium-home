@@ -1,6 +1,7 @@
 import { Power, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n';
+import type { QdnDisplaySettings } from './qdn';
 
 const DOCS_PATH = '/api-documentation/';
 const DOCS_PROBE_MAX_BYTES = 262_144;
@@ -13,11 +14,12 @@ const RESTART_POLL_INTERVAL_MS = 3_000;
 const RESTART_POLL_TIMEOUT_MS = 600_000;
 
 type CoreApiDocsPageProps = {
+  displaySettings: QdnDisplaySettings;
   nodeSettings: QortiumNodeSettings;
 };
 
 type DocsState =
-  | { cacheBust: number; phase: 'available' }
+  | { frameSrc: string; phase: 'available' }
   | { phase: 'checking' }
   | { phase: 'disabled' }
   | { phase: 'enabling' }
@@ -65,12 +67,80 @@ async function probeApiDocumentation(): Promise<DocsProbeResult> {
   return { kind: 'available' };
 }
 
-export function CoreApiDocsPage({ nodeSettings }: CoreApiDocsPageProps) {
+function buildCoreApiDocsFrameUrl(
+  docsUrl: string,
+  cacheBust: number,
+  displaySettings: QdnDisplaySettings,
+) {
+  const url = new URL(docsUrl);
+
+  url.searchParams.set('v', String(cacheBust));
+  url.searchParams.set('theme', displaySettings.theme);
+  url.searchParams.set('accent', displaySettings.accent);
+  url.searchParams.set('textSize', displaySettings.textSize);
+
+  return url.toString();
+}
+
+function getCoreApiDocsDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
+  return [
+    {
+      action: 'THEME_CHANGED',
+      requestedHandler: 'UI',
+      theme: displaySettings.theme,
+    },
+    {
+      action: 'TEXT_SIZE_CHANGED',
+      requestedHandler: 'UI',
+      textSize: displaySettings.textSize,
+    },
+    {
+      accent: displaySettings.accent,
+      action: 'ACCENT_CHANGED',
+      requestedHandler: 'UI',
+    },
+  ];
+}
+
+function getPostMessageTargetOrigin(url: string) {
+  try {
+    const origin = new URL(url).origin;
+
+    return origin === 'null' ? '*' : origin;
+  } catch {
+    return '*';
+  }
+}
+
+function postCoreApiDocsDisplaySettings(
+  frameWindow: Window | null | undefined,
+  docsUrl: string,
+  displaySettings: QdnDisplaySettings,
+) {
+  if (!frameWindow) {
+    return;
+  }
+
+  const targetOrigin = getPostMessageTargetOrigin(docsUrl);
+
+  for (const message of getCoreApiDocsDisplaySettingMessages(displaySettings)) {
+    frameWindow.postMessage(message, targetOrigin);
+  }
+}
+
+export function CoreApiDocsPage({ displaySettings, nodeSettings }: CoreApiDocsPageProps) {
   const [retryToken, setRetryToken] = useState(0);
   const [state, setState] = useState<DocsState>({ phase: 'checking' });
+  const displaySettingsRef = useRef(displaySettings);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
   const isEnablingRef = useRef(false);
   const docsUrl = `${nodeSettings.nodeApiUrl}${DOCS_PATH}`;
   const isNetworkMode = nodeSettings.mode === 'network';
+
+  useEffect(() => {
+    displaySettingsRef.current = displaySettings;
+    postCoreApiDocsDisplaySettings(frameRef.current?.contentWindow, docsUrl, displaySettings);
+  }, [displaySettings, docsUrl]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -90,7 +160,10 @@ export function CoreApiDocsPage({ nodeSettings }: CoreApiDocsPageProps) {
         }
 
         if (probeResult.kind === 'available') {
-          setState({ phase: 'available', cacheBust: Date.now() });
+          setState({
+            frameSrc: buildCoreApiDocsFrameUrl(docsUrl, Date.now(), displaySettingsRef.current),
+            phase: 'available',
+          });
         } else if (probeResult.kind === 'disabled') {
           setState({ phase: 'disabled' });
         } else {
@@ -114,7 +187,7 @@ export function CoreApiDocsPage({ nodeSettings }: CoreApiDocsPageProps) {
     return () => {
       isDisposed = true;
     };
-  }, [nodeSettings.nodeApiUrl, retryToken]);
+  }, [docsUrl, retryToken]);
 
   useEffect(() => {
     return () => {
@@ -153,7 +226,10 @@ export function CoreApiDocsPage({ nodeSettings }: CoreApiDocsPageProps) {
 
         if (probeResult.kind === 'available') {
           isEnablingRef.current = false;
-          setState({ phase: 'available', cacheBust: Date.now() });
+          setState({
+            frameSrc: buildCoreApiDocsFrameUrl(docsUrl, Date.now(), displaySettingsRef.current),
+            phase: 'available',
+          });
           return;
         }
       } catch {
@@ -235,9 +311,13 @@ export function CoreApiDocsPage({ nodeSettings }: CoreApiDocsPageProps) {
         <iframe
           className="qdn-viewer__frame"
           title={t('coreApi.title')}
-          src={`${docsUrl}?v=${state.cacheBust}`}
+          src={state.frameSrc}
+          ref={frameRef}
           referrerPolicy="no-referrer"
           sandbox="allow-scripts allow-same-origin allow-forms"
+          onLoad={() => {
+            postCoreApiDocsDisplaySettings(frameRef.current?.contentWindow, docsUrl, displaySettingsRef.current);
+          }}
         />
       ) : null}
     </section>

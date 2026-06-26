@@ -720,9 +720,10 @@ export function App() {
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [nodeSettings, setNodeSettings] = useState<QortiumNodeSettings | null>(null);
   const [nodeSettingsError, setNodeSettingsError] = useState('');
-  // Incremented when the configured node becomes reachable, so data fetched
-  // from the node while it was unreachable gets refreshed.
+  // Incremented when configured-node reachability changes, so node-derived data
+  // loaded under the previous state gets refreshed.
   const [nodeEpoch, setNodeEpoch] = useState(0);
+  const [connectionRefreshEpoch, setConnectionRefreshEpoch] = useState(0);
   const [qdnUnlockRequests, setQdnUnlockRequests] = useState<QortiumQdnUnlockRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
@@ -751,6 +752,8 @@ export function App() {
   } | null>(null);
   const openQdnDocumentViewerRef = useRef<((request: QortiumQdnDocumentViewerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
+  const didRunInitialRouteRefreshRef = useRef(false);
+  const lastRouteRefreshKeyRef = useRef<string | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
   const activeAccount =
@@ -759,6 +762,9 @@ export function App() {
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
+  const routeRefreshKey = isDashboardRoute || isSettingsRoute
+    ? `${tabState.activeTabId}:${routeHistory.index}:${currentRoute.kind}`
+    : null;
   const isExplorerRoute =
     currentRoute.kind === 'services' ||
     currentRoute.kind === 'service' ||
@@ -1166,13 +1172,50 @@ export function App() {
     setNodeEpoch((currentEpoch) => currentEpoch + 1);
   }, []);
 
+  const handleNodeReachabilityChange = useCallback(() => {
+    setNodeEpoch((currentEpoch) => currentEpoch + 1);
+  }, []);
+
   const appUpdates = useAppUpdates({ autoCheck: true });
   const coreManager = useCoreManager({
+    nodeEpoch,
     onNodeAvailable: handleNodeAvailable,
     onResolvedNodeApiUrl: updateResolvedNodeApiUrl,
     onSaveNodeSettings: saveNodeSettings,
   });
   const onChainCoreUpdate = useOnChainCoreUpdate(nodeSettings, nodeEpoch);
+  const i2pRefreshEpoch = nodeEpoch + connectionRefreshEpoch;
+
+  useEffect(() => {
+    if (!didRunInitialRouteRefreshRef.current) {
+      didRunInitialRouteRefreshRef.current = true;
+      lastRouteRefreshKeyRef.current = routeRefreshKey;
+      return;
+    }
+
+    if (!routeRefreshKey) {
+      lastRouteRefreshKeyRef.current = null;
+      return;
+    }
+
+    if (lastRouteRefreshKeyRef.current === routeRefreshKey) {
+      return;
+    }
+
+    lastRouteRefreshKeyRef.current = routeRefreshKey;
+    setConnectionRefreshEpoch((currentEpoch) => currentEpoch + 1);
+
+    if (!coreManager.isBusy) {
+      void coreManager.refreshStatus({ quiet: true });
+    }
+
+    void onChainCoreUpdate.refreshStatus({ quiet: true });
+  }, [
+    coreManager.isBusy,
+    coreManager.refreshStatus,
+    onChainCoreUpdate.refreshStatus,
+    routeRefreshKey,
+  ]);
 
   function updateSettingsSectionExpansion(sectionId: SettingsSectionId, isExpanded: boolean) {
     setSettingsExpansion((currentExpansion) => ({
@@ -2356,7 +2399,7 @@ export function App() {
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
         onAccountsStateChange={handleAccountsStateChange}
-        onNodeAvailable={handleNodeAvailable}
+        onNodeReachabilityChange={handleNodeReachabilityChange}
         onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
         onSelectTab={selectTab}
         nodeEpoch={nodeEpoch}
@@ -2394,7 +2437,11 @@ export function App() {
               {tabRoute.kind === 'node-api' ? (
                 <ApiViewer key={tabRenderKey} route={tabRoute} />
               ) : tabRoute.kind === 'core-api-docs' ? (
-                <CoreApiDocsPage key={tabRenderKey} nodeSettings={nodeSettings} />
+                <CoreApiDocsPage
+                  key={tabRenderKey}
+                  displaySettings={effectiveDisplaySettings}
+                  nodeSettings={nodeSettings}
+                />
               ) : tabRoute.kind === 'resource' ? (
                 <QdnViewer
                   key={tabRenderKey}
@@ -2423,6 +2470,7 @@ export function App() {
                 <SettingsPage
                   appUpdates={appUpdates}
                   coreManager={coreManager}
+                  connectionRefreshEpoch={i2pRefreshEpoch}
                   nodeSettings={nodeSettings}
                   onChainCoreUpdate={onChainCoreUpdate}
                   onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
@@ -2445,6 +2493,7 @@ export function App() {
                   isLoadingAccounts={isLoadingAccounts}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   nodeEpoch={nodeEpoch}
+                  connectionRefreshEpoch={i2pRefreshEpoch}
                   nodeSettings={nodeSettings}
                   onChainCoreUpdate={onChainCoreUpdate}
                   onResolvedNodeApiUrl={updateResolvedNodeApiUrl}

@@ -22,6 +22,7 @@ import { SettingsSection } from './SettingsSection';
 import { I2pRouterButton } from './TransportControls';
 
 type AppUpdatePanelProps = {
+  connectionRefreshEpoch: number;
   isExpanded: boolean;
   isManagedNode: boolean;
   nodeApiUrl: string;
@@ -94,13 +95,14 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 }
 
 export function AppUpdatePanel({
+  connectionRefreshEpoch,
   isExpanded,
   isManagedNode,
   nodeApiUrl,
   onExpandedChange,
   updates,
 }: AppUpdatePanelProps) {
-  const connections = useI2pConnections(nodeApiUrl);
+  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const i2pdManager = useI2pdManager(isManagedNode);
   const rows = getHomeUpdateRows(updates);
   const showChannelSelect = hasDistinctAvailableChannels(updates);

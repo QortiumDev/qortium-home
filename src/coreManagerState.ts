@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { compareAppVersions, UPDATE_CHANNEL_LABEL_KEYS } from './appUpdates';
 import { getTranslationLanguage, t } from './i18n';
 
@@ -18,6 +18,7 @@ export type CoreBusyAction =
   | null;
 
 type CoreManagerOptions = {
+  nodeEpoch?: number;
   onNodeAvailable?: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
@@ -189,13 +190,19 @@ function getCoreDetailRows(status: QortiumCoreStatus | null, releases: QortiumCo
   return rows;
 }
 
-export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNodeSettings }: CoreManagerOptions) {
+export function useCoreManager({
+  nodeEpoch = 0,
+  onNodeAvailable,
+  onResolvedNodeApiUrl,
+  onSaveNodeSettings,
+}: CoreManagerOptions) {
   const coreApi = window.qortiumHome.core;
   const [status, setStatus] = useState<QortiumCoreStatus | null>(null);
   const [releases, setReleases] = useState<QortiumCoreReleases | null>(null);
   const [progress, setProgress] = useState<QortiumCoreProgress | null>(null);
   const [message, setMessage] = useState<CoreMessage>(null);
   const [busyAction, setBusyAction] = useState<CoreBusyAction>(null);
+  const lastHandledNodeEpochRef = useRef(nodeEpoch);
   const isBusy = busyAction !== null;
   const language = getTranslationLanguage();
 
@@ -256,13 +263,15 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
   const canInstallOrUpdateStable =
     !runtimeBlocked && canInstallStable && (!status?.installed || stableUpdateAvailable);
 
-  async function refreshStatus() {
+  const refreshStatus = useCallback(async (options: { quiet?: boolean } = {}) => {
     if (!coreApi) {
       return;
     }
 
-    setBusyAction('checking');
-    setMessage(null);
+    if (!options.quiet) {
+      setBusyAction('checking');
+      setMessage(null);
+    }
 
     try {
       const [nextReleases, nextStatus] = await Promise.all([
@@ -272,19 +281,38 @@ export function useCoreManager({ onNodeAvailable, onResolvedNodeApiUrl, onSaveNo
 
       setReleases(nextReleases);
       setStatus(nextStatus);
-      setMessage({
-        kind: 'success',
-        text: t('core.releaseCheckComplete'),
-      });
+
+      if (!options.quiet) {
+        setMessage({
+          kind: 'success',
+          text: t('core.releaseCheckComplete'),
+        });
+      }
     } catch (error) {
       setMessage({
         kind: 'error',
         text: formatCoreError(error),
       });
     } finally {
-      setBusyAction(null);
+      if (!options.quiet) {
+        setBusyAction(null);
+      }
     }
-  }
+  }, [coreApi]);
+
+  useEffect(() => {
+    if (lastHandledNodeEpochRef.current === nodeEpoch) {
+      return;
+    }
+
+    lastHandledNodeEpochRef.current = nodeEpoch;
+
+    if (isBusy) {
+      return;
+    }
+
+    void refreshStatus({ quiet: true });
+  }, [isBusy, nodeEpoch, refreshStatus]);
 
   async function installCore(channel: QortiumCoreChannel) {
     if (!coreApi) {

@@ -28,6 +28,7 @@ import { SettingsSection } from './SettingsSection';
 import { TransportModeSelect } from './TransportControls';
 
 type CoreManagerPanelProps = {
+  connectionRefreshEpoch: number;
   coreManager: CoreManagerState;
   isExpanded: boolean;
   nodeSettings: QortiumNodeSettings;
@@ -196,6 +197,7 @@ function getCoreSettingsRows({
 }
 
 export function CoreManagerPanel({
+  connectionRefreshEpoch,
   coreManager,
   isExpanded,
   nodeSettings,
@@ -208,7 +210,7 @@ export function CoreManagerPanel({
   // a local/custom node (not public network mode).
   const canManageTransports = nodeSettings.mode !== 'network';
   const isManagedNode = nodeSettings.mode === 'local';
-  const connections = useI2pConnections(nodeSettings.nodeApiUrl);
+  const connections = useI2pConnections(nodeSettings.nodeApiUrl, connectionRefreshEpoch);
   const i2pdManager = useI2pdManager(isManagedNode);
 
   const onChainStatus =

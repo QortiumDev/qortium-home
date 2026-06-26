@@ -47,7 +47,7 @@ type TopBarProps = {
   onMoveTabToNewWindow?: (tabId: string) => void;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onNavigate: (route: AppRoute) => void;
-  onNodeAvailable: () => void;
+  onNodeReachabilityChange: (reachable: boolean) => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
   onPinTabToDashboard: (tabId: string) => void;
@@ -1319,7 +1319,7 @@ export function TopBar({
   onMoveTabToNewWindow,
   onAccountsStateChange,
   onNavigate,
-  onNodeAvailable,
+  onNodeReachabilityChange,
   onOpenSettings,
   onOverlayOpenChange,
   onPinTabToDashboard,
@@ -1769,7 +1769,7 @@ export function TopBar({
       <NodeStatusButton
         nodeSettings={nodeSettings}
         onMenuOpenChange={setNodeMenuOpen}
-        onNodeAvailable={onNodeAvailable}
+        onNodeReachabilityChange={onNodeReachabilityChange}
         onOpenSettings={onOpenSettings}
         onResolvedNodeApiUrl={onResolvedNodeApiUrl}
       />

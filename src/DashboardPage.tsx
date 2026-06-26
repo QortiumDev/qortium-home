@@ -46,6 +46,7 @@ type DashboardPageProps = {
   accountsError: string;
   accountsState: QortiumAccountsState;
   appUpdates: AppUpdatesState;
+  connectionRefreshEpoch: number;
   coreManager: CoreManagerState;
   dashboardPins: DashboardPin[];
   isLoadingAccounts: boolean;
@@ -201,6 +202,7 @@ function getCoreRows({
 
 function ManagedCoreDashboardCard({
   coreManager,
+  connectionRefreshEpoch,
   nodeApiUrl,
   nodeSettings,
   onChainCoreUpdate,
@@ -209,6 +211,7 @@ function ManagedCoreDashboardCard({
   onSaveNodeSettings,
 }: {
   coreManager: CoreManagerState;
+  connectionRefreshEpoch: number;
   nodeApiUrl: string;
   nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
@@ -216,7 +219,7 @@ function ManagedCoreDashboardCard({
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 }) {
-  const connections = useI2pConnections(nodeApiUrl);
+  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const transports = connections.status
     ? connections.status.transport.effectiveTransports.join(', ')
     : connections.isUnavailable
@@ -407,18 +410,20 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 
 function HomeUpdateDashboardCard({
   canManageTransports,
+  connectionRefreshEpoch,
   isManagedNode,
   nodeApiUrl,
   updates,
   onOpenSettingsSection,
 }: {
   canManageTransports: boolean;
+  connectionRefreshEpoch: number;
   isManagedNode: boolean;
   nodeApiUrl: string;
   updates: AppUpdatesState;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
 }) {
-  const connections = useI2pConnections(nodeApiUrl);
+  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const i2pdManager = useI2pdManager(isManagedNode);
   const rows = getHomeUpdateRows(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
@@ -1311,6 +1316,7 @@ export function DashboardPage({
   accountsError,
   accountsState,
   appUpdates,
+  connectionRefreshEpoch,
   coreManager,
   dashboardPins,
   isLoadingAccounts,
@@ -1386,6 +1392,7 @@ export function DashboardPage({
       <div className={`dashboard-page__grid${hasManagedCore ? '' : ' dashboard-page__grid--single'}`}>
         {hasManagedCore ? (
           <ManagedCoreDashboardCard
+            connectionRefreshEpoch={connectionRefreshEpoch}
             coreManager={coreManager}
             nodeApiUrl={nodeApiUrl}
             nodeSettings={nodeSettings}
@@ -1397,6 +1404,7 @@ export function DashboardPage({
         ) : null}
         <HomeUpdateDashboardCard
           canManageTransports={nodeSettings.mode !== 'network'}
+          connectionRefreshEpoch={connectionRefreshEpoch}
           isManagedNode={nodeSettings.mode === 'local'}
           nodeApiUrl={nodeApiUrl}
           updates={appUpdates}
