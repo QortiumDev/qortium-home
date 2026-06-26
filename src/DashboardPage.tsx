@@ -40,6 +40,7 @@ import {
   type DetailRow,
 } from './releaseDisplay';
 import type { SettingsSectionId } from './SettingsPage';
+import { useMenuKeyboard } from './useMenuKeyboard';
 
 type DashboardPageProps = {
   accountsError: string;
@@ -575,6 +576,7 @@ function DashboardPins({
   const suppressedClickPinIdRef = useRef<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuFocusTargetRef = useRef<HTMLElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const iconResolutions = useMemo(() => {
@@ -756,12 +758,12 @@ function DashboardPins({
     }
   }, [renamingPinId]);
 
-  // Move focus into the context menu when it opens, for keyboard / screen-reader users.
-  useEffect(() => {
-    if (contextMenu) {
-      contextMenuRef.current?.querySelector<HTMLButtonElement>('.dashboard-pin__menu-item')?.focus();
-    }
-  }, [contextMenu]);
+  const contextMenuKeyboard = useMenuKeyboard({
+    getFocusAfterEscape: () => contextMenuFocusTargetRef.current,
+    isOpen: !!contextMenu,
+    menuRef: contextMenuRef,
+    onClose: () => setContextMenu(null),
+  });
 
   // Cancel a pending long-press timer when unmounting so it can't run after disposal.
   useEffect(() => () => clearLongPressTimer(), []);
@@ -917,7 +919,12 @@ function DashboardPins({
     scheduleSuppressionClear();
   }
 
-  function openContextMenuAt(pinId: string, clientX: number, clientY: number) {
+  function openContextMenuAt(
+    pinId: string,
+    clientX: number,
+    clientY: number,
+    focusTarget: HTMLElement | null = null,
+  ) {
     const rootFontSizePx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const menuWidth = 12 * rootFontSizePx;
     const menuHeight = 6 * rootFontSizePx;
@@ -925,6 +932,7 @@ function DashboardPins({
     const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
     const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
 
+    contextMenuFocusTargetRef.current = focusTarget;
     setContextMenu({
       pinId,
       x: Math.max(margin, Math.min(clientX, maxX)),
@@ -1037,7 +1045,12 @@ function DashboardPins({
         dragStateRef.current = null;
         setDraggedPinId(null);
         clearLongPressTimer();
-        openContextMenuAt(pinId, clientX, clientY);
+        openContextMenuAt(
+          pinId,
+          clientX,
+          clientY,
+          pinElementsRef.current.get(pinId)?.querySelector<HTMLButtonElement>('.dashboard-pin__tile') ?? null,
+        );
       }
     }, PIN_LONG_PRESS_MS);
   }
@@ -1131,7 +1144,12 @@ function DashboardPins({
 
     event.preventDefault();
     finishDrag(false);
-    openContextMenuAt(pinId, event.clientX, event.clientY);
+    openContextMenuAt(
+      pinId,
+      event.clientX,
+      event.clientY,
+      event.currentTarget.querySelector<HTMLButtonElement>('.dashboard-pin__tile'),
+    );
   }
 
   function handleOpen(pin: DashboardPin) {
@@ -1212,7 +1230,7 @@ function DashboardPins({
                   if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
                     event.preventDefault();
                     const bounds = event.currentTarget.getBoundingClientRect();
-                    openContextMenuAt(pin.id, bounds.left, bounds.bottom);
+                    openContextMenuAt(pin.id, bounds.left, bounds.bottom, event.currentTarget);
                   }
                 }}
               >
@@ -1259,6 +1277,7 @@ function DashboardPins({
           ref={contextMenuRef}
           role="menu"
           aria-label={t('dashboard.pinMenuLabel')}
+          onKeyDown={contextMenuKeyboard.onKeyDown}
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
