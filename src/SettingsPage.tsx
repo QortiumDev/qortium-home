@@ -13,8 +13,9 @@ import type {
 import { t } from './i18n';
 import { NodeSettingsPanel } from './NodeSettingsPanel';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
+import { StartupPagesPanel } from './StartupPagesPanel';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
+export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'startup';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -32,6 +33,8 @@ type SettingsPageProps = {
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
+  startupPages: string[];
+  onStartupPageRemove: (displayUrl: string) => void;
 };
 
 export function SettingsPage({
@@ -48,6 +51,8 @@ export function SettingsPage({
   onThemeChange,
   onTextSizeChange,
   sectionExpansion,
+  startupPages,
+  onStartupPageRemove,
 }: SettingsPageProps) {
   return (
     <div className="settings-page">
@@ -82,6 +87,12 @@ export function SettingsPage({
           isExpanded={sectionExpansion.home}
           updates={appUpdates}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('home', isExpanded)}
+        />
+        <StartupPagesPanel
+          isExpanded={sectionExpansion.startup}
+          pages={startupPages}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('startup', isExpanded)}
+          onRemove={onStartupPageRemove}
         />
       </div>
     </div>

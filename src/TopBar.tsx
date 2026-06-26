@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Home, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAccountProfile } from './accountProfile';
@@ -37,12 +37,14 @@ type TopBarProps = {
   onNodeAvailable: () => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
+  isCurrentPageStartupPage: boolean;
   onPinTabToDashboard: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSelectTab: (tabId: string) => void;
+  onToggleStartupPage: () => void;
 };
 
 type TabDropPosition = 'after' | 'before';
@@ -1074,12 +1076,14 @@ export function TopBar({
   onNodeAvailable,
   onOpenSettings,
   onOverlayOpenChange,
+  isCurrentPageStartupPage,
   onPinTabToDashboard,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
   onResolvedNodeApiUrl,
   onSelectTab,
+  onToggleStartupPage,
 }: TopBarProps) {
   const [addressValue, setAddressValue] = useState('');
   const [addressError, setAddressError] = useState('');
@@ -1377,6 +1381,17 @@ export function TopBar({
           ) : null}
           {addressError ? <p className="top-bar__error">{addressError}</p> : null}
         </div>
+        <button
+          className={`icon-button top-bar__startup-page-button${isCurrentPageStartupPage ? ' top-bar__startup-page-button--active' : ''}`}
+          title={isCurrentPageStartupPage ? t('startupPages.removeFromStartup') : t('startupPages.addToStartup')}
+          type="button"
+          onClick={onToggleStartupPage}
+        >
+          <Home aria-hidden="true" size={20} strokeWidth={2} />
+          <span className="sr-only">
+            {isCurrentPageStartupPage ? t('startupPages.removeFromStartup') : t('startupPages.addToStartup')}
+          </span>
+        </button>
         <button className="icon-button top-bar__go-button" title={t('address.loadAddress')} type="submit">
           <ArrowRight aria-hidden="true" size={20} strokeWidth={2} />
           <span className="sr-only">{t('address.loadAddress')}</span>

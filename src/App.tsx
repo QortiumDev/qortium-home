@@ -40,6 +40,7 @@ import {
   type DashboardPin,
   type DashboardPinDropPosition,
 } from './dashboardPins';
+import { addStartupPage, loadStartupPages, removeStartupPage, saveStartupPages } from './startupPages';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, t, type TranslationKey } from './i18n';
@@ -141,6 +142,7 @@ const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   display: true,
   home: false,
   node: false,
+  startup: false,
 };
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
@@ -674,6 +676,9 @@ export function App() {
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
+  const [startupPages, setStartupPages] = useState<string[]>([]);
+  const [isLoadingStartupPages, setIsLoadingStartupPages] = useState(true);
+  const startupPagesAppliedRef = useRef(false);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
@@ -695,6 +700,7 @@ export function App() {
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute;
+  const isCurrentPageStartupPage = startupPages.includes(currentRoute.displayUrl);
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
@@ -840,6 +846,38 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (isLoadingWindowStartupPayload || isLoadingStartupPages) return;
+    if (startupPagesAppliedRef.current) return;
+
+    startupPagesAppliedRef.current = true;
+
+    if (startupPages.length === 0) return;
+
+    setTabState((currentTabState) => {
+      const activeTab = currentTabState.tabs.find((tab) => tab.id === currentTabState.activeTabId);
+      const currentRoute = activeTab?.history.entries[activeTab.history.index];
+
+      if (!currentRoute || currentRoute.kind !== 'dashboard') return currentTabState;
+
+      const newTabs = startupPages
+        .map((displayUrl) => {
+          const parsed = parseAppAddress(displayUrl);
+          if (!parsed.success) return null;
+          return createBrowserTab(null, { entries: [parsed.route], index: 0 });
+        })
+        .filter((tab): tab is BrowserTab => tab !== null);
+
+      if (newTabs.length === 0) return currentTabState;
+
+      return {
+        activeTabId: newTabs[0].id,
+        closedTabs: [],
+        tabs: newTabs,
+      };
+    });
+  }, [isLoadingWindowStartupPayload, isLoadingStartupPages]);
+
   function reconcileTabsWithAccounts(nextAccountsState: QortiumAccountsState) {
     setTabState((currentTabState) => {
       const defaultAccountId = getDefaultAccountId(nextAccountsState);
@@ -936,6 +974,28 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let isDisposed = false;
+
+    loadStartupPages()
+      .then((pages) => {
+        if (!isDisposed) {
+          setStartupPages(pages);
+          setIsLoadingStartupPages(false);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load startup pages.', error);
+        if (!isDisposed) {
+          setIsLoadingStartupPages(false);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
+
   useEffect(() => subscribeToSystemThemeChange(setSystemTheme), []);
 
   useEffect(() => subscribeToSystemLanguageChange(setSystemLanguage), []);
@@ -987,6 +1047,32 @@ export function App() {
 
     saveDisplaySettings(nextDisplaySettings).catch((error) => {
       console.warn('Unable to save display settings.', error);
+    });
+  }
+
+  function toggleStartupPage(displayUrl: string) {
+    setStartupPages((current) => {
+      const next = current.includes(displayUrl)
+        ? removeStartupPage(current, displayUrl)
+        : addStartupPage(current, displayUrl);
+
+      saveStartupPages(next).catch((error) => {
+        console.warn('Unable to save startup pages.', error);
+      });
+
+      return next;
+    });
+  }
+
+  function handleStartupPageRemove(displayUrl: string) {
+    setStartupPages((current) => {
+      const next = removeStartupPage(current, displayUrl);
+
+      saveStartupPages(next).catch((error) => {
+        console.warn('Unable to save startup pages.', error);
+      });
+
+      return next;
     });
   }
 
@@ -1183,6 +1269,7 @@ export function App() {
       display: sectionId === 'display',
       home: sectionId === 'home',
       node: sectionId === 'node',
+      startup: sectionId === 'startup',
     });
     navigateToRoute(SETTINGS_ROUTE);
   }
@@ -2104,7 +2191,9 @@ export function App() {
         onNavigate={navigateToRoute}
         onOpenSettings={openSettingsInNewTab}
         onOverlayOpenChange={setIsTopBarOverlayOpen}
+        isCurrentPageStartupPage={isCurrentPageStartupPage}
         onPinTabToDashboard={pinTabToDashboard}
+        onToggleStartupPage={() => toggleStartupPage(currentRoute.displayUrl)}
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
@@ -2177,6 +2266,8 @@ export function App() {
                   onTextSizeChange={updateTextSize}
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
+                  startupPages={startupPages}
+                  onStartupPageRemove={handleStartupPageRemove}
                 />
               ) : tabRoute.kind === 'dashboard' ? (
                 <DashboardPage
