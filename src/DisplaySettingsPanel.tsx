@@ -7,11 +7,13 @@ import {
   LANGUAGE_OPTIONS,
   THEME_OPTIONS,
   TEXT_SIZE_OPTIONS,
+  UI_OPTIONS,
   type AccentSetting,
   type DisplaySettings,
   type LanguageSetting,
   type TextSizeSetting,
   type ThemeSetting,
+  type UiSetting,
 } from './displaySettings';
 import { t } from './i18n';
 import { isMacOs, isNativePlatform } from './platform';
@@ -25,6 +27,7 @@ type DisplaySettingsPanelProps = {
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
   onAccentChange: (accent: AccentSetting) => void;
+  onUiChange: (ui: UiSetting) => void;
 };
 
 export function DisplaySettingsPanel({
@@ -35,6 +38,7 @@ export function DisplaySettingsPanel({
   onThemeChange,
   onTextSizeChange,
   onAccentChange,
+  onUiChange,
 }: DisplaySettingsPanelProps) {
   const summary = t('display.summary', {
     theme: getThemeLabel(displaySettings.theme),
@@ -79,6 +83,25 @@ export function DisplaySettingsPanel({
                 role="radio"
                 type="button"
                 onClick={() => onThemeChange(option.value)}
+              >
+                {t(option.labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="display-settings__field">
+          <span className="field__label">{t('display.uiLabel')}</span>
+          <div className="segmented-control" role="radiogroup" aria-label={t('display.uiLabel')}>
+            {UI_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                aria-checked={displaySettings.ui === option.value}
+                className={`segmented-control__option${
+                  displaySettings.ui === option.value ? ' segmented-control__option--selected' : ''
+                }`}
+                role="radio"
+                type="button"
+                onClick={() => onUiChange(option.value)}
               >
                 {t(option.labelKey)}
               </button>

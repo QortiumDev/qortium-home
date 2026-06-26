@@ -136,7 +136,7 @@ export type QdnResource = {
   service: QdnService;
 };
 
-export type QdnDisplaySettings = Pick<ResolvedDisplaySettings, 'language' | 'textSize' | 'theme' | 'accent'>;
+export type QdnDisplaySettings = Pick<ResolvedDisplaySettings, 'language' | 'textSize' | 'theme' | 'accent' | 'ui'>;
 
 export type QdnPreview = {
   renderUrl: string;
@@ -716,6 +716,7 @@ function applyQdnDisplaySettings(queryParams: URLSearchParams, displaySettings: 
   queryParams.set('lang', displaySettings.language);
   queryParams.set('textSize', displaySettings.textSize);
   queryParams.set('accent', displaySettings.accent);
+  queryParams.set('uiStyle', displaySettings.ui);
 }
 
 export function buildQdnRenderUrl(resource: QdnResource, nodeApiUrl: string, displaySettings?: QdnDisplaySettings) {

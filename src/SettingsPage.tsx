@@ -9,6 +9,7 @@ import type {
   LanguageSetting,
   TextSizeSetting,
   ThemeSetting,
+  UiSetting,
 } from './displaySettings';
 import { t } from './i18n';
 import { NodeConnectionSettings } from './NodeConnection';
@@ -34,6 +35,7 @@ type SettingsPageProps = {
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
+  onUiChange: (ui: UiSetting) => void;
 };
 
 export function SettingsPage({
@@ -50,6 +52,7 @@ export function SettingsPage({
   onAccentChange,
   onThemeChange,
   onTextSizeChange,
+  onUiChange,
   sectionExpansion,
 }: SettingsPageProps) {
   // On desktop the node-connection controls live inside the Qortium Core section.
@@ -72,6 +75,7 @@ export function SettingsPage({
           onAccentChange={onAccentChange}
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
+          onUiChange={onUiChange}
         />
         {hasManagedCore ? null : (
           <SettingsSection

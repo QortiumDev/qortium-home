@@ -1102,6 +1102,13 @@ export function App() {
     });
   }
 
+  function updateUi(nextUi: DisplaySettings['ui']) {
+    updateDisplaySettings({
+      ...displaySettings,
+      ui: nextUi,
+    });
+  }
+
   useEffect(() => {
     let isDisposed = false;
 
@@ -2480,6 +2487,7 @@ export function App() {
                   onAccentChange={updateAccent}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}
+                  onUiChange={updateUi}
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
                 />

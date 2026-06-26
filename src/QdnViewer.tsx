@@ -190,6 +190,11 @@ function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
       requestedHandler: 'UI',
       accent: displaySettings.accent,
     },
+    {
+      action: 'UI_STYLE_CHANGED',
+      requestedHandler: 'UI',
+      uiStyle: displaySettings.ui,
+    },
   ];
 }
 

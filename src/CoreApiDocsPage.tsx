@@ -78,6 +78,7 @@ function buildCoreApiDocsFrameUrl(
   url.searchParams.set('theme', displaySettings.theme);
   url.searchParams.set('accent', displaySettings.accent);
   url.searchParams.set('textSize', displaySettings.textSize);
+  url.searchParams.set('uiStyle', displaySettings.ui);
 
   return url.toString();
 }
@@ -98,6 +99,11 @@ function getCoreApiDocsDisplaySettingMessages(displaySettings: QdnDisplaySetting
       accent: displaySettings.accent,
       action: 'ACCENT_CHANGED',
       requestedHandler: 'UI',
+    },
+    {
+      action: 'UI_STYLE_CHANGED',
+      requestedHandler: 'UI',
+      uiStyle: displaySettings.ui,
     },
   ];
 }

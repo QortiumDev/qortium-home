@@ -202,11 +202,21 @@ export const ACCENT_OPTIONS = [
 
 export type AccentSetting = (typeof ACCENT_OPTIONS)[number]['value'];
 
+export type UiSetting = 'classic' | 'modern';
+
+export const UI_OPTIONS: ReadonlyArray<{ value: UiSetting; labelKey: TranslationKey }> = [
+  { value: 'classic', labelKey: 'display.ui.classic' },
+  { value: 'modern', labelKey: 'display.ui.modern' },
+];
+
+export const DEFAULT_UI: UiSetting = 'classic';
+
 export type DisplaySettings = {
   language: LanguageSetting;
   textSize: TextSizeSetting;
   theme: ThemeSetting;
   accent: AccentSetting;
+  ui: UiSetting;
 };
 
 export type ResolvedDisplaySettings = Omit<DisplaySettings, 'language' | 'theme'> & {
@@ -227,6 +237,7 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   textSize: DEFAULT_TEXT_SIZE,
   theme: DEFAULT_THEME,
   accent: DEFAULT_ACCENT,
+  ui: DEFAULT_UI,
 };
 
 export function isThemeSetting(value: unknown): value is ThemeSetting {
@@ -243,6 +254,10 @@ export function isTextSizeSetting(value: unknown): value is TextSizeSetting {
 
 export function isAccentSetting(value: unknown): value is AccentSetting {
   return ACCENT_OPTIONS.some((option) => option.value === value);
+}
+
+export function isUiSetting(value: unknown): value is UiSetting {
+  return UI_OPTIONS.some((option) => option.value === value);
 }
 
 export function getThemeLabel(theme: ThemeSetting) {
@@ -296,6 +311,7 @@ function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEX
     textSize: isTextSizeSetting(settings.textSize) ? settings.textSize : fallbackTextSize,
     theme: isThemeSetting(settings.theme) ? settings.theme : DEFAULT_THEME,
     accent: isAccentSetting(settings.accent) ? settings.accent : DEFAULT_ACCENT,
+    ui: isUiSetting(settings.ui) ? settings.ui : DEFAULT_UI,
   };
 }
 
@@ -436,6 +452,7 @@ function applyDocumentDisplaySettings(displaySettings: ResolvedDisplaySettings) 
   document.documentElement.dataset.language = displaySettings.language;
   document.documentElement.dataset.textSize = displaySettings.textSize;
   document.documentElement.dataset.accent = displaySettings.accent;
+  document.documentElement.dataset.ui = displaySettings.ui;
   document.documentElement.lang = displaySettings.language;
   document.documentElement.dir = isRtlLanguage(displaySettings.language) ? 'rtl' : 'ltr';
   document.documentElement.style.colorScheme = displaySettings.theme;
