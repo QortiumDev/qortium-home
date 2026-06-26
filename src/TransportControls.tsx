@@ -3,7 +3,7 @@ import { t } from './i18n';
 import { buildAllowedTransports, type TransportState } from './i2p';
 import type { useI2pConnections } from './i2pState';
 import type { useI2pdManager } from './i2pdManagerState';
-import { DetailList } from './releaseDisplay';
+import { DetailList, RevealValue, type DetailRow } from './releaseDisplay';
 
 // Shared I2P/transport controls, split out of the old Connections settings panel.
 // The transport dropdown now lives in the Qortium Core section (and the Home
@@ -215,9 +215,20 @@ export function I2pRouterButton({
   const isExternal = manager.status?.mode === 'external';
   const hasBusyMessage = manager.isBusy && !!manager.progress;
   const hasError = !!manager.error;
-  const detailRows = [{ label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) }];
+  const detailRows: DetailRow[] = [
+    { label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) },
+  ];
   if (isExternal && manager.status?.externalBinaryPath) {
-    detailRows.push({ label: t('core.folderLabel'), value: manager.status.externalBinaryPath });
+    // The external i2pd is a binary file, so reveal it in its folder (like the jar
+    // reveal) rather than open-path, which would try to execute it.
+    detailRows.push({
+      label: t('core.folderLabel'),
+      value: (
+        <RevealValue path={manager.status.externalBinaryPath}>
+          {manager.status.externalBinaryPath}
+        </RevealValue>
+      ),
+    });
   }
 
   // On the compact dashboard control (showStatus=false) an external router has no
