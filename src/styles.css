@@ -1560,6 +1560,10 @@ h1 {
   border-color: var(--color-border);
   cursor: not-allowed;
   opacity: 1;
+  /* Same fix as .button:disabled — icon-buttons are disabled during busy work
+     (export/remove/add-address) and have distinct base colors (info/danger/warning);
+     a main-thread stall must not freeze them mid-fade. Paint the disabled look instantly. */
+  transition: none;
 }
 
 .accounts-panel {
@@ -2154,6 +2158,9 @@ h1 {
 .top-bar__tab-menu-item:disabled {
   color: var(--color-text-secondary);
   cursor: default;
+  /* Consistency with .button:disabled — paint the disabled state instantly so a
+     main-thread stall can't freeze the color mid-fade. */
+  transition: none;
 }
 
 .top-bar__tab-menu-separator {
