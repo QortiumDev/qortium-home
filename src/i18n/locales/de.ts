@@ -122,6 +122,7 @@ export const de: Record<TranslationKey, string> = {
   "common.loading": "Wird geladen",
   "common.loadingWindow": "Fenster wird geladen…",
   "common.lock": "Sperren",
+  "common.locking": "Wird gesperrt",
   "common.name": "Name",
   "common.no": "Nein",
   "common.notInstalled": "Nicht installiert",

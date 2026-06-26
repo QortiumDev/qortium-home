@@ -122,6 +122,7 @@ export const el: Record<TranslationKey, string> = {
   "common.loading": "Φόρτωση",
   "common.loadingWindow": "Φόρτωση παραθύρου…",
   "common.lock": "Κλείδωμα",
+  "common.locking": "Κλείδωμα",
   "common.name": "Όνομα",
   "common.no": "Όχι",
   "common.notInstalled": "Δεν έχει εγκατασταθεί",

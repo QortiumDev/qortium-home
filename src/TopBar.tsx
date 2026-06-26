@@ -11,6 +11,7 @@ import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 import type { AppRoute } from './routes';
 import { parseAppAddress } from './routes';
+import { useMenuKeyboard } from './useMenuKeyboard';
 import {
   buildQdnDisplayUrl,
   buildQdnNameUrl,
@@ -46,7 +47,7 @@ type TopBarProps = {
   onMoveTabToNewWindow?: (tabId: string) => void;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onNavigate: (route: AppRoute) => void;
-  onNodeAvailable: () => void;
+  onNodeReachabilityChange: (reachable: boolean) => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
   onPinTabToDashboard: (tabId: string) => void;
@@ -485,7 +486,11 @@ function AccountChip({
             <p className="account-menu__message">{t('account.selectWalletHint')}</p>
           )}
 
-          {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
+          {accountError ? (
+            <p className="account-menu__message account-menu__message--error" role="alert">
+              {accountError}
+            </p>
+          ) : null}
 
           {account && !account.isUnlocked ? (
             <form className="account-menu__unlock" onSubmit={(event) => void handleUnlockSubmit(event, close)}>
@@ -512,7 +517,7 @@ function AccountChip({
                 >
                   {t('common.cancel')}
                 </button>
-                <button className="button button--primary" disabled={isBusy} type="submit">
+                <button aria-busy={isBusy} className="button button--primary" disabled={isBusy} type="submit">
                   {isBusy ? (
                     <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
                   ) : (
@@ -524,13 +529,19 @@ function AccountChip({
             </form>
           ) : account ? (
             <div className="account-menu__actions">
-              <button className="button" disabled={isBusy} type="button" onClick={() => void handleLock(close)}>
+              <button
+                aria-busy={isBusy}
+                className="button"
+                disabled={isBusy}
+                type="button"
+                onClick={() => void handleLock(close)}
+              >
                 {isBusy ? (
                   <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
                 ) : (
                   <Lock aria-hidden="true" size={18} strokeWidth={2} />
                 )}
-                {isBusy ? t('common.updating') : t('common.lock')}
+                {isBusy ? t('common.locking') : t('common.lock')}
               </button>
             </div>
           ) : null}
@@ -570,10 +581,20 @@ function HistoryButton({
   const label = direction === 'back' ? t('common.back') : t('common.forward');
   const Icon = direction === 'back' ? ChevronLeft : ChevronRight;
   const language = getTranslationLanguage();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeMenuRef = useRef<() => void>(() => undefined);
   const items = useMemo(
     () => getHistoryItems(direction, historyEntries, historyIndex),
     [direction, historyEntries, historyIndex, language],
   );
+  const menuKeyboard = useMenuKeyboard({
+    getFocusAfterEscape: () => triggerRef.current,
+    isOpen: isMenuOpen,
+    menuRef,
+    onClose: () => closeMenuRef.current(),
+  });
 
   function handleContextMenu(event: MouseEvent<HTMLButtonElement>, open: () => void) {
     event.preventDefault();
@@ -590,29 +611,43 @@ function HistoryButton({
       contentId={`top-bar-${direction}-history`}
       contentLabel={direction === 'back' ? t('address.backHistory') : t('address.forwardHistory')}
       contentRole="menu"
-      onOpenChange={onMenuOpenChange}
-      renderTrigger={({ close, contentId, isOpen, open }) => (
-        <button
-          className="icon-button top-bar__history-button"
-          disabled={!canNavigate}
-          title={direction === 'back' ? t('address.backButtonTitle') : t('address.forwardButtonTitle')}
-          type="button"
-          aria-controls={isOpen ? contentId : undefined}
-          aria-expanded={isOpen}
-          aria-haspopup="menu"
-          onClick={() => {
-            close();
-            onStep();
-          }}
-          onContextMenu={(event) => handleContextMenu(event, open)}
-        >
-          <Icon aria-hidden="true" size={20} strokeWidth={2} />
-          <span className="sr-only">{label}</span>
-        </button>
-      )}
+      onOpenChange={(isOpen) => {
+        setIsMenuOpen(isOpen);
+        onMenuOpenChange?.(isOpen);
+      }}
+      renderTrigger={({ close, contentId, isOpen, open }) => {
+        closeMenuRef.current = close;
+
+        return (
+          <button
+            className="icon-button top-bar__history-button"
+            ref={triggerRef}
+            disabled={!canNavigate}
+            title={direction === 'back' ? t('address.backButtonTitle') : t('address.forwardButtonTitle')}
+            type="button"
+            aria-controls={isOpen ? contentId : undefined}
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
+            onClick={() => {
+              close();
+              onStep();
+            }}
+            onContextMenu={(event) => handleContextMenu(event, open)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' && canNavigate) {
+                event.preventDefault();
+                open();
+              }
+            }}
+          >
+            <Icon aria-hidden="true" size={20} strokeWidth={2} />
+            <span className="sr-only">{label}</span>
+          </button>
+        );
+      }}
     >
       {({ close }) => (
-        <div className="top-bar__history-menu">
+        <div className="top-bar__history-menu" ref={menuRef} onKeyDown={menuKeyboard.onKeyDown}>
           {items.map((item) => (
             <button
               className="top-bar__history-menu-item"
@@ -745,6 +780,7 @@ function BrowserTabs({
     tabId: string;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuFocusTargetRef = useRef<HTMLElement | null>(null);
   const suppressedClickTabIdRef = useRef<string | null>(null);
   const tabStripRef = useRef<HTMLDivElement>(null);
   const tabElementsRef = useRef(new Map<string, HTMLDivElement>());
@@ -754,6 +790,12 @@ function BrowserTabs({
   const contextMenuTab = contextMenuTabIndex === -1 ? null : tabs[contextMenuTabIndex];
   const hasTabsToRight = contextMenuTabIndex !== -1 && contextMenuTabIndex < tabs.length - 1;
   const hasOtherTabs = contextMenuTabIndex !== -1 && tabs.length > 1;
+  const tabMenuKeyboard = useMenuKeyboard({
+    getFocusAfterEscape: () => contextMenuFocusTargetRef.current,
+    isOpen: !!contextMenu,
+    menuRef: contextMenuRef,
+    onClose: () => setContextMenu(null),
+  });
 
   useEffect(() => {
     if (!contextMenu) {
@@ -973,10 +1015,12 @@ function BrowserTabs({
     clearDragState(event, true);
   }
 
-  function handleTabContextMenu(event: MouseEvent<HTMLDivElement>, tabId: string) {
-    event.preventDefault();
-    clearDragState();
-
+  function openTabContextMenuAt(
+    tabId: string,
+    clientX: number,
+    clientY: number,
+    focusTarget: HTMLElement | null,
+  ) {
     // The menu is sized in em (15em wide), so estimate its bounds from the scaled root font size.
     const rootFontSizePx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const menuWidth = 15 * rootFontSizePx;
@@ -985,11 +1029,23 @@ function BrowserTabs({
     const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
     const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
 
+    contextMenuFocusTargetRef.current = focusTarget;
     setContextMenu({
       tabId,
-      x: Math.max(margin, Math.min(event.clientX, maxX)),
-      y: Math.max(margin, Math.min(event.clientY, maxY)),
+      x: Math.max(margin, Math.min(clientX, maxX)),
+      y: Math.max(margin, Math.min(clientY, maxY)),
     });
+  }
+
+  function handleTabContextMenu(event: MouseEvent<HTMLDivElement>, tabId: string) {
+    event.preventDefault();
+    clearDragState();
+    openTabContextMenuAt(
+      tabId,
+      event.clientX,
+      event.clientY,
+      event.currentTarget.querySelector<HTMLButtonElement>('.top-bar__tab-select'),
+    );
   }
 
   function runTabMenuCommand(command: () => void | Promise<void>) {
@@ -1013,6 +1069,13 @@ function BrowserTabs({
   // Browser-style Left/Right (and Home/End) move focus between tab buttons while
   // focus is in the tab strip. Focus only — Enter/Space still activates the tab.
   function handleTabSelectKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      openTabContextMenuAt(tabId, bounds.left, bounds.bottom, event.currentTarget);
+      return;
+    }
+
     const currentIndex = tabs.findIndex((tab) => tab.id === tabId);
 
     if (currentIndex === -1) {
@@ -1140,6 +1203,7 @@ function BrowserTabs({
           ref={contextMenuRef}
           role="menu"
           aria-label={t('tabs.contextMenuLabel', { label: contextMenuTab.label })}
+          onKeyDown={tabMenuKeyboard.onKeyDown}
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
@@ -1255,7 +1319,7 @@ export function TopBar({
   onMoveTabToNewWindow,
   onAccountsStateChange,
   onNavigate,
-  onNodeAvailable,
+  onNodeReachabilityChange,
   onOpenSettings,
   onOverlayOpenChange,
   onPinTabToDashboard,
@@ -1705,7 +1769,7 @@ export function TopBar({
       <NodeStatusButton
         nodeSettings={nodeSettings}
         onMenuOpenChange={setNodeMenuOpen}
-        onNodeAvailable={onNodeAvailable}
+        onNodeReachabilityChange={onNodeReachabilityChange}
         onOpenSettings={onOpenSettings}
         onResolvedNodeApiUrl={onResolvedNodeApiUrl}
       />

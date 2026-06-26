@@ -122,6 +122,7 @@ export const ar: Record<TranslationKey, string> = {
   "common.loading": "جارٍ التحميل",
   "common.loadingWindow": "جارٍ تحميل النافذة…",
   "common.lock": "قفل",
+  "common.locking": "جارٍ القفل",
   "common.name": "الاسم",
   "common.no": "لا",
   "common.notInstalled": "غير مثبَّت",

@@ -832,10 +832,12 @@ export function AccountsPanel({
       ) : null}
 
       {visibleAccountError ? (
-        <p className="accounts-panel__message accounts-panel__message--error">{visibleAccountError}</p>
+        <p className="accounts-panel__message accounts-panel__message--error" role="alert">{visibleAccountError}</p>
       ) : null}
       {accountNotice ? (
-        <p className="accounts-panel__message">{accountNotice}</p>
+        <p className="accounts-panel__message" role="status" aria-live="polite">
+          {accountNotice}
+        </p>
       ) : null}
 
       {isCreateDialogOpen ? (
@@ -877,7 +879,7 @@ export function AccountsPanel({
               />
             </label>
             {createError ? (
-              <p className="accounts-panel__message accounts-panel__message--error">{createError}</p>
+              <p className="accounts-panel__message accounts-panel__message--error" role="alert">{createError}</p>
             ) : null}
             <div className="unlock-dialog__actions">
               <button
@@ -948,7 +950,7 @@ export function AccountsPanel({
               />
             </label>
             {importError ? (
-              <p className="accounts-panel__message accounts-panel__message--error">{importError}</p>
+              <p className="accounts-panel__message accounts-panel__message--error" role="alert">{importError}</p>
             ) : null}
             <div className="unlock-dialog__actions">
               <button
@@ -989,7 +991,7 @@ export function AccountsPanel({
               />
             </label>
             {loadNameError ? (
-              <p className="accounts-panel__message accounts-panel__message--error">{loadNameError}</p>
+              <p className="accounts-panel__message accounts-panel__message--error" role="alert">{loadNameError}</p>
             ) : null}
             <div className="unlock-dialog__actions">
               <button
@@ -1031,7 +1033,7 @@ export function AccountsPanel({
               />
             </label>
             {unlockError ? (
-              <p className="accounts-panel__message accounts-panel__message--error">{unlockError}</p>
+              <p className="accounts-panel__message accounts-panel__message--error" role="alert">{unlockError}</p>
             ) : null}
             <div className="unlock-dialog__actions">
               <button
@@ -1075,7 +1077,7 @@ export function AccountsPanel({
               </label>
             ) : null}
             {removeError ? (
-              <p className="accounts-panel__message accounts-panel__message--error">{removeError}</p>
+              <p className="accounts-panel__message accounts-panel__message--error" role="alert">{removeError}</p>
             ) : null}
             <div className="unlock-dialog__actions">
               <button

@@ -1323,12 +1323,14 @@ h1 {
 
 .segmented-control--accent {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
+/* Fixed-ish basis + min-width so the 26px swatch (plus padding) never gets crushed;
+   wraps to a second row on narrow widths instead of overflowing/clipping. */
 .segmented-control--accent .segmented-control__option {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 44px;
+  min-width: 44px;
 }
 
 .segmented-control__option {
@@ -1408,7 +1410,7 @@ h1 {
 }
 
 .button:hover:not(:disabled),
-.button:focus-visible {
+.button:focus-visible:not(:disabled) {
   background: var(--color-control-hover);
   border-color: var(--color-border-strong);
   outline: none;
@@ -1424,8 +1426,8 @@ h1 {
   transform: translateY(0);
 }
 
-.button:focus-visible,
-.icon-button:focus-visible {
+.button:focus-visible:not(:disabled),
+.icon-button:focus-visible:not(:disabled) {
   box-shadow: 0 0 0 3px var(--color-accent-ring);
 }
 
@@ -1464,6 +1466,13 @@ h1 {
   border-color: var(--color-border);
   cursor: not-allowed;
   opacity: 1;
+  /* Apply the disabled look INSTANTLY. The 170ms color/background/border/box-shadow
+     transition runs on the main thread; a busy action (e.g. wallet unlock KDF) can
+     stall the main thread and freeze the button mid-fade between the primary look and
+     this disabled look — leaving illegible grey/near-white text on the half-faded
+     accent gradient. No transition = the first paint is already the final readable
+     state, so there is nothing to freeze. */
+  transition: none;
 }
 
 .button__spinner {
@@ -1490,14 +1499,14 @@ h1 {
 }
 
 .button--primary:hover:not(:disabled),
-.button--primary:focus-visible {
+.button--primary:focus-visible:not(:disabled) {
   color: var(--color-accent-contrast);
   background: var(--gradient-primary-hover);
   border-color: var(--color-accent-strong);
   box-shadow: var(--shadow-primary-button-hover);
 }
 
-.button--primary:focus-visible {
+.button--primary:focus-visible:not(:disabled) {
   box-shadow: var(--shadow-primary-button-hover), 0 0 0 3px var(--color-accent-ring);
 }
 
@@ -1506,7 +1515,24 @@ h1 {
   box-shadow: var(--shadow-primary-button-active);
 }
 
+/* A focused button that becomes disabled (e.g. the "Unlocking" submit button) kept
+   matching :focus-visible above, which re-applied the accent gradient + accent-contrast
+   text — illegible (black-on-green in dark themes, white-on-light in light themes).
+   The :not(:disabled) guards above stop that; this forces the readable neutral disabled
+   treatment to win for primary/danger regardless of focus or source order. */
 .button--primary:disabled {
+  color: var(--color-text-secondary);
+  /* Faint accent tint so a disabled primary stays distinguishable from a neutral
+     disabled button; the muted text remains AA-legible on the soft tint. */
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  box-shadow: none;
+}
+
+.button--danger:disabled {
+  color: var(--color-text-secondary);
+  background: var(--color-control-bg);
+  border-color: var(--color-danger);
   box-shadow: none;
 }
 
@@ -1530,7 +1556,7 @@ h1 {
 }
 
 .icon-button:hover:not(:disabled),
-.icon-button:focus-visible {
+.icon-button:focus-visible:not(:disabled) {
   background: var(--color-control-hover);
   border-color: var(--color-border-strong);
   outline: none;
@@ -1542,6 +1568,10 @@ h1 {
   border-color: var(--color-border);
   cursor: not-allowed;
   opacity: 1;
+  /* Same fix as .button:disabled — icon-buttons are disabled during busy work
+     (export/remove/add-address) and have distinct base colors (info/danger/warning);
+     a main-thread stall must not freeze them mid-fade. Paint the disabled look instantly. */
+  transition: none;
 }
 
 .accounts-panel {
@@ -1862,6 +1892,21 @@ h1 {
   box-shadow: 0 0 0 3px var(--color-accent-ring);
 }
 
+/* Mirror .button:disabled so busy/disabled selects and inputs (e.g. the dashboard
+   node-mode / transport dropdown while a change applies, the unlock password field)
+   keep the same AA-verified disabled treatment instead of leaving it to the UA. */
+.select:disabled,
+.field__input:disabled {
+  color: var(--color-text-secondary);
+  background: var(--color-control-bg);
+  border-color: var(--color-border);
+  cursor: not-allowed;
+  opacity: 1;
+  /* Instant disabled state — see .button:disabled (avoids a main-thread-stalled
+     transition freezing the control mid-fade). */
+  transition: none;
+}
+
 .field__hint {
   color: var(--color-text-subtle);
   font-size: var(--font-size-small);
@@ -2121,6 +2166,9 @@ h1 {
 .top-bar__tab-menu-item:disabled {
   color: var(--color-text-secondary);
   cursor: default;
+  /* Consistency with .button:disabled — paint the disabled state instantly so a
+     main-thread stall can't freeze the color mid-fade. */
+  transition: none;
 }
 
 .top-bar__tab-menu-separator {
@@ -2503,6 +2551,9 @@ h1 {
   z-index: 10;
 }
 
+/* Just the core-status mark — no bounded control box — so the glyph can be larger
+   and read as a status icon rather than a button. A 40px footprint is kept as an
+   (invisible) tap area, so there's no layout shift and it stays easy to hit. */
 .node-status__button {
   transition: var(--transition-control);
   position: relative;
@@ -2512,17 +2563,19 @@ h1 {
   place-items: center;
   padding: 0;
   color: var(--color-text);
-  background: var(--color-control-bg);
-  border: 1px solid var(--color-border);
+  background: none;
+  border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
 }
 
-.node-status__button:hover,
+.node-status__button:hover {
+  transform: scale(1.1);
+}
+
 .node-status__button:focus-visible {
-  background: var(--color-control-hover);
-  border-color: var(--color-border-strong);
   outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
 }
 
 .node-status__button--behind,
@@ -2633,23 +2686,29 @@ h1 {
   line-height: var(--line-height-small);
 }
 
-/* The node-mode dropdown shares the Core tile's action row with Start/Stop.
-   Let it grow to absorb the row's free space (so its text is never truncated
-   while space sits unused next to it), but keep a small flex-basis so it never
-   forces the buttons onto a second row — the buttons keep their intrinsic width
-   (flex-shrink: 0 below) and the dropdown yields first. */
+/* The node-mode dropdown shares the Core tile's action row with the action buttons.
+   It is bounded — it does NOT grow: a content-friendly min-width keeps the selected
+   option label readable, while not growing means it can't widen and shove the
+   Install/Start/Stop buttons onto extra rows. With the row's flex-wrap, items wrap
+   as a group only when the width genuinely runs out. */
 .dashboard-card__node-mode {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   width: auto;
-  min-width: 120px;
+  min-width: 11rem;
+  max-width: 100%;
+  /* Keep the dropdown left-aligned; the auto end-margin absorbs the row's free space
+     so the action buttons (Install / Start / Stop) sit at the right edge. */
+  margin-inline-end: auto;
 }
 
 /* The transport dropdown on the Home tile is wrapped in .transport-control, so the
-   wrapper (not the inner select) is the flex item; grow it the same way. The inner
+   wrapper (not the inner select) is the flex item; bound it the same way. The inner
    select stretches to fill the wrapper (it is a grid item). */
 .dashboard-card__actions > .transport-control {
-  flex: 1 1 0;
-  min-width: 120px;
+  flex: 0 1 auto;
+  min-width: 11rem;
+  max-width: 100%;
+  margin-inline-end: auto;
 }
 
 /* Buttons (and the router-button wrapper) keep their intrinsic width so the
@@ -3864,12 +3923,26 @@ h1 {
 
 @media (pointer: coarse) {
   .top-bar__tab {
-    grid-template-columns: minmax(0, 1fr) 36px;
-    min-height: 40px;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    min-height: 44px;
   }
 
-  .top-bar__new-tab {
-    height: 40px;
+  /* Touch has no hover, so the inactive-tab close button (hover-revealed on
+     desktop) must stay reachable. */
+  .top-bar__tab-close {
+    visibility: visible;
+  }
+
+  /* Finger-friendly tap targets (>= 44px) for the top-bar controls. */
+  .top-bar__new-tab,
+  .top-bar__history .top-bar__history-button,
+  .top-bar__reload-button,
+  .top-bar__go-button,
+  .account-chip,
+  .node-status__button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 
   .dashboard-card__refresh,

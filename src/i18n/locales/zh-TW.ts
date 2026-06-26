@@ -122,6 +122,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "common.loading": "載入中",
   "common.loadingWindow": "正在載入視窗…",
   "common.lock": "鎖定",
+  "common.locking": "鎖定中",
   "common.name": "名稱",
   "common.no": "否",
   "common.notInstalled": "未安裝",

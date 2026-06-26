@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n';
 import { buildAllowedTransports, type TransportState } from './i2p';
 import type { useI2pConnections } from './i2pState';
@@ -84,6 +84,7 @@ export function TransportModeSelect({
   const [isApplying, setIsApplying] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const restartRefreshTimeoutRef = useRef<number | null>(null);
 
   const activeMode = status ? currentMode(status.transport) : null;
 
@@ -94,6 +95,14 @@ export function TransportModeSelect({
       setSelectedMode(activeMode);
     }
   }, [activeMode]);
+
+  useEffect(() => {
+    return () => {
+      if (restartRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(restartRefreshTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (!status) {
     return null;
@@ -115,12 +124,17 @@ export function TransportModeSelect({
         await manager.disable();
       }
       setIsRestarting(true);
-      window.setTimeout(() => {
+      if (restartRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(restartRefreshTimeoutRef.current);
+      }
+      restartRefreshTimeoutRef.current = window.setTimeout(() => {
+        restartRefreshTimeoutRef.current = null;
         setIsRestarting(false);
         connections.refresh();
       }, RESTART_REFRESH_DELAY_MS);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
+      setSelectedMode(activeMode);
     } finally {
       setIsApplying(false);
     }
@@ -199,6 +213,19 @@ export function I2pRouterButton({
 
   const isManaged = manager.status?.mode === 'managed';
   const isExternal = manager.status?.mode === 'external';
+  const hasBusyMessage = manager.isBusy && !!manager.progress;
+  const hasError = !!manager.error;
+  const detailRows = [{ label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) }];
+  if (isExternal && manager.status?.externalBinaryPath) {
+    detailRows.push({ label: t('core.folderLabel'), value: manager.status.externalBinaryPath });
+  }
+
+  // On the compact dashboard control (showStatus=false) an external router has no
+  // button, status row, busy message or error to show — render nothing rather than
+  // an empty .i2p-router-control, which would otherwise leave a phantom flex slot.
+  if (isExternal && !showStatus && !hasBusyMessage && !hasError) {
+    return null;
+  }
 
   async function toggle() {
     if (isManaged) {
@@ -213,10 +240,7 @@ export function I2pRouterButton({
   return (
     <div className="i2p-router-control">
       {showStatus ? (
-        <DetailList
-          className="connections__details"
-          rows={[{ label: t('connections.routerLabel'), value: getRouterStateLabel(manager.status) }]}
-        />
+        <DetailList className="connections__details" rows={detailRows} />
       ) : null}
       {isExternal ? null : (
         <button

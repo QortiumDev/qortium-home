@@ -249,6 +249,7 @@ type QortiumI2pdStatus = {
   samHost: string;
   samPort: number;
   binaryPath: string | null;
+  externalBinaryPath: string | null;
 };
 
 type QortiumAppUpdateChannel = 'prerelease' | 'stable';

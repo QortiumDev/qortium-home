@@ -122,6 +122,7 @@ export const sv: Record<TranslationKey, string> = {
   "common.loading": "Läser in",
   "common.loadingWindow": "Läser in fönster…",
   "common.lock": "Lås",
+  "common.locking": "Låser",
   "common.name": "Namn",
   "common.no": "Nej",
   "common.notInstalled": "Inte installerad",

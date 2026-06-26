@@ -122,6 +122,7 @@ export const nb: Record<TranslationKey, string> = {
   "common.loading": "Laster inn",
   "common.loadingWindow": "Laster inn vindu…",
   "common.lock": "Lås",
+  "common.locking": "Låser",
   "common.name": "Navn",
   "common.no": "Nei",
   "common.notInstalled": "Ikke installert",

@@ -122,6 +122,7 @@ export const nl: Record<TranslationKey, string> = {
   "common.loading": "Bezig met laden",
   "common.loadingWindow": "Venster laden…",
   "common.lock": "Vergrendelen",
+  "common.locking": "Bezig met vergrendelen",
   "common.name": "Naam",
   "common.no": "Nee",
   "common.notInstalled": "Niet geïnstalleerd",

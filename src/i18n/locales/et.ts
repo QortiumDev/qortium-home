@@ -122,6 +122,7 @@ export const et: Record<TranslationKey, string> = {
   "common.loading": "Laadimine",
   "common.loadingWindow": "Akna laadimine…",
   "common.lock": "Lukusta",
+  "common.locking": "Lukustamine",
   "common.name": "Nimi",
   "common.no": "Ei",
   "common.notInstalled": "Paigaldamata",

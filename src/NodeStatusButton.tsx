@@ -71,6 +71,7 @@ type NodeStatusButtonProps = {
   nodeSettings: QortiumNodeSettings;
   onMenuOpenChange?: (isOpen: boolean) => void;
   onNodeAvailable?: () => void;
+  onNodeReachabilityChange?: (reachable: boolean) => void;
   onOpenSettings: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
 };
@@ -212,20 +213,34 @@ export function NodeStatusButton({
   nodeSettings,
   onMenuOpenChange,
   onNodeAvailable,
+  onNodeReachabilityChange,
   onOpenSettings,
   onResolvedNodeApiUrl,
 }: NodeStatusButtonProps) {
   const [nodeStatus, setNodeStatus] = useState<NodeStatusState>({ state: 'loading' });
   const wasUnavailableRef = useRef(false);
+  const lastReachableRef = useRef<boolean | null>(null);
   const onNodeAvailableRef = useRef(onNodeAvailable);
+  const onNodeReachabilityChangeRef = useRef(onNodeReachabilityChange);
   const popoverId = 'node-status-details';
 
   onNodeAvailableRef.current = onNodeAvailable;
+  onNodeReachabilityChangeRef.current = onNodeReachabilityChange;
 
   useEffect(() => {
     let isMounted = true;
 
     setNodeStatus({ state: 'loading' });
+
+    function reportReachability(reachable: boolean) {
+      const previousReachable = lastReachableRef.current;
+
+      lastReachableRef.current = reachable;
+
+      if (previousReachable !== null && previousReachable !== reachable) {
+        onNodeReachabilityChangeRef.current?.(reachable);
+      }
+    }
 
     async function loadNodeStatus() {
       try {
@@ -238,6 +253,7 @@ export function NodeStatusButton({
         if (result.ok && isNodeStatusResponse(result.status)) {
           onResolvedNodeApiUrl(result.nodeApiUrl);
           setNodeStatus({ state: 'available', data: result.status, nodeApiUrl: result.nodeApiUrl });
+          reportReachability(true);
 
           // Tell the app when the node recovers, so node-derived data loaded
           // while it was unreachable can be refreshed.
@@ -249,6 +265,7 @@ export function NodeStatusButton({
         }
 
         wasUnavailableRef.current = true;
+        reportReachability(false);
         setNodeStatus({
           state: 'unavailable',
           nodeApiUrl: result.nodeApiUrl,
@@ -257,6 +274,7 @@ export function NodeStatusButton({
       } catch (error) {
         if (isMounted) {
           wasUnavailableRef.current = true;
+          reportReachability(false);
           setNodeStatus({
             state: 'unavailable',
             message: formatError(error),
@@ -337,7 +355,7 @@ export function NodeStatusButton({
           aria-haspopup="dialog"
           onClick={toggle}
         >
-          <CoreMarkIcon size={26} variant={DISPLAY_STATUS_MARKS[displayStatus]} />
+          <CoreMarkIcon size={32} variant={DISPLAY_STATUS_MARKS[displayStatus]} />
           <span className="node-status__dot" aria-hidden="true" />
           {isNetworkMode ? (
             <span className="node-status__network-badge" title={t('node.networkBadge')}>

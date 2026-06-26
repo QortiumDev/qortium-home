@@ -40,11 +40,13 @@ import {
   type DetailRow,
 } from './releaseDisplay';
 import type { SettingsSectionId } from './SettingsPage';
+import { useMenuKeyboard } from './useMenuKeyboard';
 
 type DashboardPageProps = {
   accountsError: string;
   accountsState: QortiumAccountsState;
   appUpdates: AppUpdatesState;
+  connectionRefreshEpoch: number;
   coreManager: CoreManagerState;
   dashboardPins: DashboardPin[];
   isLoadingAccounts: boolean;
@@ -200,6 +202,7 @@ function getCoreRows({
 
 function ManagedCoreDashboardCard({
   coreManager,
+  connectionRefreshEpoch,
   nodeApiUrl,
   nodeSettings,
   onChainCoreUpdate,
@@ -208,6 +211,7 @@ function ManagedCoreDashboardCard({
   onSaveNodeSettings,
 }: {
   coreManager: CoreManagerState;
+  connectionRefreshEpoch: number;
   nodeApiUrl: string;
   nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
@@ -215,7 +219,7 @@ function ManagedCoreDashboardCard({
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 }) {
-  const connections = useI2pConnections(nodeApiUrl);
+  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const transports = connections.status
     ? connections.status.transport.effectiveTransports.join(', ')
     : connections.isUnavailable
@@ -224,10 +228,6 @@ function ManagedCoreDashboardCard({
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
   const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
-  const showOnChainInstallAction =
-    !!onChainStatus?.updateAvailable &&
-    onChainStatus.autoUpdateMode !== 'INSTALL' &&
-    !onChainInstallAttemptActive;
   const releaseTarget = getPreferredCoreReleaseTarget({
     releases: coreManager.releases,
     status: coreManager.status,
@@ -238,11 +238,20 @@ function ManagedCoreDashboardCard({
       : releaseTarget?.channel === 'prerelease'
         ? coreManager.prereleaseUpdateAvailable
         : false;
-  const showReleaseUpdateAction =
+  // Mirror the Settings → Qortium Core gating so the dashboard tile is never a
+  // dead-end when Core isn't installed: offer Install Java first, then Install Core
+  // (fresh install OR update), and only surface Start/Stop once Java is present.
+  const showJavaAction = coreManager.canInstallJava;
+  const showOnChainInstallAction =
+    !showJavaAction &&
+    !!onChainStatus?.updateAvailable &&
+    onChainStatus.autoUpdateMode !== 'INSTALL' &&
+    !onChainInstallAttemptActive;
+  const showCoreInstallAction =
+    !showJavaAction &&
     !showOnChainInstallAction &&
-    !!coreManager.status?.installed &&
     !!releaseTarget &&
-    releaseTargetUpdateAvailable;
+    (!coreManager.status?.installed || releaseTargetUpdateAvailable);
   const releaseTargetBusyAction = getCoreReleaseBusyAction(releaseTarget?.channel);
   const language = getTranslationLanguage();
   const rows = useMemo(
@@ -267,7 +276,7 @@ function ManagedCoreDashboardCard({
       transports,
     ],
   );
-  const runtimeAction = getCoreRuntimeAction(coreManager);
+  const runtimeAction = getCoreRuntimeAction(coreManager, showJavaAction);
 
   if (!coreManager.coreApi) {
     return null;
@@ -292,7 +301,7 @@ function ManagedCoreDashboardCard({
           <div className="core-manager__progress-bar" aria-hidden="true">
             <span style={{ width: `${coreManager.progressPercent ?? 100}%` }} />
           </div>
-          <span className="core-manager__progress-text">
+          <span className="core-manager__progress-text" role="status" aria-live="polite">
             {coreManager.progressPercent === null
               ? coreManager.progress.message
               : t('common.progressWithPercent', {
@@ -310,6 +319,17 @@ function ManagedCoreDashboardCard({
           onResolvedNodeApiUrl={onResolvedNodeApiUrl}
           onSaveNodeSettings={onSaveNodeSettings}
         />
+        {showJavaAction ? (
+          <button
+            className="button"
+            disabled={coreManager.isBusy}
+            type="button"
+            onClick={coreManager.installJava}
+          >
+            <Download aria-hidden="true" size={18} strokeWidth={2} />
+            {coreManager.busyAction === 'installing-java' ? t('common.installing') : t('core.installJava')}
+          </button>
+        ) : null}
         {showOnChainInstallAction ? (
           <button
             className="button"
@@ -323,7 +343,7 @@ function ManagedCoreDashboardCard({
               : t('core.installApprovedUpdate')}
           </button>
         ) : null}
-        {showReleaseUpdateAction && releaseTarget ? (
+        {showCoreInstallAction && releaseTarget ? (
           <button
             className="button"
             disabled={coreManager.isBusy}
@@ -335,7 +355,9 @@ function ManagedCoreDashboardCard({
               ? t('common.updating')
               : coreManager.busyAction === releaseTargetBusyAction
                 ? t('common.installing')
-                : t('updates.installUpdate')}
+                : coreManager.status?.installed
+                  ? t('updates.installUpdate')
+                  : t('core.installCore')}
           </button>
         ) : null}
         {runtimeAction ? (
@@ -388,18 +410,20 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 
 function HomeUpdateDashboardCard({
   canManageTransports,
+  connectionRefreshEpoch,
   isManagedNode,
   nodeApiUrl,
   updates,
   onOpenSettingsSection,
 }: {
   canManageTransports: boolean;
+  connectionRefreshEpoch: number;
   isManagedNode: boolean;
   nodeApiUrl: string;
   updates: AppUpdatesState;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
 }) {
-  const connections = useI2pConnections(nodeApiUrl);
+  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const i2pdManager = useI2pdManager(isManagedNode);
   const rows = getHomeUpdateRows(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
@@ -557,6 +581,7 @@ function DashboardPins({
   const suppressedClickPinIdRef = useRef<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuFocusTargetRef = useRef<HTMLElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const iconResolutions = useMemo(() => {
@@ -738,12 +763,12 @@ function DashboardPins({
     }
   }, [renamingPinId]);
 
-  // Move focus into the context menu when it opens, for keyboard / screen-reader users.
-  useEffect(() => {
-    if (contextMenu) {
-      contextMenuRef.current?.querySelector<HTMLButtonElement>('.dashboard-pin__menu-item')?.focus();
-    }
-  }, [contextMenu]);
+  const contextMenuKeyboard = useMenuKeyboard({
+    getFocusAfterEscape: () => contextMenuFocusTargetRef.current,
+    isOpen: !!contextMenu,
+    menuRef: contextMenuRef,
+    onClose: () => setContextMenu(null),
+  });
 
   // Cancel a pending long-press timer when unmounting so it can't run after disposal.
   useEffect(() => () => clearLongPressTimer(), []);
@@ -899,7 +924,12 @@ function DashboardPins({
     scheduleSuppressionClear();
   }
 
-  function openContextMenuAt(pinId: string, clientX: number, clientY: number) {
+  function openContextMenuAt(
+    pinId: string,
+    clientX: number,
+    clientY: number,
+    focusTarget: HTMLElement | null = null,
+  ) {
     const rootFontSizePx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const menuWidth = 12 * rootFontSizePx;
     const menuHeight = 6 * rootFontSizePx;
@@ -907,6 +937,7 @@ function DashboardPins({
     const maxX = Math.max(margin, window.innerWidth - menuWidth - margin);
     const maxY = Math.max(margin, window.innerHeight - menuHeight - margin);
 
+    contextMenuFocusTargetRef.current = focusTarget;
     setContextMenu({
       pinId,
       x: Math.max(margin, Math.min(clientX, maxX)),
@@ -1019,7 +1050,12 @@ function DashboardPins({
         dragStateRef.current = null;
         setDraggedPinId(null);
         clearLongPressTimer();
-        openContextMenuAt(pinId, clientX, clientY);
+        openContextMenuAt(
+          pinId,
+          clientX,
+          clientY,
+          pinElementsRef.current.get(pinId)?.querySelector<HTMLButtonElement>('.dashboard-pin__tile') ?? null,
+        );
       }
     }, PIN_LONG_PRESS_MS);
   }
@@ -1113,7 +1149,12 @@ function DashboardPins({
 
     event.preventDefault();
     finishDrag(false);
-    openContextMenuAt(pinId, event.clientX, event.clientY);
+    openContextMenuAt(
+      pinId,
+      event.clientX,
+      event.clientY,
+      event.currentTarget.querySelector<HTMLButtonElement>('.dashboard-pin__tile'),
+    );
   }
 
   function handleOpen(pin: DashboardPin) {
@@ -1194,7 +1235,7 @@ function DashboardPins({
                   if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
                     event.preventDefault();
                     const bounds = event.currentTarget.getBoundingClientRect();
-                    openContextMenuAt(pin.id, bounds.left, bounds.bottom);
+                    openContextMenuAt(pin.id, bounds.left, bounds.bottom, event.currentTarget);
                   }
                 }}
               >
@@ -1241,6 +1282,7 @@ function DashboardPins({
           ref={contextMenuRef}
           role="menu"
           aria-label={t('dashboard.pinMenuLabel')}
+          onKeyDown={contextMenuKeyboard.onKeyDown}
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
@@ -1274,6 +1316,7 @@ export function DashboardPage({
   accountsError,
   accountsState,
   appUpdates,
+  connectionRefreshEpoch,
   coreManager,
   dashboardPins,
   isLoadingAccounts,
@@ -1349,6 +1392,7 @@ export function DashboardPage({
       <div className={`dashboard-page__grid${hasManagedCore ? '' : ' dashboard-page__grid--single'}`}>
         {hasManagedCore ? (
           <ManagedCoreDashboardCard
+            connectionRefreshEpoch={connectionRefreshEpoch}
             coreManager={coreManager}
             nodeApiUrl={nodeApiUrl}
             nodeSettings={nodeSettings}
@@ -1360,6 +1404,7 @@ export function DashboardPage({
         ) : null}
         <HomeUpdateDashboardCard
           canManageTransports={nodeSettings.mode !== 'network'}
+          connectionRefreshEpoch={connectionRefreshEpoch}
           isManagedNode={nodeSettings.mode === 'local'}
           nodeApiUrl={nodeApiUrl}
           updates={appUpdates}

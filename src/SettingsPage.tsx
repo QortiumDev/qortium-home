@@ -21,6 +21,7 @@ export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
 type SettingsPageProps = {
   appUpdates: AppUpdatesState;
+  connectionRefreshEpoch: number;
   coreManager: CoreManagerState;
   displaySettings: DisplaySettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
@@ -37,6 +38,7 @@ type SettingsPageProps = {
 
 export function SettingsPage({
   appUpdates,
+  connectionRefreshEpoch,
   coreManager,
   displaySettings,
   nodeSettings,
@@ -87,6 +89,7 @@ export function SettingsPage({
           </SettingsSection>
         )}
         <CoreManagerPanel
+          connectionRefreshEpoch={connectionRefreshEpoch}
           coreManager={coreManager}
           isExpanded={sectionExpansion.core}
           nodeSettings={nodeSettings}
@@ -96,6 +99,7 @@ export function SettingsPage({
           onSaveNodeSettings={onSaveNodeSettings}
         />
         <AppUpdatePanel
+          connectionRefreshEpoch={connectionRefreshEpoch}
           isExpanded={sectionExpansion.home}
           isManagedNode={nodeSettings.mode === 'local'}
           nodeApiUrl={nodeSettings.nodeApiUrl}

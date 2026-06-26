@@ -122,6 +122,7 @@ export const he: Record<TranslationKey, string> = {
   "common.loading": "טוען",
   "common.loadingWindow": "טוען חלון…",
   "common.lock": "נעילה",
+  "common.locking": "נועל",
   "common.name": "שם",
   "common.no": "לא",
   "common.notInstalled": "לא מותקן",

@@ -122,6 +122,7 @@ export const hi: Record<TranslationKey, string> = {
   "common.loading": "लोड हो रहा है",
   "common.loadingWindow": "विंडो लोड हो रही है…",
   "common.lock": "लॉक करें",
+  "common.locking": "लॉक हो रहा है",
   "common.name": "नाम",
   "common.no": "नहीं",
   "common.notInstalled": "इंस्टॉल नहीं है",

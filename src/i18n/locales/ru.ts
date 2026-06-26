@@ -122,6 +122,7 @@ export const ru: Record<TranslationKey, string> = {
   "common.loading": "Загрузка",
   "common.loadingWindow": "Загрузка окна…",
   "common.lock": "Заблокировать",
+  "common.locking": "Блокировка",
   "common.name": "Имя",
   "common.no": "Нет",
   "common.notInstalled": "Не установлен",

@@ -122,6 +122,7 @@ export const pl: Record<TranslationKey, string> = {
   "common.loading": "Wczytywanie",
   "common.loadingWindow": "Wczytywanie okna…",
   "common.lock": "Zablokuj",
+  "common.locking": "Blokowanie",
   "common.name": "Nazwa",
   "common.no": "Nie",
   "common.notInstalled": "Nie zainstalowano",

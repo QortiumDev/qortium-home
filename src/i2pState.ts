@@ -11,7 +11,7 @@ export type I2pConnectionsState = {
 
 // Reads the node's I2P transport status (config + live peer transports) and
 // refreshes when the node connection changes or refresh() is called.
-export function useI2pConnections(nodeApiUrl: string): I2pConnectionsState {
+export function useI2pConnections(nodeApiUrl: string, nodeEpoch = 0): I2pConnectionsState {
   const [status, setStatus] = useState<I2pStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnavailable, setIsUnavailable] = useState(false);
@@ -44,7 +44,7 @@ export function useI2pConnections(nodeApiUrl: string): I2pConnectionsState {
     return () => {
       cancelled = true;
     };
-  }, [nodeApiUrl, refreshToken]);
+  }, [nodeApiUrl, nodeEpoch, refreshToken]);
 
   return { status, isLoading, isUnavailable, refresh };
 }

@@ -120,6 +120,7 @@ export const en = {
   "common.loading": "Loading",
   "common.loadingWindow": "Loading window…",
   "common.lock": "Lock",
+  "common.locking": "Locking",
   "common.name": "Name",
   "common.no": "No",
   "common.notInstalled": "Not installed",

@@ -82,6 +82,7 @@ export type I2pdStatus = {
   samHost: string;
   samPort: number;
   binaryPath: string | null;
+  externalBinaryPath: string | null;
 };
 
 type I2pdTarget = {
@@ -466,6 +467,34 @@ function isOurI2pd(pid: number): boolean {
   }
 }
 
+function findExternalI2pdBinaryPath(): string | null {
+  if (process.platform === 'win32') {
+    return null;
+  }
+
+  try {
+    const out = execFileSync('ps', ['-eo', 'args='], { encoding: 'utf8' });
+    const runtimePath = getI2pdRuntimePath();
+
+    for (const rawLine of out.split('\n')) {
+      const line = rawLine.trim();
+      if (!line || line.includes(runtimePath)) {
+        continue;
+      }
+
+      const match = line.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+      const binaryPath = match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+      if (binaryPath && path.basename(binaryPath).startsWith('i2pd')) {
+        return binaryPath;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 // The pid of the managed router we're responsible for: our live child, or an
 // orphan we previously spawned (recovered from the pidfile after a Home restart
 // or crash) so we can still stop it instead of treating it as someone else's.
@@ -498,6 +527,7 @@ export async function getStatus(): Promise<I2pdStatus> {
     samHost: DEFAULT_SAM_HOST,
     samPort: DEFAULT_SAM_PORT,
     binaryPath: installed?.binaryPath ?? null,
+    externalBinaryPath: mode === 'external' ? findExternalI2pdBinaryPath() : null,
   };
 }
 
