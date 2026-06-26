@@ -485,7 +485,11 @@ function AccountChip({
             <p className="account-menu__message">{t('account.selectWalletHint')}</p>
           )}
 
-          {accountError ? <p className="account-menu__message account-menu__message--error">{accountError}</p> : null}
+          {accountError ? (
+            <p className="account-menu__message account-menu__message--error" role="alert">
+              {accountError}
+            </p>
+          ) : null}
 
           {account && !account.isUnlocked ? (
             <form className="account-menu__unlock" onSubmit={(event) => void handleUnlockSubmit(event, close)}>
@@ -512,7 +516,7 @@ function AccountChip({
                 >
                   {t('common.cancel')}
                 </button>
-                <button className="button button--primary" disabled={isBusy} type="submit">
+                <button aria-busy={isBusy} className="button button--primary" disabled={isBusy} type="submit">
                   {isBusy ? (
                     <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
                   ) : (
@@ -524,13 +528,19 @@ function AccountChip({
             </form>
           ) : account ? (
             <div className="account-menu__actions">
-              <button className="button" disabled={isBusy} type="button" onClick={() => void handleLock(close)}>
+              <button
+                aria-busy={isBusy}
+                className="button"
+                disabled={isBusy}
+                type="button"
+                onClick={() => void handleLock(close)}
+              >
                 {isBusy ? (
                   <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
                 ) : (
                   <Lock aria-hidden="true" size={18} strokeWidth={2} />
                 )}
-                {isBusy ? t('common.updating') : t('common.lock')}
+                {isBusy ? t('common.locking') : t('common.lock')}
               </button>
             </div>
           ) : null}

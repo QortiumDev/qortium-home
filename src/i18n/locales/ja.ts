@@ -122,6 +122,7 @@ export const ja: Record<TranslationKey, string> = {
   "common.loading": "読み込み中",
   "common.loadingWindow": "ウィンドウを読み込み中…",
   "common.lock": "ロック",
+  "common.locking": "ロック中",
   "common.name": "名前",
   "common.no": "いいえ",
   "common.notInstalled": "未インストール",

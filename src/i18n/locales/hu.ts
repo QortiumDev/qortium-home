@@ -122,6 +122,7 @@ export const hu: Record<TranslationKey, string> = {
   "common.loading": "Betöltés",
   "common.loadingWindow": "Ablak betöltése…",
   "common.lock": "Zárolás",
+  "common.locking": "Zárolás folyamatban",
   "common.name": "Név",
   "common.no": "Nem",
   "common.notInstalled": "Nincs telepítve",

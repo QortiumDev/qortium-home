@@ -199,6 +199,15 @@ export function I2pRouterButton({
 
   const isManaged = manager.status?.mode === 'managed';
   const isExternal = manager.status?.mode === 'external';
+  const hasBusyMessage = manager.isBusy && !!manager.progress;
+  const hasError = !!manager.error;
+
+  // On the compact dashboard control (showStatus=false) an external router has no
+  // button, status row, busy message or error to show — render nothing rather than
+  // an empty .i2p-router-control, which would otherwise leave a phantom flex slot.
+  if (isExternal && !showStatus && !hasBusyMessage && !hasError) {
+    return null;
+  }
 
   async function toggle() {
     if (isManaged) {

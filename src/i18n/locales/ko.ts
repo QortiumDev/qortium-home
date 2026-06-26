@@ -122,6 +122,7 @@ export const ko: Record<TranslationKey, string> = {
   "common.loading": "불러오는 중",
   "common.loadingWindow": "창을 불러오는 중…",
   "common.lock": "잠금",
+  "common.locking": "잠금 중",
   "common.name": "이름",
   "common.no": "아니요",
   "common.notInstalled": "설치되지 않음",

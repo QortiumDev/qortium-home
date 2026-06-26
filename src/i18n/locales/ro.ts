@@ -122,6 +122,7 @@ export const ro: Record<TranslationKey, string> = {
   "common.loading": "Se încarcă",
   "common.loadingWindow": "Se încarcă fereastra…",
   "common.lock": "Blochează",
+  "common.locking": "Se blochează",
   "common.name": "Nume",
   "common.no": "Nu",
   "common.notInstalled": "Neinstalat",

@@ -122,6 +122,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "common.loading": "加载中",
   "common.loadingWindow": "正在加载窗口…",
   "common.lock": "锁定",
+  "common.locking": "锁定中",
   "common.name": "名称",
   "common.no": "否",
   "common.notInstalled": "未安装",

@@ -122,6 +122,7 @@ export const fr: Record<TranslationKey, string> = {
   "common.loading": "Chargement",
   "common.loadingWindow": "Chargement de la fenêtre…",
   "common.lock": "Verrouiller",
+  "common.locking": "Verrouillage",
   "common.name": "Nom",
   "common.no": "Non",
   "common.notInstalled": "Non installé",

@@ -122,6 +122,7 @@ export const fi: Record<TranslationKey, string> = {
   "common.loading": "Ladataan",
   "common.loadingWindow": "Ladataan ikkunaa…",
   "common.lock": "Lukitse",
+  "common.locking": "Lukitaan",
   "common.name": "Nimi",
   "common.no": "Ei",
   "common.notInstalled": "Ei asennettu",

@@ -1,5 +1,16 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
+
+// Mirrors ModalDialog's focusable set so an open popover (account menu, node menu,
+// history menu) can move focus in, trap Tab, and restore focus to its trigger.
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not(:disabled)',
+  'input:not(:disabled)',
+  'select:not(:disabled)',
+  'textarea:not(:disabled)',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
 
 type PopoverTriggerProps = {
   close: () => void;
@@ -36,6 +47,8 @@ export function Popover({
 }: PopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const onOpenChangeRef = useRef(onOpenChange);
 
   useEffect(() => {
@@ -82,6 +95,63 @@ export function Popover({
     };
   }, [isOpen]);
 
+  // On open, remember the trigger and move focus into the panel; on close, restore
+  // focus to the trigger — but only if focus is still inside the panel (or was
+  // dropped to <body>), so clicking onto another control isn't yanked back.
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const panel = panelRef.current;
+    panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    if (panel && !panel.contains(document.activeElement)) {
+      panel.focus();
+    }
+
+    return () => {
+      const previous = previouslyFocusedRef.current;
+      const active = document.activeElement;
+      if (previous && (active === document.body || panel?.contains(active ?? null))) {
+        previous.focus();
+      }
+    };
+  }, [isOpen]);
+
+  function trapTabKey(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const panel = panelRef.current;
+
+    if (!panel) {
+      return;
+    }
+
+    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey && (active === first || !panel.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   const popoverClassName = ['popover-panel', contentClassName].filter(Boolean).join(' ');
   const close = () => setIsOpen(false);
 
@@ -96,7 +166,15 @@ export function Popover({
       })}
 
       {isOpen ? (
-        <section className={popoverClassName} id={contentId} role={contentRole} aria-label={contentLabel}>
+        <section
+          className={popoverClassName}
+          id={contentId}
+          ref={panelRef}
+          role={contentRole}
+          aria-label={contentLabel}
+          tabIndex={-1}
+          onKeyDown={trapTabKey}
+        >
           {typeof children === 'function' ? children({ close }) : children}
         </section>
       ) : null}

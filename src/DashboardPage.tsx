@@ -224,10 +224,6 @@ function ManagedCoreDashboardCard({
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
   const onChainInstallAttemptActive = !!onChainStatus && isOnChainCoreUpdateAttemptActive(onChainStatus);
-  const showOnChainInstallAction =
-    !!onChainStatus?.updateAvailable &&
-    onChainStatus.autoUpdateMode !== 'INSTALL' &&
-    !onChainInstallAttemptActive;
   const releaseTarget = getPreferredCoreReleaseTarget({
     releases: coreManager.releases,
     status: coreManager.status,
@@ -238,11 +234,20 @@ function ManagedCoreDashboardCard({
       : releaseTarget?.channel === 'prerelease'
         ? coreManager.prereleaseUpdateAvailable
         : false;
-  const showReleaseUpdateAction =
+  // Mirror the Settings → Qortium Core gating so the dashboard tile is never a
+  // dead-end when Core isn't installed: offer Install Java first, then Install Core
+  // (fresh install OR update), and only surface Start/Stop once Java is present.
+  const showJavaAction = coreManager.canInstallJava;
+  const showOnChainInstallAction =
+    !showJavaAction &&
+    !!onChainStatus?.updateAvailable &&
+    onChainStatus.autoUpdateMode !== 'INSTALL' &&
+    !onChainInstallAttemptActive;
+  const showCoreInstallAction =
+    !showJavaAction &&
     !showOnChainInstallAction &&
-    !!coreManager.status?.installed &&
     !!releaseTarget &&
-    releaseTargetUpdateAvailable;
+    (!coreManager.status?.installed || releaseTargetUpdateAvailable);
   const releaseTargetBusyAction = getCoreReleaseBusyAction(releaseTarget?.channel);
   const language = getTranslationLanguage();
   const rows = useMemo(
@@ -267,7 +272,7 @@ function ManagedCoreDashboardCard({
       transports,
     ],
   );
-  const runtimeAction = getCoreRuntimeAction(coreManager);
+  const runtimeAction = getCoreRuntimeAction(coreManager, showJavaAction);
 
   if (!coreManager.coreApi) {
     return null;
@@ -292,7 +297,7 @@ function ManagedCoreDashboardCard({
           <div className="core-manager__progress-bar" aria-hidden="true">
             <span style={{ width: `${coreManager.progressPercent ?? 100}%` }} />
           </div>
-          <span className="core-manager__progress-text">
+          <span className="core-manager__progress-text" role="status" aria-live="polite">
             {coreManager.progressPercent === null
               ? coreManager.progress.message
               : t('common.progressWithPercent', {
@@ -310,6 +315,17 @@ function ManagedCoreDashboardCard({
           onResolvedNodeApiUrl={onResolvedNodeApiUrl}
           onSaveNodeSettings={onSaveNodeSettings}
         />
+        {showJavaAction ? (
+          <button
+            className="button"
+            disabled={coreManager.isBusy}
+            type="button"
+            onClick={coreManager.installJava}
+          >
+            <Download aria-hidden="true" size={18} strokeWidth={2} />
+            {coreManager.busyAction === 'installing-java' ? t('common.installing') : t('core.installJava')}
+          </button>
+        ) : null}
         {showOnChainInstallAction ? (
           <button
             className="button"
@@ -323,7 +339,7 @@ function ManagedCoreDashboardCard({
               : t('core.installApprovedUpdate')}
           </button>
         ) : null}
-        {showReleaseUpdateAction && releaseTarget ? (
+        {showCoreInstallAction && releaseTarget ? (
           <button
             className="button"
             disabled={coreManager.isBusy}
@@ -335,7 +351,9 @@ function ManagedCoreDashboardCard({
               ? t('common.updating')
               : coreManager.busyAction === releaseTargetBusyAction
                 ? t('common.installing')
-                : t('updates.installUpdate')}
+                : coreManager.status?.installed
+                  ? t('updates.installUpdate')
+                  : t('core.installCore')}
           </button>
         ) : null}
         {runtimeAction ? (
