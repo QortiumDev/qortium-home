@@ -65,11 +65,68 @@ the selected macOS dist script, and copies `dist-release/*.dmg` back to the
 local checkout.
 
 The `dist:mac:macos11:universal:remote` target is the legacy macOS 11 build. It
-packages the app with Electron 38, sets the app minimum system version to
+packages the app with Electron 36.9.5, sets the app minimum system version to
 `11.0.0`, and checks the generated `.app` bundle's Mach-O load commands before
 renaming the DMG to `Qortium-Home-<version>-macos11-universal.dmg`. If any
 bundled binary still requires a newer macOS release, the build fails before the
 artifact is copied back.
+
+## Ad-hoc macOS 10.15 tester builds
+
+macOS 10.15 Catalina is not a normal release target. Electron 33 and newer
+require macOS 11 or later, so a Catalina tester build must use the last suitable
+Electron 32 line. Build it as an x64-only DMG, label it separately from the
+normal macOS 11 legacy artifact, and treat it as an unsupported compatibility
+test.
+
+When rebuilding a Catalina tester DMG for a specific prerelease, archive that
+exact tag or commit into a separate remote directory instead of using the
+current branch:
+
+```bash
+release_ref=v1.1.2
+remote_dir=build/qortium-home-macos1015-v1.1.2
+
+ssh qortium-macmini "rm -rf \"\$HOME/$remote_dir\" && mkdir -p \"\$HOME/$remote_dir\""
+git archive --format=tar "$release_ref" \
+  | ssh qortium-macmini "tar -xf - -C \"\$HOME/$remote_dir\""
+```
+
+Then run the build on the Mac with Electron 32.3.3 and a Catalina minimum:
+
+```bash
+ssh qortium-macmini /bin/bash -s <<'REMOTE'
+set -euo pipefail
+export LANG=C
+export LC_ALL=C
+export PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+
+cd "$HOME/build/qortium-home-macos1015-v1.1.2"
+npm ci
+rm -rf dist-release
+npm run build
+./node_modules/.bin/electron-builder --mac dmg --x64 --publish never \
+  -c.electronVersion=32.3.3 \
+  -c.mac.minimumSystemVersion=10.15.0
+
+app_path="dist-release/mac/Qortium Home.app"
+node scripts/verify-macos-min-version.mjs "$app_path" 10.15.0
+
+version="$(node -p "require('./package.json').version")"
+mv "dist-release/Qortium-Home-$version-x64.dmg" \
+  "dist-release/Qortium-Home-$version-macos1015-x64.dmg"
+if [ -f "dist-release/Qortium-Home-$version-x64.dmg.blockmap" ]; then
+  mv "dist-release/Qortium-Home-$version-x64.dmg.blockmap" \
+    "dist-release/Qortium-Home-$version-macos1015-x64.dmg.blockmap"
+fi
+shasum -a 256 "dist-release/Qortium-Home-$version-macos1015-x64.dmg"
+REMOTE
+```
+
+Copy the resulting `Qortium-Home-<version>-macos1015-x64.dmg` and optional
+`.blockmap` back into local `dist-release/`, then verify the copied DMG by
+extracting the app and rerunning `scripts/verify-macos-min-version.mjs` with
+`10.15.0`.
 
 Use the existing local scripts for other platforms:
 

@@ -14,6 +14,7 @@ import {
   readRunningLocalCoreApiKey,
   type RunningCoreApiKeyResult,
 } from './local-api-key.js';
+import { copyLegacyInstallListsToRuntime } from './core-runtime-files.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
@@ -1952,6 +1953,7 @@ async function installCore(request: CoreInstallRequest) {
   const existingCore = await readInstalledCoreMetadata();
 
   if (existingCore?.tagName === release.tagName) {
+    await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
     return await getStatus();
   }
 
@@ -2017,6 +2019,8 @@ async function installCore(request: CoreInstallRequest) {
 
       await new Promise((resolve) => setTimeout(resolve, FILE_RELEASE_SETTLE_MS));
 
+      await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
+
       // Move the working install aside instead of deleting it up front.
       await rm(backupPath, { recursive: true, force: true });
 
@@ -2024,6 +2028,8 @@ async function installCore(request: CoreInstallRequest) {
         await movePath(installPath, backupPath);
         backupInUse = true;
       }
+    } else if (existingCore) {
+      await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
     }
 
     await movePathReplacingDestination(extractedCorePaths.installPath, installPath);

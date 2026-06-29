@@ -59,6 +59,7 @@ const PREVIEW_ACCOUNTS_PATH = path.join(
 );
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
+const QDN_WRITE_SOURCE_MAX_BYTES = 100 * 1024 * 1024;
 // Public, read-only Qortal nodes for cross-chain QDN reads (no account, API key, or writes).
 const QORTAL_PUBLIC_NODE_API_URLS = ['https://ext-node.qortal.link'];
 const QORTAL_NODE_CACHE_TTL_MS = 5 * 60_000;
@@ -1217,9 +1218,9 @@ function getInlinePublishSource(request: QdnAppRequest): QdnWriteSourceSelection
   const filename = sanitizeFilename(getString(getRequestValue(request, 'filename')) || 'qdn-resource');
   const size = Buffer.from(dataBase64, 'base64').byteLength;
 
-  if (size > QDN_APP_MAX_BYTES_LIMIT) {
+  if (size > QDN_WRITE_SOURCE_MAX_BYTES) {
     throw new Error(
-      `QDN publish data exceeds the ${QDN_APP_MAX_BYTES_LIMIT.toLocaleString()} byte limit.`,
+      `QDN publish data exceeds the ${QDN_WRITE_SOURCE_MAX_BYTES.toLocaleString()} byte limit.`,
     );
   }
 
@@ -2493,8 +2494,8 @@ async function selectQdnPublishSource(context: QdnViewContext) {
 }
 
 function assertPublicQdnPublishSize(size: number, label: string) {
-  if (size > QDN_APP_MAX_BYTES_LIMIT) {
-    throw new Error(`${label} exceeds the ${QDN_APP_MAX_BYTES_LIMIT.toLocaleString()} byte public-node publish limit.`);
+  if (size > QDN_WRITE_SOURCE_MAX_BYTES) {
+    throw new Error(`${label} exceeds the ${QDN_WRITE_SOURCE_MAX_BYTES.toLocaleString()} byte public-node publish limit.`);
   }
 }
 

@@ -62,7 +62,10 @@ asset name, download URL, digest when available, install time, and runtime path.
 
 `current.json` points at `qortium-core/install` and
 `qortium-core/runtime`. Updating Core replaces the single install folder, not
-the runtime folder.
+the runtime folder. Before replacing an existing install, Home also copies any
+old `install/preview/lists/` entries into `runtime/lists/` without overwriting
+runtime files, so testers upgrading from older launcher builds keep block and
+follow lists that were written into the replaceable install tree.
 
 `runtime/runtime-chain.json` records the installed release's Previewnet
 `networkId` and Core-compatible `previewchain.json` SHA-256 identity. The

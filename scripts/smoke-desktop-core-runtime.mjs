@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -399,7 +399,28 @@ function createRuntimeEntries(runtimePath, label) {
   writeText(path.join(runtimePath, 'apikey.txt'), `${label}-api-key\n`);
   writeText(path.join(runtimePath, 'db-preview', 'marker.txt'), `${label} db marker\n`);
   writeText(path.join(runtimePath, 'data-preview', 'marker.txt'), `${label} data marker\n`);
+  writeJson(path.join(runtimePath, 'lists', 'followedQdn.json'), [`APP/${label}/followed`]);
+  writeJson(path.join(runtimePath, 'settings-preview-local.json'), {
+    apiDocumentationEnabled: true,
+    smokeMarker: label,
+  });
   writeText(path.join(runtimePath, 'run.log'), `${label} launcher log\n`);
+}
+
+function assertRuntimeEntriesPreserved(runtimePath, label, context) {
+  assert(existsSync(path.join(runtimePath, 'apikey.txt')), `${context} API key was not found.`);
+  assert(existsSync(path.join(runtimePath, 'db-preview', 'marker.txt')), `${context} db-preview marker was not found.`);
+  assert(existsSync(path.join(runtimePath, 'data-preview', 'marker.txt')), `${context} data-preview marker was not found.`);
+  assert(existsSync(path.join(runtimePath, 'lists', 'followedQdn.json')), `${context} followedQdn list was not found.`);
+
+  const followedQdn = readJson(path.join(runtimePath, 'lists', 'followedQdn.json'));
+  assert(
+    Array.isArray(followedQdn) && followedQdn.includes(`APP/${label}/followed`),
+    `${context} followedQdn list content was not preserved.`,
+  );
+
+  const settings = readJson(path.join(runtimePath, 'settings-preview-local.json'));
+  assert(settings.smokeMarker === label, `${context} runtime settings marker was not preserved.`);
 }
 
 async function withHomeClient(tempRoot, callback) {
@@ -457,6 +478,50 @@ async function withHomeClient(tempRoot, callback) {
   } finally {
     await electronProcess?.stop();
     await viteProcess?.stop();
+  }
+}
+
+async function runLegacyInstallListsCopyScenario() {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-core-legacy-lists-'));
+  const legacyPreviewPath = path.join(tempRoot, 'install', 'preview');
+  const runtimePath = path.join(tempRoot, 'runtime');
+
+  writeJson(path.join(legacyPreviewPath, 'lists', 'legacyOnly.json'), ['legacy-only']);
+  writeJson(path.join(legacyPreviewPath, 'lists', 'followedQdn.json'), ['legacy-followed']);
+  writeJson(path.join(runtimePath, 'lists', 'followedQdn.json'), ['runtime-followed']);
+
+  try {
+    const { copyLegacyInstallListsToRuntime } = await import(
+      pathToFileURL(path.join(repoRoot, 'dist-electron', 'core-runtime-files.js')).href
+    );
+
+    await copyLegacyInstallListsToRuntime(legacyPreviewPath, runtimePath);
+
+    const legacyOnly = readJson(path.join(runtimePath, 'lists', 'legacyOnly.json'));
+    const followedQdn = readJson(path.join(runtimePath, 'lists', 'followedQdn.json'));
+
+    assert(
+      Array.isArray(legacyOnly) && legacyOnly.includes('legacy-only'),
+      'Legacy install-only list was not copied into the runtime lists directory.',
+    );
+    assert(
+      Array.isArray(followedQdn) &&
+        followedQdn.includes('runtime-followed') &&
+        !followedQdn.includes('legacy-followed'),
+      'Existing runtime list was overwritten by a legacy install-folder list.',
+    );
+    assert(
+      existsSync(path.join(legacyPreviewPath, 'lists', 'legacyOnly.json')),
+      'Legacy install-folder list was moved instead of copied.',
+    );
+
+    log('Legacy install-folder Core lists copied without overwriting runtime lists.');
+  } finally {
+    if (process.env.QORTIUM_HOME_KEEP_DESKTOP_SMOKE_DATA !== '1') {
+      rmSync(tempRoot, { force: true, recursive: true });
+    } else {
+      log(`Kept legacy lists copy smoke data at ${tempRoot}.`);
+    }
   }
 }
 
@@ -531,9 +596,7 @@ async function runLegacyMigrationScenario() {
 
     assert(!existsSync(paths.legacyBase), 'Legacy managed-core folder was not cleaned after migration.');
     assert(existsSync(path.join(paths.coreInstall, 'qortium.jar')), 'Migrated Core jar was not found.');
-    assert(existsSync(path.join(paths.coreRuntime, 'apikey.txt')), 'Migrated API key was not found.');
-    assert(existsSync(path.join(paths.coreRuntime, 'db-preview', 'marker.txt')), 'Migrated db-preview marker was not found.');
-    assert(existsSync(path.join(paths.coreRuntime, 'data-preview', 'marker.txt')), 'Migrated data-preview marker was not found.');
+    assertRuntimeEntriesPreserved(paths.coreRuntime, 'legacy', 'Migrated runtime');
     assert(runtimeChain.networkId === 'qortium-preview', 'Runtime chain metadata did not record the Previewnet network id.');
     assert(
       runtimeChain.previewChainSha256 === coreCompatiblePreviewChainSha256File(previewChainPath),
@@ -703,6 +766,7 @@ async function runCompatibleChainUpdateScenario() {
     const updatedRuntimeChain = readJson(path.join(updatePaths.coreRuntime, 'runtime-chain.json'));
 
     assert(existsSync(path.join(updatePaths.coreRuntime, 'db-preview', 'marker.txt')), 'Compatible Core update removed existing runtime DB data.');
+    assertRuntimeEntriesPreserved(updatePaths.coreRuntime, 'compatible-update', 'Compatible Core update runtime');
     assert(
       updatedRuntimeChain.previewChainSha256 === oldCompatiblePreviewChainSha256,
       'Compatible Core update changed the effective runtime chain hash.',
@@ -736,6 +800,7 @@ async function main() {
 
   log('Building Electron main process.');
   await run(npm, ['run', 'build:electron']);
+  await runLegacyInstallListsCopyScenario();
   await runLegacyMigrationScenario();
   await runRuntimeMismatchScenario();
   await runCompatibleChainUpdateScenario();

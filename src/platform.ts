@@ -65,7 +65,7 @@ const BASE58_ALPHABET_MAP = new Map<string, number>(
 );
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
-const QDN_WRITE_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
+const QDN_WRITE_SOURCE_MAX_BYTES = 100 * 1024 * 1024;
 // Qortal cross-chain resource fetches (e.g. game ROMs) need a much larger ceiling than QDN text reads.
 const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
