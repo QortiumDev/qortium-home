@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-29 - Add keyless public QDN publish path
+
+Lets QDN apps publish, multi-publish, and delete QDN resources while Home is
+connected to a public Previewnet node. Home now builds unsigned QDN transactions
+through Core's public builder endpoints, computes the required arbitrary
+transaction nonce locally, signs with the unlocked selected account, and submits
+only the signed transaction bytes to the node. Local-node publishing keeps using
+the existing API-key path.
+
 ### 2026-06-26 - core-docs: pass Home display settings to Swagger UI
 
 Passes Home's current theme, accent, and text-size settings into the Core API

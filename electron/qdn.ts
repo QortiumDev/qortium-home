@@ -3,7 +3,7 @@ import extract from 'extract-zip';
 import { zipSync } from 'fflate';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { copyFile, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import {
   getAccountSigningKey,
   isAccountUnlocked,
   signChatTransaction,
+  signTransactionWithNonce,
 } from './accounts.js';
 import {
   getNodeApiUrl,
@@ -45,6 +46,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // CHAT memory-pow difficulty. Tracks the chain config (Previewnet
 // previewchain.json chatDifficulty); keep in sync with src/platform.ts.
 const CHAT_POW_DIFFICULTY = 8;
+const ARBITRARY_POW_DIFFICULTY = 11;
+const TRANSACTION_NONCE_OFFSET = 48;
 
 const PREVIEW_ACCOUNTS_PATH = path.join(
   os.homedir(),
@@ -299,6 +302,8 @@ type QdnKeylessChatContext = {
   publicKey58: string;
   secretKey: Uint8Array;
 };
+
+type QdnKeylessWriteContext = QdnKeylessChatContext;
 
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
 
@@ -1413,6 +1418,18 @@ function assertLocalWriteConnection(connection: NodeConnection) {
   }
 }
 
+function isLocalWriteConnection(connection: NodeConnection) {
+  if (connection.mode === 'network') {
+    return false;
+  }
+
+  try {
+    return isLoopbackHostname(new URL(connection.nodeApiUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function getNodeApiKey(connection: NodeConnection) {
   const apiKey = connection.apiKey?.trim();
 
@@ -2136,6 +2153,44 @@ async function signAndProcessTransaction(
   };
 }
 
+function clearTransactionNonce(unsignedBytes: Uint8Array) {
+  if (unsignedBytes.length < TRANSACTION_NONCE_OFFSET + 4) {
+    throw new Error('Unsigned transaction bytes are too short to contain a nonce field.');
+  }
+
+  const bytesForPow = unsignedBytes.slice();
+  bytesForPow[TRANSACTION_NONCE_OFFSET] = 0;
+  bytesForPow[TRANSACTION_NONCE_OFFSET + 1] = 0;
+  bytesForPow[TRANSACTION_NONCE_OFFSET + 2] = 0;
+  bytesForPow[TRANSACTION_NONCE_OFFSET + 3] = 0;
+
+  return bytesForPow;
+}
+
+async function signAndProcessKeylessQdnTransaction(
+  keylessContext: QdnKeylessWriteContext,
+  rawUnsignedBytes58: string,
+) {
+  const unsignedBytes = base58Decode(rawUnsignedBytes58);
+  const nonce = await computeChatNonce(clearTransactionNonce(unsignedBytes), ARBITRARY_POW_DIFFICULTY);
+  const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, keylessContext.secretKey);
+  const signedTransactionBytes = base58Encode(signedBytes);
+  const processedTransaction = await postLocalNodeText(
+    keylessContext.connection,
+    '/transactions/process?apiVersion=2',
+    signedTransactionBytes,
+    keylessContext.apiKey,
+    'QDN transaction processing failed.',
+  );
+
+  return {
+    body: processedTransaction.body,
+    data: parseResponseData(processedTransaction.body, processedTransaction.contentType),
+    signature: getSignedTransactionSignature(signedTransactionBytes),
+    signedTransactionBytes,
+  };
+}
+
 function appendQdnWriteQuery(queryParams: URLSearchParams, resource: QdnWriteResourceRequest) {
   appendQueryValue(queryParams, 'title', resource.title);
   appendQueryValue(queryParams, 'description', resource.description);
@@ -2174,6 +2229,33 @@ function buildQdnPublishBase64Path(resource: QdnWriteResourceRequest, source: Qd
   }`;
 }
 
+function buildQdnPublicPublishBase64Path(resource: QdnWriteResourceRequest, source: QdnWriteSourceSelection) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource);
+  appendQueryValue(queryParams, 'filename', source.filename);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/public/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/base64${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQdnPublicPublishZipPath(resource: QdnWriteResourceRequest) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/public/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/zip${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
 function buildQdnDeletePath(resource: QdnWriteResourceRequest) {
   const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
   const queryParams = new URLSearchParams();
@@ -2183,6 +2265,19 @@ function buildQdnDeletePath(resource: QdnWriteResourceRequest) {
   const queryString = queryParams.toString();
 
   return `/arbitrary/resource/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/delete${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQdnPublicDeletePath(resource: QdnWriteResourceRequest) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQueryValue(queryParams, 'fee', resource.fee);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/public/resource/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/delete${
     queryString ? `?${queryString}` : ''
   }`;
 }
@@ -2397,6 +2492,112 @@ async function selectQdnPublishSource(context: QdnViewContext) {
   } satisfies QdnWriteSourceSelection;
 }
 
+function assertPublicQdnPublishSize(size: number, label: string) {
+  if (size > QDN_APP_MAX_BYTES_LIMIT) {
+    throw new Error(`${label} exceeds the ${QDN_APP_MAX_BYTES_LIMIT.toLocaleString()} byte public-node publish limit.`);
+  }
+}
+
+async function buildDirectoryZipEntries(
+  rootPath: string,
+  currentPath: string,
+  entries: Record<string, Uint8Array>,
+  total: { bytes: number },
+) {
+  const directoryEntries = await readdir(currentPath, { withFileTypes: true });
+
+  for (const entry of directoryEntries) {
+    const entryPath = path.join(currentPath, entry.name);
+
+    if (entry.isDirectory()) {
+      await buildDirectoryZipEntries(rootPath, entryPath, entries, total);
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const bytes = new Uint8Array(await readFile(entryPath));
+    total.bytes += bytes.byteLength;
+    assertPublicQdnPublishSize(total.bytes, 'Selected QDN publish folder');
+
+    const relativePath = path.relative(rootPath, entryPath).split(path.sep).join('/');
+    entries[relativePath] = bytes;
+  }
+}
+
+async function readDirectoryAsZipBase64(sourcePath: string) {
+  const entries: Record<string, Uint8Array> = {};
+  const total = { bytes: 0 };
+
+  await buildDirectoryZipEntries(sourcePath, sourcePath, entries, total);
+
+  if (Object.keys(entries).length === 0) {
+    throw new Error('Selected QDN publish folder is empty.');
+  }
+
+  const zipBytes = Buffer.from(zipSync(entries));
+  assertPublicQdnPublishSize(zipBytes.byteLength, 'Selected QDN publish folder archive');
+
+  return {
+    dataBase64: zipBytes.toString('base64'),
+    size: zipBytes.byteLength,
+  };
+}
+
+async function normalizePublicQdnPublishSource(source: QdnWriteSourceSelection) {
+  if (source.dataBase64) {
+    const size = Buffer.from(source.dataBase64, 'base64').byteLength;
+    assertPublicQdnPublishSize(size, 'QDN publish data');
+
+    return {
+      ...source,
+      dataBase64: source.dataBase64,
+      filename: source.filename,
+      isZip: false,
+      kind: 'data' as const,
+      size,
+    };
+  }
+
+  if (!source.path) {
+    throw new Error('QDN publish source did not include data or a local path.');
+  }
+
+  const sourceStats = await stat(source.path);
+
+  if (sourceStats.isDirectory()) {
+    const { dataBase64, size } = await readDirectoryAsZipBase64(source.path);
+
+    return {
+      ...source,
+      dataBase64,
+      filename: `${path.basename(source.path) || 'qdn-resource'}.zip`,
+      isZip: true,
+      kind: 'directory' as const,
+      size,
+    };
+  }
+
+  if (!sourceStats.isFile()) {
+    throw new Error('QDN publish source must be a file or folder.');
+  }
+
+  assertPublicQdnPublishSize(sourceStats.size, 'Selected QDN publish file');
+  const fileBytes = await readFile(source.path);
+  const isZip = path.extname(source.path).toLowerCase() === '.zip';
+
+  return {
+    ...source,
+    dataBase64: Buffer.from(fileBytes).toString('base64'),
+    filename: source.filename ?? path.basename(source.path) ?? 'qdn-resource',
+    isZip,
+    kind: 'file' as const,
+    size: fileBytes.byteLength,
+  };
+}
+
 async function getQdnWriteContext(
   context: QdnViewContext | null,
   resource: QdnWriteResourceRequest,
@@ -2483,6 +2684,26 @@ async function getKeylessChatContext(
   // The keyless build/process endpoints are allowlisted and need no API key on a
   // public node; pass through any configured key (custom/local) but do not throw
   // when network mode has none.
+  const apiKey = connection.apiKey?.trim() ?? '';
+  const profile = await getAccountProfile(accountId);
+  const signingKey = getAccountSecretKey(accountId);
+
+  return {
+    accountId,
+    apiKey,
+    connection,
+    profile,
+    publicKey58: signingKey.publicKey58,
+    secretKey: signingKey.secretKey,
+  };
+}
+
+async function getKeylessQdnWriteContext(context: QdnViewContext | null): Promise<QdnKeylessWriteContext> {
+  const accountId = getQdnWriteAccountId(context);
+  const connection = await getNodeConnection();
+
+  assertAccountUnlocked(accountId);
+
   const apiKey = connection.apiKey?.trim() ?? '';
   const profile = await getAccountProfile(accountId);
   const signingKey = getAccountSecretKey(accountId);
@@ -2612,7 +2833,11 @@ async function publishQdnResourceForApp(
   sender: WebContents,
 ) {
   const resource = getQdnWriteResourceRequest(request);
-  const writeContext = await getQdnWriteContext(context, resource);
+  const connection = await getNodeConnection();
+  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeContext = useLocalWrite
+    ? await getQdnWriteContext(context, resource)
+    : await getKeylessQdnWriteContext(context);
   const source = getInlinePublishSource(request) ?? (await selectQdnPublishSource(context as QdnViewContext));
 
   if (!source) {
@@ -2631,20 +2856,46 @@ async function publishQdnResourceForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
-  const apiKey = writeContext.apiKey;
-  const privateKey58 = getQdnWritePrivateKey(writeContext);
+  if (!useLocalWrite) {
+    const keylessWriteContext = writeContext as QdnKeylessWriteContext;
+    const publicSource = await normalizePublicQdnPublishSource(source);
+    const unsignedTransaction = await postLocalNodeText(
+      keylessWriteContext.connection,
+      publicSource.isZip ? buildQdnPublicPublishZipPath(resource) : buildQdnPublicPublishBase64Path(resource, publicSource),
+      publicSource.dataBase64,
+      keylessWriteContext.apiKey,
+      'QDN publish transaction build failed.',
+    );
+    const processedTransaction = await signAndProcessKeylessQdnTransaction(keylessWriteContext, unsignedTransaction.body);
+
+    return {
+      accepted: true,
+      action: 'PUBLISH_QDN_RESOURCE',
+      result: processedTransaction.data,
+      resource: {
+        identifier: resource.identifier ?? null,
+        name: resource.name,
+        service: resource.service,
+      },
+      transactionSignature: processedTransaction.signature,
+    };
+  }
+
+  const localWriteContext = writeContext as QdnWriteContext;
+  const apiKey = localWriteContext.apiKey;
+  const privateKey58 = getQdnWritePrivateKey(localWriteContext);
   const inlineSource = isInlineQdnWriteSource(source) ? source : null;
   const publishPath = inlineSource ? buildQdnPublishBase64Path(resource, inlineSource) : buildQdnPublishPath(resource);
   const publishBody = inlineSource ? inlineSource.dataBase64 : source.path ?? '';
   const unsignedTransaction = await postLocalNodeText(
-    writeContext.connection,
+    localWriteContext.connection,
     publishPath,
     publishBody,
     apiKey,
     'QDN publish transaction build failed.',
   );
   const processedTransaction = await signAndProcessTransaction(
-    writeContext.connection,
+    localWriteContext.connection,
     apiKey,
     privateKey58,
     unsignedTransaction.body,
@@ -2675,7 +2926,11 @@ async function publishMultipleQdnResourcesForApp(
   }
 
   const approvalResource = resources.length === 1 ? resources[0].resource : undefined;
-  const writeContext = await getQdnWriteContext(context, approvalResource ?? resources[0].resource);
+  const connection = await getNodeConnection();
+  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeContext = useLocalWrite
+    ? await getQdnWriteContext(context, approvalResource ?? resources[0].resource)
+    : await getKeylessQdnWriteContext(context);
 
   await requestQdnWriteApproval(
     context as QdnViewContext,
@@ -2694,7 +2949,7 @@ async function publishMultipleQdnResourcesForApp(
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
   const apiKey = writeContext.apiKey;
-  const privateKey58 = getQdnWritePrivateKey(writeContext);
+  const privateKey58 = useLocalWrite ? getQdnWritePrivateKey(writeContext as QdnWriteContext) : '';
   const published: Array<{
     result: unknown;
     resource: {
@@ -2717,19 +2972,26 @@ async function publishMultipleQdnResourcesForApp(
     const source = entry.source as QdnWriteSourceSelection;
 
     try {
+      const publicSource = useLocalWrite ? null : await normalizePublicQdnPublishSource(source);
       const unsignedTransaction = await postLocalNodeText(
         writeContext.connection,
-        buildQdnPublishBase64Path(entry.resource, source),
-        source.dataBase64 ?? '',
+        publicSource
+          ? publicSource.isZip
+            ? buildQdnPublicPublishZipPath(entry.resource)
+            : buildQdnPublicPublishBase64Path(entry.resource, publicSource)
+          : buildQdnPublishBase64Path(entry.resource, source),
+        publicSource ? publicSource.dataBase64 : source.dataBase64 ?? '',
         apiKey,
         'QDN publish transaction build failed.',
       );
-      const processedTransaction = await signAndProcessTransaction(
-        writeContext.connection,
-        apiKey,
-        privateKey58,
-        unsignedTransaction.body,
-      );
+      const processedTransaction = useLocalWrite
+        ? await signAndProcessTransaction(
+            writeContext.connection,
+            apiKey,
+            privateKey58,
+            unsignedTransaction.body,
+          )
+        : await signAndProcessKeylessQdnTransaction(writeContext as QdnKeylessWriteContext, unsignedTransaction.body);
 
       published.push({
         result: processedTransaction.data,
@@ -2766,7 +3028,11 @@ async function deleteQdnResourceForApp(
   sender: WebContents,
 ) {
   const resource = getQdnWriteResourceRequest(request);
-  const writeContext = await getQdnWriteContext(context, resource);
+  const connection = await getNodeConnection();
+  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeContext = useLocalWrite
+    ? await getQdnWriteContext(context, resource)
+    : await getKeylessQdnWriteContext(context);
 
   await requestQdnWriteApproval(
     context as QdnViewContext,
@@ -2780,20 +3046,22 @@ async function deleteQdnResourceForApp(
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
   const apiKey = writeContext.apiKey;
-  const privateKey58 = getQdnWritePrivateKey(writeContext);
+  const privateKey58 = useLocalWrite ? getQdnWritePrivateKey(writeContext as QdnWriteContext) : '';
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
-    buildQdnDeletePath(resource),
+    useLocalWrite ? buildQdnDeletePath(resource) : buildQdnPublicDeletePath(resource),
     '',
     apiKey,
     'QDN delete transaction build failed.',
   );
-  const processedTransaction = await signAndProcessTransaction(
-    writeContext.connection,
-    apiKey,
-    privateKey58,
-    unsignedTransaction.body,
-  );
+  const processedTransaction = useLocalWrite
+    ? await signAndProcessTransaction(
+        writeContext.connection,
+        apiKey,
+        privateKey58,
+        unsignedTransaction.body,
+      )
+    : await signAndProcessKeylessQdnTransaction(writeContext as QdnKeylessWriteContext, unsignedTransaction.body);
 
   return {
     accepted: true,

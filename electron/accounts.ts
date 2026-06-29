@@ -846,6 +846,7 @@ export function getAccountSecretKey(accountId: string) {
 // senderPublicKey(32) = 48. Tracks Qortium Core's ChatTransactionTransformer.
 // Mirrors src/chatSign.ts CHAT_NONCE_OFFSET.
 export const CHAT_NONCE_OFFSET = 48;
+export const TRANSACTION_NONCE_OFFSET = 48;
 
 const CHAT_SIGNATURE_LENGTH = 64;
 const ED25519_SECRET_KEY_LENGTH = 64;
@@ -882,6 +883,45 @@ export function signChatTransaction(
   }
 
   const bytesWithNonce = stampChatNonce(unsignedChatBytes, nonce);
+  const signature = nacl.sign.detached(bytesWithNonce, secretKey64);
+
+  if (signature.length !== CHAT_SIGNATURE_LENGTH) {
+    throw new Error('ed25519 signature was not 64 bytes.');
+  }
+
+  const signed = new Uint8Array(bytesWithNonce.length + CHAT_SIGNATURE_LENGTH);
+  signed.set(bytesWithNonce, 0);
+  signed.set(signature, bytesWithNonce.length);
+
+  return signed;
+}
+
+export function stampTransactionNonce(unsignedTransactionBytes: Uint8Array, nonce: number): Uint8Array {
+  if (!Number.isInteger(nonce) || nonce < 0 || nonce > 0xffffffff) {
+    throw new Error('Transaction nonce must be a uint32.');
+  }
+
+  if (unsignedTransactionBytes.length < TRANSACTION_NONCE_OFFSET + 4) {
+    throw new Error('Unsigned transaction bytes are too short to contain a nonce field.');
+  }
+
+  const stamped = unsignedTransactionBytes.slice();
+  const view = new DataView(stamped.buffer, stamped.byteOffset, stamped.byteLength);
+  view.setUint32(TRANSACTION_NONCE_OFFSET, nonce >>> 0, false /* big-endian */);
+
+  return stamped;
+}
+
+export function signTransactionWithNonce(
+  unsignedTransactionBytes: Uint8Array,
+  nonce: number,
+  secretKey64: Uint8Array,
+): Uint8Array {
+  if (secretKey64.length !== ED25519_SECRET_KEY_LENGTH) {
+    throw new Error('ed25519 secret key must be 64 bytes.');
+  }
+
+  const bytesWithNonce = stampTransactionNonce(unsignedTransactionBytes, nonce);
   const signature = nacl.sign.detached(bytesWithNonce, secretKey64);
 
   if (signature.length !== CHAT_SIGNATURE_LENGTH) {
