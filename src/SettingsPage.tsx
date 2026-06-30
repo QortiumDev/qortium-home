@@ -9,13 +9,15 @@ import type {
   LanguageSetting,
   TextSizeSetting,
   ThemeSetting,
+  UiSetting,
 } from './displaySettings';
 import { t } from './i18n';
 import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
+import { StartPagesPanel } from './StartPagesPanel';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
+export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'start';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -34,6 +36,9 @@ type SettingsPageProps = {
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
+  onUiChange: (ui: UiSetting) => void;
+  startPages: string[];
+  onStartPageRemove: (displayUrl: string) => void;
 };
 
 export function SettingsPage({
@@ -50,7 +55,10 @@ export function SettingsPage({
   onAccentChange,
   onThemeChange,
   onTextSizeChange,
+  onUiChange,
   sectionExpansion,
+  startPages,
+  onStartPageRemove,
 }: SettingsPageProps) {
   // On desktop the node-connection controls live inside the Qortium Core section.
   // Android/web have no managed Core (so that section is hidden), so they keep a
@@ -72,6 +80,7 @@ export function SettingsPage({
           onAccentChange={onAccentChange}
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
+          onUiChange={onUiChange}
         />
         {hasManagedCore ? null : (
           <SettingsSection
@@ -105,6 +114,12 @@ export function SettingsPage({
           nodeApiUrl={nodeSettings.nodeApiUrl}
           updates={appUpdates}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('home', isExpanded)}
+        />
+        <StartPagesPanel
+          isExpanded={sectionExpansion.start}
+          pages={startPages}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('start', isExpanded)}
+          onRemove={onStartPageRemove}
         />
       </div>
     </div>

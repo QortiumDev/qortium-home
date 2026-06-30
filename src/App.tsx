@@ -44,6 +44,13 @@ import {
   type DashboardPin,
   type DashboardPinDropPosition,
 } from './dashboardPins';
+import {
+  addStartPage,
+  loadStartPages,
+  MAX_START_PAGES,
+  removeStartPage,
+  saveStartPages,
+} from './startPages';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, subscribeTranslationChange, t, type TranslationKey } from './i18n';
@@ -152,6 +159,7 @@ const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   display: true,
   home: false,
   node: false,
+  start: false,
 };
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
@@ -735,6 +743,9 @@ export function App() {
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
+  const [startPages, setStartPages] = useState<string[]>([]);
+  const [isLoadingStartPages, setIsLoadingStartPages] = useState(true);
+  const startPagesAppliedRef = useRef(false);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
@@ -771,6 +782,8 @@ export function App() {
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isExplorerRoute;
+  const isCurrentPageStartPage = startPages.includes(currentRoute.displayUrl);
+  const canAddCurrentStartPage = isCurrentPageStartPage || startPages.length < MAX_START_PAGES;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
@@ -921,6 +934,38 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (isLoadingWindowStartupPayload || isLoadingStartPages) return;
+    if (startPagesAppliedRef.current) return;
+
+    startPagesAppliedRef.current = true;
+
+    if (startPages.length === 0) return;
+
+    setTabState((currentTabState) => {
+      const activeTab = currentTabState.tabs.find((tab) => tab.id === currentTabState.activeTabId);
+      const currentRoute = activeTab?.history.entries[activeTab.history.index];
+
+      if (!currentRoute || currentRoute.kind !== 'dashboard') return currentTabState;
+
+      const newTabs = startPages
+        .map((displayUrl) => {
+          const parsed = parseAppAddress(displayUrl);
+          if (!parsed.success) return null;
+          return createBrowserTab(null, { entries: [parsed.route], index: 0 });
+        })
+        .filter((tab): tab is BrowserTab => tab !== null);
+
+      if (newTabs.length === 0) return currentTabState;
+
+      return {
+        activeTabId: newTabs[0].id,
+        closedTabs: [],
+        tabs: newTabs,
+      };
+    });
+  }, [isLoadingWindowStartupPayload, isLoadingStartPages, startPages]);
+
   function reconcileTabsWithAccounts(nextAccountsState: QortiumAccountsState) {
     setTabState((currentTabState) => {
       const defaultAccountId = getDefaultAccountId(nextAccountsState);
@@ -1017,6 +1062,28 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let isDisposed = false;
+
+    loadStartPages()
+      .then((pages) => {
+        if (!isDisposed) {
+          setStartPages(pages);
+          setIsLoadingStartPages(false);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load start pages.', error);
+        if (!isDisposed) {
+          setIsLoadingStartPages(false);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
+
   useEffect(() => subscribeToSystemThemeChange(setSystemTheme), []);
 
   useEffect(() => subscribeToSystemLanguageChange(setSystemLanguage), []);
@@ -1074,6 +1141,40 @@ export function App() {
     });
   }
 
+  function toggleStartPage(displayUrl: string) {
+    setStartPages((current) => {
+      const next = current.includes(displayUrl)
+        ? removeStartPage(current, displayUrl)
+        : addStartPage(current, displayUrl);
+
+      if (next === current) {
+        return current;
+      }
+
+      saveStartPages(next).catch((error) => {
+        console.warn('Unable to save start pages.', error);
+      });
+
+      return next;
+    });
+  }
+
+  function handleStartPageRemove(displayUrl: string) {
+    setStartPages((current) => {
+      const next = removeStartPage(current, displayUrl);
+
+      if (next === current) {
+        return current;
+      }
+
+      saveStartPages(next).catch((error) => {
+        console.warn('Unable to save start pages.', error);
+      });
+
+      return next;
+    });
+  }
+
   function updateTheme(nextTheme: DisplaySettings['theme']) {
     updateDisplaySettings({
       ...displaySettings,
@@ -1099,6 +1200,13 @@ export function App() {
     updateDisplaySettings({
       ...displaySettings,
       accent: nextAccent,
+    });
+  }
+
+  function updateUi(nextUi: DisplaySettings['ui']) {
+    updateDisplaySettings({
+      ...displaySettings,
+      ui: nextUi,
     });
   }
 
@@ -1326,6 +1434,7 @@ export function App() {
       display: sectionId === 'display',
       home: sectionId === 'home',
       node: sectionId === 'node',
+      start: sectionId === 'start',
     });
     navigateToRoute(SETTINGS_ROUTE);
   }
@@ -2394,7 +2503,10 @@ export function App() {
         onNavigate={navigateToRoute}
         onOpenSettings={openSettingsInNewTab}
         onOverlayOpenChange={setIsTopBarOverlayOpen}
+        canToggleCurrentStartPage={canAddCurrentStartPage}
+        isCurrentPageStartPage={isCurrentPageStartPage}
         onPinTabToDashboard={pinTabToDashboard}
+        onToggleStartPage={() => toggleStartPage(currentRoute.displayUrl)}
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
@@ -2480,8 +2592,11 @@ export function App() {
                   onAccentChange={updateAccent}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}
+                  onUiChange={updateUi}
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
+                  startPages={startPages}
+                  onStartPageRemove={handleStartPageRemove}
                 />
               ) : tabRoute.kind === 'dashboard' ? (
                 <DashboardPage

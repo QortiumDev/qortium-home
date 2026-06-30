@@ -16,22 +16,38 @@ with its own clear scope.
 ## Early Goals
 
 - keep the history clean and easy to read
-- make each logical change its own commit
+- make each logical PR merge easy to review
 - explain every meaningful change in plain language
 - keep early implementation choices documented before code grows around them
 - preserve compatibility decisions separately from future implementation details
 
 ## How To Use This File
 
-- update this file with every intentional Qortium Home commit
-- use one entry per commit
-- make each entry title match the commit message exactly
+- update this file with every intentional Qortium Home PR/squash merge
+- use one entry per merged PR
+- make each entry title match the squash commit / PR title
 - keep each entry to one combined plain-language description
 - keep entries understandable to non-developers
 - use this file as the public narrative of the application, alongside the
   technical git history
 
 ## Change Entries
+
+### 2026-06-29 - release: prepare home 1.2.0
+
+Bumps Qortium Home to 1.2.0 with Android versionCode 21 for the next prerelease.
+This release adds the Classic/Modern UI-style setting and broadcasts it to QDN
+apps, lets QDN apps publish, multi-publish, and delete resources while Home is
+connected to a public Previewnet node, and raises QDN publish-source limits from
+5 MiB to 100 MiB while leaving smaller app read-response caps unchanged. Public
+publish builds route through Core's unsigned builder endpoints; Home computes
+the arbitrary transaction nonce locally, signs with the unlocked selected
+account, and submits only signed transaction bytes to the node. It also salvages
+old managed-Core `preview/lists/` files into the stable runtime lists folder
+before replacing a Core install, without overwriting runtime files. The release
+also folds in dependency updates for `tar` 7.5.19, `lucide-react` 1.22.0, and
+`vite` 7.3.6, and includes 7r15's Start Pages feature so users can choose up
+to 10 saved pages to open as tabs when Home starts.
 
 ### 2026-06-26 - core-docs: pass Home display settings to Swagger UI
 

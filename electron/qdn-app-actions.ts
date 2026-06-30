@@ -117,10 +117,9 @@ export const QDN_MINTING_ACTIONS = ['START_MINTING', 'REMOVE_MINTING_ACCOUNT'] a
 // Actions that require a local write connection (signing / local-only writes), so
 // they cannot succeed on a public/network node and are filtered out of
 // SHOW_ACTIONS there — apps that gate UI off SHOW_ACTIONS then hide controls that
-// would otherwise throw. SEND_CHAT_MESSAGE is intentionally NOT here: its keyless
-// open-group path signs locally and works against public nodes.
+// would otherwise throw. SEND_CHAT_MESSAGE and QDN write actions are intentionally
+// NOT here: their keyless paths sign locally and work against public nodes.
 const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
-  ...QDN_WRITE_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
   ...QDN_PAYMENT_ACTIONS,

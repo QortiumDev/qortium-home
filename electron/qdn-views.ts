@@ -17,6 +17,7 @@ const THEME_VALUES = new Set(['dark', 'light']);
 const LANGUAGE_VALUES = new Set(['ar', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nb', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv', 'zh-CN', 'zh-TW']);
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
 const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
+const UI_VALUES = new Set(['classic', 'modern']);
 // Read-only public Qortal node origins the cross-chain bridge reads from (mirror of
 // QORTAL_PUBLIC_NODE_API_URLS in qdn.ts). QDN apps render from the node's own origin, so the
 // rendered Content-Security-Policy must allow connecting to these for read-only cross-chain reads
@@ -64,6 +65,7 @@ export type QdnDisplaySettings = {
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
   accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
   theme: 'dark' | 'light';
+  ui: 'classic' | 'modern';
 };
 
 const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
@@ -71,6 +73,7 @@ const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
   textSize: 'medium',
   accent: 'green',
   theme: 'light',
+  ui: 'classic',
 };
 
 type QdnViewEntry = {
@@ -217,12 +220,16 @@ function sanitizeDisplaySettings(value: unknown): QdnDisplaySettings {
   const accent = typeof value.accent === 'string' && ACCENT_VALUES.has(value.accent)
     ? value.accent as QdnDisplaySettings['accent']
     : DEFAULT_QDN_DISPLAY_SETTINGS.accent;
+  const ui = typeof value.ui === 'string' && UI_VALUES.has(value.ui)
+    ? value.ui as QdnDisplaySettings['ui']
+    : DEFAULT_QDN_DISPLAY_SETTINGS.ui;
 
   return {
     language,
     textSize,
     accent,
     theme,
+    ui,
   };
 }
 
@@ -539,6 +546,11 @@ function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
       requestedHandler: 'UI',
       accent: displaySettings.accent,
     },
+    {
+      action: 'UI_STYLE_CHANGED',
+      requestedHandler: 'UI',
+      uiStyle: displaySettings.ui,
+    },
   ];
 }
 
@@ -572,7 +584,8 @@ function areDisplaySettingsEqual(
     first.accent === second.accent &&
     first.language === second.language &&
     first.textSize === second.textSize &&
-    first.theme === second.theme
+    first.theme === second.theme &&
+    first.ui === second.ui
   );
 }
 
