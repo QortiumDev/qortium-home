@@ -16,6 +16,7 @@ import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
 import { StartPagesPanel } from './StartPagesPanel';
+import type { StartPage } from './startPages';
 
 export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'start';
 
@@ -37,7 +38,7 @@ type SettingsPageProps = {
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
   onUiChange: (ui: UiSetting) => void;
-  startPages: string[];
+  startPages: StartPage[];
   onStartPageRemove: (displayUrl: string) => void;
 };
 

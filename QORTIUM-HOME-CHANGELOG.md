@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-06-30 - fix: preserve startup account context and native avatars
+
+Start Pages now remember the account selected on the tab when the page is saved,
+so reopening Home can load those pages under the same account instead of leaving
+them as "No account." Existing URL-only Start Pages still open, and Home falls
+back to the current default account for those older saved entries. Native builds
+also resolve account avatar images through blob URLs with sniffed content types
+when the node returns generic binary responses, so Android can keep showing
+published avatars instead of falling back after a direct image load fails.
+
 ### 2026-06-29 - release: prepare home 1.2.0
 
 Bumps Qortium Home to 1.2.0 with Android versionCode 21 for the next prerelease.

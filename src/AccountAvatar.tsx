@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useAccountAvatar } from './useAccountAvatar';
 
 // Renders an account's QDN avatar (`THUMBNAIL/{name}/avatar`). The resolver polls
@@ -19,9 +19,22 @@ export function AccountAvatar({
   fallback: ReactNode;
 }) {
   const avatar = useAccountAvatar(name, nodeApiUrl, nodeEpoch);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
-  if (avatar.url) {
-    return <img className={imageClassName} src={avatar.url} alt="" aria-hidden="true" />;
+  useEffect(() => {
+    setFailedUrl(null);
+  }, [avatar.url]);
+
+  if (avatar.url && avatar.url !== failedUrl) {
+    return (
+      <img
+        className={imageClassName}
+        src={avatar.url}
+        alt=""
+        aria-hidden="true"
+        onError={() => setFailedUrl(avatar.url)}
+      />
+    );
   }
 
   return <>{fallback}</>;

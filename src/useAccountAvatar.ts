@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { fetchNativeHttpBlobUrl, isNativePlatform } from './platform';
 import { buildQdnDownloadUrl, buildQdnStatusUrl, isTerminalQdnStatus } from './qdn';
 import type { QdnResource, QdnResourceStatus } from './qdn';
 
@@ -38,6 +39,7 @@ type AvatarEntry = {
   isPolling: boolean;
   hasTriggeredDownload: boolean;
   attempts: number;
+  objectUrl: string | null;
   // 0 = hard terminal (never retry this epoch); >0 = soft give-up timestamp after
   // which a fresh mount is allowed to try again (the "min cooldown" guard).
   cooldownUntil: number;
@@ -84,6 +86,13 @@ function stopPolling(entry: AvatarEntry) {
   }
 }
 
+function revokeObjectUrl(entry: AvatarEntry) {
+  if (entry.objectUrl) {
+    URL.revokeObjectURL(entry.objectUrl);
+    entry.objectUrl = null;
+  }
+}
+
 function triggerDownload(entry: AvatarEntry) {
   if (entry.hasTriggeredDownload) {
     return;
@@ -125,9 +134,33 @@ async function poll(entry: AvatarEntry, key: string, build: boolean) {
   }
 
   if (status?.status === 'READY') {
-    entry.isPolling = false;
-    emit(entry, { state: 'ready', url: buildQdnDownloadUrl(entry.resource, entry.nodeApiUrl) });
-    return;
+    const downloadUrl = buildQdnDownloadUrl(entry.resource, entry.nodeApiUrl);
+    let objectUrl: string | null = null;
+
+    try {
+      if (isNativePlatform()) {
+        objectUrl = await fetchNativeHttpBlobUrl({ url: downloadUrl });
+      }
+
+      // The entry may have been abandoned (or replaced) while the native fetch was
+      // in flight. Do not leak a blob URL that no UI will use.
+      if (entries.get(key) !== entry || entry.subscribers.size === 0) {
+        entry.isPolling = false;
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+        return;
+      }
+
+      entry.isPolling = false;
+      revokeObjectUrl(entry);
+      entry.objectUrl = objectUrl;
+      emit(entry, { state: 'ready', url: objectUrl ?? downloadUrl });
+      return;
+    } catch {
+      // Treat a ready-but-unreadable avatar as transient. Android WebView can fail
+      // direct QDN image loads, but the status endpoint may still be accurate.
+    }
   }
 
   if (isTerminalQdnStatus(status?.status)) {
@@ -196,6 +229,7 @@ function subscribe(key: string, resource: QdnResource, nodeApiUrl: string, subsc
       isPolling: false,
       hasTriggeredDownload: false,
       attempts: 0,
+      objectUrl: null,
       cooldownUntil: 0,
     };
     entries.set(key, entry);
@@ -212,6 +246,10 @@ function subscribe(key: string, resource: QdnResource, nodeApiUrl: string, subsc
 
     if (activeEntry.subscribers.size === 0) {
       stopPolling(activeEntry);
+      if (activeEntry.objectUrl) {
+        revokeObjectUrl(activeEntry);
+        entries.delete(key);
+      }
     }
   };
 }

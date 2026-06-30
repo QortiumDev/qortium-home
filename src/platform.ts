@@ -7,6 +7,7 @@ import { zipSync } from 'fflate';
 import nacl from 'tweetnacl';
 import packageJson from '../package.json';
 import { compareAppVersions } from './appUpdates';
+import { sniffMagicMimeType } from './qdnContentType';
 import {
   QDN_APP_BRIDGE_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
@@ -396,11 +397,24 @@ export async function fetchNativeHttpBlobUrl({
   }
 
   const bytes = base64ToBytes(response.data);
+  const responseContentType = getContentType(response);
+  const blobContentType =
+    contentType ||
+    (!isGenericContentType(responseContentType) ? responseContentType : '') ||
+    sniffMagicMimeType(bytes) ||
+    responseContentType ||
+    'application/octet-stream';
   const blob = new Blob([bytes], {
-    type: contentType || getContentType(response) || 'application/octet-stream',
+    type: blobContentType,
   });
 
   return URL.createObjectURL(blob);
+}
+
+function isGenericContentType(contentType: string) {
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+
+  return !normalized || normalized === 'application/octet-stream' || normalized === 'binary/octet-stream';
 }
 
 function getFallbackUpdatePlatformOs(): QortiumAppUpdatePlatformOs {
