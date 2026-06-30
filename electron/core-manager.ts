@@ -32,12 +32,16 @@ const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
 const QORTIUM_PREVIEWNET_INITIAL_PEERS = [
   '146.103.42.59:24892',
   '185.207.104.78:24892',
+  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
+  '80.241.221.139:24892',
   '3u25ana5e5hvriqqiuh6fcetxezsqm7la276ljtjxaoxt767n4hq.b32.i2p',
   'zqcackxkhjzfbbc6daigc73zqhzdpgwua3mjc7xgn3hwjed5z3ca.b32.i2p',
 ];
 const QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS = [
   '146.103.42.59:24894',
   '185.207.104.78:24894',
+  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
+  '80.241.221.139:24894',
   'qhk6g5hl7vqf5fmlgj6knbajtiszotaf2w26fwjapsr75kbz7fma.b32.i2p',
   'hg3seiuul4pcz6a2svatdahzudphbm464vwqcmiejc77kumglwaq.b32.i2p',
 ];
