@@ -67,13 +67,13 @@
     "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",
     "jszip": "^3.10.1",
-    "lucide-react": "^1.21.0",
+    "lucide-react": "^1.22.0",
     "marked": "^14.1.4",
     "node-unrar-js": "^2.0.2",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "tar": "^7.5.16",
+    "tar": "^7.5.19",
     "tweetnacl": "1.0.3"
   },
   "devDependencies": {
@@ -86,7 +86,7 @@
     "electron": "^39.2.6",
     "electron-builder": "^26.15.3",
     "typescript": "^5.9.3",
-    "vite": "^7.3.5",
+    "vite": "^7.3.6",
     "wait-on": "^9.0.3"
   },
   "overrides": {
