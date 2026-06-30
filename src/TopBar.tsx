@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Home, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountAvatar } from './AccountAvatar';
@@ -50,12 +50,15 @@ type TopBarProps = {
   onNodeReachabilityChange: (reachable: boolean) => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
+  canToggleCurrentStartPage: boolean;
+  isCurrentPageStartPage: boolean;
   onPinTabToDashboard: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSelectTab: (tabId: string) => void;
+  onToggleStartPage: () => void;
 };
 
 type TabDropPosition = 'after' | 'before';
@@ -1322,12 +1325,15 @@ export function TopBar({
   onNodeReachabilityChange,
   onOpenSettings,
   onOverlayOpenChange,
+  canToggleCurrentStartPage,
+  isCurrentPageStartPage,
   onPinTabToDashboard,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
   onResolvedNodeApiUrl,
   onSelectTab,
+  onToggleStartPage,
 }: TopBarProps) {
   const [addressValue, setAddressValue] = useState('');
   const [addressError, setAddressError] = useState('');
@@ -1754,6 +1760,32 @@ export function TopBar({
           ) : null}
           {addressError ? <p className="top-bar__error">{addressError}</p> : null}
         </div>
+        <button
+          className={[
+            'icon-button',
+            'top-bar__start-page-button',
+            isCurrentPageStartPage ? 'top-bar__start-page-button--active' : '',
+          ].filter(Boolean).join(' ')}
+          disabled={!canToggleCurrentStartPage}
+          title={
+            canToggleCurrentStartPage
+              ? isCurrentPageStartPage
+                ? t('startPages.removeFromStart')
+                : t('startPages.addToStart')
+              : t('startPages.limitReached')
+          }
+          type="button"
+          onClick={onToggleStartPage}
+        >
+          <Home aria-hidden="true" size={20} strokeWidth={2} />
+          <span className="sr-only">
+            {canToggleCurrentStartPage
+              ? isCurrentPageStartPage
+                ? t('startPages.removeFromStart')
+                : t('startPages.addToStart')
+              : t('startPages.limitReached')}
+          </span>
+        </button>
         <button className="icon-button top-bar__go-button" title={t('address.loadAddress')} type="submit">
           <ArrowRight aria-hidden="true" size={20} strokeWidth={2} />
           <span className="sr-only">{t('address.loadAddress')}</span>

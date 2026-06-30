@@ -46,7 +46,8 @@ account, and submits only signed transaction bytes to the node. It also salvages
 old managed-Core `preview/lists/` files into the stable runtime lists folder
 before replacing a Core install, without overwriting runtime files. The release
 also folds in dependency updates for `tar` 7.5.19, `lucide-react` 1.22.0, and
-`vite` 7.3.6.
+`vite` 7.3.6, and includes 7r15's Start Pages feature so users can choose up
+to 10 saved pages to open as tabs when Home starts.
 
 ### 2026-06-26 - core-docs: pass Home display settings to Swagger UI
 
