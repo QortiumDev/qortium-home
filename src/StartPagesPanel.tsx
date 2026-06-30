@@ -1,10 +1,11 @@
 import { X } from 'lucide-react';
 import { t } from './i18n';
 import { SettingsSection } from './SettingsSection';
+import type { StartPage } from './startPages';
 
 type StartPagesPanelProps = {
   isExpanded: boolean;
-  pages: string[];
+  pages: StartPage[];
   onExpandedChange: (isExpanded: boolean) => void;
   onRemove: (displayUrl: string) => void;
 };
@@ -26,14 +27,14 @@ export function StartPagesPanel({ isExpanded, pages, onExpandedChange, onRemove 
           <p className="start-pages-settings__empty">{t('startPages.emptyHint')}</p>
         ) : (
           <ul className="start-pages-settings__list">
-            {pages.map((displayUrl) => (
-              <li key={displayUrl} className="start-pages-settings__item">
-                <span className="start-pages-settings__url">{displayUrl}</span>
+            {pages.map((page) => (
+              <li key={page.displayUrl} className="start-pages-settings__item">
+                <span className="start-pages-settings__url">{page.displayUrl}</span>
                 <button
                   className="start-pages-settings__remove"
                   title={t('startPages.removePage')}
                   type="button"
-                  onClick={() => onRemove(displayUrl)}
+                  onClick={() => onRemove(page.displayUrl)}
                 >
                   <X aria-hidden="true" size={16} strokeWidth={2} />
                   <span className="sr-only">{t('startPages.removePage')}</span>

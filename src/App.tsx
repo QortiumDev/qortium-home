@@ -50,6 +50,7 @@ import {
   MAX_START_PAGES,
   removeStartPage,
   saveStartPages,
+  type StartPage,
 } from './startPages';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
@@ -743,7 +744,7 @@ export function App() {
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
-  const [startPages, setStartPages] = useState<string[]>([]);
+  const [startPages, setStartPages] = useState<StartPage[]>([]);
   const [isLoadingStartPages, setIsLoadingStartPages] = useState(true);
   const startPagesAppliedRef = useRef(false);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
@@ -782,7 +783,7 @@ export function App() {
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isExplorerRoute;
-  const isCurrentPageStartPage = startPages.includes(currentRoute.displayUrl);
+  const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentRoute.displayUrl);
   const canAddCurrentStartPage = isCurrentPageStartPage || startPages.length < MAX_START_PAGES;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
@@ -935,7 +936,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (isLoadingWindowStartupPayload || isLoadingStartPages) return;
+    if (isLoadingWindowStartupPayload || isLoadingStartPages || isLoadingAccounts) return;
     if (startPagesAppliedRef.current) return;
 
     startPagesAppliedRef.current = true;
@@ -948,11 +949,18 @@ export function App() {
 
       if (!currentRoute || currentRoute.kind !== 'dashboard') return currentTabState;
 
+      const defaultAccountId = getDefaultAccountId(accountsState);
       const newTabs = startPages
-        .map((displayUrl) => {
-          const parsed = parseAppAddress(displayUrl);
+        .map((page) => {
+          const parsed = parseAppAddress(page.displayUrl);
           if (!parsed.success) return null;
-          return createBrowserTab(null, { entries: [parsed.route], index: 0 });
+          const accountId = page.accountId === null
+            ? defaultAccountId
+            : accountExists(accountsState, page.accountId)
+              ? page.accountId
+              : null;
+
+          return createBrowserTab(accountId, { entries: [parsed.route], index: 0 });
         })
         .filter((tab): tab is BrowserTab => tab !== null);
 
@@ -964,7 +972,7 @@ export function App() {
         tabs: newTabs,
       };
     });
-  }, [isLoadingWindowStartupPayload, isLoadingStartPages, startPages]);
+  }, [accountsState, isLoadingAccounts, isLoadingWindowStartupPayload, isLoadingStartPages, startPages]);
 
   function reconcileTabsWithAccounts(nextAccountsState: QortiumAccountsState) {
     setTabState((currentTabState) => {
@@ -1143,9 +1151,9 @@ export function App() {
 
   function toggleStartPage(displayUrl: string) {
     setStartPages((current) => {
-      const next = current.includes(displayUrl)
+      const next = current.some((page) => page.displayUrl === displayUrl)
         ? removeStartPage(current, displayUrl)
-        : addStartPage(current, displayUrl);
+        : addStartPage(current, displayUrl, activeTab.accountId);
 
       if (next === current) {
         return current;
