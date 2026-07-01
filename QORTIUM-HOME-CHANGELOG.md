@@ -33,6 +33,29 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-01 - feat: add Home bookmarks, release notes, and resilient media
+
+Adds a full Home bookmarks workflow with bookmark folders, a toolbar, drag and
+drop between bookmarks, dashboard pins, and Start Pages, plus saved account
+context for QDN links so reopened pages can keep using the intended account.
+Home also gains release-notes pages for Home and Core releases, with GitHub
+release markdown shown inside the app and direct release-asset downloads routed
+through the desktop save dialog instead of treating every asset as an app
+update.
+
+QDN app icons and account avatars now share a status-driven image resolver that
+keeps the last good image visible while the node reconnects, refreshes through
+QDN status/fetch requests, and only clears cached images after a terminal
+missing result. The dashboard and top bar use that resolver for steadier icon
+and avatar rendering, including native builds that need typed blob URLs instead
+of direct image loads.
+
+The Core transport controls can now read live peer/transport status from the
+running node or the stopped managed-Core runtime, and Home can update the
+managed runtime's transport mode before Core starts. The surrounding UI and
+translations were updated so bookmarks, release notes, release downloads,
+transport status, and resilient QDN media behave consistently across the app.
+
 ### 2026-06-30 - fix: preserve startup account context and native avatars
 
 Start Pages now remember the account selected on the tab when the page is saved,

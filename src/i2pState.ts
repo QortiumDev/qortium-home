@@ -31,7 +31,15 @@ export function useI2pConnections(nodeApiUrl: string, nodeEpoch = 0): I2pConnect
       }
 
       if (snapshot) {
-        setStatus(deriveI2pStatus(snapshot.settings, snapshot.chainPeers, snapshot.dataPeers));
+        setStatus(
+          deriveI2pStatus(
+            snapshot.settings,
+            snapshot.chainPeers,
+            snapshot.dataPeers,
+            snapshot.source,
+            snapshot.coreRunning ?? snapshot.source !== 'managed-runtime',
+          ),
+        );
         setIsUnavailable(false);
       } else {
         setStatus(null);

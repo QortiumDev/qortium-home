@@ -4,6 +4,7 @@ import { compareAppVersions } from './appUpdates';
 import { t } from './i18n';
 
 const HOME_RELEASE_TAG_BASE_URL = 'https://github.com/QortiumDev/qortium-home/releases/tag';
+const CORE_RELEASE_TAG_BASE_URL = 'https://github.com/QortiumDev/qortium-core/releases/tag';
 
 export type DetailRow = {
   label: string;
@@ -31,6 +32,16 @@ export function getHomeReleaseUrl(version: string | null | undefined) {
   }
 
   return `${HOME_RELEASE_TAG_BASE_URL}/${encodeURIComponent(tagName)}`;
+}
+
+export function getCoreReleaseUrl(version: string | null | undefined) {
+  const tagName = formatReleaseTag(version);
+
+  if (!tagName) {
+    return '';
+  }
+
+  return `${CORE_RELEASE_TAG_BASE_URL}/${encodeURIComponent(tagName)}`;
 }
 
 export function areReleaseTagsEqual(first: string | null | undefined, second: string | null | undefined) {
@@ -74,6 +85,36 @@ export function LinkedValue({
   );
 }
 
+export function ReleaseNotesValue({
+  children,
+  className = 'value-link',
+  product,
+  tagName,
+  onOpenReleaseNotes,
+}: {
+  children: string;
+  className?: string;
+  product: 'core' | 'home';
+  tagName: string;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
+}) {
+  if (!tagName) {
+    return <>{children}</>;
+  }
+
+  return (
+    <button
+      className={className}
+      title={t('releaseNotes.open')}
+      type="button"
+      onClick={() => onOpenReleaseNotes(product, tagName)}
+    >
+      <span>{children}</span>
+      <ExternalLink aria-hidden="true" size={13} strokeWidth={2} />
+    </button>
+  );
+}
+
 export function PathValue({ path }: { path: string }) {
   return (
     <button
@@ -85,7 +126,7 @@ export function PathValue({ path }: { path: string }) {
       }}
     >
       <span>{path}</span>
-      <ExternalLink aria-hidden="true" size={13} strokeWidth={2} />
+      <FolderOpen aria-hidden="true" size={13} strokeWidth={2} />
     </button>
   );
 }
@@ -239,6 +280,7 @@ function commitsMatch(first: string | null | undefined, second: string | null | 
 type CoreLatestEntry = {
   label: string;
   source: 'github' | 'qdn';
+  tagName?: string;
   url?: string;
 };
 
@@ -248,11 +290,13 @@ type CoreLatestEntry = {
 export function getCoreLatestRows({
   installedTagName,
   linkClassName,
+  onOpenReleaseNotes,
   onChain,
   release,
 }: {
   installedTagName: string | null | undefined;
   linkClassName?: string;
+  onOpenReleaseNotes?: (product: 'core' | 'home', tagName: string) => void;
   onChain: QortiumCoreOnChainUpdateStatus | null;
   release: AvailableCoreReleaseSummary | null;
 }): DetailRow[] {
@@ -268,7 +312,7 @@ export function getCoreLatestRows({
       : release.tagName
     : '';
   const githubEntry: CoreLatestEntry | null = release
-    ? { label: githubLabel, source: 'github', url: release.htmlUrl || undefined }
+    ? { label: githubLabel, source: 'github', tagName: release.tagName, url: release.htmlUrl || undefined }
     : null;
   const qdnCommitLabel = onChain?.commitHash ? onChain.commitHash.slice(0, 7) : t('common.available');
   const qdnEntry: CoreLatestEntry | null = onChain
@@ -302,7 +346,16 @@ export function getCoreLatestRows({
 
   return entries.map((entry) => ({
     label: entry.source === 'github' ? t('common.latestGithub') : t('common.latestQdn'),
-    value: entry.url ? (
+    value: entry.source === 'github' && entry.tagName && onOpenReleaseNotes ? (
+      <ReleaseNotesValue
+        className={linkClassName}
+        product="core"
+        tagName={entry.tagName}
+        onOpenReleaseNotes={onOpenReleaseNotes}
+      >
+        {entry.label}
+      </ReleaseNotesValue>
+    ) : entry.url ? (
       <LinkedValue className={linkClassName} url={entry.url}>
         {entry.label}
       </LinkedValue>
@@ -327,6 +380,35 @@ export function getCoreVersionRowValue(status: QortiumCoreStatus | null, linkCla
   );
 }
 
+export function getCoreVersionReleaseNotesValue(
+  status: QortiumCoreStatus | null,
+  linkClassName?: string,
+  onOpenReleaseNotes?: (product: 'core' | 'home', tagName: string) => void,
+): ReactNode {
+  const text = getCoreVersionValue(status);
+  const releaseTag = formatReleaseTag(status?.installed?.tagName ?? status?.runtime.runningVersion ?? '');
+  const releaseUrl = status?.installed?.htmlUrl || getCoreReleaseUrl(releaseTag);
+
+  if (onOpenReleaseNotes && releaseTag) {
+    return (
+      <ReleaseNotesValue
+        className={linkClassName}
+        product="core"
+        tagName={releaseTag}
+        onOpenReleaseNotes={onOpenReleaseNotes}
+      >
+        {text}
+      </ReleaseNotesValue>
+    );
+  }
+
+  return (
+    <LinkedValue className={linkClassName} url={releaseUrl}>
+      {text}
+    </LinkedValue>
+  );
+}
+
 export function getHomeVersionRowValue(
   environment: QortiumAppUpdateEnvironment | null,
   linkClassName?: string,
@@ -345,6 +427,34 @@ export function getHomeVersionRowValue(
     <RevealValue className={linkClassName} path={revealTarget}>
       {text}
     </RevealValue>
+  );
+}
+
+export function getHomeVersionReleaseNotesValue(
+  environment: QortiumAppUpdateEnvironment | null,
+  linkClassName?: string,
+  onOpenReleaseNotes?: (product: 'core' | 'home', tagName: string) => void,
+): ReactNode {
+  const tag = formatReleaseTag(environment?.currentVersion);
+  const text = tag || t('common.checking');
+
+  if (onOpenReleaseNotes && tag) {
+    return (
+      <ReleaseNotesValue
+        className={linkClassName}
+        product="home"
+        tagName={tag}
+        onOpenReleaseNotes={onOpenReleaseNotes}
+      >
+        {text}
+      </ReleaseNotesValue>
+    );
+  }
+
+  return (
+    <LinkedValue className={linkClassName} url={getHomeReleaseUrl(tag)}>
+      {text}
+    </LinkedValue>
   );
 }
 

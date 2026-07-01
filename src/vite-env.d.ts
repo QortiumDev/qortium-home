@@ -85,6 +85,21 @@ type QortiumNodeStatusResult =
       ok: false;
     };
 
+type QortiumCoreTransportStatusSnapshot = {
+  chainPeers: Array<{ transport?: unknown }>;
+  coreRunning?: boolean;
+  dataPeers: Array<{ transport?: unknown }>;
+  settings: {
+    allowedTransports: string[] | null;
+    i2pSamHost: string;
+    i2pSamPort: number;
+    i2pChainKeyFile: string;
+    i2pDataKeyFile: string;
+    i2pEmbeddedRouter: boolean;
+  };
+  source?: 'live-node' | 'managed-runtime';
+};
+
 type QortiumCoreAutoUpdateMode = 'CHECK_ONLY' | 'INSTALL' | 'NOTIFY' | 'OFF' | string;
 
 type QortiumCoreOnChainUpdateStatus = {
@@ -684,6 +699,9 @@ interface Window {
       downloadAsset: (
         request: QortiumAppUpdateDownloadRequest,
       ) => Promise<QortiumAppUpdateDownloadResult>;
+      downloadReleaseAsset: (
+        request: QortiumAppUpdateDownloadRequest,
+      ) => Promise<QortiumAppUpdateDownloadResult>;
       getEnvironment: () => Promise<QortiumAppUpdateEnvironment>;
       onDownloadProgress: (callback: (progress: QortiumAppUpdateDownloadProgress) => void) => () => void;
       openDownloadedFile: (filePath: string) => Promise<void>;
@@ -709,6 +727,7 @@ interface Window {
       checkCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       enableApiDocumentation: () => Promise<void>;
       getSettings: () => Promise<QortiumNodeSettings>;
+      getTransportStatus?: () => Promise<QortiumCoreTransportStatusSnapshot | null>;
       installCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       saveSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
       setAllowedTransports: (transports: string[]) => Promise<void>;

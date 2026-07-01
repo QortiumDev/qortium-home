@@ -1,5 +1,6 @@
 import { getQdnViewerKind } from './qdn';
 import { parseAppAddress } from './routes';
+import type { QdnImageResource } from './useQdnImageResource';
 
 // Resolves the icon shown for a pinned/tabbed QDN APP or WEBSITE. The cascade is:
 //   1. the app's own favicon for this identifier (so each identifier can differ),
@@ -10,23 +11,11 @@ import { parseAppAddress } from './routes';
 
 export type AppIconResolution = {
   cacheKey: string;
-  candidateUrls: string[];
+  candidates: QdnImageResource[];
   monogram: string;
+  nodeApiUrl: string;
+  nodeEpoch: number;
 };
-
-// Maps a cache key to the index of the icon candidate that was observed to LOAD
-// (only successes are cached — never failures), so re-mounts of an already-resolved
-// pin/tab skip straight to the working candidate without re-walking the cascade.
-// Keyed by nodeEpoch so reconnecting to a node drops stale entries.
-const resolvedIconIndexCache = new Map<string, number>();
-
-export function readCachedIconIndex(cacheKey: string): number {
-  return resolvedIconIndexCache.get(cacheKey) ?? 0;
-}
-
-export function writeCachedIconIndex(cacheKey: string, index: number): void {
-  resolvedIconIndexCache.set(cacheKey, index);
-}
 
 export function getAppIconMonogram(value: string): string {
   const character = value.trim().charAt(0);
@@ -62,19 +51,30 @@ export function getAppIconResolution(
 
   const identifier = resource.identifier ?? 'default';
   const base = trimTrailingSlashes(nodeApiUrl);
-  const encodedName = encodeURIComponent(resource.name);
-  const encodedIdentifier = encodeURIComponent(identifier);
 
-  // async=true lets the node fetch in the background and return a placeholder /
-  // error rather than blocking; the <img> cascade falls through until ready.
-  const candidateUrls = [
-    `${base}/arbitrary/${resource.service}/${encodedName}/${encodedIdentifier}?filepath=favicon.ico&async=true`,
-    `${base}/arbitrary/THUMBNAIL/${encodedName}/avatar?async=true`,
+  const candidates: QdnImageResource[] = [
+    {
+      cacheKey: `app-icon:${resource.service}:${resource.name}:${identifier}:favicon.ico`,
+      identifier,
+      maxBytes: 256 * 1024,
+      name: resource.name,
+      path: 'favicon.ico',
+      service: resource.service,
+    },
+    {
+      cacheKey: `app-icon:THUMBNAIL:${resource.name}:avatar`,
+      identifier: 'avatar',
+      maxBytes: 1024 * 1024,
+      name: resource.name,
+      service: 'THUMBNAIL',
+    },
   ];
 
   return {
-    cacheKey: `${nodeEpoch}:${base}:${resource.service}:${resource.name}:${identifier}`,
-    candidateUrls,
+    cacheKey: `${base}:${resource.service}:${resource.name}:${identifier}`,
+    candidates,
     monogram: getAppIconMonogram(resource.name),
+    nodeApiUrl: base,
+    nodeEpoch,
   };
 }

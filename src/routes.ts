@@ -23,9 +23,26 @@ export type DashboardRoute = {
   kind: 'dashboard';
 };
 
+export type BookmarksRoute = {
+  displayUrl: 'home://bookmarks';
+  kind: 'bookmarks';
+};
+
+export type ReleaseNotesRoute = {
+  displayUrl: string;
+  kind: 'release-notes';
+  product: 'core' | 'home';
+  tagName: string;
+};
+
 export const DASHBOARD_ROUTE: DashboardRoute = {
   kind: 'dashboard',
   displayUrl: 'home://dashboard',
+};
+
+export const BOOKMARKS_ROUTE: BookmarksRoute = {
+  kind: 'bookmarks',
+  displayUrl: 'home://bookmarks',
 };
 
 export const SETTINGS_ROUTE: SettingsRoute = {
@@ -38,7 +55,14 @@ export const CORE_API_DOCS_ROUTE: CoreApiDocsRoute = {
   displayUrl: 'core://',
 };
 
-export type AppRoute = CoreApiDocsRoute | DashboardRoute | NodeApiRoute | QdnRoute | SettingsRoute;
+export type AppRoute =
+  | BookmarksRoute
+  | CoreApiDocsRoute
+  | DashboardRoute
+  | NodeApiRoute
+  | QdnRoute
+  | ReleaseNotesRoute
+  | SettingsRoute;
 
 type RouteParseResult =
   | {
@@ -59,6 +83,17 @@ function buildNodeApiRoute(path: string): NodeApiRoute {
     kind: 'node-api',
     path,
     displayUrl: buildCoreDisplayUrl(path),
+  };
+}
+
+export function buildReleaseNotesRoute(product: ReleaseNotesRoute['product'], tagName: string): ReleaseNotesRoute {
+  const normalizedTag = tagName.trim();
+
+  return {
+    kind: 'release-notes',
+    product,
+    tagName: normalizedTag,
+    displayUrl: `home://releases/${product}/${encodeURIComponent(normalizedTag)}`,
   };
 }
 
@@ -124,6 +159,34 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
       success: true,
       route: SETTINGS_ROUTE,
     };
+  }
+
+  if (normalizedPathname === 'bookmarks') {
+    return {
+      success: true,
+      route: BOOKMARKS_ROUTE,
+    };
+  }
+
+  const parts = pathname.split('/').filter(Boolean);
+
+  if (parts[0]?.toLowerCase() === 'releases') {
+    const product = parts[1]?.toLowerCase();
+    const rawTag = parts.slice(2).join('/');
+    let tagName = '';
+
+    try {
+      tagName = rawTag ? decodeURIComponent(rawTag) : '';
+    } catch {
+      tagName = rawTag;
+    }
+
+    if ((product === 'home' || product === 'core') && tagName) {
+      return {
+        success: true,
+        route: buildReleaseNotesRoute(product, tagName),
+      };
+    }
   }
 
   return {

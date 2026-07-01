@@ -664,14 +664,16 @@ async function fetchAssetAsBase64(asset: QortiumAppUpdateAsset) {
   return arrayBufferToBase64(await response.arrayBuffer());
 }
 
-async function downloadUpdateAsset(request: QortiumAppUpdateDownloadRequest) {
+async function downloadUpdateAssetInternal(request: QortiumAppUpdateDownloadRequest, { enforceNewer }: { enforceNewer: boolean }) {
   if (!isNativePlatform()) {
     throw new Error('Update downloads are available in the desktop app and Android app.');
   }
 
   const normalizedRequest = normalizeUpdateDownloadRequest(request);
 
-  assertFallbackUpdateIsNewer(normalizedRequest.releaseTag);
+  if (enforceNewer) {
+    assertFallbackUpdateIsNewer(normalizedRequest.releaseTag);
+  }
 
   const base64Asset = await fetchAssetAsBase64(normalizedRequest.asset);
   const digest = await hashBase64(base64Asset);
@@ -715,6 +717,14 @@ async function downloadUpdateAsset(request: QortiumAppUpdateDownloadRequest) {
     releaseTag: normalizedRequest.releaseTag,
     size: fileStatus.size || base64ToBytes(base64Asset).byteLength,
   };
+}
+
+async function downloadUpdateAsset(request: QortiumAppUpdateDownloadRequest) {
+  return downloadUpdateAssetInternal(request, { enforceNewer: true });
+}
+
+async function downloadFallbackReleaseAsset(request: QortiumAppUpdateDownloadRequest) {
+  return downloadUpdateAssetInternal(request, { enforceNewer: false });
 }
 
 function getString(value: unknown) {
@@ -2064,6 +2074,12 @@ async function fetchNodeJson(pathname: string, nodeApiUrl: string) {
 // /peers + /peers/data for the live per-peer transport. Works in any node mode
 // and on both desktop and Android. Returns null when the node is unreachable.
 export async function fetchCoreTransportStatus(): Promise<CoreTransportStatusSnapshot | null> {
+  const bridgedStatus = await window.qortiumHome.node.getTransportStatus?.();
+
+  if (bridgedStatus) {
+    return bridgedStatus;
+  }
+
   const settings = await readNodeSettings();
 
   let nodeApiUrl: string;
@@ -5954,6 +5970,17 @@ async function requestProtectedNodeText(
   return responseBody;
 }
 
+function getNodeSettingsPatch(request: QdnAppRequest) {
+  const explicitPatch = getRequestValue(request, 'patch') ?? getRequestValue(request, 'settings');
+  const patch = explicitPatch ?? (isRecord(request.payload) ? request.payload : undefined);
+
+  if (!isRecord(patch)) {
+    throw new Error('Node settings update requests must include a settings patch object.');
+  }
+
+  return patch;
+}
+
 async function getProtectedNodeRequestContext() {
   const settings = await readNodeSettings();
 
@@ -5965,6 +5992,34 @@ async function getProtectedNodeRequestContext() {
     apiKey: getNodeApiKey(settings),
     nodeApiUrl: await resolveNodeApiUrl(settings),
   };
+}
+
+async function updateNodeSettingsForQdnApp(request: QdnAppRequest) {
+  const context = await getProtectedNodeRequestContext();
+  const responseBody = await requestProtectedNodeText(
+    context.nodeApiUrl,
+    context.apiKey,
+    '/admin/settings',
+    'PATCH',
+    getNodeSettingsPatch(request),
+    'Node settings update request failed.',
+  );
+
+  return parseResponseData(responseBody, 'application/json');
+}
+
+async function restartNodeForQdnApp() {
+  const context = await getProtectedNodeRequestContext();
+  const responseBody = await requestProtectedNodeText(
+    context.nodeApiUrl,
+    context.apiKey,
+    '/admin/restart',
+    'GET',
+    undefined,
+    'Node restart request failed.',
+  );
+
+  return parseResponseData(responseBody, 'text/plain');
 }
 
 async function enableNodeApiDocumentation() {
@@ -7370,8 +7425,17 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'GET_NODE_INFO':
       return fetchNodeApiPayload('/admin/info', request);
 
+    case 'GET_NODE_SETTINGS_METADATA':
+      return fetchNodeApiPayload('/admin/settings/metadata', request);
+
     case 'GET_NODE_STATUS':
       return fetchNodeApiPayload('/admin/status', request);
+
+    case 'UPDATE_NODE_SETTINGS':
+      return updateNodeSettingsForQdnApp(request);
+
+    case 'RESTART_NODE':
+      return restartNodeForQdnApp();
 
     case 'GET_ACCOUNT_DATA':
       return fetchNodeApiPayload(
@@ -7858,6 +7922,9 @@ function createFallbackApi(): PlatformApi {
     updates: {
       async downloadAsset(request) {
         return downloadUpdateAsset(request);
+      },
+      async downloadReleaseAsset(request) {
+        return downloadFallbackReleaseAsset(request);
       },
       async getEnvironment() {
         return getFallbackUpdateEnvironment();

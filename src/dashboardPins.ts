@@ -1,10 +1,12 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
+import { getSavedAccountContext } from './accountContext';
 
 const DASHBOARD_PINS_STORAGE_KEY = 'qortium-home-dashboard-pins';
 const MAX_DASHBOARD_PINS = 32;
 
 export type DashboardPin = {
+  accountId?: string | null;
   createdAt: number;
   // User-set label that overrides the auto-derived display label. Absent/empty => derive from displayUrl.
   customLabel?: string;
@@ -14,6 +16,12 @@ export type DashboardPin = {
 };
 
 export type DashboardPinDropPosition = 'after' | 'before';
+
+export type DashboardPinUpdateRequest = {
+  accountId?: string | null;
+  displayUrl: string;
+  title: string;
+};
 
 function normalizePinLabel(label: unknown, displayUrl: string) {
   return typeof label === 'string' && label.trim() ? label.trim() : displayUrl;
@@ -42,6 +50,12 @@ function normalizePin(value: unknown): DashboardPin | null {
     normalized.customLabel = pin.customLabel.trim();
   }
 
+  const accountId = getSavedAccountContext(displayUrl, 'accountId' in pin ? pin.accountId : null);
+
+  if (accountId) {
+    normalized.accountId = accountId;
+  }
+
   return normalized;
 }
 
@@ -63,19 +77,26 @@ function normalizePins(value: unknown): DashboardPin[] {
   return [...pins.values()].slice(0, MAX_DASHBOARD_PINS);
 }
 
-export function createDashboardPin(displayUrl: string, label: string): DashboardPin | null {
+export function createDashboardPin(displayUrl: string, label: string, accountId?: string | null): DashboardPin | null {
   const normalizedDisplayUrl = displayUrl.trim();
 
   if (!normalizedDisplayUrl) {
     return null;
   }
 
-  return {
+  const pin: DashboardPin = {
     createdAt: Date.now(),
     displayUrl: normalizedDisplayUrl,
     id: normalizedDisplayUrl,
     label: normalizePinLabel(label, normalizedDisplayUrl),
   };
+  const savedAccountId = getSavedAccountContext(normalizedDisplayUrl, accountId);
+
+  if (savedAccountId) {
+    pin.accountId = savedAccountId;
+  }
+
+  return pin;
 }
 
 export function upsertDashboardPin(currentPins: DashboardPin[], nextPin: DashboardPin): DashboardPin[] {
@@ -108,6 +129,7 @@ export function setDashboardPinLabel(
     }
 
     const next: DashboardPin = {
+      ...(pin.accountId ? { accountId: pin.accountId } : {}),
       createdAt: pin.createdAt,
       displayUrl: pin.displayUrl,
       id: pin.id,
@@ -121,6 +143,46 @@ export function setDashboardPinLabel(
 
     return next;
   });
+}
+
+export function updateDashboardPin(
+  currentPins: DashboardPin[],
+  pinId: string,
+  request: DashboardPinUpdateRequest,
+): DashboardPin[] {
+  const displayUrl = request.displayUrl.trim();
+
+  if (!displayUrl || currentPins.some((pin) => pin.id !== pinId && pin.displayUrl === displayUrl)) {
+    return currentPins;
+  }
+
+  let didUpdate = false;
+  const title = request.title.trim();
+
+  return currentPins.map((pin) => {
+    if (pin.id !== pinId) {
+      return pin;
+    }
+
+    didUpdate = true;
+    const next: DashboardPin = {
+      createdAt: pin.createdAt,
+      displayUrl,
+      id: displayUrl,
+      label: normalizePinLabel(title || pin.label, displayUrl),
+    };
+    const accountId = getSavedAccountContext(displayUrl, request.accountId);
+
+    if (title) {
+      next.customLabel = title;
+    }
+
+    if (accountId) {
+      next.accountId = accountId;
+    }
+
+    return next;
+  }).filter((pin) => didUpdate || pin.id !== pinId);
 }
 
 export function reorderDashboardPins(

@@ -1,7 +1,7 @@
 import { Download, Lock, Plus, Unlock, Wallet, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AccountAvatar } from './AccountAvatar';
-import { getAccountProfile } from './accountProfile';
+import { useAccountProfile } from './accountProfile';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
 import { isNativePlatform } from './platform';
@@ -131,35 +131,7 @@ export function AccountsPanel({
     () => accountsState.accounts.find((account) => account.id === selectedAccountId),
     [accountsState.accounts, selectedAccountId],
   );
-  const [activeProfile, setActiveProfile] = useState<QortiumAccountProfile | null>(null);
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    setActiveProfile(null);
-
-    if (!activeAccount) {
-      return () => {
-        isDisposed = true;
-      };
-    }
-
-    getAccountProfile(activeAccount, nodeApiUrl, nodeEpoch)
-      .then((profile) => {
-        if (!isDisposed) {
-          setActiveProfile(profile);
-        }
-      })
-      .catch(() => {
-        if (!isDisposed) {
-          setActiveProfile(null);
-        }
-      });
-
-    return () => {
-      isDisposed = true;
-    };
-  }, [activeAccount, nodeApiUrl, nodeEpoch]);
+  const activeProfile = useAccountProfile(activeAccount ?? null, nodeApiUrl, nodeEpoch);
   const walletAccounts = useMemo(
     () =>
       accountsState.accounts

@@ -51,6 +51,11 @@ export const QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
 ] as const;
+export const QDN_NODE_SETTINGS_ACTIONS = [
+  'GET_NODE_SETTINGS_METADATA',
+  'RESTART_NODE',
+  'UPDATE_NODE_SETTINGS',
+] as const;
 export const QDN_APP_BRIDGE_ACTIONS = [
   'FETCH_NODE_API',
   'FETCH_QDN_RESOURCE',
@@ -72,6 +77,7 @@ export const QDN_APP_BRIDGE_ACTIONS = [
   'GET_MINTING_STATUS',
   'GET_NAME_DATA',
   'GET_NODE_INFO',
+  ...QDN_NODE_SETTINGS_ACTIONS,
   'GET_NODE_STATUS',
   'GET_SELECTED_ACCOUNT',
   'GET_QDN_RESOURCE_METADATA',
@@ -114,12 +120,13 @@ export const QDN_APP_BRIDGE_ACTIONS = [
 
 export const QDN_MINTING_ACTIONS = ['START_MINTING', 'REMOVE_MINTING_ACCOUNT'] as const;
 
-// Actions that require a local write connection (signing / local-only writes), so
-// they cannot succeed on a public/network node and are filtered out of
+// Actions that require a local/trusted node or protected local context, so they
+// cannot succeed on a public/network node and are filtered out of
 // SHOW_ACTIONS there — apps that gate UI off SHOW_ACTIONS then hide controls that
 // would otherwise throw. SEND_CHAT_MESSAGE and QDN write actions are intentionally
 // NOT here: their keyless paths sign locally and work against public nodes.
 const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
+  ...QDN_NODE_SETTINGS_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
   ...QDN_PAYMENT_ACTIONS,
