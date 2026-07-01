@@ -10,12 +10,9 @@ import type {
   QdnViewerKind,
 } from './qdn';
 import {
-  buildQdnDownloadUrl,
   buildQdnDisplayUrl,
   buildQdnMetadataUrl,
   buildQdnRenderUrl,
-  buildQdnResourcePropertiesUrl,
-  buildQdnStatusUrl,
   formatByteSize,
   formatQdnStatus,
   getLoadedViewerKind,
@@ -464,14 +461,31 @@ async function copyImageResourceToClipboard(resource: QdnResource) {
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
 }
 
-async function readStatus(response: Response) {
-  const text = await response.text();
-
-  if (!response.ok) {
-    throw new Error(text || t('viewer.statusRequestFailed', { status: response.status }));
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
   }
+}
 
-  return JSON.parse(text) as QdnResourceStatus;
+function getQdnBridgeResource(resource: QdnResource) {
+  return {
+    service: resource.service,
+    name: resource.name,
+    identifier: resource.identifier,
+    path: resource.path,
+  };
+}
+
+async function loadResourceStatus(resource: QdnResource, build: boolean, signal: AbortSignal) {
+  throwIfAborted(signal);
+  const data = await handleQdnAppRequest({
+    action: 'GET_QDN_RESOURCE_STATUS',
+    ...getQdnBridgeResource(resource),
+    build,
+  });
+  throwIfAborted(signal);
+
+  return data as QdnResourceStatus;
 }
 
 function isQdnResourceProperties(value: unknown): value is QdnResourceProperties {
@@ -486,22 +500,6 @@ function isQdnResourceProperties(value: unknown): value is QdnResourceProperties
     (properties.mimeType === undefined || typeof properties.mimeType === 'string') &&
     (properties.size === undefined || typeof properties.size === 'number')
   );
-}
-
-async function readProperties(response: Response) {
-  const text = await response.text();
-
-  if (!response.ok) {
-    throw new Error(text || `QDN properties request failed with HTTP ${response.status}.`);
-  }
-
-  const data: unknown = JSON.parse(text);
-
-  if (!isQdnResourceProperties(data)) {
-    throw new Error('QDN properties response did not match the expected shape.');
-  }
-
-  return data;
 }
 
 function isQdnResourceMetadata(value: unknown): value is QdnResourceMetadata {
@@ -519,13 +517,20 @@ function isQdnResourceMetadata(value: unknown): value is QdnResourceMetadata {
   );
 }
 
-async function loadResourceProperties(resource: QdnResource, nodeApiUrl: string, signal: AbortSignal) {
+async function loadResourceProperties(resource: QdnResource, signal: AbortSignal) {
   try {
-    const response = await fetch(buildQdnResourcePropertiesUrl(resource, nodeApiUrl), {
-      signal,
+    throwIfAborted(signal);
+    const data = await handleQdnAppRequest({
+      action: 'GET_QDN_RESOURCE_PROPERTIES',
+      ...getQdnBridgeResource(resource),
     });
+    throwIfAborted(signal);
 
-    return await readProperties(response);
+    if (!isQdnResourceProperties(data)) {
+      throw new Error('QDN properties response did not match the expected shape.');
+    }
+
+    return data;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error;
@@ -709,9 +714,13 @@ function useQdnResourceLoader(
       hasTriggeredDownload = true;
 
       try {
-        await fetch(buildQdnDownloadUrl(resource, nodeApiUrl), {
-          signal: abortController.signal,
+        throwIfAborted(abortController.signal);
+        await handleQdnAppRequest({
+          action: 'FETCH_QDN_RESOURCE',
+          ...getQdnBridgeResource(resource),
+          maxBytes: 1,
         });
+        throwIfAborted(abortController.signal);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           return;
@@ -720,7 +729,7 @@ function useQdnResourceLoader(
     }
 
     async function setReadyState(status: QdnResourceStatus) {
-      const properties = await loadResourceProperties(resource, nodeApiUrl, abortController.signal);
+      const properties = await loadResourceProperties(resource, abortController.signal);
       let viewerKind = getLoadedViewerKind(resource, properties);
       const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl, displaySettings);
 
@@ -773,10 +782,7 @@ function useQdnResourceLoader(
 
     async function pollStatus(build: boolean) {
       try {
-        const statusResponse = await fetch(buildQdnStatusUrl(resource, nodeApiUrl, build), {
-          signal: abortController.signal,
-        });
-        const status = await readStatus(statusResponse);
+        const status = await loadResourceStatus(resource, build, abortController.signal);
 
         if (status.status === 'READY') {
           await setReadyState(status);

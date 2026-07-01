@@ -5800,11 +5800,13 @@ async function requestNode(
   responseType: 'arraybuffer' | 'json' | 'text' = 'text',
   timeoutMs = REQUEST_TIMEOUT_MS,
   method: 'GET' | 'HEAD' = 'GET',
+  headers?: Record<string, string>,
 ) {
   try {
     return await CapacitorHttp.request({
       url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
       method,
+      headers,
       responseType,
       connectTimeout: timeoutMs,
       readTimeout: timeoutMs,
@@ -6021,11 +6023,12 @@ async function requestConfiguredNode(
   method: 'GET' | 'HEAD' = 'GET',
 ) {
   const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const headers = settings.apiKey ? { 'X-API-KEY': settings.apiKey } : undefined;
 
   try {
     return {
       nodeApiUrl,
-      response: await requestNode(nodeApiUrl, pathname, responseType, REQUEST_TIMEOUT_MS, method),
+      response: await requestNode(nodeApiUrl, pathname, responseType, REQUEST_TIMEOUT_MS, method, headers),
     };
   } catch (error) {
     if (settings.mode !== 'network') {
@@ -6040,7 +6043,7 @@ async function requestConfiguredNode(
 
     return {
       nodeApiUrl: retryNodeApiUrl,
-      response: await requestNode(retryNodeApiUrl, pathname, responseType, REQUEST_TIMEOUT_MS, method),
+      response: await requestNode(retryNodeApiUrl, pathname, responseType, REQUEST_TIMEOUT_MS, method, headers),
     };
   }
 }
@@ -6517,6 +6520,55 @@ function normalizeResourceRequest(value: QortiumQdnAuthorizeRequest) {
     name,
     identifier: identifier || undefined,
   };
+}
+
+function buildQdnAuthorizePath(resource: QortiumQdnAuthorizeRequest) {
+  const normalizedResource = normalizeResourceRequest(resource);
+  const identifierPath = normalizedResource.identifier
+    ? `/${encodeURIComponent(normalizedResource.identifier)}`
+    : '';
+
+  return `/render/authorize/${normalizedResource.service}/${encodeURIComponent(
+    normalizedResource.name,
+  )}${identifierPath}`;
+}
+
+async function authorizeConfiguredQdnResource(
+  settings: StoredNodeSettings,
+  resource: QortiumQdnAuthorizeRequest,
+) {
+  if (!settings.apiKey) {
+    return;
+  }
+
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}${buildQdnAuthorizePath(resource)}`,
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'X-API-KEY': settings.apiKey,
+      },
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const responseBody = stringifyResponseData(response.data).trim();
+
+  if (response.status < 200 || response.status >= 300) {
+    if (/api key/i.test(responseBody)) {
+      throw new Error('Node API key was rejected. Reconnect to the active local Core or update the node API key in settings.');
+    }
+
+    throw new Error(responseBody || `QDN resource authorization failed with HTTP ${response.status}.`);
+  }
 }
 
 function buildResourcesSearchPath(request: QortiumQdnResourcesSearchRequest) {
@@ -7874,8 +7926,10 @@ function createFallbackApi(): PlatformApi {
     },
     qdn: {
       async authorizeResource(request) {
-        normalizeResourceRequest(request);
+        const resource = normalizeResourceRequest(request);
         const settings = await readNodeSettings();
+
+        await authorizeConfiguredQdnResource(settings, resource);
 
         return {
           authorized: true,

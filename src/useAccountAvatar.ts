@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { fetchNativeHttpBlobUrl, isNativePlatform } from './platform';
-import { buildQdnDownloadUrl, buildQdnStatusUrl, isTerminalQdnStatus } from './qdn';
+import { handleQdnAppRequest } from './platform';
+import { isTerminalQdnStatus } from './qdn';
 import type { QdnResource, QdnResourceStatus } from './qdn';
 
 // Shared resolver for account avatars (the QDN `THUMBNAIL/{name}/avatar` resource).
@@ -46,6 +46,7 @@ type AvatarEntry = {
 };
 
 const POLL_INTERVAL_MS = 5_000;
+const AVATAR_MAX_BYTES = 1024 * 1024;
 // Avatars are decorative; stop actively polling a slow/missing resource after ~1
 // minute so a flaky resource never polls forever...
 const MAX_POLL_ATTEMPTS = 12;
@@ -69,6 +70,47 @@ function buildAvatarResource(name: string): QdnResource {
     path: '',
     displayUrl: '',
   };
+}
+
+function getAvatarBridgeResource(entry: AvatarEntry) {
+  return {
+    service: entry.resource.service,
+    name: entry.resource.name,
+    identifier: entry.resource.identifier,
+    path: entry.resource.path,
+  };
+}
+
+function base64ToObjectUrl(data: string, contentType: string) {
+  const binary = window.atob(data);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return URL.createObjectURL(new Blob([bytes], { type: contentType || 'application/octet-stream' }));
+}
+
+async function fetchAvatarStatus(entry: AvatarEntry, build: boolean) {
+  return handleQdnAppRequest({
+    action: 'GET_QDN_RESOURCE_STATUS',
+    ...getAvatarBridgeResource(entry),
+    build,
+  }) as Promise<QdnResourceStatus>;
+}
+
+async function fetchAvatarObjectUrl(entry: AvatarEntry) {
+  const result = await window.qortiumHome.qdn.fetchResourceData({
+    ...getAvatarBridgeResource(entry),
+    maxBytes: AVATAR_MAX_BYTES,
+  });
+
+  if (result.tooLarge || !result.data) {
+    throw new Error('QDN avatar is too large.');
+  }
+
+  return base64ToObjectUrl(result.data, result.contentType);
 }
 
 function emit(entry: AvatarEntry, resolution: AccountAvatarResolution) {
@@ -102,7 +144,11 @@ function triggerDownload(entry: AvatarEntry) {
 
   // Fire-and-forget nudge so the node starts fetching; the status poll is the source
   // of truth for when it is actually ready.
-  void fetch(buildQdnDownloadUrl(entry.resource, entry.nodeApiUrl)).catch(() => {});
+  void handleQdnAppRequest({
+    action: 'FETCH_QDN_RESOURCE',
+    ...getAvatarBridgeResource(entry),
+    maxBytes: 1,
+  }).catch(() => {});
 }
 
 async function poll(entry: AvatarEntry, key: string, build: boolean) {
@@ -118,11 +164,7 @@ async function poll(entry: AvatarEntry, key: string, build: boolean) {
   let status: QdnResourceStatus | undefined;
 
   try {
-    const response = await fetch(buildQdnStatusUrl(entry.resource, entry.nodeApiUrl, build));
-
-    if (response.ok) {
-      status = (await response.json()) as QdnResourceStatus;
-    }
+    status = await fetchAvatarStatus(entry, build);
   } catch {
     // A failed status request is treated as transient and retried below.
   }
@@ -134,13 +176,10 @@ async function poll(entry: AvatarEntry, key: string, build: boolean) {
   }
 
   if (status?.status === 'READY') {
-    const downloadUrl = buildQdnDownloadUrl(entry.resource, entry.nodeApiUrl);
     let objectUrl: string | null = null;
 
     try {
-      if (isNativePlatform()) {
-        objectUrl = await fetchNativeHttpBlobUrl({ url: downloadUrl });
-      }
+      objectUrl = await fetchAvatarObjectUrl(entry);
 
       // The entry may have been abandoned (or replaced) while the native fetch was
       // in flight. Do not leak a blob URL that no UI will use.
@@ -155,7 +194,7 @@ async function poll(entry: AvatarEntry, key: string, build: boolean) {
       entry.isPolling = false;
       revokeObjectUrl(entry);
       entry.objectUrl = objectUrl;
-      emit(entry, { state: 'ready', url: objectUrl ?? downloadUrl });
+      emit(entry, { state: 'ready', url: objectUrl });
       return;
     } catch {
       // Treat a ready-but-unreadable avatar as transient. Android WebView can fail
