@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { access, chmod, constants as fsConstants, mkdir, rename, rm, stat } from 'node:fs/promises';
@@ -326,8 +326,45 @@ function publishDownloadProgress(progress: AppUpdateDownloadProgress) {
   }
 }
 
+type AppUpdateDownloadTarget = {
+  fileName: string;
+  finalPath: string;
+};
+
 function getFallbackDownloadDir(releaseTag: string) {
   return path.join(getAppUpdatesPath(), sanitizePathSegment(releaseTag, 'release'));
+}
+
+function getDefaultReleaseAssetDownloadDir(releaseTag: string) {
+  const downloadsDir = app.getPath('downloads');
+
+  if (downloadsDir) {
+    return downloadsDir;
+  }
+
+  return getFallbackDownloadDir(releaseTag);
+}
+
+async function resolveReleaseAssetDownloadTarget(assetName: string, releaseTag: string): Promise<AppUpdateDownloadTarget> {
+  const fileName = sanitizePathSegment(assetName, 'download');
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    buttonLabel: 'Save',
+    defaultPath: path.join(getDefaultReleaseAssetDownloadDir(releaseTag), fileName),
+    title: 'Save release asset',
+  });
+
+  if (canceled || !filePath) {
+    throw new Error('Download canceled.');
+  }
+
+  if (path.resolve(filePath) === path.resolve(getInstallFile())) {
+    throw new Error('Choose a different location before replacing the running app.');
+  }
+
+  return {
+    fileName: path.basename(filePath),
+    finalPath: filePath,
+  };
 }
 
 // Prefer saving the update next to the running instance so the new build lands
@@ -335,26 +372,46 @@ function getFallbackDownloadDir(releaseTag: string) {
 // app-updates directory when the install folder is read-only (packaged macOS
 // .app bundles, Windows Program Files installs) or when the download would
 // collide with the currently-running executable.
-async function resolveDownloadDir(assetName: string, releaseTag: string) {
+async function resolveUpdateDownloadTarget(assetName: string, releaseTag: string): Promise<AppUpdateDownloadTarget> {
   const installDir = getInstallDir();
   const fileName = sanitizePathSegment(assetName, 'update');
   const wouldOverwriteRunningFile = path.join(installDir, fileName) === getInstallFile();
 
   if (!wouldOverwriteRunningFile && (await isDirectoryWritable(installDir))) {
-    return installDir;
+    return {
+      fileName,
+      finalPath: path.join(installDir, fileName),
+    };
   }
 
-  return getFallbackDownloadDir(releaseTag);
+  return {
+    fileName,
+    finalPath: path.join(getFallbackDownloadDir(releaseTag), fileName),
+  };
 }
 
-async function downloadAsset(request: AppUpdateDownloadRequest) {
+async function downloadAssetInternal(
+  request: AppUpdateDownloadRequest,
+  {
+    enforceNewer,
+    message,
+    resolveDownloadTarget,
+    verifyMessage,
+  }: {
+    enforceNewer: boolean;
+    message: string;
+    resolveDownloadTarget: (assetName: string, releaseTag: string) => Promise<AppUpdateDownloadTarget>;
+    verifyMessage: string;
+  },
+) {
   const normalizedRequest = normalizeDownloadRequest(request);
 
-  assertUpdateIsNewer(normalizedRequest.releaseTag);
+  if (enforceNewer) {
+    assertUpdateIsNewer(normalizedRequest.releaseTag);
+  }
 
-  const releasePath = await resolveDownloadDir(normalizedRequest.asset.name, normalizedRequest.releaseTag);
-  const fileName = sanitizePathSegment(normalizedRequest.asset.name, 'update');
-  const finalPath = path.join(releasePath, fileName);
+  const { fileName, finalPath } = await resolveDownloadTarget(normalizedRequest.asset.name, normalizedRequest.releaseTag);
+  const releasePath = path.dirname(finalPath);
   const partialPath = `${finalPath}.download`;
 
   await mkdir(releasePath, { recursive: true });
@@ -383,7 +440,7 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
       publishDownloadProgress({
         action: 'downloading',
         fileName,
-        message: 'Downloading Qortium Home update',
+        message,
         percent: totalBytes ? Math.min(99, Math.round((receivedBytes / totalBytes) * 100)) : null,
         receivedBytes,
         releaseTag: normalizedRequest.releaseTag,
@@ -396,7 +453,7 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
   publishDownloadProgress({
     action: 'downloading',
     fileName,
-    message: 'Downloading Qortium Home update',
+    message,
     percent: 0,
     receivedBytes: 0,
     releaseTag: normalizedRequest.releaseTag,
@@ -412,7 +469,7 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
   publishDownloadProgress({
     action: 'verifying',
     fileName,
-    message: 'Verifying Qortium Home update',
+    message: verifyMessage,
     percent: 100,
     receivedBytes,
     releaseTag: normalizedRequest.releaseTag,
@@ -448,6 +505,24 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
   };
 }
 
+async function downloadAsset(request: AppUpdateDownloadRequest) {
+  return downloadAssetInternal(request, {
+    enforceNewer: true,
+    message: 'Downloading Qortium Home update',
+    resolveDownloadTarget: resolveUpdateDownloadTarget,
+    verifyMessage: 'Verifying Qortium Home update',
+  });
+}
+
+async function downloadReleaseAsset(request: AppUpdateDownloadRequest) {
+  return downloadAssetInternal(request, {
+    enforceNewer: false,
+    message: 'Downloading release asset',
+    resolveDownloadTarget: resolveReleaseAssetDownloadTarget,
+    verifyMessage: 'Verifying release asset',
+  });
+}
+
 function isInsideDir(parent: string, filePath: string) {
   const relativePath = path.relative(parent, filePath);
 
@@ -480,6 +555,7 @@ function showDownloadedFile(value: unknown) {
 
 export function registerAppUpdateIpcHandlers() {
   ipcMain.handle('updates:downloadAsset', (_event, request: AppUpdateDownloadRequest = {}) => downloadAsset(request));
+  ipcMain.handle('updates:downloadReleaseAsset', (_event, request: AppUpdateDownloadRequest = {}) => downloadReleaseAsset(request));
   ipcMain.handle('updates:getEnvironment', () => getUpdateEnvironment());
   ipcMain.handle('updates:openDownloadedFile', (_event, filePath: unknown) => openDownloadedFile(filePath));
   ipcMain.handle('updates:openReleasePage', (_event, url: unknown) => openExternalUrl(url));

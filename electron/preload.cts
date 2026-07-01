@@ -74,6 +74,11 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       platform: { arch: string; label: string; os: string; supported: boolean };
       releaseTag: string;
     }) => ipcRenderer.invoke('updates:downloadAsset', request),
+    downloadReleaseAsset: (request: {
+      asset: { digest: string | null; downloadUrl: string; name: string; size: number };
+      platform: { arch: string; label: string; os: string; supported: boolean };
+      releaseTag: string;
+    }) => ipcRenderer.invoke('updates:downloadReleaseAsset', request),
     getEnvironment: () => ipcRenderer.invoke('updates:getEnvironment'),
     onDownloadProgress: (callback: (progress: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => {
@@ -121,6 +126,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     checkCoreUpdate: () => ipcRenderer.invoke('node:checkCoreUpdate'),
     enableApiDocumentation: () => ipcRenderer.invoke('node:enableApiDocumentation'),
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
+    getTransportStatus: () => ipcRenderer.invoke('node:getTransportStatus'),
     installCoreUpdate: () => ipcRenderer.invoke('node:installCoreUpdate'),
     saveSettings: (request: { apiKey?: string; customUrl?: string; mode: 'custom' | 'local' | 'network' }) =>
       ipcRenderer.invoke('node:saveSettings', request),

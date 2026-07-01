@@ -1761,6 +1761,17 @@ function getReadOnlyMethod(value: unknown) {
   return method;
 }
 
+function getNodeSettingsPatch(request: QdnAppRequest) {
+  const explicitPatch = getRequestValue(request, 'patch') ?? getRequestValue(request, 'settings');
+  const patch = explicitPatch ?? (isRecord(request.payload) ? request.payload : undefined);
+
+  if (!isRecord(patch)) {
+    throw new Error('Node settings update requests must include a settings patch object.');
+  }
+
+  return patch;
+}
+
 function getHeaders(response: Response) {
   const headers: Record<string, string> = {};
 
@@ -1839,6 +1850,69 @@ async function fetchConfiguredNodeApi(
   const { connection, response } = await fetchConfiguredNode(apiPath, { method });
 
   return readNodeApiResponse(response, connection, maxBytes, method !== 'HEAD');
+}
+
+async function requestProtectedConfiguredNodeApi(
+  apiPath: string,
+  method: 'GET' | 'PATCH',
+  fallbackMessage: string,
+  body?: string,
+) {
+  let connection = await getNodeConnection();
+
+  if (connection.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  const fetchProtected = (activeConnection: NodeConnection) => fetchNode(
+    apiPath,
+    {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'X-API-KEY': getNodeApiKey(activeConnection),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body,
+    },
+    activeConnection.nodeApiUrl,
+  );
+
+  let response = await fetchProtected(connection);
+  let responseBody = await response.text();
+
+  if (!response.ok && connection.mode === 'local' && isInvalidApiKeyResponse(response, responseBody)) {
+    const refreshedConnection = await refreshNodeConnectionApiKey(connection);
+
+    if (refreshedConnection) {
+      connection = refreshedConnection;
+      response = await fetchProtected(connection);
+      responseBody = await response.text();
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(responseBody || fallbackMessage);
+  }
+
+  return parseResponseData(responseBody, response.headers.get('content-type') ?? '');
+}
+
+function updateNodeSettingsForQdnApp(request: QdnAppRequest) {
+  return requestProtectedConfiguredNodeApi(
+    '/admin/settings',
+    'PATCH',
+    'Node settings update request failed.',
+    JSON.stringify(getNodeSettingsPatch(request)),
+  );
+}
+
+function restartNodeForQdnApp() {
+  return requestProtectedConfiguredNodeApi(
+    '/admin/restart',
+    'GET',
+    'Node restart request failed.',
+  );
 }
 
 async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
@@ -5820,8 +5894,17 @@ async function handleQdnAppRequest(
     case 'GET_NODE_INFO':
       return fetchNodeApiPayload('/admin/info', request);
 
+    case 'GET_NODE_SETTINGS_METADATA':
+      return fetchNodeApiPayload('/admin/settings/metadata', request);
+
     case 'GET_NODE_STATUS':
       return fetchNodeApiPayload('/admin/status', request);
+
+    case 'UPDATE_NODE_SETTINGS':
+      return updateNodeSettingsForQdnApp(request);
+
+    case 'RESTART_NODE':
+      return restartNodeForQdnApp();
 
     case 'GET_ACCOUNT_DATA':
       return fetchNodeApiPayload(`/addresses/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);

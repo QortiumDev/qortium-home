@@ -1,62 +1,39 @@
-import { useEffect, useState } from 'react';
 import type { AppIconResolution } from './appIconUtils';
-import { readCachedIconIndex, writeCachedIconIndex } from './appIconUtils';
+import { useQdnImageCandidates } from './useQdnImageResource';
 
 // Renders an APP/WEBSITE icon as a square chip. A name-seeded monogram is always
-// drawn as the base so there is never a broken-image flash or layout shift; the
-// fetched icon is overlaid and fades in once it decodes. On error the cascade
-// advances to the next candidate URL; when every candidate fails the monogram
-// remains visible. The resolved candidate index is cached so re-mounts (tab
-// switches, pin re-renders during a drag) skip candidates already known to fail.
+// drawn as the base; a shared QDN resolver overlays the best ready candidate and
+// keeps the last good image visible while network/node state refreshes.
 export function AppIcon({
+  className,
   resolution,
   size,
   variant,
 }: {
+  className?: string;
   resolution: AppIconResolution;
   size: number;
-  variant: 'pin' | 'tab';
+  variant: 'bookmark' | 'pin' | 'tab';
 }) {
-  const { cacheKey, candidateUrls, monogram } = resolution;
-  const [index, setIndex] = useState(() => readCachedIconIndex(cacheKey));
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  // Restart the cascade whenever the resolved resource (or node epoch) changes.
-  useEffect(() => {
-    setIndex(readCachedIconIndex(cacheKey));
-    setIsLoaded(false);
-  }, [cacheKey]);
-
-  const currentUrl = index < candidateUrls.length ? candidateUrls[index] : null;
+  const { candidates, monogram, nodeApiUrl, nodeEpoch } = resolution;
+  const icon = useQdnImageCandidates(candidates, nodeApiUrl, nodeEpoch);
 
   return (
     <span
-      className={`app-icon app-icon--${variant}`}
+      className={['app-icon', `app-icon--${variant}`, className].filter(Boolean).join(' ')}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.5) }}
       aria-hidden="true"
     >
       <span className="app-icon__monogram">{monogram}</span>
-      {currentUrl ? (
+      {icon.url ? (
         <img
-          key={currentUrl}
+          key={icon.url}
           className="app-icon__image"
-          src={currentUrl}
+          src={icon.url}
           alt=""
           loading="lazy"
           decoding="async"
-          data-loaded={isLoaded ? 'true' : 'false'}
-          onLoad={() => {
-            setIsLoaded(true);
-            // Only successes are cached, so a transient error (a not-yet-built
-            // resource fetched with async=true, or an aborted lazy tab image)
-            // never sticks a pin/tab on its monogram: a later re-mount re-probes
-            // from the top, matching TabAvatar's per-instance retry behavior.
-            writeCachedIconIndex(cacheKey, index);
-          }}
-          onError={() => {
-            setIsLoaded(false);
-            setIndex(index + 1);
-          }}
+          data-loaded="true"
         />
       ) : null}
     </span>

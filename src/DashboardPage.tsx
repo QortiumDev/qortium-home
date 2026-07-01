@@ -1,5 +1,5 @@
-import { Braces, Download, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { Braces, Download, ExternalLink, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
 import type { AppIconResolution } from './appIconUtils';
@@ -12,14 +12,16 @@ import {
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { getCoreRuntimeAction, getCoreRuntimeBlockedMessage, type CoreManagerState } from './coreManagerState';
 import { NodeModeSelect } from './NodeConnection';
-import { I2pRouterButton, TransportModeSelect } from './TransportControls';
+import { I2pRouterButton, TransportModeSelect, type I2pConnections, type I2pdManager } from './TransportControls';
 import { DashboardCardHeader } from './DashboardCardActions';
 import { useI2pConnections } from './i2pState';
 import { useI2pdManager } from './i2pdManagerState';
+import { HomeDashboardIcon } from './HomeDashboardIcon';
 import { getDashboardPinDisplay } from './dashboardPinDisplay';
 import type { DashboardPin, DashboardPinDropPosition } from './dashboardPins';
 import { reorderDashboardPins } from './dashboardPins';
 import { getTranslationLanguage, t } from './i18n';
+import { SavedAccountBadge } from './SavedAccountContext';
 import {
   getOnChainCoreUpdateSummary,
   isOnChainCoreUpdateAttemptActive,
@@ -59,6 +61,7 @@ type DashboardPageProps = {
   onBrowseQdn: () => void;
   onOpenDashboardPin: (pin: DashboardPin) => void;
   onOpenCoreApiDocs: () => void;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onOpenSettings: () => void;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
   onRemoveDashboardPin: (pinId: string) => void;
@@ -133,9 +136,47 @@ function getCoreDashboardStatusText({
   return t('common.upToDate');
 }
 
+function getCoreReleaseNotesTag(status: QortiumCoreStatus | null) {
+  return status?.installed?.tagName ?? formatReleaseTag(status?.runtime.runningVersion);
+}
+
+function getHomeReleaseNotesTag(updates: AppUpdatesState) {
+  return formatReleaseTag(updates.environment?.currentVersion);
+}
+
+function VersionWithNotes({
+  children,
+  onOpenReleaseNotes,
+  product,
+  tagName,
+}: {
+  children: ReactNode;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
+  product: 'core' | 'home';
+  tagName: string;
+}) {
+  return (
+    <span className="dashboard-card__version-with-notes">
+      <span className="dashboard-card__version-value">{children}</span>
+      {tagName ? (
+        <button
+          aria-label={t('releaseNotes.open')}
+          className="icon-button dashboard-card__notes-button"
+          title={t('releaseNotes.open')}
+          type="button"
+          onClick={() => onOpenReleaseNotes(product, tagName)}
+        >
+          <ExternalLink aria-hidden="true" size={15} strokeWidth={2} />
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 function getCoreRows({
   coreMessage,
   onChainCoreUpdate,
+  onOpenReleaseNotes,
   prereleaseUpdateAvailable,
   releases,
   stableUpdateAvailable,
@@ -144,6 +185,7 @@ function getCoreRows({
 }: {
   coreMessage: CoreManagerState['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   prereleaseUpdateAvailable: boolean;
   releases: QortiumCoreReleases | null;
   stableUpdateAvailable: boolean;
@@ -169,7 +211,15 @@ function getCoreRows({
     },
     {
       label: t('common.version'),
-      value: getCoreVersionRowValue(status, 'dashboard-card__version-link'),
+      value: (
+        <VersionWithNotes
+          product="core"
+          tagName={getCoreReleaseNotesTag(status)}
+          onOpenReleaseNotes={onOpenReleaseNotes}
+        >
+          {getCoreVersionRowValue(status, 'dashboard-card__version-link')}
+        </VersionWithNotes>
+      ),
     },
     {
       label: t('connections.title'),
@@ -201,25 +251,18 @@ function getCoreRows({
 }
 
 function ManagedCoreDashboardCard({
+  connections,
   coreManager,
-  connectionRefreshEpoch,
-  nodeApiUrl,
-  nodeSettings,
   onChainCoreUpdate,
+  onOpenReleaseNotes,
   onOpenSettingsSection,
-  onResolvedNodeApiUrl,
-  onSaveNodeSettings,
 }: {
+  connections: I2pConnections;
   coreManager: CoreManagerState;
-  connectionRefreshEpoch: number;
-  nodeApiUrl: string;
-  nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
-  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
-  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 }) {
-  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const transports = connections.status
     ? connections.status.transport.effectiveTransports.join(', ')
     : connections.isUnavailable
@@ -259,6 +302,7 @@ function ManagedCoreDashboardCard({
       getCoreRows({
         coreMessage: coreManager.message,
         onChainCoreUpdate: onChainCoreUpdate.status,
+        onOpenReleaseNotes,
         prereleaseUpdateAvailable: coreManager.prereleaseUpdateAvailable,
         releases: coreManager.releases,
         stableUpdateAvailable: coreManager.stableUpdateAvailable,
@@ -273,6 +317,7 @@ function ManagedCoreDashboardCard({
       coreManager.status,
       language,
       onChainCoreUpdate.status,
+      onOpenReleaseNotes,
       transports,
     ],
   );
@@ -296,7 +341,7 @@ function ManagedCoreDashboardCard({
 
       <DetailList className="dashboard-card__details" rows={rows} />
 
-      {coreManager.progress && coreManager.progress.action !== 'idle' ? (
+      {coreManager.progress && coreManager.progress.action !== 'idle' && coreManager.progress.action !== 'checking' ? (
         <div className="core-manager__progress">
           <div className="core-manager__progress-bar" aria-hidden="true">
             <span style={{ width: `${coreManager.progressPercent ?? 100}%` }} />
@@ -313,12 +358,6 @@ function ManagedCoreDashboardCard({
       ) : null}
 
       <div className="dashboard-card__actions">
-        <NodeModeSelect
-          className="field__input dashboard-card__node-mode"
-          nodeSettings={nodeSettings}
-          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
-          onSaveNodeSettings={onSaveNodeSettings}
-        />
         {showJavaAction ? (
           <button
             className="button"
@@ -381,7 +420,10 @@ function ManagedCoreDashboardCard({
   );
 }
 
-function getHomeUpdateRows(updates: AppUpdatesState) {
+function getHomeUpdateRows(
+  updates: AppUpdatesState,
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void,
+) {
   const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
   const rows: DetailRow[] = [
     {
@@ -390,7 +432,15 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
     },
     {
       label: t('common.version'),
-      value: getHomeVersionRowValue(updates.environment, 'dashboard-card__version-link'),
+      value: (
+        <VersionWithNotes
+          product="home"
+          tagName={getHomeReleaseNotesTag(updates)}
+          onOpenReleaseNotes={onOpenReleaseNotes}
+        >
+          {getHomeVersionRowValue(updates.environment, 'dashboard-card__version-link')}
+        </VersionWithNotes>
+      ),
     },
   ];
 
@@ -409,28 +459,19 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
 }
 
 function HomeUpdateDashboardCard({
-  canManageTransports,
-  connectionRefreshEpoch,
-  isManagedNode,
-  nodeApiUrl,
   updates,
+  onOpenReleaseNotes,
   onOpenSettingsSection,
 }: {
-  canManageTransports: boolean;
-  connectionRefreshEpoch: number;
-  isManagedNode: boolean;
-  nodeApiUrl: string;
   updates: AppUpdatesState;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onOpenSettingsSection: (sectionId: SettingsSectionId) => void;
 }) {
-  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
-  const i2pdManager = useI2pdManager(isManagedNode);
-  const rows = getHomeUpdateRows(updates);
+  const rows = getHomeUpdateRows(updates, onOpenReleaseNotes);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =
     !showDownloadedAction && updates.updateAvailable && !!updates.result?.asset && !!updates.result.release;
-  const showRouter = i2pdManager.supported && isManagedNode;
-  const hasActions = canManageTransports || showRouter || showDownloadAction || showDownloadedAction;
+  const hasActions = showDownloadAction || showDownloadedAction;
 
   return (
     <section className="dashboard-card dashboard-card--updates" aria-label={t('common.appName')}>
@@ -447,15 +488,6 @@ function HomeUpdateDashboardCard({
 
       {hasActions ? (
       <div className="dashboard-card__actions">
-        {canManageTransports ? (
-          <TransportModeSelect
-            className="field__input dashboard-card__node-mode"
-            connections={connections}
-            isManagedNode={isManagedNode}
-            manager={i2pdManager}
-          />
-        ) : null}
-        <I2pRouterButton connections={connections} isManagedNode={isManagedNode} manager={i2pdManager} />
         {showDownloadAction ? (
           <button
             className="button"
@@ -491,6 +523,50 @@ const PIN_GAP_PX = 10;
 
 type PinContextMenuState = { pinId: string; x: number; y: number } | null;
 
+function DashboardNodeControls({
+  canManageTransports,
+  connections,
+  i2pdManager,
+  isManagedNode,
+  nodeSettings,
+  onResolvedNodeApiUrl,
+  onSaveNodeSettings,
+}: {
+  canManageTransports: boolean;
+  connections: I2pConnections;
+  i2pdManager: I2pdManager;
+  isManagedNode: boolean;
+  nodeSettings: QortiumNodeSettings;
+  onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
+  onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+}) {
+  return (
+    <section className="dashboard-controls" aria-label={t('node.nodeLabel')}>
+      <label className="field dashboard-controls__field">
+        <span className="field__label">{t('node.nodeLabel')}</span>
+        <NodeModeSelect
+          nodeSettings={nodeSettings}
+          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+          onSaveNodeSettings={onSaveNodeSettings}
+        />
+      </label>
+
+      {canManageTransports ? (
+        <TransportModeSelect
+          connections={connections}
+          isManagedNode={isManagedNode}
+          label={t('connections.modeLabel')}
+          manager={i2pdManager}
+        />
+      ) : (
+        <p className="dashboard-controls__hint">{t('connections.manageHint')}</p>
+      )}
+
+      <I2pRouterButton connections={connections} isManagedNode={isManagedNode} manager={i2pdManager} />
+    </section>
+  );
+}
+
 // Chooses how many columns to render so that, when the tiles wrap, the rows are
 // balanced (e.g. 5 tiles become 3 + 2 rather than 4 + 1) while never exceeding
 // the number of columns that fit the available width. The list is then capped to
@@ -524,6 +600,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function DashboardPins({
+  accountsState,
   pins,
   nodeApiUrl,
   nodeEpoch,
@@ -532,6 +609,7 @@ function DashboardPins({
   onRenamePin,
   onReorderPin,
 }: {
+  accountsState: QortiumAccountsState;
   pins: DashboardPin[];
   nodeApiUrl: string;
   nodeEpoch: number;
@@ -1239,11 +1317,20 @@ function DashboardPins({
                   }
                 }}
               >
-                {iconResolution ? (
-                  <AppIcon resolution={iconResolution} size={42} variant="pin" />
-                ) : (
-                  <display.Icon aria-hidden="true" size={32} strokeWidth={2} />
-                )}
+                <span className="dashboard-pin__icon-row">
+                  <SavedAccountBadge
+                    accountId={pin.accountId ?? null}
+                    accountsState={accountsState}
+                    className="dashboard-pin__account-badge"
+                    nodeApiUrl={nodeApiUrl}
+                    nodeEpoch={nodeEpoch}
+                  />
+                  {iconResolution ? (
+                    <AppIcon resolution={iconResolution} size={42} variant="pin" />
+                  ) : (
+                    <display.Icon aria-hidden="true" size={32} strokeWidth={2} />
+                  )}
+                </span>
                 {isRenaming ? (
                   <input
                     ref={renameInputRef}
@@ -1329,6 +1416,7 @@ export function DashboardPage({
   onBrowseQdn,
   onOpenDashboardPin,
   onOpenCoreApiDocs,
+  onOpenReleaseNotes,
   onOpenSettings,
   onOpenSettingsSection,
   onRemoveDashboardPin,
@@ -1339,15 +1427,25 @@ export function DashboardPage({
   selectedAccountId,
 }: DashboardPageProps) {
   const hasManagedCore = !!window.qortiumHome.core;
+  const canManageTransports = nodeSettings.mode !== 'network';
+  const isManagedNode = nodeSettings.mode === 'local';
+  const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
+  const i2pdManager = useI2pdManager(isManagedNode);
 
   return (
     <div className="dashboard-page">
       <header className="dashboard-page__header">
-        <h1>{t('common.dashboard')}</h1>
+        <h1 className="dashboard-page__title">
+          <HomeDashboardIcon />
+          <span>
+            {t('common.appName')} {t('common.dashboard')}
+          </span>
+        </h1>
       </header>
 
       {dashboardPins.length > 0 ? (
         <DashboardPins
+          accountsState={accountsState}
           pins={dashboardPins}
           nodeApiUrl={nodeApiUrl}
           nodeEpoch={nodeEpoch}
@@ -1389,25 +1487,31 @@ export function DashboardPage({
         />
       </section>
 
+      {hasManagedCore ? (
+        <DashboardNodeControls
+          canManageTransports={canManageTransports}
+          connections={connections}
+          i2pdManager={i2pdManager}
+          isManagedNode={isManagedNode}
+          nodeSettings={nodeSettings}
+          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+          onSaveNodeSettings={onSaveNodeSettings}
+        />
+      ) : null}
+
       <div className={`dashboard-page__grid${hasManagedCore ? '' : ' dashboard-page__grid--single'}`}>
         {hasManagedCore ? (
           <ManagedCoreDashboardCard
-            connectionRefreshEpoch={connectionRefreshEpoch}
+            connections={connections}
             coreManager={coreManager}
-            nodeApiUrl={nodeApiUrl}
-            nodeSettings={nodeSettings}
             onChainCoreUpdate={onChainCoreUpdate}
+            onOpenReleaseNotes={onOpenReleaseNotes}
             onOpenSettingsSection={onOpenSettingsSection}
-            onResolvedNodeApiUrl={onResolvedNodeApiUrl}
-            onSaveNodeSettings={onSaveNodeSettings}
           />
         ) : null}
         <HomeUpdateDashboardCard
-          canManageTransports={nodeSettings.mode !== 'network'}
-          connectionRefreshEpoch={connectionRefreshEpoch}
-          isManagedNode={nodeSettings.mode === 'local'}
-          nodeApiUrl={nodeApiUrl}
           updates={appUpdates}
+          onOpenReleaseNotes={onOpenReleaseNotes}
           onOpenSettingsSection={onOpenSettingsSection}
         />
       </div>

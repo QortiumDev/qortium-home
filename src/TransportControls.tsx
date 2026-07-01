@@ -77,7 +77,10 @@ export function TransportModeSelect({
   const managerSupported = manager.supported && isManagedNode;
   // When Home manages the router, gate the I2P options on it actually running;
   // otherwise (remote/custom node, Android) leave the choice ungated.
-  const i2pAvailable = !managerSupported || (manager.status?.running ?? false);
+  const i2pAvailable =
+    !managerSupported ||
+    status?.source === 'managed-runtime' ||
+    (manager.status?.running ?? false);
   const i2pOptionsDisabled = managerSupported && !i2pAvailable;
 
   const [selectedMode, setSelectedMode] = useState<TransportMode | null>(null);
@@ -236,6 +239,22 @@ export function I2pRouterButton({
   // an empty .i2p-router-control, which would otherwise leave a phantom flex slot.
   if (isExternal && !showStatus && !hasBusyMessage && !hasError) {
     return null;
+  }
+
+  if (!manager.status) {
+    return (
+      <div className="i2p-router-control">
+        {showStatus ? (
+          <DetailList className="connections__details" rows={detailRows} />
+        ) : (
+          <button className="button button--secondary" disabled type="button">
+            {t('common.checking')}
+          </button>
+        )}
+        {hasBusyMessage ? <p className="connections__message">{manager.progress}</p> : null}
+        {hasError ? <p className="connections__message connections__message--error">{manager.error}</p> : null}
+      </div>
+    );
   }
 
   async function toggle() {

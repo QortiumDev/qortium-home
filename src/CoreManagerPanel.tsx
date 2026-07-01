@@ -20,7 +20,7 @@ import {
   DetailList,
   getCoreLatestRows,
   getCoreReleaseBusyAction,
-  getCoreVersionRowValue,
+  getCoreVersionReleaseNotesValue,
   getPreferredCoreReleaseTarget,
   type DetailRow,
 } from './releaseDisplay';
@@ -34,6 +34,7 @@ type CoreManagerPanelProps = {
   nodeSettings: QortiumNodeSettings;
   onChainCoreUpdate: OnChainCoreUpdateController;
   onExpandedChange: (isExpanded: boolean) => void;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
 };
@@ -94,9 +95,11 @@ function getCoreSettingsStatusText({
 
 function getCoreSettingsRows({
   coreManager,
+  onOpenReleaseNotes,
   onChainCoreUpdate,
 }: {
   coreManager: CoreManagerState;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onChainCoreUpdate: OnChainCoreUpdateController;
 }) {
   const statusText = getCoreSettingsStatusText({ coreManager, onChainCoreUpdate });
@@ -110,22 +113,6 @@ function getCoreSettingsRows({
     {
       label: t('common.status'),
       value: statusText,
-    },
-    {
-      label: t('common.version'),
-      value: getCoreVersionRowValue(coreManager.status),
-    },
-    {
-      label: t('core.javaLabel'),
-      value: formatJava(coreManager.status?.java ?? null),
-    },
-    {
-      label: t('core.runtimeLabel'),
-      value: formatRuntime(coreManager.status?.runtime ?? null),
-    },
-    {
-      label: t('node.localApi'),
-      value: coreManager.status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891',
     },
   ];
 
@@ -166,6 +153,25 @@ function getCoreSettingsRows({
     }
   }
 
+  rows.push(
+    {
+      label: t('common.version'),
+      value: getCoreVersionReleaseNotesValue(coreManager.status, undefined, onOpenReleaseNotes),
+    },
+    {
+      label: t('core.javaLabel'),
+      value: formatJava(coreManager.status?.java ?? null),
+    },
+    {
+      label: t('core.runtimeLabel'),
+      value: formatRuntime(coreManager.status?.runtime ?? null),
+    },
+    {
+      label: t('node.localApi'),
+      value: coreManager.status?.runtime.localApiUrl ?? 'http://127.0.0.1:24891',
+    },
+  );
+
   const runtimeBlockedMessage = getCoreRuntimeBlockedMessage(coreManager.status);
 
   if (runtimeBlockedMessage) {
@@ -181,6 +187,7 @@ function getCoreSettingsRows({
   rows.push(
     ...getCoreLatestRows({
       installedTagName: installedVersion,
+      onOpenReleaseNotes,
       onChain: onChainStatus,
       release: latestRelease,
     }),
@@ -203,6 +210,7 @@ export function CoreManagerPanel({
   nodeSettings,
   onChainCoreUpdate,
   onExpandedChange,
+  onOpenReleaseNotes,
   onResolvedNodeApiUrl,
   onSaveNodeSettings,
 }: CoreManagerPanelProps) {
@@ -243,9 +251,10 @@ export function CoreManagerPanel({
     () =>
       getCoreSettingsRows({
         coreManager,
+        onOpenReleaseNotes,
         onChainCoreUpdate,
       }),
-    [coreManager, language, onChainCoreUpdate],
+    [coreManager, language, onChainCoreUpdate, onOpenReleaseNotes],
   );
   const summary = getCoreSettingsStatusText({ coreManager, onChainCoreUpdate });
 

@@ -14,7 +14,30 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { ApiViewer } from './ApiViewer';
+import { getSavedAccountContext } from './accountContext';
 import { useAppUpdates } from './appUpdateState';
+import {
+  addBookmark,
+  addBookmarkFolder,
+  findBookmarkItem,
+  flattenBookmarkItems,
+  hasBookmarkedUrl,
+  loadBookmarksState,
+  moveBookmarkItem,
+  removeBookmark,
+  saveBookmarksState,
+  setBookmarkToolbarVisible,
+  updateBookmark,
+  updateBookmarkFolder,
+  type BookmarkFolderId,
+  type BookmarkFolderRequest,
+  type BookmarkMoveRequest,
+  type BookmarkRootId,
+  type BookmarkRootMoveRequest,
+  type BookmarkUpdateRequest,
+  type BookmarksState,
+} from './bookmarks';
+import { BookmarksPage } from './BookmarksPage';
 import { CoreApiDocsPage } from './CoreApiDocsPage';
 import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
@@ -40,6 +63,7 @@ import {
   reorderDashboardPins,
   saveDashboardPins,
   setDashboardPinLabel,
+  updateDashboardPin,
   upsertDashboardPin,
   type DashboardPin,
   type DashboardPinDropPosition,
@@ -50,6 +74,7 @@ import {
   MAX_START_PAGES,
   removeStartPage,
   saveStartPages,
+  updateStartPage,
   type StartPage,
 } from './startPages';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
@@ -66,9 +91,10 @@ import { QdnExplorer } from './QdnExplorer';
 import { QdnPreviewViewer } from './QdnPreview';
 import { DocumentViewer } from './DocumentViewer';
 import { QdnViewer } from './QdnViewer';
+import { ReleaseNotesPage } from './ReleaseNotesPage';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
 import { TopBar } from './TopBar';
-import { DASHBOARD_ROUTE, SETTINGS_ROUTE, parseAppAddress, type AppRoute } from './routes';
+import { BOOKMARKS_ROUTE, DASHBOARD_ROUTE, SETTINGS_ROUTE, buildReleaseNotesRoute, parseAppAddress, type AppRoute } from './routes';
 
 type RouteHistoryState = {
   entries: AppRoute[];
@@ -160,7 +186,6 @@ const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   display: true,
   home: false,
   node: false,
-  start: false,
 };
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
@@ -173,6 +198,10 @@ function getDefaultAccountId(accountsState: QortiumAccountsState) {
   }
 
   return accountsState.accounts[0]?.id ?? null;
+}
+
+function getSavedPageAccountId(displayUrl: string, accountId: string | null | undefined) {
+  return getSavedAccountContext(displayUrl, accountId);
 }
 
 function formatError(error: unknown) {
@@ -671,6 +700,14 @@ function getTabLabel(tab: BrowserTab) {
     return t('common.settings');
   }
 
+  if (route.kind === 'bookmarks') {
+    return t('bookmarks.manageTitle');
+  }
+
+  if (route.kind === 'release-notes') {
+    return `Release notes ${route.tagName}`;
+  }
+
   if (route.kind === 'core-api-docs') {
     return t('explorer.coreApi');
   }
@@ -739,6 +776,12 @@ export function App() {
   const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
+  const [bookmarksState, setBookmarksState] = useState<BookmarksState>({
+    bookmarks: [],
+    toolbar: [],
+    toolbarVisible: false,
+    version: 2,
+  });
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
@@ -774,7 +817,9 @@ export function App() {
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
-  const routeRefreshKey = isDashboardRoute || isSettingsRoute
+  const isBookmarksRoute = currentRoute.kind === 'bookmarks';
+  const isReleaseNotesRoute = currentRoute.kind === 'release-notes';
+  const routeRefreshKey = isDashboardRoute || isSettingsRoute || isBookmarksRoute || isReleaseNotesRoute
     ? `${tabState.activeTabId}:${routeHistory.index}:${currentRoute.kind}`
     : null;
   const isExplorerRoute =
@@ -782,8 +827,9 @@ export function App() {
     currentRoute.kind === 'service' ||
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
-  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isExplorerRoute;
+  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isExplorerRoute;
   const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentRoute.displayUrl);
+  const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentRoute.displayUrl);
   const canAddCurrentStartPage = isCurrentPageStartPage || startPages.length < MAX_START_PAGES;
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
@@ -949,16 +995,16 @@ export function App() {
 
       if (!currentRoute || currentRoute.kind !== 'dashboard') return currentTabState;
 
-      const defaultAccountId = getDefaultAccountId(accountsState);
+      const currentAccountId = accountExists(accountsState, activeTab.accountId) ? activeTab.accountId : null;
       const newTabs = startPages
         .map((page) => {
           const parsed = parseAppAddress(page.displayUrl);
           if (!parsed.success) return null;
           const accountId = page.accountId === null
-            ? defaultAccountId
+            ? currentAccountId
             : accountExists(accountsState, page.accountId)
               ? page.accountId
-              : null;
+              : currentAccountId;
 
           return createBrowserTab(accountId, { entries: [parsed.route], index: 0 });
         })
@@ -1092,6 +1138,24 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let isDisposed = false;
+
+    loadBookmarksState()
+      .then((state) => {
+        if (!isDisposed) {
+          setBookmarksState(state);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load bookmarks.', error);
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
+
   useEffect(() => subscribeToSystemThemeChange(setSystemTheme), []);
 
   useEffect(() => subscribeToSystemLanguageChange(setSystemLanguage), []);
@@ -1153,11 +1217,32 @@ export function App() {
     setStartPages((current) => {
       const next = current.some((page) => page.displayUrl === displayUrl)
         ? removeStartPage(current, displayUrl)
-        : addStartPage(current, displayUrl, activeTab.accountId);
+        : addStartPage(current, displayUrl, getSavedPageAccountId(displayUrl, activeTab.accountId));
 
       if (next === current) {
         return current;
       }
+
+      saveStartPages(next).catch((error) => {
+        console.warn('Unable to save start pages.', error);
+      });
+
+      return next;
+    });
+  }
+
+  function reorderStartPage(displayUrl: string, direction: -1 | 1) {
+    setStartPages((current) => {
+      const index = current.findIndex((page) => page.displayUrl === displayUrl);
+      const nextIndex = index + direction;
+
+      if (index === -1 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      const [page] = next.splice(index, 1);
+      next.splice(nextIndex, 0, page);
 
       saveStartPages(next).catch((error) => {
         console.warn('Unable to save start pages.', error);
@@ -1180,6 +1265,101 @@ export function App() {
       });
 
       return next;
+    });
+  }
+
+  function updateBookmarksState(updateState: (current: BookmarksState) => BookmarksState) {
+    setBookmarksState((current) => {
+      const next = updateState(current);
+
+      if (next === current) {
+        return current;
+      }
+
+      saveBookmarksState(next).catch((error) => {
+        console.warn('Unable to save bookmarks.', error);
+      });
+
+      return next;
+    });
+  }
+
+  function addBookmarkToFolder(folderId: BookmarkFolderId, request: BookmarkUpdateRequest, parentFolderId?: string | null) {
+    let didAdd = false;
+
+    updateBookmarksState((current) => {
+      const next = addBookmark(current, folderId, request, parentFolderId);
+      didAdd = next !== current;
+      return next;
+    });
+
+    return didAdd;
+  }
+
+  function addBookmarkFolderToFolder(folderId: BookmarkFolderId, request: BookmarkFolderRequest, parentFolderId?: string | null) {
+    let didAdd = false;
+
+    updateBookmarksState((current) => {
+      const next = addBookmarkFolder(current, folderId, request, parentFolderId);
+      didAdd = next !== current;
+      return next;
+    });
+
+    return didAdd;
+  }
+
+  function updateBookmarkInFolder(folderId: BookmarkFolderId, bookmarkId: string, request: BookmarkUpdateRequest) {
+    let didUpdate = false;
+
+    updateBookmarksState((current) => {
+      const next = updateBookmark(current, folderId, bookmarkId, request);
+      didUpdate = next !== current;
+      return next;
+    });
+
+    return didUpdate;
+  }
+
+  function updateBookmarkFolderInFolder(folderId: BookmarkFolderId, bookmarkFolderId: string, request: BookmarkFolderRequest) {
+    let didUpdate = false;
+
+    updateBookmarksState((current) => {
+      const next = updateBookmarkFolder(current, folderId, bookmarkFolderId, request);
+      didUpdate = next !== current;
+      return next;
+    });
+
+    return didUpdate;
+  }
+
+  function removeBookmarkFromFolder(folderId: BookmarkFolderId, bookmarkId: string) {
+    updateBookmarksState((current) => removeBookmark(current, folderId, bookmarkId));
+  }
+
+  function moveBookmarkInTree(request: BookmarkMoveRequest) {
+    updateBookmarksState((current) => moveBookmarkItem(current, request));
+  }
+
+  function updateBookmarkToolbarVisibility(visible: boolean) {
+    updateBookmarksState((current) => setBookmarkToolbarVisible(current, visible));
+  }
+
+  function toggleCurrentBookmark() {
+    const currentDisplayUrl = currentRoute.displayUrl;
+    const existing = [...flattenBookmarkItems(bookmarksState.bookmarks), ...flattenBookmarkItems(bookmarksState.toolbar)]
+      .filter((item) => item.type === 'bookmark')
+      .find((bookmark) => bookmark.displayUrl === currentDisplayUrl);
+
+    if (existing) {
+      removeBookmarkFromFolder('bookmarks', existing.id);
+      removeBookmarkFromFolder('toolbar', existing.id);
+      return;
+    }
+
+    addBookmarkToFolder('bookmarks', {
+      accountId: getSavedPageAccountId(currentDisplayUrl, activeTab.accountId),
+      displayUrl: currentDisplayUrl,
+      title: getTabLabel(activeTab),
     });
   }
 
@@ -1369,12 +1549,16 @@ export function App() {
     });
   }
 
-  function navigateToRoute(route: AppRoute, options?: { replace?: boolean }) {
+  function navigateToRoute(route: AppRoute, options?: { accountId?: string | null; replace?: boolean }) {
     const defaultAccountId = getDefaultAccountId(accountsState);
 
     updateActiveTab((tab) => {
       const currentEntry = tab.history.entries[tab.history.index] ?? null;
-      const accountId = accountExists(accountsState, tab.accountId) ? tab.accountId : defaultAccountId;
+      const accountId = 'accountId' in (options ?? {})
+        ? (accountExists(accountsState, options?.accountId ?? null) ? options?.accountId ?? null : null)
+        : accountExists(accountsState, tab.accountId)
+          ? tab.accountId
+          : defaultAccountId;
       const history =
         currentEntry?.displayUrl === route.displayUrl
           ? tab.history
@@ -1442,7 +1626,6 @@ export function App() {
       display: sectionId === 'display',
       home: sectionId === 'home',
       node: sectionId === 'node',
-      start: sectionId === 'start',
     });
     navigateToRoute(SETTINGS_ROUTE);
   }
@@ -1476,6 +1659,18 @@ export function App() {
     }
   }
 
+  function openReleaseNotes(product: 'core' | 'home', tagName: string) {
+    navigateToRoute(buildReleaseNotesRoute(product, tagName));
+  }
+
+  function resolveSavedItemAccountId(accountId: string | null | undefined) {
+    if (accountExists(accountsState, accountId ?? null)) {
+      return accountId ?? null;
+    }
+
+    return accountExists(accountsState, activeTab.accountId) ? activeTab.accountId : null;
+  }
+
   function updateDashboardPins(updatePins: (currentPins: DashboardPin[]) => DashboardPin[]) {
     const nextPins = updatePins(dashboardPinsRef.current);
 
@@ -1500,13 +1695,36 @@ export function App() {
       return;
     }
 
-    const pin = createDashboardPin(route.displayUrl, getTabLabel(tab));
+    const pin = createDashboardPin(route.displayUrl, getTabLabel(tab), getSavedPageAccountId(route.displayUrl, tab.accountId));
 
     if (!pin) {
       return;
     }
 
     updateDashboardPins((currentPins) => upsertDashboardPin(currentPins, pin));
+  }
+
+  function pinCurrentPageToDashboard() {
+    pinTabToDashboard(tabState.activeTabId);
+  }
+
+  function openBookmarksManager() {
+    navigateToRoute(BOOKMARKS_ROUTE);
+  }
+
+  function openSavedAddress(displayUrl: string, accountId?: string | null) {
+    const parsedUrl = parseAppAddress(displayUrl);
+
+    if (!parsedUrl.success) {
+      console.warn('Ignoring unsupported saved address.', displayUrl);
+      return;
+    }
+
+    navigateToRoute(parsedUrl.route, { accountId: resolveSavedItemAccountId(accountId) });
+  }
+
+  function openBookmark(displayUrl: string, accountId?: string | null) {
+    openSavedAddress(displayUrl, accountId);
   }
 
   function openDashboardPin(pin: DashboardPin) {
@@ -1517,7 +1735,7 @@ export function App() {
       return;
     }
 
-    navigateToRoute(parsedUrl.route);
+    navigateToRoute(parsedUrl.route, { accountId: resolveSavedItemAccountId(pin.accountId ?? null) });
   }
 
   function unpinDashboardLink(pinId: string) {
@@ -1528,6 +1746,18 @@ export function App() {
     updateDashboardPins((currentPins) => setDashboardPinLabel(currentPins, pinId, customLabel));
   }
 
+  function updateDashboardPinFromBookmarks(pinId: string, request: BookmarkUpdateRequest) {
+    let didUpdate = false;
+
+    updateDashboardPins((currentPins) => {
+      const next = updateDashboardPin(currentPins, pinId, request);
+      didUpdate = next !== currentPins;
+      return next;
+    });
+
+    return didUpdate;
+  }
+
   function reorderDashboardPin(
     draggedPinId: string,
     targetPinId: string,
@@ -1536,6 +1766,195 @@ export function App() {
     updateDashboardPins((currentPins) =>
       reorderDashboardPins(currentPins, draggedPinId, targetPinId, dropPosition),
     );
+  }
+
+  function addDashboardPinFromBookmark(displayUrl: string, title: string, accountId?: string | null) {
+    const pin = createDashboardPin(displayUrl, title, getSavedPageAccountId(displayUrl, accountId));
+
+    if (!pin) {
+      return false;
+    }
+
+    updateDashboardPins((currentPins) => upsertDashboardPin(currentPins, pin));
+    return true;
+  }
+
+  function addStartPageFromBookmark(displayUrl: string, accountId: string | null, title = '') {
+    let didAdd = false;
+
+    setStartPages((current) => {
+      const next = addStartPage(current, displayUrl, accountId, title);
+      didAdd = next !== current;
+
+      if (next === current) {
+        return current;
+      }
+
+      saveStartPages(next).catch((error) => {
+        console.warn('Unable to save start pages.', error);
+      });
+
+      return next;
+    });
+
+    return didAdd;
+  }
+
+  function addStartPageFromBookmarks(request: BookmarkUpdateRequest) {
+    return addStartPageFromBookmark(
+      request.displayUrl,
+      getSavedPageAccountId(request.displayUrl, request.accountId ?? activeTab.accountId),
+      request.title,
+    );
+  }
+
+  function updateStartPageFromBookmarks(displayUrl: string, request: BookmarkUpdateRequest) {
+    let didUpdate = false;
+
+    setStartPages((current) => {
+      const next = updateStartPage(current, displayUrl, request);
+      didUpdate = next !== current;
+
+      if (next === current) {
+        return current;
+      }
+
+      saveStartPages(next).catch((error) => {
+        console.warn('Unable to save start pages.', error);
+      });
+
+      return next;
+    });
+
+    return didUpdate;
+  }
+
+  function reorderStartPageToTarget(displayUrl: string, targetDisplayUrl: string, dropPosition: DashboardPinDropPosition) {
+    setStartPages((current) => {
+      if (displayUrl === targetDisplayUrl) {
+        return current;
+      }
+
+      const page = current.find((candidate) => candidate.displayUrl === displayUrl);
+
+      if (!page) {
+        return current;
+      }
+
+      const pagesWithoutDragged = current.filter((candidate) => candidate.displayUrl !== displayUrl);
+      const targetIndex = pagesWithoutDragged.findIndex((candidate) => candidate.displayUrl === targetDisplayUrl);
+
+      if (targetIndex === -1) {
+        return current;
+      }
+
+      const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex;
+      const next = [
+        ...pagesWithoutDragged.slice(0, insertIndex),
+        page,
+        ...pagesWithoutDragged.slice(insertIndex),
+      ];
+
+      saveStartPages(next).catch((error) => {
+        console.warn('Unable to save start pages.', error);
+      });
+
+      return next;
+    });
+  }
+
+  function getBookmarkMovePayload(request: BookmarkRootMoveRequest) {
+    if (request.sourceRootId === 'pins') {
+      const pin = dashboardPins.find((candidate) => candidate.id === request.itemId);
+      return pin ? { accountId: pin.accountId ?? null, displayUrl: pin.displayUrl, title: pin.customLabel || pin.label } : null;
+    }
+
+    if (request.sourceRootId === 'startPages') {
+      const page = startPages.find((candidate) => candidate.displayUrl === request.itemId);
+      return page ? { accountId: page.accountId, displayUrl: page.displayUrl, title: page.title || page.displayUrl } : null;
+    }
+
+    const item = findBookmarkItem(bookmarksState[request.sourceRootId], request.itemId);
+
+    if (!item || item.type !== 'bookmark') {
+      return null;
+    }
+
+    return { accountId: item.accountId ?? null, displayUrl: item.displayUrl, title: item.title };
+  }
+
+  function removeBookmarkMoveSource(request: BookmarkRootMoveRequest) {
+    if (request.sourceRootId === 'pins') {
+      unpinDashboardLink(request.itemId);
+      return;
+    }
+
+    if (request.sourceRootId === 'startPages') {
+      handleStartPageRemove(request.itemId);
+      return;
+    }
+
+    removeBookmarkFromFolder(request.sourceRootId, request.itemId);
+  }
+
+  function moveBookmarkRootItem(request: BookmarkRootMoveRequest) {
+    if (request.sourceRootId === request.targetRootId) {
+      if (request.sourceRootId === 'pins' && request.targetItemId) {
+        reorderDashboardPin(request.itemId, request.targetItemId, request.targetPosition === 'before' ? 'before' : 'after');
+        return;
+      }
+
+      if (request.sourceRootId === 'startPages' && request.targetItemId) {
+        reorderStartPageToTarget(request.itemId, request.targetItemId, request.targetPosition === 'before' ? 'before' : 'after');
+        return;
+      }
+
+      if (
+        (request.sourceRootId === 'bookmarks' || request.sourceRootId === 'toolbar') &&
+        (request.targetRootId === 'bookmarks' || request.targetRootId === 'toolbar')
+      ) {
+        moveBookmarkInTree({
+          itemId: request.itemId,
+          sourceRootId: request.sourceRootId,
+          targetFolderId: request.targetFolderId,
+          targetItemId: request.targetItemId,
+          targetPosition: request.targetPosition,
+          targetRootId: request.targetRootId,
+        });
+      }
+
+      return;
+    }
+
+    const payload = getBookmarkMovePayload(request);
+
+    if (!payload) {
+      return;
+    }
+
+    if (request.targetRootId === 'pins') {
+      if (addDashboardPinFromBookmark(payload.displayUrl, payload.title, payload.accountId)) {
+        removeBookmarkMoveSource(request);
+      }
+      return;
+    }
+
+    if (request.targetRootId === 'startPages') {
+      if (addStartPageFromBookmark(payload.displayUrl, payload.accountId, payload.title)) {
+        removeBookmarkMoveSource(request);
+      }
+      return;
+    }
+
+    const didAdd = addBookmarkToFolder(
+      request.targetRootId,
+      { accountId: payload.accountId, displayUrl: payload.displayUrl, title: payload.title },
+      request.targetFolderId,
+    );
+
+    if (didAdd) {
+      removeBookmarkMoveSource(request);
+    }
   }
 
   function addClosedTabToHistory(currentClosedTabs: ClosedBrowserTab[], tab: BrowserTab) {
@@ -2385,6 +2804,8 @@ export function App() {
     isViewerRoute ? 'app-main--viewer' : '',
     isExplorerRoute ? 'app-main--explorer' : '',
     isSettingsRoute ? 'app-main--settings' : '',
+    isBookmarksRoute ? 'app-main--bookmarks' : '',
+    isReleaseNotesRoute ? 'app-main--release-notes' : '',
     isNativeApp ? 'app-main--gesture-nav' : '',
   ].filter(Boolean).join(' ');
 
@@ -2486,12 +2907,16 @@ export function App() {
       <TopBar
         activeTabId={tabState.activeTabId}
         activeAccount={activeAccount}
+        accountsState={accountsState}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         canReopenClosedTab={tabState.closedTabs.length > 0}
         currentRoute={currentRoute}
         historyEntries={routeHistory.entries}
         historyIndex={routeHistory.index}
+        bookmarksState={bookmarksState}
+        dashboardPins={dashboardPins}
+        startPages={startPages}
         tabs={tabState.tabs.map((tab) => ({
           account: accountsState.accounts.find((account) => account.id === tab.accountId) ?? null,
           canPinToDashboard: getCurrentRouteForTab(tab).kind !== 'dashboard',
@@ -2507,12 +2932,33 @@ export function App() {
         onGoBack={goBack}
         onGoForward={goForward}
         onGoToHistoryIndex={goToHistoryIndex}
+        onAddTabToToolbar={(tabId) => {
+          const tab = tabState.tabs.find((candidate) => candidate.id === tabId);
+
+          if (!tab) {
+            return;
+          }
+
+          const route = getCurrentRouteForTab(tab);
+          addBookmarkToFolder('toolbar', {
+            accountId: getSavedPageAccountId(route.displayUrl, tab.accountId),
+            displayUrl: route.displayUrl,
+            title: getTabLabel(tab),
+          });
+        }}
+        onMoveBookmarkItem={moveBookmarkRootItem}
+        onOpenBookmark={openBookmark}
+        onOpenBookmarksManager={openBookmarksManager}
         onMoveTabToNewWindow={window.qortiumHome.windows ? moveTabToNewWindow : undefined}
         onNavigate={navigateToRoute}
         onOpenSettings={openSettingsInNewTab}
         onOverlayOpenChange={setIsTopBarOverlayOpen}
+        isCurrentPageBookmarked={isCurrentPageBookmarked}
         canToggleCurrentStartPage={canAddCurrentStartPage}
+        canPinCurrentPageToDashboard={currentRoute.kind !== 'dashboard'}
         isCurrentPageStartPage={isCurrentPageStartPage}
+        onToggleCurrentBookmark={toggleCurrentBookmark}
+        onPinCurrentPageToDashboard={pinCurrentPageToDashboard}
         onPinTabToDashboard={pinTabToDashboard}
         onToggleStartPage={() => toggleStartPage(currentRoute.displayUrl)}
         onReorderTab={reorderTab}
@@ -2522,12 +2968,21 @@ export function App() {
         onNodeReachabilityChange={handleNodeReachabilityChange}
         onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
         onSelectTab={selectTab}
+        onToolbarVisibleChange={updateBookmarkToolbarVisibility}
         nodeEpoch={nodeEpoch}
         nodeSettings={nodeSettings}
       />
       <section
         className={appMainClassName}
-        aria-label={isDashboardRoute ? t('common.dashboard') : isSettingsRoute ? t('common.settings') : t('viewer.browserPageAria')}
+        aria-label={
+          isDashboardRoute
+            ? t('common.dashboard')
+            : isSettingsRoute
+              ? t('common.settings')
+              : isBookmarksRoute
+                ? t('bookmarks.manageTitle')
+                : t('viewer.browserPageAria')
+        }
         tabIndex={-1}
         onPointerCancel={clearNavigationSwipe}
         onPointerDown={handleMainPointerDown}
@@ -2593,6 +3048,7 @@ export function App() {
                   connectionRefreshEpoch={i2pRefreshEpoch}
                   nodeSettings={nodeSettings}
                   onChainCoreUpdate={onChainCoreUpdate}
+                  onOpenReleaseNotes={openReleaseNotes}
                   onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
                   onLanguageChange={updateLanguage}
                   onSectionExpansionChange={updateSettingsSectionExpansion}
@@ -2603,9 +3059,34 @@ export function App() {
                   onUiChange={updateUi}
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
-                  startPages={startPages}
-                  onStartPageRemove={handleStartPageRemove}
                 />
+              ) : tabRoute.kind === 'bookmarks' ? (
+                <BookmarksPage
+                  bookmarksState={bookmarksState}
+                  dashboardPins={dashboardPins}
+                  nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  accountsState={accountsState}
+                  startPages={startPages}
+                  onAddBookmark={addBookmarkToFolder}
+                  onAddBookmarkFolder={addBookmarkFolderToFolder}
+                  onAddDashboardPin={(request) =>
+                    addDashboardPinFromBookmark(request.displayUrl, request.title, request.accountId ?? activeTab.accountId)
+                  }
+                  onAddStartPage={addStartPageFromBookmarks}
+                  onMoveBookmarkItem={moveBookmarkRootItem}
+                  onOpenAddress={openBookmark}
+                  onRemoveBookmark={removeBookmarkFromFolder}
+                  onRemoveDashboardPin={unpinDashboardLink}
+                  onRemoveStartPage={handleStartPageRemove}
+                  onToolbarVisibleChange={updateBookmarkToolbarVisibility}
+                  onUpdateBookmark={updateBookmarkInFolder}
+                  onUpdateBookmarkFolder={updateBookmarkFolderInFolder}
+                  onUpdateDashboardPin={updateDashboardPinFromBookmarks}
+                  onUpdateStartPage={updateStartPageFromBookmarks}
+                />
+              ) : tabRoute.kind === 'release-notes' ? (
+                <ReleaseNotesPage key={tabRenderKey} route={tabRoute} onOpenReleaseNotes={openReleaseNotes} />
               ) : tabRoute.kind === 'dashboard' ? (
                 <DashboardPage
                   accountsError={accountsError}
@@ -2624,6 +3105,7 @@ export function App() {
                   onBrowseQdn={browseQdn}
                   onOpenDashboardPin={openDashboardPin}
                   onOpenCoreApiDocs={openCoreApiDocs}
+                  onOpenReleaseNotes={openReleaseNotes}
                   onOpenSettings={openSettings}
                   onOpenSettingsSection={openSettingsSection}
                   onRemoveDashboardPin={unpinDashboardLink}

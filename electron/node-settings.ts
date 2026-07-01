@@ -19,6 +19,7 @@ const PUBLIC_READ_PROBE_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false';
 const DISCOVERY_TIMEOUT_MS = 5_000;
 const DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
+const MANAGED_CORE_SETTINGS_FILE = 'settings-preview-local.json';
 
 type NodeSettingsMode = 'custom' | 'local' | 'network';
 
@@ -49,6 +50,23 @@ type DiscoveryCache = {
   nodeApiUrl: string;
 };
 
+type CoreTransportSettings = {
+  allowedTransports: string[] | null;
+  i2pSamHost: string;
+  i2pSamPort: number;
+  i2pChainKeyFile: string;
+  i2pDataKeyFile: string;
+  i2pEmbeddedRouter: boolean;
+};
+
+type CoreTransportStatusSnapshot = {
+  chainPeers: unknown[];
+  coreRunning: boolean;
+  dataPeers: unknown[];
+  settings: CoreTransportSettings;
+  source: 'live-node' | 'managed-runtime';
+};
+
 export type NodeConnection = {
   apiKey?: string;
   mode: NodeSettingsMode;
@@ -63,6 +81,18 @@ function getNetworkRestrictionMessage() {
 
 function getString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function getNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function getBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : false;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function getNodeSettingsPath() {
@@ -766,6 +796,127 @@ async function fetchNodeStatus(nodeApiUrl: string) {
   return text ? (JSON.parse(text) as unknown) : null;
 }
 
+async function fetchOpenNodeJson(pathname: string, nodeApiUrl: string) {
+  try {
+    const response = await fetch(`${nodeApiUrl}${pathname}`, {
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    const text = await response.text();
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getAllowedTransports(value: unknown) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : null;
+}
+
+function normalizeTransportSettings(value: Record<string, unknown>): CoreTransportSettings {
+  return {
+    allowedTransports: getAllowedTransports(value.allowedTransports),
+    i2pSamHost: getString(value.i2pSamHost) || '127.0.0.1',
+    i2pSamPort: getNumber(value.i2pSamPort) || 7656,
+    i2pChainKeyFile: getString(value.i2pChainKeyFile),
+    i2pDataKeyFile: getString(value.i2pDataKeyFile),
+    i2pEmbeddedRouter: getBoolean(value.i2pEmbeddedRouter),
+  };
+}
+
+async function getLiveTransportStatus(settings: NodeSettings): Promise<CoreTransportStatusSnapshot | null> {
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const rawSettings = await fetchOpenNodeJson('/admin/settings', nodeApiUrl);
+
+  if (!isRecord(rawSettings)) {
+    return null;
+  }
+
+  const chainPeers = await fetchOpenNodeJson('/peers', nodeApiUrl);
+  const dataPeers = await fetchOpenNodeJson('/peers/data', nodeApiUrl);
+
+  return {
+    chainPeers: Array.isArray(chainPeers) ? chainPeers : [],
+    coreRunning: true,
+    dataPeers: Array.isArray(dataPeers) ? dataPeers : [],
+    settings: normalizeTransportSettings(rawSettings),
+    source: 'live-node',
+  };
+}
+
+function getManagedCoreSettingsPath(runtimePath: string) {
+  return path.join(runtimePath, MANAGED_CORE_SETTINGS_FILE);
+}
+
+function readManagedCoreSettings(runtimePath: string) {
+  const settingsPath = getManagedCoreSettingsPath(runtimePath);
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  } catch {
+    throw new Error(`Managed Core transport settings were not found at ${settingsPath}. Start Core once or reinstall the managed Core runtime before changing transport mode while Core is stopped.`);
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error(`Managed Core transport settings at ${settingsPath} are not valid JSON settings.`);
+  }
+
+  return { parsed, settingsPath };
+}
+
+async function getManagedRuntimeTransportStatus(): Promise<CoreTransportStatusSnapshot | null> {
+  if (hasExplicitLocalNodeApiUrl() || (await isManagedCoreRuntimeRunning())) {
+    return null;
+  }
+
+  const runtimePath = await getManagedCoreRuntimePath();
+
+  if (!runtimePath) {
+    return null;
+  }
+
+  const { parsed } = readManagedCoreSettings(runtimePath);
+
+  return {
+    chainPeers: [],
+    coreRunning: false,
+    dataPeers: [],
+    settings: normalizeTransportSettings(parsed),
+    source: 'managed-runtime',
+  };
+}
+
+async function getTransportStatus(): Promise<CoreTransportStatusSnapshot | null> {
+  const settings = await resolveLocalApiKey(readNodeSettings());
+
+  try {
+    const liveStatus = await getLiveTransportStatus(settings);
+
+    if (liveStatus) {
+      return liveStatus;
+    }
+  } catch {
+    // Fall through to the stopped managed-Core file path where appropriate.
+  }
+
+  if (settings.mode !== 'local') {
+    return null;
+  }
+
+  try {
+    return await getManagedRuntimeTransportStatus();
+  } catch {
+    return null;
+  }
+}
+
 async function testNodeSettings(settings: NodeSettings) {
   let nodeApiUrl = getFallbackNodeApiUrl(settings);
 
@@ -871,6 +1022,24 @@ function sanitizeAllowedTransports(value: unknown): string[] {
 async function setAllowedTransports(transports: unknown) {
   const allowedTransports = sanitizeAllowedTransports(transports);
   const settings = readNodeSettings();
+
+  if (
+    settings.mode === 'local' &&
+    !hasExplicitLocalNodeApiUrl() &&
+    !(await isManagedCoreRuntimeRunning())
+  ) {
+    const runtimePath = await getManagedCoreRuntimePath();
+
+    if (!runtimePath) {
+      throw new Error('Install Qortium Core before changing the stopped managed Core transport mode.');
+    }
+
+    const { parsed, settingsPath } = readManagedCoreSettings(runtimePath);
+
+    writeFileSync(settingsPath, `${JSON.stringify({ ...parsed, allowedTransports }, null, 2)}\n`, 'utf8');
+    return;
+  }
+
   const updateResult = (await requestProtectedNodeJson(
     settings,
     '/admin/settings',
@@ -908,6 +1077,10 @@ export async function getNodeApiUrl(forceDiscoveryRefresh = false) {
 
 export function registerNodeSettingsIpcHandlers() {
   ipcMain.handle('node:getSettings', () => getNodeSettingsSnapshot());
+
+  ipcMain.handle('node:getTransportStatus', () => {
+    return getTransportStatus();
+  });
 
   ipcMain.handle('node:checkCoreUpdate', () => {
     return checkCoreUpdateStatus();

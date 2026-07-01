@@ -14,8 +14,8 @@ import {
   DetailList,
   formatReleaseTag,
   getHomeUpdateStatusText,
-  getHomeVersionRowValue,
-  LinkedValue,
+  getHomeVersionReleaseNotesValue,
+  ReleaseNotesValue,
   type DetailRow,
 } from './releaseDisplay';
 import { SettingsSection } from './SettingsSection';
@@ -27,6 +27,7 @@ type AppUpdatePanelProps = {
   isManagedNode: boolean;
   nodeApiUrl: string;
   onExpandedChange: (isExpanded: boolean) => void;
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   updates: AppUpdatesState;
 };
 
@@ -37,7 +38,10 @@ function hasDistinctAvailableChannels(updates: AppUpdatesState) {
   return !!stableTag && !!prereleaseTag && !areReleaseTagsEqual(stableTag, prereleaseTag);
 }
 
-function getHomeUpdateRows(updates: AppUpdatesState) {
+function getHomeUpdateRows(
+  updates: AppUpdatesState,
+  onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void,
+) {
   const currentReleaseTag = formatReleaseTag(updates.environment?.currentVersion);
   const showChannel = hasDistinctAvailableChannels(updates);
   const rows: DetailRow[] = [
@@ -45,19 +49,22 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
       label: t('common.status'),
       value: getHomeUpdateStatusText(updates),
     },
-    {
-      label: t('common.version'),
-      value: getHomeVersionRowValue(updates.environment),
-    },
-    {
-      label: t('common.platform'),
-      value: updates.environment?.platform.label ?? t('common.checking'),
-    },
   ];
 
   if (updates.environment?.installDir) {
     rows.push({ label: t('core.folderLabel'), path: updates.environment.installDir });
   }
+
+  rows.push(
+    {
+      label: t('common.version'),
+      value: getHomeVersionReleaseNotesValue(updates.environment, undefined, onOpenReleaseNotes),
+    },
+    {
+      label: t('common.platform'),
+      value: updates.environment?.platform.label ?? t('common.checking'),
+    },
+  );
 
   if (showChannel) {
     rows.push({
@@ -70,9 +77,13 @@ function getHomeUpdateRows(updates: AppUpdatesState) {
     rows.push({
       label: t('common.latestGithub'),
       value: (
-        <LinkedValue url={updates.result.release.htmlUrl}>
+        <ReleaseNotesValue
+          product="home"
+          tagName={updates.result.release.tagName}
+          onOpenReleaseNotes={onOpenReleaseNotes}
+        >
           {updates.result.release.tagName}
-        </LinkedValue>
+        </ReleaseNotesValue>
       ),
     });
   }
@@ -100,11 +111,12 @@ export function AppUpdatePanel({
   isManagedNode,
   nodeApiUrl,
   onExpandedChange,
+  onOpenReleaseNotes,
   updates,
 }: AppUpdatePanelProps) {
   const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
   const i2pdManager = useI2pdManager(isManagedNode);
-  const rows = getHomeUpdateRows(updates);
+  const rows = getHomeUpdateRows(updates, onOpenReleaseNotes);
   const showChannelSelect = hasDistinctAvailableChannels(updates);
   const showDownloadedAction = !!updates.downloadedUpdate?.canOpen;
   const showDownloadAction =

@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
+import { getSavedAccountContext } from './accountContext';
 
 const START_PAGES_STORAGE_KEY = 'qortium-home-start-pages';
 export const MAX_START_PAGES = 10;
@@ -7,14 +8,14 @@ export const MAX_START_PAGES = 10;
 export type StartPage = {
   accountId: string | null;
   displayUrl: string;
+  title?: string;
 };
 
-function normalizeAccountId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-
-  const accountId = value.trim();
-  return accountId ? accountId : null;
-}
+export type StartPageUpdateRequest = {
+  accountId?: string | null;
+  displayUrl: string;
+  title: string;
+};
 
 function normalizePage(value: unknown): StartPage | null {
   if (typeof value === 'string') {
@@ -29,9 +30,13 @@ function normalizePage(value: unknown): StartPage | null {
   const displayUrl = typeof value.displayUrl === 'string' ? value.displayUrl.trim() : '';
   if (!displayUrl) return null;
 
+  const title = 'title' in value && typeof value.title === 'string' ? value.title.trim() : '';
+  const accountId = 'accountId' in value ? (value as { accountId?: string | null }).accountId : null;
+
   return {
-    accountId: normalizeAccountId('accountId' in value ? value.accountId : null),
+    accountId: getSavedAccountContext(displayUrl, accountId),
     displayUrl,
+    ...(title ? { title } : {}),
   };
 }
 
@@ -84,15 +89,51 @@ export async function saveStartPages(pages: StartPage[]): Promise<void> {
   window.localStorage.setItem(START_PAGES_STORAGE_KEY, value);
 }
 
-export function addStartPage(current: StartPage[], displayUrl: string, accountId: string | null): StartPage[] {
+export function addStartPage(current: StartPage[], displayUrl: string, accountId: string | null, title = ''): StartPage[] {
   const trimmed = displayUrl.trim();
   if (!trimmed || current.some((page) => page.displayUrl === trimmed) || current.length >= MAX_START_PAGES) {
     return current;
   }
 
-  return normalizePages([...current, { accountId, displayUrl: trimmed }]);
+  return normalizePages([
+    ...current,
+    {
+      accountId: getSavedAccountContext(trimmed, accountId),
+      displayUrl: trimmed,
+      ...(title.trim() ? { title: title.trim() } : {}),
+    },
+  ]);
 }
 
 export function removeStartPage(current: StartPage[], displayUrl: string): StartPage[] {
   return current.filter((page) => page.displayUrl !== displayUrl);
+}
+
+export function updateStartPage(
+  current: StartPage[],
+  displayUrl: string,
+  request: StartPageUpdateRequest,
+): StartPage[] {
+  const nextDisplayUrl = request.displayUrl.trim();
+
+  if (!nextDisplayUrl || current.some((page) => page.displayUrl !== displayUrl && page.displayUrl === nextDisplayUrl)) {
+    return current;
+  }
+
+  let didUpdate = false;
+  const title = request.title.trim();
+  const next = current.map((page) => {
+    if (page.displayUrl !== displayUrl) {
+      return page;
+    }
+
+    didUpdate = true;
+    return {
+      accountId: getSavedAccountContext(nextDisplayUrl, request.accountId),
+      displayUrl: nextDisplayUrl,
+      ...(title ? { title } : {}),
+    };
+  });
+
+  return didUpdate ? normalizePages(next) : current;
 }

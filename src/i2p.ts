@@ -42,16 +42,20 @@ export type I2pActivity = 'disabled' | 'idle' | 'active';
 export type I2pStatus = {
   activity: I2pActivity;
   chainPeers: PeerTransportCounts;
+  coreRunning: boolean;
   dataPeers: PeerTransportCounts;
+  source: 'live-node' | 'managed-runtime';
   transport: TransportState;
 };
 
 // The raw read produced by the platform layer from the node's open endpoints,
 // before deriveI2pStatus turns it into the UI-facing I2pStatus.
 export type CoreTransportStatusSnapshot = {
+  coreRunning?: boolean;
   settings: CoreTransportSettings;
   chainPeers: { transport?: unknown }[];
   dataPeers: { transport?: unknown }[];
+  source?: 'live-node' | 'managed-runtime';
 };
 
 // Normalizes a raw allowedTransports entry the way Core does: trim + uppercase.
@@ -130,6 +134,8 @@ export function deriveI2pStatus(
   settings: CoreTransportSettings,
   chainPeers: readonly PeerLike[],
   dataPeers: readonly PeerLike[],
+  source: CoreTransportStatusSnapshot['source'] = 'live-node',
+  coreRunning = true,
 ): I2pStatus {
   const transport = deriveTransportState(settings.allowedTransports);
   const chain = summarizePeerTransports(chainPeers);
@@ -148,5 +154,5 @@ export function deriveI2pStatus(
     activity = 'idle';
   }
 
-  return { activity, chainPeers: chain, dataPeers: data, transport };
+  return { activity, chainPeers: chain, coreRunning, dataPeers: data, source, transport };
 }

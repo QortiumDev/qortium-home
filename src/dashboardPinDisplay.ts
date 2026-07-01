@@ -1,4 +1,4 @@
-import { File, FileAudio, FileImage, FileText, FileVideo, Globe2, Home, Server, type LucideIcon } from 'lucide-react';
+import { Bookmark, File, FileAudio, FileImage, FileText, FileVideo, Globe2, Home, Server, type LucideIcon } from 'lucide-react';
 import type { DashboardPin } from './dashboardPins';
 import { t } from './i18n';
 import { getQdnViewerKind } from './qdn';
@@ -57,6 +57,8 @@ export function getDashboardPinDisplay(pin: DashboardPin): DashboardPinDisplay {
       return { Icon: Home, shortLabel: custom || t('common.dashboard') };
     case 'settings':
       return { Icon: Home, shortLabel: custom || t('common.settings') };
+    case 'bookmarks':
+      return { Icon: Bookmark, shortLabel: custom || t('bookmarks.menuLabel') };
     case 'core-api-docs':
       return { Icon: Server, shortLabel: custom || t('explorer.coreApi') };
     case 'node-api': {

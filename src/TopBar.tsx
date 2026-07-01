@@ -1,16 +1,21 @@
-import { ArrowRight, ChevronLeft, ChevronRight, Globe2, Home, LoaderCircle, Lock, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent } from 'react';
+import { Bookmark, ChevronLeft, ChevronRight, ChevronDown, Folder, LoaderCircle, Lock, Menu, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountAvatar } from './AccountAvatar';
-import { getAccountProfile } from './accountProfile';
+import { useAccountProfile } from './accountProfile';
 import type { AppIconResolution } from './appIconUtils';
 import { getAppIconResolution } from './appIconUtils';
 import { AppIcon } from './AppIcon';
+import { BookmarkDisplayIcon, getBookmarkDisplay } from './bookmarkDisplay';
+import type { BookmarkRootMoveRequest, BookmarkTreeItem, BookmarksState } from './bookmarks';
+import type { DashboardPin } from './dashboardPins';
 import { NodeStatusButton } from './NodeStatusButton';
 import { Popover } from './components/Popover';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 import type { AppRoute } from './routes';
 import { parseAppAddress } from './routes';
+import { SavedAccountBadge } from './SavedAccountContext';
+import type { StartPage } from './startPages';
 import { useMenuKeyboard } from './useMenuKeyboard';
 import {
   buildQdnDisplayUrl,
@@ -27,14 +32,18 @@ import {
 type TopBarProps = {
   activeAccount: QortiumAccountSummary | null;
   activeTabId: string;
+  accountsState: QortiumAccountsState;
   canGoBack: boolean;
   canGoForward: boolean;
   canReopenClosedTab: boolean;
   currentRoute: AppRoute;
   historyEntries: AppRoute[];
   historyIndex: number;
+  bookmarksState: BookmarksState;
+  dashboardPins: DashboardPin[];
   nodeEpoch: number;
   nodeSettings: QortiumNodeSettings;
+  startPages: StartPage[];
   tabs: BrowserTabSummary[];
   onAddTab: () => void;
   onCloseTab: (tabId: string) => void;
@@ -44,20 +53,29 @@ type TopBarProps = {
   onGoBack: () => void;
   onGoForward: () => void;
   onGoToHistoryIndex: (index: number) => void;
+  onAddTabToToolbar: (tabId: string) => void;
+  onMoveBookmarkItem: (request: BookmarkRootMoveRequest) => void;
+  onOpenBookmark: (displayUrl: string, accountId?: string | null) => void;
+  onOpenBookmarksManager: () => void;
   onMoveTabToNewWindow?: (tabId: string) => void;
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onNavigate: (route: AppRoute) => void;
   onNodeReachabilityChange: (reachable: boolean) => void;
   onOpenSettings: () => void;
   onOverlayOpenChange?: (isOpen: boolean) => void;
+  isCurrentPageBookmarked: boolean;
   canToggleCurrentStartPage: boolean;
+  canPinCurrentPageToDashboard: boolean;
   isCurrentPageStartPage: boolean;
+  onToggleCurrentBookmark: () => void;
+  onPinCurrentPageToDashboard: () => void;
   onPinTabToDashboard: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
   onReloadTab: (tabId: string) => void;
   onReopenClosedTab: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSelectTab: (tabId: string) => void;
+  onToolbarVisibleChange: (visible: boolean) => void;
   onToggleStartPage: () => void;
 };
 
@@ -92,6 +110,27 @@ type HistoryMenuItem = {
   index: number;
 };
 
+type BookmarkMenuContentProps = {
+  accountsState: QortiumAccountsState;
+  bookmarksState: BookmarksState;
+  canPinCurrentPageToDashboard: boolean;
+  canToggleCurrentStartPage: boolean;
+  close: () => void;
+  dashboardPins: DashboardPin[];
+  isCurrentPageBookmarked: boolean;
+  isCurrentPageStartPage: boolean;
+  nodeApiUrl: string;
+  nodeEpoch: number;
+  onMoveBookmarkItem: (request: BookmarkRootMoveRequest) => void;
+  onOpenBookmark: (displayUrl: string, accountId?: string | null) => void;
+  onOpenBookmarksManager: () => void;
+  onPinCurrentPageToDashboard: () => void;
+  onToggleCurrentBookmark: () => void;
+  onToggleStartPage: () => void;
+  onToolbarVisibleChange: (visible: boolean) => void;
+  startPages: StartPage[];
+};
+
 type AddressSuggestionKind = 'scheme' | 'service' | 'name' | 'identifier' | 'registered-name';
 
 type AddressSuggestion = {
@@ -99,6 +138,34 @@ type AddressSuggestion = {
   kind: AddressSuggestionKind;
   value: string;
 };
+
+const BOOKMARK_DRAG_MIME = 'application/x-qortium-bookmark';
+
+type BookmarkDragPayload = {
+  accountId?: string | null;
+  displayUrl?: string;
+  itemId: string;
+  sourceRootId: BookmarkRootMoveRequest['sourceRootId'];
+  title?: string;
+};
+
+function encodeBookmarkDragPayload(payload: BookmarkDragPayload) {
+  return JSON.stringify(payload);
+}
+
+function decodeBookmarkDragPayload(value: string): BookmarkDragPayload | null {
+  try {
+    const payload = JSON.parse(value) as Partial<BookmarkDragPayload>;
+
+    if (!payload.itemId || !payload.sourceRootId) {
+      return null;
+    }
+
+    return payload as BookmarkDragPayload;
+  } catch {
+    return null;
+  }
+}
 
 const SUGGESTION_DEBOUNCE_MS = 280;
 const MIN_NAME_QUERY_LENGTH = 1;
@@ -125,6 +192,11 @@ const ADDRESS_SCHEME_SUGGESTIONS: AddressSuggestion[] = [
     descriptionKey: 'common.settings',
     kind: 'scheme',
     value: 'home://settings',
+  },
+  {
+    descriptionKey: 'bookmarks.menuLabel',
+    kind: 'scheme',
+    value: 'home://bookmarks',
   },
 ];
 const TAB_DRAG_OUT_MIN_DISTANCE_PX = 72;
@@ -325,38 +397,10 @@ function AccountChip({
   onAccountsStateChange: (accountsState: QortiumAccountsState) => void;
   onMenuOpenChange?: (isOpen: boolean) => void;
 }) {
-  const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
+  const profile = useAccountProfile(account, nodeApiUrl, nodeEpoch);
   const [isBusy, setIsBusy] = useState(false);
   const [password, setPassword] = useState('');
   const [accountError, setAccountError] = useState('');
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    setProfile(null);
-
-    if (!account) {
-      return () => {
-        isDisposed = true;
-      };
-    }
-
-    getAccountProfile(account, nodeApiUrl, nodeEpoch)
-      .then((nextProfile) => {
-        if (!isDisposed) {
-          setProfile(nextProfile);
-        }
-      })
-      .catch(() => {
-        if (!isDisposed) {
-          setProfile(null);
-        }
-      });
-
-    return () => {
-      isDisposed = true;
-    };
-  }, [account, nodeApiUrl, nodeEpoch]);
 
   useEffect(() => {
     setIsBusy(false);
@@ -671,6 +715,768 @@ function HistoryButton({
   );
 }
 
+function BookmarkMenuDropTarget({
+  children,
+  folderId,
+  itemId,
+  position,
+  rootId,
+  onMoveBookmarkItem,
+}: {
+  children: ReactNode;
+  folderId?: string | null;
+  itemId?: string | null;
+  position?: BookmarkRootMoveRequest['targetPosition'];
+  rootId: BookmarkRootMoveRequest['targetRootId'];
+  onMoveBookmarkItem: (request: BookmarkRootMoveRequest) => void;
+}) {
+  return (
+    <div
+      data-bookmark-menu-drop="true"
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes(BOOKMARK_DRAG_MIME)) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        }
+      }}
+      onDrop={(event) => {
+        const payload = decodeBookmarkDragPayload(event.dataTransfer.getData(BOOKMARK_DRAG_MIME));
+
+        if (!payload) {
+          return;
+        }
+
+        event.preventDefault();
+        onMoveBookmarkItem({
+          accountId: payload.accountId,
+          displayUrl: payload.displayUrl,
+          itemId: payload.itemId,
+          sourceRootId: payload.sourceRootId,
+          targetFolderId: folderId,
+          targetItemId: itemId,
+          targetPosition: position ?? (folderId && !itemId ? 'inside' : 'after'),
+          targetRootId: rootId,
+          title: payload.title,
+        });
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function BookmarkMenuTreeItems({
+  accountsState,
+  close,
+  depth = 0,
+  items,
+  nodeApiUrl,
+  nodeEpoch,
+  onMoveBookmarkItem,
+  onOpenBookmark,
+  parentFolderId = null,
+  rootId,
+}: {
+  accountsState: QortiumAccountsState;
+  close: () => void;
+  depth?: number;
+  items: BookmarkTreeItem[];
+  nodeApiUrl: string;
+  nodeEpoch: number;
+  onMoveBookmarkItem: (request: BookmarkRootMoveRequest) => void;
+  onOpenBookmark: (displayUrl: string, accountId?: string | null) => void;
+  parentFolderId?: string | null;
+  rootId: 'bookmarks' | 'toolbar';
+}) {
+  return (
+    <>
+      {items.map((item) => {
+        const display = item.type === 'bookmark' ? getBookmarkDisplay(item.displayUrl, item.title, nodeApiUrl, nodeEpoch) : null;
+
+        return (
+          <BookmarkMenuDropTarget
+            folderId={parentFolderId}
+            itemId={item.id}
+            key={item.id}
+            rootId={rootId}
+            onMoveBookmarkItem={onMoveBookmarkItem}
+          >
+            {item.type === 'folder' ? (
+            <div className="top-bar__bookmark-menu-folder" style={{ '--bookmark-menu-depth': depth } as CSSProperties}>
+              <button
+                className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--folder top-bar__bookmark-menu-item--with-icon"
+                draggable
+                role="menuitem"
+                type="button"
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData(
+                    BOOKMARK_DRAG_MIME,
+                    encodeBookmarkDragPayload({ itemId: item.id, sourceRootId: rootId, title: item.title }),
+                  );
+                }}
+              >
+                <Folder aria-hidden="true" className="top-bar__bookmark-menu-icon" size={22} strokeWidth={2} />
+                <span className="top-bar__bookmark-menu-label">{item.title}</span>
+              </button>
+              <BookmarkMenuDropTarget
+                folderId={item.id}
+                rootId={rootId}
+                onMoveBookmarkItem={onMoveBookmarkItem}
+              >
+                <div className="top-bar__bookmark-menu-folder-children">
+                  <BookmarkMenuTreeItems
+                    accountsState={accountsState}
+                    close={close}
+                    depth={depth + 1}
+                    items={item.children}
+                    nodeApiUrl={nodeApiUrl}
+                    nodeEpoch={nodeEpoch}
+                    onMoveBookmarkItem={onMoveBookmarkItem}
+                    onOpenBookmark={onOpenBookmark}
+                    parentFolderId={item.id}
+                    rootId={rootId}
+                  />
+                </div>
+              </BookmarkMenuDropTarget>
+            </div>
+          ) : (
+            <button
+              className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--with-icon"
+              draggable
+              role="menuitem"
+              style={{ '--bookmark-menu-depth': depth } as CSSProperties}
+              type="button"
+              onClick={() => {
+                close();
+                onOpenBookmark(item.displayUrl, item.accountId ?? null);
+              }}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData(
+                  BOOKMARK_DRAG_MIME,
+                  encodeBookmarkDragPayload({
+                    accountId: item.accountId ?? null,
+                    displayUrl: item.displayUrl,
+                    itemId: item.id,
+                    sourceRootId: rootId,
+                    title: item.title,
+                  }),
+                );
+              }}
+            >
+              <SavedAccountBadge
+                accountId={item.accountId ?? null}
+                accountsState={accountsState}
+                className="top-bar__saved-account-badge"
+                nodeApiUrl={nodeApiUrl}
+                nodeEpoch={nodeEpoch}
+              />
+              {display ? <BookmarkDisplayIcon className="top-bar__bookmark-menu-icon" display={display} size={22} /> : null}
+              <span className="top-bar__bookmark-menu-copy">
+                <span className="top-bar__bookmark-menu-label">{display?.label ?? item.title}</span>
+                <span className="top-bar__bookmark-menu-url">{item.displayUrl}</span>
+              </span>
+            </button>
+          )}
+          </BookmarkMenuDropTarget>
+        );
+      })}
+    </>
+  );
+}
+
+function BookmarkMenuContent({
+  accountsState,
+  bookmarksState,
+  canPinCurrentPageToDashboard,
+  canToggleCurrentStartPage,
+  close,
+  dashboardPins,
+  isCurrentPageBookmarked,
+  isCurrentPageStartPage,
+  nodeApiUrl,
+  nodeEpoch,
+  onMoveBookmarkItem,
+  onOpenBookmark,
+  onOpenBookmarksManager,
+  onPinCurrentPageToDashboard,
+  onToggleCurrentBookmark,
+  onToggleStartPage,
+  onToolbarVisibleChange,
+  startPages,
+}: BookmarkMenuContentProps) {
+  const [openSection, setOpenSection] = useState<BookmarkRootMoveRequest['targetRootId'] | null>(null);
+
+  function run(command: () => void) {
+    close();
+    command();
+  }
+
+  function toggleSection(sectionId: BookmarkRootMoveRequest['targetRootId']) {
+    setOpenSection((current) => (current === sectionId ? null : sectionId));
+  }
+
+  return (
+    <>
+      <button
+        className="top-bar__bookmark-menu-item"
+        disabled={!canPinCurrentPageToDashboard}
+        role="menuitem"
+        type="button"
+        onClick={() => run(onPinCurrentPageToDashboard)}
+      >
+        {t('tabs.pinToDashboard')}
+      </button>
+      <button
+        className="top-bar__bookmark-menu-item"
+        disabled={!canToggleCurrentStartPage}
+        role="menuitem"
+        type="button"
+        onClick={() => run(onToggleStartPage)}
+      >
+        {isCurrentPageStartPage ? t('startPages.removeFromStart') : t('startPages.addToStart')}
+      </button>
+      <button
+        className="top-bar__bookmark-menu-item"
+        role="menuitem"
+        type="button"
+        onClick={() => run(onToggleCurrentBookmark)}
+      >
+        {isCurrentPageBookmarked ? t('bookmarks.removeFromBookmarks') : t('bookmarks.addToBookmarks')}
+      </button>
+      <button
+        aria-checked={bookmarksState.toolbarVisible}
+        className="top-bar__bookmark-menu-item"
+        role="menuitemcheckbox"
+        type="button"
+        onClick={() => onToolbarVisibleChange(!bookmarksState.toolbarVisible)}
+      >
+        {bookmarksState.toolbarVisible ? t('bookmarks.hideToolbar') : t('bookmarks.showToolbar')}
+      </button>
+      <div className="top-bar__bookmark-menu-separator" role="separator" />
+      <button
+        className="top-bar__bookmark-menu-item"
+        role="menuitem"
+        type="button"
+        onClick={() => run(onOpenBookmarksManager)}
+      >
+        {t('bookmarks.manage')}
+      </button>
+      <BookmarkMenuDropTarget rootId="pins" onMoveBookmarkItem={onMoveBookmarkItem}>
+        <div className="top-bar__bookmark-menu-group">
+          <button
+            aria-expanded={openSection === 'pins'}
+            className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--submenu top-bar__bookmark-menu-item--with-icon"
+            role="menuitem"
+            type="button"
+            onClick={() => toggleSection('pins')}
+          >
+            <Folder aria-hidden="true" className="top-bar__bookmark-menu-icon" size={22} strokeWidth={2} />
+            <span>{t('bookmarks.folder.pins')}</span>
+            <ChevronDown aria-hidden="true" className="top-bar__bookmark-menu-chevron" size={20} strokeWidth={2} />
+          </button>
+          {openSection === 'pins' ? (
+            <div className="top-bar__bookmark-submenu">
+          {dashboardPins.length > 0 ? dashboardPins.map((pin) => (
+            (() => {
+              const display = getBookmarkDisplay(pin.displayUrl, pin.customLabel || pin.label, nodeApiUrl, nodeEpoch);
+
+              return (
+                <button
+              className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--with-icon"
+              draggable
+              key={pin.id}
+              role="menuitem"
+              type="button"
+              onClick={() => run(() => onOpenBookmark(pin.displayUrl, pin.accountId ?? null))}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData(
+                  BOOKMARK_DRAG_MIME,
+                  encodeBookmarkDragPayload({
+                    accountId: pin.accountId ?? null,
+                    displayUrl: pin.displayUrl,
+                    itemId: pin.id,
+                    sourceRootId: 'pins',
+                    title: pin.customLabel || display.label,
+                  }),
+                );
+              }}
+            >
+              <SavedAccountBadge
+                accountId={pin.accountId ?? null}
+                accountsState={accountsState}
+                className="top-bar__saved-account-badge"
+                nodeApiUrl={nodeApiUrl}
+                nodeEpoch={nodeEpoch}
+              />
+              <BookmarkDisplayIcon className="top-bar__bookmark-menu-icon" display={display} size={22} />
+              <span className="top-bar__bookmark-menu-copy">
+                <span className="top-bar__bookmark-menu-label">{display.label}</span>
+                <span className="top-bar__bookmark-menu-url">{pin.displayUrl}</span>
+              </span>
+            </button>
+              );
+            })()
+          )) : <p className="top-bar__bookmark-menu-empty">{t('bookmarks.emptyPins')}</p>}
+            </div>
+          ) : null}
+        </div>
+      </BookmarkMenuDropTarget>
+      <BookmarkMenuDropTarget rootId="startPages" onMoveBookmarkItem={onMoveBookmarkItem}>
+        <div className="top-bar__bookmark-menu-group">
+          <button
+            aria-expanded={openSection === 'startPages'}
+            className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--submenu top-bar__bookmark-menu-item--with-icon"
+            role="menuitem"
+            type="button"
+            onClick={() => toggleSection('startPages')}
+          >
+            <Folder aria-hidden="true" className="top-bar__bookmark-menu-icon" size={22} strokeWidth={2} />
+            <span>{t('bookmarks.folder.startPages')}</span>
+            <ChevronDown aria-hidden="true" className="top-bar__bookmark-menu-chevron" size={20} strokeWidth={2} />
+          </button>
+          {openSection === 'startPages' ? (
+            <div className="top-bar__bookmark-submenu">
+          {startPages.length > 0 ? startPages.map((page) => (
+            (() => {
+              const display = getBookmarkDisplay(page.displayUrl, page.title, nodeApiUrl, nodeEpoch);
+
+              return (
+                <button
+              className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--with-icon"
+              draggable
+              key={page.displayUrl}
+              role="menuitem"
+              type="button"
+              onClick={() => run(() => onOpenBookmark(page.displayUrl, page.accountId))}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData(
+                  BOOKMARK_DRAG_MIME,
+                  encodeBookmarkDragPayload({
+                    accountId: page.accountId,
+                    displayUrl: page.displayUrl,
+                    itemId: page.displayUrl,
+                    sourceRootId: 'startPages',
+                    title: page.title || display.label,
+                  }),
+                );
+              }}
+            >
+              <SavedAccountBadge
+                accountId={page.accountId}
+                accountsState={accountsState}
+                className="top-bar__saved-account-badge"
+                nodeApiUrl={nodeApiUrl}
+                nodeEpoch={nodeEpoch}
+              />
+              <BookmarkDisplayIcon className="top-bar__bookmark-menu-icon" display={display} size={22} />
+              <span className="top-bar__bookmark-menu-copy">
+                <span className="top-bar__bookmark-menu-label">{display.label}</span>
+                <span className="top-bar__bookmark-menu-url">{page.displayUrl}</span>
+              </span>
+            </button>
+              );
+            })()
+          )) : <p className="top-bar__bookmark-menu-empty">{t('bookmarks.emptyStartPages')}</p>}
+            </div>
+          ) : null}
+        </div>
+      </BookmarkMenuDropTarget>
+      <BookmarkMenuDropTarget rootId="toolbar" onMoveBookmarkItem={onMoveBookmarkItem}>
+        <div className="top-bar__bookmark-menu-group">
+          <button
+            aria-expanded={openSection === 'toolbar'}
+            className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--submenu top-bar__bookmark-menu-item--with-icon"
+            role="menuitem"
+            type="button"
+            onClick={() => toggleSection('toolbar')}
+          >
+            <Folder aria-hidden="true" className="top-bar__bookmark-menu-icon" size={22} strokeWidth={2} />
+            <span>{t('bookmarks.folder.toolbar')}</span>
+            <ChevronDown aria-hidden="true" className="top-bar__bookmark-menu-chevron" size={20} strokeWidth={2} />
+          </button>
+          {openSection === 'toolbar' ? (
+            <div className="top-bar__bookmark-submenu">
+          {bookmarksState.toolbar.length > 0 ? (
+            <BookmarkMenuTreeItems
+              accountsState={accountsState}
+              close={close}
+              items={bookmarksState.toolbar}
+              nodeApiUrl={nodeApiUrl}
+              nodeEpoch={nodeEpoch}
+              onMoveBookmarkItem={onMoveBookmarkItem}
+              onOpenBookmark={onOpenBookmark}
+              rootId="toolbar"
+            />
+          ) : (
+            <p className="top-bar__bookmark-menu-empty">{t('bookmarks.emptyFolder')}</p>
+          )}
+            </div>
+          ) : null}
+        </div>
+      </BookmarkMenuDropTarget>
+      <BookmarkMenuDropTarget rootId="bookmarks" onMoveBookmarkItem={onMoveBookmarkItem}>
+        <div className="top-bar__bookmark-menu-group">
+          <button
+            aria-expanded={openSection === 'bookmarks'}
+            className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--submenu top-bar__bookmark-menu-item--with-icon"
+            role="menuitem"
+            type="button"
+            onClick={() => toggleSection('bookmarks')}
+          >
+            <Folder aria-hidden="true" className="top-bar__bookmark-menu-icon" size={22} strokeWidth={2} />
+            <span>{t('bookmarks.folder.bookmarks')}</span>
+            <ChevronDown aria-hidden="true" className="top-bar__bookmark-menu-chevron" size={20} strokeWidth={2} />
+          </button>
+          {openSection === 'bookmarks' ? (
+            <div className="top-bar__bookmark-submenu">
+          {bookmarksState.bookmarks.length > 0 ? (
+            <BookmarkMenuTreeItems
+              accountsState={accountsState}
+              close={close}
+              items={bookmarksState.bookmarks}
+              nodeApiUrl={nodeApiUrl}
+              nodeEpoch={nodeEpoch}
+              onMoveBookmarkItem={onMoveBookmarkItem}
+              onOpenBookmark={onOpenBookmark}
+              rootId="bookmarks"
+            />
+          ) : (
+            <p className="top-bar__bookmark-menu-empty">{t('bookmarks.emptyFolder')}</p>
+          )}
+            </div>
+          ) : null}
+        </div>
+      </BookmarkMenuDropTarget>
+    </>
+  );
+}
+
+function BookmarksPopover({
+  accountsState,
+  bookmarksState,
+  canPinCurrentPageToDashboard,
+  canToggleCurrentStartPage,
+  dashboardPins,
+  isCurrentPageBookmarked,
+  isCurrentPageStartPage,
+  nodeApiUrl,
+  nodeEpoch,
+  onMenuOpenChange,
+  onMoveBookmarkItem,
+  onOpenBookmark,
+  onOpenBookmarksManager,
+  onPinCurrentPageToDashboard,
+  onToggleCurrentBookmark,
+  onToggleStartPage,
+  onToolbarVisibleChange,
+  startPages,
+}: Omit<BookmarkMenuContentProps, 'close'> & {
+  onMenuOpenChange?: (isOpen: boolean) => void;
+}) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeMenuRef = useRef<() => void>(() => undefined);
+  const menuKeyboard = useMenuKeyboard({
+    getFocusAfterEscape: () => triggerRef.current,
+    isOpen: isMenuOpen,
+    menuRef,
+    onClose: () => closeMenuRef.current(),
+  });
+
+  return (
+    <Popover
+      className="top-bar__bookmarks"
+      contentClassName="top-bar__bookmark-menu"
+      contentId="top-bar-bookmarks-menu"
+      contentLabel={t('bookmarks.menuLabel')}
+      contentRole="menu"
+      onOpenChange={(isOpen) => {
+        setIsMenuOpen(isOpen);
+        onMenuOpenChange?.(isOpen);
+      }}
+      renderTrigger={({ close, contentId, isOpen, toggle }) => {
+        closeMenuRef.current = close;
+
+        return (
+          <button
+            aria-controls={isOpen ? contentId : undefined}
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
+            className={`icon-button top-bar__bookmarks-button${isCurrentPageBookmarked ? ' top-bar__bookmarks-button--active' : ''}`}
+            ref={triggerRef}
+            title={t('bookmarks.menuLabel')}
+            type="button"
+            onClick={toggle}
+          >
+            <Bookmark aria-hidden="true" size={20} strokeWidth={2} />
+            <span className="sr-only">{t('bookmarks.menuLabel')}</span>
+          </button>
+        );
+      }}
+    >
+      {({ close }) => (
+        <div ref={menuRef} onKeyDown={menuKeyboard.onKeyDown}>
+          <BookmarkMenuContent
+            accountsState={accountsState}
+            bookmarksState={bookmarksState}
+            canPinCurrentPageToDashboard={canPinCurrentPageToDashboard}
+            canToggleCurrentStartPage={canToggleCurrentStartPage}
+            close={close}
+            dashboardPins={dashboardPins}
+            isCurrentPageBookmarked={isCurrentPageBookmarked}
+            isCurrentPageStartPage={isCurrentPageStartPage}
+            nodeApiUrl={nodeApiUrl}
+            nodeEpoch={nodeEpoch}
+            onMoveBookmarkItem={onMoveBookmarkItem}
+            onOpenBookmark={onOpenBookmark}
+            onOpenBookmarksManager={onOpenBookmarksManager}
+            onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
+            onToggleCurrentBookmark={onToggleCurrentBookmark}
+            onToggleStartPage={onToggleStartPage}
+            onToolbarVisibleChange={onToolbarVisibleChange}
+            startPages={startPages}
+          />
+        </div>
+      )}
+    </Popover>
+  );
+}
+
+function MobileBrowserMenu({
+  accountsState,
+  bookmarksState,
+  canGoBack,
+  canGoForward,
+  canPinCurrentPageToDashboard,
+  canToggleCurrentStartPage,
+  dashboardPins,
+  isCurrentPageBookmarked,
+  isCurrentPageStartPage,
+  nodeApiUrl,
+  nodeEpoch,
+  onGoBack,
+  onGoForward,
+  onMenuOpenChange,
+  onMoveBookmarkItem,
+  onOpenBookmark,
+  onOpenBookmarksManager,
+  onPinCurrentPageToDashboard,
+  onToggleCurrentBookmark,
+  onToggleStartPage,
+  onToolbarVisibleChange,
+  startPages,
+}: Omit<BookmarkMenuContentProps, 'close'> & {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  onMenuOpenChange?: (isOpen: boolean) => void;
+}) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isBookmarksSubmenuOpen, setIsBookmarksSubmenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeMenuRef = useRef<() => void>(() => undefined);
+  const menuKeyboard = useMenuKeyboard({
+    getFocusAfterEscape: () => triggerRef.current,
+    isOpen: isMenuOpen,
+    menuRef,
+    onClose: () => closeMenuRef.current(),
+  });
+
+  function run(close: () => void, command: () => void) {
+    close();
+    command();
+  }
+
+  return (
+    <Popover
+      className="top-bar__mobile-menu"
+      contentClassName="top-bar__mobile-menu-popover"
+      contentId="top-bar-mobile-menu"
+      contentLabel={t('bookmarks.mobileMenu')}
+      contentRole="menu"
+      onOpenChange={(isOpen) => {
+        setIsMenuOpen(isOpen);
+        if (!isOpen) {
+          setIsBookmarksSubmenuOpen(false);
+        }
+        onMenuOpenChange?.(isOpen);
+      }}
+      renderTrigger={({ close, contentId, isOpen, toggle }) => {
+        closeMenuRef.current = close;
+
+        return (
+          <button
+            aria-controls={isOpen ? contentId : undefined}
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
+            className="icon-button top-bar__mobile-menu-button"
+            ref={triggerRef}
+            title={t('bookmarks.mobileMenu')}
+            type="button"
+            onClick={toggle}
+          >
+            <Menu aria-hidden="true" size={20} strokeWidth={2} />
+            <span className="sr-only">{t('bookmarks.mobileMenu')}</span>
+          </button>
+        );
+      }}
+    >
+      {({ close }) => (
+        <div className="top-bar__mobile-menu-content" ref={menuRef} onKeyDown={menuKeyboard.onKeyDown}>
+          <button
+            className="top-bar__bookmark-menu-item"
+            disabled={!canGoBack}
+            role="menuitem"
+            type="button"
+            onClick={() => run(close, onGoBack)}
+          >
+            {t('common.back')}
+          </button>
+          <button
+            className="top-bar__bookmark-menu-item"
+            disabled={!canGoForward}
+            role="menuitem"
+            type="button"
+            onClick={() => run(close, onGoForward)}
+          >
+            {t('common.forward')}
+          </button>
+          <button
+            aria-expanded={isBookmarksSubmenuOpen}
+            className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--submenu"
+            role="menuitem"
+            type="button"
+            onClick={() => setIsBookmarksSubmenuOpen((isOpen) => !isOpen)}
+          >
+            <span>{t('bookmarks.menuLabel')}</span>
+            <ChevronDown aria-hidden="true" size={20} strokeWidth={2} />
+          </button>
+          {isBookmarksSubmenuOpen ? (
+            <div className="top-bar__bookmark-submenu">
+              <BookmarkMenuContent
+                accountsState={accountsState}
+                bookmarksState={bookmarksState}
+                canPinCurrentPageToDashboard={canPinCurrentPageToDashboard}
+                canToggleCurrentStartPage={canToggleCurrentStartPage}
+                close={close}
+                dashboardPins={dashboardPins}
+                isCurrentPageBookmarked={isCurrentPageBookmarked}
+                isCurrentPageStartPage={isCurrentPageStartPage}
+                nodeApiUrl={nodeApiUrl}
+                nodeEpoch={nodeEpoch}
+                onMoveBookmarkItem={onMoveBookmarkItem}
+                onOpenBookmark={onOpenBookmark}
+                onOpenBookmarksManager={onOpenBookmarksManager}
+                onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
+                onToggleCurrentBookmark={onToggleCurrentBookmark}
+                onToggleStartPage={onToggleStartPage}
+                onToolbarVisibleChange={onToolbarVisibleChange}
+                startPages={startPages}
+              />
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Popover>
+  );
+}
+
+function BookmarkToolbar({
+  accountsState,
+  bookmarksState,
+  nodeApiUrl,
+  nodeEpoch,
+  onOpenBookmark,
+}: {
+  accountsState: QortiumAccountsState;
+  bookmarksState: BookmarksState;
+  nodeApiUrl: string;
+  nodeEpoch: number;
+  onOpenBookmark: (displayUrl: string, accountId?: string | null) => void;
+}) {
+  if (!bookmarksState.toolbarVisible) {
+    return null;
+  }
+
+  return (
+    <nav className="top-bar__bookmark-toolbar" aria-label={t('bookmarks.folder.toolbar')}>
+      {bookmarksState.toolbar.length > 0 ? (
+        bookmarksState.toolbar.map((item) =>
+          item.type === 'folder' ? (
+            <Popover
+              className="top-bar__bookmark-toolbar-folder"
+              contentClassName="top-bar__bookmark-toolbar-menu"
+              contentId={`top-bar-bookmark-toolbar-${item.id}`}
+              contentLabel={item.title}
+              contentRole="menu"
+              key={item.id}
+              renderTrigger={({ contentId, isOpen, toggle }) => (
+                <button
+                  aria-controls={isOpen ? contentId : undefined}
+                  aria-expanded={isOpen}
+                  aria-haspopup="menu"
+                  className="top-bar__bookmark-toolbar-item"
+                  type="button"
+                  onClick={toggle}
+                >
+                  <Folder aria-hidden="true" size={15} strokeWidth={2} />
+                  {item.title}
+                </button>
+              )}
+            >
+              {({ close }) => (
+                <div className="top-bar__bookmark-toolbar-menu-content">
+                  <BookmarkMenuTreeItems
+                    accountsState={accountsState}
+                    close={close}
+                    items={item.children}
+                    nodeApiUrl={nodeApiUrl}
+                    nodeEpoch={nodeEpoch}
+                    onMoveBookmarkItem={() => undefined}
+                    onOpenBookmark={onOpenBookmark}
+                    rootId="toolbar"
+                  />
+                </div>
+              )}
+            </Popover>
+          ) : (() => {
+            const display = getBookmarkDisplay(item.displayUrl, item.title, nodeApiUrl, nodeEpoch);
+
+            return (
+              <button
+                className="top-bar__bookmark-toolbar-item"
+                key={item.id}
+                title={item.displayUrl}
+                type="button"
+                onClick={() => onOpenBookmark(item.displayUrl, item.accountId ?? null)}
+              >
+                <SavedAccountBadge
+                  accountId={item.accountId ?? null}
+                  accountsState={accountsState}
+                  className="top-bar__saved-account-badge"
+                  nodeApiUrl={nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                />
+                <BookmarkDisplayIcon className="top-bar__bookmark-toolbar-icon" display={display} size={20} />
+                <span className="top-bar__bookmark-toolbar-label">{display.label}</span>
+              </button>
+            );
+          })(),
+        )
+      ) : (
+        <span className="top-bar__bookmark-toolbar-empty" aria-hidden="true" />
+      )}
+    </nav>
+  );
+}
+
 function TabAvatar({
   account,
   nodeApiUrl,
@@ -680,35 +1486,7 @@ function TabAvatar({
   nodeApiUrl: string;
   nodeEpoch: number;
 }) {
-  const [profile, setProfile] = useState<QortiumAccountProfile | null>(null);
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    setProfile(null);
-
-    if (!account) {
-      return () => {
-        isDisposed = true;
-      };
-    }
-
-    getAccountProfile(account, nodeApiUrl, nodeEpoch)
-      .then((nextProfile) => {
-        if (!isDisposed) {
-          setProfile(nextProfile);
-        }
-      })
-      .catch(() => {
-        if (!isDisposed) {
-          setProfile(null);
-        }
-      });
-
-    return () => {
-      isDisposed = true;
-    };
-  }, [account, nodeApiUrl, nodeEpoch]);
+  const profile = useAccountProfile(account, nodeApiUrl, nodeEpoch);
 
   if (!account) {
     return null;
@@ -740,6 +1518,7 @@ function BrowserTabs({
   activeTabId,
   canReopenClosedTab,
   onAddTab,
+  onAddTabToToolbar,
   onCloseTab,
   onCloseOtherTabs,
   onCloseTabsToRight,
@@ -759,6 +1538,7 @@ function BrowserTabs({
   canReopenClosedTab: boolean;
   nodeApiUrl: string;
   nodeEpoch: number;
+  onAddTabToToolbar: (tabId: string) => void;
   onAddTab: () => void;
   onCloseTab: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
@@ -954,6 +1734,23 @@ function BrowserTabs({
     return false;
   }
 
+  function isToolbarDropRelease(event: PointerEvent<HTMLElement>) {
+    const toolbar = document.querySelector<HTMLElement>('.top-bar__bookmark-toolbar');
+
+    if (!toolbar) {
+      return false;
+    }
+
+    const bounds = toolbar.getBoundingClientRect();
+
+    return (
+      event.clientX >= bounds.left &&
+      event.clientX <= bounds.right &&
+      event.clientY >= bounds.top &&
+      event.clientY <= bounds.bottom
+    );
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLDivElement>, tabId: string) {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
@@ -1003,6 +1800,15 @@ function BrowserTabs({
     const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (isToolbarDropRelease(event)) {
+      const tabId = dragState.tabId;
+
+      suppressNextTabClick(tabId);
+      clearDragState(event);
+      onAddTabToToolbar(tabId);
       return;
     }
 
@@ -1190,7 +1996,7 @@ function BrowserTabs({
                 aria-label={t('tabs.closeNamed', { label: tab.label })}
                 onClick={() => onCloseTab(tab.id)}
               >
-                <X aria-hidden="true" size={16} strokeWidth={2} />
+                <X aria-hidden="true" size={20} strokeWidth={2} />
               </button>
             </div>
           );
@@ -1243,7 +2049,7 @@ function BrowserTabs({
             type="button"
             onClick={() => runTabMenuCommand(() => onPinTabToDashboard(contextMenuTab.id))}
           >
-            <Pin aria-hidden="true" size={16} strokeWidth={2} />
+            <Pin aria-hidden="true" size={20} strokeWidth={2} />
             {t('tabs.pinToDashboard')}
           </button>
           {onMoveTabToNewWindow ? (
@@ -1302,14 +2108,18 @@ function BrowserTabs({
 export function TopBar({
   activeAccount,
   activeTabId,
+  accountsState,
   canGoBack,
   canGoForward,
   canReopenClosedTab,
   currentRoute,
   historyEntries,
   historyIndex,
+  bookmarksState,
+  dashboardPins,
   nodeEpoch,
   nodeSettings,
+  startPages,
   tabs,
   onAddTab,
   onCloseTab,
@@ -1319,20 +2129,29 @@ export function TopBar({
   onGoBack,
   onGoForward,
   onGoToHistoryIndex,
+  onAddTabToToolbar,
+  onMoveBookmarkItem,
+  onOpenBookmark,
+  onOpenBookmarksManager,
   onMoveTabToNewWindow,
   onAccountsStateChange,
   onNavigate,
   onNodeReachabilityChange,
   onOpenSettings,
   onOverlayOpenChange,
+  isCurrentPageBookmarked,
   canToggleCurrentStartPage,
+  canPinCurrentPageToDashboard,
   isCurrentPageStartPage,
+  onToggleCurrentBookmark,
+  onPinCurrentPageToDashboard,
   onPinTabToDashboard,
   onReorderTab,
   onReloadTab,
   onReopenClosedTab,
   onResolvedNodeApiUrl,
   onSelectTab,
+  onToolbarVisibleChange,
   onToggleStartPage,
 }: TopBarProps) {
   const [addressValue, setAddressValue] = useState('');
@@ -1377,9 +2196,12 @@ export function TopBar({
     (isOpen: boolean) => setOverlayOpen('forward-history', isOpen),
     [setOverlayOpen],
   );
+  const setBookmarksMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('bookmarks-menu', isOpen), [setOverlayOpen]);
+  const setMobileMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('mobile-menu', isOpen), [setOverlayOpen]);
   const setAccountMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('account-menu', isOpen), [setOverlayOpen]);
   const setNodeMenuOpen = useCallback((isOpen: boolean) => setOverlayOpen('node-menu', isOpen), [setOverlayOpen]);
   const isOverlayOpen = Object.values(overlayOpenById).some(Boolean);
+  const addressDisplay = getBookmarkDisplay(currentRoute.displayUrl, null, nodeSettings.nodeApiUrl, nodeEpoch);
 
   useEffect(() => {
     setAddressValue(currentRoute.displayUrl);
@@ -1567,6 +2389,7 @@ export function TopBar({
         nodeEpoch={nodeEpoch}
         tabs={tabs}
         onAddTab={onAddTab}
+        onAddTabToToolbar={onAddTabToToolbar}
         onCloseTab={onCloseTab}
         onCloseOtherTabs={onCloseOtherTabs}
         onCloseTabsToRight={onCloseTabsToRight}
@@ -1580,6 +2403,30 @@ export function TopBar({
         onMenuOpenChange={setTabMenuOpen}
       />
       <form className="top-bar__address-form" onSubmit={handleSubmit}>
+        <MobileBrowserMenu
+          accountsState={accountsState}
+          bookmarksState={bookmarksState}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          canPinCurrentPageToDashboard={canPinCurrentPageToDashboard}
+          canToggleCurrentStartPage={canToggleCurrentStartPage}
+          dashboardPins={dashboardPins}
+          isCurrentPageBookmarked={isCurrentPageBookmarked}
+          isCurrentPageStartPage={isCurrentPageStartPage}
+          nodeApiUrl={nodeSettings.nodeApiUrl}
+          nodeEpoch={nodeEpoch}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+          onMenuOpenChange={setMobileMenuOpen}
+          onMoveBookmarkItem={onMoveBookmarkItem}
+          onOpenBookmark={onOpenBookmark}
+          onOpenBookmarksManager={onOpenBookmarksManager}
+          onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
+          onToggleCurrentBookmark={onToggleCurrentBookmark}
+          onToggleStartPage={onToggleStartPage}
+          onToolbarVisibleChange={onToolbarVisibleChange}
+          startPages={startPages}
+        />
         <HistoryButton
           canNavigate={canGoBack}
           direction="back"
@@ -1607,11 +2454,31 @@ export function TopBar({
           <RefreshCw aria-hidden="true" size={20} strokeWidth={2} />
           <span className="sr-only">{t('address.reloadPage')}</span>
         </button>
+        <BookmarksPopover
+          accountsState={accountsState}
+          bookmarksState={bookmarksState}
+          canPinCurrentPageToDashboard={canPinCurrentPageToDashboard}
+          canToggleCurrentStartPage={canToggleCurrentStartPage}
+          dashboardPins={dashboardPins}
+          isCurrentPageBookmarked={isCurrentPageBookmarked}
+          isCurrentPageStartPage={isCurrentPageStartPage}
+          nodeApiUrl={nodeSettings.nodeApiUrl}
+          nodeEpoch={nodeEpoch}
+          onMenuOpenChange={setBookmarksMenuOpen}
+          onMoveBookmarkItem={onMoveBookmarkItem}
+          onOpenBookmark={onOpenBookmark}
+          onOpenBookmarksManager={onOpenBookmarksManager}
+          onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
+          onToggleCurrentBookmark={onToggleCurrentBookmark}
+          onToggleStartPage={onToggleStartPage}
+          onToolbarVisibleChange={onToolbarVisibleChange}
+          startPages={startPages}
+        />
         <label className="sr-only" htmlFor="browser-address">
           {t('address.label')}
         </label>
         <div className="top-bar__address-control">
-          <Globe2 aria-hidden="true" className="top-bar__address-icon" size={20} strokeWidth={2} />
+          <BookmarkDisplayIcon className="top-bar__address-icon" display={addressDisplay} size={20} />
           <input
             autoComplete="off"
             className="top-bar__address-input"
@@ -1760,36 +2627,6 @@ export function TopBar({
           ) : null}
           {addressError ? <p className="top-bar__error">{addressError}</p> : null}
         </div>
-        <button
-          className={[
-            'icon-button',
-            'top-bar__start-page-button',
-            isCurrentPageStartPage ? 'top-bar__start-page-button--active' : '',
-          ].filter(Boolean).join(' ')}
-          disabled={!canToggleCurrentStartPage}
-          title={
-            canToggleCurrentStartPage
-              ? isCurrentPageStartPage
-                ? t('startPages.removeFromStart')
-                : t('startPages.addToStart')
-              : t('startPages.limitReached')
-          }
-          type="button"
-          onClick={onToggleStartPage}
-        >
-          <Home aria-hidden="true" size={20} strokeWidth={2} />
-          <span className="sr-only">
-            {canToggleCurrentStartPage
-              ? isCurrentPageStartPage
-                ? t('startPages.removeFromStart')
-                : t('startPages.addToStart')
-              : t('startPages.limitReached')}
-          </span>
-        </button>
-        <button className="icon-button top-bar__go-button" title={t('address.loadAddress')} type="submit">
-          <ArrowRight aria-hidden="true" size={20} strokeWidth={2} />
-          <span className="sr-only">{t('address.loadAddress')}</span>
-        </button>
       </form>
       <AccountChip
         account={activeAccount}
@@ -1804,6 +2641,13 @@ export function TopBar({
         onNodeReachabilityChange={onNodeReachabilityChange}
         onOpenSettings={onOpenSettings}
         onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+      />
+      <BookmarkToolbar
+        accountsState={accountsState}
+        bookmarksState={bookmarksState}
+        nodeApiUrl={nodeSettings.nodeApiUrl}
+        nodeEpoch={nodeEpoch}
+        onOpenBookmark={onOpenBookmark}
       />
     </header>
   );
