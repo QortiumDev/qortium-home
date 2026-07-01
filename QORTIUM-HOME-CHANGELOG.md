@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-01 - release: prepare home 1.2.2
+
+Bumps Qortium Home to 1.2.2 with Android versionCode 23 for the next
+prerelease. This release packages the Home bookmarks workflow, in-app Home and
+Core release notes, direct release-asset downloads, resilient QDN app icon and
+account avatar resolution, stopped managed-Core transport-mode updates, and the
+latest Core 1.2.2 compatibility surface after the merged Core settings and
+QDN database-performance work. The change here is only the package, lockfile,
+Android release metadata, and changelog entry; the behavioral changes were
+merged in the preceding PR.
+
 ### 2026-07-01 - feat: add Home bookmarks, release notes, and resilient media
 
 Adds a full Home bookmarks workflow with bookmark folders, a toolbar, drag and
