@@ -84,32 +84,42 @@ function formatError(error: unknown) {
   return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
-function isNodeStatusResponse(value: unknown): value is NodeStatusResponse {
+function normalizeNodeStatusResponse(value: unknown): NodeStatusResponse | null {
   if (!value || typeof value !== 'object') {
-    return false;
+    return null;
   }
 
   const status = value as Partial<NodeStatusResponse>;
 
-  return (
-    typeof status.isMintingPossible === 'boolean' &&
-    typeof status.isSynchronizing === 'boolean' &&
-    typeof status.numberOfConnections === 'number' &&
-    typeof status.numberOfDataConnections === 'number' &&
-    typeof status.height === 'number' &&
-    (status.syncBlocksRemaining === undefined ||
-      status.syncBlocksRemaining === null ||
-      typeof status.syncBlocksRemaining === 'number') &&
-    (status.syncPhase === undefined ||
-      status.syncPhase === null ||
-      typeof status.syncPhase === 'string') &&
-    (status.syncPercent === undefined ||
-      status.syncPercent === null ||
-      typeof status.syncPercent === 'number') &&
-    (status.syncTargetHeight === undefined ||
-      status.syncTargetHeight === null ||
-      typeof status.syncTargetHeight === 'number')
-  );
+  if (
+    typeof status.isMintingPossible !== 'boolean' ||
+    typeof status.isSynchronizing !== 'boolean' ||
+    typeof status.numberOfConnections !== 'number' ||
+    typeof status.height !== 'number' ||
+    (status.numberOfDataConnections !== undefined && typeof status.numberOfDataConnections !== 'number') ||
+    (status.syncBlocksRemaining !== undefined &&
+      status.syncBlocksRemaining !== null &&
+      typeof status.syncBlocksRemaining !== 'number') ||
+    (status.syncPhase !== undefined && status.syncPhase !== null && typeof status.syncPhase !== 'string') ||
+    (status.syncPercent !== undefined && status.syncPercent !== null && typeof status.syncPercent !== 'number') ||
+    (status.syncTargetHeight !== undefined &&
+      status.syncTargetHeight !== null &&
+      typeof status.syncTargetHeight !== 'number')
+  ) {
+    return null;
+  }
+
+  return {
+    height: status.height,
+    isMintingPossible: status.isMintingPossible,
+    isSynchronizing: status.isSynchronizing,
+    numberOfConnections: status.numberOfConnections,
+    numberOfDataConnections: status.numberOfDataConnections ?? 0,
+    syncBlocksRemaining: status.syncBlocksRemaining,
+    syncPhase: status.syncPhase,
+    syncPercent: status.syncPercent,
+    syncTargetHeight: status.syncTargetHeight,
+  };
 }
 
 function getDisplayStatus(status: NodeStatusState): DisplayStatus {
@@ -250,9 +260,11 @@ export function NodeStatusButton({
           return;
         }
 
-        if (result.ok && isNodeStatusResponse(result.status)) {
+        const normalizedStatus = result.ok ? normalizeNodeStatusResponse(result.status) : null;
+
+        if (result.ok && normalizedStatus) {
           onResolvedNodeApiUrl(result.nodeApiUrl);
-          setNodeStatus({ state: 'available', data: result.status, nodeApiUrl: result.nodeApiUrl });
+          setNodeStatus({ state: 'available', data: normalizedStatus, nodeApiUrl: result.nodeApiUrl });
           reportReachability(true);
 
           // Tell the app when the node recovers, so node-derived data loaded
