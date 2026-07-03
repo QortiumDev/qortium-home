@@ -77,12 +77,14 @@ type DashboardPageProps = {
 };
 
 function getCoreDashboardStatusText({
+  busyAction,
   coreMessage,
   onChainCoreUpdate,
   prereleaseUpdateAvailable,
   stableUpdateAvailable,
   status,
 }: {
+  busyAction: CoreManagerState['busyAction'];
   coreMessage: CoreManagerState['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
   prereleaseUpdateAvailable: boolean;
@@ -101,6 +103,10 @@ function getCoreDashboardStatusText({
 
   if (onChainUpdateSummary) {
     return onChainUpdateSummary;
+  }
+
+  if (busyAction === 'checking') {
+    return t('common.checking');
   }
 
   if (!status) {
@@ -174,6 +180,7 @@ function VersionWithNotes({
 }
 
 function getCoreRows({
+  busyAction,
   coreMessage,
   onChainCoreUpdate,
   onOpenReleaseNotes,
@@ -183,6 +190,7 @@ function getCoreRows({
   status,
   transports,
 }: {
+  busyAction: CoreManagerState['busyAction'];
   coreMessage: CoreManagerState['message'];
   onChainCoreUpdate: OnChainCoreUpdateState;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
@@ -202,6 +210,7 @@ function getCoreRows({
     {
       label: t('common.status'),
       value: getCoreDashboardStatusText({
+        busyAction,
         coreMessage,
         onChainCoreUpdate,
         prereleaseUpdateAvailable,
@@ -300,6 +309,7 @@ function ManagedCoreDashboardCard({
   const rows = useMemo(
     () =>
       getCoreRows({
+        busyAction: coreManager.busyAction,
         coreMessage: coreManager.message,
         onChainCoreUpdate: onChainCoreUpdate.status,
         onOpenReleaseNotes,
@@ -310,6 +320,7 @@ function ManagedCoreDashboardCard({
         transports,
       }),
     [
+      coreManager.busyAction,
       coreManager.message,
       coreManager.prereleaseUpdateAvailable,
       coreManager.releases,

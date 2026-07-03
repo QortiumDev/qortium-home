@@ -60,6 +60,10 @@ function getCoreSettingsStatusText({
     return onChainSummary;
   }
 
+  if (coreManager.busyAction === 'checking') {
+    return t('common.checking');
+  }
+
   if (!coreManager.status) {
     return t('common.checking');
   }

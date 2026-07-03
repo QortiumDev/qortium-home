@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { t } from './i18n';
-import { isNativePlatform } from './platform';
 
 // Shared node-connection controls. The mode dropdown auto-applies (test + save)
 // the moment it changes — there is no separate Test/Save button. A failed apply
@@ -114,7 +113,7 @@ export function NodeConnectionSettings({
   const [apiKey, setApiKey] = useState(nodeSettings.apiKey);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const showApiKeyField = isNativePlatform() && mode !== 'network';
+  const showApiKeyField = mode !== 'network';
 
   useEffect(() => {
     setMode(nodeSettings.mode);

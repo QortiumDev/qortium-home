@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-03 - fix: show desktop custom-node API keys
+
+Shows the API key field in desktop node settings for local and custom nodes,
+not only on Android. Linux AppImage users who connect Home to a trusted custom
+Core through an SSH tunnel can now save that node's API key from the same
+settings panel where they enter the custom node URL, so protected QDN workflows
+no longer tell them to save a key without giving them a field to do it.
+
 ### 2026-07-01 - fix: require synced Previewnet network nodes
 
 Hardens Previewnet network discovery so Home only selects public nodes that are
