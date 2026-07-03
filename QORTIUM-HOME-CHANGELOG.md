@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-03 - release: prepare home 1.2.3
+
+Bumps Qortium Home to 1.2.3 with Android versionCode 24 for the next
+prerelease. This release packages the desktop custom-node API key field fix,
+the synced Previewnet network-node requirement, and the packaged Home folder
+path fixes. The change here is only the package, lockfile, Android release
+metadata, and changelog entry; the behavioral changes were merged in the
+preceding PR.
+
 ### 2026-07-03 - fix: show desktop custom-node API keys
 
 Shows the API key field in desktop node settings for local and custom nodes,
