@@ -138,10 +138,14 @@ type DiscoveryCache = {
 type DiscoveryCandidate = {
   height: number;
   isSeed: boolean;
+  isSynced: boolean;
   isSynchronizing: boolean;
   nodeApiUrl: string;
   peerCount: number;
   status: unknown;
+  syncBlocksRemaining: number | null;
+  syncPercent: number | null;
+  syncPhase: string;
   supportsPublicReads: boolean;
 };
 
@@ -5071,6 +5075,7 @@ async function sendKeylessPublicGroupChatMessage(
   keylessContext: Awaited<ReturnType<typeof getKeylessChatContext>>,
   groupId: number,
   message: string,
+  chatReference?: string,
 ) {
   const unsignedTransaction = await postLocalNodeText(
     keylessContext.nodeApiUrl,
@@ -5083,6 +5088,10 @@ async function sendKeylessPublicGroupChatMessage(
       txGroupId: groupId,
       timestamp: Date.now(),
       fee: 0,
+      // Reactions and edits reference their target message; dropping this
+      // would publish them as plain messages that evade every
+      // haschatreference filter (sidebar activity, edit threading).
+      chatReference,
     }),
     keylessContext.apiKey,
     'Chat transaction build failed.',
@@ -5195,6 +5204,7 @@ async function trySendChatMessageOnNetworkNode(
   context: QdnAppRequestContext | undefined,
   target: QdnChatMessageTarget,
   message: string,
+  chatReference?: string,
 ) {
   const settings = await readNodeSettings();
 
@@ -5229,7 +5239,7 @@ async function trySendChatMessageOnNetworkNode(
     },
   );
 
-  const result = await sendKeylessPublicGroupChatMessage(keylessContext, groupId, message);
+  const result = await sendKeylessPublicGroupChatMessage(keylessContext, groupId, message, chatReference);
 
   return {
     accepted: true,
@@ -5249,7 +5259,7 @@ async function sendChatMessageForApp(request: QdnAppRequest, context: QdnAppRequ
   // Network (public) nodes get the keyless local-sign path for open groups; any
   // path that would leak the private key is rejected. Local/custom nodes keep
   // the existing server-side signing behavior below.
-  const networkResult = await trySendChatMessageOnNetworkNode(context, target, message);
+  const networkResult = await trySendChatMessageOnNetworkNode(context, target, message, chatReference);
 
   if (networkResult) {
     return networkResult;
@@ -5621,6 +5631,52 @@ function getStatusIsSynchronizing(status: unknown) {
   return typeof isSynchronizing === 'boolean' ? isSynchronizing : true;
 }
 
+function getStatusSyncPhase(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return '';
+  }
+
+  const syncPhase = (status as { syncPhase?: unknown }).syncPhase;
+
+  return typeof syncPhase === 'string' ? syncPhase.trim().toUpperCase() : '';
+}
+
+function getStatusSyncPercent(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+
+  const syncPercent = (status as { syncPercent?: unknown }).syncPercent;
+
+  return typeof syncPercent === 'number' && Number.isFinite(syncPercent) ? syncPercent : null;
+}
+
+function getStatusSyncBlocksRemaining(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+
+  const syncBlocksRemaining = (status as { syncBlocksRemaining?: unknown }).syncBlocksRemaining;
+
+  return typeof syncBlocksRemaining === 'number' && Number.isFinite(syncBlocksRemaining)
+    ? syncBlocksRemaining
+    : null;
+}
+
+function isSyncedStatus(status: unknown) {
+  return (
+    getStatusHeight(status) > 0 &&
+    getStatusSyncPhase(status) === 'SYNCED' &&
+    getStatusSyncPercent(status) === 100 &&
+    getStatusSyncBlocksRemaining(status) === 0 &&
+    !getStatusIsSynchronizing(status)
+  );
+}
+
+function isUsableDiscoveryCandidate(candidate: DiscoveryCandidate) {
+  return candidate.supportsPublicReads && candidate.isSynced;
+}
+
 async function fetchKnownPeerNodeApiUrls(seedNodeApiUrl: string) {
   try {
     const response = await requestNode(seedNodeApiUrl, '/peers/known', 'json', DISCOVERY_TIMEOUT_MS);
@@ -5661,8 +5717,12 @@ async function probeNodeCandidate(nodeApiUrl: string): Promise<DiscoveryCandidat
       status: response.data,
       height: getStatusHeight(response.data),
       isSeed: isPreviewnetSeedNodeApiUrl(nodeApiUrl),
+      isSynced: isSyncedStatus(response.data),
       isSynchronizing: getStatusIsSynchronizing(response.data),
       peerCount: getStatusPeerCount(response.data),
+      syncBlocksRemaining: getStatusSyncBlocksRemaining(response.data),
+      syncPercent: getStatusSyncPercent(response.data),
+      syncPhase: getStatusSyncPhase(response.data),
       supportsPublicReads: await probePublicReadAccess(nodeApiUrl),
     };
   } catch {
@@ -5676,16 +5736,16 @@ function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]) {
       return first.supportsPublicReads ? -1 : 1;
     }
 
-    if (first.isSeed !== second.isSeed) {
-      return first.isSeed ? 1 : -1;
-    }
-
-    if (first.isSynchronizing !== second.isSynchronizing) {
-      return first.isSynchronizing ? 1 : -1;
+    if (first.isSynced !== second.isSynced) {
+      return first.isSynced ? -1 : 1;
     }
 
     if (first.height !== second.height) {
       return second.height - first.height;
+    }
+
+    if (first.isSeed !== second.isSeed) {
+      return first.isSeed ? 1 : -1;
     }
 
     return second.peerCount - first.peerCount;
@@ -5699,7 +5759,7 @@ async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCa
     if (cache) {
       const cachedCandidate = await probeNodeCandidate(cache.nodeApiUrl);
 
-      if (cachedCandidate?.supportsPublicReads) {
+      if (cachedCandidate && isUsableDiscoveryCandidate(cachedCandidate)) {
         return cachedCandidate;
       }
     }
@@ -5719,10 +5779,10 @@ async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCa
   const candidates = (
     await Promise.all([...candidateUrls].map((nodeApiUrl) => probeNodeCandidate(nodeApiUrl)))
   ).filter((candidate): candidate is DiscoveryCandidate => !!candidate);
-  const selectedCandidate = rankDiscoveryCandidates(candidates)[0];
+  const selectedCandidate = rankDiscoveryCandidates(candidates.filter(isUsableDiscoveryCandidate))[0];
 
   if (!selectedCandidate) {
-    throw new Error('No reachable Previewnet node was found.');
+    throw new Error('No reachable synced Previewnet node was found.');
   }
 
   await writeDiscoveryCache(selectedCandidate.nodeApiUrl);

@@ -25,7 +25,7 @@ import {
 } from './i2pd-manager.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerQdnIpcHandlers } from './qdn.js';
-import { registerQdnViewIpcHandlers } from './qdn-views.js';
+import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
 import { registerSystemIpcHandlers } from './system.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -367,16 +367,27 @@ const ZOOM_LEVEL_STEP = 0.5;
 const MIN_ZOOM_LEVEL = -3;
 const MAX_ZOOM_LEVEL = 3;
 
+function syncQdnViewsForZoomedWebContents(webContents: WebContents) {
+  const window = BrowserWindow.fromWebContents(webContents);
+
+  if (window) {
+    syncQdnViewsForWindowZoom(window);
+  }
+}
+
 function zoomIn(webContents: WebContents) {
   webContents.setZoomLevel(Math.min(webContents.getZoomLevel() + ZOOM_LEVEL_STEP, MAX_ZOOM_LEVEL));
+  syncQdnViewsForZoomedWebContents(webContents);
 }
 
 function zoomOut(webContents: WebContents) {
   webContents.setZoomLevel(Math.max(webContents.getZoomLevel() - ZOOM_LEVEL_STEP, MIN_ZOOM_LEVEL));
+  syncQdnViewsForZoomedWebContents(webContents);
 }
 
 function resetZoom(webContents: WebContents) {
   webContents.setZoomLevel(0);
+  syncQdnViewsForZoomedWebContents(webContents);
 }
 
 function zoomFocusedWindow(action: (webContents: WebContents) => void) {

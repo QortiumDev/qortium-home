@@ -73,7 +73,40 @@ function getAppUpdatesPath() {
   return path.join(app.getPath('userData'), APP_UPDATES_DIR);
 }
 
+function getMacAppBundlePath(executablePath: string) {
+  const normalizedPath = path.resolve(executablePath);
+  const bundleContentsMarker = `${path.sep}Contents${path.sep}MacOS${path.sep}`;
+  const bundleContentsIndex = normalizedPath.indexOf(bundleContentsMarker);
+
+  if (bundleContentsIndex === -1) {
+    return null;
+  }
+
+  const bundlePath = normalizedPath.slice(0, bundleContentsIndex);
+
+  return bundlePath.toLowerCase().endsWith('.app') ? bundlePath : null;
+}
+
 function getInstallFile() {
+  // Portable wrappers can launch the real app from a temporary extraction
+  // directory. Prefer the wrapper-provided original file paths when present so
+  // folder displays and update downloads point at the user-launched package.
+  if (process.platform === 'win32') {
+    const portableExecutableFile = process.env.PORTABLE_EXECUTABLE_FILE?.trim();
+
+    if (portableExecutableFile) {
+      return portableExecutableFile;
+    }
+  }
+
+  if (process.platform === 'darwin') {
+    const macAppBundlePath = getMacAppBundlePath(app.getPath('exe'));
+
+    if (macAppBundlePath) {
+      return macAppBundlePath;
+    }
+  }
+
   // For AppImage builds app.getPath('exe') points at the temporary FUSE mount
   // (/tmp/.../.mount_...), not the real .AppImage on disk. The AppImage runtime
   // exposes the actual file path in the APPIMAGE environment variable; fall back

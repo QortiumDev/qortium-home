@@ -38,10 +38,14 @@ type NodeSettingsRequest = {
 type DiscoveryCandidate = {
   height: number;
   isSeed: boolean;
+  isSynced: boolean;
   isSynchronizing: boolean;
   nodeApiUrl: string;
   peerCount: number;
   status: unknown;
+  syncBlocksRemaining: number | null;
+  syncPercent: number | null;
+  syncPhase: string;
   supportsPublicReads: boolean;
 };
 
@@ -473,6 +477,52 @@ function getStatusIsSynchronizing(status: unknown) {
   return typeof isSynchronizing === 'boolean' ? isSynchronizing : true;
 }
 
+function getStatusSyncPhase(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return '';
+  }
+
+  const syncPhase = (status as { syncPhase?: unknown }).syncPhase;
+
+  return typeof syncPhase === 'string' ? syncPhase.trim().toUpperCase() : '';
+}
+
+function getStatusSyncPercent(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+
+  const syncPercent = (status as { syncPercent?: unknown }).syncPercent;
+
+  return typeof syncPercent === 'number' && Number.isFinite(syncPercent) ? syncPercent : null;
+}
+
+function getStatusSyncBlocksRemaining(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+
+  const syncBlocksRemaining = (status as { syncBlocksRemaining?: unknown }).syncBlocksRemaining;
+
+  return typeof syncBlocksRemaining === 'number' && Number.isFinite(syncBlocksRemaining)
+    ? syncBlocksRemaining
+    : null;
+}
+
+function isSyncedStatus(status: unknown) {
+  return (
+    getStatusHeight(status) > 0 &&
+    getStatusSyncPhase(status) === 'SYNCED' &&
+    getStatusSyncPercent(status) === 100 &&
+    getStatusSyncBlocksRemaining(status) === 0 &&
+    !getStatusIsSynchronizing(status)
+  );
+}
+
+function isUsableDiscoveryCandidate(candidate: DiscoveryCandidate) {
+  return candidate.supportsPublicReads && candidate.isSynced;
+}
+
 async function fetchWithTimeout(url: string) {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), DISCOVERY_TIMEOUT_MS);
@@ -534,8 +584,12 @@ async function probeNodeCandidate(nodeApiUrl: string): Promise<DiscoveryCandidat
       status,
       height: getStatusHeight(status),
       isSeed: isPreviewnetSeedNodeApiUrl(nodeApiUrl),
+      isSynced: isSyncedStatus(status),
       isSynchronizing: getStatusIsSynchronizing(status),
       peerCount: getStatusPeerCount(status),
+      syncBlocksRemaining: getStatusSyncBlocksRemaining(status),
+      syncPercent: getStatusSyncPercent(status),
+      syncPhase: getStatusSyncPhase(status),
       supportsPublicReads: await probePublicReadAccess(nodeApiUrl),
     };
   } catch {
@@ -549,16 +603,16 @@ function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]) {
       return first.supportsPublicReads ? -1 : 1;
     }
 
-    if (first.isSeed !== second.isSeed) {
-      return first.isSeed ? 1 : -1;
-    }
-
-    if (first.isSynchronizing !== second.isSynchronizing) {
-      return first.isSynchronizing ? 1 : -1;
+    if (first.isSynced !== second.isSynced) {
+      return first.isSynced ? -1 : 1;
     }
 
     if (first.height !== second.height) {
       return second.height - first.height;
+    }
+
+    if (first.isSeed !== second.isSeed) {
+      return first.isSeed ? 1 : -1;
     }
 
     return second.peerCount - first.peerCount;
@@ -569,7 +623,7 @@ async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCa
   if (!forceRefresh && discoveryCache && discoveryCache.expiresAt > Date.now()) {
     const cachedCandidate = await probeNodeCandidate(discoveryCache.nodeApiUrl);
 
-    if (cachedCandidate?.supportsPublicReads) {
+    if (cachedCandidate && isUsableDiscoveryCandidate(cachedCandidate)) {
       return cachedCandidate;
     }
   }
@@ -588,10 +642,10 @@ async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCa
   const candidates = (
     await Promise.all([...candidateUrls].map((nodeApiUrl) => probeNodeCandidate(nodeApiUrl)))
   ).filter((candidate): candidate is DiscoveryCandidate => !!candidate);
-  const selectedCandidate = rankDiscoveryCandidates(candidates)[0];
+  const selectedCandidate = rankDiscoveryCandidates(candidates.filter(isUsableDiscoveryCandidate))[0];
 
   if (!selectedCandidate) {
-    throw new Error('No reachable Previewnet node was found.');
+    throw new Error('No reachable synced Previewnet node was found.');
   }
 
   discoveryCache = {

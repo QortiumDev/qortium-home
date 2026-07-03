@@ -33,6 +33,32 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-03 - fix: show desktop custom-node API keys
+
+Shows the API key field in desktop node settings for local and custom nodes,
+not only on Android. Linux AppImage users who connect Home to a trusted custom
+Core through an SSH tunnel can now save that node's API key from the same
+settings panel where they enter the custom node URL, so protected QDN workflows
+no longer tell them to save a key without giving them a field to do it.
+
+### 2026-07-01 - fix: require synced Previewnet network nodes
+
+Hardens Previewnet network discovery so Home only selects public nodes that are
+reachable, can answer public QDN reads, and report a fully synced Core status.
+Desktop and Android now reject cached or newly discovered nodes that are behind
+the chain tip, even if they still answer public reads, so network mode does not
+route users to stale non-seed nodes discovered from seed peer lists.
+
+### 2026-07-01 - fix: resolve packaged Home folders
+
+Fixes Windows portable builds so Home identifies the original portable `.exe`
+the user launched instead of the temporary folder where the portable wrapper
+extracts the running app. Home also resolves macOS builds back to the
+`Qortium Home.app` bundle instead of the internal `Contents/MacOS` executable.
+The Home folder link and desktop update downloads now point back to the
+user-facing package location, so downloaded new builds do not disappear with the
+temporary Windows runtime folder or land inside a macOS app bundle.
+
 ### 2026-07-01 - release: prepare home 1.2.2
 
 Bumps Qortium Home to 1.2.2 with Android versionCode 23 for the next

@@ -90,6 +90,7 @@ type QdnViewEntry = {
   deliveredAccountStateKey: string | undefined;
   deliveredDisplaySettings: QdnDisplaySettings | undefined;
   displaySettings: QdnDisplaySettings;
+  hostCssBounds: Rectangle | null;
   nodeOrigin: string;
   pendingStateDelivery: Promise<void>;
   resourceUrl: string | null;
@@ -647,6 +648,7 @@ function createViewEntry(
     deliveredAccountStateKey: undefined,
     deliveredDisplaySettings: undefined,
     displaySettings,
+    hostCssBounds: null,
     nodeOrigin,
     pendingStateDelivery: Promise.resolve(),
     resourceUrl,
@@ -666,6 +668,64 @@ function createViewEntry(
   applyViewGuards(entry);
 
   return entry;
+}
+
+function getHostZoomFactor(window: BrowserWindow) {
+  try {
+    return window.webContents.getZoomFactor();
+  } catch {
+    return 1;
+  }
+}
+
+function getHostZoomLevel(window: BrowserWindow) {
+  try {
+    return window.webContents.getZoomLevel();
+  } catch {
+    return 0;
+  }
+}
+
+function scaleBoundsForHostZoom(bounds: Rectangle, zoomFactor: number): Rectangle {
+  return {
+    x: Math.round(bounds.x * zoomFactor),
+    y: Math.round(bounds.y * zoomFactor),
+    width: Math.max(1, Math.round(bounds.width * zoomFactor)),
+    height: Math.max(1, Math.round(bounds.height * zoomFactor)),
+  };
+}
+
+function applyHostViewBounds(entry: QdnViewEntry, bounds: Rectangle) {
+  entry.hostCssBounds = bounds;
+  entry.view.setBounds(scaleBoundsForHostZoom(bounds, getHostZoomFactor(entry.window)));
+}
+
+function applyHostZoomToEntry(entry: QdnViewEntry) {
+  if (entry.window.isDestroyed() || entry.view.webContents.isDestroyed()) {
+    return;
+  }
+
+  const zoomLevel = getHostZoomLevel(entry.window);
+
+  if (entry.view.webContents.getZoomLevel() !== zoomLevel) {
+    entry.view.webContents.setZoomLevel(zoomLevel);
+  }
+
+  if (entry.hostCssBounds) {
+    entry.view.setBounds(scaleBoundsForHostZoom(entry.hostCssBounds, getHostZoomFactor(entry.window)));
+  }
+}
+
+export function syncQdnViewsForWindowZoom(window: BrowserWindow) {
+  const entries = qdnViewsByWindow.get(window.webContents.id);
+
+  if (!entries) {
+    return;
+  }
+
+  for (const entry of entries.values()) {
+    applyHostZoomToEntry(entry);
+  }
 }
 
 function destroyEntry(entry: QdnViewEntry) {
@@ -746,7 +806,8 @@ export function registerQdnViewIpcHandlers() {
     const request = sanitizeShowRequest(rawRequest);
     const entry = getOrCreateEntry(window, request);
 
-    entry.view.setBounds(request.bounds);
+    applyHostZoomToEntry(entry);
+    applyHostViewBounds(entry, request.bounds);
     window.contentView.addChildView(entry.view);
     entry.view.setVisible(true);
 
@@ -779,7 +840,9 @@ export function registerQdnViewIpcHandlers() {
     const request = sanitizeBoundsRequest(rawRequest);
     const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
 
-    entry?.view.setBounds(request.bounds);
+    if (entry) {
+      applyHostViewBounds(entry, request.bounds);
+    }
   });
 
   ipcMain.handle('qdn-views:capture', async (event, rawRequest: unknown) => {
