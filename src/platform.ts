@@ -166,6 +166,7 @@ type WalletBackupPlugin = {
 
 type QdnPublishSourcePlugin = {
   selectFile: (request: { maxBytes: number }) => Promise<QdnPublishSourceResult>;
+  selectDirectory: (request: { maxBytes: number }) => Promise<QdnPublishSourceResult>;
 };
 
 type NativeHttpBlobUrlRequest = {
@@ -326,6 +327,10 @@ function isAndroid() {
 
 export function isNativePlatform() {
   return Capacitor.isNativePlatform();
+}
+
+export function canPreviewDirectoryContent() {
+  return !isNativePlatform() || isAndroid();
 }
 
 export function isMacOs() {
@@ -2839,6 +2844,27 @@ async function selectQdnPublishSource() {
   return normalizeQdnPublishSourceResult(result);
 }
 
+async function selectNativePreviewDirectorySource(): Promise<Omit<NativePreviewCacheEntry, 'createdAt' | 'lastUsedAt'> | null> {
+  const result = normalizeQdnPublishSourceResult(
+    await QdnPublishSource.selectDirectory({
+      maxBytes: QDN_WRITE_SOURCE_MAX_BYTES,
+    }),
+  );
+
+  if (result.canceled) {
+    return null;
+  }
+
+  return {
+    archive: true,
+    base64: result.dataBase64,
+    service: 'WEBSITE',
+    sourceKind: 'directory',
+    sourceName: result.fileName,
+    sourcePath: result.fileName,
+  };
+}
+
 async function requestQdnWriteApproval(
   context: QdnAppRequestContext,
   profile: QortiumAccountProfile,
@@ -2964,6 +2990,21 @@ const PREVIEW_EXTENSION_SERVICES: Record<string, string> = {
 };
 
 const PREVIEW_PICK_ACCEPT = ['.zip', '.html', '.htm', ...Object.keys(PREVIEW_EXTENSION_SERVICES).map((ext) => `.${ext}`)].join(',');
+const NATIVE_PREVIEW_CACHE_TTL_MS = 30 * 60_000;
+const NATIVE_PREVIEW_CACHE_MAX_ENTRIES = 4;
+
+type NativePreviewCacheEntry = {
+  archive: boolean;
+  base64: string;
+  createdAt: number;
+  lastUsedAt: number;
+  service: string;
+  sourceKind: 'directory' | 'file';
+  sourceName: string;
+  sourcePath: string;
+};
+
+const nativePreviewCache = new Map<string, NativePreviewCacheEntry>();
 
 function resolvePreviewServiceForFile(filename: string): { service: string; archive: boolean } {
   const extension = filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1).toLowerCase() : '';
@@ -2985,6 +3026,66 @@ function resolvePreviewServiceForFile(filename: string): { service: string; arch
   }
 
   return { service, archive: false };
+}
+
+function createNativePreviewToken() {
+  return window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function pruneNativePreviewCache(now = Date.now()) {
+  for (const [token, entry] of nativePreviewCache) {
+    if (now - entry.lastUsedAt > NATIVE_PREVIEW_CACHE_TTL_MS) {
+      nativePreviewCache.delete(token);
+    }
+  }
+
+  while (nativePreviewCache.size > NATIVE_PREVIEW_CACHE_MAX_ENTRIES) {
+    let oldestToken = '';
+    let oldestLastUsedAt = Number.POSITIVE_INFINITY;
+
+    for (const [token, entry] of nativePreviewCache) {
+      if (entry.lastUsedAt < oldestLastUsedAt) {
+        oldestToken = token;
+        oldestLastUsedAt = entry.lastUsedAt;
+      }
+    }
+
+    if (!oldestToken) {
+      return;
+    }
+
+    nativePreviewCache.delete(oldestToken);
+  }
+}
+
+function cacheNativePreviewEntry(entry: Omit<NativePreviewCacheEntry, 'createdAt' | 'lastUsedAt'>) {
+  const now = Date.now();
+  const token = createNativePreviewToken();
+
+  nativePreviewCache.set(token, {
+    ...entry,
+    createdAt: now,
+    lastUsedAt: now,
+  });
+  pruneNativePreviewCache(now);
+
+  return token;
+}
+
+function getNativePreviewCacheEntry(token: string) {
+  pruneNativePreviewCache();
+
+  const entry = nativePreviewCache.get(token);
+
+  if (!entry) {
+    return null;
+  }
+
+  entry.lastUsedAt = Date.now();
+
+  return entry;
 }
 
 // Opens a file picker in the WebView and resolves with the chosen file, or null if dismissed.
@@ -8223,28 +8324,62 @@ function createFallbackApi(): PlatformApi {
       async prepareArchiveRender() {
         throw new Error('Inline archive app rendering is only available in the desktop app right now.');
       },
-      async previewContent() {
-        // Pick a file in the WebView, then upload it to the configured node's preview endpoint as
-        // base64 (the node can be on another device, so the desktop's local-path flow can't be used).
-        // Refresh re-opens the picker, since the chosen file isn't re-readable by path on mobile.
-        const file = await pickPreviewFile();
-        if (!file) {
-          return { canceled: true };
+      async previewContent(request = {}) {
+        // Android cannot hand the node a local path, so keep the picked bytes
+        // in memory and refresh by token instead of reopening the picker.
+        const requestedSourceToken = isRecord(request) ? getString(request.sourceToken) : '';
+        let sourceToken = requestedSourceToken;
+        let previewEntry = sourceToken ? getNativePreviewCacheEntry(sourceToken) : null;
+
+        if (sourceToken && !previewEntry) {
+          throw new Error('Preview source is no longer available. Choose the file again.');
         }
 
-        const { service, archive } = resolvePreviewServiceForFile(file.name);
+        if (!previewEntry) {
+          const requestedKind = isRecord(request) ? getString(request.kind) : '';
+          const selectedSource =
+            requestedKind === 'directory' && isAndroid()
+              ? await selectNativePreviewDirectorySource()
+              : await (async () => {
+                  const file = await pickPreviewFile();
+                  if (!file) {
+                    return null;
+                  }
+
+                  const { service, archive } = resolvePreviewServiceForFile(file.name);
+                  const base64 = arrayBufferToBase64(await file.arrayBuffer());
+
+                  return {
+                    archive,
+                    base64,
+                    service,
+                    sourceKind: archive ? 'directory' as const : 'file' as const,
+                    sourceName: file.name,
+                    sourcePath: file.name,
+                  };
+                })();
+
+          if (!selectedSource) {
+            return { canceled: true };
+          }
+
+          sourceToken = cacheNativePreviewEntry(selectedSource);
+          previewEntry = getNativePreviewCacheEntry(sourceToken);
+
+          if (!previewEntry) {
+            throw new Error('Unable to cache the selected preview source.');
+          }
+        }
 
         const settings = await readNodeSettings();
         const apiKey = getNodeApiKey(settings);
         const nodeApiUrl = await resolveNodeApiUrl(settings);
-
-        const base64 = arrayBufferToBase64(await file.arrayBuffer());
-        const query = `archive=${archive ? 'true' : 'false'}&filename=${encodeURIComponent(file.name)}`;
+        const query = `archive=${previewEntry.archive ? 'true' : 'false'}&filename=${encodeURIComponent(previewEntry.sourceName)}`;
 
         const result = await postLocalNodeText(
           nodeApiUrl,
-          `/arbitrary/preview/${service}/upload?${query}`,
-          base64,
+          `/arbitrary/preview/${previewEntry.service}/upload?${query}`,
+          previewEntry.base64,
           apiKey,
           'Generating the preview failed.',
         );
@@ -8257,10 +8392,11 @@ function createFallbackApi(): PlatformApi {
         return {
           canceled: false,
           renderUrl: `${getNodeApiUrlBase(nodeApiUrl)}${renderPath}`,
-          service,
-          sourceKind: archive ? 'directory' : 'file',
-          sourceName: file.name,
-          sourcePath: file.name,
+          service: previewEntry.service,
+          sourceKind: previewEntry.sourceKind,
+          sourceName: previewEntry.sourceName,
+          sourcePath: previewEntry.sourcePath,
+          sourceToken,
         };
       },
       async downloadResource(request) {

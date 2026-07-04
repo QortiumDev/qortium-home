@@ -3037,6 +3037,10 @@ export function App() {
                   account={tabAccount}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  onOpenDocumentViewer={openQdnDocumentViewer}
+                  onOpenMediaPlayer={openQdnMediaPlayer}
+                  onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
+                  onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   preview={tabRoute.preview}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}

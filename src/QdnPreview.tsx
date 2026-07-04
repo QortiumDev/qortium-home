@@ -1,14 +1,23 @@
 import { RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from './i18n';
 import type { QdnDisplaySettings, QdnPreview } from './qdn';
 import { getQdnViewerKind } from './qdn';
-import { canUseIsolatedQdnViews, getMediaErrorMessage, QdnIsolatedFrameContent } from './QdnViewer';
+import {
+  canUseIsolatedQdnViews,
+  getMediaErrorMessage,
+  QdnBridgeFrameContent,
+  QdnIsolatedFrameContent,
+} from './QdnViewer';
 
 type QdnPreviewViewerProps = {
   account: QortiumAccountSummary | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
   preview: QdnPreview;
   suspended?: boolean;
   tabId: string;
@@ -71,6 +80,10 @@ export function QdnPreviewViewer({
   account,
   displaySettings,
   nodeApiUrl,
+  onOpenDocumentViewer,
+  onOpenMediaPlayer,
+  onOpenNewTab,
+  onOpenInCurrentTab,
   preview,
   suspended = false,
   tabId,
@@ -78,17 +91,28 @@ export function QdnPreviewViewer({
   const [renderUrl, setRenderUrl] = useState(preview.renderUrl);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<PreviewErrorState>(null);
+  const [sourceToken, setSourceToken] = useState(preview.sourceToken ?? '');
   const viewerKind = getQdnViewerKind(preview.service);
+
+  useEffect(() => {
+    setRenderUrl(preview.renderUrl);
+    setSourceToken(preview.sourceToken ?? '');
+    setError(null);
+  }, [preview.renderUrl, preview.sourceToken]);
 
   async function refreshPreview() {
     setIsRefreshing(true);
 
     try {
-      const result = await window.qortiumHome.qdn.previewContent({ path: preview.sourcePath });
+      const result = await window.qortiumHome.qdn.previewContent({
+        path: preview.sourcePath,
+        sourceToken: sourceToken || undefined,
+      });
 
       if (!result.canceled) {
         setError(null);
         setRenderUrl(result.renderUrl);
+        setSourceToken(result.sourceToken ?? sourceToken);
       }
     } catch (refreshError) {
       setError({ message: formatError(refreshError) });
@@ -139,14 +163,15 @@ export function QdnPreviewViewer({
             tabId={tabId}
           />
         ) : (
-          <iframe
-            className="qdn-viewer__frame"
-            key={renderUrl}
-            title={preview.sourcePath}
-            src={renderUrl}
-            referrerPolicy="no-referrer"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
-            allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
+          <QdnBridgeFrameContent
+            account={account}
+            displaySettings={displaySettings}
+            onOpenDocumentViewer={onOpenDocumentViewer}
+            onOpenMediaPlayer={onOpenMediaPlayer}
+            onOpenNewTab={onOpenNewTab}
+            onOpenInCurrentTab={onOpenInCurrentTab}
+            renderUrl={renderUrl}
+            resourceUrl={preview.sourcePath}
           />
         )
       ) : null}

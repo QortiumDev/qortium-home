@@ -446,6 +446,7 @@ type QortiumQdnArchiveRenderResult = {
 type QortiumQdnPreviewContentRequest = {
   kind?: 'directory' | 'file';
   path?: string;
+  sourceToken?: string;
 };
 
 type QortiumQdnPreviewContentResult =
@@ -459,6 +460,7 @@ type QortiumQdnPreviewContentResult =
       sourceKind: 'directory' | 'file';
       sourceName: string;
       sourcePath: string;
+      sourceToken?: string;
     };
 
 type QortiumQdnViewBounds = {

@@ -165,6 +165,18 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
   return url.toString();
 }
 
+export type QdnBridgeFrameContentProps = {
+  account: QortiumAccountSummary | null;
+  displaySettings: QdnDisplaySettings;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
+  renderUrl: string;
+  resourceUrl: string;
+  title?: string;
+};
+
 function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
   return [
     {
@@ -2984,25 +2996,17 @@ export function QdnIsolatedFrameContent({
   );
 }
 
-function QdnIframeContent({
+export function QdnBridgeFrameContent({
   account,
   displaySettings,
-  loadedResource,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
-  resource,
-}: {
-  account: QortiumAccountSummary | null;
-  displaySettings: QdnDisplaySettings;
-  loadedResource: LoadedQdnResource;
-  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
-  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
-  onOpenNewTab?: (address: string) => void;
-  onOpenInCurrentTab?: (address: string) => void;
-  resource: QdnResource;
-}) {
+  renderUrl,
+  resourceUrl,
+  title = resourceUrl,
+}: QdnBridgeFrameContentProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const onOpenNewTabRef = useRef(onOpenNewTab);
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
@@ -3016,32 +3020,32 @@ function QdnIframeContent({
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
-    [isNativeFrame, loadedResource.renderUrl],
+    [isNativeFrame, renderUrl],
   );
   const accountId = account?.id ?? null;
   const isAccountUnlocked = account?.isUnlocked ?? false;
   const frameSrc = useMemo(
     () =>
       isNativeFrame && bridgeToken
-        ? buildAndroidQdnBridgeUrl(loadedResource.renderUrl, bridgeToken)
-        : loadedResource.renderUrl,
-    [bridgeToken, isNativeFrame, loadedResource.renderUrl],
+        ? buildAndroidQdnBridgeUrl(renderUrl, bridgeToken)
+        : renderUrl,
+    [bridgeToken, isNativeFrame, renderUrl],
   );
 
   useEffect(() => {
-    postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
-  }, [displaySettings, loadedResource.renderUrl]);
+    postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
+  }, [displaySettings, renderUrl]);
 
   useEffect(() => {
-    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, loadedResource.renderUrl);
-  }, [accountId, isAccountUnlocked, loadedResource.renderUrl]);
+    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
+  }, [accountId, isAccountUnlocked, renderUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
       return undefined;
     }
 
-    const allowedOrigin = new URL(loadedResource.renderUrl).origin;
+    const allowedOrigin = new URL(renderUrl).origin;
 
     async function handleMessage(event: MessageEvent) {
       const frameWindow = frameRef.current?.contentWindow;
@@ -3076,7 +3080,7 @@ function QdnIframeContent({
           onOpenInCurrentTab: (address: string) => {
             onOpenInCurrentTabRef.current?.(address);
           },
-          resourceUrl: resource.displayUrl,
+          resourceUrl,
           sessionKey: bridgeToken,
         });
 
@@ -3113,22 +3117,55 @@ function QdnIframeContent({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, displaySettings, isNativeFrame, loadedResource.renderUrl, resource.displayUrl]);
+  }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
 
   return (
     <iframe
       className="qdn-viewer__frame"
       key={frameSrc}
       ref={frameRef}
-      title={resource.displayUrl}
+      title={title}
       src={frameSrc}
       referrerPolicy="no-referrer"
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
-        postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
-        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, loadedResource.renderUrl);
+        postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
+        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
       }}
+    />
+  );
+}
+
+function QdnIframeContent({
+  account,
+  displaySettings,
+  loadedResource,
+  onOpenDocumentViewer,
+  onOpenMediaPlayer,
+  onOpenNewTab,
+  onOpenInCurrentTab,
+  resource,
+}: {
+  account: QortiumAccountSummary | null;
+  displaySettings: QdnDisplaySettings;
+  loadedResource: LoadedQdnResource;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
+  resource: QdnResource;
+}) {
+  return (
+    <QdnBridgeFrameContent
+      account={account}
+      displaySettings={displaySettings}
+      onOpenDocumentViewer={onOpenDocumentViewer}
+      onOpenMediaPlayer={onOpenMediaPlayer}
+      onOpenNewTab={onOpenNewTab}
+      onOpenInCurrentTab={onOpenInCurrentTab}
+      renderUrl={loadedResource.renderUrl}
+      resourceUrl={resource.displayUrl}
     />
   );
 }

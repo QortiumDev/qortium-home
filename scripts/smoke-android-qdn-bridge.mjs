@@ -1231,11 +1231,64 @@ function getUntaggedAppRenderUrl() {
   return url.toString();
 }
 
+async function createPreviewHashRenderUrl(apiKey) {
+  const html = [
+    '<!doctype html>',
+    '<html>',
+    '<head><meta charset="utf-8"><title>Preview bridge smoke</title></head>',
+    '<body><main>Preview bridge smoke</main></body>',
+    '</html>',
+  ].join('');
+  const query = new URLSearchParams({
+    archive: 'false',
+    filename: 'preview-bridge-smoke.html',
+  });
+  const renderPath = (
+    await requestCore(`/arbitrary/preview/WEBSITE/upload?${query.toString()}`, {
+      method: 'POST',
+      headers: getCoreHeaders(apiKey, 'text/plain'),
+      body: Buffer.from(html, 'utf8').toString('base64'),
+    })
+  ).trim();
+
+  if (!renderPath.startsWith('/render/hash/')) {
+    fail(`Preview endpoint returned an unexpected render path: ${renderPath}`);
+  }
+
+  return new URL(renderPath, androidNodeApiUrl).toString();
+}
+
 async function getUntaggedFrameContext(client, renderUrl) {
   return waitUntil('untagged QDN render iframe', cdpTimeoutMs, async () => {
     const frameTree = await client.send('Page.getFrameTree');
     const frames = flattenFrames(frameTree.frameTree);
     const frame = frames.find((candidate) => candidate.url === renderUrl);
+
+    if (!frame) {
+      return null;
+    }
+
+    const contextId = client.contextsByFrame.get(frame.id);
+
+    return contextId ? { contextId, frame } : null;
+  });
+}
+
+async function getPreviewHashFrameContext(client, renderUrl) {
+  const expectedUrl = new URL(renderUrl);
+
+  return waitUntil('preview hash QDN render iframe', cdpTimeoutMs, async () => {
+    const frameTree = await client.send('Page.getFrameTree');
+    const frames = flattenFrames(frameTree.frameTree);
+    const frame = frames.find((candidate) => {
+      if (!candidate.url.includes('/render/hash/')) {
+        return false;
+      }
+
+      const candidateUrl = new URL(candidate.url);
+
+      return candidateUrl.origin === expectedUrl.origin && candidateUrl.pathname === expectedUrl.pathname;
+    });
 
     if (!frame) {
       return null;
@@ -1572,6 +1625,49 @@ async function runBridgeContainmentAssertions(client, fixtureFrame) {
   assert(
     bridgeState === 'undefined',
     `Untagged Android QDN render frame unexpectedly received qdnRequest (${bridgeState}) at ${frame.url}.`,
+  );
+}
+
+async function runPreviewHashBridgeAssertions(client, fixtureFrame, apiKey) {
+  const fixtureUrl = new URL(fixtureFrame.url);
+  const bridgeToken = fixtureUrl.searchParams.get('qdnHomeBridge');
+
+  assert(
+    !!bridgeToken && /^[A-Za-z0-9._-]{16,128}$/.test(bridgeToken),
+    `Android QDN fixture frame did not include a valid bridge token: ${fixtureFrame.url}`,
+  );
+
+  const previewUrl = new URL(await createPreviewHashRenderUrl(apiKey));
+
+  previewUrl.searchParams.set('qdnHomeBridge', bridgeToken);
+
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      (() => {
+        const frame = [...document.querySelectorAll('iframe')]
+          .find((candidate) => candidate.src.includes('/render/APP/') && candidate.src.includes('qdnHomeBridge='));
+        if (!frame) return { ok: false, message: 'Bridge-owned QDN iframe was not found.' };
+        frame.src = ${JSON.stringify(previewUrl.toString())};
+        return { ok: true };
+      })()
+    `,
+    returnByValue: true,
+  });
+
+  if (!result.result?.value?.ok) {
+    fail(result.result?.value?.message || 'Unable to navigate QDN iframe to preview hash render URL.');
+  }
+
+  const { contextId, frame } = await getPreviewHashFrameContext(client, previewUrl.toString());
+
+  await waitForQdnRequestBridge(client, contextId);
+
+  const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
+
+  assert(
+    Array.isArray(actions) && actions.includes('SHOW_ACTIONS'),
+    `Preview hash QDN bridge did not return SHOW_ACTIONS from ${frame.url}.`,
   );
 }
 
@@ -2141,7 +2237,7 @@ async function main() {
         await configureSmokeNode(client, apiKey);
         await seedAndroidAccount(client, account);
         await navigateToFixture(client);
-        const { contextId, frame } = await getFixtureFrameContext(client);
+        let { contextId, frame } = await getFixtureFrameContext(client);
 
         log('Running bridge assertions in fixture frame.');
         await runBridgeContainmentAssertions(client, frame);
@@ -2150,6 +2246,9 @@ async function main() {
         await runSelectedAccountDenyAssertion(client, account);
         await runSelectedAccountNoAccountAssertion(client);
         await runAndroidWriteAssertions(client, androidWriteWallet, apiKey);
+        ({ contextId, frame } = await getFixtureFrameContext(client));
+        log('Running preview hash bridge assertions in fixture frame.');
+        await runPreviewHashBridgeAssertions(client, frame, apiKey);
       } finally {
         client.close();
       }

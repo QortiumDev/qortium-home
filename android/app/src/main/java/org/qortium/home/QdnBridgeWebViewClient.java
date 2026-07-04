@@ -179,7 +179,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         String service = pathSegments.get(1).toUpperCase(Locale.ROOT);
 
-        return "APP".equals(service) || "WEBSITE".equals(service);
+        return "APP".equals(service) || "WEBSITE".equals(service) || "HASH".equals(service);
     }
 
     private boolean hasValidBridgeToken(Uri url) {

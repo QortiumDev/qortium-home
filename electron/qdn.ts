@@ -200,6 +200,7 @@ type NodeApiRequest = {
 type QdnPreviewContentRequest = {
   kind?: unknown;
   path?: unknown;
+  sourceToken?: unknown;
 };
 
 type QdnAppRequest = {
