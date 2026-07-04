@@ -2398,12 +2398,8 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(() => {
   console.error('[android-qdn-smoke] Smoke test failed.');
-  if (error instanceof Error) {
-    console.error(error.stack || error.message);
-  } else {
-    console.error(error);
-  }
+  console.error('[android-qdn-smoke] Error details are suppressed to avoid logging API keys or environment-derived values.');
   process.exitCode = 1;
 });
