@@ -7,6 +7,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -151,6 +152,48 @@ public class QdnFileSaverPlugin extends Plugin {
             call.reject("No app is available to open this file.", exception);
         } catch (Exception exception) {
             call.reject("Unable to open the saved file.", exception);
+        }
+    }
+
+    @PluginMethod
+    public void openCacheFile(PluginCall call) {
+        String path = call.getString("path");
+
+        if (path == null || path.trim().isEmpty()) {
+            call.reject("Temporary QDN download path is required.");
+            return;
+        }
+
+        File sourceFile;
+
+        try {
+            sourceFile = getSafeCacheFile(path.trim());
+        } catch (IllegalArgumentException | IOException exception) {
+            call.reject(exception.getMessage());
+            return;
+        }
+
+        String mimeType = getMimeType(call);
+        Uri uri = FileProvider.getUriForFile(
+            getContext(),
+            getContext().getPackageName() + ".fileprovider",
+            sourceFile
+        );
+
+        Intent viewIntent = new Intent(Intent.ACTION_VIEW);
+        viewIntent.setDataAndType(uri, mimeType);
+        viewIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+        try {
+            getActivity().startActivity(Intent.createChooser(viewIntent, "Open with"));
+            JSObject response = new JSObject();
+            response.put("opened", true);
+            response.put("uri", uri.toString());
+            call.resolve(response);
+        } catch (ActivityNotFoundException exception) {
+            call.reject("No app is available to open this file.", exception);
+        } catch (Exception exception) {
+            call.reject("Unable to open the temporary QDN download.", exception);
         }
     }
 

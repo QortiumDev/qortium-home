@@ -1671,6 +1671,126 @@ async function runPreviewHashBridgeAssertions(client, fixtureFrame, apiKey) {
   );
 }
 
+async function installPreviewContentMock(client, renderUrl) {
+  const result = await evaluateInMain(
+    client,
+    `
+      (() => {
+        if (typeof window.qortiumHome?.qdn?.previewContent !== 'function') {
+          return { ok: false, message: 'QDN previewContent bridge is unavailable.' };
+        }
+
+        if (!window.__qortiumAndroidBridgeSmokeOriginalPreviewContent) {
+          window.__qortiumAndroidBridgeSmokeOriginalPreviewContent =
+            window.qortiumHome.qdn.previewContent.bind(window.qortiumHome.qdn);
+        }
+
+        window.__qortiumAndroidBridgeSmokePreviewCalls = [];
+        window.qortiumHome.qdn.previewContent = async (request = {}) => {
+          window.__qortiumAndroidBridgeSmokePreviewCalls.push({
+            kind: request && request.kind,
+            path: request && request.path,
+            sourceToken: request && request.sourceToken,
+          });
+
+          return {
+            canceled: false,
+            renderUrl: ${JSON.stringify(renderUrl)},
+            service: 'WEBSITE',
+            sourceKind: request && request.kind === 'directory' ? 'directory' : 'file',
+            sourceName: 'preview-bridge-smoke.html',
+            sourcePath: 'preview-bridge-smoke.html',
+            sourceToken: 'android-preview-route-smoke-token',
+          };
+        };
+
+        return { ok: true };
+      })()
+    `,
+  );
+
+  if (!result?.ok) {
+    fail(result?.message || 'Unable to install QDN previewContent smoke mock.');
+  }
+}
+
+async function openExplorerPreview(client) {
+  await waitUntil('QDN Explorer preview button', appTimeoutMs, async () => {
+    const result = await evaluateInMain(
+      client,
+      `
+        (() => {
+          const button = document.querySelector('.qdn-explorer__preview');
+          if (!button) return null;
+          button.click();
+          return { ok: true };
+        })()
+      `,
+    );
+
+    return result?.ok ? true : null;
+  });
+
+  await waitUntil('QDN Explorer preview file choice', appTimeoutMs, async () => {
+    const result = await evaluateInMain(
+      client,
+      `
+        (() => {
+          const buttons = [...document.querySelectorAll('.preview-dialog__actions button')];
+          if (buttons.length < 2) return null;
+          const button = buttons.find((candidate) => /choose file/i.test(candidate.textContent || '')) || buttons[1];
+          button.click();
+          return { ok: true };
+        })()
+      `,
+    );
+
+    return result?.ok ? true : null;
+  });
+}
+
+async function assertPreviewContentMockCalled(client) {
+  const calls = await evaluateInMain(
+    client,
+    `
+      (() => Array.isArray(window.__qortiumAndroidBridgeSmokePreviewCalls)
+        ? window.__qortiumAndroidBridgeSmokePreviewCalls
+        : [])()
+    `,
+  );
+
+  assert(
+    Array.isArray(calls) && calls.some((call) => call?.kind === 'file'),
+    `QDN Preview route did not call previewContent with a file request: ${JSON.stringify(calls)}`,
+  );
+}
+
+async function runPreviewRouteBridgeAssertions(client, apiKey) {
+  const previewRenderUrl = await createPreviewHashRenderUrl(apiKey);
+
+  await navigateToFixture(client, 'qdn://');
+  await waitUntil('QDN Explorer route', appTimeoutMs, async () => {
+    const result = await evaluateInMain(client, "!!document.querySelector('.qdn-explorer')");
+
+    return result === true;
+  });
+
+  await installPreviewContentMock(client, previewRenderUrl);
+  await openExplorerPreview(client);
+  await assertPreviewContentMockCalled(client);
+
+  const { contextId, frame } = await getPreviewHashFrameContext(client, previewRenderUrl);
+
+  await waitForQdnRequestBridge(client, contextId);
+
+  const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
+
+  assert(
+    Array.isArray(actions) && actions.includes('SHOW_ACTIONS'),
+    `Preview route QDN bridge did not return SHOW_ACTIONS from ${frame.url}.`,
+  );
+}
+
 async function waitForQdnRequestBridge(client, contextId) {
   await waitUntil('QDN app bridge injection', cdpTimeoutMs, async () => {
     const bridgeState = await evaluateInFrame(client, contextId, 'typeof window.qdnRequest');
@@ -1748,6 +1868,14 @@ async function runBridgeAssertions(client, contextId) {
     'GET_ACTIVE_CHATS',
     'GET_ADMIN_GROUP_JOIN_REQUESTS',
     'GET_BALANCE',
+    'GET_CROSSCHAIN_BLOCKCHAINS',
+    'GET_CROSSCHAIN_SERVER_INFO',
+    'GET_FOREIGN_FEE',
+    'GET_SERVER_CONNECTION_HISTORY',
+    'GET_USER_WALLET',
+    'GET_WALLET_BALANCE',
+    'GET_USER_WALLET_INFO',
+    'GET_USER_WALLET_TRANSACTIONS',
     'GET_GROUP',
     'GET_GROUP_JOIN_REQUESTS',
     'GET_GROUP_MEMBERS',
@@ -1780,6 +1908,8 @@ async function runBridgeAssertions(client, contextId) {
     'SELL_NAME',
     'UPDATE_NAME',
     'SEND_CHAT_MESSAGE',
+    'SEND_COIN',
+    'SET_CURRENT_FOREIGN_SERVER',
     'UNLOCK_SELECTED_ACCOUNT',
     'SEARCH_CHAT_MESSAGES',
     'SEARCH_GROUPS',
@@ -2249,6 +2379,8 @@ async function main() {
         ({ contextId, frame } = await getFixtureFrameContext(client));
         log('Running preview hash bridge assertions in fixture frame.');
         await runPreviewHashBridgeAssertions(client, frame, apiKey);
+        log('Running preview route bridge assertions.');
+        await runPreviewRouteBridgeAssertions(client, apiKey);
       } finally {
         client.close();
       }
@@ -2266,7 +2398,12 @@ async function main() {
   }
 }
 
-main().catch(() => {
+main().catch((error) => {
   console.error('[android-qdn-smoke] Smoke test failed.');
+  if (error instanceof Error) {
+    console.error(error.stack || error.message);
+  } else {
+    console.error(error);
+  }
   process.exitCode = 1;
 });

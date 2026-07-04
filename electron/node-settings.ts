@@ -9,6 +9,7 @@ import {
 } from './local-api-key.js';
 
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
+const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
 const NODE_SETTINGS_FILE = 'node-settings.json';
 const PREVIEWNET_API_PORT = '24891';
 const PREVIEWNET_SEED_NODE_API_URLS = [
@@ -18,7 +19,10 @@ const PREVIEWNET_SEED_NODE_API_URLS = [
 const PUBLIC_READ_PROBE_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false';
 const DISCOVERY_TIMEOUT_MS = 5_000;
-const DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
+const DISCOVERY_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const DISCOVERY_CACHE_MAX_ENTRIES = 24;
+const DISCOVERY_CACHED_PEER_SOURCE_LIMIT = 8;
+const DISCOVERY_MAX_CANDIDATE_URLS = 96;
 const MANAGED_CORE_SETTINGS_FILE = 'settings-preview-local.json';
 
 type NodeSettingsMode = 'custom' | 'local' | 'network';
@@ -50,7 +54,22 @@ type DiscoveryCandidate = {
 };
 
 type DiscoveryCache = {
-  expiresAt: number;
+  entries: DiscoveryCacheEntry[];
+};
+
+type DiscoveryCacheEntry = {
+  failureCount: number;
+  firstGoodAt: number;
+  height: number;
+  isSeed: boolean;
+  lastFailedAt: number | null;
+  lastGoodAt: number;
+  nodeApiUrl: string;
+  peerCount: number;
+};
+
+type DiscoveryProbeResult = {
+  candidate: DiscoveryCandidate | null;
   nodeApiUrl: string;
 };
 
@@ -77,8 +96,6 @@ export type NodeConnection = {
   nodeApiUrl: string;
 };
 
-let discoveryCache: DiscoveryCache | null = null;
-
 function getNetworkRestrictionMessage() {
   return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
 }
@@ -101,6 +118,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getNodeSettingsPath() {
   return path.join(app.getPath('userData'), NODE_SETTINGS_FILE);
+}
+
+function getNodeDiscoveryCachePath() {
+  return path.join(app.getPath('userData'), NODE_DISCOVERY_CACHE_FILE);
 }
 
 function getLocalNodeApiUrl() {
@@ -403,6 +424,143 @@ function isPreviewnetSeedNodeApiUrl(nodeApiUrl: string) {
   }
 }
 
+function addDiscoveryCandidateUrl(candidateUrls: Set<string>, nodeApiUrl: string) {
+  if (candidateUrls.size >= DISCOVERY_MAX_CANDIDATE_URLS) {
+    return false;
+  }
+
+  candidateUrls.add(normalizeCandidateNodeApiUrl(nodeApiUrl));
+
+  return true;
+}
+
+function createDiscoveryCacheEntry(candidate: DiscoveryCandidate, existing?: DiscoveryCacheEntry): DiscoveryCacheEntry {
+  const now = Date.now();
+
+  return {
+    failureCount: 0,
+    firstGoodAt: existing?.firstGoodAt ?? now,
+    height: candidate.height,
+    isSeed: candidate.isSeed,
+    lastFailedAt: null,
+    lastGoodAt: now,
+    nodeApiUrl: normalizeCandidateNodeApiUrl(candidate.nodeApiUrl),
+    peerCount: candidate.peerCount,
+  };
+}
+
+function parseDiscoveryCacheEntry(value: unknown): DiscoveryCacheEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const entry = value as Partial<DiscoveryCacheEntry>;
+
+  if (typeof entry.nodeApiUrl !== 'string' || typeof entry.lastGoodAt !== 'number') {
+    return null;
+  }
+
+  try {
+    return {
+      failureCount: Math.max(0, getNumber(entry.failureCount)),
+      firstGoodAt: getNumber(entry.firstGoodAt) || entry.lastGoodAt,
+      height: getNumber(entry.height),
+      isSeed: getBoolean(entry.isSeed),
+      lastFailedAt: typeof entry.lastFailedAt === 'number' && Number.isFinite(entry.lastFailedAt) ? entry.lastFailedAt : null,
+      lastGoodAt: entry.lastGoodAt,
+      nodeApiUrl: normalizeCandidateNodeApiUrl(entry.nodeApiUrl),
+      peerCount: getNumber(entry.peerCount),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseDiscoveryCache(value: unknown): DiscoveryCache {
+  if (!value || typeof value !== 'object') {
+    return { entries: [] };
+  }
+
+  const cache = value as Partial<DiscoveryCache & { expiresAt: number; nodeApiUrl: string }>;
+
+  if (Array.isArray(cache.entries)) {
+    return {
+      entries: cache.entries
+        .map(parseDiscoveryCacheEntry)
+        .filter((entry): entry is DiscoveryCacheEntry => !!entry),
+    };
+  }
+
+  if (typeof cache.nodeApiUrl === 'string' && typeof cache.expiresAt === 'number' && cache.expiresAt > Date.now()) {
+    try {
+      return {
+        entries: [
+          {
+            failureCount: 0,
+            firstGoodAt: Date.now(),
+            height: 0,
+            isSeed: isPreviewnetSeedNodeApiUrl(cache.nodeApiUrl),
+            lastFailedAt: null,
+            lastGoodAt: Date.now(),
+            nodeApiUrl: normalizeCandidateNodeApiUrl(cache.nodeApiUrl),
+            peerCount: 0,
+          },
+        ],
+      };
+    } catch {
+      return { entries: [] };
+    }
+  }
+
+  return { entries: [] };
+}
+
+function readDiscoveryCache() {
+  try {
+    const parsedCache: unknown = JSON.parse(readFileSync(getNodeDiscoveryCachePath(), 'utf8'));
+    const cutoff = Date.now() - DISCOVERY_CACHE_MAX_AGE_MS;
+
+    return parseDiscoveryCache(parsedCache).entries
+      .filter((entry) => entry.lastGoodAt >= cutoff)
+      .sort((first, second) => second.lastGoodAt - first.lastGoodAt);
+  } catch {
+    return [];
+  }
+}
+
+function writeDiscoveryCache(probeResults: DiscoveryProbeResult[]) {
+  const entriesByUrl = new Map(readDiscoveryCache().map((entry) => [entry.nodeApiUrl, entry]));
+
+  for (const { candidate, nodeApiUrl } of probeResults) {
+    const normalizedUrl = normalizeCandidateNodeApiUrl(nodeApiUrl);
+    const existingEntry = entriesByUrl.get(normalizedUrl);
+
+    if (candidate && isUsableDiscoveryCandidate(candidate)) {
+      entriesByUrl.set(normalizedUrl, createDiscoveryCacheEntry(candidate, existingEntry));
+    } else if (existingEntry) {
+      entriesByUrl.set(normalizedUrl, {
+        ...existingEntry,
+        failureCount: existingEntry.failureCount + 1,
+        lastFailedAt: Date.now(),
+      });
+    }
+  }
+
+  const entries = [...entriesByUrl.values()]
+    .sort((first, second) => {
+      if (first.lastGoodAt !== second.lastGoodAt) {
+        return second.lastGoodAt - first.lastGoodAt;
+      }
+
+      return first.failureCount - second.failureCount;
+    })
+    .slice(0, DISCOVERY_CACHE_MAX_ENTRIES);
+
+  const cachePath = getNodeDiscoveryCachePath();
+  mkdirSync(path.dirname(cachePath), { recursive: true });
+  writeFileSync(cachePath, `${JSON.stringify({ entries }, null, 2)}\n`, 'utf8');
+}
+
 function peerAddressToNodeApiUrl(value: unknown) {
   const address = getString(value);
 
@@ -620,38 +778,69 @@ function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]) {
 }
 
 async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCandidate> {
-  if (!forceRefresh && discoveryCache && discoveryCache.expiresAt > Date.now()) {
-    const cachedCandidate = await probeNodeCandidate(discoveryCache.nodeApiUrl);
+  const cachedEntries = readDiscoveryCache();
+  const cachedNodeApiUrls = cachedEntries.map((entry) => entry.nodeApiUrl);
 
-    if (cachedCandidate && isUsableDiscoveryCandidate(cachedCandidate)) {
-      return cachedCandidate;
+  if (!forceRefresh && cachedNodeApiUrls.length > 0) {
+    const cachedProbeResults = await Promise.all(
+      cachedNodeApiUrls.map(async (nodeApiUrl) => ({
+        nodeApiUrl,
+        candidate: await probeNodeCandidate(nodeApiUrl),
+      })),
+    );
+    const selectedCachedCandidate = rankDiscoveryCandidates(
+      cachedProbeResults
+        .map((result) => result.candidate)
+        .filter((candidate): candidate is DiscoveryCandidate => !!candidate && isUsableDiscoveryCandidate(candidate)),
+    )[0];
+
+    writeDiscoveryCache(cachedProbeResults);
+
+    if (selectedCachedCandidate) {
+      return selectedCachedCandidate;
     }
   }
 
   const candidateUrls = new Set(PREVIEWNET_SEED_NODE_API_URLS.map(normalizeCandidateNodeApiUrl));
+  for (const cachedNodeApiUrl of cachedNodeApiUrls) {
+    addDiscoveryCandidateUrl(candidateUrls, cachedNodeApiUrl);
+  }
+
+  const peerDiscoveryUrls = [
+    ...new Set([
+      ...PREVIEWNET_SEED_NODE_API_URLS.map(normalizeCandidateNodeApiUrl),
+      ...cachedNodeApiUrls.slice(0, DISCOVERY_CACHED_PEER_SOURCE_LIMIT),
+    ]),
+  ];
   const knownPeerResults = await Promise.all(
-    PREVIEWNET_SEED_NODE_API_URLS.map(fetchKnownPeerNodeApiUrls),
+    peerDiscoveryUrls.map(fetchKnownPeerNodeApiUrls),
   );
 
   for (const peerNodeApiUrls of knownPeerResults) {
     for (const peerNodeApiUrl of peerNodeApiUrls) {
-      candidateUrls.add(peerNodeApiUrl);
+      if (!addDiscoveryCandidateUrl(candidateUrls, peerNodeApiUrl)) {
+        break;
+      }
     }
   }
 
-  const candidates = (
-    await Promise.all([...candidateUrls].map((nodeApiUrl) => probeNodeCandidate(nodeApiUrl)))
-  ).filter((candidate): candidate is DiscoveryCandidate => !!candidate);
+  const probeResults = await Promise.all(
+    [...candidateUrls].map(async (nodeApiUrl) => ({
+      nodeApiUrl,
+      candidate: await probeNodeCandidate(nodeApiUrl),
+    })),
+  );
+  const candidates = probeResults
+    .map((result) => result.candidate)
+    .filter((candidate): candidate is DiscoveryCandidate => !!candidate);
   const selectedCandidate = rankDiscoveryCandidates(candidates.filter(isUsableDiscoveryCandidate))[0];
 
   if (!selectedCandidate) {
+    writeDiscoveryCache(probeResults);
     throw new Error('No reachable synced Previewnet node was found.');
   }
 
-  discoveryCache = {
-    nodeApiUrl: selectedCandidate.nodeApiUrl,
-    expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
-  };
+  writeDiscoveryCache(probeResults);
 
   return selectedCandidate;
 }

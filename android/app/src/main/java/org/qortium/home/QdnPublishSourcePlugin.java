@@ -43,7 +43,6 @@ public class QdnPublishSourcePlugin extends Plugin {
     public void selectDirectory(PluginCall call) {
         Intent openIntent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         openIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        openIntent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         openIntent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
 
         try {
@@ -110,16 +109,6 @@ public class QdnPublishSourcePlugin extends Plugin {
         if (result.getResultCode() != Activity.RESULT_OK || uri == null) {
             call.reject("QDN preview folder was not selected.");
             return;
-        }
-
-        int permissionFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
-
-        if (permissionFlags != 0) {
-            try {
-                getContext().getContentResolver().takePersistableUriPermission(uri, permissionFlags);
-            } catch (Exception ignored) {
-                // Temporary read permission from the picker is enough for this preview upload.
-            }
         }
 
         int maxBytes = call.getInt("maxBytes", DEFAULT_MAX_BYTES);

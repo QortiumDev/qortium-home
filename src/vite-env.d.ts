@@ -363,6 +363,7 @@ type QortiumQdnAuthorizeResult = {
 
 type QortiumQdnRawResourceRequest = QortiumQdnAuthorizeRequest & {
   maxBytes?: number;
+  mimeType?: string;
   multiFile?: boolean;
   path?: string;
   suggestedFilename?: string;
@@ -609,6 +610,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'GROUP_KICK'
     | 'CANCEL_GROUP_INVITE'
     | 'SET_GROUP'
+    | 'SET_CURRENT_FOREIGN_SERVER'
     | 'PAYMENT'
     | 'SEND_COIN'
     | 'TRANSFER_ASSET'
@@ -630,6 +632,7 @@ type QortiumQdnWriteApprovalRequest = {
   amount: string | null;
   approval: boolean | null;
   chatMessagePreview: string | null;
+  details: Array<{ label: string; value: string }>;
   groupId: number | null;
   groupName: string | null;
   id: string;
@@ -762,6 +765,9 @@ interface Window {
         request: QortiumQdnPreviewContentRequest,
       ) => Promise<QortiumQdnPreviewContentResult>;
       downloadResource: (
+        request: QortiumQdnRawResourceRequest,
+      ) => Promise<QortiumQdnDownloadResult>;
+      openResourceExternally?: (
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnDownloadResult>;
       openDownloadedResource?: (request: { uri: string; mimeType?: string }) => Promise<void>;
