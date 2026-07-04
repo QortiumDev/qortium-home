@@ -179,7 +179,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         String service = pathSegments.get(1).toUpperCase(Locale.ROOT);
 
-        return "APP".equals(service) || "WEBSITE".equals(service);
+        return "APP".equals(service) || "WEBSITE".equals(service) || "HASH".equals(service);
     }
 
     private boolean hasValidBridgeToken(Uri url) {
@@ -287,7 +287,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
             "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
             "var action=request&&typeof request==='object'?String(request.action||'').toUpperCase():'';" +
-            "var longActions={PUBLISH_MULTIPLE_QDN_RESOURCES:1,PUBLISH_QDN_RESOURCE:1,DELETE_QDN_RESOURCE:1,APPROVE_GROUP_JOIN_REQUEST:1,INVITE_TO_GROUP:1,JOIN_GROUP:1,LEAVE_GROUP:1,UPDATE_GROUP:1,BUY_NAME:1,CANCEL_SELL_NAME:1,REGISTER_NAME:1,SELL_NAME:1,UPDATE_NAME:1,SEND_CHAT_MESSAGE:1,UNLOCK_SELECTED_ACCOUNT:1,GET_PRIVATE_DIRECT_ACTIVE_CHATS:1,GET_PRIVATE_GROUP_ACTIVE_CHATS:1,SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES:1,SEARCH_PRIVATE_GROUP_CHAT_MESSAGES:1};" +
+            "var longActions={PUBLISH_MULTIPLE_QDN_RESOURCES:1,PUBLISH_QDN_RESOURCE:1,DELETE_QDN_RESOURCE:1,APPROVE_GROUP_JOIN_REQUEST:1,INVITE_TO_GROUP:1,JOIN_GROUP:1,LEAVE_GROUP:1,UPDATE_GROUP:1,BUY_NAME:1,CANCEL_SELL_NAME:1,REGISTER_NAME:1,SELL_NAME:1,UPDATE_NAME:1,SEND_CHAT_MESSAGE:1,UNLOCK_SELECTED_ACCOUNT:1,GET_USER_WALLET:1,GET_WALLET_BALANCE:1,GET_USER_WALLET_INFO:1,GET_USER_WALLET_TRANSACTIONS:1,SEND_COIN:1,SET_CURRENT_FOREIGN_SERVER:1,GET_PRIVATE_DIRECT_ACTIVE_CHATS:1,GET_PRIVATE_GROUP_ACTIVE_CHATS:1,SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES:1,SEARCH_PRIVATE_GROUP_CHAT_MESSAGES:1};" +
             "var timeoutMs=longActions[action]?180000:30000;" +
             "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},timeoutMs);" +
             "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +

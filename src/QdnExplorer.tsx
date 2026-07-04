@@ -2,7 +2,7 @@ import { ChevronDown, ChevronUp, Eye, File, FileAudio, FileImage, FileText, File
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModalDialog } from './components/ModalDialog';
 import { t } from './i18n';
-import { isNativePlatform } from './platform';
+import { canPreviewDirectoryContent } from './platform';
 import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
 import {
   PUBLIC_QDN_SERVICES,
@@ -387,8 +387,7 @@ function QdnPreviewDialog({
             <File aria-hidden="true" size={18} strokeWidth={2} />
             {t('preview.chooseFile')}
           </button>
-          {!isNativePlatform() ? (
-            // Folder selection isn't available on mobile; a zipped website can be chosen via "Choose File".
+          {canPreviewDirectoryContent() ? (
             <button className="button" type="button" disabled={isWorking} onClick={() => onPick('directory')}>
               <Folder aria-hidden="true" size={18} strokeWidth={2} />
               {t('preview.chooseFolder')}
@@ -484,6 +483,7 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
           sourceKind: result.sourceKind,
           sourceName: result.sourceName,
           sourcePath: result.sourcePath,
+          sourceToken: result.sourceToken,
         }),
       );
     } catch (error) {

@@ -144,6 +144,7 @@ export type QdnPreview = {
   sourceKind: 'directory' | 'file';
   sourceName: string;
   sourcePath: string;
+  sourceToken?: string;
 };
 
 export type QdnRoute =

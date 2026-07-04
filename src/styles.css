@@ -4218,6 +4218,12 @@ h1 {
   padding: 18px 20px 22px;
 }
 
+.qdn-viewer__media-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-3);
+}
+
 .qdn-viewer__gif-repository {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;

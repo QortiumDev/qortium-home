@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ClipboardCopy, Copy, Download, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ClipboardCopy, Copy, Download, ExternalLink, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t } from './i18n';
 import type {
@@ -34,6 +34,7 @@ const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
 type LoadedQdnResource = {
   properties?: QdnResourceProperties;
   renderUrl: string;
+  resource?: QdnResource;
   status: QdnResourceStatus;
   viewerKind: QdnViewerKind;
 };
@@ -164,6 +165,18 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
 
   return url.toString();
 }
+
+export type QdnBridgeFrameContentProps = {
+  account: QortiumAccountSummary | null;
+  displaySettings: QdnDisplaySettings;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
+  renderUrl: string;
+  resourceUrl: string;
+  title?: string;
+};
 
 function getQdnDisplaySettingMessages(displaySettings: QdnDisplaySettings) {
   return [
@@ -589,10 +602,43 @@ function getBlobContentType(viewerKind: QdnViewerKind, mimeType = '', responseCo
   }
 
   if (viewerKind === 'video' && (!mimeType || mimeType === 'application/octet-stream')) {
-    return 'video/webm';
+    return responseContentType && responseContentType !== 'application/octet-stream' ? responseContentType : '';
   }
 
   return mimeType || responseContentType || 'application/octet-stream';
+}
+
+function isSafeMetadataFilePath(value: string) {
+  const normalized = value.trim();
+
+  return !!normalized && !normalized.includes('\\') && !normalized.split('/').some((segment) => !segment);
+}
+
+function getPreferredMediaFile(metadata: QdnResourceMetadata | undefined, viewerKind: QdnViewerKind) {
+  if (viewerKind !== 'audio' && viewerKind !== 'video') {
+    return '';
+  }
+
+  const candidates = [
+    ...(metadata?.entryPoint ? [metadata.entryPoint] : []),
+    ...(metadata?.files ?? []),
+  ];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const file = candidate.trim();
+    if (!isSafeMetadataFilePath(file) || seen.has(file)) {
+      continue;
+    }
+
+    seen.add(file);
+
+    if (detectContentKind(file) === viewerKind) {
+      return file;
+    }
+  }
+
+  return '';
 }
 
 // When extension + mimeType leave a resource classified as a bare download,
@@ -729,25 +775,42 @@ function useQdnResourceLoader(
     }
 
     async function setReadyState(status: QdnResourceStatus) {
-      const properties = await loadResourceProperties(resource, abortController.signal);
-      let viewerKind = getLoadedViewerKind(resource, properties);
-      const directRenderUrl = buildQdnRenderUrl(resource, nodeApiUrl, displaySettings);
+      let activeResource = resource;
+      let properties = await loadResourceProperties(activeResource, abortController.signal);
+      let viewerKind = getLoadedViewerKind(activeResource, properties);
+      let directRenderUrl = buildQdnRenderUrl(activeResource, nodeApiUrl, displaySettings);
+
+      if ((viewerKind === 'audio' || viewerKind === 'video') && !activeResource.path) {
+        const metadata = await loadResourceMetadata(activeResource, nodeApiUrl, abortController.signal);
+        const mediaFile = getPreferredMediaFile(metadata, viewerKind);
+
+        if (mediaFile) {
+          activeResource = getQdnResourceWithPath(activeResource, mediaFile);
+          const mediaProperties = await loadResourceProperties(activeResource, abortController.signal);
+          properties = {
+            ...mediaProperties,
+            filename: mediaProperties?.filename || pathBasename(mediaFile),
+          };
+          viewerKind = getLoadedViewerKind(activeResource, properties);
+          directRenderUrl = buildQdnRenderUrl(activeResource, nodeApiUrl, displaySettings);
+        }
+      }
 
       // Inconclusive descriptive signals (no extension, octet-stream mime) leave a
       // single-file resource as a bare download — try recovering a renderable kind
       // from its magic bytes. FILES is multi-file, so it is excluded.
-      if ((viewerKind === 'download' || viewerKind === 'unsupported') && resource.service !== 'FILES') {
+      if ((viewerKind === 'download' || viewerKind === 'unsupported') && activeResource.service !== 'FILES') {
         const sniffed = await sniffRenderUrlKind(directRenderUrl, abortController.signal);
         if (sniffed) {
           viewerKind = sniffed;
         }
       }
-      const useArchiveRenderUrl = shouldUseArchiveRenderUrl(resource, properties, viewerKind);
+      const useArchiveRenderUrl = shouldUseArchiveRenderUrl(activeResource, properties, viewerKind);
       const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
       let renderUrl = directRenderUrl;
 
       if (useArchiveRenderUrl) {
-        renderUrl = await prepareArchiveRenderUrl(resource);
+        renderUrl = await prepareArchiveRenderUrl(activeResource);
       } else if (viewerKind === 'iframe' || (viewerKind === 'image' && !useBlobRenderUrl)) {
         await verifyRenderUrl(directRenderUrl, abortController.signal);
       }
@@ -774,6 +837,7 @@ function useQdnResourceLoader(
         loadedResource: {
           properties,
           renderUrl,
+          resource: activeResource,
           status,
           viewerKind,
         },
@@ -1111,6 +1175,101 @@ function QdnDownloadButton({
         <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
       ) : (
         <Download aria-hidden="true" size={18} strokeWidth={2} />
+      )}
+      <span className="button__label">{buttonLabel}</span>
+    </button>
+  );
+}
+
+function QdnOpenWithSystemPlayerButton({
+  properties,
+  resource,
+}: {
+  properties?: QdnResourceProperties;
+  resource: QdnResource;
+}) {
+  const [openState, setOpenState] = useState<'error' | 'idle' | 'opening' | 'opened'>('idle');
+  const suggestedFilename = getSuggestedResourceFilename(resource, properties);
+  const actionLabel = t('viewer.media.openExternal');
+  const buttonLabel =
+    openState === 'opening'
+      ? t('viewer.download.opening')
+      : openState === 'opened'
+        ? t('viewer.download.opened')
+        : openState === 'error'
+          ? t('viewer.download.openFailed')
+          : actionLabel;
+
+  useEffect(() => {
+    if (openState !== 'opened' && openState !== 'error') {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setOpenState('idle'), 1_800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [openState]);
+
+  return (
+    <button
+      className="button button--primary qdn-viewer__media-open"
+      type="button"
+      disabled={openState === 'opening'}
+      onClick={async () => {
+        setOpenState('opening');
+
+        try {
+          if (isNativePlatform() && window.qortiumHome.qdn.openResourceExternally) {
+            await window.qortiumHome.qdn.openResourceExternally({
+              service: resource.service,
+              name: resource.name,
+              identifier: resource.identifier,
+              mimeType: properties?.mimeType,
+              path: resource.path,
+              suggestedFilename,
+            });
+            setOpenState('opened');
+            return;
+          }
+
+          const result = await window.qortiumHome.qdn.downloadResource({
+            service: resource.service,
+            name: resource.name,
+            identifier: resource.identifier,
+            path: resource.path,
+            suggestedFilename,
+          });
+
+          if (result.canceled) {
+            setOpenState('idle');
+            return;
+          }
+
+          if (isNativePlatform() && result.filePath && window.qortiumHome.qdn.openDownloadedResource) {
+            await window.qortiumHome.qdn.openDownloadedResource({
+              uri: result.filePath,
+              mimeType: properties?.mimeType,
+            });
+            setOpenState('opened');
+            return;
+          }
+
+          if (!isNativePlatform() && result.filePath && window.qortiumHome.system?.openPath) {
+            await window.qortiumHome.system.openPath(result.filePath);
+            setOpenState('opened');
+            return;
+          }
+
+          setOpenState('opened');
+        } catch {
+          setOpenState('error');
+        }
+      }}
+    >
+      {openState === 'opening' ? (
+        <LoaderCircle aria-hidden="true" className="button__spinner" size={18} strokeWidth={2} />
+      ) : (
+        <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
       )}
       <span className="button__label">{buttonLabel}</span>
     </button>
@@ -1949,6 +2108,7 @@ function QdnMediaContent({
   const [isFilled, setIsFilled] = useState(false);
   const isVideo = loadedResource.viewerKind === 'video';
   const showFilled = isVideo && isFilled;
+  const showExternalOpen = !!mediaError || isVideo;
 
   // A new media source starts in the default fit-to-space layout.
   useEffect(() => {
@@ -2005,6 +2165,11 @@ function QdnMediaContent({
       {showFilled ? null : (
         <div className="qdn-viewer__details qdn-viewer__media-details">
           {mediaError ? <p className="qdn-viewer__message qdn-viewer__message--error">{mediaError.message}</p> : null}
+          {showExternalOpen ? (
+            <div className="qdn-viewer__media-actions">
+              <QdnOpenWithSystemPlayerButton properties={loadedResource.properties} resource={resource} />
+            </div>
+          ) : null}
           <QdnResourceDetailList loadedResource={loadedResource} resource={resource} />
         </div>
       )}
@@ -2984,25 +3149,17 @@ export function QdnIsolatedFrameContent({
   );
 }
 
-function QdnIframeContent({
+export function QdnBridgeFrameContent({
   account,
   displaySettings,
-  loadedResource,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
-  resource,
-}: {
-  account: QortiumAccountSummary | null;
-  displaySettings: QdnDisplaySettings;
-  loadedResource: LoadedQdnResource;
-  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
-  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
-  onOpenNewTab?: (address: string) => void;
-  onOpenInCurrentTab?: (address: string) => void;
-  resource: QdnResource;
-}) {
+  renderUrl,
+  resourceUrl,
+  title = resourceUrl,
+}: QdnBridgeFrameContentProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const onOpenNewTabRef = useRef(onOpenNewTab);
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
@@ -3016,32 +3173,32 @@ function QdnIframeContent({
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
-    [isNativeFrame, loadedResource.renderUrl],
+    [isNativeFrame, renderUrl],
   );
   const accountId = account?.id ?? null;
   const isAccountUnlocked = account?.isUnlocked ?? false;
   const frameSrc = useMemo(
     () =>
       isNativeFrame && bridgeToken
-        ? buildAndroidQdnBridgeUrl(loadedResource.renderUrl, bridgeToken)
-        : loadedResource.renderUrl,
-    [bridgeToken, isNativeFrame, loadedResource.renderUrl],
+        ? buildAndroidQdnBridgeUrl(renderUrl, bridgeToken)
+        : renderUrl,
+    [bridgeToken, isNativeFrame, renderUrl],
   );
 
   useEffect(() => {
-    postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
-  }, [displaySettings, loadedResource.renderUrl]);
+    postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
+  }, [displaySettings, renderUrl]);
 
   useEffect(() => {
-    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, loadedResource.renderUrl);
-  }, [accountId, isAccountUnlocked, loadedResource.renderUrl]);
+    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
+  }, [accountId, isAccountUnlocked, renderUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
       return undefined;
     }
 
-    const allowedOrigin = new URL(loadedResource.renderUrl).origin;
+    const allowedOrigin = new URL(renderUrl).origin;
 
     async function handleMessage(event: MessageEvent) {
       const frameWindow = frameRef.current?.contentWindow;
@@ -3076,7 +3233,7 @@ function QdnIframeContent({
           onOpenInCurrentTab: (address: string) => {
             onOpenInCurrentTabRef.current?.(address);
           },
-          resourceUrl: resource.displayUrl,
+          resourceUrl,
           sessionKey: bridgeToken,
         });
 
@@ -3113,22 +3270,55 @@ function QdnIframeContent({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, displaySettings, isNativeFrame, loadedResource.renderUrl, resource.displayUrl]);
+  }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
 
   return (
     <iframe
       className="qdn-viewer__frame"
       key={frameSrc}
       ref={frameRef}
-      title={resource.displayUrl}
+      title={title}
       src={frameSrc}
       referrerPolicy="no-referrer"
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
-        postQdnDisplaySettings(frameRef.current?.contentWindow, loadedResource.renderUrl, displaySettings);
-        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, loadedResource.renderUrl);
+        postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
+        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
       }}
+    />
+  );
+}
+
+function QdnIframeContent({
+  account,
+  displaySettings,
+  loadedResource,
+  onOpenDocumentViewer,
+  onOpenMediaPlayer,
+  onOpenNewTab,
+  onOpenInCurrentTab,
+  resource,
+}: {
+  account: QortiumAccountSummary | null;
+  displaySettings: QdnDisplaySettings;
+  loadedResource: LoadedQdnResource;
+  onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenNewTab?: (address: string) => void;
+  onOpenInCurrentTab?: (address: string) => void;
+  resource: QdnResource;
+}) {
+  return (
+    <QdnBridgeFrameContent
+      account={account}
+      displaySettings={displaySettings}
+      onOpenDocumentViewer={onOpenDocumentViewer}
+      onOpenMediaPlayer={onOpenMediaPlayer}
+      onOpenNewTab={onOpenNewTab}
+      onOpenInCurrentTab={onOpenInCurrentTab}
+      renderUrl={loadedResource.renderUrl}
+      resourceUrl={resource.displayUrl}
     />
   );
 }
@@ -3160,6 +3350,8 @@ function QdnReadyContent({
   suspended: boolean;
   tabId: string;
 }) {
+  const activeResource = loadedResource.resource ?? resource;
+
   if (loadedResource.viewerKind === 'iframe') {
     if (canUseIsolatedQdnViews()) {
       return (
@@ -3239,7 +3431,7 @@ function QdnReadyContent({
   }
 
   if (loadedResource.viewerKind === 'audio' || loadedResource.viewerKind === 'video') {
-    return <QdnMediaContent loadedResource={loadedResource} resource={resource} />;
+    return <QdnMediaContent loadedResource={loadedResource} resource={activeResource} />;
   }
 
   if (loadedResource.viewerKind === 'gif-repository') {
@@ -3404,7 +3596,7 @@ export function QdnViewer({
                   isImage={actionContext.isImage ?? state.loadedResource.viewerKind === 'image'}
                   isMultiFile={actionContext.isMultiFile ?? state.loadedResource.viewerKind === 'iframe'}
                   properties={actionContext.resource ? actionContext.properties : state.loadedResource.properties}
-                  resource={actionContext.resource ?? resource}
+                  resource={actionContext.resource ?? state.loadedResource.resource ?? resource}
                 />
                 <button
                   className="icon-button qdn-viewer__status-close"

@@ -809,6 +809,22 @@ export function getAccountSigningKey(accountId: string) {
   };
 }
 
+export function getAccountForeignWalletSeed(accountId: string) {
+  const store = readWalletStore();
+  const { addressIndex, wallet } = requireWalletAccount(store, accountId);
+  const seed = unlockedWalletSeeds.get(wallet.id);
+
+  if (!seed) {
+    throw new Error('Selected account is locked.');
+  }
+
+  return {
+    addressIndex,
+    seed: Uint8Array.from(seed),
+    walletVersion: isPrivateKeyWallet(wallet.encryptedWallet) ? 1 : wallet.encryptedWallet.version || QORTIUM_WALLET_VERSION,
+  };
+}
+
 // Resolves the 64-byte ed25519 secret key (and base58 public key) for an account
 // WITHOUT base58-encoding the private key. Used by the keyless open-group chat
 // path so the raw key is signed with locally and never sent to any node. Still

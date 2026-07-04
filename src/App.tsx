@@ -351,6 +351,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.cancelGroupInvite';
     case 'SET_GROUP':
       return 'qdnWrite.action.setGroup';
+    case 'SET_CURRENT_FOREIGN_SERVER':
+      return 'qdnWrite.action.setCurrentForeignServer';
     case 'PAYMENT':
     case 'SEND_COIN':
       return 'qdnWrite.action.sendCoin';
@@ -578,6 +580,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
               <dd>{request.amount}</dd>
             </div>
           ) : null}
+          {(request.details ?? []).map((detail) => (
+            <div key={`${detail.label}:${detail.value}`}>
+              <dt>{detail.label}</dt>
+              <dd>{detail.value}</dd>
+            </div>
+          ))}
           {request.chatMessagePreview ? (
             <div>
               <dt>{t('qdnWrite.field.message')}</dt>
@@ -3037,6 +3045,10 @@ export function App() {
                   account={tabAccount}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  onOpenDocumentViewer={openQdnDocumentViewer}
+                  onOpenMediaPlayer={openQdnMediaPlayer}
+                  onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
+                  onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   preview={tabRoute.preview}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}

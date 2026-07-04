@@ -33,10 +33,10 @@ export type ContentKind = Extract<
 // mimeType is unreliable (often absent or application/octet-stream), so the
 // extension is usually the strongest single signal we have pre-fetch.
 //
-// Only formats the platform can actually decode are mapped to image/audio/video —
-// e.g. TIFF and Matroska (.mkv) are deliberately omitted because browsers can't
-// render them, so they fall through to the download/document path instead of
-// showing a broken element.
+// Formats that are media are mapped to image/audio/video, even when inline
+// playback is only best-effort. The viewer can offer a system-player fallback
+// for rich containers such as Matroska when the embedded web player cannot
+// decode them.
 const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   // images (browser-renderable only)
   apng: 'image',
@@ -59,8 +59,9 @@ const EXTENSION_TO_KIND: Readonly<Record<string, ContentKind>> = {
   opus: 'audio',
   wav: 'audio',
   weba: 'audio',
-  // video (browser-renderable containers only)
+  // video (inline playback is best-effort; system-player fallback handles richer containers)
   m4v: 'video',
+  mkv: 'video',
   mov: 'video',
   mp4: 'video',
   ogv: 'video',
@@ -148,8 +149,11 @@ const MIME_TO_KIND: Readonly<Record<string, ContentKind>> = {
   'application/x-rar': 'archive',
   'application/x-rar-compressed': 'archive',
   'application/json': 'json',
+  'application/matroska': 'video',
   'application/xml': 'code',
   'application/xhtml+xml': 'html',
+  'video/matroska': 'video',
+  'video/x-matroska': 'video',
   'text/csv': 'csv',
   'text/html': 'html',
   'text/markdown': 'markdown',

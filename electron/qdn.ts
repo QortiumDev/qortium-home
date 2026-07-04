@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron';
 import extract from 'extract-zip';
 import { zipSync } from 'fflate';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
   assertAccountUnlocked,
+  getAccountForeignWalletSeed,
   getAccountProfile,
   getAccountSecretKey,
   getAccountSigningKey,
@@ -17,6 +18,11 @@ import {
   signChatTransaction,
   signTransactionWithNonce,
 } from './accounts.js';
+import {
+  deriveForeignWalletRuntime,
+  normalizeForeignWalletCoin,
+  type ForeignWalletRuntime,
+} from './foreign-wallets.js';
 import {
   getNodeApiUrl,
   getNodeConnection,
@@ -28,6 +34,7 @@ import {
   QDN_APP_BRIDGE_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
   QDN_CHAT_ACTIONS,
+  QDN_FOREIGN_SERVER_ACTIONS,
   QDN_GROUP_ACTIONS,
   QDN_NAME_ACTIONS,
   QDN_PAYMENT_ACTIONS,
@@ -67,6 +74,8 @@ const QORTAL_PROBE_TIMEOUT_MS = 5_000;
 // Qortal cross-chain resource fetches (e.g. game ROMs) need a much larger ceiling than QDN text reads.
 const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
+const NATIVE_ASSET_ID = 0;
+const NATIVE_ASSET_LABEL = 'Native Asset';
 const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 // Must match the Core renderer's index file list and case-sensitive matching.
 const QDN_PREVIEW_INDEX_FILES = new Set([
@@ -200,6 +209,7 @@ type NodeApiRequest = {
 type QdnPreviewContentRequest = {
   kind?: unknown;
   path?: unknown;
+  sourceToken?: unknown;
 };
 
 type QdnAppRequest = {
@@ -222,6 +232,7 @@ type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
 type QdnGroupAction = (typeof QDN_GROUP_ACTIONS)[number];
 type QdnNameAction = (typeof QDN_NAME_ACTIONS)[number];
 type QdnPaymentAction = (typeof QDN_PAYMENT_ACTIONS)[number];
+type QdnForeignServerAction = (typeof QDN_FOREIGN_SERVER_ACTIONS)[number];
 type QdnPollAction = (typeof QDN_POLL_ACTIONS)[number];
 type QdnTrustAction = (typeof QDN_TRUST_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
@@ -231,6 +242,7 @@ type QdnWriteApprovalAction =
   | QdnGroupAction
   | QdnNameAction
   | QdnPaymentAction
+  | QdnForeignServerAction
   | QdnPollAction
   | QdnTrustAction
   | QdnChatAction
@@ -313,6 +325,7 @@ type QdnWriteApprovalDetails = {
   amount?: number | string;
   approval?: boolean;
   chatMessagePreview?: string;
+  details?: Array<{ label: string; value: string }>;
   groupId?: number;
   groupName?: string | null;
   mintingKey?: string | null;
@@ -457,6 +470,7 @@ async function requestQdnWriteApproval(
     amount: typeof details.amount === 'undefined' ? null : String(details.amount),
     approval: typeof details.approval === 'boolean' ? details.approval : null,
     chatMessagePreview: details.chatMessagePreview ?? null,
+    details: details.details ?? [],
     groupId: typeof details.groupId === 'number' ? details.groupId : null,
     groupName: details.groupName ?? null,
     mintingKey: details.mintingKey ?? null,
@@ -832,6 +846,305 @@ function getOptionalBase58RequestString(request: QdnAppRequest, key: string) {
   const value = getString(getRequestValue(request, key));
 
   return value || undefined;
+}
+
+function getForeignWalletCrypto() {
+  return {
+    ripemd160: (data: Uint8Array) => new Uint8Array(createHash('ripemd160').update(data).digest()),
+    sha256: (data: Uint8Array) => new Uint8Array(createHash('sha256').update(data).digest()),
+    sha512: (data: Uint8Array) => new Uint8Array(createHash('sha512').update(data).digest()),
+  };
+}
+
+function getForeignWalletAmountString(value: unknown, label: string) {
+  const stringValue = typeof value === 'number' && Number.isFinite(value)
+    ? value.toFixed(8).replace(/\.?0+$/, '')
+    : getString(value);
+
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(stringValue)) {
+    throw new Error(`${label} must be a positive amount with up to 8 decimals.`);
+  }
+
+  if (Number(stringValue) <= 0) {
+    throw new Error(`${label} must be greater than zero.`);
+  }
+
+  return stringValue;
+}
+
+function isNativeAssetAlias(value: unknown) {
+  const normalized = getString(value).toUpperCase().replace(/[\s-]+/g, '_');
+
+  return normalized === 'NATIVE' || normalized === 'NATIVE_ASSET' || normalized === 'ASSET_0' || normalized === 'ASSET0';
+}
+
+function getRequestAssetId(request: QdnAppRequest) {
+  const value = getRequestValue(request, 'assetId');
+
+  return typeof value === 'undefined' || value === null || getString(value) === '' ? undefined : getInteger(value);
+}
+
+function isNativeAssetRequest(request: QdnAppRequest, defaultToNative = false) {
+  const assetId = getRequestAssetId(request);
+
+  if (typeof assetId === 'number') {
+    return assetId === NATIVE_ASSET_ID;
+  }
+
+  const coin = getString(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+
+  return coin ? isNativeAssetAlias(coin) : defaultToNative;
+}
+
+function getAssetApprovalName(assetId: number) {
+  return assetId === NATIVE_ASSET_ID ? NATIVE_ASSET_LABEL : `Asset #${assetId}`;
+}
+
+function atomicAmountToCoinString(value: string | number | bigint) {
+  const atomic = BigInt(String(value).trim());
+  const whole = atomic / 100_000_000n;
+  const fraction = atomic % 100_000_000n;
+
+  if (fraction === 0n) {
+    return whole.toString();
+  }
+
+  return `${whole}.${fraction.toString().padStart(8, '0').replace(/0+$/, '')}`;
+}
+
+function feePerKbToFeePerByteString(value: unknown) {
+  const feePerKb = BigInt(getString(value));
+  const feePerByte = (feePerKb + 999n) / 1000n;
+
+  if (feePerByte <= 0n) {
+    throw new Error('Foreign fee must be greater than zero.');
+  }
+
+  return atomicAmountToCoinString(feePerByte);
+}
+
+function getForeignFeePath(request: QdnAppRequest) {
+  const feeType = (
+    getString(getRequestValue(request, 'feeType')) ||
+    getString(getRequestValue(request, 'type'))
+  ).toLowerCase();
+
+  if (!feeType || feeType === 'trade' || feeType === 'send' || feeType === 'feekb' || feeType === 'feeperbyte') {
+    return 'feekb';
+  }
+
+  if (feeType === 'feeceiling' || feeType === 'feerequired') {
+    return 'feerequired';
+  }
+
+  throw new Error('Unsupported foreign fee type.');
+}
+
+function getForeignServerPayload(request: QdnAppRequest) {
+  const payload = getRequestPayload(request);
+  const server = isRecord(payload.server) ? payload.server : isRecord(request.server) ? request.server : payload;
+  const hostName =
+    getString(server.hostName) ||
+    getString(server.hostname) ||
+    getString(server.host);
+  const port = getInteger(server.port);
+  const connectionType = (
+    getString(server.connectionType) ||
+    getString(server.type) ||
+    getString(server.connection)
+  ).toUpperCase();
+  const certificateSha256Fingerprint =
+    getString(server.certificateSha256Fingerprint) ||
+    getString(server.certificate) ||
+    getString(server.sslCertificate);
+
+  if (!hostName) {
+    throw new Error('Foreign server host is required.');
+  }
+
+  if (hostName.length > 253 || /[\s/\\]/.test(hostName)) {
+    throw new Error('Foreign server host is invalid.');
+  }
+
+  if (typeof port !== 'number' || port <= 0 || port > 65535) {
+    throw new Error('Foreign server port must be a valid TCP port.');
+  }
+
+  if (connectionType !== 'SSL' && connectionType !== 'TCP') {
+    throw new Error('Foreign server connection type must be SSL or TCP.');
+  }
+
+  if (
+    certificateSha256Fingerprint &&
+    !/^(?:[a-fA-F0-9]{64}|(?:[a-fA-F0-9]{2}:){31}[a-fA-F0-9]{2})$/.test(certificateSha256Fingerprint)
+  ) {
+    throw new Error('Foreign server certificate fingerprint must be a SHA-256 fingerprint.');
+  }
+
+  return {
+    ...(certificateSha256Fingerprint ? { certificateSha256Fingerprint } : {}),
+    connectionType,
+    hostName,
+    port,
+  };
+}
+
+function getForeignWalletSeedForContext(context: QdnViewContext | null, connection: NodeConnection) {
+  assertLocalWriteConnection(connection);
+
+  const accountId = getQdnWriteAccountId(context);
+
+  assertAccountUnlocked(accountId);
+
+  return getAccountForeignWalletSeed(accountId);
+}
+
+function deriveForeignWalletForContext(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  connection: NodeConnection,
+) {
+  const coin = normalizeForeignWalletCoin(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+  const seed = getForeignWalletSeedForContext(context, connection);
+
+  return deriveForeignWalletRuntime({
+    coin,
+    crypto: getForeignWalletCrypto(),
+    nonce: seed.addressIndex,
+    seed: seed.seed,
+    walletVersion: seed.walletVersion,
+  });
+}
+
+function getForeignWalletResponse(wallet: ForeignWalletRuntime) {
+  return {
+    address: wallet.address,
+    coin: wallet.coin,
+    publicKey: wallet.publicKey,
+    publickey: wallet.publicKey,
+  };
+}
+
+async function getUserForeignWalletForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  if (isNativeAssetRequest(request, true)) {
+    const profile = await getAccountProfile(getQdnWriteAccountId(context));
+
+    return {
+      address: profile.address,
+      assetId: NATIVE_ASSET_ID,
+      assetName: NATIVE_ASSET_LABEL,
+      native: true,
+    };
+  }
+
+  const connection = await getNodeConnection();
+  const wallet = deriveForeignWalletForContext(request, context, connection);
+
+  return getForeignWalletResponse(wallet);
+}
+
+async function postForeignWalletReadForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  endpoint: 'addressinfos' | 'walletbalance' | 'wallettransactions',
+) {
+  const connection = await getNodeConnection();
+  const wallet = deriveForeignWalletForContext(request, context, connection);
+  const apiKey = getNodeApiKey(connection);
+  const body = endpoint === 'addressinfos'
+    ? JSON.stringify({ xpub58: wallet.xpub58 })
+    : wallet.xpub58;
+  const result = await postLocalNodeText(
+    connection,
+    `/crosschain/${wallet.coin.toLowerCase()}/${endpoint}`,
+    body,
+    apiKey,
+    `Foreign wallet ${endpoint} request failed.`,
+    endpoint === 'addressinfos' ? 'application/json' : 'text/plain',
+  );
+
+  return parseResponseData(result.body, result.contentType);
+}
+
+async function getCrosschainServerInfoForApp(request: QdnAppRequest) {
+  const coin = normalizeForeignWalletCoin(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+  const serverInfo = await fetchNodeApiPayload(`/crosschain/${coin.toLowerCase()}/serverinfos`, request);
+
+  return isRecord(serverInfo) && Array.isArray(serverInfo.servers) ? serverInfo.servers : serverInfo;
+}
+
+async function getForeignFeeForApp(request: QdnAppRequest) {
+  const coin = normalizeForeignWalletCoin(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+  const feePath = getForeignFeePath(request);
+  const fee = await fetchNodeApiPayload(`/crosschain/${coin.toLowerCase()}/${feePath}`, request);
+
+  if (feePath === 'feekb') {
+    return {
+      fee: feePerKbToFeePerByteString(fee),
+      feePerKb: fee,
+    };
+  }
+
+  return { fee };
+}
+
+async function getServerConnectionHistoryForApp(request: QdnAppRequest) {
+  const coin = normalizeForeignWalletCoin(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+
+  return fetchNodeApiPayload(`/crosschain/${coin.toLowerCase()}/serverconnectionhistory`, request);
+}
+
+async function getNativeAssetInfo(connection: NodeConnection) {
+  const response = await fetchNode(`/assets/info?assetId=${NATIVE_ASSET_ID}`, {}, connection.nodeApiUrl);
+  const body = (await response.text()).trim();
+
+  if (!response.ok) {
+    throw new Error('Native asset is not active on this node yet.');
+  }
+
+  return parseResponseData(body, response.headers.get('content-type') ?? '');
+}
+
+async function setCurrentForeignServerForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const coin = normalizeForeignWalletCoin(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+  const server = getForeignServerPayload(request);
+  const writeContext = await getQdnWriteContext(context, {
+    name: `${coin} server ${server.hostName}:${server.port}`,
+    service: 'FOREIGN_CHAIN',
+    tags: [],
+  });
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'SET_CURRENT_FOREIGN_SERVER',
+    details: [
+      { label: 'Coin', value: coin },
+      { label: 'Host', value: server.hostName },
+      { label: 'Port', value: String(server.port) },
+      { label: 'Connection', value: server.connectionType },
+      ...(server.certificateSha256Fingerprint
+        ? [{ label: 'Certificate SHA-256', value: server.certificateSha256Fingerprint }]
+        : []),
+    ],
+    name: `${coin} server ${server.hostName}:${server.port}`,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const result = await postLocalNodeText(
+    writeContext.connection,
+    `/crosschain/${coin.toLowerCase()}/setcurrentserver`,
+    JSON.stringify(server),
+    writeContext.apiKey,
+    'Foreign server selection failed.',
+    'application/json',
+  );
+
+  return parseResponseData(result.body, result.contentType);
 }
 
 function base58Encode(buffer: Uint8Array) {
@@ -4273,6 +4586,29 @@ async function sendCoinForApp(
   sender: WebContents,
   action: 'PAYMENT' | 'SEND_COIN',
 ) {
+  const assetId = getRequestAssetId(request);
+
+  if (typeof assetId === 'number' && assetId !== NATIVE_ASSET_ID) {
+    throw new Error('Use TRANSFER_ASSET for non-native asset transfers.');
+  }
+
+  if (!isNativeAssetRequest(request, true)) {
+    if (action !== 'SEND_COIN') {
+      throw new Error('Foreign coin sends must use SEND_COIN.');
+    }
+
+    return sendForeignCoinForApp(request, context, sender);
+  }
+
+  return sendNativeAssetForApp(request, context, sender, action);
+}
+
+async function sendNativeAssetForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+  action: 'PAYMENT' | 'SEND_COIN',
+) {
   const recipient = getRequiredMemberAddress(
     request,
     'Recipient address',
@@ -4283,10 +4619,12 @@ async function sendCoinForApp(
   );
   const amount = getRequiredAmountValue(request, 'amount', 'Amount');
   const writeContext = await getQdnChatContext(context);
+  const nativeAsset = await getNativeAssetInfo(writeContext.connection);
 
   await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
-    action,
+    action: 'TRANSFER_ASSET',
     amount,
+    name: getAssetApprovalName(NATIVE_ASSET_ID),
     recipientAddress: recipient,
     permissionScope: 'single-request',
   });
@@ -4295,18 +4633,19 @@ async function sendCoinForApp(
 
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
-    '/payments/pay',
+    '/assets/transfer',
     JSON.stringify({
-      type: 'PAYMENT',
+      type: 'TRANSFER_ASSET',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
       senderPublicKey: writeContext.publicKey58,
       recipient,
       amount,
+      assetId: NATIVE_ASSET_ID,
     }),
     writeContext.apiKey,
-    'Payment transaction build failed.',
+    'Native asset transfer transaction build failed.',
     'application/json',
   );
   const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
@@ -4316,8 +4655,86 @@ async function sendCoinForApp(
     action,
     recipient,
     amount,
+    asset: nativeAsset,
+    assetId: NATIVE_ASSET_ID,
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function sendForeignCoinForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const coin = normalizeForeignWalletCoin(getRequestValue(request, 'coin') ?? getRequestValue(request, 'blockchain'));
+  const recipient =
+    getString(getRequestValue(request, 'recipient')) ||
+    getString(getRequestValue(request, 'recipientAddress')) ||
+    getString(getRequestValue(request, 'receivingAddress')) ||
+    getString(getRequestValue(request, 'address')) ||
+    getString(getRequestValue(request, 'destinationAddress'));
+  const amount = getForeignWalletAmountString(getRequestValue(request, 'amount'), 'Amount');
+  const feePerByteValue = getRequestValue(request, 'feePerByte') ?? getRequestValue(request, 'fee');
+  const hasFeePerByte = !(typeof feePerByteValue === 'undefined' || feePerByteValue === null ||
+    (typeof feePerByteValue === 'string' && feePerByteValue.trim() === ''));
+  const feePerByte = !hasFeePerByte
+    ? undefined
+    : getForeignWalletAmountString(feePerByteValue, 'Fee per byte');
+  const writeContext = await getQdnWriteContext(context, {
+    name: `${coin} send`,
+    service: 'FOREIGN_CHAIN',
+    tags: [],
+  });
+
+  if (!recipient || recipient.length > 256) {
+    throw new Error('Recipient address is required.');
+  }
+
+  if (writeContext.signer.kind !== 'account') {
+    throw new Error('Foreign coin sends require an unlocked Home account.');
+  }
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'SEND_COIN',
+    amount,
+    name: coin,
+    recipientAddress: recipient,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const seed = getAccountForeignWalletSeed(writeContext.signer.accountId);
+  const wallet = deriveForeignWalletRuntime({
+    coin,
+    crypto: getForeignWalletCrypto(),
+    nonce: seed.addressIndex,
+    seed: seed.seed,
+    walletVersion: seed.walletVersion,
+  });
+  const result = await postLocalNodeText(
+    writeContext.connection,
+    `/crosschain/${coin.toLowerCase()}/send`,
+    JSON.stringify({
+      amount,
+      ...(feePerByte ? { feePerByte } : {}),
+      receivingAddress: recipient,
+      xprv58: wallet.xprv58,
+    }),
+    writeContext.apiKey,
+    'Foreign coin send failed.',
+    'application/json',
+  );
+
+  return {
+    accepted: true,
+    action: 'SEND_COIN',
+    amount,
+    coin,
+    recipient,
+    result: parseResponseData(result.body, result.contentType),
+    txHash: result.body,
   };
 }
 
@@ -4341,7 +4758,7 @@ async function transferAssetForApp(
   await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
     action: 'TRANSFER_ASSET',
     amount,
-    name: `Asset #${assetId}`,
+    name: getAssetApprovalName(assetId),
     recipientAddress: recipient,
     permissionScope: 'single-request',
   });
@@ -5930,6 +6347,30 @@ async function handleQdnAppRequest(
     case 'GET_BALANCE':
       return fetchNodeApiPayload(`/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
 
+    case 'GET_CROSSCHAIN_BLOCKCHAINS':
+      return fetchNodeApiPayload('/crosschain/blockchains', request);
+
+    case 'GET_CROSSCHAIN_SERVER_INFO':
+      return getCrosschainServerInfoForApp(request);
+
+    case 'GET_FOREIGN_FEE':
+      return getForeignFeeForApp(request);
+
+    case 'GET_SERVER_CONNECTION_HISTORY':
+      return getServerConnectionHistoryForApp(request);
+
+    case 'GET_USER_WALLET':
+      return getUserForeignWalletForApp(request, context);
+
+    case 'GET_WALLET_BALANCE':
+      return postForeignWalletReadForApp(request, context, 'walletbalance');
+
+    case 'GET_USER_WALLET_INFO':
+      return postForeignWalletReadForApp(request, context, 'addressinfos');
+
+    case 'GET_USER_WALLET_TRANSACTIONS':
+      return postForeignWalletReadForApp(request, context, 'wallettransactions');
+
     case 'GET_GROUP':
       return fetchNodeApiPayload(
         `/groups/${encodeURIComponent(String(getRequiredGroupId(request, 1)))}`,
@@ -6097,6 +6538,9 @@ async function handleQdnAppRequest(
 
     case 'TRANSFER_ASSET':
       return transferAssetForApp(request, context, sender);
+
+    case 'SET_CURRENT_FOREIGN_SERVER':
+      return setCurrentForeignServerForApp(request, context, sender);
 
     case 'CREATE_POLL':
       return createPollForApp(request, context, sender);
