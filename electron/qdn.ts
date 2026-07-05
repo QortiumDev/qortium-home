@@ -836,10 +836,14 @@ function getQdnWriteSmokeSourceSelection() {
     throw new Error('QDN write smoke source path does not exist.');
   }
 
+  const smokeStats = statSync(expandedSourcePath);
+
   return {
     displayName: path.basename(expandedSourcePath) || 'Smoke source',
+    filename: smokeStats.isFile() ? path.basename(expandedSourcePath) : undefined,
     kind: getQdnWriteSourceKind(expandedSourcePath),
     path: expandedSourcePath,
+    size: smokeStats.isFile() ? smokeStats.size : undefined,
   } satisfies QdnWriteSourceSelection;
 }
 
