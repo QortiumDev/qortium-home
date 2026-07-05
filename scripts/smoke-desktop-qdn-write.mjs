@@ -44,6 +44,7 @@ const allScenarios = [
   'no-account',
   'locked-account',
   'missing-api-key',
+  'picker-token',
   'nonlocal-node',
   'stale-tab',
 ];
@@ -509,17 +510,24 @@ async function evaluate(client, expression) {
 }
 
 async function getPageTarget(cdpPort, predicate, label) {
-  return waitUntil(label, cdpTimeoutMs, async () => {
-    const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`);
+  try {
+    return await waitUntil(label, cdpTimeoutMs, async () => {
+      const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`);
 
-    return targets.find(
-      (target) =>
-        target.type === 'page' &&
-        target.webSocketDebuggerUrl &&
-        typeof target.url === 'string' &&
-        predicate(target.url),
-    ) ?? null;
-  });
+      return targets.find(
+        (target) =>
+          target.type === 'page' &&
+          target.webSocketDebuggerUrl &&
+          typeof target.url === 'string' &&
+          predicate(target.url),
+      ) ?? null;
+    });
+  } catch (error) {
+    const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`).catch(() => []);
+    const summary = targets.map((target) => `${target.type}: ${target.url}`).join('\n  ');
+
+    fail(`${error instanceof Error ? error.message : error} Available targets:\n  ${summary || '(none)'}`);
+  }
 }
 
 async function navigateToFixture(client) {
@@ -844,27 +852,76 @@ async function runScenarioActions({
 
     case 'missing-api-key':
       rmSync(apiKeyPathForApp, { force: true });
-      await runQdnRequestWithDialog(
+      await expectQdnRequestRejected(
         mainClient,
         qdnClient,
         publishRequest,
-        'Approve',
-        undefined,
-        true,
-      ).then((result) => {
-        if (result?.ok || !String(result?.message ?? '').includes('API key')) {
-          fail(`Missing API key scenario failed with unexpected result: ${JSON.stringify(result)}`);
-        }
-      });
+        'Start Qortium Core from Home',
+      );
       await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
       return { deleted: false, published: false };
+
+    case 'picker-token': {
+      const selectSourceRequest = {
+        action: 'SELECT_QDN_PUBLISH_SOURCE',
+      };
+      const sourceResult = await runQdnRequest(qdnClient, selectSourceRequest);
+
+      if (!sourceResult?.ok) {
+        fail(`Picker token source selection unexpectedly failed: ${JSON.stringify(sourceResult)}`);
+      }
+
+      const { canceled, fileName, kind, size, sourceToken } = sourceResult.result ?? {};
+
+      if (canceled) {
+        fail('Picker token source selection returned canceled.');
+      }
+
+      if (typeof sourceToken !== 'string' || sourceToken.length === 0) {
+        fail(`Picker token source selection returned missing source token: ${JSON.stringify(sourceResult.result)}`);
+      }
+
+      if (typeof fileName !== 'string' || !fileName) {
+        fail(`Picker token source selection returned missing fileName: ${JSON.stringify(sourceResult.result)}`);
+      }
+
+      if (kind !== 'file' && kind !== 'directory') {
+        fail(`Picker token source selection returned invalid kind: ${String(kind)}.`);
+      }
+
+      if (typeof size !== 'number' || size < 0) {
+        fail(`Picker token source selection returned invalid size: ${String(size)}.`);
+      }
+
+      const tokenPublishRequest = {
+        ...publishRequest,
+        sourceToken,
+      };
+
+      log('Publishing QDN smoke resource from selected token.');
+      await runQdnRequestWithDialog(mainClient, qdnClient, tokenPublishRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
+      await expectQdnRequestRejected(
+        mainClient,
+        qdnClient,
+        { ...publishRequest, sourceToken },
+        'Selected QDN publish source is no longer available.',
+      );
+
+      log('Deleting QDN smoke resource.');
+      await runQdnRequestWithDialog(mainClient, qdnClient, deleteRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'DELETED');
+      return { deleted: true, published: true };
+    }
 
     case 'nonlocal-node':
       await saveNodeSettings(mainClient, {
         customUrl: 'http://146.103.42.59:24891',
         mode: 'custom',
       });
-      await expectQdnRequestRejected(mainClient, qdnClient, publishRequest, 'local Core node');
+      // Non-local nodes now use the keyless QDN write path, which still requires an
+      // active tab account but no longer enforces a local-write restriction.
+      await expectQdnRequestRejected(mainClient, qdnClient, publishRequest, 'No account is selected for this tab.');
       await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
       return { deleted: false, published: false };
 
@@ -1081,6 +1138,10 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
     if (electronProcess?.child.exitCode && electronProcess.child.exitCode !== 0) {
       log(`Electron output:\n${electronProcess.output.join('')}`);
     }
+
+    if (process.env.QORTIUM_HOME_SMOKE_DEBUG === '1') {
+      log(`[debug] Electron output:\n${electronProcess?.output.join('') ?? '(none)'}`);
+    }
   }
 }
 
@@ -1111,6 +1172,8 @@ async function main() {
 }
 
 main().catch(() => {
-  console.error('[desktop-qdn-write-smoke] Smoke test failed.');
+  console.error(
+    '[desktop-qdn-write-smoke] Smoke test failed. Review the preceding scenario logs, or rerun with QORTIUM_HOME_SMOKE_DEBUG=1 for controlled Electron output.',
+  );
   process.exitCode = 1;
 });

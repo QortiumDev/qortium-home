@@ -108,8 +108,14 @@ APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
 Single-resource publishing can use inline `data64`/`base64` payloads or a
 Home-owned file/folder picker on desktop and a Home-owned single-file native
-picker on Android. Multiple-resource publishing requires inline base64 data for
-each resource. Publish/delete, group, and name write requests require
+picker on Android. `SELECT_QDN_PUBLISH_SOURCE` can return a `sourceToken` and
+`sourceToken` is accepted on `PUBLISH_QDN_RESOURCE` and each entry of
+`PUBLISH_MULTIPLE_QDN_RESOURCES` as an alternative to inline `data64`/`base64`.
+`PUBLISH_MULTIPLE_QDN_RESOURCES` still requires either inline data or a token
+for each resource. `SELECT_QDN_PUBLISH_SOURCE` accepts optional `kind` (`file`
+or `directory`) and returns `{ canceled: true }` or a source result with
+`fileName`, `kind`, `size`, and `sourceToken`.
+Publish/delete, group, and name write requests require
 per-request approval before Home signs and processes the transaction with the
 selected tab account. Chat sends and private closed-group reads use a
 session-scoped approval for the current tab and selected account; direct private
