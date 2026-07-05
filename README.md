@@ -104,7 +104,7 @@ APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `UPDATE_GROUP`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
 `CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
-`GET_PRIVATE_DIRECT_ACTIVE_CHATS`, and
+`GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
 Single-resource publishing can use inline `data64`/`base64` payloads or a
 Home-owned file/folder picker on desktop and a Home-owned single-file native
@@ -119,6 +119,11 @@ receive wallet private keys or generic signing capability.
 `FETCH_NODE_API` accepts path-only requests such as `/admin/status` and only
 allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 `GET_NODE_API`, string-form requests, and write-style methods are rejected.
+
+`RATE_RESOURCE` submits a Core resource rating for an existing public QDN
+resource after user approval. The action accepts `service`, `name`, optional
+`identifier` (defaulting to `default`), and `rating`; ratings `1` through `10`
+record a rating, while `0` removes the selected account's active rating.
 
 ## Planned Work
 
