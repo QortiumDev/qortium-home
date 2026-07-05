@@ -464,6 +464,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "发布 QDN 资源",
   "qdnWrite.action.publishResources": "批量发布 QDN 资源",
   "qdnWrite.action.rateAccount": "评价账户",
+  "qdnWrite.action.rateResource": "评价 QDN 资源",
   "qdnWrite.action.registerName": "注册名称",
   "qdnWrite.action.removeGroupAdmin": "移除群组管理员",
   "qdnWrite.action.removeMintingAccount": "移除铸造密钥",

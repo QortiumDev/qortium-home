@@ -618,6 +618,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'VOTE_ON_POLL'
     | 'UPDATE_POLL'
     | 'RATE_ACCOUNT'
+    | 'RATE_RESOURCE'
     | 'BUY_NAME'
     | 'CANCEL_SELL_NAME'
     | 'REGISTER_NAME'

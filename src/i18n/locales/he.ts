@@ -443,6 +443,7 @@ export const he: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "פרסום משאב QDN",
   "qdnWrite.action.publishResources": "פרסום משאבי QDN",
   "qdnWrite.action.rateAccount": "דירוג חשבון",
+  "qdnWrite.action.rateResource": "דירוג משאב QDN",
   "qdnWrite.action.registerName": "רישום שם",
   "qdnWrite.action.removeGroupAdmin": "הסרת מנהל קבוצה",
   "qdnWrite.action.removeMintingAccount": "הסר מפתח הטבעה",

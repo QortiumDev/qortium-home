@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-05 - qdn: add RATE_RESOURCE bridge action for resource ratings
+
+QDN apps can now ask Home to submit a 1 to 10 rating for a published QDN
+resource through the bridge using a new `RATE_RESOURCE` action, with 0 removing
+an existing rating. This lets apps replace ad-hoc like buttons with Core's
+native trust-weighted resource rating system. As with `RATE_ACCOUNT`, the user
+approves each request and the rating is signed inside Home, so the account's
+private key never leaves Home. It works the same way on desktop and Android,
+with translated approval labels.
+
 ### 2026-07-05 - release: prepare home 1.3.0
 
 Bumps Qortium Home to 1.3.0 with Android versionCode 25 for the next

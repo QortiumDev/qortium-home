@@ -443,6 +443,7 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "QDN-erőforrás közzététele",
   "qdnWrite.action.publishResources": "QDN-erőforrások közzététele",
   "qdnWrite.action.rateAccount": "Fiók értékelése",
+  "qdnWrite.action.rateResource": "QDN-erőforrás értékelése",
   "qdnWrite.action.registerName": "Név regisztrálása",
   "qdnWrite.action.removeGroupAdmin": "Csoportadmin eltávolítása",
   "qdnWrite.action.removeMintingAccount": "Minting kulcs eltávolítása",

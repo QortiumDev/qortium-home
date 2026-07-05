@@ -442,6 +442,7 @@ export const en = {
   "qdnWrite.action.publishResource": "Publish QDN Resource",
   "qdnWrite.action.publishResources": "Publish QDN Resources",
   "qdnWrite.action.rateAccount": "Rate Account",
+  "qdnWrite.action.rateResource": "Rate QDN Resource",
   "qdnWrite.action.registerName": "Register Name",
   "qdnWrite.action.removeGroupAdmin": "Remove Group Admin",
   "qdnWrite.action.removeMintingAccount": "Remove Minting Key",
