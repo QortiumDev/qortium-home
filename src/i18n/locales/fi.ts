@@ -443,6 +443,7 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Julkaise QDN-resurssi",
   "qdnWrite.action.publishResources": "Julkaise QDN-resursseja",
   "qdnWrite.action.rateAccount": "Arvioi tili",
+  "qdnWrite.action.rateResource": "Arvioi QDN-resurssi",
   "qdnWrite.action.registerName": "Rekisteröi nimi",
   "qdnWrite.action.removeGroupAdmin": "Poista ryhmän ylläpitäjä",
   "qdnWrite.action.removeMintingAccount": "Poista minttausavain",

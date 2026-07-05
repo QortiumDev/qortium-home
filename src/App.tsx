@@ -366,6 +366,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updatePoll';
     case 'RATE_ACCOUNT':
       return 'qdnWrite.action.rateAccount';
+    case 'RATE_RESOURCE':
+      return 'qdnWrite.action.rateResource';
     case 'BUY_NAME':
       return 'qdnWrite.action.buyName';
     case 'CANCEL_SELL_NAME':

@@ -443,6 +443,7 @@ export const it: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Pubblica risorsa QDN",
   "qdnWrite.action.publishResources": "Pubblica risorse QDN",
   "qdnWrite.action.rateAccount": "Valuta account",
+  "qdnWrite.action.rateResource": "Valuta risorsa QDN",
   "qdnWrite.action.registerName": "Registra nome",
   "qdnWrite.action.removeGroupAdmin": "Rimuovi amministratore del gruppo",
   "qdnWrite.action.removeMintingAccount": "Rimuovi chiave di minting",

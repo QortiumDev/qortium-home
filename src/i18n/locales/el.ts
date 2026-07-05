@@ -444,6 +444,7 @@ export const el: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Δημοσίευση πόρου QDN",
   "qdnWrite.action.publishResources": "Δημοσίευση πόρων QDN",
   "qdnWrite.action.rateAccount": "Αξιολόγηση λογαριασμού",
+  "qdnWrite.action.rateResource": "Αξιολόγηση πόρου QDN",
   "qdnWrite.action.registerName": "Καταχώριση ονόματος",
   "qdnWrite.action.removeGroupAdmin": "Κατάργηση διαχειριστή ομάδας",
   "qdnWrite.action.removeMintingAccount": "Κατάργηση κλειδιού minting",

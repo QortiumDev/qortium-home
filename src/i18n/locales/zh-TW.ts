@@ -443,6 +443,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "發布 QDN 資源",
   "qdnWrite.action.publishResources": "發布多個 QDN 資源",
   "qdnWrite.action.rateAccount": "評價帳戶",
+  "qdnWrite.action.rateResource": "評價 QDN 資源",
   "qdnWrite.action.registerName": "註冊名稱",
   "qdnWrite.action.removeGroupAdmin": "移除群組管理員",
   "qdnWrite.action.removeMintingAccount": "移除鑄造金鑰",

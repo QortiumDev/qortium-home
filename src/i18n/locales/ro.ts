@@ -443,6 +443,7 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Publică resursa QDN",
   "qdnWrite.action.publishResources": "Publică resursele QDN",
   "qdnWrite.action.rateAccount": "Evaluează cont",
+  "qdnWrite.action.rateResource": "Evaluează resursa QDN",
   "qdnWrite.action.registerName": "Înregistrează nume",
   "qdnWrite.action.removeGroupAdmin": "Elimină administrator de grup",
   "qdnWrite.action.removeMintingAccount": "Elimină cheia de minting",

@@ -5395,6 +5395,100 @@ async function rateAccountForApp(request: QdnAppRequest, context: QdnAppRequestC
   };
 }
 
+// Resource rating range is 1..10 inclusive; 0 means "remove the existing rating"
+// (not a score). Core is the final authority on validity (unpublished resource,
+// non-rateable service, no-op) - this only screens out values that can never be valid.
+function getRequiredResourceRatingValue(request: QdnAppRequest) {
+  const rating = getInteger(getRequestValue(request, 'rating'));
+
+  if (typeof rating !== 'number') {
+    throw new Error('Rating is required.');
+  }
+
+  if (rating < 0 || rating > 10) {
+    throw new Error('Rating must be an integer between 1 and 10 (0 removes the rating).');
+  }
+
+  return rating;
+}
+
+function describeResourceRating(rating: number) {
+  return rating === 0 ? 'remove rating' : `rating ${rating}/10`;
+}
+
+// The RATE_RESOURCE transaction body carries Core's numeric service id, not the
+// string name apps use, so the id is resolved from the node's own catalogue
+// instead of a second copy of the Service enum that could silently drift.
+async function getQdnServiceValue(nodeApiUrl: string, service: string) {
+  const services = await fetchLocalNodeApiPayload(
+    nodeApiUrl,
+    '/arbitrary/services',
+    'QDN service catalogue lookup failed.',
+  );
+
+  if (Array.isArray(services)) {
+    for (const entry of services) {
+      if (isRecord(entry) && getString(entry.id).toUpperCase() === service && typeof entry.value === 'number') {
+        return entry.value;
+      }
+    }
+  }
+
+  throw new Error(`The node does not recognise the ${service} QDN service.`);
+}
+
+async function rateResourceForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const service = getService(getRequestValue(request, 'service'));
+  const name = getRequiredRequestString(request, 'name', 'QDN resource name');
+  const identifier = getString(getRequestValue(request, 'identifier')) || 'default';
+  const rating = getRequiredResourceRatingValue(request);
+
+  if (!service) {
+    throw new Error('QDN resource service is required.');
+  }
+
+  const writeContext = await getQdnWriteContext(context);
+  const serviceValue = await getQdnServiceValue(writeContext.nodeApiUrl, service);
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'RATE_RESOURCE',
+    name: describeResourceRating(rating),
+    resource: { service, name, identifier, tags: [] },
+    permissionScope: 'single-request',
+  });
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/resource-ratings/rate',
+    JSON.stringify({
+      type: 'RATE_RESOURCE',
+      timestamp: Date.now(),
+      txGroupId: getTransactionGroupId(request),
+      fee: getTransactionFee(request),
+      raterPublicKey: writeContext.publicKey58,
+      service: serviceValue,
+      name,
+      identifier,
+      rating,
+    }),
+    writeContext.apiKey,
+    'Rate resource transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'RATE_RESOURCE',
+    service,
+    name,
+    identifier,
+    rating,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
 async function updatePollForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
   const newPollName = getRequiredRequestString(request, 'newPollName', 'New poll name');
@@ -9040,6 +9134,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'RATE_ACCOUNT':
       return rateAccountForApp(request, context);
+
+    case 'RATE_RESOURCE':
+      return rateResourceForApp(request, context);
 
     case 'GET_ALL_LISTS':
       return getAllListsForApp();

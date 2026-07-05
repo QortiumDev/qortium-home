@@ -444,6 +444,7 @@ export const nb: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "Publiser QDN-ressurs",
   "qdnWrite.action.publishResources": "Publiser QDN-ressurser",
   "qdnWrite.action.rateAccount": "Vurder konto",
+  "qdnWrite.action.rateResource": "Vurder QDN-ressurs",
   "qdnWrite.action.registerName": "Registrer navn",
   "qdnWrite.action.removeGroupAdmin": "Fjern gruppeadministrator",
   "qdnWrite.action.removeMintingAccount": "Fjern minting-nøkkel",

@@ -443,6 +443,7 @@ export const nl: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "QDN-resource publiceren",
   "qdnWrite.action.publishResources": "QDN-resources publiceren",
   "qdnWrite.action.rateAccount": "Account beoordelen",
+  "qdnWrite.action.rateResource": "QDN-resource beoordelen",
   "qdnWrite.action.registerName": "Naam registreren",
   "qdnWrite.action.removeGroupAdmin": "Groepsbeheerder verwijderen",
   "qdnWrite.action.removeMintingAccount": "Minting-sleutel verwijderen",

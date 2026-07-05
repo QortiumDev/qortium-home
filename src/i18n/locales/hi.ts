@@ -444,6 +444,7 @@ export const hi: Record<TranslationKey, string> = {
   "qdnWrite.action.publishResource": "QDN संसाधन प्रकाशित करें",
   "qdnWrite.action.publishResources": "QDN संसाधन प्रकाशित करें",
   "qdnWrite.action.rateAccount": "खाते को रेट करें",
+  "qdnWrite.action.rateResource": "QDN संसाधन को रेट करें",
   "qdnWrite.action.registerName": "नाम पंजीकृत करें",
   "qdnWrite.action.removeGroupAdmin": "समूह एडमिन हटाएं",
   "qdnWrite.action.removeMintingAccount": "मिंटिंग कुंजी हटाएं",
