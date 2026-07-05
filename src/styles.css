@@ -4083,6 +4083,10 @@ h1 {
   overflow: hidden;
 }
 
+.qdn-viewer__image-stage--actual {
+  place-items: start;
+}
+
 .qdn-viewer__image-toggle {
   display: grid;
   min-width: 0;
@@ -4106,9 +4110,10 @@ h1 {
 .qdn-viewer__image-toggle--actual {
   width: max-content;
   height: max-content;
-  min-width: 100%;
-  min-height: 100%;
+  align-self: start;
   cursor: zoom-out;
+  justify-self: start;
+  place-items: start;
 }
 
 .qdn-viewer__image-toggle:focus-visible {

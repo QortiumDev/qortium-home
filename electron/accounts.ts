@@ -139,6 +139,16 @@ type CreateWalletResult = AccountsState & {
   canceled: boolean;
 };
 
+type WalletBackupResult =
+  | {
+      canceled: true;
+    }
+  | {
+      canceled: false;
+      fileName: string;
+      uri?: string;
+    };
+
 type PendingLoadedWallet = {
   encryptedWallet: EncryptedWallet;
   sourceFilename: string;
@@ -1169,6 +1179,38 @@ async function importPrivateKeyWallet(
   };
 }
 
+async function exportWallet(event: IpcMainInvokeEvent, accountId: string): Promise<WalletBackupResult> {
+  const store = readWalletStore();
+  const { wallet } = requireWalletAccount(store, accountId);
+  const suggestedFilename =
+    wallet.sourceFilename || `${sanitizeFilenamePart(wallet.label)}_${wallet.encryptedWallet.address0}.json`;
+  const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+  const dialogOptions: SaveDialogOptions = {
+    title: 'Save Wallet Backup',
+    defaultPath: getDefaultWalletBackupPath(suggestedFilename),
+    filters: [{ name: 'JSON wallet file', extensions: ['json'] }],
+  };
+  const result = parentWindow
+    ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+    : await dialog.showSaveDialog(dialogOptions);
+
+  if (result.canceled || !result.filePath) {
+    return {
+      canceled: true,
+    };
+  }
+
+  const savedFilePath = ensureJsonFilePath(result.filePath);
+
+  writeFileSync(savedFilePath, `${JSON.stringify(wallet.encryptedWallet, null, 2)}\n`, 'utf8');
+
+  return {
+    canceled: false,
+    fileName: path.basename(savedFilePath),
+    uri: savedFilePath,
+  };
+}
+
 function setActiveAccount(accountId: string) {
   const store = readWalletStore();
 
@@ -1284,6 +1326,7 @@ export function registerAccountIpcHandlers() {
   ipcMain.handle('accounts:importPrivateKeyWallet', (event, name: string, privateKey: string, password: string) =>
     importPrivateKeyWallet(event, name, privateKey, password),
   );
+  ipcMain.handle('accounts:exportWallet', (event, accountId: string) => exportWallet(event, accountId));
   ipcMain.handle('accounts:setActiveAccount', (_event, accountId: string) => setActiveAccount(accountId));
   ipcMain.handle('accounts:addDerivedAddress', (_event, accountId: string) => addDerivedAddress(accountId));
   ipcMain.handle('accounts:unlockWallet', (_event, accountId: string, password: string) =>

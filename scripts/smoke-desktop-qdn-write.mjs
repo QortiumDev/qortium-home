@@ -1024,6 +1024,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
           'GET_CROSSCHAIN_BLOCKCHAINS',
           'GET_CROSSCHAIN_SERVER_INFO',
           'GET_FOREIGN_FEE',
+          'GET_MARKET_PRICES',
           'GET_SERVER_CONNECTION_HISTORY',
           'GET_USER_WALLET',
           'GET_WALLET_BALANCE',
