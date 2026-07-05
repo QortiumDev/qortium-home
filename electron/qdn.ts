@@ -275,9 +275,19 @@ type QdnWriteSourceSelection = {
   dataBase64?: string;
   displayName: string;
   filename?: string;
+  isZip?: boolean;
   kind: 'data' | 'directory' | 'file';
   path?: string;
   size?: number;
+};
+
+type QdnPublishSourcePickKind = 'any' | 'directory' | 'file';
+
+type QdnPublishSourceTokenEntry = {
+  contextKey: string;
+  createdAt: number;
+  lastUsedAt: number;
+  source: QdnWriteSourceSelection;
 };
 
 type QdnWriteProfile = {
@@ -385,8 +395,11 @@ type ForeignPreparedSend = {
   txHash: string;
 };
 
-const approvedQdnChatPermissions = new Set<string>();
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
+const approvedQdnChatPermissions = new Set<string>();
+const qdnPublishSourceTokens = new Map<string, QdnPublishSourceTokenEntry>();
+const QDN_PUBLISH_SOURCE_TOKEN_TTL_MS = 30 * 60_000;
+const QDN_PUBLISH_SOURCE_TOKEN_MAX_ENTRIES = 16;
 const BASE58_ALPHABET_MAP = new Map<string, number>(
   [...BASE58_ALPHABET].map((character, index) => [character, index]),
 );
@@ -440,6 +453,97 @@ function getQdnChatPermissionCacheKey(
     accountId,
     action,
   ].join('\n');
+}
+
+function getQdnPublishSourceTokenContextKey(context: QdnViewContext) {
+  return [
+    context.windowId,
+    context.tabId,
+    context.nodeOrigin,
+    context.resourceUrl ?? '',
+  ].join('\n');
+}
+
+function pruneQdnPublishSourceTokens(now = Date.now()) {
+  for (const [token, entry] of qdnPublishSourceTokens) {
+    if (now - entry.lastUsedAt > QDN_PUBLISH_SOURCE_TOKEN_TTL_MS) {
+      qdnPublishSourceTokens.delete(token);
+    }
+  }
+
+  while (qdnPublishSourceTokens.size > QDN_PUBLISH_SOURCE_TOKEN_MAX_ENTRIES) {
+    let oldestToken = '';
+    let oldestLastUsedAt = Number.POSITIVE_INFINITY;
+
+    for (const [token, entry] of qdnPublishSourceTokens) {
+      if (entry.lastUsedAt < oldestLastUsedAt) {
+        oldestToken = token;
+        oldestLastUsedAt = entry.lastUsedAt;
+      }
+    }
+
+    if (!oldestToken) {
+      return;
+    }
+
+    qdnPublishSourceTokens.delete(oldestToken);
+  }
+}
+
+function cacheQdnPublishSourceToken(context: QdnViewContext, source: QdnWriteSourceSelection) {
+  const now = Date.now();
+  const token = randomUUID();
+
+  qdnPublishSourceTokens.set(token, {
+    contextKey: getQdnPublishSourceTokenContextKey(context),
+    createdAt: now,
+    lastUsedAt: now,
+    source,
+  });
+  pruneQdnPublishSourceTokens(now);
+
+  return token;
+}
+
+function getQdnPublishSourceToken(request: QdnAppRequest) {
+  return getString(getRequestValue(request, 'sourceToken'));
+}
+
+function getQdnPublishSourceFromTokenString(sourceToken: string, context: QdnViewContext) {
+  if (!sourceToken) {
+    return null;
+  }
+
+  pruneQdnPublishSourceTokens();
+  const entry = qdnPublishSourceTokens.get(sourceToken);
+
+  if (!entry) {
+    throw new Error('Selected QDN publish source is no longer available. Select the file again.');
+  }
+
+  if (entry.contextKey !== getQdnPublishSourceTokenContextKey(context)) {
+    throw new Error('Selected QDN publish source is not available to this app tab.');
+  }
+
+  entry.lastUsedAt = Date.now();
+
+  return entry.source;
+}
+
+function getQdnPublishSourceFromToken(request: QdnAppRequest, context: QdnViewContext) {
+  return getQdnPublishSourceFromTokenString(getQdnPublishSourceToken(request), context);
+}
+
+function releaseQdnPublishSourceTokenFromString(sourceToken: string) {
+  if (!sourceToken) {
+    return;
+  }
+
+  qdnPublishSourceTokens.delete(sourceToken);
+}
+
+function releaseQdnPublishSourceToken(request: QdnAppRequest) {
+  releaseQdnPublishSourceTokenFromString(getQdnPublishSourceToken(request));
 }
 
 // Sends an approval request to the host window renderer and resolves with the
@@ -1733,6 +1837,32 @@ function getInlinePublishData(request: QdnAppRequest) {
   return getString(getRequestValue(request, 'data64')) || getString(getRequestValue(request, 'base64'));
 }
 
+function hasZipMagicBytes(bytes: Buffer) {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07) &&
+    (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08)
+  );
+}
+
+function isQdnPublishZip(filename: string | undefined, dataBase64?: string) {
+  if (filename && path.extname(filename).toLowerCase() === '.zip') {
+    return true;
+  }
+
+  if (!dataBase64) {
+    return false;
+  }
+
+  return hasZipMagicBytes(Buffer.from(dataBase64.slice(0, 16), 'base64'));
+}
+
+function shouldUseQdnPublishZipEndpoint(resource: QdnWriteResourceRequest, source: QdnWriteSourceSelection) {
+  return source.isZip === true && ARCHIVE_RENDER_SERVICES.has(resource.service);
+}
+
 function getInlinePublishSource(request: QdnAppRequest): QdnWriteSourceSelection | null {
   const dataBase64 = getInlinePublishData(request);
 
@@ -1757,6 +1887,7 @@ function getInlinePublishSource(request: QdnAppRequest): QdnWriteSourceSelection
     dataBase64,
     displayName: filename,
     filename,
+    isZip: isQdnPublishZip(filename, dataBase64),
     kind: 'data',
     size,
   };
@@ -1766,6 +1897,16 @@ function isInlineQdnWriteSource(
   source: QdnWriteSourceSelection,
 ): source is QdnWriteSourceSelection & { dataBase64: string; kind: 'data' } {
   return source.kind === 'data' && typeof source.dataBase64 === 'string';
+}
+
+function getRequestedQdnPublishSourceKind(request: QdnAppRequest, fallback: QdnPublishSourcePickKind) {
+  const kind = getString(getRequestValue(request, 'kind')).toLowerCase();
+
+  if (kind === 'file' || kind === 'directory') {
+    return kind;
+  }
+
+  return fallback;
 }
 
 function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
@@ -1811,6 +1952,7 @@ function getQdnWriteResourceRequests(request: QdnAppRequest) {
     return {
       resource: getQdnWriteResourceRequest(resource as QdnAppRequest),
       source: getInlinePublishSource(resource as QdnAppRequest),
+      sourceToken: getQdnPublishSourceToken(resource as QdnAppRequest),
     };
   });
 }
@@ -2834,6 +2976,19 @@ function buildQdnPublishBase64Path(resource: QdnWriteResourceRequest, source: Qd
   }`;
 }
 
+function buildQdnPublishZipPath(resource: QdnWriteResourceRequest) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/zip${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
 function buildQdnPublicPublishBase64Path(resource: QdnWriteResourceRequest, source: QdnWriteSourceSelection) {
   const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
   const queryParams = new URLSearchParams();
@@ -3065,7 +3220,10 @@ function assertFreshQdnWriteContext(sender: WebContents, originalContext: QdnVie
   }
 }
 
-async function selectQdnPublishSource(context: QdnViewContext) {
+async function selectQdnPublishSource(
+  context: QdnViewContext,
+  kind: QdnPublishSourcePickKind = 'any',
+): Promise<QdnWriteSourceSelection | null> {
   const smokeSource = getQdnWriteSmokeSourceSelection();
 
   if (smokeSource) {
@@ -3080,7 +3238,7 @@ async function selectQdnPublishSource(context: QdnViewContext) {
 
   const result = await dialog.showOpenDialog(hostWindow, {
     buttonLabel: 'Select',
-    properties: ['openFile', 'openDirectory'],
+    properties: kind === 'file' ? ['openFile'] : kind === 'directory' ? ['openDirectory'] : ['openFile', 'openDirectory'],
     title: 'Select QDN Publish Source',
   });
 
@@ -3089,12 +3247,34 @@ async function selectQdnPublishSource(context: QdnViewContext) {
   }
 
   const selectedPath = result.filePaths[0];
+  const sourceStats = statSync(selectedPath);
+  const sourceKind = sourceStats.isDirectory() ? 'directory' : 'file';
 
   return {
     displayName: path.basename(selectedPath) || 'Selected item',
-    kind: getQdnWriteSourceKind(selectedPath),
+    filename: sourceKind === 'file' ? path.basename(selectedPath) : undefined,
+    kind: sourceKind,
     path: selectedPath,
+    size: sourceStats.isFile() ? sourceStats.size : undefined,
   } satisfies QdnWriteSourceSelection;
+}
+
+async function selectQdnPublishSourceForApp(request: QdnAppRequest, context: QdnViewContext) {
+  const source = await selectQdnPublishSource(context, getRequestedQdnPublishSourceKind(request, 'file'));
+
+  if (!source) {
+    return {
+      canceled: true,
+    };
+  }
+
+  return {
+    canceled: false,
+    fileName: source.filename ?? source.displayName,
+    kind: source.kind,
+    size: source.size,
+    sourceToken: cacheQdnPublishSourceToken(context, source),
+  };
 }
 
 function assertPublicQdnPublishSize(size: number, label: string) {
@@ -3160,7 +3340,7 @@ async function normalizePublicQdnPublishSource(source: QdnWriteSourceSelection) 
       ...source,
       dataBase64: source.dataBase64,
       filename: source.filename,
-      isZip: false,
+      isZip: isQdnPublishZip(source.filename, source.dataBase64),
       kind: 'data' as const,
       size,
     };
@@ -3443,10 +3623,18 @@ async function publishQdnResourceForApp(
   const writeContext = useLocalWrite
     ? await getQdnWriteContext(context, resource)
     : await getKeylessQdnWriteContext(context);
-  const source = getInlinePublishSource(request) ?? (await selectQdnPublishSource(context as QdnViewContext));
+  const publishSourceKind = ARCHIVE_RENDER_SERVICES.has(resource.service) ? 'any' : 'file';
+  const source =
+    getInlinePublishSource(request) ??
+    getQdnPublishSourceFromToken(request, context as QdnViewContext) ??
+    (await selectQdnPublishSource(context as QdnViewContext, publishSourceKind));
 
   if (!source) {
     throw new Error('QDN publish was canceled.');
+  }
+
+  if (!useLocalWrite && typeof source.size === 'number') {
+    assertPublicQdnPublishSize(source.size, 'Selected QDN publish source');
   }
 
   await requestQdnWriteApproval(
@@ -3472,6 +3660,7 @@ async function publishQdnResourceForApp(
       'QDN publish transaction build failed.',
     );
     const processedTransaction = await signAndProcessKeylessQdnTransaction(keylessWriteContext, unsignedTransaction.body);
+    releaseQdnPublishSourceToken(request);
 
     return {
       accepted: true,
@@ -3490,7 +3679,11 @@ async function publishQdnResourceForApp(
   const apiKey = localWriteContext.apiKey;
   const privateKey58 = getQdnWritePrivateKey(localWriteContext);
   const inlineSource = isInlineQdnWriteSource(source) ? source : null;
-  const publishPath = inlineSource ? buildQdnPublishBase64Path(resource, inlineSource) : buildQdnPublishPath(resource);
+  const publishPath = inlineSource
+    ? shouldUseQdnPublishZipEndpoint(resource, inlineSource)
+      ? buildQdnPublishZipPath(resource)
+      : buildQdnPublishBase64Path(resource, inlineSource)
+    : buildQdnPublishPath(resource);
   const publishBody = inlineSource ? inlineSource.dataBase64 : source.path ?? '';
   const unsignedTransaction = await postLocalNodeText(
     localWriteContext.connection,
@@ -3505,6 +3698,7 @@ async function publishQdnResourceForApp(
     privateKey58,
     unsignedTransaction.body,
   );
+  releaseQdnPublishSourceToken(request);
 
   return {
     accepted: true,
@@ -3526,7 +3720,7 @@ async function publishMultipleQdnResourcesForApp(
 ) {
   const resources = getQdnWriteResourceRequests(request);
 
-  if (resources.some((entry) => !entry.source)) {
+  if (resources.some((entry) => !entry.source && !entry.sourceToken)) {
     throw new Error('PUBLISH_MULTIPLE_QDN_RESOURCES requires base64 data for each resource.');
   }
 
@@ -3572,20 +3766,51 @@ async function publishMultipleQdnResourcesForApp(
       service: string;
     };
   }> = [];
+  const releaseTokens = new Set<string>();
 
   for (const entry of resources) {
-    const source = entry.source as QdnWriteSourceSelection;
-
+    const sourceToken = entry.sourceToken;
     try {
+      const source =
+        entry.source ??
+        (sourceToken
+          ? getQdnPublishSourceFromTokenString(sourceToken, context as QdnViewContext)
+          : null);
+
+      if (!source) {
+        throw new Error('PUBLISH_MULTIPLE_QDN_RESOURCES requires base64 data for each resource.');
+      }
+
+      if (!useLocalWrite && typeof source.size === 'number') {
+        assertPublicQdnPublishSize(source.size, 'Selected QDN publish source');
+      }
+
+      const publishPath = useLocalWrite
+        ? isInlineQdnWriteSource(source)
+          ? shouldUseQdnPublishZipEndpoint(entry.resource, source)
+            ? buildQdnPublishZipPath(entry.resource)
+            : buildQdnPublishBase64Path(entry.resource, source)
+          : buildQdnPublishPath(entry.resource)
+        : shouldUseQdnPublishZipEndpoint(entry.resource, source)
+          ? buildQdnPublicPublishZipPath(entry.resource)
+          : buildQdnPublicPublishBase64Path(entry.resource, source);
+      let sourceDataBase64 = source.dataBase64 ?? '';
+
+      if (useLocalWrite && !isInlineQdnWriteSource(source)) {
+        sourceDataBase64 = source.path ?? '';
+      }
+
       const publicSource = useLocalWrite ? null : await normalizePublicQdnPublishSource(source);
       const unsignedTransaction = await postLocalNodeText(
         writeContext.connection,
-        publicSource
-          ? publicSource.isZip
-            ? buildQdnPublicPublishZipPath(entry.resource)
-            : buildQdnPublicPublishBase64Path(entry.resource, publicSource)
-          : buildQdnPublishBase64Path(entry.resource, source),
-        publicSource ? publicSource.dataBase64 : source.dataBase64 ?? '',
+        useLocalWrite
+          ? publishPath
+          : publicSource
+            ? publicSource.isZip
+              ? buildQdnPublicPublishZipPath(entry.resource)
+              : buildQdnPublicPublishBase64Path(entry.resource, publicSource)
+            : publishPath,
+        useLocalWrite ? sourceDataBase64 : publicSource?.dataBase64 ?? sourceDataBase64,
         apiKey,
         'QDN publish transaction build failed.',
       );
@@ -3607,6 +3832,10 @@ async function publishMultipleQdnResourcesForApp(
         },
         transactionSignature: processedTransaction.signature,
       });
+
+      if (sourceToken) {
+        releaseTokens.add(sourceToken);
+      }
     } catch (error) {
       failures.push({
         error: error instanceof Error ? error.message : 'QDN publish failed.',
@@ -3617,6 +3846,10 @@ async function publishMultipleQdnResourcesForApp(
         },
       });
     }
+  }
+
+  for (const token of releaseTokens) {
+    releaseQdnPublishSourceTokenFromString(token);
   }
 
   return {
@@ -6727,6 +6960,9 @@ async function handleQdnAppRequest(
 
     case 'PUBLISH_QDN_RESOURCE':
       return publishQdnResourceForApp(request, context, sender);
+
+    case 'SELECT_QDN_PUBLISH_SOURCE':
+      return selectQdnPublishSourceForApp(request, context as QdnViewContext);
 
     case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
       return publishMultipleQdnResourcesForApp(request, context, sender);
