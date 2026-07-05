@@ -1171,7 +1171,9 @@ async function main() {
   log('Desktop QDN permission smoke test passed.');
 }
 
-main().catch((error) => {
-  console.error(`[desktop-qdn-write-smoke] Smoke test failed: ${error instanceof Error ? error.stack ?? error.message : error}`);
+main().catch(() => {
+  console.error(
+    '[desktop-qdn-write-smoke] Smoke test failed. Review the preceding scenario logs, or rerun with QORTIUM_HOME_SMOKE_DEBUG=1 for controlled Electron output.',
+  );
   process.exitCode = 1;
 });
