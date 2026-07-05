@@ -509,17 +509,24 @@ async function evaluate(client, expression) {
 }
 
 async function getPageTarget(cdpPort, predicate, label) {
-  return waitUntil(label, cdpTimeoutMs, async () => {
-    const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`);
+  try {
+    return await waitUntil(label, cdpTimeoutMs, async () => {
+      const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`);
 
-    return targets.find(
-      (target) =>
-        target.type === 'page' &&
-        target.webSocketDebuggerUrl &&
-        typeof target.url === 'string' &&
-        predicate(target.url),
-    ) ?? null;
-  });
+      return targets.find(
+        (target) =>
+          target.type === 'page' &&
+          target.webSocketDebuggerUrl &&
+          typeof target.url === 'string' &&
+          predicate(target.url),
+      ) ?? null;
+    });
+  } catch (error) {
+    const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`).catch(() => []);
+    const summary = targets.map((target) => `${target.type}: ${target.url}`).join('\n  ');
+
+    fail(`${error instanceof Error ? error.message : error} Available targets:\n  ${summary || '(none)'}`);
+  }
 }
 
 async function navigateToFixture(client) {
@@ -1081,6 +1088,10 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
     if (electronProcess?.child.exitCode && electronProcess.child.exitCode !== 0) {
       log(`Electron output:\n${electronProcess.output.join('')}`);
     }
+
+    if (process.env.QORTIUM_HOME_SMOKE_DEBUG === '1') {
+      log(`[debug] Electron output:\n${electronProcess?.output.join('') ?? '(none)'}`);
+    }
   }
 }
 
@@ -1110,7 +1121,7 @@ async function main() {
   log('Desktop QDN permission smoke test passed.');
 }
 
-main().catch(() => {
-  console.error('[desktop-qdn-write-smoke] Smoke test failed.');
+main().catch((error) => {
+  console.error(`[desktop-qdn-write-smoke] Smoke test failed: ${error instanceof Error ? error.stack ?? error.message : error}`);
   process.exitCode = 1;
 });
