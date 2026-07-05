@@ -24,6 +24,15 @@ import {
   type ForeignWalletRuntime,
 } from './foreign-wallets.js';
 import {
+  buildCoinGeckoSimplePricePath,
+  buildMarketPriceResponse,
+  getMarketPriceCacheKey,
+  MARKET_PRICE_CACHE_TTL_MS,
+  normalizeMarketPriceCoins,
+  normalizeMarketPriceCurrencies,
+  type MarketPriceResponse,
+} from './market-prices.js';
+import {
   getNodeApiUrl,
   getNodeConnection,
   isInvalidApiKeyResponse,
@@ -356,6 +365,24 @@ type QdnWriteApprovalResponse = {
 type PendingQdnApproval = {
   resolve: (approved: boolean) => void;
   windowWebContentsId: number;
+};
+
+type ForeignPreparedSend = {
+  activeNetwork: string;
+  amount: string;
+  blockchain: string;
+  currencyCode: string;
+  fee: string;
+  feePerByte: string;
+  inputAmount: string;
+  inputCount: number;
+  outputAmount: string;
+  outputCount: number;
+  rawTransactionHex: string;
+  receivingAddress: string;
+  sendMax: boolean;
+  transactionSize: number;
+  txHash: string;
 };
 
 const approvedQdnChatPermissions = new Set<string>();
@@ -923,6 +950,117 @@ function feePerKbToFeePerByteString(value: unknown) {
   return atomicAmountToCoinString(feePerByte);
 }
 
+function getForeignPreparedAmountString(value: unknown, label: string) {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return String(value);
+  }
+
+  const stringValue = getString(value);
+
+  if (!/^(?:0|[1-9]\d*)$/.test(stringValue)) {
+    throw new Error(`Prepared foreign send ${label} was invalid.`);
+  }
+
+  return stringValue;
+}
+
+function getForeignPreparedInteger(value: unknown, label: string) {
+  const stringValue = getForeignPreparedAmountString(value, label);
+  const parsedValue = Number(stringValue);
+
+  if (!Number.isSafeInteger(parsedValue)) {
+    throw new Error(`Prepared foreign send ${label} was too large.`);
+  }
+
+  return parsedValue;
+}
+
+function sanitizeForeignPreparedSend(
+  value: unknown,
+  fallbackCoin: string,
+  fallbackRecipient: string,
+): ForeignPreparedSend {
+  if (!isRecord(value)) {
+    throw new Error('Prepared foreign send response was invalid.');
+  }
+
+  const rawTransactionHex = getString(value.rawTransactionHex).toLowerCase();
+
+  if (!/^(?:[0-9a-f]{2})+$/.test(rawTransactionHex)) {
+    throw new Error('Prepared foreign send transaction bytes were invalid.');
+  }
+
+  const blockchain = getString(value.blockchain) || fallbackCoin;
+  const currencyCode = getString(value.currencyCode) || fallbackCoin;
+  const receivingAddress = getString(value.receivingAddress) || fallbackRecipient;
+
+  if (!receivingAddress) {
+    throw new Error('Prepared foreign send recipient address was invalid.');
+  }
+
+  return {
+    activeNetwork: getString(value.activeNetwork),
+    amount: getForeignPreparedAmountString(value.amount, 'amount'),
+    blockchain,
+    currencyCode,
+    fee: getForeignPreparedAmountString(value.fee, 'fee'),
+    feePerByte: getForeignPreparedAmountString(value.feePerByte, 'fee rate'),
+    inputAmount: getForeignPreparedAmountString(value.inputAmount, 'input amount'),
+    inputCount: getForeignPreparedInteger(value.inputCount, 'input count'),
+    outputAmount: getForeignPreparedAmountString(value.outputAmount, 'output amount'),
+    outputCount: getForeignPreparedInteger(value.outputCount, 'output count'),
+    rawTransactionHex,
+    receivingAddress,
+    sendMax: getBoolean(value.sendMax) ?? false,
+    transactionSize: getForeignPreparedInteger(value.transactionSize, 'transaction size'),
+    txHash: getString(value.txHash),
+  };
+}
+
+function getForeignPreparedSendPreview(preparedSend: ForeignPreparedSend) {
+  return {
+    activeNetwork: preparedSend.activeNetwork,
+    amount: preparedSend.amount,
+    blockchain: preparedSend.blockchain,
+    currencyCode: preparedSend.currencyCode,
+    fee: preparedSend.fee,
+    feePerByte: preparedSend.feePerByte,
+    inputAmount: preparedSend.inputAmount,
+    inputCount: preparedSend.inputCount,
+    outputAmount: preparedSend.outputAmount,
+    outputCount: preparedSend.outputCount,
+    receivingAddress: preparedSend.receivingAddress,
+    sendMax: preparedSend.sendMax,
+    transactionSize: preparedSend.transactionSize,
+    txHash: preparedSend.txHash,
+  };
+}
+
+function getForeignPreparedSendApprovalDetails(preparedSend: ForeignPreparedSend) {
+  const currencyCode = preparedSend.currencyCode || preparedSend.blockchain;
+  const amountWithFee = BigInt(preparedSend.amount) + BigInt(preparedSend.fee);
+  const details = [
+    { label: 'Coin', value: currencyCode },
+    ...(preparedSend.sendMax ? [{ label: 'Mode', value: 'Send max' }] : []),
+    { label: 'Fee', value: `${atomicAmountToCoinString(preparedSend.fee)} ${currencyCode}` },
+    { label: 'Fee rate', value: `${preparedSend.feePerByte} atomic/byte` },
+    { label: 'Total debit', value: `${atomicAmountToCoinString(amountWithFee)} ${currencyCode}` },
+    { label: 'Transaction size', value: `${preparedSend.transactionSize} bytes` },
+    { label: 'Inputs', value: String(preparedSend.inputCount) },
+    { label: 'Outputs', value: String(preparedSend.outputCount) },
+  ];
+
+  if (preparedSend.activeNetwork) {
+    details.splice(1, 0, { label: 'Network', value: preparedSend.activeNetwork });
+  }
+
+  if (preparedSend.txHash) {
+    details.push({ label: 'Transaction hash', value: preparedSend.txHash });
+  }
+
+  return details;
+}
+
 function getForeignFeePath(request: QdnAppRequest) {
   const feeType = (
     getString(getRequestValue(request, 'feeType')) ||
@@ -1103,6 +1241,84 @@ async function getNativeAssetInfo(connection: NodeConnection) {
   }
 
   return parseResponseData(body, response.headers.get('content-type') ?? '');
+}
+
+function getMarketPriceRequest(request: QdnAppRequest) {
+  const coins = normalizeMarketPriceCoins(getRequestValue(request, 'coins') ?? getRequestValue(request, 'coin'));
+  const currencies = normalizeMarketPriceCurrencies(
+    getRequestValue(request, 'currencies') ??
+      getRequestValue(request, 'currency') ??
+      getRequestValue(request, 'vsCurrencies') ??
+      getRequestValue(request, 'vs_currencies'),
+  );
+  const include24hChange =
+    getBoolean(getRequestValue(request, 'include24hChange')) ??
+    getBoolean(getRequestValue(request, 'include_24hr_change')) ??
+    getBoolean(getRequestValue(request, 'includeChange')) ??
+    false;
+
+  return { coins, currencies, include24hChange };
+}
+
+async function getMarketPricesForApp(request: QdnAppRequest) {
+  const priceRequest = getMarketPriceRequest(request);
+  const cacheKey = getMarketPriceCacheKey(
+    priceRequest.coins,
+    priceRequest.currencies,
+    priceRequest.include24hChange,
+  );
+  const cached = marketPriceCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return {
+      ...cached.response,
+      cacheHit: true,
+      stale: false,
+    };
+  }
+
+  try {
+    const path = buildCoinGeckoSimplePricePath(
+      priceRequest.coins,
+      priceRequest.currencies,
+      priceRequest.include24hChange,
+    );
+    const response = await fetch(`https://api.coingecko.com/api/v3${path}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const body = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`CoinGecko request failed with HTTP ${response.status}: ${body.slice(0, 200)}`);
+    }
+
+    const payload = body ? JSON.parse(body) as unknown : {};
+    const priceResponse = buildMarketPriceResponse({
+      ...priceRequest,
+      cacheHit: false,
+      fetchedAt: Date.now(),
+      payload,
+    });
+
+    marketPriceCache.set(cacheKey, {
+      expiresAt: priceResponse.fetchedAt + MARKET_PRICE_CACHE_TTL_MS,
+      response: priceResponse,
+    });
+
+    return priceResponse;
+  } catch (error) {
+    if (cached) {
+      return {
+        ...cached.response,
+        cacheHit: true,
+        stale: true,
+        staleReason: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    throw error;
+  }
 }
 
 async function setCurrentForeignServerForApp(
@@ -2253,6 +2469,7 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
 // QDN services only, no account, API key, signing or writes.
 
 let cachedQortalNodeApiUrl: { url: string; expiresAt: number } | null = null;
+const marketPriceCache = new Map<string, { expiresAt: number; response: MarketPriceResponse }>();
 
 async function resolveQortalNodeApiUrl(): Promise<string> {
   if (cachedQortalNodeApiUrl && cachedQortalNodeApiUrl.expiresAt > Date.now()) {
@@ -4674,7 +4891,15 @@ async function sendForeignCoinForApp(
     getString(getRequestValue(request, 'receivingAddress')) ||
     getString(getRequestValue(request, 'address')) ||
     getString(getRequestValue(request, 'destinationAddress'));
-  const amount = getForeignWalletAmountString(getRequestValue(request, 'amount'), 'Amount');
+  const sendMax = getOptionalBooleanRequestValue(request, 'sendMax') === true;
+  const amountValue = getRequestValue(request, 'amount');
+  const hasAmount = !(typeof amountValue === 'undefined' || amountValue === null ||
+    (typeof amountValue === 'string' && amountValue.trim() === ''));
+  if (sendMax && hasAmount) {
+    throw new Error('Amount must be omitted when sendMax is true.');
+  }
+
+  const amount = sendMax ? undefined : getForeignWalletAmountString(amountValue, 'Amount');
   const feePerByteValue = getRequestValue(request, 'feePerByte') ?? getRequestValue(request, 'fee');
   const hasFeePerByte = !(typeof feePerByteValue === 'undefined' || feePerByteValue === null ||
     (typeof feePerByteValue === 'string' && feePerByteValue.trim() === ''));
@@ -4695,16 +4920,6 @@ async function sendForeignCoinForApp(
     throw new Error('Foreign coin sends require an unlocked Home account.');
   }
 
-  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
-    action: 'SEND_COIN',
-    amount,
-    name: coin,
-    recipientAddress: recipient,
-    permissionScope: 'single-request',
-  });
-
-  assertFreshQdnWriteContext(sender, context as QdnViewContext);
-
   const seed = getAccountForeignWalletSeed(writeContext.signer.accountId);
   const wallet = deriveForeignWalletRuntime({
     coin,
@@ -4713,27 +4928,61 @@ async function sendForeignCoinForApp(
     seed: seed.seed,
     walletVersion: seed.walletVersion,
   });
-  const result = await postLocalNodeText(
+  const preparedResponse = await postLocalNodeText(
     writeContext.connection,
-    `/crosschain/${coin.toLowerCase()}/send`,
+    `/crosschain/${coin.toLowerCase()}/send/prepare`,
     JSON.stringify({
-      amount,
+      ...(sendMax ? { sendMax: true } : { amount }),
       ...(feePerByte ? { feePerByte } : {}),
       receivingAddress: recipient,
       xprv58: wallet.xprv58,
     }),
     writeContext.apiKey,
-    'Foreign coin send failed.',
+    'Foreign coin send preparation failed.',
+    'application/json',
+  );
+  const preparedSend = sanitizeForeignPreparedSend(
+    parseResponseData(preparedResponse.body, preparedResponse.contentType),
+    coin,
+    recipient,
+  );
+  const preparedPreview = getForeignPreparedSendPreview(preparedSend);
+  const currencyCode = preparedSend.currencyCode || preparedSend.blockchain || coin;
+  const displayAmount = sendMax
+    ? `${atomicAmountToCoinString(preparedSend.amount)} ${currencyCode}`
+    : `${amount} ${currencyCode}`;
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'SEND_COIN',
+    amount: sendMax ? `Max ${displayAmount}` : displayAmount,
+    details: getForeignPreparedSendApprovalDetails(preparedSend),
+    name: preparedSend.blockchain || coin,
+    recipientAddress: preparedSend.receivingAddress,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const result = await postLocalNodeText(
+    writeContext.connection,
+    `/crosschain/${coin.toLowerCase()}/send/broadcast`,
+    JSON.stringify({
+      rawTransactionHex: preparedSend.rawTransactionHex,
+    }),
+    writeContext.apiKey,
+    'Foreign coin send broadcast failed.',
     'application/json',
   );
 
   return {
     accepted: true,
     action: 'SEND_COIN',
-    amount,
+    amount: sendMax ? atomicAmountToCoinString(preparedSend.amount) : amount,
     coin,
-    recipient,
+    prepared: preparedPreview,
+    recipient: preparedSend.receivingAddress,
     result: parseResponseData(result.body, result.contentType),
+    sendMax: preparedSend.sendMax,
     txHash: result.body,
   };
 }
@@ -6349,6 +6598,9 @@ async function handleQdnAppRequest(
 
     case 'GET_CROSSCHAIN_BLOCKCHAINS':
       return fetchNodeApiPayload('/crosschain/blockchains', request);
+
+    case 'GET_MARKET_PRICES':
+      return getMarketPricesForApp(request);
 
     case 'GET_CROSSCHAIN_SERVER_INFO':
       return getCrosschainServerInfoForApp(request);
