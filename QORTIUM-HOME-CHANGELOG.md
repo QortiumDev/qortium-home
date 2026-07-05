@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-05 - release: prepare home 1.3.0
+
+Bumps Qortium Home to 1.3.0 with Android versionCode 25 for the next
+prerelease. This release packages the Home bridge updates for bounded Core
+settings edits, node restart requests, and the new Core peer diagnostics
+surface used by the Node app. The change here is only the package, lockfile,
+Android release metadata, changelog entry, and smoke-test coverage; the Core
+endpoint and peer-policy changes are reviewed separately in the matching Core
+PR.
+
 ### 2026-07-03 - release: prepare home 1.2.3
 
 Bumps Qortium Home to 1.2.3 with Android versionCode 24 for the next

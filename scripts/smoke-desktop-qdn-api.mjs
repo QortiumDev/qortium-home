@@ -479,6 +479,52 @@ function assertFixtureResource(resources, service, identifier, label) {
   );
 }
 
+async function assertFetchNodeApiPeerDiagnostics(qdnClient, path, layer) {
+  const response = await runQdnRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path,
+  });
+
+  assert(response?.status === 200 && response?.ok === true, `FETCH_NODE_API ${path} did not return HTTP 200.`);
+  assert(response?.data?.layer === layer, `FETCH_NODE_API ${path} returned an unexpected diagnostics layer.`);
+  assert(Array.isArray(response?.data?.peers), `FETCH_NODE_API ${path} did not return a peers array.`);
+}
+
+async function assertFetchNodeApiPeerEndpoints(qdnClient) {
+  const dataKnownResponse = await runQdnRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path: '/peers/data/known',
+  });
+
+  assert(
+    dataKnownResponse?.status === 200 && dataKnownResponse?.ok === true,
+    'FETCH_NODE_API /peers/data/known did not return HTTP 200.',
+  );
+  assert(Array.isArray(dataKnownResponse?.data), 'FETCH_NODE_API /peers/data/known did not return a peer list.');
+
+  await assertFetchNodeApiPeerDiagnostics(qdnClient, '/peers/known/diagnostics', 'CHAIN');
+  await assertFetchNodeApiPeerDiagnostics(qdnClient, '/peers/data/known/diagnostics', 'DATA');
+}
+
+function assertNodeSettingsMetadata(metadata) {
+  const expectedWritableSettings = new Map([
+    ['autoUpdateMode', 'AUTO_UPDATE_MODE'],
+    ['autoRestartEnabled', 'BOOLEAN'],
+    ['minOutboundPeers', 'INTEGER'],
+    ['minBlockchainPeers', 'INTEGER'],
+    ['minPeerVersion', 'PEER_VERSION'],
+    ['allowConnectionsWithOlderPeerVersions', 'BOOLEAN'],
+    ['chatMessageRetentionPeriod', 'LONG'],
+  ]);
+
+  assert(metadata && typeof metadata === 'object', 'GET_NODE_SETTINGS_METADATA did not return an object.');
+  assert(metadata.writable && typeof metadata.writable === 'object', 'GET_NODE_SETTINGS_METADATA did not return writable settings.');
+
+  for (const [key, type] of expectedWritableSettings.entries()) {
+    assert(metadata.writable[key]?.type === type, `GET_NODE_SETTINGS_METADATA did not expose writable ${key}.`);
+  }
+}
+
 async function runBridgeAssertions(qdnClient) {
   const bridgeState = await evaluate(qdnClient, 'typeof window.qdnRequest');
   assert(bridgeState === 'function', `Expected qdnRequest to be injected, found ${bridgeState}.`);
@@ -490,6 +536,7 @@ async function runBridgeAssertions(qdnClient) {
   for (const action of [
     'FETCH_NODE_API',
     'GET_NODE_INFO',
+    'GET_NODE_SETTINGS_METADATA',
     'GET_NODE_STATUS',
     'GET_ACCOUNT_DATA',
     'GET_ACCOUNT_GROUPS',
@@ -538,8 +585,10 @@ async function runBridgeAssertions(qdnClient) {
     'REGISTER_NAME',
     'SELL_NAME',
     'UPDATE_NAME',
+    'UPDATE_NODE_SETTINGS',
     'SEND_CHAT_MESSAGE',
     'SEND_COIN',
+    'RESTART_NODE',
     'SET_CURRENT_FOREIGN_SERVER',
     'UNLOCK_SELECTED_ACCOUNT',
     'SEARCH_CHAT_MESSAGES',
@@ -577,6 +626,8 @@ async function runBridgeAssertions(qdnClient) {
     'FETCH_NODE_API HEAD /admin/status did not return an empty HTTP 200 response.',
   );
 
+  await assertFetchNodeApiPeerEndpoints(qdnClient);
+
   const nodeStatus = await runQdnRequest(qdnClient, { action: 'GET_NODE_STATUS' });
   assert(
     typeof nodeStatus?.height === 'number' || typeof nodeStatus?.syncPercent === 'number',
@@ -585,6 +636,8 @@ async function runBridgeAssertions(qdnClient) {
 
   const nodeInfo = await runQdnRequest(qdnClient, { action: 'GET_NODE_INFO' });
   assert(typeof nodeInfo?.buildVersion === 'string', 'GET_NODE_INFO returned an unexpected payload.');
+
+  assertNodeSettingsMetadata(await runQdnRequest(qdnClient, { action: 'GET_NODE_SETTINGS_METADATA' }));
 
   const appStatus = await runQdnRequest(qdnClient, {
     action: 'GET_QDN_RESOURCE_STATUS',
