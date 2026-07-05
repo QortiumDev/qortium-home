@@ -84,6 +84,7 @@ const BASE58_ALPHABET_MAP = new Map<string, number>(
 );
 const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
+const QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES = 100 * 1024 * 1024;
 const QDN_WRITE_SOURCE_MAX_BYTES = 100 * 1024 * 1024;
 // Qortal cross-chain resource fetches (e.g. game ROMs) need a much larger ceiling than QDN text reads.
 const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
@@ -2685,6 +2686,20 @@ function buildQdnPublishZipPath(resource: QdnWriteResourceRequest) {
   }`;
 }
 
+function buildQdnPublishUploadPath(resource: QdnWriteResourceRequest, source: QdnPublishSourceResult) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource, source);
+  appendQueryValue(queryParams, 'isZip', source.canceled === false && source.isZip === true ? true : undefined);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/upload${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
 function buildQdnPublicPublishBase64Path(resource: QdnWriteResourceRequest, source: QdnPublishSourceResult) {
   const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
   const queryParams = new URLSearchParams();
@@ -2707,6 +2722,20 @@ function buildQdnPublicPublishZipPath(resource: QdnWriteResourceRequest) {
   const queryString = queryParams.toString();
 
   return `/arbitrary/public/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/zip${
+    queryString ? `?${queryString}` : ''
+  }`;
+}
+
+function buildQdnPublicPublishUploadPath(resource: QdnWriteResourceRequest, source: QdnPublishSourceResult) {
+  const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+  const queryParams = new URLSearchParams();
+
+  appendQdnWriteQuery(queryParams, resource, source);
+  appendQueryValue(queryParams, 'isZip', source.canceled === false && source.isZip === true ? true : undefined);
+
+  const queryString = queryParams.toString();
+
+  return `/arbitrary/public/${resource.service}/${encodeURIComponent(resource.name)}${identifierPath}/upload${
     queryString ? `?${queryString}` : ''
   }`;
 }
@@ -2983,6 +3012,12 @@ function normalizeQdnPublishSourceResult(value: unknown): QdnPublishSourceResult
   };
 }
 
+function assertPublicQdnStreamedPublishSize(size: number, label: string) {
+  if (size > QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES) {
+    throw new Error(`${label} exceeds the ${QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES.toLocaleString()} byte public-node publish limit.`);
+  }
+}
+
 async function selectQdnPublishSource() {
   const result = await QdnPublishSource.selectFile({
     maxBytes: QDN_WRITE_SOURCE_MAX_BYTES,
@@ -3249,6 +3284,59 @@ async function postLocalNodeText(
   return {
     body: responseBody,
     contentType: getContentType(response),
+  };
+}
+
+class QdnUploadPostError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'QdnUploadPostError';
+  }
+}
+
+function isQdnUploadEndpointUnsupported(error: unknown) {
+  return error instanceof QdnUploadPostError && (error.status === 404 || error.status === 405);
+}
+
+async function postLocalNodeBytes(
+  nodeApiUrl: string,
+  pathname: string,
+  body: Blob,
+  apiKey: string,
+  fallbackMessage: string,
+) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+
+  try {
+    response = await window.fetch(`${getNodeApiUrlBase(nodeApiUrl)}${pathname}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-API-KEY': apiKey,
+      },
+      body,
+      signal: controller.signal,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  } finally {
+    window.clearTimeout(timeout);
+  }
+
+  const responseBody = (await response.text()).trim();
+
+  if (!response.ok) {
+    throw new QdnUploadPostError(response.status, responseBody || fallbackMessage);
+  }
+
+  return {
+    body: responseBody,
+    contentType: response.headers.get('content-type') ?? '',
   };
 }
 
@@ -3645,6 +3733,28 @@ function parseLocalPostData(result: Awaited<ReturnType<typeof postLocalNodeText>
   return parseResponseData(result.body, result.contentType);
 }
 
+function getQdnPublishUploadSource(resource: QdnWriteResourceRequest, source: QdnPublishSourceResult & { canceled: false }) {
+  const bytes = base64ToBytes(source.dataBase64);
+  const shouldUnzip = shouldUseQdnPublishZipEndpoint(resource, source);
+
+  return {
+    body: new Blob([bytes as BlobPart], { type: 'application/octet-stream' }),
+    source: {
+      ...source,
+      isZip: shouldUnzip ? true : undefined,
+      size: bytes.byteLength,
+    },
+  };
+}
+
+function assertLegacyQdnPublishFallbackSize(size: number) {
+  if (size > QDN_WRITE_SOURCE_MAX_BYTES) {
+    throw new Error(
+      `The connected Qortium Core node does not support large streamed QDN publishes yet. Update Qortium Core or use a source no larger than ${QDN_WRITE_SOURCE_MAX_BYTES.toLocaleString()} bytes.`,
+    );
+  }
+}
+
 async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const resource = getQdnWriteResourceRequest(request);
   const settings = await readNodeSettings();
@@ -3672,19 +3782,45 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnAppR
     },
   );
 
-  const unsignedTransaction = await postLocalNodeText(
-    writeContext.nodeApiUrl,
-    useLocalWrite
-      ? shouldUseQdnPublishZipEndpoint(resource, source)
-        ? buildQdnPublishZipPath(resource)
-        : buildQdnPublishBase64Path(resource, source)
-      : shouldUseQdnPublishZipEndpoint(resource, source)
-        ? buildQdnPublicPublishZipPath(resource)
-        : buildQdnPublicPublishBase64Path(resource, source),
-    source.dataBase64,
-    writeContext.apiKey,
-    'QDN publish transaction build failed.',
-  );
+  const uploadSource = getQdnPublishUploadSource(resource, source);
+
+  if (!useLocalWrite) {
+    assertPublicQdnStreamedPublishSize(uploadSource.source.size, 'Selected QDN publish source');
+  }
+
+  let unsignedTransaction: Awaited<ReturnType<typeof postLocalNodeText>>;
+
+  try {
+    unsignedTransaction = await postLocalNodeBytes(
+      writeContext.nodeApiUrl,
+      useLocalWrite
+        ? buildQdnPublishUploadPath(resource, uploadSource.source)
+        : buildQdnPublicPublishUploadPath(resource, uploadSource.source),
+      uploadSource.body,
+      writeContext.apiKey,
+      'QDN publish transaction build failed.',
+    );
+  } catch (error) {
+    if (!isQdnUploadEndpointUnsupported(error)) {
+      throw error;
+    }
+
+    assertLegacyQdnPublishFallbackSize(uploadSource.source.size);
+    unsignedTransaction = await postLocalNodeText(
+      writeContext.nodeApiUrl,
+      useLocalWrite
+        ? shouldUseQdnPublishZipEndpoint(resource, source)
+          ? buildQdnPublishZipPath(resource)
+          : buildQdnPublishBase64Path(resource, source)
+        : shouldUseQdnPublishZipEndpoint(resource, source)
+          ? buildQdnPublicPublishZipPath(resource)
+          : buildQdnPublicPublishBase64Path(resource, source),
+      source.dataBase64,
+      writeContext.apiKey,
+      'QDN publish transaction build failed.',
+    );
+  }
+
   const processedTransaction = useLocalWrite
     ? await signAndProcessTransaction(writeContext as QdnWriteContext, unsignedTransaction.body)
     : await signAndProcessKeylessQdnTransaction(writeContext as QdnKeylessWriteContext, unsignedTransaction.body);
