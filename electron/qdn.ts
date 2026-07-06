@@ -5745,6 +5745,116 @@ async function rateResourceForApp(
   };
 }
 
+function normalizeRatingSummary(summary: unknown) {
+  if (summary === null || summary === undefined) {
+    return null;
+  }
+
+  if (Array.isArray(summary) && summary.length === 0) {
+    return null;
+  }
+
+  if (isRecord(summary) && Object.keys(summary).length === 0) {
+    return null;
+  }
+
+  return summary;
+}
+
+async function fetchOptionalNodeApiPayload(
+  apiPath: string,
+  request: QdnAppRequest,
+  notFoundValue: unknown,
+) {
+  const result = await fetchConfiguredNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')));
+
+  if (result.status === 404) {
+    return notFoundValue;
+  }
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+async function getResourceRatingForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const service = getService(getRequestValue(request, 'service'));
+  const name = getRequiredRequestString(request, 'name', 'QDN resource name');
+  const identifier = getString(getRequestValue(request, 'identifier')) || 'default';
+  const explicitRater = getOptionalAddressRequestString(request, 'Rater address', 'rater');
+  const rater = explicitRater || (await getSelectedAccountForQdnApp(context)).address;
+
+  if (!service) {
+    throw new Error('QDN resource service is required.');
+  }
+
+  const summaryQueryParams = new URLSearchParams({
+    service,
+    name,
+    identifier,
+  });
+  const ratingQueryParams = new URLSearchParams({
+    service,
+    name,
+    identifier,
+    rater,
+  });
+
+  const [summaryResult, ratingResult] = await Promise.all([
+    fetchOptionalNodeApiPayload(`/resource-ratings/summary?${summaryQueryParams}`, request, null),
+    fetchOptionalNodeApiPayload(`/resource-ratings/rating?${ratingQueryParams}`, request, null),
+  ]);
+
+  const summary = normalizeRatingSummary(summaryResult);
+  const rating = ratingResult ?? null;
+
+  return {
+    action: 'GET_RESOURCE_RATING',
+    service,
+    name,
+    identifier,
+    rater,
+    summary,
+    rating,
+  };
+}
+
+async function getAccountRatingForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const target = getRequiredAddressRequestString(request, 'target', 'Target address');
+  const category = getString(getRequestValue(request, 'category'));
+  const explicitRater = getOptionalAddressRequestString(request, 'Rater address', 'rater');
+  const rater = explicitRater || (await getSelectedAccountForQdnApp(context)).address;
+
+  const summaryQueryParams = new URLSearchParams({
+    target,
+    ...(category ? { category } : {}),
+  });
+  const ratingQueryParams = new URLSearchParams({
+    target,
+    rater,
+    ...(category ? { category } : {}),
+  });
+
+  const [summaryResult, ratingsResult] = await Promise.all([
+    fetchOptionalNodeApiPayload(`/account-ratings/summary?${summaryQueryParams}`, request, null),
+    fetchOptionalNodeApiPayload(`/account-ratings?${ratingQueryParams}`, request, []),
+  ]);
+
+  const summary = normalizeRatingSummary(summaryResult);
+  const ratings = Array.isArray(ratingsResult) ? ratingsResult : [];
+
+  return {
+    action: 'GET_ACCOUNT_RATING',
+    target,
+    category,
+    rater,
+    summary,
+    ratings,
+  };
+}
+
 async function updatePollForApp(
   request: QdnAppRequest,
   context: QdnViewContext | null,
@@ -7347,6 +7457,12 @@ async function handleQdnAppRequest(
 
     case 'RATE_RESOURCE':
       return rateResourceForApp(request, context, sender);
+
+    case 'GET_RESOURCE_RATING':
+      return getResourceRatingForApp(request, context);
+
+    case 'GET_ACCOUNT_RATING':
+      return getAccountRatingForApp(request, context);
 
     case 'REGISTER_NAME':
       return registerNameForApp(request, context, sender);

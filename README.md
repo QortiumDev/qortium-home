@@ -96,7 +96,8 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_QDN_RESOURCE_METADATA`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
-`SEARCH_QDN_RESOURCES`, `GET_SELECTED_ACCOUNT`, `IS_USING_PUBLIC_NODE`,
+`SEARCH_QDN_RESOURCES`, `GET_RESOURCE_RATING`, `GET_ACCOUNT_RATING`, `GET_SELECTED_ACCOUNT`,
+`IS_USING_PUBLIC_NODE`,
 `WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
@@ -130,6 +131,20 @@ allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 resource after user approval. The action accepts `service`, `name`, optional
 `identifier` (defaulting to `default`), and `rating`; ratings `1` through `10`
 record a rating, while `0` removes the selected account's active rating.
+
+`GET_RESOURCE_RATING` fetches Core resource rating data for a target resource and
+the selected rater. The action accepts `service`, `name`, optional `identifier`
+(defaulting to `default`), and optional `rater` (an address). If `rater` is not
+provided, Home uses the currently selected account address. The response shape is
+`{ action, service, name, identifier, rater, summary, rating }` where `summary`
+or `rating` can be `null` when empty.
+
+`GET_ACCOUNT_RATING` fetches Core account rating summary data and the rater's
+own rating edges for `target`. The action accepts `target`, optional `category`,
+and optional `rater` (an address). If `rater` is not provided, Home uses the
+currently selected account address. The response shape is
+`{ action, target, category, rater, summary, ratings }` where `summary` is `null`
+and `ratings` is an array (empty when no ratings are returned).
 
 ## Planned Work
 
