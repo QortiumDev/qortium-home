@@ -9032,6 +9032,12 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
         request,
       );
 
+    case 'GET_QORT_BALANCE':
+      return fetchQortalNodeApiPayload(
+        `/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`,
+        request,
+      );
+
     case 'GET_CROSSCHAIN_BLOCKCHAINS':
       return fetchNodeApiPayload('/crosschain/blockchains', request);
 
