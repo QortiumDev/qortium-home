@@ -48,6 +48,7 @@
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/smoke-qdn-services.mjs",
+    "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",
     "release:check": "node scripts/check-release-assets.mjs",
     "release:publish": "node scripts/publish-release.mjs",
     "qdn:bootstrap-test-data": "node scripts/bootstrap-qdn-test-data.mjs",

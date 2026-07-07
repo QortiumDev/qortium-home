@@ -353,6 +353,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.setGroup';
     case 'SET_CURRENT_FOREIGN_SERVER':
       return 'qdnWrite.action.setCurrentForeignServer';
+    case 'SEND_QORT':
+      return 'qdnWrite.action.sendCoin';
     case 'PAYMENT':
     case 'SEND_COIN':
       return 'qdnWrite.action.sendCoin';
