@@ -57,6 +57,7 @@ const PREVIEWNET_SEED_NODE_API_URLS = [
 // More public nodes can be appended; the first reachable one is used and cached.
 const QORTAL_PUBLIC_NODE_API_URLS = [
   'https://ext-node.qortal.link',
+  'https://api.qortal.org',
 ];
 const QORTAL_NODE_CACHE_TTL_MS = 5 * 60_000;
 const PUBLIC_READ_PROBE_PATH =
@@ -7991,6 +7992,24 @@ async function fetchQortalNodeApiPayload(apiPath: string, request: QdnAppRequest
   return result.data;
 }
 
+async function getQortalPrimaryNameForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const result = await fetchQortalNodeApi(
+    `/names/primary/${encodeURIComponent(address)}`,
+    getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')),
+  );
+
+  if (result.status === 404 || result.body.trim() === '') {
+    return null;
+  }
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data ?? null;
+}
+
 // Qortal resource requests are validated by shape only (read-only public reads); they are NOT
 // limited to the Qortium public-service whitelist, since Qortal resources (ROMs, metadata, etc.)
 // are published under many different services.
@@ -9037,6 +9056,18 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
         `/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`,
         request,
       );
+
+    case 'GET_QORTAL_PRIMARY_NAME':
+      return getQortalPrimaryNameForApp(request, context);
+
+    case 'GET_QORTAL_ACCOUNT_NAMES':
+      return fetchQortalNodeApiPayload(
+        `/names/address/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`,
+        request,
+      );
+
+    case 'GET_QORTAL_NODE_STATUS':
+      return fetchQortalNodeApiPayload('/admin/status', request);
 
     case 'GET_CROSSCHAIN_BLOCKCHAINS':
       return fetchNodeApiPayload('/crosschain/blockchains', request);

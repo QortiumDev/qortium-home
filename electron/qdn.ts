@@ -78,7 +78,7 @@ const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES = 100 * 1024 * 1024;
 const QDN_WRITE_SOURCE_MAX_BYTES = 100 * 1024 * 1024;
 // Public, read-only Qortal nodes for cross-chain QDN reads (no account, API key, or writes).
-const QORTAL_PUBLIC_NODE_API_URLS = ['https://ext-node.qortal.link'];
+const QORTAL_PUBLIC_NODE_API_URLS = ['https://ext-node.qortal.link', 'https://api.qortal.org'];
 const QORTAL_NODE_CACHE_TTL_MS = 5 * 60_000;
 const QORTAL_PROBE_TIMEOUT_MS = 5_000;
 // Qortal cross-chain resource fetches (e.g. game ROMs) need a much larger ceiling than QDN text reads.
@@ -2686,6 +2686,24 @@ async function fetchQortalNodeApiPayload(apiPath: string, request: QdnAppRequest
   }
 
   return result.data;
+}
+
+async function getQortalPrimaryNameForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const result = await fetchQortalNodeApi(
+    `/names/primary/${encodeURIComponent(address)}`,
+    getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')),
+  );
+
+  if (result.status === 404 || result.body.trim() === '') {
+    return null;
+  }
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data ?? null;
 }
 
 // Qortal resource requests are validated by shape only (read-only public reads); NOT limited to the
@@ -7244,6 +7262,15 @@ async function handleQdnAppRequest(
 
     case 'GET_QORT_BALANCE':
       return fetchQortalNodeApiPayload(`/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
+
+    case 'GET_QORTAL_PRIMARY_NAME':
+      return getQortalPrimaryNameForApp(request, context);
+
+    case 'GET_QORTAL_ACCOUNT_NAMES':
+      return fetchQortalNodeApiPayload(`/names/address/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
+
+    case 'GET_QORTAL_NODE_STATUS':
+      return fetchQortalNodeApiPayload('/admin/status', request);
 
     case 'GET_CROSSCHAIN_BLOCKCHAINS':
       return fetchNodeApiPayload('/crosschain/blockchains', request);
