@@ -570,6 +570,8 @@ export const fi: Record<TranslationKey, string> = {
   "viewer.download.saved": "Tallennettu",
   "viewer.fileNotFound": "Tiedostoa ei löytynyt.",
   "viewer.loadFailed": "QDN-resurssia ei voitu ladata.",
+  "viewer.remoteAuthBlocked": "Tämä solmu ei salli sovellusten etävaltuutusta.",
+  "viewer.remoteAuthBlockedHint": "Vaihda solmuyhteys julkiseen verkkokäyttöön tai käytä paikallista solmua.",
   "viewer.hideStatusBar": "Piilota tilapalkki",
   "viewer.loadingResource": "Ladataan QDN-resurssia…",
   "viewer.media.aborted": "Median lataus peruutettiin.",

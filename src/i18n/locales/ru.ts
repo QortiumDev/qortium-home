@@ -570,6 +570,8 @@ export const ru: Record<TranslationKey, string> = {
   "viewer.download.saved": "Сохранено",
   "viewer.fileNotFound": "Файл не найден.",
   "viewer.loadFailed": "Не удалось загрузить ресурс QDN.",
+  "viewer.remoteAuthBlocked": "Этот узел не разрешает удаленную авторизацию приложений.",
+  "viewer.remoteAuthBlockedHint": "Переключите подключение узла на публичный сетевой доступ или используйте локальный узел.",
   "viewer.hideStatusBar": "Скрыть строку состояния",
   "viewer.loadingResource": "Загрузка ресурса QDN…",
   "viewer.media.aborted": "Загрузка медиафайла отменена.",

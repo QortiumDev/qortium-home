@@ -19,6 +19,7 @@ import {
   getQdnResourceKey,
   getQdnViewerKind,
   isGalleryImageFilename,
+  isRemoteAuthorizationBlockedMessage,
   isTerminalQdnStatus,
 } from './qdn';
 import { marked } from 'marked';
@@ -3599,6 +3600,8 @@ export function QdnViewer({
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
   const progressText = getProgressText(state.status);
   const statusLabel = state.phase === 'ready' ? t('qdnStatus.ready') : formatQdnStatus(state.status);
+  const remoteAuthorizationBlocked =
+    state.phase === 'error' && isRemoteAuthorizationBlockedMessage(state.message);
 
   // Navigating to a different resource re-reveals the status bar so the new
   // URL and its actions are always visible while it loads.
@@ -3701,7 +3704,12 @@ export function QdnViewer({
         />
       ) : (
         <div className={`qdn-viewer__empty qdn-viewer__empty--${state.phase}`}>
-          <p className="qdn-viewer__message">{state.message}</p>
+          <p className="qdn-viewer__message">
+            {remoteAuthorizationBlocked ? t('viewer.remoteAuthBlocked') : state.message}
+          </p>
+          {remoteAuthorizationBlocked ? (
+            <p className="core-offline__detail">{t('viewer.remoteAuthBlockedHint')}</p>
+          ) : null}
           {state.phase === 'error' ? (
             <button
               className="button qdn-viewer__retry"

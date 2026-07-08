@@ -570,6 +570,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.download.saved": "已儲存",
   "viewer.fileNotFound": "找不到檔案。",
   "viewer.loadFailed": "無法載入 QDN 資源。",
+  "viewer.remoteAuthBlocked": "此節點不允許遠端應用程式授權。",
+  "viewer.remoteAuthBlockedHint": "將節點連線切換為公共網路存取，或使用本機節點。",
   "viewer.hideStatusBar": "隱藏狀態列",
   "viewer.loadingResource": "正在載入 QDN 資源…",
   "viewer.media.aborted": "媒體載入已取消。",

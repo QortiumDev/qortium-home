@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - qdn: open apps from custom nodes that only allow public rendering
+
+Custom-node app and website opens now fall back to public rendering when the
+node blocks remote app authorization but still allows public QDN render access.
+When that fallback is not possible, Home shows a clear explanation that the
+node does not allow remote app authorization instead of displaying the node's
+raw error page.
+
+Desktop app and website views also now load resource status and previews from
+the configured node connection. Previously these requests always went to the
+default local node address even when a custom node was selected, so custom-node
+pages could only finish loading while a local node happened to be running.
+
 ### 2026-07-08 - app: app-view zoom controls and shortcut routing
 
 QDN app tabs now respond to the same app zoom shortcuts and wheel gestures even

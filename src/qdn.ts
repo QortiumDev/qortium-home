@@ -9,6 +9,9 @@ const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
   'common.unit.tb',
 ];
 
+export const REMOTE_AUTHORIZATION_BLOCKED_MESSAGE =
+  'This node does not allow remote app authorization. Switch to public network access or use a local node.';
+
 export const PUBLIC_QDN_SERVICES = [
   'APP',
   'WEBSITE',
@@ -137,6 +140,12 @@ export type QdnResource = {
 };
 
 export type QdnDisplaySettings = Pick<ResolvedDisplaySettings, 'language' | 'textSize' | 'theme' | 'accent' | 'ui'>;
+
+export function isRemoteAuthorizationBlockedMessage(message: string | null | undefined) {
+  // includes() rather than equality so IPC/relay wrappers that prepend context
+  // to the message cannot silently break classification.
+  return !!message && message.includes(REMOTE_AUTHORIZATION_BLOCKED_MESSAGE);
+}
 
 export type QdnPreview = {
   renderUrl: string;

@@ -572,6 +572,8 @@ export const hi: Record<TranslationKey, string> = {
   "viewer.fileNotFound": "फाइल नहीं मिली।",
   "viewer.hideStatusBar": "स्थिति बार छिपाएं",
   "viewer.loadFailed": "QDN संसाधन लोड नहीं हो सका।",
+  "viewer.remoteAuthBlocked": "यह नोड दूरस्थ ऐप प्राधिकरण की अनुमति नहीं देता।",
+  "viewer.remoteAuthBlockedHint": "नोड कनेक्शन को सार्वजनिक नेटवर्क पहुंच पर स्विच करें, या स्थानीय नोड का उपयोग करें।",
   "viewer.loadingResource": "QDN संसाधन लोड हो रहा है…",
   "viewer.media.aborted": "मीडिया लोडिंग रद्द कर दी गई।",
   "viewer.media.decode": "मीडिया फाइल को यह ऐप डिकोड नहीं कर सका।",

@@ -570,6 +570,8 @@ export const nl: Record<TranslationKey, string> = {
   "viewer.download.saved": "Opgeslagen",
   "viewer.fileNotFound": "Bestand niet gevonden.",
   "viewer.loadFailed": "Kan QDN-resource niet laden.",
+  "viewer.remoteAuthBlocked": "Deze node staat externe app-autorisatie niet toe.",
+  "viewer.remoteAuthBlockedHint": "Schakel de nodeverbinding over naar openbare netwerktoegang, of gebruik een lokale node.",
   "viewer.hideStatusBar": "Statusbalk verbergen",
   "viewer.loadingResource": "QDN-resource laden…",
   "viewer.media.aborted": "Het laden van de media is geannuleerd.",

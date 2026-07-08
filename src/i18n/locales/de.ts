@@ -570,6 +570,8 @@ export const de: Record<TranslationKey, string> = {
   "viewer.download.saved": "Gespeichert",
   "viewer.fileNotFound": "Datei nicht gefunden.",
   "viewer.loadFailed": "QDN-Ressource kann nicht geladen werden.",
+  "viewer.remoteAuthBlocked": "Dieser Node erlaubt keine entfernte App-Autorisierung.",
+  "viewer.remoteAuthBlockedHint": "Stellen Sie die Node-Verbindung auf öffentlichen Netzwerkzugriff um, oder verwenden Sie einen lokalen Node.",
   "viewer.hideStatusBar": "Statusleiste ausblenden",
   "viewer.loadingResource": "QDN-Ressource wird geladen…",
   "viewer.media.aborted": "Das Laden der Medien wurde abgebrochen.",

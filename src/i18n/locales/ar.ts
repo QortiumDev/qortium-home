@@ -570,6 +570,8 @@ export const ar: Record<TranslationKey, string> = {
   "viewer.download.saved": "تم الحفظ",
   "viewer.fileNotFound": "لم يُعثر على الملف.",
   "viewer.loadFailed": "تعذّر تحميل مورد QDN.",
+  "viewer.remoteAuthBlocked": "هذه العقدة لا تسمح بتفويض التطبيقات عن بُعد.",
+  "viewer.remoteAuthBlockedHint": "بدّل اتصال العقدة إلى الوصول عبر الشبكة العامة، أو استخدم عقدة محلية.",
   "viewer.hideStatusBar": "إخفاء شريط الحالة",
   "viewer.loadingResource": "جارٍ تحميل مورد QDN…",
   "viewer.media.aborted": "تم إلغاء تحميل الوسائط.",

@@ -570,6 +570,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.download.saved": "已保存",
   "viewer.fileNotFound": "未找到文件。",
   "viewer.loadFailed": "无法加载 QDN 资源。",
+  "viewer.remoteAuthBlocked": "此节点不允许远程应用授权。",
+  "viewer.remoteAuthBlockedHint": "将节点连接切换为公共网络访问，或使用本地节点。",
   "viewer.hideStatusBar": "隐藏状态栏",
   "viewer.loadingResource": "正在加载 QDN 资源…",
   "viewer.media.aborted": "媒体加载已取消。",

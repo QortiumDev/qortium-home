@@ -570,6 +570,8 @@ export const pt: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvo",
   "viewer.fileNotFound": "Arquivo não encontrado.",
   "viewer.loadFailed": "Não foi possível carregar o recurso QDN.",
+  "viewer.remoteAuthBlocked": "Este nó não permite autorização remota de apps.",
+  "viewer.remoteAuthBlockedHint": "Altere a conexão do nó para acesso à rede pública ou use um nó local.",
   "viewer.hideStatusBar": "Ocultar barra de estado",
   "viewer.loadingResource": "Carregando recurso QDN…",
   "viewer.media.aborted": "O carregamento da mídia foi cancelado.",
