@@ -9,6 +9,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
+import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 
 const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
@@ -126,6 +127,11 @@ type SanitizedAccountStateRequest = {
   accountId: string | null;
   isUnlocked: boolean;
   tabId: string;
+};
+
+type SanitizedWheelCommand = {
+  direction: 'in' | 'out';
+  textSize: boolean;
 };
 
 const qdnViewsByWindow = new Map<number, Map<string, QdnViewEntry>>();
@@ -395,6 +401,21 @@ function sanitizeTabRequest(value: unknown) {
   return sanitizeTabId(value.tabId);
 }
 
+function sanitizeWheelCommand(value: unknown): SanitizedWheelCommand | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (value.direction !== 'in' && value.direction !== 'out') {
+    return null;
+  }
+
+  return {
+    direction: value.direction,
+    textSize: value.textSize === true,
+  };
+}
+
 function getSenderWindow(event: IpcMainInvokeEvent) {
   const window = BrowserWindow.fromWebContents(event.sender);
 
@@ -461,6 +482,24 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
   return null;
 }
 
+function getQdnViewEntryForWebContents(webContents: WebContents): QdnViewEntry | null {
+  for (const windowViews of qdnViewsByWindow.values()) {
+    for (const entry of windowViews.values()) {
+      if (entry.view.webContents.id === webContents.id) {
+        return entry;
+      }
+    }
+  }
+
+  return null;
+}
+
+function sendTextSizeCommand(entry: QdnViewEntry, command: 'text-size-decrease' | 'text-size-increase' | 'text-size-reset') {
+  if (!entry.window.isDestroyed()) {
+    entry.window.webContents.send('menu:command', command);
+  }
+}
+
 function applyViewGuards(entry: QdnViewEntry) {
   const updateCurrentUrl = (url: string) => {
     if (isAllowedRenderUrlForOrigin(url, entry.nodeOrigin)) {
@@ -469,6 +508,57 @@ function applyViewGuards(entry: QdnViewEntry) {
   };
 
   entry.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  entry.view.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || entry.window.isDestroyed()) {
+      return;
+    }
+
+    const primaryModifier = process.platform === 'darwin' ? input.meta : input.control;
+
+    if (!primaryModifier || input.alt) {
+      return;
+    }
+
+    const key = input.key;
+
+    if (input.shift) {
+      if (key === '+' || key === '=') {
+        sendTextSizeCommand(entry, 'text-size-increase');
+        event.preventDefault();
+        return;
+      }
+
+      if (key === '-' || key === '_') {
+        sendTextSizeCommand(entry, 'text-size-decrease');
+        event.preventDefault();
+        return;
+      }
+
+      if (key === '0' || key === ')') {
+        sendTextSizeCommand(entry, 'text-size-reset');
+        event.preventDefault();
+      }
+
+      return;
+    }
+
+    if (key === '=' || key === '+' || input.code === 'NumpadAdd') {
+      zoomIn(entry.window.webContents);
+      event.preventDefault();
+      return;
+    }
+
+    if (key === '-' || input.code === 'NumpadSubtract') {
+      zoomOut(entry.window.webContents);
+      event.preventDefault();
+      return;
+    }
+
+    if (key === '0' || input.code === 'Numpad0') {
+      resetZoom(entry.window.webContents);
+      event.preventDefault();
+    }
+  });
   entry.view.webContents.on('will-navigate', (event, url) => {
     const navigationUrl = event.url || url;
 
@@ -804,6 +894,29 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
 }
 
 export function registerQdnViewIpcHandlers() {
+  ipcMain.on('qdn-views:wheel-command', (event, rawRequest: unknown) => {
+    const request = sanitizeWheelCommand(rawRequest);
+    const entry = getQdnViewEntryForWebContents(event.sender);
+
+    if (!request || !entry || entry.window.isDestroyed()) {
+      return;
+    }
+
+    if (request.textSize) {
+      sendTextSizeCommand(
+        entry,
+        request.direction === 'in' ? 'text-size-increase' : 'text-size-decrease',
+      );
+      return;
+    }
+
+    if (request.direction === 'in') {
+      zoomIn(entry.window.webContents);
+    } else {
+      zoomOut(entry.window.webContents);
+    }
+  });
+
   ipcMain.handle('qdn-views:show', (event, rawRequest: unknown) => {
     const window = getSenderWindow(event);
     const request = sanitizeShowRequest(rawRequest);

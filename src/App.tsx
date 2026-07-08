@@ -43,6 +43,8 @@ import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
 import {
   applyDisplaySettings,
+  clampAppZoom,
+  DEFAULT_APP_ZOOM,
   DEFAULT_TEXT_SIZE,
   getInitialDisplaySettings,
   getSystemLanguage,
@@ -52,6 +54,7 @@ import {
   prevTextSize,
   resolveDisplaySettings,
   saveDisplaySettings,
+  stepAppZoom,
   subscribeToSystemLanguageChange,
   subscribeToSystemThemeChange,
   type DisplaySettings,
@@ -819,6 +822,11 @@ export function App() {
     current: DisplaySettings['textSize'];
     update: (nextTextSize: DisplaySettings['textSize']) => void;
   } | null>(null);
+  const appZoomControlRef = useRef<{
+    current: number;
+    update: (nextAppZoom: number) => void;
+  } | null>(null);
+  const pendingAppZoomRef = useRef<number | null>(null);
   const openQdnDocumentViewerRef = useRef<((request: QortiumQdnDocumentViewerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const didRunInitialRouteRefreshRef = useRef(false);
@@ -1179,6 +1187,37 @@ export function App() {
   }, [displaySettings, systemLanguage, systemTheme]);
 
   useEffect(() => {
+    const zoomApi = window.qortiumHome.zoom;
+
+    if (!zoomApi) {
+      return;
+    }
+
+    void zoomApi.set(effectiveDisplaySettings.appZoom).catch((error) => {
+      console.warn('Unable to update app zoom.', error);
+    });
+  }, [effectiveDisplaySettings.appZoom]);
+
+  useEffect(() => {
+    const zoomApi = window.qortiumHome.zoom;
+
+    if (!zoomApi) {
+      return undefined;
+    }
+
+    return zoomApi.onChanged((percent) => {
+      pendingAppZoomRef.current = null;
+      const appZoomControl = appZoomControlRef.current;
+
+      if (!appZoomControl || percent === appZoomControl.current) {
+        return;
+      }
+
+      appZoomControl.update(percent);
+    });
+  }, []);
+
+  useEffect(() => {
     const menuApi = window.qortiumHome.menu;
 
     if (!menuApi?.setLabels) {
@@ -1395,6 +1434,13 @@ export function App() {
     updateDisplaySettings({
       ...displaySettings,
       textSize: nextTextSize,
+    });
+  }
+
+  function updateAppZoom(nextAppZoom: number) {
+    updateDisplaySettings({
+      ...displaySettings,
+      appZoom: clampAppZoom(nextAppZoom),
     });
   }
 
@@ -2431,10 +2477,45 @@ export function App() {
     current: effectiveDisplaySettings.textSize,
     update: updateTextSize,
   };
+  appZoomControlRef.current = {
+    current: effectiveDisplaySettings.appZoom,
+    update: updateAppZoom,
+  };
   openQdnDocumentViewerRef.current = openQdnDocumentViewer;
 
   useEffect(() => {
     return window.qortiumHome.menu?.onCommand((command) => {
+      const textSizeControl = textSizeControlRef.current;
+
+      if (command === 'text-size-increase') {
+        if (textSizeControl) {
+          // Advance the ref before React re-renders so rapid routed commands
+          // (e.g. Ctrl+Shift+wheel from a QDN app view) step once each instead
+          // of collapsing onto the same next preset.
+          const nextSize = nextTextSize(textSizeControl.current);
+          textSizeControl.current = nextSize;
+          textSizeControl.update(nextSize);
+        }
+        return;
+      }
+
+      if (command === 'text-size-decrease') {
+        if (textSizeControl) {
+          const nextSize = prevTextSize(textSizeControl.current);
+          textSizeControl.current = nextSize;
+          textSizeControl.update(nextSize);
+        }
+        return;
+      }
+
+      if (command === 'text-size-reset') {
+        if (textSizeControl) {
+          textSizeControl.current = DEFAULT_TEXT_SIZE;
+          textSizeControl.update(DEFAULT_TEXT_SIZE);
+        }
+        return;
+      }
+
       const actions = tabCommandActionsRef.current;
 
       if (!actions) {
@@ -2798,6 +2879,83 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let wheelAccumulator = 0;
+
+    function stepTextSizeControl(direction: 'in' | 'out') {
+      const textSizeControl = textSizeControlRef.current;
+
+      if (!textSizeControl) {
+        return;
+      }
+
+      const nextSize = direction === 'in'
+        ? nextTextSize(textSizeControl.current)
+        : prevTextSize(textSizeControl.current);
+
+      textSizeControl.current = nextSize;
+      textSizeControl.update(nextSize);
+    }
+
+    function stepAppZoomControl(direction: 'in' | 'out') {
+      const zoomApi = window.qortiumHome.zoom;
+      const appZoomControl = appZoomControlRef.current;
+      const currentZoom = pendingAppZoomRef.current ?? appZoomControl?.current ?? DEFAULT_APP_ZOOM;
+      const nextZoom = stepAppZoom(currentZoom, direction, !!zoomApi);
+
+      if (nextZoom === currentZoom) {
+        return;
+      }
+
+      if (zoomApi) {
+        pendingAppZoomRef.current = nextZoom;
+        void zoomApi.set(nextZoom).catch((error) => {
+          pendingAppZoomRef.current = null;
+          console.warn('Unable to update app zoom.', error);
+        });
+        return;
+      }
+
+      appZoomControl?.update(nextZoom);
+    }
+
+    function handleWheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (event.deltaY === 0) {
+        return;
+      }
+
+      if ((wheelAccumulator > 0 && event.deltaY < 0) || (wheelAccumulator < 0 && event.deltaY > 0)) {
+        wheelAccumulator = 0;
+      }
+
+      wheelAccumulator += event.deltaY;
+
+      while (Math.abs(wheelAccumulator) >= 50) {
+        const direction = wheelAccumulator < 0 ? 'in' : 'out';
+
+        if (event.shiftKey) {
+          stepTextSizeControl(direction);
+        } else {
+          stepAppZoomControl(direction);
+        }
+
+        wheelAccumulator += direction === 'in' ? 50 : -50;
+      }
+    }
+
+    window.addEventListener('wheel', handleWheel, { capture: true, passive: false });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel, true);
+    };
+  }, []);
+
+  useEffect(() => {
     function handleHistoryMouseButton(event: MouseEvent) {
       if (event.button !== 3 && event.button !== 4) {
         return;
@@ -3107,6 +3265,7 @@ export function App() {
                   onSectionExpansionChange={updateSettingsSectionExpansion}
                   onSaveNodeSettings={saveNodeSettings}
                   onAccentChange={updateAccent}
+                  onAppZoomChange={updateAppZoom}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}
                   onUiChange={updateUi}

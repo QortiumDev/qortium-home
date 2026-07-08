@@ -108,6 +108,21 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     openTabInNewWindow: (request: { tab: unknown }) =>
       ipcRenderer.invoke('windows:openTabInNewWindow', request),
   },
+  zoom: {
+    get: () => ipcRenderer.invoke('zoom:get'),
+    set: (percent: number) => ipcRenderer.invoke('zoom:set', percent),
+    onChanged: (callback: (percent: number) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, percent: number) => {
+        callback(percent);
+      };
+
+      ipcRenderer.on('zoom:changed', listener);
+
+      return () => {
+        ipcRenderer.removeListener('zoom:changed', listener);
+      };
+    },
+  },
   menu: {
     onCommand: (callback: (command: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, command: unknown) => {

@@ -77,12 +77,16 @@ type QdnViewerState =
       status?: QdnResourceStatus;
     };
 
+type QdnFrameDisplaySettings = QdnDisplaySettings & {
+  appZoom?: number;
+};
+
 type QdnViewerProps = {
   account: QortiumAccountSummary | null;
   // Core-offline recovery context; omitted by embedded uses (media-player
   // dialog), which then keep the generic error state.
   coreManager?: CoreManagerState;
-  displaySettings: QdnDisplaySettings;
+  displaySettings: QdnFrameDisplaySettings;
   nodeApiUrl: string;
   nodeEpoch?: number;
   nodeMode?: QortiumNodeSettingsMode;
@@ -181,7 +185,7 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
 
 export type QdnBridgeFrameContentProps = {
   account: QortiumAccountSummary | null;
-  displaySettings: QdnDisplaySettings;
+  displaySettings: QdnFrameDisplaySettings;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
@@ -3203,6 +3207,19 @@ export function QdnBridgeFrameContent({
         : renderUrl,
     [bridgeToken, isNativeFrame, renderUrl],
   );
+  const appZoom = typeof displaySettings.appZoom === 'number' && Number.isFinite(displaySettings.appZoom)
+    ? displaySettings.appZoom
+    : 100;
+  const shouldScaleFrame = !window.qortiumHome.zoom && appZoom !== 100;
+  const frameScale = appZoom / 100;
+  const frameStyle = shouldScaleFrame
+    ? {
+        width: `calc(100% * ${100 / appZoom})`,
+        height: `calc(100% * ${100 / appZoom})`,
+        transform: `scale(${frameScale})`,
+        transformOrigin: '0 0',
+      }
+    : undefined;
 
   useEffect(() => {
     postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
@@ -3291,7 +3308,7 @@ export function QdnBridgeFrameContent({
     };
   }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
 
-  return (
+  const frame = (
     <iframe
       className="qdn-viewer__frame"
       key={frameSrc}
@@ -3299,6 +3316,7 @@ export function QdnBridgeFrameContent({
       title={title}
       src={frameSrc}
       referrerPolicy="no-referrer"
+      style={frameStyle}
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
@@ -3307,6 +3325,12 @@ export function QdnBridgeFrameContent({
       }}
     />
   );
+
+  if (!shouldScaleFrame) {
+    return frame;
+  }
+
+  return <div className="qdn-viewer__frame-scale-wrap">{frame}</div>;
 }
 
 function QdnIframeContent({
@@ -3320,7 +3344,7 @@ function QdnIframeContent({
   resource,
 }: {
   account: QortiumAccountSummary | null;
-  displaySettings: QdnDisplaySettings;
+  displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -3357,7 +3381,7 @@ function QdnReadyContent({
   tabId,
 }: {
   account: QortiumAccountSummary | null;
-  displaySettings: QdnDisplaySettings;
+  displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   onActionContextChange: SetViewerActionContext;

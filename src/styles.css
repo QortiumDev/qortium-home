@@ -1457,6 +1457,29 @@ h1 {
   min-width: 0;
 }
 
+.display-settings__app-zoom-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  min-width: 0;
+}
+
+.display-settings__app-zoom-level {
+  min-width: 4.5ch;
+  padding: 0 var(--space-1);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-small);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.display-settings__app-zoom-reset {
+  min-height: 34px;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
@@ -4043,6 +4066,16 @@ h1 {
   min-height: 0;
   background: #ffffff;
   border: 0;
+}
+
+.qdn-viewer__frame-scale-wrap {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .qdn-viewer__isolated-frame {

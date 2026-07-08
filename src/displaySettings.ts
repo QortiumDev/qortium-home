@@ -210,8 +210,17 @@ export const UI_OPTIONS: ReadonlyArray<{ value: UiSetting; labelKey: Translation
 ];
 
 export const DEFAULT_UI: UiSetting = 'classic';
+export const DEFAULT_APP_ZOOM = 100;
+export const MIN_APP_ZOOM = 50;
+export const MAX_APP_ZOOM = 200;
+export const APP_ZOOM_LEVEL_STEP = 0.5;
+export const MIN_APP_ZOOM_LEVEL = -3;
+export const MAX_APP_ZOOM_LEVEL = 3;
+
+const APP_ZOOM_LEVEL_BASE = 1.2;
 
 export type DisplaySettings = {
+  appZoom: number;
   language: LanguageSetting;
   textSize: TextSizeSetting;
   theme: ThemeSetting;
@@ -233,6 +242,7 @@ export const DEFAULT_TEXT_SIZE: TextSizeSetting = 'medium';
 export const DEFAULT_ACCENT: AccentSetting = 'green';
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
+  appZoom: DEFAULT_APP_ZOOM,
   language: DEFAULT_LANGUAGE,
   textSize: DEFAULT_TEXT_SIZE,
   theme: DEFAULT_THEME,
@@ -296,6 +306,36 @@ export function prevTextSize(textSize: TextSizeSetting): TextSizeSetting {
   return TEXT_SIZE_VALUES[prevIndex];
 }
 
+export function clampAppZoom(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_APP_ZOOM;
+  }
+
+  return Math.max(MIN_APP_ZOOM, Math.min(MAX_APP_ZOOM, Math.round(value)));
+}
+
+function clampAppZoomLevel(level: number) {
+  return Math.max(MIN_APP_ZOOM_LEVEL, Math.min(MAX_APP_ZOOM_LEVEL, level));
+}
+
+export function appZoomPercentToLevel(percent: number) {
+  return Math.log(clampAppZoom(percent) / 100) / Math.log(APP_ZOOM_LEVEL_BASE);
+}
+
+export function appZoomLevelToPercent(level: number) {
+  return clampAppZoom(Math.round(100 * Math.pow(APP_ZOOM_LEVEL_BASE, clampAppZoomLevel(level))));
+}
+
+export function stepAppZoom(percent: number, direction: 'in' | 'out', useZoomLevelStep: boolean) {
+  if (!useZoomLevelStep) {
+    return clampAppZoom(percent + (direction === 'in' ? 10 : -10));
+  }
+
+  const level = appZoomPercentToLevel(percent) + (direction === 'in' ? APP_ZOOM_LEVEL_STEP : -APP_ZOOM_LEVEL_STEP);
+
+  return appZoomLevelToPercent(level);
+}
+
 function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEXT_SIZE): DisplaySettings {
   if (!value || typeof value !== 'object') {
     return {
@@ -307,6 +347,7 @@ function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEX
   const settings = value as Partial<Record<keyof DisplaySettings, unknown>>;
 
   return {
+    appZoom: clampAppZoom(settings.appZoom),
     language: isLanguageSetting(settings.language) ? settings.language : DEFAULT_LANGUAGE,
     textSize: isTextSizeSetting(settings.textSize) ? settings.textSize : fallbackTextSize,
     theme: isThemeSetting(settings.theme) ? settings.theme : DEFAULT_THEME,

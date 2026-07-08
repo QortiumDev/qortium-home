@@ -30,6 +30,7 @@ type SettingsPageProps = {
   nodeSettings: QortiumNodeSettings;
   onLanguageChange: (language: LanguageSetting) => void;
   onAccentChange: (accent: AccentSetting) => void;
+  onAppZoomChange: (appZoom: number) => void;
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
@@ -47,6 +48,7 @@ export function SettingsPage({
   nodeSettings,
   onChainCoreUpdate,
   onLanguageChange,
+  onAppZoomChange,
   onOpenReleaseNotes,
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
@@ -75,6 +77,7 @@ export function SettingsPage({
           onExpandedChange={(isExpanded) => onSectionExpansionChange('display', isExpanded)}
           onLanguageChange={onLanguageChange}
           onAccentChange={onAccentChange}
+          onAppZoomChange={onAppZoomChange}
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
           onUiChange={onUiChange}

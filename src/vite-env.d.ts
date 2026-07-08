@@ -559,7 +559,10 @@ type QortiumHomeMenuCommand =
   | 'go-forward'
   | 'new-tab'
   | 'reload-tab'
-  | 'reopen-closed-tab';
+  | 'reopen-closed-tab'
+  | 'text-size-decrease'
+  | 'text-size-increase'
+  | 'text-size-reset';
 
 type QortiumHomeMenuLabels = {
   back: string;
@@ -726,6 +729,11 @@ interface Window {
       getStartupPayload: () => Promise<QortiumHomeWindowStartupPayload | null>;
       openDashboardWindow: () => Promise<void>;
       openTabInNewWindow: (request: QortiumHomeWindowOpenRequest) => Promise<void>;
+    };
+    zoom?: {
+      get: () => Promise<number>;
+      set: (percent: number) => Promise<void>;
+      onChanged: (callback: (percent: number) => void) => () => void;
     };
     menu?: {
       onCommand: (callback: (command: QortiumHomeMenuCommand) => void) => () => void;

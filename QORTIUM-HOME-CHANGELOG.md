@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - app: app-view zoom controls and shortcut routing
+
+QDN app tabs now respond to the same app zoom shortcuts and wheel gestures even
+when the embedded app itself has keyboard or mouse focus. Display Settings also
+has a new App zoom control after Text size, so users can scale the whole app
+view separately from Home's text-size preset. On desktop the setting follows
+Home's native zoom behavior, while Android and web views use an iframe scale
+fallback for QDN apps. Text-size shortcuts keep changing only the UI text size,
+including the shifted key and wheel gestures routed from focused QDN apps.
+
 ### 2026-07-08 - qdn: prefer a synced local Qortal node for Qortal bridge reads
 
 QDN apps that use Home's Qortal-specific bridge actions now prefer a synced
