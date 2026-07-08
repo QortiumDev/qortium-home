@@ -10,6 +10,7 @@ import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
 import {
   ensurePreviewApiKey,
+  invalidateRunningCoreApiKeyCache,
   readPreviewApiKey,
   readRunningLocalCoreApiKey,
   type RunningCoreApiKeyResult,
@@ -2238,6 +2239,10 @@ async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
 }
 
 async function startCore(options: { quiet?: boolean } = {}) {
+  // The running-core key cache must not serve pre-start state while the core
+  // comes up (and start-guards below need fresh data).
+  invalidateRunningCoreApiKeyCache();
+
   const installedCore = await readInstalledCore();
 
   if (!installedCore) {
@@ -2363,6 +2368,8 @@ async function stopCoreViaApi(installedCore: InstalledCore | null) {
 }
 
 async function stopCore(options: { quiet?: boolean } = {}) {
+  invalidateRunningCoreApiKeyCache();
+
   const installedCore = await readInstalledCore();
   const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 

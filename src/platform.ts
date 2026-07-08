@@ -1135,20 +1135,40 @@ async function setStoredValue(key: string, value: string) {
 // fallback's getSettings, which reads back through readNodeSettings itself.
 let usingFallbackQortiumHomeApi = false;
 
+// Short-lived cache of the desktop settings snapshot: readNodeSettings runs
+// on every renderer-side node request, and each uncached getSettings IPC makes
+// the main process resolve the running core's API key — expensive work that
+// must not repeat per request. Node setting saves invalidate this explicitly.
+const DESKTOP_NODE_SETTINGS_CACHE_TTL_MS = 3_000;
+let desktopNodeSettingsCache: { at: number; settings: StoredNodeSettings } | null = null;
+
+export function invalidateDesktopNodeSettingsCache() {
+  desktopNodeSettingsCache = null;
+}
+
 async function readNodeSettings() {
   // Desktop: the Electron main process owns node settings (the Settings UI
   // saves there, never to this module's browser-storage copy), so mirror its
   // active snapshot. Without this, renderer-side node requests here always
   // target the default local node even when a custom node is configured.
   if (!isNativePlatform() && !usingFallbackQortiumHomeApi && window.qortiumHome?.node?.getSettings) {
+    const cached = desktopNodeSettingsCache;
+
+    if (cached && Date.now() - cached.at < DESKTOP_NODE_SETTINGS_CACHE_TTL_MS) {
+      return cached.settings;
+    }
+
     try {
       const snapshot = await window.qortiumHome.node.getSettings();
-
-      return parseStoredNodeSettings({
+      const settings = parseStoredNodeSettings({
         apiKey: snapshot.apiKey,
         customUrl: snapshot.customUrl,
         mode: snapshot.mode,
       });
+
+      desktopNodeSettingsCache = { at: Date.now(), settings };
+
+      return settings;
     } catch {
       // Fall through to the stored/browser settings below.
     }
