@@ -1563,7 +1563,27 @@ export function App() {
     });
   }
 
+  function focusOpenSettingsTab() {
+    // Settings is deduplicated per window: each window is its own renderer with
+    // its own tabState, so scanning tabState only sees this window's tabs.
+    const existingSettingsTab =
+      tabState.tabs.find(
+        (tab) => tab.id === tabState.activeTabId && getCurrentRouteForTab(tab).kind === 'settings',
+      ) ?? tabState.tabs.find((tab) => getCurrentRouteForTab(tab).kind === 'settings');
+
+    if (!existingSettingsTab) {
+      return false;
+    }
+
+    selectTab(existingSettingsTab.id);
+    return true;
+  }
+
   function navigateToRoute(route: AppRoute, options?: { accountId?: string | null; replace?: boolean }) {
+    if (route.kind === 'settings' && focusOpenSettingsTab()) {
+      return;
+    }
+
     const defaultAccountId = getDefaultAccountId(accountsState);
 
     updateActiveTab((tab) => {
@@ -1645,6 +1665,10 @@ export function App() {
   }
 
   function openSettingsInNewTab() {
+    if (focusOpenSettingsTab()) {
+      return;
+    }
+
     const tab = createBrowserTab(getDefaultAccountId(accountsState), {
       entries: [SETTINGS_ROUTE],
       index: 0,
