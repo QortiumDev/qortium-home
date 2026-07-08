@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - app: keep the interface responsive during node status checks
+
+Fixed the app becoming laggy and unresponsive shortly after launch. Checking
+which local Core is running (to reuse its API key) could repeatedly block the
+app's main process while it inspected running processes, which froze scrolling
+and clicks during the startup burst of node status checks. That inspection now
+runs in the background, its result is cached briefly, and the app warms it up
+once at launch, so the interface stays responsive.
+
 ### 2026-07-08 - node: trust the configured node's own https certificate on desktop
 
 Home now fetches the node's local certificate authority and verifies the

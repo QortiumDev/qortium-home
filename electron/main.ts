@@ -23,6 +23,7 @@ import {
   startIfManaged as startI2pdIfManaged,
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
+import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import {
   cleanupQdnPreviewStagingDirs,
@@ -784,6 +785,7 @@ app.whenReady().then(() => {
 
   logStartupMilestone('main process ready');
   installNodeTlsForDefaultSessions();
+  prewarmRunningCoreApiKeyCache();
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
   registerCoreManagerIpcHandlers();

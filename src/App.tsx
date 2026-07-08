@@ -82,6 +82,7 @@ import {
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, subscribeTranslationChange, t, type TranslationKey } from './i18n';
+import { invalidateDesktopNodeSettingsCache } from './platform';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
@@ -1515,6 +1516,9 @@ export function App() {
     try {
       const settings = await window.qortiumHome.node.saveSettings(request);
 
+      // Renderer-side node requests mirror the settings snapshot through a
+      // short-lived cache; a save must take effect immediately, not after TTL.
+      invalidateDesktopNodeSettingsCache();
       setNodeSettings(settings);
 
       return settings;

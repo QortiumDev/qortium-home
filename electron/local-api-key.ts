@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
@@ -159,14 +159,20 @@ function runLsof(args: string[]): string | null {
   }
 }
 
-function findLocalCorePidViaLsof(): number | null {
-  const output = runLsof([
-    '-nP',
-    `-iTCP:${LOCAL_CORE_API_PORT}`,
-    '-sTCP:LISTEN',
-    '-t',
-  ]);
+// Async variant for cache refreshes: lsof over a busy core process can take
+// hundreds of milliseconds, which must not block the Electron main thread
+// (a blocked main thread stalls input delivery to the renderer).
+function runLsofAsync(args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile('lsof', args, { encoding: 'utf8' }, (error, stdout) => {
+      resolve(error ? null : stdout);
+    });
+  });
+}
 
+const LSOF_PID_ARGS = ['-nP', `-iTCP:${LOCAL_CORE_API_PORT}`, '-sTCP:LISTEN', '-t'];
+
+function parseLsofPidOutput(output: string | null): number | null {
   if (!output) {
     return null;
   }
@@ -182,9 +188,17 @@ function findLocalCorePidViaLsof(): number | null {
   return null;
 }
 
+function findLocalCorePidViaLsof(): number | null {
+  return parseLsofPidOutput(runLsof(LSOF_PID_ARGS));
+}
+
 function getProcessFilesViaLsof(pid: number): { cwd: string; files: string[] } | null {
   const output = runLsof(['-p', String(pid), '-Fn']);
 
+  return parseLsofProcessFiles(output);
+}
+
+function parseLsofProcessFiles(output: string | null): { cwd: string; files: string[] } | null {
   if (!output) {
     return null;
   }
@@ -220,15 +234,32 @@ function getProcessFilesViaLsof(pid: number): { cwd: string; files: string[] } |
 }
 
 function readRunningLocalCoreApiKeyViaLsof(): RunningCoreApiKeyResult | null {
+  const pid = findLocalCorePidViaLsof();
+
+  if (pid === null) {
+    return null;
+  }
+
+  return deriveRunningCoreKeyFromProcessFiles(pid, getProcessFilesViaLsof(pid));
+}
+
+async function readRunningLocalCoreApiKeyViaLsofAsync(): Promise<RunningCoreApiKeyResult | null> {
+  const pid = parseLsofPidOutput(await runLsofAsync(LSOF_PID_ARGS));
+
+  if (pid === null) {
+    return null;
+  }
+
+  const processFiles = parseLsofProcessFiles(await runLsofAsync(['-p', String(pid), '-Fn']));
+
+  return deriveRunningCoreKeyFromProcessFiles(pid, processFiles);
+}
+
+function deriveRunningCoreKeyFromProcessFiles(
+  pid: number,
+  processFiles: { cwd: string; files: string[] } | null,
+): RunningCoreApiKeyResult | null {
   try {
-    const pid = findLocalCorePidViaLsof();
-
-    if (pid === null) {
-      return null;
-    }
-
-    const processFiles = getProcessFilesViaLsof(pid);
-
     if (!processFiles) {
       return null;
     }
@@ -300,11 +331,94 @@ function readRunningLocalCoreApiKeyViaLsof(): RunningCoreApiKeyResult | null {
   }
 }
 
+const RUNNING_CORE_KEY_CACHE_TTL_MS = 5_000;
+let runningCoreKeyCache: { at: number; value: RunningCoreApiKeyResult | null } | null = null;
+let runningCoreKeyRefresh: Promise<void> | null = null;
+
+// Discovering the running core's key scans /proc and may shell out to lsof,
+// which is slow on a busy core process. The result barely changes, but callers
+// sit in hot paths (node status polls, per-request settings snapshots), so:
+// serve a short-lived cache, refresh a stale cache asynchronously off the hot
+// path (returning the stale value meanwhile), and only ever compute
+// synchronously on the very first call so core start-guards stay correct at
+// startup. Home's own core start/stop invalidates the cache explicitly.
 export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
+  const cached = runningCoreKeyCache;
+
+  if (cached && Date.now() - cached.at < RUNNING_CORE_KEY_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  if (cached) {
+    scheduleRunningCoreKeyRefresh();
+    return cached.value;
+  }
+
+  const value = computeRunningCoreKeySync();
+
+  runningCoreKeyCache = { at: Date.now(), value };
+
+  return value;
+}
+
+export function invalidateRunningCoreApiKeyCache() {
+  runningCoreKeyCache = null;
+  runningCoreKeyRefresh = null;
+}
+
+// Populates the cache off the main thread at startup so the first real
+// consumer (status poll / settings snapshot) never pays the synchronous
+// compute during the launch input burst.
+export function prewarmRunningCoreApiKeyCache() {
+  scheduleRunningCoreKeyRefresh();
+}
+
+function scheduleRunningCoreKeyRefresh() {
+  if (runningCoreKeyRefresh) {
+    return;
+  }
+
+  runningCoreKeyRefresh = computeRunningCoreKeyAsync()
+    .then((value) => {
+      runningCoreKeyCache = { at: Date.now(), value };
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      runningCoreKeyRefresh = null;
+    });
+}
+
+async function computeRunningCoreKeyAsync(): Promise<RunningCoreApiKeyResult | null> {
+  if (process.platform !== 'linux') {
+    return readRunningLocalCoreApiKeyViaLsofAsync();
+  }
+
+  const apiKeys = scanProcForRunningCoreKeys();
+
+  if (apiKeys.size === 1) {
+    return [...apiKeys.values()][0];
+  }
+
+  return readRunningLocalCoreApiKeyViaLsofAsync();
+}
+
+function computeRunningCoreKeySync(): RunningCoreApiKeyResult | null {
   if (process.platform !== 'linux') {
     return readRunningLocalCoreApiKeyViaLsof();
   }
 
+  const apiKeys = scanProcForRunningCoreKeys();
+
+  if (apiKeys.size === 1) {
+    return [...apiKeys.values()][0];
+  }
+
+  // Fall back to lsof when the /proc scan is inconclusive (e.g. the core runs
+  // under a different user whose /proc/<pid>/cwd is not readable).
+  return readRunningLocalCoreApiKeyViaLsof();
+}
+
+function scanProcForRunningCoreKeys(): Map<string, RunningCoreApiKeyResult> {
   const apiKeys = new Map<string, RunningCoreApiKeyResult>();
 
   for (const entry of readdirSync('/proc', { withFileTypes: true })) {
@@ -344,13 +458,7 @@ export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
     }
   }
 
-  if (apiKeys.size === 1) {
-    return [...apiKeys.values()][0];
-  }
-
-  // Fall back to lsof when the /proc scan is inconclusive (e.g. the core runs
-  // under a different user whose /proc/<pid>/cwd is not readable).
-  return readRunningLocalCoreApiKeyViaLsof();
+  return apiKeys;
 }
 
 export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {
