@@ -8,9 +8,18 @@ import { t } from './i18n';
 // "failed with HTTP <status>" message — so matching it separates "node
 // unreachable / Core offline" from real resource errors (missing, forbidden).
 const NODE_UNAVAILABLE_PATTERN = /Qortium node is unavailable at /;
+// Thrown by electron/qdn.ts getNodeApiKey before any fetch when no API key is
+// saved. Home reads the key from the running managed Core, so in local mode
+// this guard firing means the Core is not running — treat it as Core-offline.
+// (The custom-node variant of the guard message is a real configuration error
+// and intentionally keeps the generic error view.)
+const LOCAL_KEY_UNAVAILABLE_PATTERN = /Start Qortium Core from Home, or save the local node API key/;
 
 export function isNodeUnavailableMessage(message: string | null | undefined) {
-  return !!message && NODE_UNAVAILABLE_PATTERN.test(message);
+  return (
+    !!message &&
+    (NODE_UNAVAILABLE_PATTERN.test(message) || LOCAL_KEY_UNAVAILABLE_PATTERN.test(message))
+  );
 }
 
 type CoreOfflineNoticeProps = {
