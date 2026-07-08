@@ -21,26 +21,36 @@ function sendWheelCommands(event: WheelEvent) {
 
   event.preventDefault();
 
-  if (event.deltaY === 0) {
+  // Shift+wheel is remapped to horizontal scroll on some platforms, so fall
+  // back to deltaX when deltaY is empty.
+  const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+
+  if (delta === 0) {
     return;
   }
 
-  if ((wheelAccumulator > 0 && event.deltaY < 0) || (wheelAccumulator < 0 && event.deltaY > 0)) {
+  if ((wheelAccumulator > 0 && delta < 0) || (wheelAccumulator < 0 && delta > 0)) {
     wheelAccumulator = 0;
   }
 
-  wheelAccumulator += event.deltaY;
+  wheelAccumulator += delta;
 
-  while (Math.abs(wheelAccumulator) >= 50) {
-    const direction = wheelAccumulator < 0 ? 'in' : 'out';
-
-    ipcRenderer.send('qdn-views:wheel-command', {
-      direction,
-      textSize: event.shiftKey,
-    });
-
-    wheelAccumulator += direction === 'in' ? 50 : -50;
+  // At most one step per wheel event: a single mouse notch reports a large
+  // delta (typically 100), so consuming the whole accumulator here keeps one
+  // notch = one step while still letting trackpads' small deltas accumulate
+  // across events until they reach the threshold.
+  if (Math.abs(wheelAccumulator) < 50) {
+    return;
   }
+
+  const direction = wheelAccumulator < 0 ? 'in' : 'out';
+
+  wheelAccumulator = 0;
+
+  ipcRenderer.send('qdn-views:wheel-command', {
+    direction,
+    textSize: event.shiftKey,
+  });
 }
 
 window.addEventListener('wheel', sendWheelCommands, { capture: true, passive: false });

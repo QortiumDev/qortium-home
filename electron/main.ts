@@ -716,7 +716,10 @@ function registerZoomIpcHandlers() {
       throw new Error('Zoom percent must be a number.');
     }
 
-    setZoomPercent(event.sender, percent);
+    // No zoom:changed echo back to the requester: it learns the applied
+    // percent from this return value. Echoing renderer-originated sets can
+    // oscillate against the renderer's appZoom effect.
+    return setZoomPercent(event.sender, percent, false);
   });
 }
 

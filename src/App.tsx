@@ -44,7 +44,6 @@ import { DashboardPage } from './DashboardPage';
 import {
   applyDisplaySettings,
   clampAppZoom,
-  DEFAULT_APP_ZOOM,
   DEFAULT_TEXT_SIZE,
   getInitialDisplaySettings,
   getSystemLanguage,
@@ -826,7 +825,6 @@ export function App() {
     current: number;
     update: (nextAppZoom: number) => void;
   } | null>(null);
-  const pendingAppZoomRef = useRef<number | null>(null);
   const openQdnDocumentViewerRef = useRef<((request: QortiumQdnDocumentViewerRequest) => void) | null>(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const didRunInitialRouteRefreshRef = useRef(false);
@@ -1193,9 +1191,26 @@ export function App() {
       return;
     }
 
-    void zoomApi.set(effectiveDisplaySettings.appZoom).catch((error) => {
-      console.warn('Unable to update app zoom.', error);
-    });
+    const requested = effectiveDisplaySettings.appZoom;
+
+    // Main returns the percent it actually applied (it clamps to its own zoom
+    // level bounds) and deliberately does not echo a zoom:changed for this
+    // call, so pushing settings to main can never loop back on itself. If the
+    // applied value differs (e.g. a stored 200% clamps to 173% on desktop),
+    // adopt it — unless the user has already stepped again in the meantime.
+    zoomApi
+      .set(requested)
+      .then((applied) => {
+        const appZoomControl = appZoomControlRef.current;
+
+        if (applied !== requested && appZoomControl && appZoomControl.current === requested) {
+          appZoomControl.current = applied;
+          appZoomControl.update(applied);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to update app zoom.', error);
+      });
   }, [effectiveDisplaySettings.appZoom]);
 
   useEffect(() => {
@@ -1205,14 +1220,16 @@ export function App() {
       return undefined;
     }
 
+    // Only main-originated zoom changes (keyboard, menu, wheel from a QDN app
+    // view) arrive here; renderer-originated zoom:set calls are not echoed.
     return zoomApi.onChanged((percent) => {
-      pendingAppZoomRef.current = null;
       const appZoomControl = appZoomControlRef.current;
 
       if (!appZoomControl || percent === appZoomControl.current) {
         return;
       }
 
+      appZoomControl.current = percent;
       appZoomControl.update(percent);
     });
   }, []);
@@ -2897,25 +2914,24 @@ export function App() {
     }
 
     function stepAppZoomControl(direction: 'in' | 'out') {
-      const zoomApi = window.qortiumHome.zoom;
       const appZoomControl = appZoomControlRef.current;
-      const currentZoom = pendingAppZoomRef.current ?? appZoomControl?.current ?? DEFAULT_APP_ZOOM;
-      const nextZoom = stepAppZoom(currentZoom, direction, !!zoomApi);
+
+      if (!appZoomControl) {
+        return;
+      }
+
+      const currentZoom = appZoomControl.current;
+      const nextZoom = stepAppZoom(currentZoom, direction, !!window.qortiumHome.zoom);
 
       if (nextZoom === currentZoom) {
         return;
       }
 
-      if (zoomApi) {
-        pendingAppZoomRef.current = nextZoom;
-        void zoomApi.set(nextZoom).catch((error) => {
-          pendingAppZoomRef.current = null;
-          console.warn('Unable to update app zoom.', error);
-        });
-        return;
-      }
-
-      appZoomControl?.update(nextZoom);
+      // Advance the ref before React re-renders (like the text-size path) so
+      // rapid steps chain correctly; the appZoom effect pushes the settled
+      // value to the main process.
+      appZoomControl.current = nextZoom;
+      appZoomControl.update(nextZoom);
     }
 
     function handleWheel(event: WheelEvent) {
@@ -2925,26 +2941,36 @@ export function App() {
 
       event.preventDefault();
 
-      if (event.deltaY === 0) {
+      // Shift+wheel is remapped to horizontal scroll on some platforms, so
+      // fall back to deltaX when deltaY is empty.
+      const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+
+      if (delta === 0) {
         return;
       }
 
-      if ((wheelAccumulator > 0 && event.deltaY < 0) || (wheelAccumulator < 0 && event.deltaY > 0)) {
+      if ((wheelAccumulator > 0 && delta < 0) || (wheelAccumulator < 0 && delta > 0)) {
         wheelAccumulator = 0;
       }
 
-      wheelAccumulator += event.deltaY;
+      wheelAccumulator += delta;
 
-      while (Math.abs(wheelAccumulator) >= 50) {
-        const direction = wheelAccumulator < 0 ? 'in' : 'out';
+      // At most one step per wheel event: a single mouse notch reports a large
+      // delta (typically 100), so consuming the whole accumulator here keeps
+      // one notch = one step while still letting trackpads' small deltas
+      // accumulate across events until they reach the threshold.
+      if (Math.abs(wheelAccumulator) < 50) {
+        return;
+      }
 
-        if (event.shiftKey) {
-          stepTextSizeControl(direction);
-        } else {
-          stepAppZoomControl(direction);
-        }
+      const direction = wheelAccumulator < 0 ? 'in' : 'out';
 
-        wheelAccumulator += direction === 'in' ? 50 : -50;
+      wheelAccumulator = 0;
+
+      if (event.shiftKey) {
+        stepTextSizeControl(direction);
+      } else {
+        stepAppZoomControl(direction);
       }
     }
 

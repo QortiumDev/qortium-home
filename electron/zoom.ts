@@ -46,22 +46,33 @@ function getWindowForWebContents(webContents: WebContents) {
   return window;
 }
 
-function applyZoomLevel(webContents: WebContents, level: number) {
+// Applies zoom in whole-percent space: the displayed percent is the source of
+// truth and the stored zoom level is always derived from it, so keyboard, menu,
+// wheel, and renderer-set paths all land on the same percent ladder. Comparing
+// percents (not float levels) makes re-applying the current percent a complete
+// no-op, which is what keeps the renderer's own zoom:set echoes from cascading.
+// `notify` controls the zoom:changed broadcast: main-originated changes
+// (keyboard/menu/app-view wheel) notify the renderer; renderer-originated
+// zoom:set calls must NOT be echoed back or the two sides can feed each other.
+function applyZoomPercent(webContents: WebContents, percent: number, notify: boolean) {
   const window = getWindowForWebContents(webContents);
-  const nextLevel = clampZoomLevel(level);
+  const nextLevel = clampZoomLevel(zoomPercentToLevel(percent));
   const nextPercent = zoomLevelToPercent(nextLevel);
 
   if (!window || webContents.isDestroyed()) {
     return nextPercent;
   }
 
-  if (webContents.getZoomLevel() === nextLevel) {
+  if (zoomLevelToPercent(webContents.getZoomLevel()) === nextPercent) {
     return nextPercent;
   }
 
   webContents.setZoomLevel(nextLevel);
   syncQdnViewsForWindowZoom?.(window);
-  window.webContents.send('zoom:changed', nextPercent);
+
+  if (notify) {
+    window.webContents.send('zoom:changed', nextPercent);
+  }
 
   return nextPercent;
 }
@@ -70,18 +81,24 @@ export function getZoomPercent(webContents: WebContents) {
   return zoomLevelToPercent(webContents.getZoomLevel());
 }
 
-export function setZoomPercent(webContents: WebContents, percent: number) {
-  return applyZoomLevel(webContents, zoomPercentToLevel(percent));
+export function setZoomPercent(webContents: WebContents, percent: number, notify = true) {
+  return applyZoomPercent(webContents, percent, notify);
+}
+
+function stepZoom(webContents: WebContents, direction: 1 | -1) {
+  const level = zoomPercentToLevel(getZoomPercent(webContents)) + direction * ZOOM_LEVEL_STEP;
+
+  return applyZoomPercent(webContents, zoomLevelToPercent(level), true);
 }
 
 export function zoomIn(webContents: WebContents) {
-  return applyZoomLevel(webContents, webContents.getZoomLevel() + ZOOM_LEVEL_STEP);
+  return stepZoom(webContents, 1);
 }
 
 export function zoomOut(webContents: WebContents) {
-  return applyZoomLevel(webContents, webContents.getZoomLevel() - ZOOM_LEVEL_STEP);
+  return stepZoom(webContents, -1);
 }
 
 export function resetZoom(webContents: WebContents) {
-  return applyZoomLevel(webContents, 0);
+  return applyZoomPercent(webContents, 100, true);
 }

@@ -732,7 +732,7 @@ interface Window {
     };
     zoom?: {
       get: () => Promise<number>;
-      set: (percent: number) => Promise<void>;
+      set: (percent: number) => Promise<number>;
       onChanged: (callback: (percent: number) => void) => () => void;
     };
     menu?: {
