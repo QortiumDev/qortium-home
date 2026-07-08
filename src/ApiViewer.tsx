@@ -1,5 +1,7 @@
 import { Copy, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
+import type { CoreManagerState } from './coreManagerState';
 import { t, type TranslationKey } from './i18n';
 import type { NodeApiRoute } from './routes';
 
@@ -33,6 +35,9 @@ type ApiViewerState =
     };
 
 type ApiViewerProps = {
+  coreManager: CoreManagerState;
+  nodeEpoch: number;
+  nodeMode: QortiumNodeSettingsMode;
   route: NodeApiRoute;
 };
 
@@ -185,7 +190,7 @@ function ApiDetailList({ state, route }: { route: NodeApiRoute; state: Exclude<A
   );
 }
 
-export function ApiViewer({ route }: ApiViewerProps) {
+export function ApiViewer({ coreManager, nodeEpoch, nodeMode, route }: ApiViewerProps) {
   const [retryToken, setRetryToken] = useState(0);
   const [state, setState] = useState<ApiViewerState>({
     phase: 'loading',
@@ -272,15 +277,26 @@ export function ApiViewer({ route }: ApiViewerProps) {
 
       {state.phase === 'error' ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--error">
-          <p className="qdn-viewer__message">{state.message}</p>
-          <button
-            className="button qdn-viewer__retry"
-            type="button"
-            onClick={() => setRetryToken((currentToken) => currentToken + 1)}
-          >
-            <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-            {t('common.retry')}
-          </button>
+          {isNodeUnavailableMessage(state.message) ? (
+            <CoreOfflineNotice
+              coreManager={coreManager}
+              nodeEpoch={nodeEpoch}
+              nodeMode={nodeMode}
+              onRetry={() => setRetryToken((currentToken) => currentToken + 1)}
+            />
+          ) : (
+            <>
+              <p className="qdn-viewer__message">{state.message}</p>
+              <button
+                className="button qdn-viewer__retry"
+                type="button"
+                onClick={() => setRetryToken((currentToken) => currentToken + 1)}
+              >
+                <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
+                {t('common.retry')}
+              </button>
+            </>
+          )}
         </div>
       ) : null}
 

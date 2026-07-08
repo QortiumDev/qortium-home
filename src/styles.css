@@ -4374,6 +4374,45 @@ h1 {
   width: min(100%, 35em);
 }
 
+.core-offline {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.core-offline__detail,
+.core-offline__error {
+  max-width: min(100%, 35em);
+  margin: 0;
+  text-align: center;
+}
+
+.core-offline__detail {
+  color: var(--color-text-secondary);
+}
+
+.core-offline__error {
+  color: var(--color-danger);
+}
+
+.core-offline__progress {
+  width: min(100%, 20em);
+}
+
+.core-offline__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* QdnExplorer shows load errors inline above its lists rather than in the
+   centered qdn-viewer empty state, so give the notice its own spacing there. */
+.qdn-explorer__core-offline {
+  padding: 16px 0;
+}
+
 .core-api-docs__details {
   justify-items: center;
   text-align: center;

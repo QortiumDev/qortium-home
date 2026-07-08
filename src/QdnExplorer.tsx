@@ -1,6 +1,8 @@
 import { ChevronDown, ChevronUp, Eye, File, FileAudio, FileImage, FileText, FileVideo, Folder, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModalDialog } from './components/ModalDialog';
+import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
+import type { CoreManagerState } from './coreManagerState';
 import { t } from './i18n';
 import { canPreviewDirectoryContent } from './platform';
 import type { QdnDisplaySettings, QdnExplorerRoute, QdnResourceListItem, QdnRoute, QdnService } from './qdn';
@@ -18,8 +20,11 @@ import {
 } from './qdn';
 
 type QdnExplorerProps = {
+  coreManager: CoreManagerState;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  nodeEpoch: number;
+  nodeMode: QortiumNodeSettingsMode;
   onNavigate: (route: QdnRoute, options?: { replace?: boolean }) => void;
   route: QdnExplorerRoute;
 };
@@ -399,7 +404,7 @@ function QdnPreviewDialog({
   );
 }
 
-export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: QdnExplorerProps) {
+export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoch, nodeMode, onNavigate, route }: QdnExplorerProps) {
   const [state, setState] = useState<QdnExplorerState>({
     phase: 'idle',
     resources: [],
@@ -604,7 +609,18 @@ export function QdnExplorer({ displaySettings, nodeApiUrl, onNavigate, route }: 
       ) : null}
 
       {state.phase === 'error' ? (
-        <p className="qdn-explorer__message qdn-explorer__message--error">{state.message}</p>
+        isNodeUnavailableMessage(state.message) ? (
+          <div className="qdn-explorer__core-offline">
+            <CoreOfflineNotice
+              coreManager={coreManager}
+              nodeEpoch={nodeEpoch}
+              nodeMode={nodeMode}
+              onRetry={() => setRetryToken((currentToken) => currentToken + 1)}
+            />
+          </div>
+        ) : (
+          <p className="qdn-explorer__message qdn-explorer__message--error">{state.message}</p>
+        )
       ) : null}
 
       {route.kind === 'services' ? (

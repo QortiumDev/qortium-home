@@ -3048,19 +3048,30 @@ export function App() {
               className={`app-main__tab${isActiveTab ? '' : ' app-main__tab--hidden'}`}
             >
               {tabRoute.kind === 'node-api' ? (
-                <ApiViewer key={tabRenderKey} route={tabRoute} />
+                <ApiViewer
+                  key={tabRenderKey}
+                  coreManager={coreManager}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
+                  route={tabRoute}
+                />
               ) : tabRoute.kind === 'core-api-docs' ? (
                 <CoreApiDocsPage
                   key={tabRenderKey}
+                  coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
+                  nodeEpoch={nodeEpoch}
                   nodeSettings={nodeSettings}
                 />
               ) : tabRoute.kind === 'resource' ? (
                 <QdnViewer
                   key={tabRenderKey}
                   account={tabAccount}
+                  coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
                   onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
@@ -3160,8 +3171,11 @@ export function App() {
               ) : (
                 <QdnExplorer
                   key={tabRenderKey}
+                  coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
                   route={tabRoute}
                   onNavigate={navigateToRoute}
                 />
