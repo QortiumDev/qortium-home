@@ -611,6 +611,8 @@ type QortiumQdnWriteApprovalRequest = {
     | 'CANCEL_GROUP_INVITE'
     | 'SET_GROUP'
     | 'SET_CURRENT_FOREIGN_SERVER'
+    | 'SEND_QORT'
+    | 'SEND_QORTAL_GROUP_CHAT'
     | 'PAYMENT'
     | 'SEND_COIN'
     | 'TRANSFER_ASSET'
