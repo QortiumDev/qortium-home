@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron';
 import extract from 'extract-zip';
 import { zipSync } from 'fflate';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
@@ -51,6 +51,14 @@ import {
   getSignatureFromSignedTransactionBytes,
   qortDecimalToAtomic,
 } from './qortal-payment.js';
+import {
+  assertPositiveQortalGroupId,
+  assertValidQortalChatSignature,
+  buildQortalGroupChatPayload,
+  buildUnsignedQortalGroupChatTransactionBytes,
+  QORTAL_CHAT_POW_DIFFICULTY,
+  stampQortalGroupChatNonce,
+} from './qortal-chat.js';
 import {
   QDN_APP_BRIDGE_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
@@ -272,9 +280,10 @@ type QdnWriteApprovalAction =
   | QdnChatAction
   | QdnPrivateGroupChatWriteAction
   | 'SEND_QORT'
+  | 'SEND_QORTAL_GROUP_CHAT'
   | 'START_MINTING'
   | 'REMOVE_MINTING_ACCOUNT';
-type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE';
+type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
 
 type QdnWriteResourceRequest = {
   category?: string;
@@ -409,6 +418,40 @@ type ForeignPreparedSend = {
   sendMax: boolean;
   transactionSize: number;
   txHash: string;
+};
+
+type SupportedBlockchainInfo = {
+  activeNetwork: string;
+  apiPath: string | null;
+  chainId: string | null;
+  currencyCode: string;
+  decimalPlaces: number;
+  displayName: string;
+  name: string;
+  slip44CoinType: number | null;
+  supportsForeignForeignTrades: boolean;
+  supportsHtlc: boolean;
+  supportsLocalChainTrades: boolean;
+  supportsWallet: boolean;
+  type: string;
+  walletEnabled: boolean;
+};
+
+const QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO: SupportedBlockchainInfo = {
+  activeNetwork: 'MAIN',
+  apiPath: null,
+  chainId: null,
+  currencyCode: 'QORT',
+  decimalPlaces: 8,
+  displayName: 'Qortal',
+  name: 'QORTAL',
+  slip44CoinType: null,
+  supportsForeignForeignTrades: false,
+  supportsHtlc: false,
+  supportsLocalChainTrades: false,
+  supportsWallet: true,
+  type: 'QORTAL_PUBLIC_NODE',
+  walletEnabled: true,
 };
 
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
@@ -2655,6 +2698,24 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
   return result.data;
 }
 
+async function getCrosschainBlockchainsForApp(request: QdnAppRequest) {
+  const blockchains = await fetchNodeApiPayload('/crosschain/blockchains', request);
+  // Core reports foreign-chain wallet stacks. Home also exposes QORT through
+  // public Qortal nodes, so include Qortal for app capability discovery.
+  if (Array.isArray(blockchains)) {
+    return [QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO, ...blockchains];
+  }
+
+  if (isRecord(blockchains) && Array.isArray(blockchains.data)) {
+    return {
+      ...blockchains,
+      data: [QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO, ...blockchains.data],
+    };
+  }
+
+  return blockchains;
+}
+
 // --- Read-only cross-chain reads from a public Qortal node ---
 // Mirrors the desktop QDN read pipeline but targets a public Qortal node: GET/HEAD against public
 // QDN services only, no account, API key, signing or writes.
@@ -2796,6 +2857,24 @@ async function getQortalTransactionForApp(request: QdnAppRequest) {
   );
 
   if (result.status === 404 || result.body.trim() === '') {
+    return null;
+  }
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data ?? null;
+}
+
+async function getQortalChatMessageForApp(request: QdnAppRequest) {
+  const signature = getQortalTransactionSignatureFromRequest(request);
+  const result = await fetchQortalNodeApi(
+    `/chat/message/${encodeURIComponent(signature)}?encoding=BASE64`,
+    getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')),
+  );
+
+  if (result.status === 400 || result.status === 404 || result.body.trim() === '') {
     return null;
   }
 
@@ -3118,6 +3197,181 @@ async function sendQortForApp(
       recipient: resolvedRecipient.address,
       recipientName: resolvedRecipient.name,
       signature,
+    };
+  }
+}
+
+function getSendQortalGroupChatRequest(request: QdnAppRequest) {
+  let txGroupId: number;
+  let repliedTo: string | undefined;
+  const text =
+    getString(getRequestValue(request, 'text')) ||
+    getString(getRequestValue(request, 'message')) ||
+    getString(getRequestValue(request, 'messageText'));
+
+  try {
+    txGroupId = assertPositiveQortalGroupId(
+      getRequestValue(request, 'txGroupId') ?? getRequestValue(request, 'groupId'),
+    );
+  } catch (error) {
+    throw new SendQortValidationError(getSendQortErrorMessage(error));
+  }
+
+  if (!text) {
+    throw new SendQortValidationError('SEND_QORTAL_GROUP_CHAT requires non-empty text.');
+  }
+
+  const rawRepliedTo =
+    getString(getRequestValue(request, 'repliedTo')) ||
+    getString(getRequestValue(request, 'replyTo')) ||
+    getString(getRequestValue(request, 'replySignature'));
+
+  if (rawRepliedTo) {
+    try {
+      repliedTo = assertValidQortalChatSignature(rawRepliedTo, 'Reply signature');
+    } catch (error) {
+      throw new SendQortValidationError(getSendQortErrorMessage(error));
+    }
+  }
+
+  const specialId = randomUUID();
+
+  try {
+    return {
+      message: buildQortalGroupChatPayload({ repliedTo, specialId, text }),
+      repliedTo: repliedTo ?? null,
+      specialId,
+      text,
+      txGroupId,
+    };
+  } catch (error) {
+    throw new SendQortValidationError(getSendQortErrorMessage(error));
+  }
+}
+
+async function fetchQortalGroupLabel(txGroupId: number) {
+  const result = await fetchQortalNodeApi(`/groups/${encodeURIComponent(String(txGroupId))}`, 8192);
+
+  if (!result.ok || !isRecord(result.data)) {
+    return `Group ${txGroupId}`;
+  }
+
+  const name = getString(result.data.groupName) || getString(result.data.name);
+
+  return name ? `${name} (${txGroupId})` : `Group ${txGroupId}`;
+}
+
+async function sendQortalGroupChatForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  if (!context) {
+    throw new Error('SEND_QORTAL_GROUP_CHAT is only available from a QDN app frame.');
+  }
+
+  if (!context.accountId) {
+    throw new Error('No account is selected for this tab.');
+  }
+
+  let sendRequest: ReturnType<typeof getSendQortalGroupChatRequest>;
+
+  try {
+    sendRequest = getSendQortalGroupChatRequest(request);
+  } catch (error) {
+    return getSendQortValidationResult(error);
+  }
+
+  const unlocked = await requestSelectedAccountUnlockForQdnApp(context);
+
+  if (!unlocked) {
+    return {
+      accepted: false,
+      canceled: true,
+      reason: 'USER_CANCELLED',
+    };
+  }
+
+  const profile = await getAccountProfile(context.accountId);
+  const signingKey = await getAccountSecretKey(context.accountId);
+
+  if (signingKey.address !== profile.address) {
+    return getSendQortValidationResult('Selected account signing key does not match the saved account address.');
+  }
+
+  let groupLabel = `Group ${sendRequest.txGroupId}`;
+
+  try {
+    groupLabel = await fetchQortalGroupLabel(sendRequest.txGroupId);
+  } catch {
+    // The group name is only approval context. The node will validate the group on broadcast.
+  }
+
+  try {
+    await requestQdnChatPermissionApproval(context, profile, 'SEND_QORTAL_GROUP_CHAT', {
+      chatMessagePreview: sendRequest.text.slice(0, 180),
+      details: [
+        { label: 'Chain', value: 'Qortal (mainnet)' },
+        { label: 'Group', value: groupLabel },
+        { label: 'Fee', value: '0 QORT' },
+      ],
+      groupId: sendRequest.txGroupId,
+      groupName: groupLabel,
+    });
+  } catch (error) {
+    if (getSendQortErrorMessage(error) === 'QDN write request was denied.') {
+      return {
+        accepted: false,
+        canceled: true,
+        reason: 'USER_CANCELLED',
+      };
+    }
+
+    throw error;
+  }
+
+  assertFreshQdnWriteContext(sender, context);
+
+  const unsignedBytes = buildUnsignedQortalGroupChatTransactionBytes({
+    lastReference: new Uint8Array(randomBytes(64)),
+    message: sendRequest.message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp: Date.now(),
+    txGroupId: sendRequest.txGroupId,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY);
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
+  const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
+  const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
+  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+
+  try {
+    const processedTransaction = await postQortalNodeText(
+      '/transactions/process?apiVersion=2',
+      signedBytes58,
+      'Qortal chat message broadcast failed.',
+    );
+
+    return {
+      accepted: true,
+      action: 'SEND_QORTAL_GROUP_CHAT',
+      groupId: sendRequest.txGroupId,
+      groupName: groupLabel,
+      repliedTo: sendRequest.repliedTo,
+      result: processedTransaction.data,
+      signature,
+      specialId: sendRequest.specialId,
+    };
+  } catch (error) {
+    return {
+      accepted: false,
+      error: getSendQortErrorMessage(new SendQortBroadcastError(getSendQortErrorMessage(error))),
+      errorType: 'BROADCAST_REJECTED',
+      groupId: sendRequest.txGroupId,
+      groupName: groupLabel,
+      signature,
+      specialId: sendRequest.specialId,
     };
   }
 }
@@ -7391,6 +7645,35 @@ function buildSearchChatMessagesPath(request: QdnAppRequest) {
   return `/chat/messages?${queryParams.toString()}`;
 }
 
+function buildQortalChatMessagesPath(request: QdnAppRequest) {
+  const queryParams = new URLSearchParams({ encoding: 'BASE64' });
+  const groupId = getInteger(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+
+  if (typeof groupId === 'number') {
+    if (groupId < 0) {
+      throw new Error('Group id must be a non-negative integer.');
+    }
+
+    queryParams.set('txGroupId', String(groupId));
+  }
+
+  appendRequestQueryFields(queryParams, request, {
+    after: 'after',
+    before: 'before',
+    chatReference: 'chatreference',
+    chatreference: 'chatreference',
+    encoding: 'encoding',
+    hasChatReference: 'haschatreference',
+    haschatreference: 'haschatreference',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+    sender: 'sender',
+  });
+
+  return `/chat/messages?${queryParams.toString()}`;
+}
+
 async function buildActiveChatsPath(request: QdnAppRequest, context: QdnViewContext | null) {
   const address = await getAddressForQdnRequest(request, context, 'Address');
   const queryParams = new URLSearchParams();
@@ -7403,6 +7686,19 @@ async function buildActiveChatsPath(request: QdnAppRequest, context: QdnViewCont
   const queryString = queryParams.toString();
 
   return `/chat/active/${encodeURIComponent(address)}${queryString ? `?${queryString}` : ''}`;
+}
+
+async function buildQortalActiveChatsPath(request: QdnAppRequest, context: QdnViewContext | null) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams({ encoding: 'BASE64' });
+
+  appendRequestQueryFields(queryParams, request, {
+    encoding: 'encoding',
+    hasChatReference: 'haschatreference',
+    haschatreference: 'haschatreference',
+  });
+
+  return `/chat/active/${encodeURIComponent(address)}?${queryParams.toString()}`;
 }
 
 function buildPrivateGroupChatKeyRequestBody(request: QdnAppRequest, privateKey58: string) {
@@ -7694,11 +7990,23 @@ async function handleQdnAppRequest(
     case 'SEND_QORT':
       return sendQortForApp(request, context, sender);
 
+    case 'SEND_QORTAL_GROUP_CHAT':
+      return sendQortalGroupChatForApp(request, context, sender);
+
     case 'GET_QORTAL_TRANSACTION':
       return getQortalTransactionForApp(request);
 
+    case 'GET_QORTAL_ACTIVE_CHATS':
+      return fetchQortalNodeApiPayload(await buildQortalActiveChatsPath(request, context), request);
+
+    case 'GET_QORTAL_CHAT_MESSAGE':
+      return getQortalChatMessageForApp(request);
+
+    case 'GET_QORTAL_CHAT_MESSAGES':
+      return fetchQortalNodeApiPayload(buildQortalChatMessagesPath(request), request);
+
     case 'GET_CROSSCHAIN_BLOCKCHAINS':
-      return fetchNodeApiPayload('/crosschain/blockchains', request);
+      return getCrosschainBlockchainsForApp(request);
 
     case 'GET_MARKET_PRICES':
       return getMarketPricesForApp(request);
