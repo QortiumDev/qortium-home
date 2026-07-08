@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron'
 import extract from 'extract-zip';
 import { zipSync } from 'fflate';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -459,6 +459,11 @@ const approvedQdnChatPermissions = new Set<string>();
 const qdnPublishSourceTokens = new Map<string, QdnPublishSourceTokenEntry>();
 const QDN_PUBLISH_SOURCE_TOKEN_TTL_MS = 30 * 60_000;
 const QDN_PUBLISH_SOURCE_TOKEN_MAX_ENTRIES = 16;
+
+// Pruning otherwise only runs on token activity, so an idle session would hold
+// expired entries past their TTL indefinitely (a denied/failed publish never
+// releases its token). A slow timer makes the TTL an upper bound too.
+setInterval(() => pruneQdnPublishSourceTokens(), 5 * 60_000).unref();
 const BASE58_ALPHABET_MAP = new Map<string, number>(
   [...BASE58_ALPHABET].map((character, index) => [character, index]),
 );
@@ -3846,6 +3851,8 @@ function getQdnPreviewContentRequest(value: QdnPreviewContentRequest) {
   };
 }
 
+const QDN_PREVIEW_STAGING_PREFIX = 'qortium-home-preview-';
+
 async function createQdnPreviewStagingDir(sourcePath: string) {
   const previousDir = qdnPreviewStagingDirs.get(sourcePath);
 
@@ -3853,11 +3860,46 @@ async function createQdnPreviewStagingDir(sourcePath: string) {
     await rm(previousDir, { force: true, recursive: true });
   }
 
-  const stagingDir = await mkdtemp(path.join(os.tmpdir(), 'qortium-home-preview-'));
+  const stagingDir = await mkdtemp(path.join(os.tmpdir(), QDN_PREVIEW_STAGING_PREFIX));
 
   qdnPreviewStagingDirs.set(sourcePath, stagingDir);
 
   return stagingDir;
+}
+
+// Preview staging dirs are otherwise only replaced when the same source path is
+// previewed again, so distinct previews accumulate for the process lifetime.
+// Called from the app quit path; sync so the quit cannot outrun the cleanup.
+export function cleanupQdnPreviewStagingDirs() {
+  for (const stagingDir of qdnPreviewStagingDirs.values()) {
+    try {
+      rmSync(stagingDir, { force: true, recursive: true });
+    } catch {
+      // Best effort on quit; the startup sweep collects anything left behind.
+    }
+  }
+
+  qdnPreviewStagingDirs.clear();
+}
+
+// Collect staging dirs orphaned by crashed/killed sessions. Only called after
+// the single-instance lock is held, so no other Home instance can be using them.
+export async function sweepOrphanedQdnPreviewStagingDirs() {
+  let entries: string[];
+
+  try {
+    entries = await readdir(os.tmpdir());
+  } catch {
+    return;
+  }
+
+  await Promise.all(
+    entries
+      .filter((entry) => entry.startsWith(QDN_PREVIEW_STAGING_PREFIX))
+      .map((entry) =>
+        rm(path.join(os.tmpdir(), entry), { force: true, recursive: true }).catch(() => undefined),
+      ),
+  );
 }
 
 // Match the Core publish flow, which descends into a single extracted folder
@@ -4025,8 +4067,41 @@ async function selectQdnPublishSource(
     filename: sourceKind === 'file' ? path.basename(selectedPath) : undefined,
     kind: sourceKind,
     path: selectedPath,
-    size: sourceStats.isFile() ? sourceStats.size : undefined,
+    // Directories get a stat-walk total so the pre-approval public-node size
+    // gate applies to them too; without it a folder publish only trips the
+    // limit after its files have already been read into memory for zipping.
+    size: sourceStats.isFile() ? sourceStats.size : await getDirectoryTotalBytes(selectedPath),
   } satisfies QdnWriteSourceSelection;
+}
+
+// Total on-disk bytes of a directory via stat only — never reads file contents.
+// Unreadable entries are skipped: the zip builder enforces the byte cap again
+// while actually reading, so a best-effort total here cannot under-enforce.
+async function getDirectoryTotalBytes(directoryPath: string): Promise<number> {
+  let total = 0;
+  let entries;
+
+  try {
+    entries = await readdir(directoryPath, { withFileTypes: true });
+  } catch {
+    return total;
+  }
+
+  for (const entry of entries) {
+    const entryPath = path.join(directoryPath, entry.name);
+
+    try {
+      if (entry.isDirectory()) {
+        total += await getDirectoryTotalBytes(entryPath);
+      } else if (entry.isFile()) {
+        total += (await stat(entryPath)).size;
+      }
+    } catch {
+      // Skip unreadable entries.
+    }
+  }
+
+  return total;
 }
 
 async function selectQdnPublishSourceForApp(request: QdnAppRequest, context: QdnViewContext) {
@@ -4056,6 +4131,84 @@ function assertPublicQdnPublishSize(size: number, label: string) {
 function assertPublicQdnStreamedPublishSize(size: number, label: string) {
   if (size > QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES) {
     throw new Error(`${label} exceeds the ${QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES.toLocaleString()} byte public-node publish limit.`);
+  }
+}
+
+type QdnPublishLimits = {
+  publishMaxSize?: number;
+  serviceMaxSizes: Map<string, number>;
+};
+
+const qdnPublishLimitsCache = new Map<string, { fetchedAt: number; limits: QdnPublishLimits | null }>();
+const QDN_PUBLISH_LIMITS_CACHE_MS = 5 * 60_000;
+
+// Effective publish limits from the node's GET /arbitrary/limits (Core >= 1.4).
+// Returns null (cached) when the node is unreachable or predates the endpoint —
+// the node still enforces its own limits during the publish build, so the
+// pre-flight is a fail-fast nicety, never the enforcement point.
+async function fetchQdnPublishLimits(connection: NodeConnection): Promise<QdnPublishLimits | null> {
+  const cached = qdnPublishLimitsCache.get(connection.nodeApiUrl);
+
+  if (cached && Date.now() - cached.fetchedAt < QDN_PUBLISH_LIMITS_CACHE_MS) {
+    return cached.limits;
+  }
+
+  let limits: QdnPublishLimits | null = null;
+
+  try {
+    const response = await fetchNode('/arbitrary/limits', {}, connection.nodeApiUrl);
+
+    if (response.ok) {
+      const parsed = (await response.json()) as {
+        publishMaxSize?: unknown;
+        serviceLimits?: Array<{ maxSize?: unknown; service?: unknown }>;
+      };
+      const serviceMaxSizes = new Map<string, number>();
+
+      if (Array.isArray(parsed.serviceLimits)) {
+        for (const entry of parsed.serviceLimits) {
+          if (typeof entry?.service === 'string' && typeof entry?.maxSize === 'number') {
+            serviceMaxSizes.set(entry.service, entry.maxSize);
+          }
+        }
+      }
+
+      limits = {
+        publishMaxSize: typeof parsed.publishMaxSize === 'number' ? parsed.publishMaxSize : undefined,
+        serviceMaxSizes,
+      };
+    }
+  } catch {
+    limits = null;
+  }
+
+  qdnPublishLimitsCache.set(connection.nodeApiUrl, { fetchedAt: Date.now(), limits });
+
+  return limits;
+}
+
+// Pre-flight a local-node publish against the node's own limits so an oversized
+// file/folder is rejected before approval, instead of only after the node has
+// staged and processed it. Sizes are raw (pre-compression), matching how the
+// node itself measures its service limits.
+async function assertLocalQdnPublishSize(connection: NodeConnection, service: string, size: number, label: string) {
+  const limits = await fetchQdnPublishLimits(connection);
+
+  if (!limits) {
+    return;
+  }
+
+  const candidates = [limits.serviceMaxSizes.get(service), limits.publishMaxSize]
+    .filter((value): value is number => typeof value === 'number');
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const maxSize = Math.min(...candidates);
+
+  if (size > maxSize) {
+    throw new Error(`${label} exceeds the node's ${maxSize.toLocaleString()} byte publish limit for the ${service} service.`);
   }
 }
 
@@ -4493,6 +4646,10 @@ async function publishQdnResourceForApp(
     }
   }
 
+  if (useLocalWrite && typeof source.size === 'number') {
+    await assertLocalQdnPublishSize(connection, resource.service, source.size, 'Selected QDN publish source');
+  }
+
   await requestQdnWriteApproval(
     context as QdnViewContext,
     writeContext.profile,
@@ -4538,6 +4695,13 @@ async function publishQdnResourceForApp(
           keylessWriteContext.apiKey,
           'QDN publish transaction build failed.',
         );
+      } finally {
+        // A failed/aborted upload can leave the file read stream (and its fd)
+        // open — fetch teardown is not guaranteed to consume it. Destroy is a
+        // no-op for Buffers and for streams fetch fully consumed.
+        if (!Buffer.isBuffer(uploadSource.body) && !uploadSource.body.destroyed) {
+          uploadSource.body.destroy();
+        }
       }
     } else {
       const publicSource = await normalizePublicQdnPublishSource(source);
@@ -4674,6 +4838,10 @@ async function publishMultipleQdnResourcesForApp(
 
       if (!useLocalWrite && typeof source.size === 'number') {
         assertPublicQdnPublishSize(source.size, 'Selected QDN publish source');
+      }
+
+      if (useLocalWrite && typeof source.size === 'number') {
+        await assertLocalQdnPublishSize(connection, entry.resource.service, source.size, 'Selected QDN publish source');
       }
 
       const publishPath = useLocalWrite

@@ -3155,6 +3155,15 @@ function pruneQdnPublishSourceTokens(now = Date.now()) {
   }
 }
 
+// On Android the token entries hold the selected file's full bytes, and
+// pruning otherwise only runs on token/cache activity — an idle session would
+// keep a denied/failed publish's bytes in memory past the TTL indefinitely.
+// The timer makes the TTL an upper bound for both stores.
+window.setInterval(() => {
+  pruneQdnPublishSourceTokens();
+  pruneNativePreviewCache();
+}, 5 * 60_000);
+
 function cacheQdnPublishSourceToken(context: QdnAppRequestContext | undefined, source: QdnPublishSourceResult & { canceled: false }) {
   const now = Date.now();
   const token = createToken();

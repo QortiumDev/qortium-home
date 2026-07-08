@@ -24,7 +24,11 @@ import {
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
-import { registerQdnIpcHandlers } from './qdn.js';
+import {
+  cleanupQdnPreviewStagingDirs,
+  registerQdnIpcHandlers,
+  sweepOrphanedQdnPreviewStagingDirs,
+} from './qdn.js';
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
 import { registerSystemIpcHandlers } from './system.js';
 
@@ -804,11 +808,19 @@ app.whenReady().then(() => {
   // router that survived a previous Home session, or clean up an orphan).
   void reconcileI2pdWithCore();
 
+  // Collect preview staging dirs a crashed/killed session left in the OS temp
+  // dir. Safe here: the single-instance lock is held, so they cannot be in use.
+  void sweepOrphanedQdnPreviewStagingDirs();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
+});
+
+app.on('will-quit', () => {
+  cleanupQdnPreviewStagingDirs();
 });
 
 app.on('window-all-closed', () => {
