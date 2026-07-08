@@ -39,6 +39,7 @@ import {
   isInvalidApiKeyResponse,
   refreshNodeConnectionApiKey,
 } from './node-settings.js';
+import { nodeFetch } from './node-tls.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import {
   appendSignatureToTransactionBytes,
@@ -2228,7 +2229,7 @@ async function fetchNode(pathname: string, options: RequestInit = {}, nodeApiUrl
   let response: Response;
 
   try {
-    response = await fetch(`${nodeApiUrl}${pathname}`, options);
+    response = await nodeFetch(`${nodeApiUrl}${pathname}`, options);
   } catch {
     throw new Error(getNodeUnavailableMessage(nodeApiUrl));
   }

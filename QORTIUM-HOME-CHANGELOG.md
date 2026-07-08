@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - node: trust the configured node's own https certificate on desktop
+
+Home now fetches the node's local certificate authority and verifies the
+node's https certificate against it, so custom and local node connections can
+use https with the node's self-generated certificate without changing existing
+http setups.
+
 ### 2026-07-08 - qdn: open apps from custom nodes that only allow public rendering
 
 Custom-node app and website opens now fall back to public rendering when the

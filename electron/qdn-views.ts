@@ -2,12 +2,14 @@ import {
   BrowserWindow,
   WebContentsView,
   ipcMain,
+  session,
   type IpcMainInvokeEvent,
   type Rectangle,
   type WebContents,
 } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installCertificateVerifyProc } from './node-tls.js';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 
@@ -733,6 +735,9 @@ function createViewEntry(
   resourceUrl: string | null,
   displaySettings: QdnDisplaySettings,
 ): QdnViewEntry {
+  const partition = getPartition(nodeOrigin, resourceUrl);
+  installCertificateVerifyProc(session.fromPartition(partition));
+
   const entry: QdnViewEntry = {
     accountId,
     accountUnlocked: false,
@@ -750,7 +755,7 @@ function createViewEntry(
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        partition: getPartition(nodeOrigin, resourceUrl),
+        partition,
         preload: path.join(__dirname, 'qdn-app-preload.cjs'),
         sandbox: true,
       },
