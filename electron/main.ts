@@ -31,6 +31,7 @@ import {
 } from './qdn.js';
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
 import { registerSystemIpcHandlers } from './system.js';
+import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WINDOW_WIDTH = 1100;
@@ -43,6 +44,8 @@ const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
 const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
+
+initZoom({ sync: syncQdnViewsForWindowZoom });
 
 function migrateUserDataPath(sourcePath: string, targetPath: string) {
   const source = path.resolve(sourcePath);
@@ -365,33 +368,6 @@ function getInitialWindowState(options: CreateWindowOptions): WindowState | unde
   }
 
   return savedState;
-}
-
-const ZOOM_LEVEL_STEP = 0.5;
-const MIN_ZOOM_LEVEL = -3;
-const MAX_ZOOM_LEVEL = 3;
-
-function syncQdnViewsForZoomedWebContents(webContents: WebContents) {
-  const window = BrowserWindow.fromWebContents(webContents);
-
-  if (window) {
-    syncQdnViewsForWindowZoom(window);
-  }
-}
-
-function zoomIn(webContents: WebContents) {
-  webContents.setZoomLevel(Math.min(webContents.getZoomLevel() + ZOOM_LEVEL_STEP, MAX_ZOOM_LEVEL));
-  syncQdnViewsForZoomedWebContents(webContents);
-}
-
-function zoomOut(webContents: WebContents) {
-  webContents.setZoomLevel(Math.max(webContents.getZoomLevel() - ZOOM_LEVEL_STEP, MIN_ZOOM_LEVEL));
-  syncQdnViewsForZoomedWebContents(webContents);
-}
-
-function resetZoom(webContents: WebContents) {
-  webContents.setZoomLevel(0);
-  syncQdnViewsForZoomedWebContents(webContents);
 }
 
 function zoomFocusedWindow(action: (webContents: WebContents) => void) {
@@ -732,6 +708,21 @@ function registerMenuIpcHandlers() {
   });
 }
 
+function registerZoomIpcHandlers() {
+  ipcMain.handle('zoom:get', (event) => getZoomPercent(event.sender));
+
+  ipcMain.handle('zoom:set', (event, percent: unknown) => {
+    if (typeof percent !== 'number') {
+      throw new Error('Zoom percent must be a number.');
+    }
+
+    // No zoom:changed echo back to the requester: it learns the applied
+    // percent from this return value. Echoing renderer-originated sets can
+    // oscillate against the renderer's appZoom effect.
+    return setZoomPercent(event.sender, percent, false);
+  });
+}
+
 function registerWindowIpcHandlers() {
   ipcMain.handle('windows:getStartupPayload', (event) => {
     return windowStartupPayloads.get(event.sender.id) ?? null;
@@ -801,6 +792,7 @@ app.whenReady().then(() => {
   registerMenuIpcHandlers();
   registerSystemIpcHandlers();
   registerWindowIpcHandlers();
+  registerZoomIpcHandlers();
   buildApplicationMenu();
   createWindow();
 

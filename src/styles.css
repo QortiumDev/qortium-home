@@ -1286,7 +1286,8 @@ h1 {
   white-space: nowrap;
 }
 
-.dashboard-card__version-with-notes {
+.dashboard-card__version-with-notes,
+.release-notes-value {
   display: inline-grid;
   grid-template-columns: minmax(0, auto) auto;
   gap: 8px;
@@ -1296,12 +1297,16 @@ h1 {
   max-width: 100%;
 }
 
-.dashboard-card__version-value {
+.dashboard-card__version-value,
+.release-notes-value__text {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dashboard-card__notes-button {
+.dashboard-card__notes-button,
+.release-notes-value__button {
   width: 30px;
   min-width: 30px;
   height: 30px;
@@ -1450,6 +1455,29 @@ h1 {
   display: grid;
   gap: 8px;
   min-width: 0;
+}
+
+.display-settings__app-zoom-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  min-width: 0;
+}
+
+.display-settings__app-zoom-level {
+  min-width: 4.5ch;
+  padding: 0 var(--space-1);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-small);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.display-settings__app-zoom-reset {
+  min-height: 34px;
 }
 
 .segmented-control {
@@ -4038,6 +4066,16 @@ h1 {
   min-height: 0;
   background: #ffffff;
   border: 0;
+}
+
+.qdn-viewer__frame-scale-wrap {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .qdn-viewer__isolated-frame {

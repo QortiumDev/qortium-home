@@ -33,6 +33,35 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - app: app-view zoom controls and shortcut routing
+
+QDN app tabs now respond to the same app zoom shortcuts and wheel gestures even
+when the embedded app itself has keyboard or mouse focus. Display Settings also
+has a new App zoom control after Text size, so users can scale the whole app
+view separately from Home's text-size preset. On desktop the setting follows
+Home's native zoom behavior, while Android and web views use an iframe scale
+fallback for QDN apps. Text-size shortcuts keep changing only the UI text size,
+including the shifted key and wheel gestures routed from focused QDN apps.
+
+### 2026-07-08 - qdn: prefer a synced local Qortal node for Qortal bridge reads
+
+QDN apps that use Home's Qortal-specific bridge actions now prefer a synced
+local Qortal mainnet node on `127.0.0.1:12391` on desktop before falling back to
+the existing public Qortal nodes. Home only uses the local node when its status
+shows it is fully synced and public QDN reads work, and it rechecks immediately
+after node request failures instead of staying on a stale cached node choice.
+Android continues to use the remote public Qortal nodes by default so it does
+not accidentally treat the device's own loopback address as the user's desktop
+node.
+
+### 2026-07-08 - app: keep update release links inside Home
+
+Changed Dashboard and Settings release update rows so available Core and Home
+versions navigate to Home's built-in release notes page instead of opening the
+GitHub release page in an external browser. Release version rows now use a
+consistent contained arrow button for the release-notes action while the release
+notes page itself still keeps its explicit Open GitHub action.
+
 ### 2026-07-05 - qdn: add RATE_RESOURCE bridge action for resource ratings
 
 QDN apps can now ask Home to submit a 1 to 10 rating for a published QDN

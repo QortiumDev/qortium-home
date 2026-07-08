@@ -97,11 +97,15 @@ const QDN_APP_DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const QDN_APP_MAX_BYTES_LIMIT = 5 * 1024 * 1024;
 const QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES = 100 * 1024 * 1024;
 const QDN_WRITE_SOURCE_MAX_BYTES = 100 * 1024 * 1024;
-// Public, read-only Qortal nodes for cross-chain QDN reads (no account, API key, or writes).
-const QORTAL_PUBLIC_NODE_API_URLS = ['https://ext-node.qortal.link', 'https://api.qortal.org'];
+// Read-only Qortal nodes for cross-chain QDN reads (no account, API key, or writes).
+// Desktop builds prefer a synced local mainnet node, then fall back to remote public nodes.
+const QORTAL_LOCAL_NODE_API_URL = 'http://127.0.0.1:12391';
+const QORTAL_REMOTE_NODE_API_URLS = ['https://ext-node.qortal.link', 'https://api.qortal.org'];
 const QORTAL_NODE_CACHE_TTL_MS = 5 * 60_000;
 const QORTAL_PROBE_TIMEOUT_MS = 5_000;
 const QORTAL_WRITE_TIMEOUT_MS = 30_000;
+const QORTAL_PUBLIC_READ_PROBE_PATH =
+  '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false';
 // Qortal cross-chain resource fetches (e.g. game ROMs) need a much larger ceiling than QDN text reads.
 const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
@@ -390,6 +394,13 @@ type NodeApiFetchResult = {
   ok: boolean;
   status: number;
   statusText: string;
+};
+
+type QortalNodeCandidate = {
+  requiresPublicReadProbe: boolean;
+  requiresSyncedStatus: boolean;
+  source: 'local' | 'remote';
+  url: string;
 };
 
 type QdnWriteApprovalResponse = {
@@ -2721,35 +2732,189 @@ async function getCrosschainBlockchainsForApp(request: QdnAppRequest) {
   return blockchains;
 }
 
-// --- Read-only cross-chain reads from a public Qortal node ---
-// Mirrors the desktop QDN read pipeline but targets a public Qortal node: GET/HEAD against public
-// QDN services only, no account, API key, signing or writes.
+// --- Read-only cross-chain reads from Qortal nodes ---
+// Mirrors the desktop QDN read pipeline but targets Qortal nodes: GET/HEAD against public QDN
+// services only, no account, API key, signing or writes.
 
-let cachedQortalNodeApiUrl: { url: string; expiresAt: number } | null = null;
+let cachedQortalNodeApiUrl: { expiresAt: number; source: QortalNodeCandidate['source']; url: string } | null =
+  null;
 const marketPriceCache = new Map<string, { expiresAt: number; response: MarketPriceResponse }>();
 
-async function resolveQortalNodeApiUrl(): Promise<string> {
-  if (cachedQortalNodeApiUrl && cachedQortalNodeApiUrl.expiresAt > Date.now()) {
+function getQortalStatusHeight(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return 0;
+  }
+
+  const height = (status as { height?: unknown }).height;
+
+  return typeof height === 'number' && Number.isFinite(height) ? height : 0;
+}
+
+function getQortalStatusIsSynchronizing(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return true;
+  }
+
+  const isSynchronizing = (status as { isSynchronizing?: unknown }).isSynchronizing;
+
+  return typeof isSynchronizing === 'boolean' ? isSynchronizing : true;
+}
+
+function getQortalStatusSyncPhase(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return '';
+  }
+
+  const syncPhase = (status as { syncPhase?: unknown }).syncPhase;
+
+  return typeof syncPhase === 'string' ? syncPhase.trim().toUpperCase() : '';
+}
+
+function getQortalStatusSyncPercent(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+
+  const syncPercent = (status as { syncPercent?: unknown }).syncPercent;
+
+  return typeof syncPercent === 'number' && Number.isFinite(syncPercent) ? syncPercent : null;
+}
+
+function getQortalStatusSyncBlocksRemaining(status: unknown) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+
+  const syncBlocksRemaining = (status as { syncBlocksRemaining?: unknown }).syncBlocksRemaining;
+
+  return typeof syncBlocksRemaining === 'number' && Number.isFinite(syncBlocksRemaining)
+    ? syncBlocksRemaining
+    : null;
+}
+
+function isSyncedQortalStatus(status: unknown) {
+  return (
+    getQortalStatusHeight(status) > 0 &&
+    getQortalStatusSyncPhase(status) === 'SYNCED' &&
+    getQortalStatusSyncPercent(status) === 100 &&
+    getQortalStatusSyncBlocksRemaining(status) === 0 &&
+    !getQortalStatusIsSynchronizing(status)
+  );
+}
+
+function getQortalNodeCandidates(): QortalNodeCandidate[] {
+  return [
+    {
+      requiresPublicReadProbe: true,
+      requiresSyncedStatus: true,
+      source: 'local',
+      url: QORTAL_LOCAL_NODE_API_URL,
+    },
+    ...QORTAL_REMOTE_NODE_API_URLS.map(
+      (url): QortalNodeCandidate => ({
+        requiresPublicReadProbe: false,
+        requiresSyncedStatus: false,
+        source: 'remote',
+        url,
+      }),
+    ),
+  ];
+}
+
+async function readQortalNodeStatus(nodeApiUrl: string) {
+  const response = await fetchNode(
+    '/admin/status',
+    { method: 'GET', signal: AbortSignal.timeout(QORTAL_PROBE_TIMEOUT_MS) },
+    nodeApiUrl,
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function probeQortalPublicReadAccess(nodeApiUrl: string) {
+  try {
+    const response = await fetchNode(
+      QORTAL_PUBLIC_READ_PROBE_PATH,
+      { method: 'GET', signal: AbortSignal.timeout(QORTAL_PROBE_TIMEOUT_MS) },
+      nodeApiUrl,
+    );
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function probeQortalNodeCandidate(candidate: QortalNodeCandidate) {
+  try {
+    const status = await readQortalNodeStatus(candidate.url);
+
+    if (!status) {
+      return false;
+    }
+
+    if (candidate.requiresSyncedStatus && !isSyncedQortalStatus(status)) {
+      return false;
+    }
+
+    if (candidate.requiresPublicReadProbe && !(await probeQortalPublicReadAccess(candidate.url))) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function invalidateCachedQortalNodeApiUrl(nodeApiUrl?: string) {
+  if (!nodeApiUrl || cachedQortalNodeApiUrl?.url === nodeApiUrl) {
+    cachedQortalNodeApiUrl = null;
+  }
+}
+
+async function resolveQortalNodeApiUrl(forceRefresh = false): Promise<string> {
+  if (!forceRefresh && cachedQortalNodeApiUrl && cachedQortalNodeApiUrl.expiresAt > Date.now()) {
     return cachedQortalNodeApiUrl.url;
   }
 
-  for (const candidate of QORTAL_PUBLIC_NODE_API_URLS) {
-    try {
-      const response = await fetchNode(
-        '/admin/status',
-        { method: 'GET', signal: AbortSignal.timeout(QORTAL_PROBE_TIMEOUT_MS) },
-        candidate,
-      );
-      if (response.ok) {
-        cachedQortalNodeApiUrl = { url: candidate, expiresAt: Date.now() + QORTAL_NODE_CACHE_TTL_MS };
-        return candidate;
-      }
-    } catch {
-      // Try the next public Qortal node.
+  for (const candidate of getQortalNodeCandidates()) {
+    if (await probeQortalNodeCandidate(candidate)) {
+      cachedQortalNodeApiUrl = {
+        expiresAt: Date.now() + QORTAL_NODE_CACHE_TTL_MS,
+        source: candidate.source,
+        url: candidate.url,
+      };
+      return candidate.url;
     }
   }
 
-  throw new Error('No public Qortal node is reachable right now.');
+  throw new Error('No Qortal node is reachable right now.');
+}
+
+async function fetchQortalNodeWithRetry(apiPath: string, createOptions: () => RequestInit = () => ({})) {
+  const nodeApiUrl = await resolveQortalNodeApiUrl(cachedQortalNodeApiUrl?.source === 'local');
+
+  try {
+    return await fetchNode(apiPath, createOptions(), nodeApiUrl);
+  } catch (error) {
+    invalidateCachedQortalNodeApiUrl(nodeApiUrl);
+
+    const retryNodeApiUrl = await resolveQortalNodeApiUrl(true);
+    if (retryNodeApiUrl === nodeApiUrl) {
+      throw error;
+    }
+
+    return fetchNode(apiPath, createOptions(), retryNodeApiUrl);
+  }
 }
 
 async function fetchQortalNodeApi(
@@ -2757,8 +2922,7 @@ async function fetchQortalNodeApi(
   maxBytes: number,
   method: 'GET' | 'HEAD' = 'GET',
 ): Promise<NodeApiFetchResult> {
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
-  const response = await fetchNode(apiPath, { method }, nodeApiUrl);
+  const response = await fetchQortalNodeWithRetry(apiPath, () => ({ method }));
 
   const contentLength = getContentLength(response);
   const contentType = response.headers.get('content-type') ?? '';
@@ -2993,17 +3157,12 @@ async function postQortalNodeText(
   fallbackMessage: string,
   contentType = 'text/plain',
 ) {
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
-  const response = await fetchNode(
-    apiPath,
-    {
-      body,
-      headers: { 'Content-Type': contentType },
-      method: 'POST',
-      signal: AbortSignal.timeout(QORTAL_WRITE_TIMEOUT_MS),
-    },
-    nodeApiUrl,
-  );
+  const response = await fetchQortalNodeWithRetry(apiPath, () => ({
+    body,
+    headers: { 'Content-Type': contentType },
+    method: 'POST',
+    signal: AbortSignal.timeout(QORTAL_WRITE_TIMEOUT_MS),
+  }));
   const responseBody = (await response.text()).trim();
   const contentTypeHeader = response.headers.get('content-type') ?? '';
 
@@ -3458,8 +3617,7 @@ async function fetchQortalResourceBinary(request: QdnAppRequest) {
   const maxBytes = getQortalResourceMaxBytes(getRequestValue(request, 'maxBytes'));
   const apiPath = buildQortalResourcePath(resource);
 
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
-  const response = await fetchNode(apiPath, { method: 'GET' }, nodeApiUrl);
+  const response = await fetchQortalNodeWithRetry(apiPath, () => ({ method: 'GET' }));
 
   if (!response.ok) {
     throw new Error(`Qortal resource request failed with HTTP ${response.status}.`);
@@ -3484,11 +3642,11 @@ async function fetchQortalResourceBinary(request: QdnAppRequest) {
   };
 }
 
-// Returns the direct URL of a Qortal resource on the public node. The Qortal node serves these with
+// Returns the direct URL of a Qortal resource on the selected node. The Qortal node serves these with
 // CORS and ranged GET, so an in-app player (e.g. EmulatorJS) can stream the file straight from it.
 async function getQortalResourceUrl(request: QdnAppRequest) {
   const resource = getQortalResourceRequest(request);
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
+  const nodeApiUrl = await resolveQortalNodeApiUrl(cachedQortalNodeApiUrl?.source === 'local');
 
   return { url: `${nodeApiUrl.replace(/\/+$/, '')}${buildQortalResourcePath(resource)}` };
 }

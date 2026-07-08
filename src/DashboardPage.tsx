@@ -1,4 +1,4 @@
-import { Braces, Download, ExternalLink, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
+import { ArrowRight, Braces, Download, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
@@ -38,7 +38,7 @@ import {
   getHomeUpdateStatusText,
   getHomeVersionRowValue,
   getPreferredCoreReleaseTarget,
-  LinkedValue,
+  ReleaseNotesValue,
   type DetailRow,
 } from './releaseDisplay';
 import type { SettingsSectionId } from './SettingsPage';
@@ -172,7 +172,7 @@ function VersionWithNotes({
           type="button"
           onClick={() => onOpenReleaseNotes(product, tagName)}
         >
-          <ExternalLink aria-hidden="true" size={15} strokeWidth={2} />
+          <ArrowRight aria-hidden="true" size={15} strokeWidth={2} />
         </button>
       ) : null}
     </span>
@@ -251,6 +251,7 @@ function getCoreRows({
     ...getCoreLatestRows({
       installedTagName: installedVersion,
       linkClassName: 'dashboard-card__version-link',
+      onOpenReleaseNotes,
       onChain: onChainStatus,
       release: latestRelease,
     }),
@@ -459,9 +460,13 @@ function getHomeUpdateRows(
     rows.push({
       label: t('common.latestGithub'),
       value: (
-        <LinkedValue className="dashboard-card__version-link" url={updates.result.release.htmlUrl}>
+        <ReleaseNotesValue
+          product="home"
+          tagName={updates.result.release.tagName}
+          onOpenReleaseNotes={onOpenReleaseNotes}
+        >
           {updates.result.release.tagName}
-        </LinkedValue>
+        </ReleaseNotesValue>
       ),
     });
   }

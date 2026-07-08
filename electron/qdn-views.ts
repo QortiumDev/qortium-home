@@ -9,6 +9,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
+import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 
 const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
@@ -18,15 +19,18 @@ const LANGUAGE_VALUES = new Set(['ar', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr',
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
 const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
 const UI_VALUES = new Set(['classic', 'modern']);
-// Read-only public Qortal node origins the cross-chain bridge reads from (mirror of
-// QORTAL_PUBLIC_NODE_API_URLS in qdn.ts). QDN apps render from the node's own origin, so the
-// rendered Content-Security-Policy must allow connecting to these for read-only cross-chain reads
-// (e.g. an emulator streaming a ROM from Qortal). Android strips the CSP entirely; on desktop we
-// relax it narrowly to just these origins.
-const QORTAL_RENDER_ALLOWED_ORIGINS = ['https://ext-node.qortal.link'];
+// Exact Qortal node origins the cross-chain bridge can return for direct resource URLs. QDN apps
+// render from the node's own origin, so the rendered Content-Security-Policy must allow connecting
+// to these for read-only cross-chain reads (e.g. an emulator streaming a ROM from Qortal). Android
+// strips the CSP entirely; on desktop we relax it narrowly to just these origins.
+const QORTAL_RENDER_ALLOWED_ORIGINS = [
+  'http://127.0.0.1:12391',
+  'https://ext-node.qortal.link',
+  'https://api.qortal.org',
+];
 const QORTAL_RELAXED_CSP_DIRECTIVES = ['connect-src', 'img-src', 'media-src'];
 
-// Relaxes a rendered QDN app's CSP so it can reach the public Qortal node(s) for cross-chain reads,
+// Relaxes a rendered QDN app's CSP so it can reach the Qortal node origin(s) for cross-chain reads,
 // leaving the rest of the policy intact. Adds the allowed origins to connect-src/img-src/media-src,
 // creating those directives from default-src when absent (otherwise they inherit default-src 'self').
 function relaxQdnAppCspForQortal(csp: string): string {
@@ -123,6 +127,11 @@ type SanitizedAccountStateRequest = {
   accountId: string | null;
   isUnlocked: boolean;
   tabId: string;
+};
+
+type SanitizedWheelCommand = {
+  direction: 'in' | 'out';
+  textSize: boolean;
 };
 
 const qdnViewsByWindow = new Map<number, Map<string, QdnViewEntry>>();
@@ -392,6 +401,21 @@ function sanitizeTabRequest(value: unknown) {
   return sanitizeTabId(value.tabId);
 }
 
+function sanitizeWheelCommand(value: unknown): SanitizedWheelCommand | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (value.direction !== 'in' && value.direction !== 'out') {
+    return null;
+  }
+
+  return {
+    direction: value.direction,
+    textSize: value.textSize === true,
+  };
+}
+
 function getSenderWindow(event: IpcMainInvokeEvent) {
   const window = BrowserWindow.fromWebContents(event.sender);
 
@@ -458,6 +482,24 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
   return null;
 }
 
+function getQdnViewEntryForWebContents(webContents: WebContents): QdnViewEntry | null {
+  for (const windowViews of qdnViewsByWindow.values()) {
+    for (const entry of windowViews.values()) {
+      if (entry.view.webContents.id === webContents.id) {
+        return entry;
+      }
+    }
+  }
+
+  return null;
+}
+
+function sendTextSizeCommand(entry: QdnViewEntry, command: 'text-size-decrease' | 'text-size-increase' | 'text-size-reset') {
+  if (!entry.window.isDestroyed()) {
+    entry.window.webContents.send('menu:command', command);
+  }
+}
+
 function applyViewGuards(entry: QdnViewEntry) {
   const updateCurrentUrl = (url: string) => {
     if (isAllowedRenderUrlForOrigin(url, entry.nodeOrigin)) {
@@ -466,6 +508,57 @@ function applyViewGuards(entry: QdnViewEntry) {
   };
 
   entry.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  entry.view.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || entry.window.isDestroyed()) {
+      return;
+    }
+
+    const primaryModifier = process.platform === 'darwin' ? input.meta : input.control;
+
+    if (!primaryModifier || input.alt) {
+      return;
+    }
+
+    const key = input.key;
+
+    if (input.shift) {
+      if (key === '+' || key === '=') {
+        sendTextSizeCommand(entry, 'text-size-increase');
+        event.preventDefault();
+        return;
+      }
+
+      if (key === '-' || key === '_') {
+        sendTextSizeCommand(entry, 'text-size-decrease');
+        event.preventDefault();
+        return;
+      }
+
+      if (key === '0' || key === ')') {
+        sendTextSizeCommand(entry, 'text-size-reset');
+        event.preventDefault();
+      }
+
+      return;
+    }
+
+    if (key === '=' || key === '+' || input.code === 'NumpadAdd') {
+      zoomIn(entry.window.webContents);
+      event.preventDefault();
+      return;
+    }
+
+    if (key === '-' || input.code === 'NumpadSubtract') {
+      zoomOut(entry.window.webContents);
+      event.preventDefault();
+      return;
+    }
+
+    if (key === '0' || input.code === 'Numpad0') {
+      resetZoom(entry.window.webContents);
+      event.preventDefault();
+    }
+  });
   entry.view.webContents.on('will-navigate', (event, url) => {
     const navigationUrl = event.url || url;
 
@@ -801,6 +894,29 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
 }
 
 export function registerQdnViewIpcHandlers() {
+  ipcMain.on('qdn-views:wheel-command', (event, rawRequest: unknown) => {
+    const request = sanitizeWheelCommand(rawRequest);
+    const entry = getQdnViewEntryForWebContents(event.sender);
+
+    if (!request || !entry || entry.window.isDestroyed()) {
+      return;
+    }
+
+    if (request.textSize) {
+      sendTextSizeCommand(
+        entry,
+        request.direction === 'in' ? 'text-size-increase' : 'text-size-decrease',
+      );
+      return;
+    }
+
+    if (request.direction === 'in') {
+      zoomIn(entry.window.webContents);
+    } else {
+      zoomOut(entry.window.webContents);
+    }
+  });
+
   ipcMain.handle('qdn-views:show', (event, rawRequest: unknown) => {
     const window = getSenderWindow(event);
     const request = sanitizeShowRequest(rawRequest);
