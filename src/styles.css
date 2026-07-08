@@ -1286,7 +1286,8 @@ h1 {
   white-space: nowrap;
 }
 
-.dashboard-card__version-with-notes {
+.dashboard-card__version-with-notes,
+.release-notes-value {
   display: inline-grid;
   grid-template-columns: minmax(0, auto) auto;
   gap: 8px;
@@ -1296,12 +1297,16 @@ h1 {
   max-width: 100%;
 }
 
-.dashboard-card__version-value {
+.dashboard-card__version-value,
+.release-notes-value__text {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dashboard-card__notes-button {
+.dashboard-card__notes-button,
+.release-notes-value__button {
   width: 30px;
   min-width: 30px;
   height: 30px;

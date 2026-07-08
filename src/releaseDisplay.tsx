@@ -1,4 +1,4 @@
-import { ExternalLink, FolderOpen } from 'lucide-react';
+import { ArrowRight, ExternalLink, FolderOpen } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { compareAppVersions } from './appUpdates';
 import { t } from './i18n';
@@ -87,7 +87,7 @@ export function LinkedValue({
 
 export function ReleaseNotesValue({
   children,
-  className = 'value-link',
+  className = '',
   product,
   tagName,
   onOpenReleaseNotes,
@@ -103,15 +103,18 @@ export function ReleaseNotesValue({
   }
 
   return (
-    <button
-      className={className}
-      title={t('releaseNotes.open')}
-      type="button"
-      onClick={() => onOpenReleaseNotes(product, tagName)}
-    >
-      <span>{children}</span>
-      <ExternalLink aria-hidden="true" size={13} strokeWidth={2} />
-    </button>
+    <span className={`release-notes-value${className ? ` ${className}` : ''}`}>
+      <span className="release-notes-value__text">{children}</span>
+      <button
+        aria-label={t('releaseNotes.open')}
+        className="icon-button release-notes-value__button"
+        title={t('releaseNotes.open')}
+        type="button"
+        onClick={() => onOpenReleaseNotes(product, tagName)}
+      >
+        <ArrowRight aria-hidden="true" size={15} strokeWidth={2} />
+      </button>
+    </span>
   );
 }
 
@@ -348,7 +351,6 @@ export function getCoreLatestRows({
     label: entry.source === 'github' ? t('common.latestGithub') : t('common.latestQdn'),
     value: entry.source === 'github' && entry.tagName && onOpenReleaseNotes ? (
       <ReleaseNotesValue
-        className={linkClassName}
         product="core"
         tagName={entry.tagName}
         onOpenReleaseNotes={onOpenReleaseNotes}

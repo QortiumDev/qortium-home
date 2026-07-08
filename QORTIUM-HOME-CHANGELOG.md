@@ -44,6 +44,14 @@ Android continues to use the remote public Qortal nodes by default so it does
 not accidentally treat the device's own loopback address as the user's desktop
 node.
 
+### 2026-07-08 - app: keep update release links inside Home
+
+Changed Dashboard and Settings release update rows so available Core and Home
+versions navigate to Home's built-in release notes page instead of opening the
+GitHub release page in an external browser. Release version rows now use a
+consistent contained arrow button for the release-notes action while the release
+notes page itself still keeps its explicit Open GitHub action.
+
 ### 2026-07-05 - qdn: add RATE_RESOURCE bridge action for resource ratings
 
 QDN apps can now ask Home to submit a 1 to 10 rating for a published QDN
