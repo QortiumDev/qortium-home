@@ -4134,6 +4134,84 @@ function assertPublicQdnStreamedPublishSize(size: number, label: string) {
   }
 }
 
+type QdnPublishLimits = {
+  publishMaxSize?: number;
+  serviceMaxSizes: Map<string, number>;
+};
+
+const qdnPublishLimitsCache = new Map<string, { fetchedAt: number; limits: QdnPublishLimits | null }>();
+const QDN_PUBLISH_LIMITS_CACHE_MS = 5 * 60_000;
+
+// Effective publish limits from the node's GET /arbitrary/limits (Core >= 1.4).
+// Returns null (cached) when the node is unreachable or predates the endpoint —
+// the node still enforces its own limits during the publish build, so the
+// pre-flight is a fail-fast nicety, never the enforcement point.
+async function fetchQdnPublishLimits(connection: NodeConnection): Promise<QdnPublishLimits | null> {
+  const cached = qdnPublishLimitsCache.get(connection.nodeApiUrl);
+
+  if (cached && Date.now() - cached.fetchedAt < QDN_PUBLISH_LIMITS_CACHE_MS) {
+    return cached.limits;
+  }
+
+  let limits: QdnPublishLimits | null = null;
+
+  try {
+    const response = await fetchNode('/arbitrary/limits', {}, connection.nodeApiUrl);
+
+    if (response.ok) {
+      const parsed = (await response.json()) as {
+        publishMaxSize?: unknown;
+        serviceLimits?: Array<{ maxSize?: unknown; service?: unknown }>;
+      };
+      const serviceMaxSizes = new Map<string, number>();
+
+      if (Array.isArray(parsed.serviceLimits)) {
+        for (const entry of parsed.serviceLimits) {
+          if (typeof entry?.service === 'string' && typeof entry?.maxSize === 'number') {
+            serviceMaxSizes.set(entry.service, entry.maxSize);
+          }
+        }
+      }
+
+      limits = {
+        publishMaxSize: typeof parsed.publishMaxSize === 'number' ? parsed.publishMaxSize : undefined,
+        serviceMaxSizes,
+      };
+    }
+  } catch {
+    limits = null;
+  }
+
+  qdnPublishLimitsCache.set(connection.nodeApiUrl, { fetchedAt: Date.now(), limits });
+
+  return limits;
+}
+
+// Pre-flight a local-node publish against the node's own limits so an oversized
+// file/folder is rejected before approval, instead of only after the node has
+// staged and processed it. Sizes are raw (pre-compression), matching how the
+// node itself measures its service limits.
+async function assertLocalQdnPublishSize(connection: NodeConnection, service: string, size: number, label: string) {
+  const limits = await fetchQdnPublishLimits(connection);
+
+  if (!limits) {
+    return;
+  }
+
+  const candidates = [limits.serviceMaxSizes.get(service), limits.publishMaxSize]
+    .filter((value): value is number => typeof value === 'number');
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const maxSize = Math.min(...candidates);
+
+  if (size > maxSize) {
+    throw new Error(`${label} exceeds the node's ${maxSize.toLocaleString()} byte publish limit for the ${service} service.`);
+  }
+}
+
 async function buildDirectoryZipEntries(
   rootPath: string,
   currentPath: string,
@@ -4568,6 +4646,10 @@ async function publishQdnResourceForApp(
     }
   }
 
+  if (useLocalWrite && typeof source.size === 'number') {
+    await assertLocalQdnPublishSize(connection, resource.service, source.size, 'Selected QDN publish source');
+  }
+
   await requestQdnWriteApproval(
     context as QdnViewContext,
     writeContext.profile,
@@ -4756,6 +4838,10 @@ async function publishMultipleQdnResourcesForApp(
 
       if (!useLocalWrite && typeof source.size === 'number') {
         assertPublicQdnPublishSize(source.size, 'Selected QDN publish source');
+      }
+
+      if (useLocalWrite && typeof source.size === 'number') {
+        await assertLocalQdnPublishSize(connection, entry.resource.service, source.size, 'Selected QDN publish source');
       }
 
       const publishPath = useLocalWrite
