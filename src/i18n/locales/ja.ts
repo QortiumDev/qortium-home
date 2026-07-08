@@ -570,6 +570,8 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.download.saved": "保存済み",
   "viewer.fileNotFound": "ファイルが見つかりません。",
   "viewer.loadFailed": "QDNリソースを読み込めません。",
+  "viewer.remoteAuthBlocked": "このノードはリモートアプリ認可を許可していません。",
+  "viewer.remoteAuthBlockedHint": "ノード接続をパブリックネットワークアクセスに切り替えるか、ローカルノードを使用してください。",
   "viewer.hideStatusBar": "ステータスバーを非表示",
   "viewer.loadingResource": "QDNリソースを読み込み中…",
   "viewer.media.aborted": "メディアの読み込みがキャンセルされました。",

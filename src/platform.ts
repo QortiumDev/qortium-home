@@ -57,7 +57,12 @@ import {
 import { signChatTransaction } from './chatSign';
 import type { CoreTransportStatusSnapshot } from './i2p';
 import { t } from './i18n';
-import { PUBLIC_QDN_SERVICES, isPrivateQdnService, type QdnDisplaySettings } from './qdn';
+import {
+  PUBLIC_QDN_SERVICES,
+  REMOTE_AUTHORIZATION_BLOCKED_MESSAGE,
+  isPrivateQdnService,
+  type QdnDisplaySettings,
+} from './qdn';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
 const NODE_DISCOVERY_CACHE_KEY = 'qortium-home-node-discovery-cache';
@@ -1125,7 +1130,30 @@ async function setStoredValue(key: string, value: string) {
   window.localStorage.setItem(key, value);
 }
 
+// True when window.qortiumHome is this module's own web fallback rather than
+// the Electron preload API — readNodeSettings must not delegate to the
+// fallback's getSettings, which reads back through readNodeSettings itself.
+let usingFallbackQortiumHomeApi = false;
+
 async function readNodeSettings() {
+  // Desktop: the Electron main process owns node settings (the Settings UI
+  // saves there, never to this module's browser-storage copy), so mirror its
+  // active snapshot. Without this, renderer-side node requests here always
+  // target the default local node even when a custom node is configured.
+  if (!isNativePlatform() && !usingFallbackQortiumHomeApi && window.qortiumHome?.node?.getSettings) {
+    try {
+      const snapshot = await window.qortiumHome.node.getSettings();
+
+      return parseStoredNodeSettings({
+        apiKey: snapshot.apiKey,
+        customUrl: snapshot.customUrl,
+        mode: snapshot.mode,
+      });
+    } catch {
+      // Fall through to the stored/browser settings below.
+    }
+  }
+
   try {
     const rawSettings = await getStoredValue(NODE_SETTINGS_KEY);
 
@@ -8928,6 +8956,46 @@ function buildQdnAuthorizePath(resource: QortiumQdnAuthorizeRequest) {
   )}${identifierPath}`;
 }
 
+function buildQdnRenderPath(resource: QortiumQdnAuthorizeRequest) {
+  const normalizedResource = normalizeResourceRequest(resource);
+  const identifierPath = normalizedResource.identifier
+    ? `/${encodeURIComponent(normalizedResource.identifier)}`
+    : '';
+
+  return `/render/${normalizedResource.service}/${encodeURIComponent(
+    normalizedResource.name,
+  )}${identifierPath}`;
+}
+
+function getAuthorizationFailureMessage(status: number, responseBody: string) {
+  if (responseBody.startsWith('<')) {
+    return `QDN authorization failed with HTTP ${status}.`;
+  }
+
+  return responseBody || `QDN resource authorization failed with HTTP ${status}.`;
+}
+
+async function isPublicRenderAvailable(nodeApiUrl: string, resource: QortiumQdnAuthorizeRequest) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+
+  try {
+    response = await window.fetch(`${getNodeApiUrlBase(nodeApiUrl)}${buildQdnRenderPath(resource)}`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  } finally {
+    window.clearTimeout(timeout);
+  }
+
+  response.body?.cancel().catch(() => undefined);
+
+  return response.status !== 401 && response.status !== 403;
+}
+
 async function authorizeConfiguredQdnResource(
   settings: StoredNodeSettings,
   resource: QortiumQdnAuthorizeRequest,
@@ -8962,7 +9030,26 @@ async function authorizeConfiguredQdnResource(
       throw new Error('Node API key was rejected. Reconnect to the active local Core or update the node API key in settings.');
     }
 
-    throw new Error(responseBody || `QDN resource authorization failed with HTTP ${response.status}.`);
+    // An access-layer rejection (public API allowlist) is a 403 with a bare
+    // HTML error page (or no body); real API errors carry a JSON body.
+    if (response.status === 403 && (!responseBody || responseBody.startsWith('<'))) {
+      let publicRenderAvailable = false;
+
+      try {
+        publicRenderAvailable = await isPublicRenderAvailable(nodeApiUrl, resource);
+      } catch {
+        publicRenderAvailable = false;
+      }
+
+      if (publicRenderAvailable) {
+        console.warn('QDN authorization fallback: node blocked remote authorization; using public rendering.');
+        return;
+      }
+
+      throw new Error(REMOTE_AUTHORIZATION_BLOCKED_MESSAGE);
+    }
+
+    throw new Error(getAuthorizationFailureMessage(response.status, responseBody));
   }
 }
 
@@ -10823,5 +10910,6 @@ export function installQortiumHomeApiFallback() {
     return;
   }
 
+  usingFallbackQortiumHomeApi = true;
   window.qortiumHome = createFallbackApi();
 }

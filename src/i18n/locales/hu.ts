@@ -570,6 +570,8 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.download.saved": "Mentve",
   "viewer.fileNotFound": "A fájl nem található.",
   "viewer.loadFailed": "A QDN-erőforrás nem tölthető be.",
+  "viewer.remoteAuthBlocked": "Ez a csomópont nem engedélyezi az alkalmazások távoli jogosítását.",
+  "viewer.remoteAuthBlockedHint": "Váltson a csomópontkapcsolattal nyilvános hálózati hozzáférésre, vagy használjon helyi csomópontot.",
   "viewer.hideStatusBar": "Állapotsáv elrejtése",
   "viewer.loadingResource": "QDN-erőforrás betöltése…",
   "viewer.media.aborted": "A média betöltése meg lett szakítva.",

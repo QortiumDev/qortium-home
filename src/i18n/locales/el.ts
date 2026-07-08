@@ -551,6 +551,8 @@ export const el: Record<TranslationKey, string> = {
   "viewer.fileNotFound": "Το αρχείο δεν βρέθηκε.",
   "viewer.hideStatusBar": "Απόκρυψη γραμμής κατάστασης",
   "viewer.loadFailed": "Δεν ήταν δυνατή η φόρτωση πόρου QDN.",
+  "viewer.remoteAuthBlocked": "Αυτός ο κόμβος δεν επιτρέπει απομακρυσμένη εξουσιοδότηση εφαρμογών.",
+  "viewer.remoteAuthBlockedHint": "Αλλάξτε τη σύνδεση κόμβου σε δημόσια πρόσβαση δικτύου ή χρησιμοποιήστε έναν τοπικό κόμβο.",
   "viewer.loadingResource": "Φόρτωση πόρου QDN…",
   "viewer.media.aborted": "Η φόρτωση πολυμέσων ακυρώθηκε.",
   "viewer.media.decode": "Το αρχείο πολυμέσων δεν ήταν δυνατό να αποκωδικοποιηθεί από αυτήν την εφαρμογή.",

@@ -570,6 +570,8 @@ export const pl: Record<TranslationKey, string> = {
   "viewer.download.saved": "Zapisano",
   "viewer.fileNotFound": "Nie znaleziono pliku.",
   "viewer.loadFailed": "Nie można wczytać zasobu QDN.",
+  "viewer.remoteAuthBlocked": "Ten węzeł nie zezwala na zdalną autoryzację aplikacji.",
+  "viewer.remoteAuthBlockedHint": "Przełącz połączenie węzła na publiczny dostęp sieciowy albo użyj lokalnego węzła.",
   "viewer.hideStatusBar": "Ukryj pasek statusu",
   "viewer.loadingResource": "Wczytywanie zasobu QDN…",
   "viewer.media.aborted": "Wczytywanie multimediów zostało anulowane.",

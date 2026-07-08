@@ -570,6 +570,8 @@ export const ro: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvat",
   "viewer.fileNotFound": "Fișierul nu a fost găsit.",
   "viewer.loadFailed": "Nu s-a putut încărca resursa QDN.",
+  "viewer.remoteAuthBlocked": "Acest nod nu permite autorizarea la distanță a aplicațiilor.",
+  "viewer.remoteAuthBlockedHint": "Comută conexiunea nodului la acces public la rețea sau folosește un nod local.",
   "viewer.hideStatusBar": "Ascunde bara de stare",
   "viewer.loadingResource": "Se încarcă resursa QDN…",
   "viewer.media.aborted": "Încărcarea conținutului media a fost anulată.",

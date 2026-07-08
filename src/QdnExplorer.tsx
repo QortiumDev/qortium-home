@@ -15,6 +15,7 @@ import {
   formatQdnStatus,
   getQdnItemIdentifier,
   getQdnViewerKind,
+  isRemoteAuthorizationBlockedMessage,
   isQdnRenderableService,
   isQdnService,
 } from './qdn';
@@ -414,6 +415,8 @@ export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoc
   const [sort, setSort] = useState<ExplorerSort>(DEFAULT_EXPLORER_SORT);
   const nameRows = useMemo(() => getNameRows(state.resources), [state.resources]);
   const serviceRows = useMemo(() => getServiceRows(state.resources), [state.resources]);
+  const remoteAuthorizationBlocked =
+    state.phase === 'error' && isRemoteAuthorizationBlockedMessage(state.message);
   const sortedServiceRows = useMemo(
     () =>
       sortExplorerRows(serviceRows, sort, (row, key) =>
@@ -619,7 +622,9 @@ export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoc
             />
           </div>
         ) : (
-          <p className="qdn-explorer__message qdn-explorer__message--error">{state.message}</p>
+          <p className="qdn-explorer__message qdn-explorer__message--error">
+            {remoteAuthorizationBlocked ? t('viewer.remoteAuthBlocked') : state.message}
+          </p>
         )
       ) : null}
 

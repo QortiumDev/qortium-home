@@ -570,6 +570,8 @@ export const es: Record<TranslationKey, string> = {
   "viewer.download.saved": "Guardado",
   "viewer.fileNotFound": "Archivo no encontrado.",
   "viewer.loadFailed": "No se pudo cargar el recurso de QDN.",
+  "viewer.remoteAuthBlocked": "Este nodo no permite la autorización remota de aplicaciones.",
+  "viewer.remoteAuthBlockedHint": "Cambia la conexión del nodo al acceso de red público o usa un nodo local.",
   "viewer.hideStatusBar": "Ocultar la barra de estado",
   "viewer.loadingResource": "Cargando recurso de QDN…",
   "viewer.media.aborted": "La carga del contenido multimedia se canceló.",

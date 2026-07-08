@@ -549,6 +549,8 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.download.saved": "Enregistré",
   "viewer.fileNotFound": "Fichier introuvable.",
   "viewer.loadFailed": "Impossible de charger la ressource QDN.",
+  "viewer.remoteAuthBlocked": "Ce nœud n'autorise pas l'autorisation d'applications à distance.",
+  "viewer.remoteAuthBlockedHint": "Basculez la connexion du nœud vers l'accès réseau public, ou utilisez un nœud local.",
   "viewer.hideStatusBar": "Masquer la barre de statut",
   "viewer.loadingResource": "Chargement de la ressource QDN…",
   "viewer.media.aborted": "Le chargement du média a été annulé.",

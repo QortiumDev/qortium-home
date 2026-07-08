@@ -549,6 +549,8 @@ export const en = {
   "viewer.fileNotFound": "File not found.",
   "viewer.hideStatusBar": "Hide status bar",
   "viewer.loadFailed": "Unable to load QDN resource.",
+  "viewer.remoteAuthBlocked": "This node does not allow remote app authorization.",
+  "viewer.remoteAuthBlockedHint": "Switch the node connection to public network access, or use a local node.",
   "viewer.loadingResource": "Loading QDN resource…",
   "viewer.media.aborted": "Media loading was canceled.",
   "viewer.media.decode": "The media file could not be decoded by this app.",

@@ -572,6 +572,8 @@ export const nb: Record<TranslationKey, string> = {
   "viewer.fileNotFound": "Fant ikke filen.",
   "viewer.hideStatusBar": "Skjul statuslinje",
   "viewer.loadFailed": "Kan ikke laste inn QDN-ressurs.",
+  "viewer.remoteAuthBlocked": "Denne noden tillater ikke ekstern appautorisasjon.",
+  "viewer.remoteAuthBlockedHint": "Bytt nodeforbindelsen til offentlig nettverkstilgang, eller bruk en lokal node.",
   "viewer.loadingResource": "Laster inn QDN-ressurs…",
   "viewer.media.aborted": "Medieinnlasting ble avbrutt.",
   "viewer.media.decode": "Mediefilen kunne ikke dekodes av denne appen.",

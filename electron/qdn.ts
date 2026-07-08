@@ -2432,6 +2432,36 @@ async function postAuthorizeResource(
   );
 }
 
+const REMOTE_AUTHORIZATION_BLOCKED_MESSAGE =
+  'This node does not allow remote app authorization. Switch to public network access or use a local node.';
+
+function buildRenderResourcePath(service: string, name: string, identifier: string | undefined) {
+  const identifierPath = identifier ? `/${encodeURIComponent(identifier)}` : '';
+
+  return `/render/${service}/${encodeURIComponent(name)}${identifierPath}`;
+}
+
+function getAuthorizationFailureMessage(response: Response, message: string) {
+  if (message.startsWith('<')) {
+    return `QDN authorization failed with HTTP ${response.status}.`;
+  }
+
+  return message || `QDN authorization failed with HTTP ${response.status}.`;
+}
+
+async function isPublicRenderAvailable(
+  service: string,
+  name: string,
+  identifier: string | undefined,
+  nodeApiUrl: string,
+) {
+  const response = await fetchNode(buildRenderResourcePath(service, name, identifier), {}, nodeApiUrl);
+
+  response.body?.cancel().catch(() => undefined);
+
+  return response.status !== 401 && response.status !== 403;
+}
+
 async function authorizeResource(
   service: string,
   name: string,
@@ -2456,23 +2486,45 @@ async function authorizeResource(
     const refreshedConnection = await refreshNodeConnectionApiKey(connection);
 
     if (refreshedConnection) {
+      connection = refreshedConnection;
       response = await postAuthorizeResource(
         service,
         name,
         identifier,
-        getNodeApiKey(refreshedConnection),
-        refreshedConnection.nodeApiUrl,
+        getNodeApiKey(connection),
+        connection.nodeApiUrl,
       );
 
       if (response.ok) {
-        return refreshedConnection;
+        return connection;
       }
 
       message = (await response.text()).trim();
     }
   }
 
-  throw new Error(message || `QDN authorization failed with HTTP ${response.status}.`);
+  // An access-layer rejection (public API allowlist) is a 403 with a bare
+  // HTML error page (or no body); real API errors — including invalid-key —
+  // carry a JSON body. isInvalidApiKeyResponse cannot distinguish these (it
+  // treats every 401/403 as key-related), so gate on the body shape instead.
+  if (response.status === 403 && (!message || message.startsWith('<'))) {
+    let publicRenderAvailable = false;
+
+    try {
+      publicRenderAvailable = await isPublicRenderAvailable(service, name, identifier, connection.nodeApiUrl);
+    } catch {
+      publicRenderAvailable = false;
+    }
+
+    if (publicRenderAvailable) {
+      console.warn('QDN authorization fallback: node blocked remote authorization; using public rendering.');
+      return connection;
+    }
+
+    throw new Error(REMOTE_AUTHORIZATION_BLOCKED_MESSAGE);
+  }
+
+  throw new Error(getAuthorizationFailureMessage(response, message));
 }
 
 function buildResourcesSearchPath(request: QdnResourcesSearchRequest) {

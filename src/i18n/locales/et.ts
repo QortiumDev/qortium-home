@@ -570,6 +570,8 @@ export const et: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvestatud",
   "viewer.fileNotFound": "Faili ei leitud.",
   "viewer.loadFailed": "QDN-i ressurssi ei õnnestunud laadida.",
+  "viewer.remoteAuthBlocked": "See sõlm ei luba rakenduste kaugautoriseerimist.",
+  "viewer.remoteAuthBlockedHint": "Lülita sõlmeühendus avalikule võrgujuurdepääsule või kasuta kohalikku sõlme.",
   "viewer.hideStatusBar": "Peida olekuriba",
   "viewer.loadingResource": "QDN-i ressursi laadimine…",
   "viewer.media.aborted": "Meedia laadimine katkestati.",

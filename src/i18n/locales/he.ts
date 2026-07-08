@@ -570,6 +570,8 @@ export const he: Record<TranslationKey, string> = {
   "viewer.download.saved": "נשמר",
   "viewer.fileNotFound": "הקובץ לא נמצא.",
   "viewer.loadFailed": "לא ניתן לטעון את משאב ה-QDN.",
+  "viewer.remoteAuthBlocked": "צומת זה אינו מאפשר הרשאת אפליקציות מרחוק.",
+  "viewer.remoteAuthBlockedHint": "העבר את חיבור הצומת לגישה ציבורית לרשת, או השתמש בצומת מקומי.",
   "viewer.hideStatusBar": "הסתרת שורת הסטטוס",
   "viewer.loadingResource": "טוען משאב QDN…",
   "viewer.media.aborted": "טעינת המדיה בוטלה.",

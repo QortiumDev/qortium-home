@@ -570,6 +570,8 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.download.saved": "Sparad",
   "viewer.fileNotFound": "Filen hittades inte.",
   "viewer.loadFailed": "Det gick inte att läsa in QDN-resursen.",
+  "viewer.remoteAuthBlocked": "Den här noden tillåter inte fjärrauktorisering av appar.",
+  "viewer.remoteAuthBlockedHint": "Byt nodanslutningen till offentlig nätverksåtkomst eller använd en lokal nod.",
   "viewer.hideStatusBar": "Dölj statusrad",
   "viewer.loadingResource": "Läser in QDN-resurs…",
   "viewer.media.aborted": "Inläsningen av mediet avbröts.",

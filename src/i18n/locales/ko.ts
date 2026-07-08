@@ -570,6 +570,8 @@ export const ko: Record<TranslationKey, string> = {
   "viewer.download.saved": "저장됨",
   "viewer.fileNotFound": "파일을 찾을 수 없습니다.",
   "viewer.loadFailed": "QDN 리소스를 불러올 수 없습니다.",
+  "viewer.remoteAuthBlocked": "이 노드는 원격 앱 인증을 허용하지 않습니다.",
+  "viewer.remoteAuthBlockedHint": "노드 연결을 공개 네트워크 액세스로 전환하거나 로컬 노드를 사용하세요.",
   "viewer.hideStatusBar": "상태 표시줄 숨기기",
   "viewer.loadingResource": "QDN 리소스를 불러오는 중…",
   "viewer.media.aborted": "미디어 불러오기가 취소되었습니다.",

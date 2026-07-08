@@ -549,6 +549,8 @@ export const it: Record<TranslationKey, string> = {
   "viewer.download.saved": "Salvato",
   "viewer.fileNotFound": "File non trovato.",
   "viewer.loadFailed": "Impossibile caricare la risorsa QDN.",
+  "viewer.remoteAuthBlocked": "Questo nodo non consente l'autorizzazione remota delle app.",
+  "viewer.remoteAuthBlockedHint": "Passa la connessione del nodo all'accesso di rete pubblico oppure usa un nodo locale.",
   "viewer.hideStatusBar": "Nascondi la barra di stato",
   "viewer.loadingResource": "Caricamento della risorsa QDN…",
   "viewer.media.aborted": "Il caricamento del contenuto multimediale è stato annullato.",
