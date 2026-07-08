@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - qdn: prefer a synced local Qortal node for Qortal bridge reads
+
+QDN apps that use Home's Qortal-specific bridge actions now prefer a synced
+local Qortal mainnet node on `127.0.0.1:12391` on desktop before falling back to
+the existing public Qortal nodes. Home only uses the local node when its status
+shows it is fully synced and public QDN reads work, and it rechecks immediately
+after node request failures instead of staying on a stale cached node choice.
+Android continues to use the remote public Qortal nodes by default so it does
+not accidentally treat the device's own loopback address as the user's desktop
+node.
+
 ### 2026-07-05 - qdn: add RATE_RESOURCE bridge action for resource ratings
 
 QDN apps can now ask Home to submit a 1 to 10 rating for a published QDN

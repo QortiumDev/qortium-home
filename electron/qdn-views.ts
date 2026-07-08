@@ -18,15 +18,18 @@ const LANGUAGE_VALUES = new Set(['ar', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr',
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
 const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
 const UI_VALUES = new Set(['classic', 'modern']);
-// Read-only public Qortal node origins the cross-chain bridge reads from (mirror of
-// QORTAL_PUBLIC_NODE_API_URLS in qdn.ts). QDN apps render from the node's own origin, so the
-// rendered Content-Security-Policy must allow connecting to these for read-only cross-chain reads
-// (e.g. an emulator streaming a ROM from Qortal). Android strips the CSP entirely; on desktop we
-// relax it narrowly to just these origins.
-const QORTAL_RENDER_ALLOWED_ORIGINS = ['https://ext-node.qortal.link'];
+// Exact Qortal node origins the cross-chain bridge can return for direct resource URLs. QDN apps
+// render from the node's own origin, so the rendered Content-Security-Policy must allow connecting
+// to these for read-only cross-chain reads (e.g. an emulator streaming a ROM from Qortal). Android
+// strips the CSP entirely; on desktop we relax it narrowly to just these origins.
+const QORTAL_RENDER_ALLOWED_ORIGINS = [
+  'http://127.0.0.1:12391',
+  'https://ext-node.qortal.link',
+  'https://api.qortal.org',
+];
 const QORTAL_RELAXED_CSP_DIRECTIVES = ['connect-src', 'img-src', 'media-src'];
 
-// Relaxes a rendered QDN app's CSP so it can reach the public Qortal node(s) for cross-chain reads,
+// Relaxes a rendered QDN app's CSP so it can reach the Qortal node origin(s) for cross-chain reads,
 // leaving the rest of the policy intact. Adds the allowed origins to connect-src/img-src/media-src,
 // creating those directives from default-src when absent (otherwise they inherit default-src 'self').
 function relaxQdnAppCspForQortal(csp: string): string {

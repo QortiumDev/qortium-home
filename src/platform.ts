@@ -72,9 +72,10 @@ const PREVIEWNET_SEED_NODE_API_URLS = [
   'http://146.103.42.59:24891',
   'http://185.207.104.78:24891',
 ];
-// Public, read-only Qortal nodes for cross-chain QDN reads (no account, no API key, no writes).
-// More public nodes can be appended; the first reachable one is used and cached.
-const QORTAL_PUBLIC_NODE_API_URLS = [
+// Read-only Qortal nodes for cross-chain QDN reads (no account, no API key, no writes).
+// Desktop/browser builds prefer a synced local mainnet node, then fall back to remote public nodes.
+const QORTAL_LOCAL_NODE_API_URL = 'http://127.0.0.1:12391';
+const QORTAL_REMOTE_NODE_API_URLS = [
   'https://ext-node.qortal.link',
   'https://api.qortal.org',
 ];
@@ -204,6 +205,13 @@ type DiscoveryCandidate = {
   syncPercent: number | null;
   syncPhase: string;
   supportsPublicReads: boolean;
+};
+
+type QortalNodeCandidate = {
+  requiresPublicReadProbe: boolean;
+  requiresSyncedStatus: boolean;
+  source: 'local' | 'remote';
+  url: string;
 };
 
 type UpdateInstallerPlugin = {
@@ -8058,39 +8066,110 @@ async function getCrosschainBlockchainsForApp(request: QdnAppRequest) {
   return blockchains;
 }
 
-// --- Read-only cross-chain reads from a public Qortal node ---
+// --- Read-only cross-chain reads from Qortal nodes ---
 // Lets QDN apps read Qortal QDN resources (search/status/metadata + binary fetch, e.g. game ROMs).
 // Strictly read-only: GET/HEAD against public QDN services only, no account, API key, signing or writes.
 
-let cachedQortalNodeApiUrl: { url: string; expiresAt: number } | null = null;
+let cachedQortalNodeApiUrl: { expiresAt: number; source: QortalNodeCandidate['source']; url: string } | null =
+  null;
 const marketPriceCache = new Map<string, { expiresAt: number; response: MarketPriceResponse }>();
 
-async function resolveQortalNodeApiUrl(): Promise<string> {
-  if (cachedQortalNodeApiUrl && cachedQortalNodeApiUrl.expiresAt > Date.now()) {
+function getQortalNodeCandidates(): QortalNodeCandidate[] {
+  const remoteCandidates = QORTAL_REMOTE_NODE_API_URLS.map(
+    (url): QortalNodeCandidate => ({
+      requiresPublicReadProbe: false,
+      requiresSyncedStatus: false,
+      source: 'remote',
+      url,
+    }),
+  );
+
+  if (isNativePlatform()) {
+    return remoteCandidates;
+  }
+
+  return [
+    {
+      requiresPublicReadProbe: true,
+      requiresSyncedStatus: true,
+      source: 'local',
+      url: QORTAL_LOCAL_NODE_API_URL,
+    },
+    ...remoteCandidates,
+  ];
+}
+
+async function probeQortalNodeCandidate(candidate: QortalNodeCandidate) {
+  try {
+    const response = await requestNode(candidate.url, '/admin/status', 'json', DISCOVERY_TIMEOUT_MS);
+
+    if (response.status < 200 || response.status >= 300) {
+      return false;
+    }
+
+    if (candidate.requiresSyncedStatus && !isSyncedStatus(response.data)) {
+      return false;
+    }
+
+    if (candidate.requiresPublicReadProbe && !(await probePublicReadAccess(candidate.url))) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function invalidateCachedQortalNodeApiUrl(nodeApiUrl?: string) {
+  if (!nodeApiUrl || cachedQortalNodeApiUrl?.url === nodeApiUrl) {
+    cachedQortalNodeApiUrl = null;
+  }
+}
+
+async function resolveQortalNodeApiUrl(forceRefresh = false): Promise<string> {
+  if (!forceRefresh && cachedQortalNodeApiUrl && cachedQortalNodeApiUrl.expiresAt > Date.now()) {
     return cachedQortalNodeApiUrl.url;
   }
 
-  for (const candidate of QORTAL_PUBLIC_NODE_API_URLS) {
-    try {
-      const response = await requestNode(candidate, '/admin/status', 'json', DISCOVERY_TIMEOUT_MS);
-      if (response.status >= 200 && response.status < 300) {
-        cachedQortalNodeApiUrl = { url: candidate, expiresAt: Date.now() + QORTAL_NODE_CACHE_TTL_MS };
-        return candidate;
-      }
-    } catch {
-      // Try the next public Qortal node.
+  for (const candidate of getQortalNodeCandidates()) {
+    if (await probeQortalNodeCandidate(candidate)) {
+      cachedQortalNodeApiUrl = {
+        expiresAt: Date.now() + QORTAL_NODE_CACHE_TTL_MS,
+        source: candidate.source,
+        url: candidate.url,
+      };
+      return candidate.url;
     }
   }
 
-  throw new Error('No public Qortal node is reachable right now.');
+  throw new Error('No Qortal node is reachable right now.');
+}
+
+async function requestQortalNodeWithRetry<T>(operation: (nodeApiUrl: string) => Promise<T>) {
+  const nodeApiUrl = await resolveQortalNodeApiUrl(cachedQortalNodeApiUrl?.source === 'local');
+
+  try {
+    return await operation(nodeApiUrl);
+  } catch (error) {
+    invalidateCachedQortalNodeApiUrl(nodeApiUrl);
+
+    const retryNodeApiUrl = await resolveQortalNodeApiUrl(true);
+    if (retryNodeApiUrl === nodeApiUrl) {
+      throw error;
+    }
+
+    return operation(retryNodeApiUrl);
+  }
 }
 
 // Neutral settings so the shared response reader doesn't apply Qortium network-mode messaging.
 const QORTAL_READ_SETTINGS: StoredNodeSettings = { apiKey: '', customUrl: '', mode: 'custom' };
 
 async function fetchQortalNodeApi(apiPath: string, maxBytes: number, method: 'GET' | 'HEAD' = 'GET') {
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
-  const response = await requestNode(nodeApiUrl, apiPath, 'text', REQUEST_TIMEOUT_MS, method);
+  const response = await requestQortalNodeWithRetry((nodeApiUrl) =>
+    requestNode(nodeApiUrl, apiPath, 'text', REQUEST_TIMEOUT_MS, method),
+  );
 
   return readNodeApiResponse(response, QORTAL_READ_SETTINGS, maxBytes, method !== 'HEAD');
 }
@@ -8300,24 +8379,23 @@ async function postQortalNodeText(
   fallbackMessage: string,
   contentType = 'text/plain',
 ) {
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
-  let response: HttpResponse;
-
-  try {
-    response = await CapacitorHttp.request({
-      url: `${getNodeApiUrlBase(nodeApiUrl)}${apiPath}`,
-      method: 'POST',
-      headers: {
-        'Content-Type': contentType,
-      },
-      data: body,
-      responseType: 'text',
-      connectTimeout: REQUEST_TIMEOUT_MS,
-      readTimeout: REQUEST_TIMEOUT_MS,
-    });
-  } catch {
-    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
-  }
+  const response = await requestQortalNodeWithRetry(async (nodeApiUrl) => {
+    try {
+      return await CapacitorHttp.request({
+        url: `${getNodeApiUrlBase(nodeApiUrl)}${apiPath}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': contentType,
+        },
+        data: body,
+        responseType: 'text',
+        connectTimeout: REQUEST_TIMEOUT_MS,
+        readTimeout: REQUEST_TIMEOUT_MS,
+      });
+    } catch {
+      throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+    }
+  });
 
   const responseBody = stringifyResponseData(response.data).trim();
   const contentTypeHeader = getContentType(response);
@@ -8768,8 +8846,9 @@ async function fetchQortalResourceBinary(request: QdnAppRequest) {
   const maxBytes = getQortalResourceMaxBytes(getRequestValue(request, 'maxBytes'));
   const apiPath = buildQortalResourcePath(resource);
 
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
-  const response = await requestNode(nodeApiUrl, apiPath, 'arraybuffer');
+  const response = await requestQortalNodeWithRetry((nodeApiUrl) =>
+    requestNode(nodeApiUrl, apiPath, 'arraybuffer'),
+  );
 
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`Qortal resource request failed with HTTP ${response.status}.`);
@@ -8791,11 +8870,11 @@ async function fetchQortalResourceBinary(request: QdnAppRequest) {
   };
 }
 
-// Returns the direct URL of a Qortal resource on the public node. The Qortal node serves these with
+// Returns the direct URL of a Qortal resource on the selected node. The Qortal node serves these with
 // CORS and ranged GET, so an in-app player (e.g. EmulatorJS) can stream the file straight from it.
 async function getQortalResourceUrl(request: QdnAppRequest) {
   const resource = getQortalResourceRequest(request);
-  const nodeApiUrl = await resolveQortalNodeApiUrl();
+  const nodeApiUrl = await resolveQortalNodeApiUrl(cachedQortalNodeApiUrl?.source === 'local');
 
   return { url: `${getNodeApiUrlBase(nodeApiUrl)}${buildQortalResourcePath(resource)}` };
 }
