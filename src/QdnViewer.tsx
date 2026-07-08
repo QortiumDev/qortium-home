@@ -34,6 +34,12 @@ const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
 
 type LoadedQdnResource = {
+  // The node the resource was loaded from (renderUrl's origin). Kept alongside
+  // renderUrl so isolated-view show requests always send a matching pair even
+  // after the app-wide selected node has moved on (public-network swaps).
+  // Optional only for synthetic entries (archive entry viewer) that never
+  // reach the isolated iframe branch.
+  nodeApiUrl?: string;
   properties?: QdnResourceProperties;
   renderUrl: string;
   resource?: QdnResource;
@@ -842,6 +848,7 @@ function useQdnResourceLoader(
         phase: 'ready',
         status,
         loadedResource: {
+          nodeApiUrl,
           properties,
           renderUrl,
           resource: activeResource,
@@ -935,7 +942,12 @@ function useQdnResourceLoader(
     // `resource`/`resourceKey` are intentionally omitted: `reloadKey` already
     // captures every change that must trigger a reload, while collapsing path-only
     // repository navigation into a single key so the view does not flash/reload.
-  }, [nodeApiUrl, reloadKey, retryToken]);
+    // `nodeApiUrl` is likewise omitted: a public-network node swap must not
+    // reload an open app/page (users lose their place in Chat etc.). The node
+    // is captured per load; runtime qdnRequest/API calls already re-resolve the
+    // node per request in the main process, and a reload/retry (retryToken,
+    // reloadKey, or the tab reload remount) picks up the latest node.
+  }, [reloadKey, retryToken]);
 
   return state;
 }
@@ -3365,7 +3377,7 @@ function QdnReadyContent({
         <QdnIsolatedFrameContent
           account={account}
           displaySettings={displaySettings}
-          nodeApiUrl={nodeApiUrl}
+          nodeApiUrl={loadedResource.nodeApiUrl ?? nodeApiUrl}
           renderUrl={loadedResource.renderUrl}
           resourceUrl={resource.displayUrl}
           suspended={suspended}
