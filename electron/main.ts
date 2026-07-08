@@ -30,6 +30,7 @@ import {
   sweepOrphanedQdnPreviewStagingDirs,
 } from './qdn.js';
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
+import { installNodeTlsForDefaultSessions } from './node-tls.js';
 import { registerSystemIpcHandlers } from './system.js';
 import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
 
@@ -782,6 +783,7 @@ app.whenReady().then(() => {
   }
 
   logStartupMilestone('main process ready');
+  installNodeTlsForDefaultSessions();
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();
   registerCoreManagerIpcHandlers();

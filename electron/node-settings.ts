@@ -7,6 +7,7 @@ import {
   readPreviewApiKey,
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
+import { ensureNodeCa, nodeFetch } from './node-tls.js';
 
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
@@ -287,6 +288,10 @@ function getConfiguredNodeApiKey(settings: NodeSettings) {
   }
 
   return getNodeApiKeyOverride() || settings.apiKey;
+}
+
+async function ensureNodeTls(nodeApiUrl: string, apiKey: string | null) {
+  await ensureNodeCa(nodeApiUrl, apiKey);
 }
 
 async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings> {
@@ -686,7 +691,7 @@ async function fetchWithTimeout(url: string) {
   const timeout = setTimeout(() => abortController.abort(), DISCOVERY_TIMEOUT_MS);
 
   try {
-    return await fetch(url, {
+    return await nodeFetch(url, {
       signal: abortController.signal,
     });
   } finally {
@@ -868,6 +873,8 @@ async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
     nodeApiUrl = getFallbackNodeApiUrl(settings);
   }
 
+  await ensureNodeTls(nodeApiUrl, getConfiguredNodeApiKey(settings) || null);
+
   return {
     ...settings,
     localUrl: getLocalNodeApiUrl(),
@@ -946,6 +953,8 @@ export async function refreshNodeConnectionApiKey(connection: NodeConnection): P
     nodeApiUrl: await resolveNodeApiUrl(refreshedSettings),
   };
 
+  await ensureNodeTls(refreshedConnection.nodeApiUrl, refreshedConnection.apiKey || null);
+
   if (
     refreshedConnection.mode !== 'local' ||
     !refreshedConnection.apiKey ||
@@ -967,8 +976,10 @@ async function fetchProtectedNodeResponse(
   const apiKey = getProtectedNodeApiKey(settings);
   let response: Response;
 
+  await ensureNodeTls(nodeApiUrl, apiKey);
+
   try {
-    response = await fetch(`${nodeApiUrl}${pathname}`, {
+    response = await nodeFetch(`${nodeApiUrl}${pathname}`, {
       method,
       headers: {
         Accept: 'application/json',
@@ -1021,11 +1032,13 @@ async function requestProtectedNodeJson(
   return result.text ? (JSON.parse(result.text) as unknown) : null;
 }
 
-async function fetchNodeStatus(nodeApiUrl: string) {
+async function fetchNodeStatus(nodeApiUrl: string, apiKey: string | null = null) {
   let response: Response;
 
+  await ensureNodeTls(nodeApiUrl, apiKey);
+
   try {
-    response = await fetch(`${nodeApiUrl}/admin/status`);
+    response = await nodeFetch(`${nodeApiUrl}/admin/status`);
   } catch {
     throw new Error(`Qortium node is unavailable at ${nodeApiUrl}.`);
   }
@@ -1041,7 +1054,7 @@ async function fetchNodeStatus(nodeApiUrl: string) {
 
 async function fetchOpenNodeJson(pathname: string, nodeApiUrl: string) {
   try {
-    const response = await fetch(`${nodeApiUrl}${pathname}`, {
+    const response = await nodeFetch(`${nodeApiUrl}${pathname}`, {
       headers: {
         Accept: 'application/json',
       },
@@ -1075,6 +1088,8 @@ function normalizeTransportSettings(value: Record<string, unknown>): CoreTranspo
 
 async function getLiveTransportStatus(settings: NodeSettings): Promise<CoreTransportStatusSnapshot | null> {
   const nodeApiUrl = await resolveNodeApiUrl(settings);
+  await ensureNodeTls(nodeApiUrl, getConfiguredNodeApiKey(settings) || null);
+
   const rawSettings = await fetchOpenNodeJson('/admin/settings', nodeApiUrl);
 
   if (!isRecord(rawSettings)) {
@@ -1161,25 +1176,29 @@ async function getTransportStatus(): Promise<CoreTransportStatusSnapshot | null>
 }
 
 async function testNodeSettings(settings: NodeSettings) {
-  let nodeApiUrl = getFallbackNodeApiUrl(settings);
+  const resolvedSettings = await resolveLocalApiKey(settings);
+  const apiKey = getConfiguredNodeApiKey(resolvedSettings) || null;
+  let nodeApiUrl = getFallbackNodeApiUrl(resolvedSettings);
 
   try {
-    nodeApiUrl = await resolveNodeApiUrl(settings);
+    nodeApiUrl = await resolveNodeApiUrl(resolvedSettings);
+    await ensureNodeTls(nodeApiUrl, apiKey);
 
     return {
       ok: true,
       nodeApiUrl,
-      status: await fetchNodeStatus(nodeApiUrl),
+      status: await fetchNodeStatus(nodeApiUrl, apiKey),
     };
   } catch (error) {
-    if (settings.mode === 'network') {
+    if (resolvedSettings.mode === 'network') {
       try {
-        nodeApiUrl = await resolveNodeApiUrl(settings, true);
+        nodeApiUrl = await resolveNodeApiUrl(resolvedSettings, true);
+        await ensureNodeTls(nodeApiUrl, apiKey);
 
         return {
           ok: true,
           nodeApiUrl,
-          status: await fetchNodeStatus(nodeApiUrl),
+          status: await fetchNodeStatus(nodeApiUrl, apiKey),
         };
       } catch (retryError) {
         return {
@@ -1306,11 +1325,15 @@ async function setAllowedTransports(transports: unknown) {
 
 export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<NodeConnection> {
   const settings = await resolveLocalApiKey(readNodeSettings());
+  const apiKey = getConfiguredNodeApiKey(settings);
+  const nodeApiUrl = await resolveNodeApiUrl(settings, forceDiscoveryRefresh);
+
+  await ensureNodeTls(nodeApiUrl, apiKey || null);
 
   return {
-    apiKey: getConfiguredNodeApiKey(settings),
+    apiKey,
     mode: settings.mode,
-    nodeApiUrl: await resolveNodeApiUrl(settings, forceDiscoveryRefresh),
+    nodeApiUrl,
   };
 }
 
