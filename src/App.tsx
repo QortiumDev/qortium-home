@@ -1563,7 +1563,27 @@ export function App() {
     });
   }
 
+  function focusOpenSettingsTab() {
+    // Settings is deduplicated per window: each window is its own renderer with
+    // its own tabState, so scanning tabState only sees this window's tabs.
+    const existingSettingsTab =
+      tabState.tabs.find(
+        (tab) => tab.id === tabState.activeTabId && getCurrentRouteForTab(tab).kind === 'settings',
+      ) ?? tabState.tabs.find((tab) => getCurrentRouteForTab(tab).kind === 'settings');
+
+    if (!existingSettingsTab) {
+      return false;
+    }
+
+    selectTab(existingSettingsTab.id);
+    return true;
+  }
+
   function navigateToRoute(route: AppRoute, options?: { accountId?: string | null; replace?: boolean }) {
+    if (route.kind === 'settings' && focusOpenSettingsTab()) {
+      return;
+    }
+
     const defaultAccountId = getDefaultAccountId(accountsState);
 
     updateActiveTab((tab) => {
@@ -1645,6 +1665,10 @@ export function App() {
   }
 
   function openSettingsInNewTab() {
+    if (focusOpenSettingsTab()) {
+      return;
+    }
+
     const tab = createBrowserTab(getDefaultAccountId(accountsState), {
       entries: [SETTINGS_ROUTE],
       index: 0,
@@ -3024,19 +3048,30 @@ export function App() {
               className={`app-main__tab${isActiveTab ? '' : ' app-main__tab--hidden'}`}
             >
               {tabRoute.kind === 'node-api' ? (
-                <ApiViewer key={tabRenderKey} route={tabRoute} />
+                <ApiViewer
+                  key={tabRenderKey}
+                  coreManager={coreManager}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
+                  route={tabRoute}
+                />
               ) : tabRoute.kind === 'core-api-docs' ? (
                 <CoreApiDocsPage
                   key={tabRenderKey}
+                  coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
+                  nodeEpoch={nodeEpoch}
                   nodeSettings={nodeSettings}
                 />
               ) : tabRoute.kind === 'resource' ? (
                 <QdnViewer
                   key={tabRenderKey}
                   account={tabAccount}
+                  coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
                   onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
@@ -3136,8 +3171,11 @@ export function App() {
               ) : (
                 <QdnExplorer
                   key={tabRenderKey}
+                  coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
                   route={tabRoute}
                   onNavigate={navigateToRoute}
                 />

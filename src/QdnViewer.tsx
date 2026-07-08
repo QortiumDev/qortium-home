@@ -24,6 +24,8 @@ import {
 import { marked } from 'marked';
 import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform, saveBytesToFile } from './platform';
 import { ArchiveViewer } from './ArchiveViewer';
+import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
+import type { CoreManagerState } from './coreManagerState';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
 import { FileTree, type FileTreeEntry } from './FileTree';
 import { detectContentKind, sniffMagicBytes } from './qdnContentType';
@@ -71,8 +73,13 @@ type QdnViewerState =
 
 type QdnViewerProps = {
   account: QortiumAccountSummary | null;
+  // Core-offline recovery context; omitted by embedded uses (media-player
+  // dialog), which then keep the generic error state.
+  coreManager?: CoreManagerState;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  nodeEpoch?: number;
+  nodeMode?: QortiumNodeSettingsMode;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
@@ -3537,6 +3544,9 @@ export function QdnViewer({
   account,
   displaySettings,
   nodeApiUrl,
+  coreManager,
+  nodeEpoch,
+  nodeMode,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
@@ -3629,7 +3639,16 @@ export function QdnViewer({
         </div>
       )}
 
-      {state.phase === 'ready' ? (
+      {state.phase === 'error' && coreManager && nodeMode && isNodeUnavailableMessage(state.message) ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--error">
+          <CoreOfflineNotice
+            coreManager={coreManager}
+            nodeEpoch={nodeEpoch ?? 0}
+            nodeMode={nodeMode}
+            onRetry={() => setRetryToken((currentToken) => currentToken + 1)}
+          />
+        </div>
+      ) : state.phase === 'ready' ? (
         <QdnReadyContent
           loadedResource={state.loadedResource}
           account={account}

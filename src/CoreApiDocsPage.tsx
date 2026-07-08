@@ -1,5 +1,7 @@
 import { Power, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
+import type { CoreManagerState } from './coreManagerState';
 import { t } from './i18n';
 import type { QdnDisplaySettings } from './qdn';
 
@@ -14,7 +16,9 @@ const RESTART_POLL_INTERVAL_MS = 3_000;
 const RESTART_POLL_TIMEOUT_MS = 600_000;
 
 type CoreApiDocsPageProps = {
+  coreManager: CoreManagerState;
   displaySettings: QdnDisplaySettings;
+  nodeEpoch: number;
   nodeSettings: QortiumNodeSettings;
 };
 
@@ -134,7 +138,7 @@ function postCoreApiDocsDisplaySettings(
   }
 }
 
-export function CoreApiDocsPage({ displaySettings, nodeSettings }: CoreApiDocsPageProps) {
+export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeSettings }: CoreApiDocsPageProps) {
   const [retryToken, setRetryToken] = useState(0);
   const [state, setState] = useState<DocsState>({ phase: 'checking' });
   const displaySettingsRef = useRef(displaySettings);
@@ -301,15 +305,26 @@ export function CoreApiDocsPage({ displaySettings, nodeSettings }: CoreApiDocsPa
 
       {state.phase === 'error' ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--error">
-          <p className="qdn-viewer__message">{state.message}</p>
-          <button
-            className="button qdn-viewer__retry"
-            type="button"
-            onClick={() => setRetryToken((currentToken) => currentToken + 1)}
-          >
-            <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
-            {t('common.retry')}
-          </button>
+          {isNodeUnavailableMessage(state.message) ? (
+            <CoreOfflineNotice
+              coreManager={coreManager}
+              nodeEpoch={nodeEpoch}
+              nodeMode={nodeSettings.mode}
+              onRetry={() => setRetryToken((currentToken) => currentToken + 1)}
+            />
+          ) : (
+            <>
+              <p className="qdn-viewer__message">{state.message}</p>
+              <button
+                className="button qdn-viewer__retry"
+                type="button"
+                onClick={() => setRetryToken((currentToken) => currentToken + 1)}
+              >
+                <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
+                {t('common.retry')}
+              </button>
+            </>
+          )}
         </div>
       ) : null}
 
