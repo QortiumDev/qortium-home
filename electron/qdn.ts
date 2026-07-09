@@ -17,8 +17,9 @@ import {
   getAccountSigningKey,
   isAccountUnlocked,
   signChatTransaction,
-  signTransactionWithNonce,
+  stampTransactionNonce,
 } from './accounts.js';
+import { arbitraryRawToSigningBytes } from './arbitrary-tx.js';
 import {
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
@@ -3874,9 +3875,17 @@ async function signAndProcessKeylessQdnTransaction(
   keylessContext: QdnKeylessWriteContext,
   rawUnsignedBytes58: string,
 ) {
-  const unsignedBytes = base58Decode(rawUnsignedBytes58);
-  const nonce = await computeChatNonce(clearTransactionNonce(unsignedBytes), ARBITRARY_POW_DIFFICULTY);
-  const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, keylessContext.secretKey);
+  const rawUnsignedBytes = base58Decode(rawUnsignedBytes58);
+  const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
+  const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY);
+  const rawBytesWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
+  const signingBytesWithNonce = stampTransactionNonce(signingBytes, nonce);
+  if (keylessContext.secretKey.length !== 64) {
+    throw new Error('ed25519 secret key must be 64 bytes.');
+  }
+
+  const signature = nacl.sign.detached(signingBytesWithNonce, keylessContext.secretKey);
+  const signedBytes = appendSignatureToTransactionBytes(rawBytesWithNonce, signature);
   const signedTransactionBytes = base58Encode(signedBytes);
   const processedTransaction = await postLocalNodeText(
     keylessContext.connection,

@@ -21,6 +21,7 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
+import { arbitraryRawToSigningBytes } from '../electron/arbitrary-tx';
 import {
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
@@ -3731,38 +3732,37 @@ function clearTransactionNonce(unsignedBytes: Uint8Array) {
   return bytesForPow;
 }
 
-function signTransactionWithNonce(
-  unsignedTransactionBytes: Uint8Array,
-  nonce: number,
-  secretKey64: Uint8Array,
-) {
-  if (secretKey64.length !== 64) {
-    throw new Error('ed25519 secret key must be 64 bytes.');
-  }
-
+function stampTransactionNonce(unsignedTransactionBytes: Uint8Array, nonce: number) {
   if (!Number.isInteger(nonce) || nonce < 0 || nonce > 0xffffffff) {
     throw new Error('Transaction nonce must be a uint32.');
+  }
+
+  if (unsignedTransactionBytes.length < TRANSACTION_NONCE_OFFSET + 4) {
+    throw new Error('Unsigned transaction bytes are too short to contain a nonce field.');
   }
 
   const bytesWithNonce = unsignedTransactionBytes.slice();
   const view = new DataView(bytesWithNonce.buffer, bytesWithNonce.byteOffset, bytesWithNonce.byteLength);
   view.setUint32(TRANSACTION_NONCE_OFFSET, nonce >>> 0, false);
 
-  const signature = nacl.sign.detached(bytesWithNonce, secretKey64);
-  const signed = new Uint8Array(bytesWithNonce.length + signature.length);
-  signed.set(bytesWithNonce, 0);
-  signed.set(signature, bytesWithNonce.length);
-
-  return signed;
+  return bytesWithNonce;
 }
 
 async function signAndProcessKeylessQdnTransaction(
   keylessContext: QdnKeylessWriteContext,
   rawUnsignedBytes58: string,
 ) {
-  const unsignedBytes = base58Decode(rawUnsignedBytes58);
-  const nonce = await computeChatNonce(clearTransactionNonce(unsignedBytes), ARBITRARY_POW_DIFFICULTY);
-  const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, keylessContext.secretKey);
+  const rawUnsignedBytes = base58Decode(rawUnsignedBytes58);
+  const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
+  const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY);
+  const rawBytesWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
+  const signingBytesWithNonce = stampTransactionNonce(signingBytes, nonce);
+  if (keylessContext.secretKey.length !== 64) {
+    throw new Error('ed25519 secret key must be 64 bytes.');
+  }
+
+  const signature = nacl.sign.detached(signingBytesWithNonce, keylessContext.secretKey);
+  const signedBytes = appendSignatureToTransactionBytes(rawBytesWithNonce, signature);
   const signedTransactionBytes = base58Encode(signedBytes);
   const processedTransaction = await postLocalNodeText(
     keylessContext.nodeApiUrl,
