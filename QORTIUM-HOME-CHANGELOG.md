@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-08 - release: prepare home 1.3.1
+
+Bumps Qortium Home to 1.3.1 with Android versionCode 26 for the next
+prerelease. This release packages the post-1.3.0 Home improvements: resource
+and account rating bridge reads, Qortal public-node bridge actions, Core
+offline recovery and key-guard handling, safer publish staging cleanup, app-view
+zoom controls, local Qortal bridge reads, in-Home release links, custom-node
+public-render fallback, trusted node https certificates, and responsive
+running-core discovery. The change here is only the package, lockfile, Android
+release metadata, and changelog entry; the behavioral changes were merged in
+the preceding PRs.
+
 ### 2026-07-08 - app: keep the interface responsive during node status checks
 
 Fixed the app becoming laggy and unresponsive shortly after launch. Checking

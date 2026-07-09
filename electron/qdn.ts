@@ -4353,7 +4353,7 @@ type QdnPublishLimits = {
 const qdnPublishLimitsCache = new Map<string, { fetchedAt: number; limits: QdnPublishLimits | null }>();
 const QDN_PUBLISH_LIMITS_CACHE_MS = 5 * 60_000;
 
-// Effective publish limits from the node's GET /arbitrary/limits (Core >= 1.4).
+// Effective publish limits from the node's GET /arbitrary/limits (Core >= 1.3.2).
 // Returns null (cached) when the node is unreachable or predates the endpoint —
 // the node still enforces its own limits during the publish build, so the
 // pre-flight is a fail-fast nicety, never the enforcement point.
