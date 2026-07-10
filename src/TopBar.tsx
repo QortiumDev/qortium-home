@@ -1,6 +1,11 @@
 import { Bookmark, ChevronLeft, ChevronRight, ChevronDown, Folder, LoaderCircle, Lock, Menu, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
 import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BOOKMARK_TOOLBAR_VISIBILITIES,
+  shouldShowBookmarkToolbar,
+  type BookmarkToolbarVisibility,
+} from '../electron/bookmark-toolbar';
 import { AccountAvatar } from './AccountAvatar';
 import { useAccountProfile } from './accountProfile';
 import type { AppIconResolution } from './appIconUtils';
@@ -75,7 +80,7 @@ type TopBarProps = {
   onReopenClosedTab: () => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSelectTab: (tabId: string) => void;
-  onToolbarVisibleChange: (visible: boolean) => void;
+  onToolbarVisibilityChange: (visibility: BookmarkToolbarVisibility) => void;
   onToggleStartPage: () => void;
 };
 
@@ -127,7 +132,7 @@ type BookmarkMenuContentProps = {
   onPinCurrentPageToDashboard: () => void;
   onToggleCurrentBookmark: () => void;
   onToggleStartPage: () => void;
-  onToolbarVisibleChange: (visible: boolean) => void;
+  onToolbarVisibilityChange: (visibility: BookmarkToolbarVisibility) => void;
   startPages: StartPage[];
 };
 
@@ -903,17 +908,19 @@ function BookmarkMenuContent({
   onPinCurrentPageToDashboard,
   onToggleCurrentBookmark,
   onToggleStartPage,
-  onToolbarVisibleChange,
+  onToolbarVisibilityChange,
   startPages,
 }: BookmarkMenuContentProps) {
-  const [openSection, setOpenSection] = useState<BookmarkRootMoveRequest['targetRootId'] | null>(null);
+  const [openSection, setOpenSection] = useState<
+    BookmarkRootMoveRequest['targetRootId'] | 'toolbarVisibility' | null
+  >(null);
 
   function run(command: () => void) {
     close();
     command();
   }
 
-  function toggleSection(sectionId: BookmarkRootMoveRequest['targetRootId']) {
+  function toggleSection(sectionId: BookmarkRootMoveRequest['targetRootId'] | 'toolbarVisibility') {
     setOpenSection((current) => (current === sectionId ? null : sectionId));
   }
 
@@ -945,15 +952,34 @@ function BookmarkMenuContent({
       >
         {isCurrentPageBookmarked ? t('bookmarks.removeFromBookmarks') : t('bookmarks.addToBookmarks')}
       </button>
-      <button
-        aria-checked={bookmarksState.toolbarVisible}
-        className="top-bar__bookmark-menu-item"
-        role="menuitemcheckbox"
-        type="button"
-        onClick={() => onToolbarVisibleChange(!bookmarksState.toolbarVisible)}
-      >
-        {bookmarksState.toolbarVisible ? t('bookmarks.hideToolbar') : t('bookmarks.showToolbar')}
-      </button>
+      <div className="top-bar__bookmark-menu-group">
+        <button
+          aria-expanded={openSection === 'toolbarVisibility'}
+          className="top-bar__bookmark-menu-item top-bar__bookmark-menu-item--submenu"
+          role="menuitem"
+          type="button"
+          onClick={() => toggleSection('toolbarVisibility')}
+        >
+          <span>{t('bookmarks.toolbarVisibility')}</span>
+          <ChevronDown aria-hidden="true" className="top-bar__bookmark-menu-chevron" size={20} strokeWidth={2} />
+        </button>
+        {openSection === 'toolbarVisibility' ? (
+          <div className="top-bar__bookmark-submenu" role="group" aria-label={t('bookmarks.toolbarVisibility')}>
+            {BOOKMARK_TOOLBAR_VISIBILITIES.map((visibility) => (
+              <button
+                aria-checked={bookmarksState.toolbarVisibility === visibility}
+                className="top-bar__bookmark-menu-item"
+                key={visibility}
+                role="menuitemradio"
+                type="button"
+                onClick={() => run(() => onToolbarVisibilityChange(visibility))}
+              >
+                {t(`bookmarks.toolbarVisibility.${visibility}`)}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <div className="top-bar__bookmark-menu-separator" role="separator" />
       <button
         className="top-bar__bookmark-menu-item"
@@ -1172,7 +1198,7 @@ function BookmarksPopover({
   onPinCurrentPageToDashboard,
   onToggleCurrentBookmark,
   onToggleStartPage,
-  onToolbarVisibleChange,
+  onToolbarVisibilityChange,
   startPages,
 }: Omit<BookmarkMenuContentProps, 'close'> & {
   onMenuOpenChange?: (isOpen: boolean) => void;
@@ -1238,7 +1264,7 @@ function BookmarksPopover({
             onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
             onToggleCurrentBookmark={onToggleCurrentBookmark}
             onToggleStartPage={onToggleStartPage}
-            onToolbarVisibleChange={onToolbarVisibleChange}
+            onToolbarVisibilityChange={onToolbarVisibilityChange}
             startPages={startPages}
           />
         </div>
@@ -1268,7 +1294,7 @@ function MobileBrowserMenu({
   onPinCurrentPageToDashboard,
   onToggleCurrentBookmark,
   onToggleStartPage,
-  onToolbarVisibleChange,
+  onToolbarVisibilityChange,
   startPages,
 }: Omit<BookmarkMenuContentProps, 'close'> & {
   canGoBack: boolean;
@@ -1377,7 +1403,7 @@ function MobileBrowserMenu({
                 onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
                 onToggleCurrentBookmark={onToggleCurrentBookmark}
                 onToggleStartPage={onToggleStartPage}
-                onToolbarVisibleChange={onToolbarVisibleChange}
+                onToolbarVisibilityChange={onToolbarVisibilityChange}
                 startPages={startPages}
               />
             </div>
@@ -1394,14 +1420,16 @@ function BookmarkToolbar({
   nodeApiUrl,
   nodeEpoch,
   onOpenBookmark,
+  visible,
 }: {
   accountsState: QortiumAccountsState;
   bookmarksState: BookmarksState;
   nodeApiUrl: string;
   nodeEpoch: number;
   onOpenBookmark: (displayUrl: string, accountId?: string | null) => void;
+  visible: boolean;
 }) {
-  if (!bookmarksState.toolbarVisible) {
+  if (!visible) {
     return null;
   }
 
@@ -2151,7 +2179,7 @@ export function TopBar({
   onReopenClosedTab,
   onResolvedNodeApiUrl,
   onSelectTab,
-  onToolbarVisibleChange,
+  onToolbarVisibilityChange,
   onToggleStartPage,
 }: TopBarProps) {
   const [addressValue, setAddressValue] = useState('');
@@ -2424,7 +2452,7 @@ export function TopBar({
           onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
           onToggleCurrentBookmark={onToggleCurrentBookmark}
           onToggleStartPage={onToggleStartPage}
-          onToolbarVisibleChange={onToolbarVisibleChange}
+          onToolbarVisibilityChange={onToolbarVisibilityChange}
           startPages={startPages}
         />
         <HistoryButton
@@ -2471,7 +2499,7 @@ export function TopBar({
           onPinCurrentPageToDashboard={onPinCurrentPageToDashboard}
           onToggleCurrentBookmark={onToggleCurrentBookmark}
           onToggleStartPage={onToggleStartPage}
-          onToolbarVisibleChange={onToolbarVisibleChange}
+          onToolbarVisibilityChange={onToolbarVisibilityChange}
           startPages={startPages}
         />
         <label className="sr-only" htmlFor="browser-address">
@@ -2648,6 +2676,10 @@ export function TopBar({
         nodeApiUrl={nodeSettings.nodeApiUrl}
         nodeEpoch={nodeEpoch}
         onOpenBookmark={onOpenBookmark}
+        visible={shouldShowBookmarkToolbar(
+          bookmarksState.toolbarVisibility,
+          currentRoute.kind === 'dashboard',
+        )}
       />
     </header>
   );

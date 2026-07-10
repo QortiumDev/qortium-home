@@ -1,6 +1,6 @@
 {
   "name": "qortium-home",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "license": "0BSD",
   "author": "QortiumDev",
@@ -49,6 +49,7 @@
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/smoke-qdn-services.mjs",
     "test:arbitrary-tx": "node scripts/test-arbitrary-tx.mjs",
+    "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",
     "release:check": "node scripts/check-release-assets.mjs",

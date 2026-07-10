@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-10 - release: prepare home 1.3.2
+
+Bumps Qortium Home to 1.3.2 with Android versionCode 27 for the next
+prerelease. This release packages keyless QDN signing for remote nodes, QDN app
+notifications and background subscriptions, app-controlled tab titles, and the
+Qortal group-membership and public-group chat safeguards needed by ChibiHub.
+Bookmark Toolbar visibility now offers Always show, Only on Dashboard / New
+Tab, and Hide while preserving existing saved preferences. Custom nodes that
+deny the Core API documentation path now show a restricted-access explanation
+and retry action instead of the misleading disabled-page restart prompt.
+
 ### 2026-07-10 - qdn: expose Qortal groups and protect public group chat
 
 QDN apps can now ask Home for the groups joined by a selected Qortal account,

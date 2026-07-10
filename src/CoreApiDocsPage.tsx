@@ -1,5 +1,10 @@
 import { Power, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import {
+  classifyCoreApiDocsProbe,
+  resolveCoreApiDocsProbe,
+  type CoreApiDocsProbeResult,
+} from '../electron/core-api-docs';
 import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
 import type { CoreManagerState } from './coreManagerState';
 import { t } from './i18n';
@@ -7,9 +12,6 @@ import type { QdnDisplaySettings } from './qdn';
 
 const DOCS_PATH = '/api-documentation/';
 const DOCS_PROBE_MAX_BYTES = 262_144;
-// The Core serves a static placeholder page (HTTP 200) at /api-documentation/
-// when apiDocumentationEnabled is false, so the probe must inspect the body.
-const DOCS_DISABLED_PATTERN = /currently disabled|api documentation disabled/i;
 const RESTART_POLL_INTERVAL_MS = 3_000;
 // Keep a generous timeout because enabling documentation requires a full Core
 // restart, and older Core builds can take several minutes to relaunch.
@@ -26,6 +28,7 @@ type DocsState =
   | { frameSrc: string; phase: 'available' }
   | { phase: 'checking' }
   | { phase: 'disabled' }
+  | { phase: 'restricted' }
   | { phase: 'enabling' }
   | { phase: 'restarting' }
   | { message: string; phase: 'error' };
@@ -44,31 +47,13 @@ function delay(durationMs: number) {
   });
 }
 
-type DocsProbeResult =
-  | { kind: 'available' }
-  | { kind: 'disabled' }
-  | { kind: 'http-error'; status: number };
-
-async function probeApiDocumentation(): Promise<DocsProbeResult> {
+async function probeApiDocumentation(): Promise<CoreApiDocsProbeResult> {
   const result = await window.qortiumHome.qdn.fetchNodeApi({
     maxBytes: DOCS_PROBE_MAX_BYTES,
     path: DOCS_PATH,
   });
 
-  // Public read-only gateways block the path with 403; very old nodes 404 it.
-  if (result.status === 403 || result.status === 404) {
-    return { kind: 'disabled' };
-  }
-
-  if (result.status < 200 || result.status >= 300) {
-    return { kind: 'http-error', status: result.status };
-  }
-
-  if (!result.tooLarge && DOCS_DISABLED_PATTERN.test(result.body)) {
-    return { kind: 'disabled' };
-  }
-
-  return { kind: 'available' };
+  return classifyCoreApiDocsProbe(result.status, result.tooLarge ? '' : result.body, result.tooLarge);
 }
 
 function buildCoreApiDocsFrameUrl(
@@ -163,7 +148,10 @@ export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeS
 
     async function checkApiDocumentation() {
       try {
-        const probeResult = await probeApiDocumentation();
+        const probeResult = resolveCoreApiDocsProbe(
+          await probeApiDocumentation(),
+          nodeSettings.mode,
+        );
 
         if (isDisposed) {
           return;
@@ -176,6 +164,8 @@ export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeS
           });
         } else if (probeResult.kind === 'disabled') {
           setState({ phase: 'disabled' });
+        } else if (probeResult.kind === 'restricted') {
+          setState({ phase: 'restricted' });
         } else {
           setState({
             phase: 'error',
@@ -197,7 +187,7 @@ export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeS
     return () => {
       isDisposed = true;
     };
-  }, [docsUrl, retryToken]);
+  }, [docsUrl, nodeSettings.mode, retryToken]);
 
   useEffect(() => {
     return () => {
@@ -232,7 +222,10 @@ export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeS
       }
 
       try {
-        const probeResult = await probeApiDocumentation();
+        const probeResult = resolveCoreApiDocsProbe(
+          await probeApiDocumentation(),
+          nodeSettings.mode,
+        );
 
         if (probeResult.kind === 'available') {
           isEnablingRef.current = false;
@@ -240,6 +233,12 @@ export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeS
             frameSrc: buildCoreApiDocsFrameUrl(docsUrl, Date.now(), displaySettingsRef.current),
             phase: 'available',
           });
+          return;
+        }
+
+        if (probeResult.kind === 'restricted') {
+          isEnablingRef.current = false;
+          setState({ phase: 'restricted' });
           return;
         }
       } catch {
@@ -299,6 +298,23 @@ export function CoreApiDocsPage({ coreManager, displaySettings, nodeEpoch, nodeS
                 </button>
               </>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {state.phase === 'restricted' ? (
+        <div className="qdn-viewer__empty qdn-viewer__empty--error">
+          <div className="qdn-viewer__details core-api-docs__details">
+            <h2 className="core-api-docs__title">{t('coreApi.restrictedTitle')}</h2>
+            <p className="qdn-viewer__message">{t('coreApi.restrictedBody')}</p>
+            <button
+              className="button qdn-viewer__retry"
+              type="button"
+              onClick={() => setRetryToken((currentToken) => currentToken + 1)}
+            >
+              <RefreshCw aria-hidden="true" size={18} strokeWidth={2} />
+              {t('common.retry')}
+            </button>
           </div>
         </div>
       ) : null}

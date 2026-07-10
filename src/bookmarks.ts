@@ -1,9 +1,14 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
+import {
+  BOOKMARKS_STATE_VERSION,
+  isBookmarkTreeStateVersion,
+  normalizeBookmarkToolbarVisibility,
+  type BookmarkToolbarVisibility,
+} from '../electron/bookmark-toolbar';
 import { getSavedAccountContext } from './accountContext';
 
 const BOOKMARKS_STORAGE_KEY = 'qortium-home-bookmarks';
-const BOOKMARKS_STATE_VERSION = 2;
 const MAX_BOOKMARKS_PER_FOLDER = 128;
 
 export type BookmarkFolderId = 'bookmarks' | 'toolbar';
@@ -33,7 +38,7 @@ export type BookmarkTreeItem = BookmarkFolder | BookmarkLink;
 export type BookmarksState = {
   bookmarks: BookmarkTreeItem[];
   toolbar: BookmarkTreeItem[];
-  toolbarVisible: boolean;
+  toolbarVisibility: BookmarkToolbarVisibility;
   version: typeof BOOKMARKS_STATE_VERSION;
 };
 
@@ -71,7 +76,7 @@ export type BookmarkRootMoveRequest = {
 export const DEFAULT_BOOKMARKS_STATE: BookmarksState = {
   bookmarks: [],
   toolbar: [],
-  toolbarVisible: false,
+  toolbarVisibility: 'hidden',
   version: BOOKMARKS_STATE_VERSION,
 };
 
@@ -191,13 +196,16 @@ function normalizeBookmarksState(value: unknown): BookmarksState {
     return DEFAULT_BOOKMARKS_STATE;
   }
 
-  const state = value as Partial<BookmarksState>;
-  const isVersionedTree = state.version === BOOKMARKS_STATE_VERSION;
+  const state = value as Partial<BookmarksState> & {
+    toolbarVisible?: unknown;
+    version?: unknown;
+  };
+  const isVersionedTree = isBookmarkTreeStateVersion(state.version);
 
   return {
     bookmarks: isVersionedTree ? normalizeTreeFolderItems(state.bookmarks) : normalizeLegacyFolder(state.bookmarks),
     toolbar: isVersionedTree ? normalizeTreeFolderItems(state.toolbar) : normalizeLegacyFolder(state.toolbar),
-    toolbarVisible: state.toolbarVisible === true,
+    toolbarVisibility: normalizeBookmarkToolbarVisibility(state.toolbarVisibility, state.toolbarVisible),
     version: BOOKMARKS_STATE_VERSION,
   };
 }
@@ -535,6 +543,9 @@ export function moveBookmarkItem(state: BookmarksState, request: BookmarkMoveReq
   );
 }
 
-export function setBookmarkToolbarVisible(state: BookmarksState, toolbarVisible: boolean): BookmarksState {
-  return state.toolbarVisible === toolbarVisible ? state : { ...state, toolbarVisible };
+export function setBookmarkToolbarVisibility(
+  state: BookmarksState,
+  toolbarVisibility: BookmarkToolbarVisibility,
+): BookmarksState {
+  return state.toolbarVisibility === toolbarVisibility ? state : { ...state, toolbarVisibility };
 }
