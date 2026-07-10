@@ -154,6 +154,20 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   qdn: {
     authorizeResource: (request: { identifier?: string; name: string; service: string }) =>
       ipcRenderer.invoke('qdn:authorizeResource', request),
+    setAppNotificationsEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke('qdn:setAppNotificationsEnabled', enabled),
+    getNotificationStore: () => ipcRenderer.invoke('qdn:getNotificationStore'),
+    onNotificationStoreChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('qdn:notification-store-changed', listener);
+      return () => {
+        ipcRenderer.removeListener('qdn:notification-store-changed', listener);
+      };
+    },
+    setAppNotificationMuted: (appKey: string, muted: boolean) =>
+      ipcRenderer.invoke('qdn:setAppNotificationMuted', appKey, muted),
+    revokeAppNotifications: (appKey: string) =>
+      ipcRenderer.invoke('qdn:revokeAppNotifications', appKey),
     listResources: (request: {
       exactMatchNames?: boolean;
       includeMetadata?: boolean;
@@ -330,6 +344,31 @@ contextBridge.exposeInMainWorld('qortiumHome', {
 
       return () => {
         ipcRenderer.removeListener('qdn-app:open-current-tab', listener);
+      };
+    },
+    onNotificationClicked: (callback: (event: { tabId: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { tabId: string }) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:notification-clicked', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:notification-clicked', listener);
+      };
+    },
+    onAppTitleChanged: (callback: (event: { tabId: string; title: string | null }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { tabId: string; title: string | null },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-views:app-title-changed', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-views:app-title-changed', listener);
       };
     },
   },

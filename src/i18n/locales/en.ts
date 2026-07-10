@@ -309,6 +309,10 @@ export const en = {
   "display.appZoomOut": "Zoom out",
   "display.appZoomLevel": "{percent}%",
   "display.appZoomReset": "Reset",
+  "display.appNotificationsLabel": "App notifications",
+  "display.appNotificationsOn": "On",
+  "display.appNotificationsOff": "Off",
+  "display.appNotificationsHint": "Let approved QDN apps show system notifications.",
   "display.theme.dark": "Dark",
   "display.theme.light": "Light",
   "display.theme.system": "System",
@@ -460,6 +464,7 @@ export const en = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Resolve Private Group Chat Key Requests",
   "qdnWrite.action.sellName": "Sell Name",
   "qdnWrite.action.sendChatMessage": "Send Chat Message",
+  "qdnWrite.action.showNotification": "Show Notifications",
   "qdnWrite.action.sendCoin": "Send Coin",
   "qdnWrite.action.setGroup": "Set Default Group",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
@@ -601,6 +606,14 @@ export const en = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Exit full view",
   "viewer.video.fill": "Fill the page",
+  "notifications.sectionTitle": "App notifications",
+  "notifications.summary": "{count} approved apps",
+  "notifications.empty": "No apps have notification permission.",
+  "notifications.ruleCount": "{count} subscription rules",
+  "notifications.mute": "Mute",
+  "notifications.revoke": "Revoke",
+  "qdnWrite.action.notificationAdd": "Background Notifications",
+  "qdnWrite.scopeAlways": "Until revoked in Settings",
 } as const;
 
 export type TranslationKey = keyof typeof en;

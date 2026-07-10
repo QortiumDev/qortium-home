@@ -1457,6 +1457,40 @@ h1 {
   min-width: 0;
 }
 
+.app-notification-settings {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.app-notification-settings__app {
+  align-items: center;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 0.8rem;
+}
+
+.app-notification-settings__identity {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.app-notification-settings__identity span,
+.app-notification-settings__mute {
+  color: var(--color-text-subtle);
+  font-size: 0.85rem;
+}
+
+.app-notification-settings__mute {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+}
+
 .display-settings__app-zoom-control {
   display: flex;
   flex-wrap: wrap;
@@ -4949,6 +4983,14 @@ h1 {
   .settings-section__summary {
     grid-column: 2;
     text-align: start;
+  }
+
+  .app-notification-settings__app {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .app-notification-settings__identity {
+    grid-column: 1 / -1;
   }
 
   .segmented-control {

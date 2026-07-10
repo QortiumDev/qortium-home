@@ -33,6 +33,36 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-09 - app: background notification subscriptions for QDN apps
+
+QDN apps can now ask Home to watch for new resources, incoming payments, chat
+activity, and confirmed transactions even after their tab is closed. Home
+keeps one connection to the configured Qortium node, watches only the rules for
+the active account, and shows a system notification when a rule matches. Each
+app receives one durable notification permission that can be muted or revoked
+from the new App notifications Settings section; revoking also removes that
+app's saved rules. The same bridge actions and validation are available on
+desktop and Android, and a new desktop smoke scenario covers adding, reading,
+firing, removing, and cleaning up a real resource-publish subscription.
+
+### 2026-07-09 - app: let QDN apps show notifications and set their tab title
+
+QDN apps can now ask Home to show a system notification with a new
+`SHOW_NOTIFICATION` bridge action, so an app like Qortium Chat can alert you
+about a new direct message or mention even when its tab is in the background.
+The first request from an app opens the familiar permission dialog; approving
+it grants that app notifications for the rest of the session. Notifications
+are suppressed while you are already looking at the app, briefly rate-limited
+per app, and always display the app's name so one app cannot pose as another.
+Clicking a notification focuses the app's tab. A new "App notifications"
+switch in Display Settings turns them off entirely, on desktop and Android
+alike. Apps also control their own tab label now: the tab shows the app's
+page title (like a regular browser tab) and falls back to the address when
+the app does not set one — so apps can surface unread counts or context in
+the tab itself. Both features work on desktop and Android, and the desktop
+permission smoke test gained an `app-notification` scenario covering the
+deny/approve flow, permission caching, and tab-title updates.
+
 ### 2026-07-08 - release: prepare home 1.3.1
 
 Bumps Qortium Home to 1.3.1 with Android versionCode 26 for the next

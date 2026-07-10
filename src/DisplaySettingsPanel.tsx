@@ -29,6 +29,7 @@ type DisplaySettingsPanelProps = {
   onLanguageChange: (language: LanguageSetting) => void;
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
+  onAppNotificationsChange: (appNotifications: boolean) => void;
   onAppZoomChange: (appZoom: number) => void;
   onAccentChange: (accent: AccentSetting) => void;
   onUiChange: (ui: UiSetting) => void;
@@ -41,6 +42,7 @@ export function DisplaySettingsPanel({
   onLanguageChange,
   onThemeChange,
   onTextSizeChange,
+  onAppNotificationsChange,
   onAppZoomChange,
   onAccentChange,
   onUiChange,
@@ -222,6 +224,30 @@ export function DisplaySettingsPanel({
               </button>
             ) : null}
           </div>
+        </div>
+        <div className="display-settings__field">
+          <span className="field__label">{t('display.appNotificationsLabel')}</span>
+          <div
+            className="segmented-control"
+            role="radiogroup"
+            aria-label={t('display.appNotificationsLabel')}
+          >
+            {[true, false].map((value) => (
+              <button
+                key={value ? 'on' : 'off'}
+                aria-checked={displaySettings.appNotifications === value}
+                className={`segmented-control__option${
+                  displaySettings.appNotifications === value ? ' segmented-control__option--selected' : ''
+                }`}
+                role="radio"
+                type="button"
+                onClick={() => onAppNotificationsChange(value)}
+              >
+                {t(value ? 'display.appNotificationsOn' : 'display.appNotificationsOff')}
+              </button>
+            ))}
+          </div>
+          <p className="field__hint">{t('display.appNotificationsHint')}</p>
         </div>
       </div>
     </SettingsSection>

@@ -168,6 +168,7 @@ type SelectWalletResult =
 
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
+const activeAccountChangeListeners = new Set<(address: string) => void>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -338,6 +339,22 @@ function writeWalletStore(store: WalletStore) {
 
   mkdirSync(path.dirname(walletsPath), { recursive: true });
   writeFileSync(walletsPath, `${JSON.stringify(nextStore, null, 2)}\n`, 'utf8');
+  const activeAddress = nextStore.activeAccountId
+    ? resolveWalletAccount(nextStore.wallets, nextStore.activeAccountId)?.address ?? ''
+    : '';
+  activeAccountChangeListeners.forEach((listener) => listener(activeAddress));
+}
+
+export function getActiveAccountAddress() {
+  const store = readWalletStore();
+  return store.activeAccountId ? resolveWalletAccount(store.wallets, store.activeAccountId)?.address ?? '' : '';
+}
+
+export function onActiveAccountChanged(listener: (address: string) => void) {
+  activeAccountChangeListeners.add(listener);
+  return () => {
+    activeAccountChangeListeners.delete(listener);
+  };
 }
 
 function toAccountsState(store = readWalletStore()): AccountsState {

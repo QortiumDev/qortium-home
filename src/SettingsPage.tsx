@@ -1,4 +1,5 @@
 import { AppUpdatePanel } from './AppUpdatePanel';
+import { AppNotificationsSettingsPanel } from './AppNotificationsSettingsPanel';
 import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
@@ -16,7 +17,7 @@ import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
+export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'notifications';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -30,6 +31,7 @@ type SettingsPageProps = {
   nodeSettings: QortiumNodeSettings;
   onLanguageChange: (language: LanguageSetting) => void;
   onAccentChange: (accent: AccentSetting) => void;
+  onAppNotificationsChange: (appNotifications: boolean) => void;
   onAppZoomChange: (appZoom: number) => void;
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
@@ -48,6 +50,7 @@ export function SettingsPage({
   nodeSettings,
   onChainCoreUpdate,
   onLanguageChange,
+  onAppNotificationsChange,
   onAppZoomChange,
   onOpenReleaseNotes,
   onResolvedNodeApiUrl,
@@ -77,10 +80,15 @@ export function SettingsPage({
           onExpandedChange={(isExpanded) => onSectionExpansionChange('display', isExpanded)}
           onLanguageChange={onLanguageChange}
           onAccentChange={onAccentChange}
+          onAppNotificationsChange={onAppNotificationsChange}
           onAppZoomChange={onAppZoomChange}
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
           onUiChange={onUiChange}
+        />
+        <AppNotificationsSettingsPanel
+          isExpanded={sectionExpansion.notifications}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('notifications', isExpanded)}
         />
         {hasManagedCore ? null : (
           <SettingsSection
