@@ -19,6 +19,7 @@ import { useAppUpdates } from './appUpdateState';
 import {
   addBookmark,
   addBookmarkFolder,
+  DEFAULT_BOOKMARKS_STATE,
   findBookmarkItem,
   flattenBookmarkItems,
   hasBookmarkedUrl,
@@ -26,7 +27,7 @@ import {
   moveBookmarkItem,
   removeBookmark,
   saveBookmarksState,
-  setBookmarkToolbarVisible,
+  setBookmarkToolbarVisibility,
   updateBookmark,
   updateBookmarkFolder,
   type BookmarkFolderId,
@@ -811,12 +812,7 @@ export function App() {
   const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
-  const [bookmarksState, setBookmarksState] = useState<BookmarksState>({
-    bookmarks: [],
-    toolbar: [],
-    toolbarVisible: false,
-    version: 2,
-  });
+  const [bookmarksState, setBookmarksState] = useState<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
   const [notificationRulesVersion, setNotificationRulesVersion] = useState(getNotificationRulesVersion);
@@ -1502,8 +1498,8 @@ export function App() {
     updateBookmarksState((current) => moveBookmarkItem(current, request));
   }
 
-  function updateBookmarkToolbarVisibility(visible: boolean) {
-    updateBookmarksState((current) => setBookmarkToolbarVisible(current, visible));
+  function updateBookmarkToolbarVisibility(visibility: BookmarksState['toolbarVisibility']) {
+    updateBookmarksState((current) => setBookmarkToolbarVisibility(current, visibility));
   }
 
   function toggleCurrentBookmark() {
@@ -3344,7 +3340,7 @@ export function App() {
         onNodeReachabilityChange={handleNodeReachabilityChange}
         onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
         onSelectTab={selectTab}
-        onToolbarVisibleChange={updateBookmarkToolbarVisibility}
+        onToolbarVisibilityChange={updateBookmarkToolbarVisibility}
         nodeEpoch={nodeEpoch}
         nodeSettings={nodeSettings}
       />
@@ -3473,7 +3469,7 @@ export function App() {
                   onRemoveBookmark={removeBookmarkFromFolder}
                   onRemoveDashboardPin={unpinDashboardLink}
                   onRemoveStartPage={handleStartPageRemove}
-                  onToolbarVisibleChange={updateBookmarkToolbarVisibility}
+                  onToolbarVisibilityChange={updateBookmarkToolbarVisibility}
                   onUpdateBookmark={updateBookmarkInFolder}
                   onUpdateBookmarkFolder={updateBookmarkFolderInFolder}
                   onUpdateDashboardPin={updateDashboardPinFromBookmarks}

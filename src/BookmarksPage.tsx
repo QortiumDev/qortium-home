@@ -6,6 +6,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
+import { BOOKMARK_TOOLBAR_VISIBILITIES } from '../electron/bookmark-toolbar';
 import { BookmarkDisplayIcon, getBookmarkDisplay } from './bookmarkDisplay';
 import type {
   BookmarkFolderId,
@@ -43,7 +44,7 @@ type BookmarksPageProps = {
   onRemoveBookmark: (folderId: BookmarkFolderId, bookmarkId: string) => void;
   onRemoveDashboardPin: (pinId: string) => void;
   onRemoveStartPage: (displayUrl: string) => void;
-  onToolbarVisibleChange: (visible: boolean) => void;
+  onToolbarVisibilityChange: (visibility: BookmarksState['toolbarVisibility']) => void;
   onUpdateBookmark: (folderId: BookmarkFolderId, bookmarkId: string, request: BookmarkUpdateRequest) => boolean;
   onUpdateBookmarkFolder: (folderId: BookmarkFolderId, bookmarkFolderId: string, request: BookmarkFolderRequest) => boolean;
   onUpdateDashboardPin: (pinId: string, request: BookmarkUpdateRequest) => boolean;
@@ -1005,7 +1006,7 @@ export function BookmarksPage({
   onRemoveBookmark,
   onRemoveDashboardPin,
   onRemoveStartPage,
-  onToolbarVisibleChange,
+  onToolbarVisibilityChange,
   onAddDashboardPin,
   onAddStartPage,
   onUpdateBookmark,
@@ -1021,12 +1022,20 @@ export function BookmarksPage({
       <header className="bookmarks-page__header">
         <h1>{t('bookmarks.manageTitle')}</h1>
         <label className="bookmarks-page__toolbar-toggle">
-          <input
-            type="checkbox"
-            checked={bookmarksState.toolbarVisible}
-            onChange={(event) => onToolbarVisibleChange(event.target.checked)}
-          />
-          <span>{t('bookmarks.showToolbar')}</span>
+          <span>{t('bookmarks.toolbarVisibility')}</span>
+          <select
+            className="field__select"
+            value={bookmarksState.toolbarVisibility}
+            onChange={(event) =>
+              onToolbarVisibilityChange(event.target.value as BookmarksState['toolbarVisibility'])
+            }
+          >
+            {BOOKMARK_TOOLBAR_VISIBILITIES.map((visibility) => (
+              <option key={visibility} value={visibility}>
+                {t(`bookmarks.toolbarVisibility.${visibility}`)}
+              </option>
+            ))}
+          </select>
         </label>
       </header>
 
