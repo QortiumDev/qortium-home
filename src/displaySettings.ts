@@ -220,6 +220,7 @@ export const MAX_APP_ZOOM_LEVEL = 3;
 const APP_ZOOM_LEVEL_BASE = 1.2;
 
 export type DisplaySettings = {
+  appNotifications: boolean;
   appZoom: number;
   language: LanguageSetting;
   textSize: TextSizeSetting;
@@ -242,6 +243,7 @@ export const DEFAULT_TEXT_SIZE: TextSizeSetting = 'medium';
 export const DEFAULT_ACCENT: AccentSetting = 'green';
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
+  appNotifications: true,
   appZoom: DEFAULT_APP_ZOOM,
   language: DEFAULT_LANGUAGE,
   textSize: DEFAULT_TEXT_SIZE,
@@ -347,6 +349,7 @@ function normalizeDisplaySettings(value: unknown, fallbackTextSize = DEFAULT_TEX
   const settings = value as Partial<Record<keyof DisplaySettings, unknown>>;
 
   return {
+    appNotifications: settings.appNotifications !== false,
     appZoom: clampAppZoom(settings.appZoom),
     language: isLanguageSetting(settings.language) ? settings.language : DEFAULT_LANGUAGE,
     textSize: isTextSizeSetting(settings.textSize) ? settings.textSize : fallbackTextSize,

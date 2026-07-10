@@ -836,3 +836,27 @@ export function formatQdnStatus(status: QdnResourceStatus | undefined) {
       return status?.status ? status.status : t('qdnStatus.checking');
   }
 }
+
+export const QDN_APP_TITLE_MAX_LENGTH = 160;
+export const QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH = 240;
+
+// App-controlled text that lands in host UI (tab labels, notifications): strip
+// control and direction-override characters, collapse runs of whitespace, and
+// cap the length. Mirrors sanitizeAppTitle in electron/qdn-views.ts for the
+// renderer/Android bridge.
+export function sanitizeQdnAppTitle(value: unknown, maxLength = QDN_APP_TITLE_MAX_LENGTH): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const title = value
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!title) {
+    return null;
+  }
+
+  return title.length > maxLength ? `${title.slice(0, maxLength - 1)}\u2026` : title;
+}

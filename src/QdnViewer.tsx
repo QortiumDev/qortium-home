@@ -91,6 +91,7 @@ type QdnViewerProps = {
   nodeApiUrl: string;
   nodeEpoch?: number;
   nodeMode?: QortiumNodeSettingsMode;
+  onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
@@ -164,6 +165,19 @@ function isQdnAppBridgeMessage(value: unknown): value is QdnAppBridgeMessage {
   return isRecord(value) && value.type === 'qortium:qdn-request' && typeof value.requestId === 'string';
 }
 
+type QdnAppTitleMessage = {
+  bridgeToken?: unknown;
+  title?: unknown;
+  type?: unknown;
+};
+
+// Posted by the Android-injected bridge script whenever the app page's
+// document.title changes; the desktop isolated views get the same signal from
+// Electron's page-title-updated instead.
+function isQdnAppTitleMessage(value: unknown): value is QdnAppTitleMessage {
+  return isRecord(value) && value.type === 'qortium:qdn-title';
+}
+
 function createQdnBridgeToken() {
   const bytes = new Uint8Array(16);
 
@@ -187,12 +201,14 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
 export type QdnBridgeFrameContentProps = {
   account: QortiumAccountSummary | null;
   displaySettings: QdnFrameDisplaySettings;
+  onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   renderUrl: string;
   resourceUrl: string;
+  suspended?: boolean;
   title?: string;
 };
 
@@ -3176,12 +3192,14 @@ export function QdnIsolatedFrameContent({
 export function QdnBridgeFrameContent({
   account,
   displaySettings,
+  onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
   renderUrl,
   resourceUrl,
+  suspended = false,
   title = resourceUrl,
 }: QdnBridgeFrameContentProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -3189,11 +3207,15 @@ export function QdnBridgeFrameContent({
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
+  const onAppTitleChangeRef = useRef(onAppTitleChange);
+  const suspendedFrameRef = useRef(suspended);
 
   onOpenNewTabRef.current = onOpenNewTab;
   onOpenInCurrentTabRef.current = onOpenInCurrentTab;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
+  onAppTitleChangeRef.current = onAppTitleChange;
+  suspendedFrameRef.current = suspended;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
@@ -3244,6 +3266,16 @@ export function QdnBridgeFrameContent({
         return;
       }
 
+      if (isQdnAppTitleMessage(event.data)) {
+        if (event.data.bridgeToken === bridgeToken) {
+          onAppTitleChangeRef.current?.(
+            typeof event.data.title === 'string' ? event.data.title : null,
+          );
+        }
+
+        return;
+      }
+
       if (!isQdnAppBridgeMessage(event.data)) {
         return;
       }
@@ -3258,6 +3290,8 @@ export function QdnBridgeFrameContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
+          isViewFocused: () =>
+            !suspendedFrameRef.current && document.visibilityState === 'visible',
           onOpenDocumentViewer: (docRequest: QortiumQdnDocumentViewerRequest) => {
             onOpenDocumentViewerRef.current?.(docRequest);
           },
@@ -3338,31 +3372,37 @@ function QdnIframeContent({
   account,
   displaySettings,
   loadedResource,
+  onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
   resource,
+  suspended,
 }: {
   account: QortiumAccountSummary | null;
   displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
+  onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   resource: QdnResource;
+  suspended?: boolean;
 }) {
   return (
     <QdnBridgeFrameContent
       account={account}
       displaySettings={displaySettings}
+      onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
       onOpenMediaPlayer={onOpenMediaPlayer}
       onOpenNewTab={onOpenNewTab}
       onOpenInCurrentTab={onOpenInCurrentTab}
       renderUrl={loadedResource.renderUrl}
       resourceUrl={resource.displayUrl}
+      suspended={suspended}
     />
   );
 }
@@ -3373,6 +3413,7 @@ function QdnReadyContent({
   displaySettings,
   nodeApiUrl,
   onActionContextChange,
+  onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
@@ -3386,6 +3427,7 @@ function QdnReadyContent({
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   onActionContextChange: SetViewerActionContext;
+  onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
@@ -3398,6 +3440,8 @@ function QdnReadyContent({
 
   if (loadedResource.viewerKind === 'iframe') {
     if (canUseIsolatedQdnViews()) {
+      // Isolated desktop views report app titles from the main process
+      // ('qdn-views:app-title-changed'), so no title callback is threaded here.
       return (
         <QdnIsolatedFrameContent
           account={account}
@@ -3416,11 +3460,13 @@ function QdnReadyContent({
         account={account}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
+        onAppTitleChange={onAppTitleChange}
         onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
         resource={resource}
+        suspended={suspended}
       />
     );
   }
@@ -3584,6 +3630,7 @@ export function QdnViewer({
   coreManager,
   nodeEpoch,
   nodeMode,
+  onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
@@ -3694,6 +3741,7 @@ export function QdnViewer({
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           onActionContextChange={setActionContext}
+          onAppTitleChange={onAppTitleChange}
           onOpenDocumentViewer={onOpenDocumentViewer}
           onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}

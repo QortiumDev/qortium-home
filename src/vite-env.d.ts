@@ -630,6 +630,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SELL_NAME'
     | 'UPDATE_NAME'
     | 'SEND_CHAT_MESSAGE'
+    | 'SHOW_NOTIFICATION'
     | 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
     | 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
     | 'START_MINTING'
@@ -782,6 +783,7 @@ interface Window {
         request: QortiumQdnRawResourceRequest,
       ) => Promise<QortiumQdnDownloadResult>;
       openDownloadedResource?: (request: { uri: string; mimeType?: string }) => Promise<void>;
+      setAppNotificationsEnabled?: (enabled: boolean) => Promise<void>;
     };
     qdnViews?: {
       capture: (tabId: string) => Promise<string | null>;
@@ -814,6 +816,12 @@ interface Window {
       ) => () => void;
       onOpenCurrentTab: (
         callback: (event: { address: string; sourceTabId: string | null }) => void,
+      ) => () => void;
+      onNotificationClicked?: (
+        callback: (event: { tabId: string }) => void,
+      ) => () => void;
+      onAppTitleChanged?: (
+        callback: (event: { tabId: string; title: string | null }) => void,
       ) => () => void;
     };
   };

@@ -62,6 +62,7 @@
     "@capacitor/app": "^8.1.0",
     "@capacitor/core": "^8.4.1",
     "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/local-notifications": "^8.2.0",
     "@capacitor/preferences": "^8.0.1",
     "asmcrypto.js": "2.3.2",
     "bcryptjs": "2.4.3",

@@ -47,6 +47,7 @@ const allScenarios = [
   'picker-token',
   'nonlocal-node',
   'stale-tab',
+  'app-notification',
 ];
 const qdnWriteSmokeScenarios = new Set(allScenarios);
 
@@ -944,6 +945,77 @@ async function runScenarioActions({
       }
 
       await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
+      return { deleted: false, published: false };
+    }
+
+    case 'app-notification': {
+      const notificationRequest = {
+        action: 'SHOW_NOTIFICATION',
+        text: 'Hello from the smoke test',
+        title: 'Smoke notification',
+      };
+
+      log('Denying the app notification permission.');
+      await runQdnRequestWithDialog(mainClient, qdnClient, notificationRequest, 'Deny');
+
+      log('Approving the app notification permission.');
+      const approved = await runQdnRequestWithDialog(mainClient, qdnClient, notificationRequest);
+      const outcome = approved?.result ?? {};
+
+      // The smoke window is usually focused, so focused-suppression is the
+      // expected outcome; an unfocused xvfb window may genuinely show it.
+      if (outcome.shown !== true && !['focused', 'rate-limited'].includes(outcome.reason)) {
+        fail(`SHOW_NOTIFICATION returned an unexpected outcome: ${JSON.stringify(approved)}`);
+      }
+
+      log(`SHOW_NOTIFICATION outcome: ${JSON.stringify(outcome)}.`);
+
+      log('Confirming the session permission is cached.');
+      const cached = await runQdnRequest(qdnClient, notificationRequest);
+
+      if (!cached?.ok) {
+        fail(`SHOW_NOTIFICATION with a cached permission failed: ${JSON.stringify(cached)}`);
+      }
+
+      if (await isWriteDialogVisible(mainClient)) {
+        fail('SHOW_NOTIFICATION re-prompted after the session permission was granted.');
+      }
+
+      await expectQdnRequestRejected(
+        mainClient,
+        qdnClient,
+        { action: 'SHOW_NOTIFICATION' },
+        'Notification title is required',
+      );
+
+      const actions = await evaluate(qdnClient, "window.qdnRequest({ action: 'SHOW_ACTIONS' })");
+
+      if (!Array.isArray(actions) || !actions.includes('SHOW_NOTIFICATION')) {
+        fail('SHOW_ACTIONS does not advertise SHOW_NOTIFICATION.');
+      }
+
+      log('Checking app-controlled tab titles.');
+      await evaluate(qdnClient, "document.title = 'Qortium smoke title'");
+      await waitUntil('app title reaches the tab label', appTimeoutMs, async () => {
+        const labels = await evaluate(
+          mainClient,
+          "[...document.querySelectorAll('.top-bar__tab-label')].map((el) => el.textContent)",
+        );
+
+        return Array.isArray(labels) && labels.includes('Qortium smoke title') ? true : null;
+      });
+
+      log('Checking the tab label falls back after the title is cleared.');
+      await evaluate(qdnClient, "document.title = ''");
+      await waitUntil('tab label falls back to the route label', appTimeoutMs, async () => {
+        const labels = await evaluate(
+          mainClient,
+          "[...document.querySelectorAll('.top-bar__tab-label')].map((el) => el.textContent)",
+        );
+
+        return Array.isArray(labels) && !labels.includes('Qortium smoke title') ? true : null;
+      });
+
       return { deleted: false, published: false };
     }
 

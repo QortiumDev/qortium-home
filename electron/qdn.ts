@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, type WebContents } from 'electron';
 import extract from 'extract-zip';
 import { zipSync } from 'fflate';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -74,7 +74,12 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from './qdn-app-actions.js';
-import { getQdnViewContextForWebContents, type QdnViewContext } from './qdn-views.js';
+import {
+  getQdnViewContextForWebContents,
+  isQdnViewFocused,
+  sanitizeAppTitle,
+  type QdnViewContext,
+} from './qdn-views.js';
 
 // Resolve our own directory (mirrors electron/main.ts) so the worker_threads
 // PoW worker file can be located next to this module both in dev (dist-electron/)
@@ -469,6 +474,13 @@ const QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO: SupportedBlockchainInfo = {
 
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
 const approvedQdnChatPermissions = new Set<string>();
+const approvedQdnNotificationPermissions = new Set<string>();
+const lastQdnAppNotificationAt = new Map<string, number>();
+const QDN_APP_NOTIFICATION_MIN_INTERVAL_MS = 3_000;
+const QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH = 240;
+// Synced from the renderer's persisted Display Settings on startup and on change;
+// true matches the setting's shipped default.
+let qdnAppNotificationsEnabled = true;
 const qdnPublishSourceTokens = new Map<string, QdnPublishSourceTokenEntry>();
 const QDN_PUBLISH_SOURCE_TOKEN_TTL_MS = 30 * 60_000;
 const QDN_PUBLISH_SOURCE_TOKEN_MAX_ENTRIES = 16;
@@ -722,6 +734,133 @@ async function requestQdnChatPermissionApproval(
   });
 
   approvedQdnChatPermissions.add(cacheKey);
+}
+
+// Notification permission is app-scoped, not account-scoped, so the key uses the
+// stable app resource URL (not currentUrl, which drifts with in-app navigation).
+function getQdnNotificationPermissionCacheKey(context: QdnViewContext) {
+  return [
+    context.windowId,
+    context.tabId,
+    context.resourceUrl ?? context.currentUrl ?? '',
+  ].join('\n');
+}
+
+// "qdn://APP/name/path" → "name"; falls back to the full resource URL so the
+// notification always carries some app provenance.
+function getQdnAppDisplayName(context: QdnViewContext) {
+  const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(context.resourceUrl ?? '');
+
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+
+  return getQdnViewResourceUrl(context);
+}
+
+async function requestQdnNotificationPermissionApproval(context: QdnViewContext) {
+  const cacheKey = getQdnNotificationPermissionCacheKey(context);
+
+  if (approvedQdnNotificationPermissions.has(cacheKey)) {
+    return;
+  }
+
+  const approved = await awaitQdnApprovalFromHostWindow(context, 'qdn-app:write-request', {
+    accountName: null,
+    action: 'SHOW_NOTIFICATION',
+    address: '',
+    amount: null,
+    approval: null,
+    chatMessagePreview: null,
+    details: [],
+    groupId: null,
+    groupName: null,
+    mintingKey: null,
+    name: null,
+    permissionScope: 'session',
+    recipientAddress: null,
+    resource: null,
+    resourceCount: null,
+    resourceUrl: getQdnViewResourceUrl(context),
+    sourceKind: null,
+    sourceName: null,
+  });
+
+  if (!approved) {
+    throw new Error('Notification permission was denied.');
+  }
+
+  approvedQdnNotificationPermissions.add(cacheKey);
+}
+
+async function showNotificationForApp(request: QdnAppRequest, context: QdnViewContext | null) {
+  if (!context) {
+    throw new Error('QDN app notification request does not belong to an active window.');
+  }
+
+  const title = sanitizeAppTitle(getRequestValue(request, 'title'));
+
+  if (!title) {
+    throw new Error('Notification title is required.');
+  }
+
+  const text = sanitizeAppTitle(getRequestValue(request, 'text'), QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH);
+
+  await requestQdnNotificationPermissionApproval(context);
+
+  if (!qdnAppNotificationsEnabled) {
+    return { shown: false, reason: 'disabled' };
+  }
+
+  if (!Notification.isSupported()) {
+    return { shown: false, reason: 'unsupported' };
+  }
+
+  // No notification while the user is already looking at the app.
+  if (isQdnViewFocused(context.windowId, context.tabId)) {
+    return { shown: false, reason: 'focused' };
+  }
+
+  const rateKey = getQdnNotificationPermissionCacheKey(context);
+  const now = Date.now();
+  const lastShownAt = lastQdnAppNotificationAt.get(rateKey) ?? 0;
+
+  if (now - lastShownAt < QDN_APP_NOTIFICATION_MIN_INTERVAL_MS) {
+    return { shown: false, reason: 'rate-limited' };
+  }
+
+  lastQdnAppNotificationAt.set(rateKey, now);
+
+  // The app name suffix keeps provenance visible so one app cannot pose as
+  // another (or as Home itself) in the notification shade.
+  const notification = new Notification({
+    body: text ?? '',
+    title: `${title} — ${getQdnAppDisplayName(context)}`,
+  });
+
+  notification.on('click', () => {
+    const hostWindow = getQdnViewHostWindow(context);
+
+    if (!hostWindow) {
+      return;
+    }
+
+    if (hostWindow.isMinimized()) {
+      hostWindow.restore();
+    }
+
+    hostWindow.show();
+    hostWindow.focus();
+    hostWindow.webContents.send('qdn-app:notification-clicked', { tabId: context.tabId });
+  });
+
+  notification.show();
+
+  return { shown: true };
 }
 
 // Home's own UI resolves account avatars itself now, but QDN apps still receive the
@@ -8800,6 +8939,9 @@ async function handleQdnAppRequest(
       return { canceled: false };
     }
 
+    case 'SHOW_NOTIFICATION':
+      return showNotificationForApp(request, context);
+
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ELECTRON';
 
@@ -8843,6 +8985,10 @@ export function registerQdnIpcHandlers() {
     }
 
     pendingApproval.resolve(response.approved);
+  });
+
+  ipcMain.handle('qdn:setAppNotificationsEnabled', (_event, enabled: unknown) => {
+    qdnAppNotificationsEnabled = enabled === true;
   });
 
   ipcMain.handle('qdn:authorizeResource', async (_event, request: QdnAuthorizeResourceRequest) => {

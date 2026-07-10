@@ -86,6 +86,7 @@ import { invalidateDesktopNodeSettingsCache } from './platform';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
+  sanitizeQdnAppTitle,
   type QdnDisplaySettings,
   type QdnResource,
   type QdnService,
@@ -387,6 +388,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateName';
     case 'SEND_CHAT_MESSAGE':
       return 'qdnWrite.action.sendChatMessage';
+    case 'SHOW_NOTIFICATION':
+      return 'qdnWrite.action.showNotification';
     case 'REQUEST_PRIVATE_GROUP_CHAT_KEY':
       return 'qdnWrite.action.requestPrivateGroupChatKey';
     case 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS':
@@ -539,8 +542,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
         role="dialog"
       >
         <h2 className="unlock-dialog__title">{t('qdnWrite.title')}</h2>
-        <p className="unlock-dialog__account">{request.accountName || t('qdnWrite.selectedAccountFallback')}</p>
-        <p className="unlock-dialog__address">{request.address}</p>
+        {request.action === 'SHOW_NOTIFICATION' ? null : (
+          <>
+            <p className="unlock-dialog__account">{request.accountName || t('qdnWrite.selectedAccountFallback')}</p>
+            <p className="unlock-dialog__address">{request.address}</p>
+          </>
+        )}
         <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
         <dl className="detail-list qdn-permission-dialog__details">
           <div>
@@ -831,6 +838,11 @@ export function App() {
   const didRunInitialRouteRefreshRef = useRef(false);
   const lastRouteRefreshKeyRef = useRef<string | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
+  // App-provided tab titles (document.title on desktop, bridge title messages on
+  // Android), keyed by tab id. Purely presentational: route-derived labels stay
+  // the fallback, and bookmarks/pins/closed-tab snapshots keep route labels.
+  const [qdnAppTitles, setQdnAppTitles] = useState<Record<string, string>>({});
+  const qdnAppTitleRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
   const activeAccount =
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
@@ -963,6 +975,71 @@ export function App() {
 
     qdnViewRouteKeysRef.current = nextRouteKeys;
   }, [tabState.tabs]);
+
+  function updateQdnAppTitle(tabId: string, title: string | null) {
+    const sanitizedTitle = sanitizeQdnAppTitle(title);
+
+    setQdnAppTitles((currentTitles) => {
+      if (sanitizedTitle === null) {
+        if (!(tabId in currentTitles)) {
+          return currentTitles;
+        }
+
+        const nextTitles = { ...currentTitles };
+
+        delete nextTitles[tabId];
+
+        return nextTitles;
+      }
+
+      if (currentTitles[tabId] === sanitizedTitle) {
+        return currentTitles;
+      }
+
+      return { ...currentTitles, [tabId]: sanitizedTitle };
+    });
+  }
+
+  const updateQdnAppTitleRef = useRef(updateQdnAppTitle);
+
+  updateQdnAppTitleRef.current = updateQdnAppTitle;
+
+  // Drop an app-provided title as soon as its tab navigates to a different
+  // route (or closes) so a stale title never labels the next page. A late
+  // title from the old view is harmless: the replacement view's own title
+  // events overwrite it.
+  useEffect(() => {
+    const nextRouteKeys = new Map(tabState.tabs.map((tab) => [tab.id, getQdnViewRouteKey(tab)]));
+    const previousRouteKeys = qdnAppTitleRouteKeysRef.current;
+
+    qdnAppTitleRouteKeysRef.current = nextRouteKeys;
+    setQdnAppTitles((currentTitles) => {
+      let nextTitles: Record<string, string> | null = null;
+
+      for (const tabId of Object.keys(currentTitles)) {
+        const nextRouteKey = nextRouteKeys.get(tabId);
+
+        if (!nextRouteKey || nextRouteKey !== previousRouteKeys.get(tabId)) {
+          nextTitles = nextTitles ?? { ...currentTitles };
+          delete nextTitles[tabId];
+        }
+      }
+
+      return nextTitles ?? currentTitles;
+    });
+  }, [tabState.tabs]);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onAppTitleChanged) {
+      return undefined;
+    }
+
+    return qdnEvents.onAppTitleChanged((event) => {
+      updateQdnAppTitleRef.current(event.tabId, event.title);
+    });
+  }, []);
 
   useEffect(() => {
     let isDisposed = false;
@@ -1438,6 +1515,13 @@ export function App() {
     updateDisplaySettings({
       ...displaySettings,
       theme: nextTheme,
+    });
+  }
+
+  function updateAppNotifications(nextAppNotifications: boolean) {
+    updateDisplaySettings({
+      ...displaySettings,
+      appNotifications: nextAppNotifications,
     });
   }
 
@@ -2608,6 +2692,29 @@ export function App() {
   useEffect(() => {
     const qdnEvents = window.qortiumHome.qdnEvents;
 
+    if (!qdnEvents?.onNotificationClicked) {
+      return undefined;
+    }
+
+    // selectTab only touches the functional setTabState, so the first render's
+    // closure stays valid for the app's lifetime.
+    return qdnEvents.onNotificationClicked((event) => {
+      selectTab(event.tabId);
+    });
+  }, []);
+
+  // The Electron main process shows QDN app notifications, so it needs the
+  // persisted toggle mirrored on startup and whenever it changes.
+  useEffect(() => {
+    void window.qortiumHome.qdn.setAppNotificationsEnabled?.(displaySettings.appNotifications)
+      ?.catch((error) => {
+        console.warn('Unable to sync app notification setting.', error);
+      });
+  }, [displaySettings.appNotifications]);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
     if (!qdnEvents?.onOpenMediaPlayer) {
       return undefined;
     }
@@ -3148,7 +3255,7 @@ export function App() {
           canPinToDashboard: getCurrentRouteForTab(tab).kind !== 'dashboard',
           displayUrl: getCurrentRouteForTab(tab).displayUrl,
           id: tab.id,
-          label: getTabLabel(tab),
+          label: qdnAppTitles[tab.id] ?? getTabLabel(tab),
         }))}
         onAddTab={addTab}
         onCloseTab={closeTab}
@@ -3262,6 +3369,7 @@ export function App() {
                   nodeMode={nodeSettings.mode}
                   onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
+                  onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   resource={tabRoute.resource}
@@ -3295,6 +3403,7 @@ export function App() {
                   onSectionExpansionChange={updateSettingsSectionExpansion}
                   onSaveNodeSettings={saveNodeSettings}
                   onAccentChange={updateAccent}
+                  onAppNotificationsChange={updateAppNotifications}
                   onAppZoomChange={updateAppZoom}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}

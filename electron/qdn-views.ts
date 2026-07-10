@@ -161,6 +161,28 @@ function getRequiredString(value: unknown, label: string) {
   return value.trim();
 }
 
+export const QDN_APP_TITLE_MAX_LENGTH = 160;
+
+// App-controlled text that lands in host UI (tab labels, notifications): strip
+// control and direction-override characters, collapse runs of whitespace, and
+// cap the length.
+export function sanitizeAppTitle(value: unknown, maxLength = QDN_APP_TITLE_MAX_LENGTH): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const title = value
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!title) {
+    return null;
+  }
+
+  return title.length > maxLength ? `${title.slice(0, maxLength - 1)}…` : title;
+}
+
 function sanitizeTabId(value: unknown) {
   const tabId = getRequiredString(value, 'Tab id');
 
@@ -464,6 +486,15 @@ function getPartition(nodeOrigin: string, resourceUrl: string | null): string {
   return `persist:qortium-home-${safeOrigin}`;
 }
 
+// An app view counts as focused only when it is the visible view of a focused
+// window — that is when the user is already looking at the app, so app
+// notifications for it would be pure noise.
+export function isQdnViewFocused(windowId: number, tabId: string) {
+  const entry = qdnViewsByWindow.get(windowId)?.get(tabId);
+
+  return !!entry && !entry.window.isDestroyed() && entry.window.isFocused() && entry.view.getVisible();
+}
+
 export function getQdnViewContextForWebContents(webContents: WebContents): QdnViewContext | null {
   for (const [windowId, windowViews] of qdnViewsByWindow) {
     for (const entry of windowViews.values()) {
@@ -587,6 +618,19 @@ function applyViewGuards(entry: QdnViewEntry) {
     if (isMainFrame) {
       updateCurrentUrl(url);
     }
+  });
+  // The app's document.title drives the host tab label, like a regular browser.
+  // `explicitSet` is false when Chromium falls back to the URL as the title, which
+  // must clear the label back to the route-derived default rather than leak a URL.
+  entry.view.webContents.on('page-title-updated', (_event, title, explicitSet) => {
+    if (entry.window.isDestroyed()) {
+      return;
+    }
+
+    entry.window.webContents.send('qdn-views:app-title-changed', {
+      tabId: entry.tabId,
+      title: explicitSet ? sanitizeAppTitle(title) : null,
+    });
   });
 
   const isolatedSession = entry.view.webContents.session;
