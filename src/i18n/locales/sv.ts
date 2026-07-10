@@ -607,4 +607,12 @@ export const sv: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Avsluta helvy",
   "viewer.video.fill": "Fyll sidan",
+  "notifications.sectionTitle": "Appaviseringar",
+  "notifications.summary": "{count} godkända appar",
+  "notifications.empty": "Inga appar har behörighet för aviseringar.",
+  "notifications.ruleCount": "{count} prenumerationsregler",
+  "notifications.mute": "Tysta",
+  "notifications.revoke": "Återkalla",
+  "qdnWrite.action.notificationAdd": "Bakgrundsaviseringar",
+  "qdnWrite.scopeAlways": "Tills det återkallas i Inställningar",
 };

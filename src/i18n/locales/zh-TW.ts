@@ -607,4 +607,12 @@ export const zhTW: Record<TranslationKey, string> = {
   "viewer.statusRequestFailed": "QDN 狀態要求失敗，HTTP {status}。",
   "viewer.video.exitFill": "退出全頁檢視",
   "viewer.video.fill": "填滿頁面",
+  "notifications.sectionTitle": "應用程式通知",
+  "notifications.summary": "{count} 個已核准的應用程式",
+  "notifications.empty": "沒有應用程式取得通知權限。",
+  "notifications.ruleCount": "{count} 條訂閱規則",
+  "notifications.mute": "靜音",
+  "notifications.revoke": "撤銷",
+  "qdnWrite.action.notificationAdd": "背景通知",
+  "qdnWrite.scopeAlways": "直到在設定中撤銷",
 };

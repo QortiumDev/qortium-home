@@ -631,6 +631,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'UPDATE_NAME'
     | 'SEND_CHAT_MESSAGE'
     | 'SHOW_NOTIFICATION'
+    | 'NOTIFICATION_ADD'
     | 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
     | 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
     | 'START_MINTING'
@@ -645,7 +646,7 @@ type QortiumQdnWriteApprovalRequest = {
   id: string;
   mintingKey: string | null;
   name: string | null;
-  permissionScope: 'single-request' | 'session';
+  permissionScope: 'always' | 'single-request' | 'session';
   recipientAddress: string | null;
   resource: {
     identifier: string | null;
@@ -784,6 +785,15 @@ interface Window {
       ) => Promise<QortiumQdnDownloadResult>;
       openDownloadedResource?: (request: { uri: string; mimeType?: string }) => Promise<void>;
       setAppNotificationsEnabled?: (enabled: boolean) => Promise<void>;
+      getNotificationStore?: () => Promise<import('../electron/notification-rules').QdnNotificationStore>;
+      onNotificationStoreChanged?: (callback: () => void) => () => void;
+      setAppNotificationMuted?: (
+        appKey: string,
+        muted: boolean,
+      ) => Promise<import('../electron/notification-rules').QdnNotificationStore>;
+      revokeAppNotifications?: (
+        appKey: string,
+      ) => Promise<import('../electron/notification-rules').QdnNotificationStore>;
     };
     qdnViews?: {
       capture: (tabId: string) => Promise<string | null>;

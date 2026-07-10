@@ -12,6 +12,7 @@ import nacl from 'tweetnacl';
 import {
   assertAccountUnlocked,
   getAccountForeignWalletSeed,
+  getActiveAccountAddress,
   getAccountProfile,
   getAccountSecretKey,
   getAccountSigningKey,
@@ -19,6 +20,17 @@ import {
   signChatTransaction,
   stampTransactionNonce,
 } from './accounts.js';
+import {
+  sanitizeQdnNotificationIds,
+  sanitizeQdnNotificationSubscriptions,
+} from './notification-rules.js';
+import {
+  grantAppNotifications,
+  hasNotificationGrant,
+  readNotificationStore,
+  removeAppNotificationRules,
+  replaceAppNotificationRules,
+} from './notification-store.js';
 import { arbitraryRawToSigningBytes } from './arbitrary-tx.js';
 import {
   deriveForeignWalletRuntime,
@@ -385,7 +397,7 @@ type QdnWriteApprovalDetails = {
   groupName?: string | null;
   mintingKey?: string | null;
   name?: string;
-  permissionScope?: 'single-request' | 'session';
+  permissionScope?: 'always' | 'single-request' | 'session';
   recipientAddress?: string;
   resource?: QdnWriteResourceRequest;
   resourceCount?: number;
@@ -474,13 +486,24 @@ const QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO: SupportedBlockchainInfo = {
 
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
 const approvedQdnChatPermissions = new Set<string>();
-const approvedQdnNotificationPermissions = new Set<string>();
 const lastQdnAppNotificationAt = new Map<string, number>();
 const QDN_APP_NOTIFICATION_MIN_INTERVAL_MS = 3_000;
 const QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH = 240;
 // Synced from the renderer's persisted Display Settings on startup and on change;
 // true matches the setting's shipped default.
 let qdnAppNotificationsEnabled = true;
+
+export function areQdnAppNotificationsEnabled() {
+  return qdnAppNotificationsEnabled;
+}
+
+export function consumeQdnAppNotificationRateLimit(appKey: string) {
+  const now = Date.now();
+  const lastShownAt = lastQdnAppNotificationAt.get(appKey) ?? 0;
+  if (now - lastShownAt < QDN_APP_NOTIFICATION_MIN_INTERVAL_MS) return false;
+  lastQdnAppNotificationAt.set(appKey, now);
+  return true;
+}
 const qdnPublishSourceTokens = new Map<string, QdnPublishSourceTokenEntry>();
 const QDN_PUBLISH_SOURCE_TOKEN_TTL_MS = 30 * 60_000;
 const QDN_PUBLISH_SOURCE_TOKEN_MAX_ENTRIES = 16;
@@ -736,20 +759,18 @@ async function requestQdnChatPermissionApproval(
   approvedQdnChatPermissions.add(cacheKey);
 }
 
-// Notification permission is app-scoped, not account-scoped, so the key uses the
-// stable app resource URL (not currentUrl, which drifts with in-app navigation).
+// Notification permission is app-scoped, not account-scoped, so the durable key
+// uses the stable app resource URL (not currentUrl, which drifts with navigation).
 function getQdnNotificationPermissionCacheKey(context: QdnViewContext) {
-  return [
-    context.windowId,
-    context.tabId,
-    context.resourceUrl ?? context.currentUrl ?? '',
-  ].join('\n');
+  const appKey = context.resourceUrl;
+  if (!appKey) throw new Error('QDN app notification request is missing its stable resource URL.');
+  return appKey;
 }
 
 // "qdn://APP/name/path" → "name"; falls back to the full resource URL so the
 // notification always carries some app provenance.
-function getQdnAppDisplayName(context: QdnViewContext) {
-  const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(context.resourceUrl ?? '');
+export function getQdnAppDisplayNameFromResourceUrl(resourceUrl: string) {
+  const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(resourceUrl);
 
   if (match) {
     try {
@@ -759,19 +780,22 @@ function getQdnAppDisplayName(context: QdnViewContext) {
     }
   }
 
-  return getQdnViewResourceUrl(context);
+  return resourceUrl;
 }
 
-async function requestQdnNotificationPermissionApproval(context: QdnViewContext) {
+async function requestQdnNotificationPermissionApproval(
+  context: QdnViewContext,
+  action: 'SHOW_NOTIFICATION' | 'NOTIFICATION_ADD',
+) {
   const cacheKey = getQdnNotificationPermissionCacheKey(context);
 
-  if (approvedQdnNotificationPermissions.has(cacheKey)) {
+  if (hasNotificationGrant(cacheKey)) {
     return;
   }
 
   const approved = await awaitQdnApprovalFromHostWindow(context, 'qdn-app:write-request', {
     accountName: null,
-    action: 'SHOW_NOTIFICATION',
+    action,
     address: '',
     amount: null,
     approval: null,
@@ -781,7 +805,7 @@ async function requestQdnNotificationPermissionApproval(context: QdnViewContext)
     groupName: null,
     mintingKey: null,
     name: null,
-    permissionScope: 'session',
+    permissionScope: 'always',
     recipientAddress: null,
     resource: null,
     resourceCount: null,
@@ -794,7 +818,7 @@ async function requestQdnNotificationPermissionApproval(context: QdnViewContext)
     throw new Error('Notification permission was denied.');
   }
 
-  approvedQdnNotificationPermissions.add(cacheKey);
+  grantAppNotifications(cacheKey);
 }
 
 async function showNotificationForApp(request: QdnAppRequest, context: QdnViewContext | null) {
@@ -810,7 +834,12 @@ async function showNotificationForApp(request: QdnAppRequest, context: QdnViewCo
 
   const text = sanitizeAppTitle(getRequestValue(request, 'text'), QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH);
 
-  await requestQdnNotificationPermissionApproval(context);
+  await requestQdnNotificationPermissionApproval(context, 'SHOW_NOTIFICATION');
+
+  const appKey = getQdnNotificationPermissionCacheKey(context);
+  if (readNotificationStore().grants[appKey]?.muted) {
+    return { shown: false, reason: 'muted' };
+  }
 
   if (!qdnAppNotificationsEnabled) {
     return { shown: false, reason: 'disabled' };
@@ -825,21 +854,15 @@ async function showNotificationForApp(request: QdnAppRequest, context: QdnViewCo
     return { shown: false, reason: 'focused' };
   }
 
-  const rateKey = getQdnNotificationPermissionCacheKey(context);
-  const now = Date.now();
-  const lastShownAt = lastQdnAppNotificationAt.get(rateKey) ?? 0;
-
-  if (now - lastShownAt < QDN_APP_NOTIFICATION_MIN_INTERVAL_MS) {
+  if (!consumeQdnAppNotificationRateLimit(appKey)) {
     return { shown: false, reason: 'rate-limited' };
   }
-
-  lastQdnAppNotificationAt.set(rateKey, now);
 
   // The app name suffix keeps provenance visible so one app cannot pose as
   // another (or as Home itself) in the notification shade.
   const notification = new Notification({
     body: text ?? '',
-    title: `${title} — ${getQdnAppDisplayName(context)}`,
+    title: `${title} — ${getQdnAppDisplayNameFromResourceUrl(appKey)}`,
   });
 
   notification.on('click', () => {
@@ -857,6 +880,19 @@ async function showNotificationForApp(request: QdnAppRequest, context: QdnViewCo
     hostWindow.focus();
     hostWindow.webContents.send('qdn-app:notification-clicked', { tabId: context.tabId });
   });
+
+  const latestGrant = readNotificationStore().grants[appKey];
+  if (!latestGrant) {
+    return { shown: false, reason: 'revoked' };
+  }
+
+  if (latestGrant.muted) {
+    return { shown: false, reason: 'muted' };
+  }
+
+  if (!qdnAppNotificationsEnabled) {
+    return { shown: false, reason: 'disabled' };
+  }
 
   notification.show();
 
@@ -8941,6 +8977,37 @@ async function handleQdnAppRequest(
 
     case 'SHOW_NOTIFICATION':
       return showNotificationForApp(request, context);
+
+    case 'NOTIFICATION_HAS_PERMISSION': {
+      if (!context) throw new Error('QDN app notification request does not belong to an active window.');
+      return { granted: hasNotificationGrant(getQdnNotificationPermissionCacheKey(context)) };
+    }
+
+    case 'NOTIFICATION_ADD': {
+      if (!context) throw new Error('QDN app notification request does not belong to an active window.');
+      const appKey = getQdnNotificationPermissionCacheKey(context);
+      const accountAddress = getActiveAccountAddress();
+      const subscriptions = sanitizeQdnNotificationSubscriptions(
+        getRequestValue(request, 'subscriptions'),
+        sanitizeAppTitle,
+      );
+      await requestQdnNotificationPermissionApproval(context, 'NOTIFICATION_ADD');
+      if (getActiveAccountAddress() !== accountAddress) {
+        throw new Error('The active account changed while notification permission was being approved. Please try again.');
+      }
+      return replaceAppNotificationRules(appKey, subscriptions, accountAddress);
+    }
+
+    case 'NOTIFICATION_GET': {
+      if (!context) throw new Error('QDN app notification request does not belong to an active window.');
+      return readNotificationStore().rules[getQdnNotificationPermissionCacheKey(context)] ?? [];
+    }
+
+    case 'NOTIFICATION_REMOVE': {
+      if (!context) throw new Error('QDN app notification request does not belong to an active window.');
+      const notificationIds = sanitizeQdnNotificationIds(getRequestValue(request, 'notificationIds'));
+      return removeAppNotificationRules(getQdnNotificationPermissionCacheKey(context), notificationIds);
+    }
 
     case 'WHICH_UI':
       return 'QORTIUM_HOME_ELECTRON';

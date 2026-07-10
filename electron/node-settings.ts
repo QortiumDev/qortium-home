@@ -12,6 +12,7 @@ import { ensureNodeCa, nodeFetch } from './node-tls.js';
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
 const NODE_SETTINGS_FILE = 'node-settings.json';
+const nodeSettingsChangeListeners = new Set<() => void>();
 const PREVIEWNET_API_PORT = '24891';
 const PREVIEWNET_SEED_NODE_API_URLS = [
   'http://146.103.42.59:24891',
@@ -1341,6 +1342,13 @@ export async function getNodeApiUrl(forceDiscoveryRefresh = false) {
   return (await getNodeConnection(forceDiscoveryRefresh)).nodeApiUrl;
 }
 
+export function onNodeSettingsChanged(listener: () => void) {
+  nodeSettingsChangeListeners.add(listener);
+  return () => {
+    nodeSettingsChangeListeners.delete(listener);
+  };
+}
+
 export function registerNodeSettingsIpcHandlers() {
   ipcMain.handle('node:getSettings', () => getNodeSettingsSnapshot());
 
@@ -1368,6 +1376,7 @@ export function registerNodeSettingsIpcHandlers() {
     const settings = normalizeNodeSettingsRequest(request);
 
     writeNodeSettings(settings);
+    nodeSettingsChangeListeners.forEach((listener) => listener());
 
     return await getNodeSettingsSnapshot(settings);
   });

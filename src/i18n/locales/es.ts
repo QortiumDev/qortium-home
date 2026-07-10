@@ -607,4 +607,12 @@ export const es: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Salir de la vista completa",
   "viewer.video.fill": "Llenar la página",
+  "notifications.sectionTitle": "Notificaciones de aplicaciones",
+  "notifications.summary": "{count} aplicaciones aprobadas",
+  "notifications.empty": "Ninguna aplicación tiene permiso para notificaciones.",
+  "notifications.ruleCount": "{count} reglas de suscripción",
+  "notifications.mute": "Silenciar",
+  "notifications.revoke": "Revocar",
+  "qdnWrite.action.notificationAdd": "Notificaciones en segundo plano",
+  "qdnWrite.scopeAlways": "Hasta que se revoque en Ajustes",
 };

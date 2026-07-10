@@ -606,6 +606,14 @@ export const en = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Exit full view",
   "viewer.video.fill": "Fill the page",
+  "notifications.sectionTitle": "App notifications",
+  "notifications.summary": "{count} approved apps",
+  "notifications.empty": "No apps have notification permission.",
+  "notifications.ruleCount": "{count} subscription rules",
+  "notifications.mute": "Mute",
+  "notifications.revoke": "Revoke",
+  "qdnWrite.action.notificationAdd": "Background Notifications",
+  "qdnWrite.scopeAlways": "Until revoked in Settings",
 } as const;
 
 export type TranslationKey = keyof typeof en;

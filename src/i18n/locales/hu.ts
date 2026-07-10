@@ -607,4 +607,12 @@ export const hu: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Teljes nézet bezárása",
   "viewer.video.fill": "Oldal kitöltése",
+  "notifications.sectionTitle": "Alkalmazásértesítések",
+  "notifications.summary": "{count} jóváhagyott alkalmazás",
+  "notifications.empty": "Egy alkalmazás sem rendelkezik értesítési engedéllyel.",
+  "notifications.ruleCount": "{count} feliratkozási szabály",
+  "notifications.mute": "Némítás",
+  "notifications.revoke": "Visszavonás",
+  "qdnWrite.action.notificationAdd": "Háttérértesítések",
+  "qdnWrite.scopeAlways": "A Beállításokban történő visszavonásig",
 };

@@ -607,4 +607,12 @@ export const et: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Välju täisvaatest",
   "viewer.video.fill": "Täida leht",
+  "notifications.sectionTitle": "Rakenduste teavitused",
+  "notifications.summary": "{count} kinnitatud rakendust",
+  "notifications.empty": "Ühelgi rakendusel pole teavituste luba.",
+  "notifications.ruleCount": "{count} tellimisreeglit",
+  "notifications.mute": "Vaigista",
+  "notifications.revoke": "Tühista luba",
+  "qdnWrite.action.notificationAdd": "Taustateavitused",
+  "qdnWrite.scopeAlways": "Kuni seadetes tühistamiseni",
 };

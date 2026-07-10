@@ -7,7 +7,7 @@ for:
 
 1. **`SHOW_NOTIFICATION`** — a `qdnRequest` action that shows a system
    notification (Electron `Notification` on desktop, Capacitor
-   `LocalNotifications` on Android), gated behind a per-app session
+   `LocalNotifications` on Android), gated behind a durable per-app
    permission.
 2. **App-controlled tab titles** — the Home tab label follows the app's
    `document.title` (like a regular browser tab), falling back to the
@@ -29,14 +29,14 @@ notification and no tab-title control.
 const actions = await qdnRequest({ action: 'SHOW_ACTIONS' });
 const canNotify = actions.includes('SHOW_NOTIFICATION');
 
-// First call per app+tab+session prompts the user; later calls are silent.
+// The first call per app prompts the user; the grant lasts until revoked.
 const outcome = await qdnRequest({
   action: 'SHOW_NOTIFICATION',
   title: 'New message from Alice',   // required, ≤160 chars after sanitizing
   text: 'Hey, are you around?',      // optional, ≤240 chars after sanitizing
 });
 // outcome: { shown: true }
-//       or { shown: false, reason: 'focused' | 'rate-limited' | 'disabled' | 'unsupported' }
+//       or { shown: false, reason: 'focused' | 'rate-limited' | 'disabled' | 'muted' | 'unsupported' }
 // A denied permission rejects with "Notification permission was denied."
 
 // Tab title: plain document.title, no bridge call needed.
@@ -46,11 +46,11 @@ document.title = '';                 // reverts the tab label to the address
 
 ## Behavior and gating
 
-- **Permission**: the first `SHOW_NOTIFICATION` from an app opens the standard
+- **Permission**: the first `SHOW_NOTIFICATION` or `NOTIFICATION_ADD` from an app opens the standard
   QDN permission dialog (no account row — notifications are app-scoped, not
-  account-scoped) with session scope. The grant is cached per
-  window/tab/app-resource for the session; denial rejects the request and the
-  next call prompts again.
+  account-scoped) with "Until revoked in Settings" scope. One durable grant,
+  keyed by the app's stable resource base, covers direct and background
+  notifications. Denial rejects the request and the next call prompts again.
 - **Focus suppression**: `{ shown: false, reason: 'focused' }` while the app's
   view is visible in a focused window — no notification when the user is
   already looking at the app.
@@ -70,6 +70,73 @@ document.title = '';                 // reverts the tab label to the address
 - **Sanitizing**: titles/text strip control and bidi-override characters,
   collapse whitespace, and are length-capped (`sanitizeAppTitle` in
   `electron/qdn-views.ts`, `sanitizeQdnAppTitle` in `src/qdn.ts`).
+
+## Subscriptions (background notifications)
+
+Home can keep watching Core after an app tab closes, as long as Home itself is
+running. Apps manage this through four actions:
+
+- `NOTIFICATION_HAS_PERMISSION` returns `{ granted: boolean }` without prompting.
+- `NOTIFICATION_ADD` validates and adds or replaces rules by `notificationId`.
+  It prompts for the durable grant when needed and stores at most 20 rules per app.
+- `NOTIFICATION_GET` returns the calling app's stored rules without prompting.
+- `NOTIFICATION_REMOVE` removes the requested `notificationIds`, or every rule
+  for the app when `notificationIds` is omitted.
+
+```ts
+await qdnRequest({
+  action: 'NOTIFICATION_ADD',
+  subscriptions: [{
+    notificationId: 'direct-messages',
+    event: 'CHAT_MESSAGE',
+    filters: { involving: selectedAddress },
+    title: 'New chat message',
+    text: 'Open Chat to read it',
+    link: 'qdn://APP/Chat/Chat',
+  }],
+});
+```
+
+`notificationId` is 1–64 letters, numbers, dots, underscores, or hyphens.
+`title` and `text` use the same sanitizing as direct notifications and are
+limited to 160 and 240 characters. `link` may be a `qdn://`, `home://`, or
+`core://` address and defaults to the registering app's resource URL.
+
+Supported events and filters are:
+
+- `RESOURCE_PUBLISHED`: `service`, `names`, `identifier`, `title`,
+  `description`, `keywords`, `query`, `prefix`, `defaultResource`,
+  `followedOnly`, `excludeBlocked`, `after`, and `before`.
+- `PAYMENT_RECEIVED`: required `recipient`.
+- `CHAT_MESSAGE`: `recipient`, `sender`, `txGroupId`, or `involving`, with at
+  least one required. Message content is never delivered by this event.
+- `TRANSACTION_CONFIRMED`: `signature`, `address`, and optional `txType`, with
+  at least `signature` or `address` required.
+
+Apps always pass the filter under `filters` in `NOTIFICATION_ADD`; Home maps it
+to the node's wire format when it subscribes — the rich `RESOURCE_PUBLISHED`
+filter is sent as the node's typed `resourceFilter` object, while the other
+events' filters are sent as the generic string map the node matches
+case-insensitively (`electron/notification-rules.ts` `toWireNotificationSubscription`).
+
+Rules are tagged with the active account address when registered. Home sends
+only rules tagged for the currently active account, and apps should register
+again after `SELECTED_ACCOUNT_CHANGED`. Desktop keeps one websocket at
+`/websockets/notifications`; Android keeps the equivalent foreground watcher.
+The entire websocket subscription is replaced on connect and whenever rules,
+grants, the active account, or node settings change. No socket is held open
+when there are no eligible rules.
+
+For each pushed event, Home applies gates in this order: global notification
+switch, durable grant and per-app mute, per-app rate limit, then focused-app
+suppression. Muting preserves the grant and rules. Revoking in Settings deletes
+both the grant and all of that app's rules. A subscription notification click
+focuses/restores Home and opens the rule link (or the app itself) in a new tab.
+
+The desktop `app-subscription` smoke scenario adds and reads a matching
+`RESOURCE_PUBLISHED` rule, publishes a real fixture, accepts either a fired
+notification or focused suppression from the watcher smoke log, removes and
+re-reads the rule, and deletes the fixture resource.
 
 ## Tab titles
 
@@ -113,6 +180,13 @@ document.title = '';                 // reverts the tab label to the address
 - `src/i18n/locales/*` — `display.appNotifications*`,
   `qdnWrite.action.showNotification`.
 - `scripts/smoke-desktop-qdn-write.mjs` — `app-notification` scenario.
+- `electron/notification-rules.ts`, `electron/notification-store.ts`, and
+  `electron/notification-watcher.ts` — shared rule validation, durable desktop
+  persistence, and the single Core websocket watcher.
+- `src/notificationStore.ts`, `src/notificationWatcher.ts`, and
+  `src/AppNotificationsSettingsPanel.tsx` — the Android/browser store and
+  foreground watcher plus the per-app Settings controls.
+- `scripts/smoke-desktop-qdn-write.mjs` — `app-subscription` scenario.
 
 ## Verification
 
@@ -129,9 +203,5 @@ document.title = '';                 // reverts the tab label to the address
 
 ## Follow-ups / out of scope
 
-- Home-side notifications while an app is **closed** (Hub-style
-  `NOTIFICATION_ADD` subscription rules watching a core websocket) — tier 3,
-  to be designed separately.
-- Android notification tap → select the app's tab.
-- Per-app notification revocation UI (currently session-scoped, so closing
-  the tab or app forgets the grant).
+- Android background execution after Home itself is suspended or terminated;
+  the v1 Android watcher is foreground-only.

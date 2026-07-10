@@ -607,4 +607,12 @@ export const ru: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Выйти из полноэкранного просмотра",
   "viewer.video.fill": "Развернуть на всю страницу",
+  "notifications.sectionTitle": "Уведомления приложений",
+  "notifications.summary": "Одобрено приложений: {count}",
+  "notifications.empty": "Ни одному приложению не разрешены уведомления.",
+  "notifications.ruleCount": "Правил подписки: {count}",
+  "notifications.mute": "Без звука",
+  "notifications.revoke": "Отозвать",
+  "qdnWrite.action.notificationAdd": "Фоновые уведомления",
+  "qdnWrite.scopeAlways": "До отзыва в настройках",
 };

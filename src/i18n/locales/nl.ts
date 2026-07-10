@@ -607,4 +607,12 @@ export const nl: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Volledige weergave verlaten",
   "viewer.video.fill": "Pagina vullen",
+  "notifications.sectionTitle": "Appmeldingen",
+  "notifications.summary": "{count} goedgekeurde apps",
+  "notifications.empty": "Geen apps hebben toestemming voor meldingen.",
+  "notifications.ruleCount": "{count} abonnementsregels",
+  "notifications.mute": "Dempen",
+  "notifications.revoke": "Intrekken",
+  "qdnWrite.action.notificationAdd": "Achtergrondmeldingen",
+  "qdnWrite.scopeAlways": "Tot intrekking in Instellingen",
 };

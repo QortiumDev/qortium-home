@@ -607,4 +607,12 @@ export const ja: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "全画面表示を終了",
   "viewer.video.fill": "全画面に表示",
+  "notifications.sectionTitle": "アプリ通知",
+  "notifications.summary": "承認済みアプリ: {count}",
+  "notifications.empty": "通知を許可されたアプリはありません。",
+  "notifications.ruleCount": "購読ルール: {count}",
+  "notifications.mute": "ミュート",
+  "notifications.revoke": "取り消す",
+  "qdnWrite.action.notificationAdd": "バックグラウンド通知",
+  "qdnWrite.scopeAlways": "設定で取り消すまで",
 };

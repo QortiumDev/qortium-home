@@ -156,6 +156,18 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn:authorizeResource', request),
     setAppNotificationsEnabled: (enabled: boolean) =>
       ipcRenderer.invoke('qdn:setAppNotificationsEnabled', enabled),
+    getNotificationStore: () => ipcRenderer.invoke('qdn:getNotificationStore'),
+    onNotificationStoreChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('qdn:notification-store-changed', listener);
+      return () => {
+        ipcRenderer.removeListener('qdn:notification-store-changed', listener);
+      };
+    },
+    setAppNotificationMuted: (appKey: string, muted: boolean) =>
+      ipcRenderer.invoke('qdn:setAppNotificationMuted', appKey, muted),
+    revokeAppNotifications: (appKey: string) =>
+      ipcRenderer.invoke('qdn:revokeAppNotifications', appKey),
     listResources: (request: {
       exactMatchNames?: boolean;
       includeMetadata?: boolean;

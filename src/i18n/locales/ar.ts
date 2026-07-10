@@ -607,4 +607,12 @@ export const ar: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "إنهاء العرض الكامل",
   "viewer.video.fill": "ملء الصفحة",
+  "notifications.sectionTitle": "إشعارات التطبيقات",
+  "notifications.summary": "{count} تطبيقات معتمدة",
+  "notifications.empty": "لا توجد تطبيقات لديها إذن بالإشعارات.",
+  "notifications.ruleCount": "{count} قواعد اشتراك",
+  "notifications.mute": "كتم",
+  "notifications.revoke": "إلغاء الإذن",
+  "qdnWrite.action.notificationAdd": "إشعارات الخلفية",
+  "qdnWrite.scopeAlways": "حتى يتم إلغاؤه في الإعدادات",
 };

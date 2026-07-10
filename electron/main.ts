@@ -25,6 +25,8 @@ import {
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
+import { registerNotificationStoreIpcHandlers } from './notification-store.js';
+import { startNotificationWatcher } from './notification-watcher.js';
 import {
   cleanupQdnPreviewStagingDirs,
   registerQdnIpcHandlers,
@@ -791,6 +793,7 @@ app.whenReady().then(() => {
   registerCoreManagerIpcHandlers();
   registerI2pdManagerIpcHandlers();
   registerNodeSettingsIpcHandlers();
+  registerNotificationStoreIpcHandlers();
   registerQdnIpcHandlers();
   registerQdnViewIpcHandlers();
   registerMenuIpcHandlers();
@@ -799,6 +802,7 @@ app.whenReady().then(() => {
   registerZoomIpcHandlers();
   buildApplicationMenu();
   createWindow();
+  startNotificationWatcher();
 
   // Bring the managed i2pd router in line with Core's current state (e.g. adopt a
   // router that survived a previous Home session, or clean up an orphan).

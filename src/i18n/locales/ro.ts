@@ -607,4 +607,12 @@ export const ro: Record<TranslationKey, string> = {
   "viewer.statusRequestFailed": "Cererea de stare QDN a eșuat cu HTTP {status}.",
   "viewer.video.exitFill": "Ieși din vizualizarea completă",
   "viewer.video.fill": "Umple pagina",
+  "notifications.sectionTitle": "Notificări aplicații",
+  "notifications.summary": "{count} aplicații aprobate",
+  "notifications.empty": "Nicio aplicație nu are permisiune pentru notificări.",
+  "notifications.ruleCount": "{count} reguli de abonare",
+  "notifications.mute": "Dezactivează sunetul",
+  "notifications.revoke": "Revocă",
+  "qdnWrite.action.notificationAdd": "Notificări în fundal",
+  "qdnWrite.scopeAlways": "Până la revocarea din Setări",
 };

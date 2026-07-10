@@ -608,4 +608,12 @@ export const el: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Έξοδος από πλήρη προβολή",
   "viewer.video.fill": "Γέμισμα σελίδας",
+  "notifications.sectionTitle": "Ειδοποιήσεις εφαρμογών",
+  "notifications.summary": "{count} εγκεκριμένες εφαρμογές",
+  "notifications.empty": "Καμία εφαρμογή δεν έχει άδεια ειδοποιήσεων.",
+  "notifications.ruleCount": "{count} κανόνες συνδρομής",
+  "notifications.mute": "Σίγαση",
+  "notifications.revoke": "Ανάκληση",
+  "qdnWrite.action.notificationAdd": "Ειδοποιήσεις παρασκηνίου",
+  "qdnWrite.scopeAlways": "Μέχρι να ανακληθεί στις Ρυθμίσεις",
 };

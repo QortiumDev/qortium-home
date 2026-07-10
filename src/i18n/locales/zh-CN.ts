@@ -607,4 +607,12 @@ export const zhCN: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "退出全屏视图",
   "viewer.video.fill": "铺满页面",
+  "notifications.sectionTitle": "应用通知",
+  "notifications.summary": "{count} 个已批准的应用",
+  "notifications.empty": "没有应用获得通知权限。",
+  "notifications.ruleCount": "{count} 条订阅规则",
+  "notifications.mute": "静音",
+  "notifications.revoke": "撤销",
+  "qdnWrite.action.notificationAdd": "后台通知",
+  "qdnWrite.scopeAlways": "直到在设置中撤销",
 };

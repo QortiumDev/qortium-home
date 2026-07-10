@@ -608,4 +608,12 @@ export const hi: Record<TranslationKey, string> = {
   "viewer.statusRequestFailed": "QDN स्थिति अनुरोध HTTP {status} के साथ विफल रहा।",
   "viewer.video.exitFill": "पूर्ण दृश्य से बाहर निकलें",
   "viewer.video.fill": "पेज भरें",
+  "notifications.sectionTitle": "ऐप सूचनाएँ",
+  "notifications.summary": "{count} स्वीकृत ऐप",
+  "notifications.empty": "किसी ऐप को सूचना की अनुमति नहीं है।",
+  "notifications.ruleCount": "{count} सदस्यता नियम",
+  "notifications.mute": "म्यूट करें",
+  "notifications.revoke": "अनुमति रद्द करें",
+  "qdnWrite.action.notificationAdd": "पृष्ठभूमि सूचनाएँ",
+  "qdnWrite.scopeAlways": "सेटिंग्स में रद्द किए जाने तक",
 };

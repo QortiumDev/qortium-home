@@ -48,6 +48,7 @@ const allScenarios = [
   'nonlocal-node',
   'stale-tab',
   'app-notification',
+  'app-subscription',
 ];
 const qdnWriteSmokeScenarios = new Set(allScenarios);
 
@@ -605,6 +606,13 @@ async function runQdnRequest(qdnClient, request) {
   );
 }
 
+function readNotificationSmokeEntries(logPath) {
+  if (!existsSync(logPath)) return [];
+  return readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean).flatMap((line) => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  });
+}
+
 async function runQdnRequestWithDialog(
   mainClient,
   qdnClient,
@@ -806,6 +814,7 @@ async function runScenarioActions({
   apiKeyPathForApp,
   identifier,
   mainClient,
+  notificationSmokeLogPath,
   publishName,
   qdnClient,
   scenario,
@@ -1019,6 +1028,86 @@ async function runScenarioActions({
       return { deleted: false, published: false };
     }
 
+    case 'app-subscription': {
+      const notificationId = `smoke-resource-${Date.now()}`;
+      const afterRemoveIdentifier = `${identifier}-removed`;
+      const addRequest = {
+        action: 'NOTIFICATION_ADD',
+        subscriptions: [{
+          notificationId,
+          event: 'RESOURCE_PUBLISHED',
+          filters: { service, names: [publishName] },
+          title: 'Smoke resource published',
+        }],
+      };
+
+      log('Approving the background notification subscription.');
+      await runQdnRequestWithDialog(mainClient, qdnClient, addRequest);
+      const stored = await runQdnRequest(qdnClient, { action: 'NOTIFICATION_GET' });
+      if (!stored?.ok || !Array.isArray(stored.result) || stored.result.length !== 1 || stored.result[0]?.notificationId !== notificationId) {
+        fail(`NOTIFICATION_GET did not return the added rule: ${JSON.stringify(stored)}`);
+      }
+
+      log('Opening the Dashboard so the subscribed app is in the background before publishing.');
+      const openedDashboard = await runQdnRequest(qdnClient, {
+        action: 'OPEN_NEW_TAB',
+        address: 'home://dashboard',
+      });
+      if (!openedDashboard?.ok) {
+        fail(`Unable to background the subscribed app: ${JSON.stringify(openedDashboard)}`);
+      }
+      await waitUntil('Dashboard tab becomes active', appTimeoutMs, async () =>
+        evaluate(mainClient, "document.querySelector('#browser-address')?.value === 'home://dashboard'"));
+
+      log('Publishing a resource that matches the background subscription.');
+      await runQdnRequestWithDialog(mainClient, qdnClient, publishRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'READY', { build: true });
+
+      await waitUntil('background notification watcher FIRED result', qdnStatusTimeoutMs, async () =>
+        readNotificationSmokeEntries(notificationSmokeLogPath).some((entry) =>
+          entry.notificationId === notificationId && entry.status === 'FIRED') ? true : null);
+
+      await runQdnRequest(qdnClient, { action: 'NOTIFICATION_REMOVE', notificationIds: [notificationId] });
+      const removed = await runQdnRequest(qdnClient, { action: 'NOTIFICATION_GET' });
+      if (!removed?.ok || !Array.isArray(removed.result) || removed.result.length !== 0) {
+        fail(`NOTIFICATION_REMOVE did not clear the rule: ${JSON.stringify(removed)}`);
+      }
+
+      const watcherEntriesAfterRemove = readNotificationSmokeEntries(notificationSmokeLogPath)
+        .filter((entry) => entry.notificationId === notificationId).length;
+      if (watcherEntriesAfterRemove < 1) {
+        fail('The removed-rule check would be vacuous because the watcher never logged the original rule.');
+      }
+
+      log('Publishing a second matching resource after removing the subscription.');
+      await delay(500);
+      await runQdnRequestWithDialog(
+        mainClient,
+        qdnClient,
+        getPublishRequest({ identifier: afterRemoveIdentifier, name: publishName, service }),
+      );
+      await waitForResourceStatus(service, publishName, afterRemoveIdentifier, 'READY', { build: true });
+      await delay(8_000);
+      const watcherEntriesAfterSecondPublish = readNotificationSmokeEntries(notificationSmokeLogPath)
+        .filter((entry) => entry.notificationId === notificationId).length;
+      if (watcherEntriesAfterSecondPublish !== watcherEntriesAfterRemove) {
+        fail('The removed notification rule produced a new watcher log entry after a second matching publish.');
+      }
+
+      log('Deleting the second matching smoke resource.');
+      await runQdnRequestWithDialog(
+        mainClient,
+        qdnClient,
+        getDeleteRequest({ identifier: afterRemoveIdentifier, name: publishName, service }),
+      );
+      await waitForResourceStatus(service, publishName, afterRemoveIdentifier, 'DELETED');
+
+      log('Deleting the matching smoke resource.');
+      await runQdnRequestWithDialog(mainClient, qdnClient, deleteRequest);
+      await waitForResourceStatus(service, publishName, identifier, 'DELETED');
+      return { deleted: true, published: true };
+    }
+
     default:
       fail(`Scenario is not implemented: ${scenario}.`);
   }
@@ -1030,6 +1119,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
   const userDataDir = path.join(tempRoot, 'user-data');
   const publishSourcePath = path.join(tempRoot, 'qdn-write-smoke.json');
   const appApiKeyPath = writeAppApiKeyFile(tempRoot);
+  const notificationSmokeLogPath = path.join(tempRoot, 'notification-smoke.jsonl');
   const service = 'JSON';
   const identifier = `home-write-${scenario}-${Date.now()}`;
   let viteProcess = null;
@@ -1067,6 +1157,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
     QORTIUM_HOME_SMOKE_ACCOUNT_ROLE: accountRole,
     QORTIUM_HOME_QDN_WRITE_SMOKE_NAME: publishName,
     QORTIUM_HOME_QDN_WRITE_SMOKE_SOURCE: publishSourcePath,
+    QORTIUM_HOME_NOTIFICATION_SMOKE_LOG: notificationSmokeLogPath,
     QORTIUM_HOME_USER_DATA_DIR: userDataDir,
     VITE_DEV_SERVER_URL: devServerUrl,
     XDG_CONFIG_HOME: path.join(tempRoot, 'config'),
@@ -1149,6 +1240,10 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
           'SEND_CHAT_MESSAGE',
           'SEND_COIN',
           'SET_CURRENT_FOREIGN_SERVER',
+          'NOTIFICATION_HAS_PERMISSION',
+          'NOTIFICATION_ADD',
+          'NOTIFICATION_GET',
+          'NOTIFICATION_REMOVE',
           'UNLOCK_SELECTED_ACCOUNT',
           'GET_CROSSCHAIN_BLOCKCHAINS',
           'GET_CROSSCHAIN_SERVER_INFO',
@@ -1174,6 +1269,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
           apiKeyPathForApp: appApiKeyPath,
           identifier,
           mainClient,
+          notificationSmokeLogPath,
           publishName,
           qdnClient,
           scenario,

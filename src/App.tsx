@@ -83,6 +83,8 @@ import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, subscribeTranslationChange, t, type TranslationKey } from './i18n';
 import { invalidateDesktopNodeSettingsCache } from './platform';
+import { getNotificationRulesVersion, onNotificationStoreChanged } from './notificationStore';
+import { startForegroundNotificationWatcher } from './notificationWatcher';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
@@ -189,6 +191,7 @@ const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   core: false,
   display: true,
   home: false,
+  notifications: false,
   node: false,
 };
 
@@ -390,6 +393,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.sendChatMessage';
     case 'SHOW_NOTIFICATION':
       return 'qdnWrite.action.showNotification';
+    case 'NOTIFICATION_ADD':
+      return 'qdnWrite.action.notificationAdd';
     case 'REQUEST_PRIVATE_GROUP_CHAT_KEY':
       return 'qdnWrite.action.requestPrivateGroupChatKey';
     case 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS':
@@ -542,7 +547,7 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
         role="dialog"
       >
         <h2 className="unlock-dialog__title">{t('qdnWrite.title')}</h2>
-        {request.action === 'SHOW_NOTIFICATION' ? null : (
+        {request.action === 'SHOW_NOTIFICATION' || request.action === 'NOTIFICATION_ADD' ? null : (
           <>
             <p className="unlock-dialog__account">{request.accountName || t('qdnWrite.selectedAccountFallback')}</p>
             <p className="unlock-dialog__address">{request.address}</p>
@@ -618,6 +623,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             <div>
               <dt>{t('qdnWrite.field.scope')}</dt>
               <dd>{t('qdnWrite.scopeSession')}</dd>
+            </div>
+          ) : null}
+          {request.permissionScope === 'always' ? (
+            <div>
+              <dt>{t('qdnWrite.field.scope')}</dt>
+              <dd>{t('qdnWrite.scopeAlways')}</dd>
             </div>
           ) : null}
           {request.sourceName ? (
@@ -808,6 +819,7 @@ export function App() {
   });
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
+  const [notificationRulesVersion, setNotificationRulesVersion] = useState(getNotificationRulesVersion);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
@@ -848,6 +860,8 @@ export function App() {
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
   const routeHistory = activeTab.history;
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
+  const currentRouteRef = useRef(currentRoute);
+  currentRouteRef.current = currentRoute;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
   const isBookmarksRoute = currentRoute.kind === 'bookmarks';
@@ -1810,6 +1824,7 @@ export function App() {
       core: sectionId === 'core',
       display: sectionId === 'display',
       home: sectionId === 'home',
+      notifications: sectionId === 'notifications',
       node: sectionId === 'node',
     });
     navigateToRoute(SETTINGS_ROUTE);
@@ -2711,6 +2726,34 @@ export function App() {
         console.warn('Unable to sync app notification setting.', error);
       });
   }, [displaySettings.appNotifications]);
+
+  useEffect(() => onNotificationStoreChanged(() => {
+    setNotificationRulesVersion(getNotificationRulesVersion());
+  }), []);
+
+  const isNativeNotificationPlatform = Capacitor.isNativePlatform();
+  const notificationNodeApiUrl = nodeSettings?.nodeApiUrl ?? '';
+  const activeNotificationAccountAddress = accountsState.accounts.find(
+    (account) => account.id === accountsState.activeAccountId,
+  )?.address ?? '';
+
+  useEffect(() => {
+    if (!isNativeNotificationPlatform || !notificationNodeApiUrl) return undefined;
+    return startForegroundNotificationWatcher({
+      activeAccountAddress: activeNotificationAccountAddress,
+      nodeApiUrl: notificationNodeApiUrl,
+      isAppFocused: (appKey) =>
+        document.hasFocus() &&
+        currentRouteRef.current.kind === 'resource' &&
+        currentRouteRef.current.resource.displayUrl === appKey,
+      onOpenLink: (address) => openAppLinkInNewTabRef.current?.(address, null),
+    });
+  }, [
+    activeNotificationAccountAddress,
+    isNativeNotificationPlatform,
+    notificationNodeApiUrl,
+    notificationRulesVersion,
+  ]);
 
   useEffect(() => {
     const qdnEvents = window.qortiumHome.qdnEvents;

@@ -607,4 +607,12 @@ export const fr: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Quitter l'affichage plein",
   "viewer.video.fill": "Remplir la page",
+  "notifications.sectionTitle": "Notifications des applications",
+  "notifications.summary": "{count} applications approuvées",
+  "notifications.empty": "Aucune application n’a l’autorisation d’envoyer des notifications.",
+  "notifications.ruleCount": "{count} règles d’abonnement",
+  "notifications.mute": "Mettre en sourdine",
+  "notifications.revoke": "Révoquer",
+  "qdnWrite.action.notificationAdd": "Notifications en arrière-plan",
+  "qdnWrite.scopeAlways": "Jusqu’à révocation dans les paramètres",
 };

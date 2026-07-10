@@ -607,4 +607,12 @@ export const ko: Record<TranslationKey, string> = {
   "viewer.statusRequestFailed": "QDN 상태 요청이 HTTP {status} 오류로 실패했습니다.",
   "viewer.video.exitFill": "전체 보기 종료",
   "viewer.video.fill": "페이지에 채우기",
+  "notifications.sectionTitle": "앱 알림",
+  "notifications.summary": "승인된 앱 {count}개",
+  "notifications.empty": "알림 권한이 있는 앱이 없습니다.",
+  "notifications.ruleCount": "구독 규칙 {count}개",
+  "notifications.mute": "음소거",
+  "notifications.revoke": "권한 취소",
+  "qdnWrite.action.notificationAdd": "백그라운드 알림",
+  "qdnWrite.scopeAlways": "설정에서 취소할 때까지",
 };

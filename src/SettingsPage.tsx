@@ -1,4 +1,5 @@
 import { AppUpdatePanel } from './AppUpdatePanel';
+import { AppNotificationsSettingsPanel } from './AppNotificationsSettingsPanel';
 import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
@@ -16,7 +17,7 @@ import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node';
+export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'notifications';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -84,6 +85,10 @@ export function SettingsPage({
           onThemeChange={onThemeChange}
           onTextSizeChange={onTextSizeChange}
           onUiChange={onUiChange}
+        />
+        <AppNotificationsSettingsPanel
+          isExpanded={sectionExpansion.notifications}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('notifications', isExpanded)}
         />
         {hasManagedCore ? null : (
           <SettingsSection

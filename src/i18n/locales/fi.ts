@@ -607,4 +607,12 @@ export const fi: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Poistu koko näkymästä",
   "viewer.video.fill": "Täytä sivu",
+  "notifications.sectionTitle": "Sovellusilmoitukset",
+  "notifications.summary": "{count} hyväksyttyä sovellusta",
+  "notifications.empty": "Millään sovelluksella ei ole ilmoituslupaa.",
+  "notifications.ruleCount": "{count} tilaussääntöä",
+  "notifications.mute": "Mykistä",
+  "notifications.revoke": "Peruuta lupa",
+  "qdnWrite.action.notificationAdd": "Taustailmoitukset",
+  "qdnWrite.scopeAlways": "Kunnes lupa peruutetaan asetuksissa",
 };

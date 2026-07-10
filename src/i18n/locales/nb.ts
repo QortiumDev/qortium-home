@@ -608,4 +608,12 @@ export const nb: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Avslutt full visning",
   "viewer.video.fill": "Fyll siden",
+  "notifications.sectionTitle": "Appvarsler",
+  "notifications.summary": "{count} godkjente apper",
+  "notifications.empty": "Ingen apper har tillatelse til varsler.",
+  "notifications.ruleCount": "{count} abonnementsregler",
+  "notifications.mute": "Demp",
+  "notifications.revoke": "Trekk tilbake",
+  "qdnWrite.action.notificationAdd": "Bakgrunnsvarsler",
+  "qdnWrite.scopeAlways": "Til det trekkes tilbake i Innstillinger",
 };

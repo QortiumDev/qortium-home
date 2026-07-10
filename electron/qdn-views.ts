@@ -495,6 +495,23 @@ export function isQdnViewFocused(windowId: number, tabId: string) {
   return !!entry && !entry.window.isDestroyed() && entry.window.isFocused() && entry.view.getVisible();
 }
 
+export function isQdnAppResourceFocused(resourceUrl: string) {
+  for (const windowViews of qdnViewsByWindow.values()) {
+    for (const entry of windowViews.values()) {
+      if (
+        entry.resourceUrl === resourceUrl &&
+        !entry.window.isDestroyed() &&
+        entry.window.isFocused() &&
+        entry.view.getVisible()
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function getQdnViewContextForWebContents(webContents: WebContents): QdnViewContext | null {
   for (const [windowId, windowViews] of qdnViewsByWindow) {
     for (const entry of windowViews.values()) {

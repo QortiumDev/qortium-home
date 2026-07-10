@@ -607,4 +607,12 @@ export const he: Record<TranslationKey, string> = {
   "viewer.statusRequestFailed": "בקשת הסטטוס של QDN נכשלה עם סטטוס HTTP {status}.",
   "viewer.video.exitFill": "יציאה מתצוגה מלאה",
   "viewer.video.fill": "מילוי הדף",
+  "notifications.sectionTitle": "התראות יישומים",
+  "notifications.summary": "{count} יישומים מאושרים",
+  "notifications.empty": "אין יישומים עם הרשאה להתראות.",
+  "notifications.ruleCount": "{count} כללי מינוי",
+  "notifications.mute": "השתקה",
+  "notifications.revoke": "ביטול הרשאה",
+  "qdnWrite.action.notificationAdd": "התראות ברקע",
+  "qdnWrite.scopeAlways": "עד לביטול בהגדרות",
 };

@@ -607,4 +607,12 @@ export const de: Record<TranslationKey, string> = {
   "viewer.type.markdown": "Markdown",
   "viewer.video.exitFill": "Vollansicht beenden",
   "viewer.video.fill": "Seite ausfüllen",
+  "notifications.sectionTitle": "App-Benachrichtigungen",
+  "notifications.summary": "{count} genehmigte Apps",
+  "notifications.empty": "Keine App hat die Berechtigung für Benachrichtigungen.",
+  "notifications.ruleCount": "{count} Abonnementregeln",
+  "notifications.mute": "Stummschalten",
+  "notifications.revoke": "Widerrufen",
+  "qdnWrite.action.notificationAdd": "Hintergrundbenachrichtigungen",
+  "qdnWrite.scopeAlways": "Bis zum Widerruf in den Einstellungen",
 };
