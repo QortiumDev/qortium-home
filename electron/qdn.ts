@@ -66,8 +66,10 @@ import {
   qortDecimalToAtomic,
 } from './qortal-payment.js';
 import {
+  assertOpenQortalGroupMetadata,
   assertPositiveQortalGroupId,
   assertValidQortalChatSignature,
+  buildQortalAccountGroupsPath,
   buildQortalGroupChatPayload,
   buildUnsignedQortalGroupChatTransactionBytes,
   QORTAL_CHAT_POW_DIFFICULTY,
@@ -3642,16 +3644,14 @@ function getSendQortalGroupChatRequest(request: QdnAppRequest) {
   }
 }
 
-async function fetchQortalGroupLabel(txGroupId: number) {
+async function fetchOpenQortalGroupLabel(txGroupId: number) {
   const result = await fetchQortalNodeApi(`/groups/${encodeURIComponent(String(txGroupId))}`, 8192);
 
-  if (!result.ok || !isRecord(result.data)) {
-    return `Group ${txGroupId}`;
+  try {
+    return assertOpenQortalGroupMetadata(result.ok ? result.data : null, txGroupId).groupLabel;
+  } catch (error) {
+    throw new SendQortValidationError(getSendQortErrorMessage(error));
   }
-
-  const name = getString(result.data.groupName) || getString(result.data.name);
-
-  return name ? `${name} (${txGroupId})` : `Group ${txGroupId}`;
 }
 
 async function sendQortalGroupChatForApp(
@@ -3675,6 +3675,14 @@ async function sendQortalGroupChatForApp(
     return getSendQortValidationResult(error);
   }
 
+  let groupLabel: string;
+
+  try {
+    groupLabel = await fetchOpenQortalGroupLabel(sendRequest.txGroupId);
+  } catch (error) {
+    return getSendQortValidationResult(error);
+  }
+
   const unlocked = await requestSelectedAccountUnlockForQdnApp(context);
 
   if (!unlocked) {
@@ -3690,14 +3698,6 @@ async function sendQortalGroupChatForApp(
 
   if (signingKey.address !== profile.address) {
     return getSendQortValidationResult('Selected account signing key does not match the saved account address.');
-  }
-
-  let groupLabel = `Group ${sendRequest.txGroupId}`;
-
-  try {
-    groupLabel = await fetchQortalGroupLabel(sendRequest.txGroupId);
-  } catch {
-    // The group name is only approval context. The node will validate the group on broadcast.
   }
 
   try {
@@ -8540,6 +8540,12 @@ async function handleQdnAppRequest(
 
     case 'GET_QORTAL_PRIMARY_NAME':
       return getQortalPrimaryNameForApp(request, context);
+
+    case 'GET_QORTAL_ACCOUNT_GROUPS':
+      return fetchQortalNodeApiPayload(
+        buildQortalAccountGroupsPath(await getAddressForQdnRequest(request, context, 'Address')),
+        request,
+      );
 
     case 'GET_QORTAL_ACCOUNT_NAMES':
       return fetchQortalNodeApiPayload(`/names/address/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);

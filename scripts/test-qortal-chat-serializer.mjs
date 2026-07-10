@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import {
+  assertOpenQortalGroupMetadata,
   assertPositiveQortalGroupId,
   assertValidQortalChatSignature,
+  buildQortalAccountGroupsPath,
   buildQortalGroupChatPayload,
   buildUnsignedQortalGroupChatTransactionBytes,
   QORTAL_CHAT_MAX_DATA_SIZE,
@@ -35,6 +37,26 @@ assert.equal(QORTAL_CHAT_MAX_DATA_SIZE, 4000);
 assert.equal(QORTAL_GROUP_CHAT_NONCE_OFFSET, 112);
 assert.equal(assertPositiveQortalGroupId('1091'), fixture.txGroupId);
 assert.throws(() => assertPositiveQortalGroupId(0), /positive integer/i);
+assert.equal(
+  buildQortalAccountGroupsPath('Qabc'),
+  '/groups/member/Qabc?limit=0&reverse=true',
+);
+assert.deepEqual(
+  assertOpenQortalGroupMetadata({ groupName: 'Test Group', isOpen: true }, fixture.txGroupId),
+  { groupLabel: 'Test Group (1091)', groupName: 'Test Group' },
+);
+assert.throws(
+  () => assertOpenQortalGroupMetadata({ groupName: 'Private Group', isOpen: false }, fixture.txGroupId),
+  /private-group encryption is not supported yet/i,
+);
+assert.throws(
+  () => assertOpenQortalGroupMetadata({ groupName: 'Unknown Group' }, fixture.txGroupId),
+  /could not verify that this Qortal group is public/i,
+);
+assert.throws(
+  () => assertOpenQortalGroupMetadata({ isOpen: 'true' }, fixture.txGroupId),
+  /could not verify that this Qortal group is public/i,
+);
 assert.equal(unsignedBytes.length, 393);
 assert.equal(base58Encode(unsignedBytes), fixture.expectedUnsignedBase58);
 

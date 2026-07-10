@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-10 - qdn: expose Qortal groups and protect public group chat
+
+QDN apps can now ask Home for the groups joined by a selected Qortal account,
+including the Qortal `isOpen` privacy flag. Before showing approval or signing
+a plaintext Qortal group chat message, Home now verifies the group directly
+and continues only for groups explicitly marked public. Private groups are
+rejected with a clear explanation that private-group encryption is not yet
+supported, while missing or malformed privacy metadata also fails closed. The
+same behavior is shared by desktop and Android.
+
 ### 2026-07-09 - app: background notification subscriptions for QDN apps
 
 QDN apps can now ask Home to watch for new resources, incoming payments, chat

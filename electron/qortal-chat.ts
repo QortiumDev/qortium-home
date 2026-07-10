@@ -21,6 +21,45 @@ export type QortalGroupChatBytesInput = {
   txGroupId: number;
 };
 
+export type OpenQortalGroupMetadata = {
+  groupLabel: string;
+  groupName: string | null;
+};
+
+export function buildQortalAccountGroupsPath(address: string) {
+  return `/groups/member/${encodeURIComponent(address)}?limit=0&reverse=true`;
+}
+
+export function assertOpenQortalGroupMetadata(
+  value: unknown,
+  txGroupId: number,
+): OpenQortalGroupMetadata {
+  const metadata = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+  const rawGroupName = metadata?.groupName ?? metadata?.name;
+  const groupName = typeof rawGroupName === 'string' && rawGroupName.trim()
+    ? rawGroupName.trim()
+    : null;
+
+  if (metadata?.isOpen === false) {
+    throw new Error(
+      'This Qortal group is private. Private-group encryption is not supported yet, so the message was not sent.',
+    );
+  }
+
+  if (metadata?.isOpen !== true) {
+    throw new Error(
+      'Home could not verify that this Qortal group is public, so the message was not sent.',
+    );
+  }
+
+  return {
+    groupLabel: groupName ? `${groupName} (${txGroupId})` : `Group ${txGroupId}`,
+    groupName,
+  };
+}
+
 function concatBytes(...chunks: Uint8Array[]) {
   const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
   const bytes = new Uint8Array(length);
