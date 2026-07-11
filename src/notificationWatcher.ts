@@ -3,6 +3,7 @@ import {
   getQdnNotificationDefaultBody,
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
+  coreSupportsArrayFilters,
   toWireNotificationSubscription,
   type StoredQdnNotificationRule,
 } from '../electron/notification-rules';
@@ -41,6 +42,8 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
   let reconnectTimer: number | null = null;
   let reconnectDelay = 5_000;
   let subscriptionRevision = 0;
+  let connectionRevision = 0;
+  let serverSupportsArrayFilters = false;
   let removeStoreListener: (() => void) | null = null;
   let removeActionListener: (() => Promise<void>) | null = null;
   let disposed = false;
@@ -67,7 +70,8 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     socket.send(JSON.stringify({
       action: 'subscribe',
       address: options.activeAccountAddress,
-      subscriptions: eligible.map(({ appKey, rule }) => toWireNotificationSubscription(appKey, rule)),
+      subscriptions: eligible.map(({ appKey, rule }) =>
+        toWireNotificationSubscription(appKey, rule, { serverSupportsArrayFilters })),
     }));
   };
 
@@ -130,8 +134,23 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
   };
 
   const connect = async () => {
-    if (stopped || socket || !(await eligibleRules()).length) return;
+    if (stopped || socket) return;
+    const revision = ++connectionRevision;
+    if (!(await eligibleRules()).length || stopped || socket || revision !== connectionRevision) return;
     try {
+      const response = await fetch(`${options.nodeApiUrl.replace(/\/$/, '')}/admin/info`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      const info: unknown = response.ok ? await response.json() : undefined;
+      if (stopped || socket || revision !== connectionRevision) return;
+      const buildVersion = info && typeof info === 'object' ? (info as { buildVersion?: unknown }).buildVersion : undefined;
+      serverSupportsArrayFilters = coreSupportsArrayFilters(typeof buildVersion === 'string' ? buildVersion : undefined);
+    } catch {
+      if (stopped || socket || revision !== connectionRevision) return;
+      serverSupportsArrayFilters = false;
+    }
+    try {
+      if (stopped || socket || revision !== connectionRevision) return;
       const next = new WebSocket(toWebSocketUrl(options.nodeApiUrl));
       socket = next;
       next.addEventListener('open', () => {
@@ -197,6 +216,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     stopped = true;
     disposed = true;
     subscriptionRevision += 1;
+    connectionRevision += 1;
     if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
     socket?.close();
     removeStoreListener?.();

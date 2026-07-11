@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-11 - qdn: send multi-value txType filters server-side on Core 1.4.0+
+
+When a QDN app watches more than one transaction type, Home now lets newer
+Qortium Core versions narrow those notifications before they reach the app.
+Older Core versions continue to work as before, with Home safely filtering the
+same notifications itself after they arrive.
+
 ### 2026-07-11 - fix: apply host zoom to QDN views after navigation completes
 
 Fixes the report that a saved App Zoom level did not take effect until the

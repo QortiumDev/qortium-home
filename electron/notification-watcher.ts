@@ -6,6 +6,7 @@ import {
   getQdnNotificationDefaultBody,
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
+  coreSupportsArrayFilters,
   toWireNotificationSubscription,
   type StoredQdnNotificationRule,
 } from './notification-rules.js';
@@ -33,6 +34,7 @@ let reconnectTimer: NodeJS.Timeout | null = null;
 let reconnectDelay = RECONNECT_MIN_MS;
 let generation = 0;
 let lastFocusedWindow: BrowserWindow | null = null;
+let serverSupportsArrayFilters = false;
 
 function smokeLog(status: 'FIRED' | 'SUPPRESSED', appKey: string, rule: StoredQdnNotificationRule, reason?: string) {
   const logPath = process.env.QORTIUM_HOME_NOTIFICATION_SMOKE_LOG;
@@ -59,6 +61,18 @@ function toWebSocketUrl(nodeApiUrl: string) {
   return url.toString();
 }
 
+async function getCoreArrayFiltersSupport(nodeApiUrl: string) {
+  try {
+    const response = await fetch(`${nodeApiUrl.replace(/\/$/, '')}/admin/info`, { signal: AbortSignal.timeout(5_000) });
+    if (!response.ok) return false;
+    const info: unknown = await response.json();
+    const buildVersion = info && typeof info === 'object' ? (info as { buildVersion?: unknown }).buildVersion : undefined;
+    return coreSupportsArrayFilters(typeof buildVersion === 'string' ? buildVersion : undefined);
+  } catch {
+    return false;
+  }
+}
+
 function sendSubscriptions() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
   const eligible = getEligibleRules();
@@ -71,7 +85,8 @@ function sendSubscriptions() {
   socket.send(JSON.stringify({
     action: 'subscribe',
     address: getActiveAccountAddress(),
-    subscriptions: eligible.map(({ appKey, rule }) => toWireNotificationSubscription(appKey, rule)),
+    subscriptions: eligible.map(({ appKey, rule }) =>
+      toWireNotificationSubscription(appKey, rule, { serverSupportsArrayFilters })),
   }));
 }
 
@@ -152,7 +167,10 @@ async function connect(expectedGeneration = generation) {
   if (expectedGeneration !== generation || socket || !getEligibleRules().length) return;
   try {
     const { nodeApiUrl } = await getNodeConnection();
-    if (expectedGeneration !== generation) return;
+    if (expectedGeneration !== generation || socket) return;
+    const supportsArrayFilters = await getCoreArrayFiltersSupport(nodeApiUrl);
+    if (expectedGeneration !== generation || socket) return;
+    serverSupportsArrayFilters = supportsArrayFilters;
     // A wss node using its own private CA may not be accepted by Node's global
     // WebSocket client; v1 intentionally does not add custom TLS plumbing.
     const nextSocket = new WebSocket(toWebSocketUrl(nodeApiUrl));
@@ -187,6 +205,7 @@ async function connect(expectedGeneration = generation) {
 function refresh(reconnect = false) {
   if (reconnect) {
     generation += 1;
+    serverSupportsArrayFilters = false;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = null;
     socket?.close();

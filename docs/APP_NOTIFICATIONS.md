@@ -117,17 +117,21 @@ Supported events and filters are:
 - `TRANSACTION_CONFIRMED`: `signature`, `address`, and optional `txType`, with
   at least `signature` or `address` required. `txType` accepts either one enum
   name string or an array of enum name strings (trimmed, uppercased, and
-  deduplicated by Home). Multi-value arrays are matched client-side by Home
-  until the node supports array filters.
+  deduplicated by Home). Multi-value arrays have identical matching behavior
+  everywhere: with Core 1.4.0 or newer, Home sends the array to the node for
+  narrower pushed events; with older Cores, it filters the pushed events
+  client-side instead.
 
 Apps always pass the filter under `filters` in `NOTIFICATION_ADD`; Home maps it
 to the node's wire format when it subscribes — the rich `RESOURCE_PUBLISHED`
 filter is sent as the node's typed `resourceFilter` object, while the other
 events' filters are sent as the generic string map the node matches
 case-insensitively (`electron/notification-rules.ts` `toWireNotificationSubscription`).
-For a multi-value `txType`, Home sends only the required `signature`/`address`
-anchor to the node and suppresses pushed transactions whose `data.type` is not
-in the array.
+For a multi-value `txType`, Home automatically reads the configured node's
+`/admin/info` `buildVersion`: Core 1.4.0 or newer receives the array on the
+server side, while older Cores receive only the required `signature`/`address`
+anchor and Home suppresses pushed transactions whose `data.type` is not in the
+array.
 
 When `text` is omitted, Home derives a sanitized default body from the pushed
 event data when possible: transaction type and sender for
