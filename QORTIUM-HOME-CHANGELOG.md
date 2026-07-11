@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-11 - qdn: app versioning standard, GET_HOST_INFO, and compatibility badges
+
+Home now recognizes an optional version label in QDN apps and websites, shows whether it is compatible with the installed Home version, and lets apps ask Home which platform version they are running on so they can safely offer newer features when available.
+
 ### 2026-07-11 - qdn: send multi-value txType filters server-side on Core 1.4.0+
 
 When a QDN app watches more than one transaction type, Home now lets newer

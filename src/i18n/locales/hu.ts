@@ -565,6 +565,8 @@ export const hu: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "A Qortium Home naprakész a(z) {channel} csatornán.",
   "updates.verifiedLabel": "Ellenőrizve",
   "updates.versionCompareFailed": "A(z) {tag} nem hasonlítható össze a(z) {version} verzióval.",
+  "viewer.appVersion.compatible": "Kompatibilis · v{version} ✓",
+  "viewer.appVersion.needsHome": "Home {version}+ szükséges",
   "viewer.ariaLabel": "QDN-megjelenítő",
   "viewer.browserPageAria": "Böngészőoldal",
   "viewer.checkingResource": "QDN-erőforrás ellenőrzése…",

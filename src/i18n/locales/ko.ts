@@ -565,6 +565,8 @@ export const ko: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Qortium Home은 {channel} 채널에서 최신 상태입니다.",
   "updates.verifiedLabel": "검증됨",
   "updates.versionCompareFailed": "{tag}을(를) {version}과(와) 비교할 수 없습니다.",
+  "viewer.appVersion.compatible": "호환 · v{version} ✓",
+  "viewer.appVersion.needsHome": "Home {version}+ 필요",
   "viewer.ariaLabel": "QDN 뷰어",
   "viewer.browserPageAria": "브라우저 페이지",
   "viewer.checkingResource": "QDN 리소스를 확인하는 중…",

@@ -88,6 +88,7 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from './qdn-app-actions.js';
+import { getPlatformVersion } from './app-versioning.js';
 import {
   getQdnViewContextForWebContents,
   isQdnViewFocused,
@@ -8498,6 +8499,16 @@ async function handleQdnAppRequest(
 
     case 'GET_NODE_INFO':
       return fetchNodeApiPayload('/admin/info', request);
+
+    case 'GET_HOST_INFO': {
+      const hostVersion = app.getVersion();
+
+      return {
+        hostName: 'qortium-home',
+        hostVersion,
+        platformVersion: getPlatformVersion(hostVersion) ?? hostVersion,
+      };
+    }
 
     case 'GET_NODE_SETTINGS_METADATA':
       return fetchNodeApiPayload('/admin/settings/metadata', request);

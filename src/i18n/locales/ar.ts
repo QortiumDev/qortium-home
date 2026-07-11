@@ -565,6 +565,8 @@ export const ar: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Qortium Home محدَّث على قناة {channel}.",
   "updates.verifiedLabel": "تم التحقق",
   "updates.versionCompareFailed": "تعذّرت مقارنة {tag} بالإصدار {version}.",
+  "viewer.appVersion.compatible": "متوافق · v{version} ✓",
+  "viewer.appVersion.needsHome": "يتطلب Home {version}+",
   "viewer.ariaLabel": "عارض QDN",
   "viewer.browserPageAria": "صفحة المتصفح",
   "viewer.checkingResource": "جارٍ التحقق من مورد QDN…",

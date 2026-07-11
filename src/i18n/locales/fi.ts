@@ -565,6 +565,8 @@ export const fi: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Qortium Home on ajan tasalla kanavalla {channel}.",
   "updates.verifiedLabel": "Varmennettu",
   "updates.versionCompareFailed": "Versiota {tag} ei voitu verrata versioon {version}.",
+  "viewer.appVersion.compatible": "Yhteensopiva · v{version} ✓",
+  "viewer.appVersion.needsHome": "Vaatii Home {version}+",
   "viewer.ariaLabel": "QDN-katselin",
   "viewer.browserPageAria": "Selainsivu",
   "viewer.checkingResource": "Tarkistetaan QDN-resurssia…",

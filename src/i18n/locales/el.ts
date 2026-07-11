@@ -545,6 +545,8 @@ export const el: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Το Qortium Home είναι ενημερωμένο στο κανάλι {channel}.",
   "updates.verifiedLabel": "Επαληθεύτηκε",
   "updates.versionCompareFailed": "Δεν ήταν δυνατή η σύγκριση του {tag} με την έκδοση {version}.",
+  "viewer.appVersion.compatible": "Συμβατή · v{version} ✓",
+  "viewer.appVersion.needsHome": "Απαιτεί Home {version}+",
   "viewer.ariaLabel": "Προβολή QDN",
   "viewer.browserPageAria": "Σελίδα προγράμματος περιήγησης",
   "viewer.checkingResource": "Έλεγχος πόρου QDN…",
