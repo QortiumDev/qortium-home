@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-11 - fix: apply host zoom to QDN views after navigation completes
+
+Fixes the report that a saved App Zoom level did not take effect until the
+first manual zoom shortcut. A freshly opened app view now picks up the saved
+zoom as soon as it finishes loading, including after reloads and after
+switching the app to a different node.
+
+### 2026-07-10 - qdn: flexible notification filters and data-derived default text
+
+Notification subscriptions become more flexible for QDN apps. A confirmed-
+transaction rule can now watch several transaction types at once, payment
+rules can filter by sender and other details the node already understood, and
+when an app does not provide its own notification text Home now builds a
+short safe description from the event itself, such as the transaction type
+and a shortened sender address. Existing saved rules keep working unchanged.
+
 ### 2026-07-10 - release: prepare home 1.3.2
 
 Bumps Qortium Home to 1.3.2 with Android versionCode 27 for the next
