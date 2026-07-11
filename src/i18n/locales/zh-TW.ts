@@ -565,6 +565,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Qortium Home 在 {channel} 頻道上已是最新。",
   "updates.verifiedLabel": "已驗證",
   "updates.versionCompareFailed": "無法比較 {tag} 與 {version}。",
+  "viewer.appVersion.compatible": "相容 · v{version} ✓",
+  "viewer.appVersion.needsHome": "需要 Home {version}+",
   "viewer.ariaLabel": "QDN 檢視器",
   "viewer.browserPageAria": "瀏覽器頁面",
   "viewer.checkingResource": "正在檢查 QDN 資源…",

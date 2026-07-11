@@ -21,6 +21,7 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
+import { getPlatformVersion } from '../electron/app-versioning';
 import {
   sanitizeQdnNotificationIds,
   sanitizeQdnNotificationSubscriptions,
@@ -133,6 +134,16 @@ const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
 const NATIVE_ASSET_ID = 0;
 const NATIVE_ASSET_LABEL = 'Native Asset';
+
+export function getQortiumHomeHostInfo() {
+  const hostVersion = packageJson.version;
+
+  return {
+    hostName: 'qortium-home',
+    hostVersion,
+    platformVersion: getPlatformVersion(hostVersion) ?? hostVersion,
+  };
+}
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
 const QDN_UNLOCK_STATE_WAIT_MS = 1_500;
 const QDN_CHAT_MESSAGE_MAX_BYTES = 4000;
@@ -10125,6 +10136,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'GET_NODE_INFO':
       return fetchNodeApiPayload('/admin/info', request);
+
+    case 'GET_HOST_INFO':
+      return getQortiumHomeHostInfo();
 
     case 'GET_NODE_SETTINGS_METADATA':
       return fetchNodeApiPayload('/admin/settings/metadata', request);

@@ -565,6 +565,8 @@ export const nl: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Qortium Home is up-to-date op het kanaal {channel}.",
   "updates.verifiedLabel": "Geverifieerd",
   "updates.versionCompareFailed": "Kan {tag} niet vergelijken met {version}.",
+  "viewer.appVersion.compatible": "Compatibel · v{version} ✓",
+  "viewer.appVersion.needsHome": "Vereist Home {version}+",
   "viewer.ariaLabel": "QDN-viewer",
   "viewer.browserPageAria": "Browserpagina",
   "viewer.checkingResource": "QDN-resource controleren…",

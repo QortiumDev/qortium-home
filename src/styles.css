@@ -4057,6 +4057,12 @@ h1 {
   box-shadow: inset 0 0 0 2px var(--color-accent-ring);
 }
 
+.qdn-viewer__status-handle--with-badge {
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 12px;
+}
+
 .qdn-viewer__status-text {
   display: flex;
   flex-wrap: wrap;
@@ -4076,6 +4082,31 @@ h1 {
   color: var(--color-text-subtle);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
+}
+
+.qdn-viewer__app-version-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  color: var(--color-text);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-small);
+  font-weight: 650;
+  line-height: var(--line-height-small);
+  white-space: nowrap;
+}
+
+.qdn-viewer__app-version-badge--compatible {
+  color: var(--color-accent);
+  background: var(--color-control-hover);
+}
+
+.qdn-viewer__app-version-badge--needs-home {
+  color: var(--color-danger);
+  background: var(--color-control-hover);
 }
 
 .qdn-viewer__progress {

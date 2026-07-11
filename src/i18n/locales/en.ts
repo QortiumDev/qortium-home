@@ -543,6 +543,8 @@ export const en = {
   "updates.upToDateOnChannel": "Qortium Home is up to date on the {channel} channel.",
   "updates.verifiedLabel": "Verified",
   "updates.versionCompareFailed": "Unable to compare {tag} with {version}.",
+  "viewer.appVersion.compatible": "Compatible · v{version} ✓",
+  "viewer.appVersion.needsHome": "Needs Home {version}+",
   "viewer.ariaLabel": "QDN viewer",
   "viewer.browserPageAria": "Browser page",
   "viewer.checkingResource": "Checking QDN resource…",

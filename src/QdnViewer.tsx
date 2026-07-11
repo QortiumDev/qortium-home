@@ -23,7 +23,14 @@ import {
   isTerminalQdnStatus,
 } from './qdn';
 import { marked } from 'marked';
-import { fetchNativeHttpBlobUrl, handleQdnAppRequest, isNativePlatform, saveBytesToFile } from './platform';
+import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
+import {
+  fetchNativeHttpBlobUrl,
+  getQortiumHomeHostInfo,
+  handleQdnAppRequest,
+  isNativePlatform,
+  saveBytesToFile,
+} from './platform';
 import { ArchiveViewer } from './ArchiveViewer';
 import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
 import type { CoreManagerState } from './coreManagerState';
@@ -33,6 +40,7 @@ import { detectContentKind, sniffMagicBytes } from './qdnContentType';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
+const QDN_APP_MANIFEST_MAX_BYTES = 16 * 1024;
 
 type LoadedQdnResource = {
   // The node the resource was loaded from (renderUrl's origin). Kept alongside
@@ -521,6 +529,103 @@ function getQdnBridgeResource(resource: QdnResource) {
     identifier: resource.identifier,
     path: resource.path,
   };
+}
+
+function getQdnAppManifestVersion(value: unknown) {
+  // The bridge returns parsed JSON when the node labels the manifest as JSON,
+  // and the raw text otherwise — accept both.
+  let manifest = value;
+
+  if (typeof manifest === 'string') {
+    try {
+      manifest = JSON.parse(manifest);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!isRecord(manifest) || typeof manifest.version !== 'string') {
+    return null;
+  }
+
+  const version = manifest.version.trim();
+
+  if (version.length > 32) {
+    return null;
+  }
+
+  return getPlatformVersion(version) ? version : null;
+}
+
+function useQdnAppManifestVersion(resource: QdnResource, shouldLoad: boolean) {
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const resourceKey = `${resource.service}:${resource.name}:${resource.identifier ?? 'default'}`;
+  const manifestResource = useMemo(
+    () => ({ ...resource, path: 'qortium-app.json' }),
+    [resource.identifier, resource.name, resource.service],
+  );
+
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    setAppVersion(null);
+
+    if (!shouldLoad || (resource.service !== 'APP' && resource.service !== 'WEBSITE')) {
+      return () => abortController.abort();
+    }
+
+    async function loadManifest() {
+      try {
+        const data = await handleQdnAppRequest({
+          action: 'FETCH_QDN_RESOURCE',
+          ...getQdnBridgeResource(manifestResource),
+          maxBytes: QDN_APP_MANIFEST_MAX_BYTES,
+        });
+
+        if (!abortController.signal.aborted) {
+          setAppVersion(getQdnAppManifestVersion(data));
+        }
+      } catch {
+        // A missing or malformed manifest simply leaves the resource unversioned.
+      }
+    }
+
+    void loadManifest();
+
+    return () => abortController.abort();
+  }, [manifestResource, resourceKey, shouldLoad]);
+
+  return appVersion;
+}
+
+function QdnAppCompatibilityBadge({ appVersion }: { appVersion: string | null }) {
+  if (!appVersion) {
+    return null;
+  }
+
+  const hostInfo = getQortiumHomeHostInfo();
+  const comparison = compareAppPlatformVersions(appVersion, hostInfo.hostVersion);
+  const appPlatformVersion = getPlatformVersion(appVersion);
+
+  if (comparison === null || !appPlatformVersion) {
+    return null;
+  }
+
+  const compatible = comparison <= 0;
+  const label = compatible
+    ? t('viewer.appVersion.compatible', { version: appVersion })
+    : t('viewer.appVersion.needsHome', { version: appPlatformVersion });
+
+  return (
+    <span
+      className={`qdn-viewer__app-version-badge qdn-viewer__app-version-badge--${
+        compatible ? 'compatible' : 'needs-home'
+      }`}
+      title={label}
+    >
+      {label}
+    </span>
+  );
 }
 
 async function loadResourceStatus(resource: QdnResource, build: boolean, signal: AbortSignal) {
@@ -3644,6 +3749,7 @@ export function QdnViewer({
   const [actionContext, setActionContext] = useState<ViewerActionContext>({});
   const statusRegionId = useId();
   const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
+  const appVersion = useQdnAppManifestVersion(resource, state.phase === 'ready');
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
   const progressText = getProgressText(state.status);
   const statusLabel = state.phase === 'ready' ? t('qdnStatus.ready') : formatQdnStatus(state.status);
@@ -3669,7 +3775,7 @@ export function QdnViewer({
     <section className="qdn-viewer" aria-label={t('viewer.ariaLabel')}>
       {statusHidden ? (
         <button
-          className="qdn-viewer__status-handle"
+          className={`qdn-viewer__status-handle${appVersion ? ' qdn-viewer__status-handle--with-badge' : ''}`}
           type="button"
           aria-expanded={false}
           title={t('viewer.showStatusBar')}
@@ -3677,12 +3783,14 @@ export function QdnViewer({
           onClick={() => setStatusHidden(false)}
         >
           <ChevronDown aria-hidden="true" size={16} strokeWidth={2} />
+          <QdnAppCompatibilityBadge appVersion={appVersion} />
         </button>
       ) : (
         <div className="qdn-viewer__status" id={statusRegionId} aria-live="polite">
           <div className="qdn-viewer__status-main">
             <div className="qdn-viewer__status-text">
               <span className="qdn-viewer__status-label">{statusLabel}</span>
+              <QdnAppCompatibilityBadge appVersion={appVersion} />
               <span className="qdn-viewer__resource">{resource.displayUrl}</span>
             </div>
             {state.phase === 'ready' ? (

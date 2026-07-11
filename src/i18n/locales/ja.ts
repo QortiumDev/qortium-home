@@ -565,6 +565,8 @@ export const ja: Record<TranslationKey, string> = {
   "updates.upToDateOnChannel": "Qortium Homeは{channel}チャンネルで最新の状態です。",
   "updates.verifiedLabel": "検証済み",
   "updates.versionCompareFailed": "{tag}を{version}と比較できません。",
+  "viewer.appVersion.compatible": "互換 · v{version} ✓",
+  "viewer.appVersion.needsHome": "Home {version}+ が必要",
   "viewer.ariaLabel": "QDNビューアー",
   "viewer.browserPageAria": "ブラウザーページ",
   "viewer.csv.truncated": "先頭の{limit}行のみ表示しています。すべて表示するにはファイルをダウンロードしてください。",
