@@ -1,6 +1,8 @@
 import { Capacitor } from '@capacitor/core';
 import {
+  getQdnNotificationDefaultBody,
   getQdnNotificationDefaultTitle,
+  matchesQdnNotificationRuleData,
   toWireNotificationSubscription,
   type StoredQdnNotificationRule,
 } from '../electron/notification-rules';
@@ -93,7 +95,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
   };
 
-  const fire = async (appKey: string, rule: StoredQdnNotificationRule) => {
+  const fire = async (appKey: string, rule: StoredQdnNotificationRule, data?: Record<string, unknown>) => {
     const store = await getNotificationStore();
     const grant = store.grants[appKey];
     if (!(await loadDisplaySettings()).appNotifications || !grant || grant.muted) return;
@@ -115,7 +117,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
       if (!latestGrant || latestGrant.muted || !enabled || !hasCurrentRule(latestStore, appKey, rule)) return;
       const id = nextNotificationId++;
       notificationLinks.set(id, rule.link ?? appKey);
-      await LocalNotifications.schedule({ notifications: [{ id, title, body: rule.text ?? '' }] });
+      await LocalNotifications.schedule({ notifications: [{ id, title, body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '' }] });
     } else if (typeof window.Notification === 'function' && window.Notification.permission === 'granted') {
       const [latestStore, enabled] = await Promise.all([
         getNotificationStore(),
@@ -123,7 +125,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
       ]);
       const latestGrant = latestStore.grants[appKey];
       if (!latestGrant || latestGrant.muted || !enabled || !hasCurrentRule(latestStore, appKey, rule)) return;
-      new window.Notification(title, { body: rule.text ?? '' });
+      new window.Notification(title, { body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '' });
     }
   };
 
@@ -140,6 +142,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
         try {
           const message = JSON.parse(String(event.data)) as {
             appName?: string;
+            data?: Record<string, unknown>;
             event?: string;
             notificationId?: string;
             type?: string;
@@ -150,7 +153,9 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
               rule.notificationId === message.notificationId &&
               message.appName === appKey &&
               message.event === rule.event);
-            if (matches.length === 1) void fire(matches[0].appKey, matches[0].rule);
+            if (matches.length === 1 && matchesQdnNotificationRuleData(matches[0].rule, message.data)) {
+              void fire(matches[0].appKey, matches[0].rule, message.data);
+            }
           });
         } catch {
           // Unknown node messages are ignored.

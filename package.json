@@ -50,6 +50,7 @@
     "smoke:qdn-services": "node scripts/smoke-qdn-services.mjs",
     "test:arbitrary-tx": "node scripts/test-arbitrary-tx.mjs",
     "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
+    "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",
     "release:check": "node scripts/check-release-assets.mjs",

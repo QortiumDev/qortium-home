@@ -107,17 +107,35 @@ Supported events and filters are:
 - `RESOURCE_PUBLISHED`: `service`, `names`, `identifier`, `title`,
   `description`, `keywords`, `query`, `prefix`, `defaultResource`,
   `followedOnly`, `excludeBlocked`, `after`, and `before`.
-- `PAYMENT_RECEIVED`: required `recipient`.
+- `PAYMENT_RECEIVED`: `recipient`, `sender`, `amount`, `created`, and
+  `signature`, with at least `recipient` or `sender` required. `amount` is a
+  non-empty string and `created` is a finite number; both are matched by the
+  node using exact string equality, so apps should use the values exactly as
+  Core represents them.
 - `CHAT_MESSAGE`: `recipient`, `sender`, `txGroupId`, or `involving`, with at
   least one required. Message content is never delivered by this event.
 - `TRANSACTION_CONFIRMED`: `signature`, `address`, and optional `txType`, with
-  at least `signature` or `address` required.
+  at least `signature` or `address` required. `txType` accepts either one enum
+  name string or an array of enum name strings (trimmed, uppercased, and
+  deduplicated by Home). Multi-value arrays are matched client-side by Home
+  until the node supports array filters.
 
 Apps always pass the filter under `filters` in `NOTIFICATION_ADD`; Home maps it
 to the node's wire format when it subscribes — the rich `RESOURCE_PUBLISHED`
 filter is sent as the node's typed `resourceFilter` object, while the other
 events' filters are sent as the generic string map the node matches
 case-insensitively (`electron/notification-rules.ts` `toWireNotificationSubscription`).
+For a multi-value `txType`, Home sends only the required `signature`/`address`
+anchor to the node and suppresses pushed transactions whose `data.type` is not
+in the array.
+
+When `text` is omitted, Home derives a sanitized default body from the pushed
+event data when possible: transaction type and sender for
+`TRANSACTION_CONFIRMED`, amount and sender for `PAYMENT_RECEIVED`, and sender
+or group id for `CHAT_MESSAGE`. Addresses are shortened, unsafe control and
+bidirectional-override characters are removed, whitespace is collapsed, and
+the result is capped at 240 characters. `RESOURCE_PUBLISHED` continues to use
+an empty default body. An explicit `text` always wins.
 
 Rules are tagged with the active account address when registered. Home sends
 only rules tagged for the currently active account, and apps should register
