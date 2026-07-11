@@ -244,23 +244,38 @@ export function sanitizeQdnNotificationIds(value: unknown): string[] | undefined
   });
 }
 
+export function coreSupportsArrayFilters(buildVersion: string | undefined): boolean {
+  const match = buildVersion?.match(/-([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-.][0-9A-Za-z.]+)?-([0-9a-fA-F]{6,40})$/);
+  if (!match) return false;
+
+  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  return major > 1 || (major === 1 && (minor > 4 || (minor === 4 && patch >= 0)));
+}
+
 // Maps a stored rule to the node's /websockets/notifications subscription shape.
 // RESOURCE_PUBLISHED uses the node's typed `resourceFilter` object (which keeps
 // arrays/booleans/numbers as-is); every other event uses the generic `filters`
 // string map, so their values are stringified (arrays joined) — the node matches
-// them with case-insensitive string equality. Multi-value txType filters are
-// matched by Home because the node does not support arrays for that filter.
-export function toWireNotificationSubscription(appKey: string, rule: StoredQdnNotificationRule) {
+// them with case-insensitive string equality. Core 1.4.0+ supports arrays for
+// generic filters, but Home still matches multi-value txType filters as a safety net.
+export function toWireNotificationSubscription(
+  appKey: string,
+  rule: StoredQdnNotificationRule,
+  options: { serverSupportsArrayFilters?: boolean } = {},
+) {
   const base = { appName: appKey, event: rule.event, notificationId: rule.notificationId };
 
   if (rule.event === 'RESOURCE_PUBLISHED') {
     return { ...base, resourceFilter: rule.filters };
   }
 
-  const filters: Record<string, string> = {};
+  const filters: Record<string, string | string[]> = {};
 
   for (const [key, value] of Object.entries(rule.filters)) {
-    if (key === 'txType' && Array.isArray(value) && value.length > 1) continue;
+    if (key === 'txType' && Array.isArray(value) && value.length > 1) {
+      if (options.serverSupportsArrayFilters) filters[key] = value;
+      continue;
+    }
     filters[key] = Array.isArray(value) ? value.join(',') : String(value);
   }
 

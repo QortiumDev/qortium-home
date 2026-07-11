@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
 import {
+  coreSupportsArrayFilters,
   getQdnNotificationDefaultBody,
   matchesQdnNotificationRuleData,
   sanitizeQdnNotificationRuleInput,
   toWireNotificationSubscription,
 } from '../dist-electron/notification-rules.js';
+
+assert.equal(coreSupportsArrayFilters(undefined), false);
+assert.equal(coreSupportsArrayFilters('not-a-version'), false);
+assert.equal(coreSupportsArrayFilters('qortium-1.3.5-abcdef0'), false);
+assert.equal(coreSupportsArrayFilters('qortium-1.4.0-abcdef0'), true);
+assert.equal(coreSupportsArrayFilters('qortium-1.4.1-abcdef0'), true);
+assert.equal(coreSupportsArrayFilters('qortium-1.5.0-abcdef0'), true);
+assert.equal(coreSupportsArrayFilters('qortium-2.0.0-abcdef0'), true);
+assert.equal(coreSupportsArrayFilters('qortium-1.4.0-prerelease.0-abcdef0'), true);
 
 const sanitizeText = (value, maxLength) =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, maxLength) : null;
@@ -53,14 +63,29 @@ assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(txSt
 assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(sanitizeRule(
   'TRANSACTION_CONFIRMED',
   { address: 'Qanchor', txType: ['PAYMENT'] },
-))).filters, { address: 'Qanchor', txType: 'PAYMENT' });
-assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(txArrayRule)).filters, {
+)), { serverSupportsArrayFilters: true }).filters, { address: 'Qanchor', txType: 'PAYMENT' });
+assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(txArrayRule), {
+  serverSupportsArrayFilters: false,
+}).filters, {
   address: 'Qanchor',
+});
+assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(txArrayRule), {
+  serverSupportsArrayFilters: true,
+}).filters, {
+  address: 'Qanchor',
+  txType: ['PAYMENT', 'RATE_ACCOUNT'],
 });
 assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule({
   ...sanitizeRule('CHAT_MESSAGE', { involving: 'Qanchor' }),
   filters: { involving: ['Qone', 'Qtwo'] },
 })).filters, { involving: 'Qone,Qtwo' });
+assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(sanitizeRule(
+  'RESOURCE_PUBLISHED',
+  { service: 'APP', names: ['Qone', 'Qtwo'] },
+)), { serverSupportsArrayFilters: true }).resourceFilter, {
+  service: 'APP',
+  names: ['Qone', 'Qtwo'],
+});
 
 const paymentRule = sanitizeRule('PAYMENT_RECEIVED', {
   sender: 'Qsender',
