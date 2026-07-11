@@ -61,7 +61,7 @@ const FILTER_KEYS: Record<QdnNotificationEvent, ReadonlySet<string>> = {
     'after',
     'before',
   ]),
-  PAYMENT_RECEIVED: new Set(['recipient']),
+  PAYMENT_RECEIVED: new Set(['recipient', 'sender', 'amount', 'created', 'signature']),
   CHAT_MESSAGE: new Set(['recipient', 'sender', 'txGroupId', 'involving']),
   TRANSACTION_CONFIRMED: new Set(['signature', 'address', 'txType']),
 };
@@ -69,13 +69,28 @@ const FILTER_KEYS: Record<QdnNotificationEvent, ReadonlySet<string>> = {
 const STRING_ARRAY_FILTERS = new Set(['names', 'keywords']);
 const BOOLEAN_FILTERS = new Set(['defaultResource', 'followedOnly', 'excludeBlocked']);
 // txType is a TransactionType enum NAME (e.g. "PAYMENT"), not a number.
-const NUMBER_FILTERS = new Set(['after', 'before', 'txGroupId']);
+const NUMBER_FILTERS = new Set(['after', 'before', 'created', 'txGroupId']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function sanitizeFilterValue(key: string, value: unknown) {
+  if (key === 'txType') {
+    if (typeof value === 'string') {
+      if (!value.trim()) {
+        throw new Error('Notification filter txType must be a non-empty string or array of non-empty strings.');
+      }
+      return value.trim().toUpperCase();
+    }
+
+    if (!Array.isArray(value) || !value.length || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+      throw new Error('Notification filter txType must be a non-empty string or array of non-empty strings.');
+    }
+
+    return [...new Set(value.map((entry) => entry.trim().toUpperCase()))];
+  }
+
   if (STRING_ARRAY_FILTERS.has(key)) {
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
       throw new Error(`Notification filter ${key} must be an array of strings.`);
@@ -164,8 +179,8 @@ export function sanitizeQdnNotificationRuleInput(
     throw new Error('CHAT_MESSAGE requires at least one of recipient, sender, txGroupId, or involving.');
   }
 
-  if (event === 'PAYMENT_RECEIVED' && !('recipient' in filters)) {
-    throw new Error('PAYMENT_RECEIVED requires a recipient filter.');
+  if (event === 'PAYMENT_RECEIVED' && !('recipient' in filters) && !('sender' in filters)) {
+    throw new Error('PAYMENT_RECEIVED requires a recipient or sender filter.');
   }
 
   if (event === 'TRANSACTION_CONFIRMED' && !('signature' in filters) && !('address' in filters)) {
@@ -233,7 +248,8 @@ export function sanitizeQdnNotificationIds(value: unknown): string[] | undefined
 // RESOURCE_PUBLISHED uses the node's typed `resourceFilter` object (which keeps
 // arrays/booleans/numbers as-is); every other event uses the generic `filters`
 // string map, so their values are stringified (arrays joined) — the node matches
-// them with case-insensitive string equality.
+// them with case-insensitive string equality. Multi-value txType filters are
+// matched by Home because the node does not support arrays for that filter.
 export function toWireNotificationSubscription(appKey: string, rule: StoredQdnNotificationRule) {
   const base = { appName: appKey, event: rule.event, notificationId: rule.notificationId };
 
@@ -244,6 +260,7 @@ export function toWireNotificationSubscription(appKey: string, rule: StoredQdnNo
   const filters: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(rule.filters)) {
+    if (key === 'txType' && Array.isArray(value) && value.length > 1) continue;
     filters[key] = Array.isArray(value) ? value.join(',') : String(value);
   }
 
@@ -256,6 +273,65 @@ export function getQdnNotificationDefaultTitle(event: QdnNotificationEvent) {
     case 'PAYMENT_RECEIVED': return 'Payment received';
     case 'CHAT_MESSAGE': return 'New chat message';
     case 'TRANSACTION_CONFIRMED': return 'Transaction confirmed';
+  }
+}
+
+export function matchesQdnNotificationRuleData(
+  rule: StoredQdnNotificationRule,
+  data: Record<string, unknown> | undefined,
+) {
+  const txTypes = rule.filters.txType;
+  if (rule.event !== 'TRANSACTION_CONFIRMED' || !Array.isArray(txTypes)) return true;
+  const pushedType = data?.type;
+  return typeof pushedType === 'string' && txTypes.some((txType) => txType.toLowerCase() === pushedType.toLowerCase());
+}
+
+const NOTIFICATION_BODY_MAX_LENGTH = 240;
+const UNSAFE_NOTIFICATION_TEXT_PATTERN = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+function sanitizeNotificationBodyPart(value: unknown) {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  if (typeof value === 'number' && !Number.isFinite(value)) return undefined;
+  const sanitized = String(value).replace(UNSAFE_NOTIFICATION_TEXT_PATTERN, '').replace(/\s+/g, ' ').trim();
+  return sanitized || undefined;
+}
+
+function shortenNotificationAddress(value: unknown) {
+  const address = sanitizeNotificationBodyPart(value);
+  if (!address) return undefined;
+  return address.length >= 16 && address.length <= 128
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : address;
+}
+
+function finishNotificationBody(value: string | undefined) {
+  return sanitizeNotificationBodyPart(value)?.slice(0, NOTIFICATION_BODY_MAX_LENGTH);
+}
+
+export function getQdnNotificationDefaultBody(
+  rule: StoredQdnNotificationRule,
+  data: Record<string, unknown> | undefined,
+): string | undefined {
+  const sender = shortenNotificationAddress(data?.sender);
+
+  switch (rule.event) {
+    case 'TRANSACTION_CONFIRMED': {
+      const txType = sanitizeNotificationBodyPart(data?.type);
+      if (txType && sender) return finishNotificationBody(`${txType} from ${sender}`);
+      return finishNotificationBody(txType ?? (sender ? `From ${sender}` : undefined));
+    }
+    case 'PAYMENT_RECEIVED': {
+      const amount = sanitizeNotificationBodyPart(data?.amount);
+      if (amount && sender) return finishNotificationBody(`${amount} from ${sender}`);
+      return finishNotificationBody(amount ?? (sender ? `From ${sender}` : undefined));
+    }
+    case 'CHAT_MESSAGE': {
+      const groupId = sanitizeNotificationBodyPart(data?.txGroupId);
+      if (groupId && groupId !== '0') return finishNotificationBody(`In group ${groupId}`);
+      return finishNotificationBody(sender ? `From ${sender}` : undefined);
+    }
+    case 'RESOURCE_PUBLISHED':
+      return undefined;
   }
 }
 

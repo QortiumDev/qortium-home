@@ -3,7 +3,9 @@ import { appendFileSync } from 'node:fs';
 import { getActiveAccountAddress, onActiveAccountChanged } from './accounts.js';
 import { getNodeConnection, onNodeSettingsChanged } from './node-settings.js';
 import {
+  getQdnNotificationDefaultBody,
   getQdnNotificationDefaultTitle,
+  matchesQdnNotificationRuleData,
   toWireNotificationSubscription,
   type StoredQdnNotificationRule,
 } from './notification-rules.js';
@@ -20,6 +22,7 @@ const RECONNECT_MAX_MS = 60_000;
 
 type NotificationMessage = {
   appName?: string;
+  data?: Record<string, unknown>;
   event?: string;
   notificationId?: string;
   type: 'notification';
@@ -102,6 +105,7 @@ function handleNotificationMessage(message: NotificationMessage) {
   const match = findRule(message);
   if (!match) return;
   const { appKey, rule } = match;
+  if (!matchesQdnNotificationRuleData(rule, message.data)) return suppress(appKey, rule, 'type-filtered');
   const grant = readNotificationStore().grants[appKey];
   if (!areQdnAppNotificationsEnabled()) return suppress(appKey, rule, 'disabled');
   if (!grant) return suppress(appKey, rule, 'revoked');
@@ -111,7 +115,7 @@ function handleNotificationMessage(message: NotificationMessage) {
   if (!Notification.isSupported()) return suppress(appKey, rule, 'unsupported');
 
   const notification = new Notification({
-    body: rule.text ?? '',
+    body: rule.text ?? getQdnNotificationDefaultBody(rule, message.data) ?? '',
     title: `${rule.title ?? getQdnNotificationDefaultTitle(rule.event)} — ${getQdnAppDisplayNameFromResourceUrl(appKey)}`,
   });
   notification.on('click', () => {
