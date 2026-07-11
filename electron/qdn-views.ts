@@ -826,6 +826,13 @@ function createViewEntry(
 
   applyViewGuards(entry);
 
+  // Electron zoom levels are stored per-origin: a level applied to the freshly
+  // created (blank) webContents does not survive the first loadURL, and a
+  // navigation to a different node origin falls back to that origin's default.
+  // Re-apply the host window's zoom after every completed load so a persisted
+  // App Zoom takes effect without needing a manual zoom shortcut first.
+  entry.view.webContents.on('did-finish-load', () => applyHostZoomToEntry(entry));
+
   return entry;
 }
 
