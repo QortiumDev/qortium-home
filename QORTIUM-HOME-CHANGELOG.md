@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-12 - release: prepare home 1.4.0
+
+Bumps Qortium Home to 1.4.0 with Android versionCode 28 for the next
+prerelease. This release adds Core 1.4-aware server-side filtering for
+multi-type transaction notifications, the Qortium App Versioning Standard,
+the `GET_HOST_INFO` bridge action, and compatibility badges for versioned QDN
+apps and websites.
+
 ### 2026-07-11 - qdn: app versioning standard, GET_HOST_INFO, and compatibility badges
 
 Home now recognizes an optional version label in QDN apps and websites, shows whether it is compatible with the installed Home version, and lets apps ask Home which platform version they are running on so they can safely offer newer features when available.
