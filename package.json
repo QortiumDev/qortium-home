@@ -56,7 +56,8 @@
     "release:check": "node scripts/check-release-assets.mjs",
     "release:publish": "node scripts/publish-release.mjs",
     "qdn:bootstrap-test-data": "node scripts/bootstrap-qdn-test-data.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "node scripts/patch-local-notifications-receiver.mjs"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",

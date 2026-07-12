@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-12 - security: verify local-notification restore intents
+
+Home now accepts Android notification-restore broadcasts only for the boot
+actions declared by the local-notifications plugin. Unexpected, missing, or
+spoofed explicit intents are ignored before they can trigger notification
+restoration.
+
 ### 2026-07-12 - release: prepare home 1.4.0
 
 Bumps Qortium Home to 1.4.0 with Android versionCode 28 for the next
