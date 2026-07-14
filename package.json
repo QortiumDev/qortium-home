@@ -99,7 +99,7 @@
     "wait-on": "^9.0.3"
   },
   "overrides": {
-    "tmp": "0.2.6"
+    "tmp": "0.2.7"
   },
   "build": {
     "appId": "org.qortium.home",
