@@ -301,6 +301,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "display.uiLabel": "UI 風格",
   "display.ui.classic": "經典",
   "display.ui.modern": "現代",
+  "display.ui.fun": "趣味",
   "display.sectionTitle": "顯示設定",
   "display.summary": "{theme}、{language}、{textSize}",
   "display.appZoomLabel": "應用程式縮放",
@@ -622,5 +623,9 @@ export const zhTW: Record<TranslationKey, string> = {
   "notifications.mute": "靜音",
   "notifications.revoke": "撤銷",
   "qdnWrite.action.notificationAdd": "背景通知",
+  "qdnWrite.action.updateNodeSettings": "更新節點設定",
+  "qdnWrite.action.restartNode": "重新啟動節點",
+  "qdnWrite.action.addToList": "新增至清單",
+  "qdnWrite.action.removeFromList": "從清單移除",
   "qdnWrite.scopeAlways": "直到在設定中撤銷",
 };

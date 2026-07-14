@@ -301,6 +301,7 @@ export const hu: Record<TranslationKey, string> = {
   "display.uiLabel": "UI stílus",
   "display.ui.classic": "Klasszikus",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Játékos",
   "display.sectionTitle": "Megjelenítési beállítások",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Alkalmazás nagyítása",
@@ -622,5 +623,9 @@ export const hu: Record<TranslationKey, string> = {
   "notifications.mute": "Némítás",
   "notifications.revoke": "Visszavonás",
   "qdnWrite.action.notificationAdd": "Háttérértesítések",
+  "qdnWrite.action.updateNodeSettings": "Csomópont-beállítások frissítése",
+  "qdnWrite.action.restartNode": "Csomópont újraindítása",
+  "qdnWrite.action.addToList": "Hozzáadás a listához",
+  "qdnWrite.action.removeFromList": "Eltávolítás a listáról",
   "qdnWrite.scopeAlways": "A Beállításokban történő visszavonásig",
 };

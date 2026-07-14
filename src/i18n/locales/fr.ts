@@ -301,6 +301,7 @@ export const fr: Record<TranslationKey, string> = {
   "display.uiLabel": "Style d'interface",
   "display.ui.classic": "Classique",
   "display.ui.modern": "Moderne",
+  "display.ui.fun": "Ludique",
   "display.sectionTitle": "Paramètres d'affichage",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Zoom de l'application",
@@ -622,5 +623,9 @@ export const fr: Record<TranslationKey, string> = {
   "notifications.mute": "Mettre en sourdine",
   "notifications.revoke": "Révoquer",
   "qdnWrite.action.notificationAdd": "Notifications en arrière-plan",
+  "qdnWrite.action.updateNodeSettings": "Mettre à jour les paramètres du nœud",
+  "qdnWrite.action.restartNode": "Redémarrer le nœud",
+  "qdnWrite.action.addToList": "Ajouter à la liste",
+  "qdnWrite.action.removeFromList": "Retirer de la liste",
   "qdnWrite.scopeAlways": "Jusqu’à révocation dans les paramètres",
 };

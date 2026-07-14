@@ -301,6 +301,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "display.uiLabel": "UI 风格",
   "display.ui.classic": "经典",
   "display.ui.modern": "现代",
+  "display.ui.fun": "趣味",
   "display.sectionTitle": "显示设置",
   "display.summary": "{theme}、{language}、{textSize}",
   "display.appZoomLabel": "应用缩放",
@@ -622,5 +623,9 @@ export const zhCN: Record<TranslationKey, string> = {
   "notifications.mute": "静音",
   "notifications.revoke": "撤销",
   "qdnWrite.action.notificationAdd": "后台通知",
+  "qdnWrite.action.updateNodeSettings": "更新节点设置",
+  "qdnWrite.action.restartNode": "重启节点",
+  "qdnWrite.action.addToList": "添加到列表",
+  "qdnWrite.action.removeFromList": "从列表中移除",
   "qdnWrite.scopeAlways": "直到在设置中撤销",
 };

@@ -301,6 +301,7 @@ export const ja: Record<TranslationKey, string> = {
   "display.uiLabel": "UI スタイル",
   "display.ui.classic": "クラシック",
   "display.ui.modern": "モダン",
+  "display.ui.fun": "楽しい",
   "display.sectionTitle": "表示設定",
   "display.summary": "{theme}、{language}、{textSize}",
   "display.appZoomLabel": "アプリのズーム",
@@ -622,5 +623,9 @@ export const ja: Record<TranslationKey, string> = {
   "notifications.mute": "ミュート",
   "notifications.revoke": "取り消す",
   "qdnWrite.action.notificationAdd": "バックグラウンド通知",
+  "qdnWrite.action.updateNodeSettings": "ノード設定を更新",
+  "qdnWrite.action.restartNode": "ノードを再起動",
+  "qdnWrite.action.addToList": "リストに追加",
+  "qdnWrite.action.removeFromList": "リストから削除",
   "qdnWrite.scopeAlways": "設定で取り消すまで",
 };

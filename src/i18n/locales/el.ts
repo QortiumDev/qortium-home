@@ -301,6 +301,7 @@ export const el: Record<TranslationKey, string> = {
   "display.uiLabel": "Στυλ UI",
   "display.ui.classic": "Κλασικό",
   "display.ui.modern": "Μοντέρνο",
+  "display.ui.fun": "Διασκεδαστικό",
   "display.sectionTitle": "Ρυθμίσεις εμφάνισης",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Ζουμ εφαρμογής",
@@ -623,5 +624,9 @@ export const el: Record<TranslationKey, string> = {
   "notifications.mute": "Σίγαση",
   "notifications.revoke": "Ανάκληση",
   "qdnWrite.action.notificationAdd": "Ειδοποιήσεις παρασκηνίου",
+  "qdnWrite.action.updateNodeSettings": "Ενημέρωση ρυθμίσεων κόμβου",
+  "qdnWrite.action.restartNode": "Επανεκκίνηση κόμβου",
+  "qdnWrite.action.addToList": "Προσθήκη στη λίστα",
+  "qdnWrite.action.removeFromList": "Αφαίρεση από τη λίστα",
   "qdnWrite.scopeAlways": "Μέχρι να ανακληθεί στις Ρυθμίσεις",
 };

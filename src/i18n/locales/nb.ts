@@ -319,6 +319,7 @@ export const nb: Record<TranslationKey, string> = {
   "display.uiLabel": "UI-stil",
   "display.ui.classic": "Klassisk",
   "display.ui.modern": "Moderne",
+  "display.ui.fun": "Morsom",
   "display.sectionTitle": "Visningsinnstillinger",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Appzoom",
@@ -623,5 +624,9 @@ export const nb: Record<TranslationKey, string> = {
   "notifications.mute": "Demp",
   "notifications.revoke": "Trekk tilbake",
   "qdnWrite.action.notificationAdd": "Bakgrunnsvarsler",
+  "qdnWrite.action.updateNodeSettings": "Oppdater nodeinnstillinger",
+  "qdnWrite.action.restartNode": "Start noden på nytt",
+  "qdnWrite.action.addToList": "Legg til i liste",
+  "qdnWrite.action.removeFromList": "Fjern fra liste",
   "qdnWrite.scopeAlways": "Til det trekkes tilbake i Innstillinger",
 };

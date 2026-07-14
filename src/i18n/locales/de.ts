@@ -301,6 +301,7 @@ export const de: Record<TranslationKey, string> = {
   "display.uiLabel": "UI-Stil",
   "display.ui.classic": "Klassisch",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Verspielt",
   "display.sectionTitle": "Anzeigeeinstellungen",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "App-Zoom",
@@ -622,5 +623,9 @@ export const de: Record<TranslationKey, string> = {
   "notifications.mute": "Stummschalten",
   "notifications.revoke": "Widerrufen",
   "qdnWrite.action.notificationAdd": "Hintergrundbenachrichtigungen",
+  "qdnWrite.action.updateNodeSettings": "Knoteneinstellungen aktualisieren",
+  "qdnWrite.action.restartNode": "Knoten neu starten",
+  "qdnWrite.action.addToList": "Zur Liste hinzufügen",
+  "qdnWrite.action.removeFromList": "Aus Liste entfernen",
   "qdnWrite.scopeAlways": "Bis zum Widerruf in den Einstellungen",
 };

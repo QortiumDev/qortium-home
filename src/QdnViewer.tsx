@@ -3364,6 +3364,8 @@ export function QdnBridgeFrameContent({
 
     const allowedOrigin = new URL(renderUrl).origin;
 
+    let active = true;
+
     async function handleMessage(event: MessageEvent) {
       const frameWindow = frameRef.current?.contentWindow;
 
@@ -3395,6 +3397,8 @@ export function QdnBridgeFrameContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
+          isCurrent: () =>
+            active && !suspendedFrameRef.current && frameRef.current?.contentWindow === frameWindow,
           isViewFocused: () =>
             !suspendedFrameRef.current && document.visibilityState === 'visible',
           onOpenDocumentViewer: (docRequest: QortiumQdnDocumentViewerRequest) => {
@@ -3444,6 +3448,7 @@ export function QdnBridgeFrameContent({
     window.addEventListener('message', handleMessage);
 
     return () => {
+      active = false;
       window.removeEventListener('message', handleMessage);
     };
   }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);

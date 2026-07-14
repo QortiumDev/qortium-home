@@ -301,6 +301,7 @@ export const ko: Record<TranslationKey, string> = {
   "display.uiLabel": "UI 스타일",
   "display.ui.classic": "클래식",
   "display.ui.modern": "모던",
+  "display.ui.fun": "재미",
   "display.sectionTitle": "화면 설정",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "앱 확대/축소",
@@ -622,5 +623,9 @@ export const ko: Record<TranslationKey, string> = {
   "notifications.mute": "음소거",
   "notifications.revoke": "권한 취소",
   "qdnWrite.action.notificationAdd": "백그라운드 알림",
+  "qdnWrite.action.updateNodeSettings": "노드 설정 업데이트",
+  "qdnWrite.action.restartNode": "노드 다시 시작",
+  "qdnWrite.action.addToList": "목록에 추가",
+  "qdnWrite.action.removeFromList": "목록에서 제거",
   "qdnWrite.scopeAlways": "설정에서 취소할 때까지",
 };

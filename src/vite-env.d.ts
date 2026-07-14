@@ -474,7 +474,7 @@ type QortiumQdnViewBounds = {
 type QortiumQdnDisplaySettings = {
   language: 'ar' | 'de' | 'el' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'it' | 'ja' | 'ko' | 'nb' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
-  ui: 'classic' | 'modern';
+  ui: 'classic' | 'modern' | 'fun';
   accent:
     | 'blue'
     | 'cyan'
@@ -632,6 +632,10 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SEND_CHAT_MESSAGE'
     | 'SHOW_NOTIFICATION'
     | 'NOTIFICATION_ADD'
+    | 'UPDATE_NODE_SETTINGS'
+    | 'RESTART_NODE'
+    | 'ADD_TO_LIST'
+    | 'REMOVE_FROM_LIST'
     | 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
     | 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
     | 'START_MINTING'

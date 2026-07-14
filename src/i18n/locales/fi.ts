@@ -301,6 +301,7 @@ export const fi: Record<TranslationKey, string> = {
   "display.uiLabel": "UI-tyyli",
   "display.ui.classic": "Klassinen",
   "display.ui.modern": "Moderni",
+  "display.ui.fun": "Hauska",
   "display.sectionTitle": "Näyttöasetukset",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Sovelluksen zoomaus",
@@ -622,5 +623,9 @@ export const fi: Record<TranslationKey, string> = {
   "notifications.mute": "Mykistä",
   "notifications.revoke": "Peruuta lupa",
   "qdnWrite.action.notificationAdd": "Taustailmoitukset",
+  "qdnWrite.action.updateNodeSettings": "Päivitä solmun asetukset",
+  "qdnWrite.action.restartNode": "Käynnistä solmu uudelleen",
+  "qdnWrite.action.addToList": "Lisää luetteloon",
+  "qdnWrite.action.removeFromList": "Poista luettelosta",
   "qdnWrite.scopeAlways": "Kunnes lupa peruutetaan asetuksissa",
 };

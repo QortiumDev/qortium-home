@@ -41,6 +41,7 @@ const allScenarios = [
   'success',
   'deny-publish',
   'deny-delete',
+  'deny-node-admin',
   'no-account',
   'locked-account',
   'missing-api-key',
@@ -850,6 +851,61 @@ async function runScenarioActions({
       await assertResourceStatus(service, publishName, identifier, 'READY', { build: true });
       return { deleted: false, published: true };
 
+    case 'deny-node-admin': {
+      const settingsBefore = await runQdnRequest(qdnClient, {
+        action: 'FETCH_NODE_API',
+        path: '/admin/settings',
+      });
+      const apiDocumentationEnabled = settingsBefore?.result?.data?.apiDocumentationEnabled === true;
+      const listBefore = await runQdnRequest(qdnClient, {
+        action: 'GET_LIST',
+        listName: 'qdn_approval_smoke',
+      });
+      const deniedRequests = [
+        { action: 'UPDATE_NODE_SETTINGS', patch: { apiDocumentationEnabled: !apiDocumentationEnabled } },
+        { action: 'RESTART_NODE' },
+        { action: 'ADD_TO_LIST', listName: 'qdn_approval_smoke', items: ['denied-item'] },
+        { action: 'REMOVE_FROM_LIST', listName: 'qdn_approval_smoke', items: ['denied-item'] },
+      ];
+
+      for (const request of deniedRequests) {
+        log(`Denying ${request.action} request.`);
+        await runQdnRequestWithDialog(mainClient, qdnClient, request, 'Deny');
+      }
+
+      const settingsAfter = await runQdnRequest(qdnClient, {
+        action: 'FETCH_NODE_API',
+        path: '/admin/settings',
+      });
+      const listAfter = await runQdnRequest(qdnClient, {
+        action: 'GET_LIST',
+        listName: 'qdn_approval_smoke',
+      });
+
+      if (settingsAfter?.result?.data?.apiDocumentationEnabled !== apiDocumentationEnabled) {
+        fail('Denied UPDATE_NODE_SETTINGS changed apiDocumentationEnabled.');
+      }
+
+      if (JSON.stringify(listAfter?.result) !== JSON.stringify(listBefore?.result)) {
+        fail('Denied list writes changed qdn_approval_smoke.');
+      }
+
+      await expectQdnRequestRejected(
+        mainClient,
+        qdnClient,
+        { action: 'UPDATE_NODE_SETTINGS', patch: { i2pSamHost: 'x'.repeat(1_001) } },
+        'too large to display safely for approval',
+      );
+      await expectQdnRequestRejected(
+        mainClient,
+        qdnClient,
+        { action: 'ADD_TO_LIST', listName: 'qdn_approval_smoke', items: ['x'.repeat(4_001)] },
+        'too large to display safely for approval',
+      );
+
+      return { deleted: false, published: false };
+    }
+
     case 'no-account':
       await expectQdnRequestRejected(mainClient, qdnClient, publishRequest, 'No account is selected');
       await assertResourceStatus(service, publishName, identifier, 'NOT_PUBLISHED');
@@ -1244,6 +1300,10 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
           'NOTIFICATION_ADD',
           'NOTIFICATION_GET',
           'NOTIFICATION_REMOVE',
+          'UPDATE_NODE_SETTINGS',
+          'RESTART_NODE',
+          'ADD_TO_LIST',
+          'REMOVE_FROM_LIST',
           'UNLOCK_SELECTED_ACCOUNT',
           'GET_CROSSCHAIN_BLOCKCHAINS',
           'GET_CROSSCHAIN_SERVER_INFO',

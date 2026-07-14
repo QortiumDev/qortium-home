@@ -301,6 +301,7 @@ export const hi: Record<TranslationKey, string> = {
   "display.uiLabel": "यूआई शैली",
   "display.ui.classic": "क्लासिक",
   "display.ui.modern": "आधुनिक",
+  "display.ui.fun": "मज़ेदार",
   "display.sectionTitle": "डिस्प्ले सेटिंग्स",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "ऐप ज़ूम",
@@ -623,5 +624,9 @@ export const hi: Record<TranslationKey, string> = {
   "notifications.mute": "म्यूट करें",
   "notifications.revoke": "अनुमति रद्द करें",
   "qdnWrite.action.notificationAdd": "पृष्ठभूमि सूचनाएँ",
+  "qdnWrite.action.updateNodeSettings": "नोड सेटिंग अपडेट करें",
+  "qdnWrite.action.restartNode": "नोड पुनः आरंभ करें",
+  "qdnWrite.action.addToList": "सूची में जोड़ें",
+  "qdnWrite.action.removeFromList": "सूची से हटाएँ",
   "qdnWrite.scopeAlways": "सेटिंग्स में रद्द किए जाने तक",
 };

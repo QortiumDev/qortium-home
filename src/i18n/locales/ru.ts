@@ -301,6 +301,7 @@ export const ru: Record<TranslationKey, string> = {
   "display.uiLabel": "Стиль интерфейса",
   "display.ui.classic": "Классический",
   "display.ui.modern": "Современный",
+  "display.ui.fun": "Весёлый",
   "display.sectionTitle": "Настройки отображения",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Масштаб приложения",
@@ -622,5 +623,9 @@ export const ru: Record<TranslationKey, string> = {
   "notifications.mute": "Без звука",
   "notifications.revoke": "Отозвать",
   "qdnWrite.action.notificationAdd": "Фоновые уведомления",
+  "qdnWrite.action.updateNodeSettings": "Обновить настройки узла",
+  "qdnWrite.action.restartNode": "Перезапустить узел",
+  "qdnWrite.action.addToList": "Добавить в список",
+  "qdnWrite.action.removeFromList": "Удалить из списка",
   "qdnWrite.scopeAlways": "До отзыва в настройках",
 };

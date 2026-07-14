@@ -301,6 +301,7 @@ export const et: Record<TranslationKey, string> = {
   "display.uiLabel": "UI Style",
   "display.ui.classic": "Classic",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Lõbus",
   "display.sectionTitle": "Kuvaseaded",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Rakenduse suum",
@@ -622,5 +623,9 @@ export const et: Record<TranslationKey, string> = {
   "notifications.mute": "Vaigista",
   "notifications.revoke": "Tühista luba",
   "qdnWrite.action.notificationAdd": "Taustateavitused",
+  "qdnWrite.action.updateNodeSettings": "Uuenda sõlme seadeid",
+  "qdnWrite.action.restartNode": "Taaskäivita sõlm",
+  "qdnWrite.action.addToList": "Lisa loendisse",
+  "qdnWrite.action.removeFromList": "Eemalda loendist",
   "qdnWrite.scopeAlways": "Kuni seadetes tühistamiseni",
 };
