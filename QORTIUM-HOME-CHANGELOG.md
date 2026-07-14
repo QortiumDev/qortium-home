@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-14 - tests: refresh desktop smoke checks for current QDN behavior
+
+Two desktop smoke checks had fallen behind intentional feature changes and
+reported failures against correct behavior. The address-bar check now expects
+what live autocomplete really does after Tab-completing "qdn://" — keep
+suggesting the next segment (QDN services) instead of closing the list — and
+the QDN API check now expects render links that carry the identifier as part
+of the path. No application behavior changed.
+
+
 ### 2026-07-14 - home: first-run welcome setup
 
 New installations now begin with a resumable Welcome setup that helps people choose how Home connects, create or import an account, and choose what to explore next. It can be skipped at any step, never interrupts existing profiles, and keeps the Dashboard and chosen Start pages ready for later launches.

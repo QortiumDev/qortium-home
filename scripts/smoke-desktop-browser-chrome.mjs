@@ -486,10 +486,25 @@ async function runAddressSuggestionAssertions(client) {
   await pressKey(client, 'ArrowDown');
   await dispatchDomKey(client, 'Tab');
 
-  const completedState = await getChromeState(client);
+  // Tab fills the scheme and hands focus back to the input; live autocomplete
+  // then continues the flow by suggesting the next segment (QDN services).
+  await waitUntil('Tab completion with follow-up service suggestions', appTimeoutMs, async () => {
+    const state = await getChromeState(client);
 
-  assert(completedState.addressValue === 'qdn://', `Tab did not complete qdn://, found ${completedState.addressValue}.`);
-  assert(completedState.suggestionsOpen === false, 'Tab completion did not close address suggestions.');
+    return state.addressValue === 'qdn://' &&
+      state.activeElementId === 'browser-address' &&
+      state.suggestionsOpen &&
+      state.suggestions.some((suggestion) => /^qdn:\/\/[A-Z_]+$/.test(suggestion.value))
+      ? state
+      : null;
+  });
+
+  await dispatchDomKey(client, 'Escape');
+  await waitUntil('follow-up suggestions closed by Escape', appTimeoutMs, async () => {
+    const state = await getChromeState(client);
+
+    return state.suggestionsOpen === false ? state : null;
+  });
 }
 
 async function runShortcutAssertions(client) {
