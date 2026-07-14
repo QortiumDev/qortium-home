@@ -752,6 +752,7 @@ interface Window {
     node: {
       checkCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
       enableApiDocumentation: () => Promise<void>;
+      hasStoredSettings?: () => Promise<boolean>;
       getSettings: () => Promise<QortiumNodeSettings>;
       getTransportStatus?: () => Promise<QortiumCoreTransportStatusSnapshot | null>;
       installCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
@@ -761,6 +762,7 @@ interface Window {
       getStatus: () => Promise<QortiumNodeStatusResult>;
     };
     qdn: {
+      hasNotificationStore?: () => Promise<boolean>;
       authorizeResource: (
         request: QortiumQdnAuthorizeRequest,
       ) => Promise<QortiumQdnAuthorizeResult>;

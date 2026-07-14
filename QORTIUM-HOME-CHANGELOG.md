@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-14 - home: first-run welcome setup
+
+New installations now begin with a resumable Welcome setup that helps people choose how Home connects, create or import an account, and choose what to explore next. It can be skipped at any step, never interrupts existing profiles, and keeps the Dashboard and chosen Start pages ready for later launches.
+
 ### 2026-07-14 - core: Java 25 for Home-managed installs, with visible updates
 
 When Home provides Java itself, it now installs Java 25. Home also checks

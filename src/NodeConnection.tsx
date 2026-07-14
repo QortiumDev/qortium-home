@@ -100,15 +100,19 @@ function getApiKeyHint(mode: QortiumNodeSettingsMode) {
 // The mode dropdown applies immediately; the text fields apply on blur (or Enter),
 // so there is still no explicit Save button.
 export function NodeConnectionSettings({
+  initialMode,
   nodeSettings,
   onResolvedNodeApiUrl,
   onSaveNodeSettings,
 }: {
+  // Welcome can reveal a custom-node form before a custom URL exists, while the
+  // Settings surface continues to mirror the saved mode exactly.
+  initialMode?: QortiumNodeSettingsMode;
   nodeSettings: QortiumNodeSettings;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: SaveNodeSettings;
 }) {
-  const [mode, setMode] = useState<QortiumNodeSettingsMode>(nodeSettings.mode);
+  const [mode, setMode] = useState<QortiumNodeSettingsMode>(initialMode ?? nodeSettings.mode);
   const [customUrl, setCustomUrl] = useState(nodeSettings.customUrl);
   const [apiKey, setApiKey] = useState(nodeSettings.apiKey);
   const [error, setError] = useState<string | null>(null);
@@ -116,10 +120,10 @@ export function NodeConnectionSettings({
   const showApiKeyField = mode !== 'network';
 
   useEffect(() => {
-    setMode(nodeSettings.mode);
+    setMode(initialMode ?? nodeSettings.mode);
     setCustomUrl(nodeSettings.customUrl);
     setApiKey(nodeSettings.apiKey);
-  }, [nodeSettings]);
+  }, [initialMode, nodeSettings]);
 
   async function save(nextMode: QortiumNodeSettingsMode, nextCustomUrl: string, nextApiKey: string) {
     setIsSaving(true);

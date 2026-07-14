@@ -37,6 +37,8 @@ type CoreManagerPanelProps = {
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
+  showNodeConnection?: boolean;
+  showTransportControls?: boolean;
 };
 
 function getCoreSettingsStatusText({
@@ -217,6 +219,8 @@ export function CoreManagerPanel({
   onOpenReleaseNotes,
   onResolvedNodeApiUrl,
   onSaveNodeSettings,
+  showNodeConnection = true,
+  showTransportControls = true,
 }: CoreManagerPanelProps) {
   // Transport (IP/I2P) controls — the node's own connection mode. Only managed for
   // a local/custom node (not public network mode).
@@ -285,13 +289,15 @@ export function CoreManagerPanel({
       onRefresh={handleRefresh}
     >
       <div className="core-manager">
-        <NodeConnectionSettings
-          nodeSettings={nodeSettings}
-          onResolvedNodeApiUrl={onResolvedNodeApiUrl}
-          onSaveNodeSettings={onSaveNodeSettings}
-        />
+        {showNodeConnection ? (
+          <NodeConnectionSettings
+            nodeSettings={nodeSettings}
+            onResolvedNodeApiUrl={onResolvedNodeApiUrl}
+            onSaveNodeSettings={onSaveNodeSettings}
+          />
+        ) : null}
 
-        {canManageTransports ? (
+        {showTransportControls && canManageTransports ? (
           <TransportModeSelect
             connections={connections}
             isManagedNode={isManagedNode}

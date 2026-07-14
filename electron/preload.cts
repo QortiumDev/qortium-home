@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   node: {
     checkCoreUpdate: () => ipcRenderer.invoke('node:checkCoreUpdate'),
     enableApiDocumentation: () => ipcRenderer.invoke('node:enableApiDocumentation'),
+    hasStoredSettings: () => ipcRenderer.invoke('node:hasStoredSettings'),
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
     getTransportStatus: () => ipcRenderer.invoke('node:getTransportStatus'),
     installCoreUpdate: () => ipcRenderer.invoke('node:installCoreUpdate'),
@@ -153,6 +154,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     getStatus: () => ipcRenderer.invoke('node:getStatus'),
   },
   qdn: {
+    hasNotificationStore: () => ipcRenderer.invoke('qdn:hasNotificationStore'),
     authorizeResource: (request: { identifier?: string; name: string; service: string }) =>
       ipcRenderer.invoke('qdn:authorizeResource', request),
     setAppNotificationsEnabled: (enabled: boolean) =>

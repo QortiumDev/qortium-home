@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { getManagedCoreRuntimePath, isManagedCoreRuntimeRunning } from './core-manager.js';
 import {
@@ -1350,6 +1350,8 @@ export function onNodeSettingsChanged(listener: () => void) {
 }
 
 export function registerNodeSettingsIpcHandlers() {
+  ipcMain.handle('node:hasStoredSettings', () => existsSync(getNodeSettingsPath()));
+
   ipcMain.handle('node:getSettings', () => getNodeSettingsSnapshot());
 
   ipcMain.handle('node:getTransportStatus', () => {
