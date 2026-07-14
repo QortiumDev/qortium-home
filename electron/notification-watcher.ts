@@ -195,7 +195,18 @@ async function connect(expectedGeneration = generation) {
       scheduleReconnect(expectedGeneration);
     };
     nextSocket.addEventListener('close', disconnected);
-    nextSocket.addEventListener('error', () => nextSocket.close());
+    nextSocket.addEventListener('error', () => {
+      // Never close() a non-open socket here: on Electron's undici that
+      // re-enters this 'error' event from failWebsocketConnection and recurses
+      // until the main process crashes (seen when Core stops mid-reconnect).
+      // A failed handshake also never fires 'close' there, so tear down and
+      // reschedule directly; scheduleReconnect ignores duplicate calls.
+      if (nextSocket.readyState === WebSocket.OPEN) {
+        nextSocket.close();
+        return;
+      }
+      disconnected();
+    });
   } catch (error) {
     console.warn('Unable to connect notification watcher.', error);
     scheduleReconnect(expectedGeneration);

@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-14 - fix: stop notification watcher crashing Home when Core goes away
+
+Fixes a crash where stopping Qortium Core (for example from Core's own tray
+icon) while Home's notification watcher was reconnecting could bring down the
+whole Home app with a "Maximum call stack size exceeded" error. The watcher's
+connection-error handling no longer re-closes a socket that is already
+failing, and a failed connection now goes straight back onto the normal
+reconnect schedule.
+
+
 ### 2026-07-14 - release: prepare home 1.4.1
 
 Bumps Qortium Home to 1.4.1 with Android versionCode 29 for the next
