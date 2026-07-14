@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-14 - release: prepare home 1.4.1
+
+Bumps Qortium Home to 1.4.1 with Android versionCode 29 for the next
+prerelease. This release adds the first-run Welcome setup for new installs,
+the Fun display style with protections for privileged QDN actions, and
+Home-managed Java 25 with visible opt-in updates.
+
+
 ### 2026-07-14 - tests: refresh desktop smoke checks for current QDN behavior
 
 Two desktop smoke checks had fallen behind intentional feature changes and
