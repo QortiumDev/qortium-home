@@ -58,8 +58,17 @@ const POLL_INTERVAL_MS = 2_000;
 // which would otherwise block replacing the install directory).
 const FILE_RELEASE_SETTLE_MS = 2_000;
 const MIN_JAVA_MAJOR_VERSION = 17;
+// Major version Home installs when it provides Java itself. Independent of
+// MIN_JAVA_MAJOR_VERSION: any existing Java at or above the minimum keeps
+// working; only the Home-managed runtime is installed at (and upgraded to)
+// the target.
+const MANAGED_JAVA_TARGET_MAJOR_VERSION = 25;
+const MANAGED_JAVA_UPGRADE_CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const ADOPTIUM_ASSETS_TIMEOUT_MS = 10_000;
+const JAVA_SETTINGS_FILE = 'java-settings.json';
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_API_BASE_URL = 'https://api.adoptium.net/v3/binary/latest';
+const ADOPTIUM_JAVA_ASSETS_API_BASE_URL = 'https://api.adoptium.net/v3/assets/latest';
 const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
 const RUNTIME_ENTRY_NAMES = [
   'apikey.txt',
@@ -181,14 +190,19 @@ type ManagedJava = {
   installedAt: string;
   installPath: string;
   javaPath: string;
+  latestKnownVersion?: string;
   majorVersion: number;
   platform: NodeJS.Platform;
+  upgradeCheckedAt?: string;
   version: string;
 };
 
 type JavaStatus = {
+  autoUpdateEnabled: boolean;
   available: boolean;
   majorVersion: number | null;
+  managedJavaTarget: number;
+  managedUpgradeAvailable: boolean;
   path: string;
   source: JavaSource;
   version: string | null;
@@ -1316,7 +1330,7 @@ function getJavaArchiveExtension(archiveType: JavaArchiveType) {
 }
 
 function getJavaDownloadUrl(javaPlatform: JavaPlatform) {
-  return `${ADOPTIUM_JAVA_API_BASE_URL}/${MIN_JAVA_MAJOR_VERSION}/ga/${javaPlatform.apiOs}/${javaPlatform.apiArch}/jre/hotspot/normal/eclipse`;
+  return `${ADOPTIUM_JAVA_API_BASE_URL}/${MANAGED_JAVA_TARGET_MAJOR_VERSION}/ga/${javaPlatform.apiOs}/${javaPlatform.apiArch}/jre/hotspot/normal/eclipse`;
 }
 
 function parseInstalledJava(value: unknown): ManagedJava | null {
@@ -1336,6 +1350,8 @@ function parseInstalledJava(value: unknown): ManagedJava | null {
 
   const archiveType = managedJava.archiveType === 'zip' ? 'zip' : 'tar.gz';
   const platform = getString(managedJava.platform) as NodeJS.Platform;
+  const upgradeCheckedAt = getString(managedJava.upgradeCheckedAt);
+  const latestKnownVersion = getString(managedJava.latestKnownVersion);
 
   return {
     apiArch: getString(managedJava.apiArch),
@@ -1350,10 +1366,33 @@ function parseInstalledJava(value: unknown): ManagedJava | null {
     installedAt: getString(managedJava.installedAt),
     installPath,
     javaPath,
+    ...(latestKnownVersion ? { latestKnownVersion } : {}),
     majorVersion,
     platform: platform || process.platform,
+    ...(upgradeCheckedAt ? { upgradeCheckedAt } : {}),
     version,
   };
+}
+
+function getJavaSettingsPath() {
+  return path.join(getJavaBasePath(), JAVA_SETTINGS_FILE);
+}
+
+async function readJavaAutoUpdateEnabled() {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(getJavaSettingsPath(), 'utf8'));
+
+    return isObject(parsed) && (parsed as { autoUpdate?: unknown }).autoUpdate === true;
+  } catch {
+    return false;
+  }
+}
+
+async function setJavaAutoUpdate(enabled: boolean) {
+  await mkdir(getJavaBasePath(), { recursive: true });
+  await writeFile(getJavaSettingsPath(), `${JSON.stringify({ autoUpdate: enabled }, null, 2)}\n`, 'utf8');
+
+  return await getStatus();
 }
 
 async function readInstalledJavaMetadata(currentJavaPath = getCurrentJavaPath()): Promise<ManagedJava | null> {
@@ -1389,6 +1428,160 @@ function parseJavaMajorVersion(version: string) {
   return Number.isFinite(majorVersion) ? majorVersion : null;
 }
 
+// Tolerates both `java -version` strings ("25.0.3") and Adoptium version
+// strings ("25.0.3+9-LTS"): everything from the first build/pre-release
+// separator on is ignored.
+function parseJavaVersionNumbers(version: string) {
+  const release = version.split(/[+_-]/)[0] ?? '';
+
+  return release
+    .split('.')
+    .map(Number)
+    .filter((value) => Number.isFinite(value));
+}
+
+function isNewerJavaVersion(candidate: string, installed: string) {
+  const candidateNumbers = parseJavaVersionNumbers(candidate);
+  const installedNumbers = parseJavaVersionNumbers(installed);
+  const length = Math.max(candidateNumbers.length, installedNumbers.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const difference = (candidateNumbers[index] ?? 0) - (installedNumbers[index] ?? 0);
+
+    if (difference !== 0) {
+      return difference > 0;
+    }
+  }
+
+  return false;
+}
+
+async function fetchLatestManagedJavaVersion(javaPlatform: JavaPlatform) {
+  const url =
+    `${ADOPTIUM_JAVA_ASSETS_API_BASE_URL}/${MANAGED_JAVA_TARGET_MAJOR_VERSION}/hotspot` +
+    `?architecture=${javaPlatform.apiArch}&image_type=jre&os=${javaPlatform.apiOs}&vendor=eclipse`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(ADOPTIUM_ASSETS_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const releases: unknown = await response.json();
+
+    if (!Array.isArray(releases)) {
+      return null;
+    }
+
+    for (const release of releases) {
+      if (!isObject(release)) {
+        continue;
+      }
+
+      const version = (release as { version?: unknown }).version;
+
+      if (!isObject(version)) {
+        continue;
+      }
+
+      const openjdkVersion = getString((version as { openjdk_version?: unknown }).openjdk_version);
+
+      if (openjdkVersion) {
+        return openjdkVersion;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isManagedJavaUpdateAvailable(installedJava: ManagedJava) {
+  if (installedJava.majorVersion < MANAGED_JAVA_TARGET_MAJOR_VERSION) {
+    return true;
+  }
+
+  return (
+    !!installedJava.latestKnownVersion &&
+    isNewerJavaVersion(installedJava.latestKnownVersion, installedJava.version)
+  );
+}
+
+// Refreshes what we know about newer managed-runtime versions (persisted in
+// the install metadata so status reads never wait on the network). Throttled;
+// the check stamp is written before fetching so an offline machine retries
+// weekly instead of on every call.
+async function refreshManagedJavaUpdateInfo(installedJava: ManagedJava): Promise<ManagedJava> {
+  const lastCheckedAt = Date.parse(installedJava.upgradeCheckedAt ?? '');
+
+  if (Number.isFinite(lastCheckedAt) && Date.now() - lastCheckedAt < MANAGED_JAVA_UPGRADE_CHECK_INTERVAL_MS) {
+    return installedJava;
+  }
+
+  let refreshed: ManagedJava = { ...installedJava, upgradeCheckedAt: new Date().toISOString() };
+
+  await writeInstalledJava(refreshed);
+
+  const javaPlatform = getJavaPlatform();
+  const latestVersion = javaPlatform ? await fetchLatestManagedJavaVersion(javaPlatform) : null;
+
+  if (latestVersion) {
+    refreshed = { ...refreshed, latestKnownVersion: latestVersion };
+    await writeInstalledJava(refreshed);
+  }
+
+  return refreshed;
+}
+
+let managedJavaRefreshInFlight = false;
+
+function scheduleManagedJavaUpdateRefresh(installedJava: ManagedJava) {
+  if (managedJavaRefreshInFlight) {
+    return;
+  }
+
+  managedJavaRefreshInFlight = true;
+  void refreshManagedJavaUpdateInfo(installedJava)
+    .catch(() => {})
+    .finally(() => {
+      managedJavaRefreshInFlight = false;
+    });
+}
+
+// Opt-in (java-settings.json, off by default): updates the Home-managed JRE —
+// an older major to the target, or a security refresh within it. Without a
+// refresh path, managed runtimes stay frozen at whatever version was first
+// downloaded. Best-effort — callers must be able to proceed on the existing
+// runtime.
+async function maybeUpgradeManagedJava() {
+  try {
+    if (!(await readJavaAutoUpdateEnabled())) {
+      return;
+    }
+
+    let installedJava = await readInstalledJavaMetadata();
+
+    if (!installedJava) {
+      return;
+    }
+
+    installedJava = await refreshManagedJavaUpdateInfo(installedJava);
+
+    if (!isManagedJavaUpdateAvailable(installedJava)) {
+      return;
+    }
+
+    await installJava();
+  } catch (error) {
+    console.warn('Unable to update the managed Java runtime; continuing with the existing one.', error);
+  }
+}
+
 function detectJavaVersion(command = 'java', source: JavaSource = 'system'): Promise<JavaStatus> {
   return new Promise((resolve) => {
     const useShell = command === 'java' && process.platform === 'win32';
@@ -1402,8 +1595,11 @@ function detectJavaVersion(command = 'java', source: JavaSource = 'system'): Pro
     child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
     child.on('error', () => {
       resolve({
+        autoUpdateEnabled: false,
         available: false,
         majorVersion: null,
+        managedJavaTarget: MANAGED_JAVA_TARGET_MAJOR_VERSION,
+        managedUpgradeAvailable: false,
         path: command,
         source,
         version: null,
@@ -1415,8 +1611,11 @@ function detectJavaVersion(command = 'java', source: JavaSource = 'system'): Pro
       const majorVersion = version ? parseJavaMajorVersion(version) : null;
 
       resolve({
+        autoUpdateEnabled: false,
         available: typeof majorVersion === 'number' && majorVersion >= MIN_JAVA_MAJOR_VERSION,
         majorVersion,
+        managedJavaTarget: MANAGED_JAVA_TARGET_MAJOR_VERSION,
+        managedUpgradeAvailable: false,
         path: command,
         source,
         version,
@@ -1428,31 +1627,49 @@ function detectJavaVersion(command = 'java', source: JavaSource = 'system'): Pro
 async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<JavaStatus> {
   const installedJava =
     options.ensureLayout === false ? await readInstalledJavaMetadata() : await readInstalledJava();
+  const autoUpdateEnabled = await readJavaAutoUpdateEnabled();
   let managedStatus: JavaStatus | null = null;
 
   if (installedJava) {
     managedStatus = await detectJavaVersion(installedJava.javaPath, 'managed');
 
     if (managedStatus.available) {
-      return managedStatus;
+      // Fire-and-forget: availability below reads only persisted metadata, so
+      // a fresh check result shows up on a later status poll.
+      scheduleManagedJavaUpdateRefresh(installedJava);
+
+      return {
+        ...managedStatus,
+        autoUpdateEnabled,
+        managedUpgradeAvailable: isManagedJavaUpdateAvailable(installedJava),
+      };
     }
   }
 
   const systemJava = await detectJavaVersion('java', 'system');
 
   if (systemJava.available) {
-    return systemJava;
+    // A supported system Java is never replaced, but when it trails the
+    // managed target the UI can offer installing a Home-managed runtime
+    // alongside it (managed installs are preferred once present).
+    return {
+      ...systemJava,
+      autoUpdateEnabled,
+      managedUpgradeAvailable: (systemJava.majorVersion ?? 0) < MANAGED_JAVA_TARGET_MAJOR_VERSION,
+    };
   }
 
   if (managedStatus?.version) {
     return {
       ...managedStatus,
+      autoUpdateEnabled,
       source: 'unsupported',
     };
   }
 
   return {
     ...systemJava,
+    autoUpdateEnabled,
     source: systemJava.version ? 'unsupported' : 'missing',
   };
 }
@@ -1849,8 +2066,9 @@ async function installJava() {
     throw new Error(`Managed Java is not available for ${process.platform}/${process.arch}.`);
   }
 
+  const previousJava = await readInstalledJavaMetadata();
   const archiveExtension = getJavaArchiveExtension(javaPlatform.archiveType);
-  const archiveName = `${JAVA_DISTRIBUTION}-${MIN_JAVA_MAJOR_VERSION}-${javaPlatform.apiOs}-${javaPlatform.apiArch}.${archiveExtension}`;
+  const archiveName = `${JAVA_DISTRIBUTION}-${MANAGED_JAVA_TARGET_MAJOR_VERSION}-${javaPlatform.apiOs}-${javaPlatform.apiArch}.${archiveExtension}`;
   const archive: DownloadAsset = {
     digest: null,
     downloadUrl: getJavaDownloadUrl(javaPlatform),
@@ -1865,6 +2083,17 @@ async function installJava() {
 
   await mkdir(getCoreDownloadsPath(), { recursive: true });
   await mkdir(getJavaVersionsPath(), { recursive: true });
+
+  // Staging dirs only survive a crashed install; sweep them before creating
+  // this run's (uniquely named) one.
+  const versionEntries = await readdir(getJavaVersionsPath(), { withFileTypes: true }).catch(() => []);
+
+  for (const entry of versionEntries) {
+    if (entry.isDirectory() && entry.name.startsWith('_staging-')) {
+      await rm(path.join(getJavaVersionsPath(), entry.name), { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   await rm(stagingPath, { recursive: true, force: true });
   await mkdir(stagingPath, { recursive: true });
 
@@ -1886,13 +2115,13 @@ async function installJava() {
     const javaStatus = await detectJavaVersion(stagingJavaPath, 'managed');
 
     if (!javaStatus.available || !javaStatus.version || !javaStatus.majorVersion) {
-      throw new Error('Downloaded Java runtime is not Java 17 or newer.');
+      throw new Error(`Downloaded Java runtime is not Java ${MIN_JAVA_MAJOR_VERSION} or newer.`);
     }
 
     const finalPath = path.join(
       getJavaVersionsPath(),
       sanitizePathSegment(
-        `${JAVA_DISTRIBUTION}-${MIN_JAVA_MAJOR_VERSION}-${javaStatus.version}-${javaPlatform.platform}-${javaPlatform.arch}`,
+        `${JAVA_DISTRIBUTION}-${MANAGED_JAVA_TARGET_MAJOR_VERSION}-${javaStatus.version}-${javaPlatform.platform}-${javaPlatform.arch}`,
       ),
     );
 
@@ -1917,8 +2146,15 @@ async function installJava() {
       javaPath,
       majorVersion: javaStatus.majorVersion,
       platform: javaPlatform.platform,
+      upgradeCheckedAt: new Date().toISOString(),
       version: javaStatus.version,
     });
+
+    // Retire the runtime this install replaced. Best-effort: on Windows a
+    // recently-stopped JVM can still hold locks on its own install dir.
+    if (previousJava && previousJava.installPath !== finalPath) {
+      await rm(previousJava.installPath, { recursive: true, force: true }).catch(() => {});
+    }
 
     publishProgress({
       action: 'idle',
@@ -2249,16 +2485,20 @@ async function startCore(options: { quiet?: boolean } = {}) {
     throw new Error('Install Qortium Core before starting it.');
   }
 
-  const java = await getJavaStatus();
-
-  if (!java.available) {
-    throw new Error('Java 17 or newer is required before Qortium Core can start.');
-  }
-
   const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 
   if (currentRuntime.running) {
     return await getStatus();
+  }
+
+  // The core is confirmed stopped here, so a managed-runtime swap cannot pull
+  // the JRE out from under a running JVM.
+  await maybeUpgradeManagedJava();
+
+  const java = await getJavaStatus();
+
+  if (!java.available) {
+    throw new Error(`Java ${MIN_JAVA_MAJOR_VERSION} or newer is required before Qortium Core can start.`);
   }
 
   await ensureInstalledCoreRuntimeChain(installedCore, { recordIfMissing: true });
@@ -2438,6 +2678,7 @@ export function registerCoreManagerIpcHandlers() {
   ipcMain.handle('core:getStatus', () => getStatus());
   ipcMain.handle('core:install', (_event, request: CoreInstallRequest = {}) => installCore(request));
   ipcMain.handle('core:installJava', () => installJava());
+  ipcMain.handle('core:setJavaAutoUpdate', (_event, enabled: unknown) => setJavaAutoUpdate(enabled === true));
   ipcMain.handle('core:start', () => startCore());
   ipcMain.handle('core:stop', () => stopCore());
 }

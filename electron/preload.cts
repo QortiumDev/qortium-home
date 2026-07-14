@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     install: (request: { channel?: 'prerelease' | 'stable' }) =>
       ipcRenderer.invoke('core:install', request),
     installJava: () => ipcRenderer.invoke('core:installJava'),
+    setJavaAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('core:setJavaAutoUpdate', enabled),
     start: () => ipcRenderer.invoke('core:start'),
     stop: () => ipcRenderer.invoke('core:stop'),
     onProgress: (callback: (progress: unknown) => void) => {

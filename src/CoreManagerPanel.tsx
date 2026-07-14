@@ -240,6 +240,9 @@ export function CoreManagerPanel({
         : false;
   const releaseTargetBusyAction = getCoreReleaseBusyAction(releaseTarget?.channel);
   const showJavaAction = coreManager.canInstallJava;
+  const showJavaUpdateAction = coreManager.canUpdateJava;
+  const showJavaUpgradeAction = coreManager.canUpgradeJava;
+  const showJavaAutoUpdateSetting = coreManager.status?.java.source === 'managed';
   const showCoreInstallAction =
     !showJavaAction &&
     !!releaseTarget &&
@@ -317,7 +320,7 @@ export function CoreManagerPanel({
         ) : null}
 
         <div className="core-manager__actions">
-          {showJavaAction ? (
+          {showJavaAction || showJavaUpdateAction ? (
             <button
               className="button"
               disabled={coreManager.isBusy}
@@ -327,7 +330,24 @@ export function CoreManagerPanel({
               <Download aria-hidden="true" size={18} strokeWidth={2} />
               {coreManager.busyAction === 'installing-java'
                 ? t('common.installing')
-                : t('core.installJava')}
+                : showJavaAction
+                  ? t('core.installJava')
+                  : t('core.updateJava')}
+            </button>
+          ) : null}
+          {showJavaUpgradeAction ? (
+            <button
+              className="button"
+              disabled={coreManager.isBusy}
+              type="button"
+              onClick={coreManager.installJava}
+            >
+              <Download aria-hidden="true" size={18} strokeWidth={2} />
+              {coreManager.busyAction === 'installing-java'
+                ? t('common.installing')
+                : t('core.installManagedJava', {
+                    version: coreManager.status?.java.managedJavaTarget ?? '',
+                  })}
             </button>
           ) : null}
           {showOnChainInstallAction ? (
@@ -377,6 +397,20 @@ export function CoreManagerPanel({
             </button>
           ) : null}
         </div>
+
+        {showJavaAutoUpdateSetting ? (
+          <label className="core-manager__java-auto-update">
+            <input
+              checked={coreManager.status?.java.autoUpdateEnabled === true}
+              disabled={coreManager.isBusy}
+              type="checkbox"
+              onChange={(event) => {
+                void coreManager.setJavaAutoUpdate(event.target.checked);
+              }}
+            />
+            {t('core.autoUpdateJava')}
+          </label>
+        ) : null}
 
         {coreManager.message ? (
           <p className={`core-manager__message core-manager__message--${coreManager.message.kind}`}>

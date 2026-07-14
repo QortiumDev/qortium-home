@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-14 - core: Java 25 for Home-managed installs, with visible updates
+
+When Home provides Java itself, it now installs Java 25. Home also checks
+(about once a week, and without ever blocking anything) whether a newer
+version of its own Java is available — including security updates within the
+same version — and shows an Update Java button when there is one. Updates
+are never applied silently by default: a new "Automatically update Java"
+setting (off unless enabled) lets Home apply them on its own the next time
+it starts the core, while the core is safely stopped. A Java already
+installed on the system is never touched — if it is version 17 or newer it
+keeps working as before, with an optional button to add a Home-managed
+Java 25 alongside it.
+
 ### 2026-07-12 - security: verify local-notification restore intents
 
 Home now accepts Android notification-restore broadcasts only for the boot

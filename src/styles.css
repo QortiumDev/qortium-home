@@ -3906,6 +3906,15 @@ h1 {
   min-width: 0;
 }
 
+.core-manager__java-auto-update {
+  align-items: center;
+  align-self: flex-end;
+  color: var(--color-text-subtle);
+  display: flex;
+  font-size: 0.85rem;
+  gap: 0.4rem;
+}
+
 .node-settings__message--success,
 .app-updates__message--success,
 .core-manager__message--success {
