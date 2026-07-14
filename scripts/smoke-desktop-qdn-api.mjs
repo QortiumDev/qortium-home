@@ -679,11 +679,11 @@ async function runBridgeAssertions(qdnClient) {
     name: fixtureName,
     service: 'APP',
   });
+  // Render URLs carry the identifier as a path segment (PR #46), not a query param.
   assert(
     typeof appUrl === 'string' &&
-      appUrl.includes(`/render/APP/${fixtureName}`) &&
-      appUrl.includes(`identifier=${appIdentifier}`),
-    'GET_QDN_RESOURCE_URL returned an unexpected APP render URL.',
+      appUrl.includes(`/render/APP/${encodeURIComponent(fixtureName)}/${encodeURIComponent(appIdentifier)}`),
+    `GET_QDN_RESOURCE_URL returned an unexpected APP render URL: ${appUrl}`,
   );
 
   const jsonResource = await runQdnRequest(qdnClient, {
