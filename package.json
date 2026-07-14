@@ -50,6 +50,7 @@
     "smoke:qdn-services": "node scripts/smoke-qdn-services.mjs",
     "test:arbitrary-tx": "node scripts/test-arbitrary-tx.mjs",
     "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
+    "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",
@@ -99,6 +100,9 @@
     "wait-on": "^9.0.3"
   },
   "overrides": {
+    "epubjs": {
+      "@xmldom/xmldom": "0.8.13"
+    },
     "tmp": "0.2.7"
   },
   "build": {
