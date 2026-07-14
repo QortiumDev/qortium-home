@@ -201,8 +201,11 @@ type QortiumInstalledCore = {
 };
 
 type QortiumCoreJavaStatus = {
+  autoUpdateEnabled: boolean;
   available: boolean;
   majorVersion: number | null;
+  managedJavaTarget: number;
+  managedUpgradeAvailable: boolean;
   path: string;
   source: 'managed' | 'missing' | 'system' | 'unsupported';
   version: string | null;
@@ -701,6 +704,7 @@ interface Window {
       getStatus: () => Promise<QortiumCoreStatus>;
       install: (request: { channel?: QortiumCoreChannel }) => Promise<QortiumCoreStatus>;
       installJava: () => Promise<QortiumCoreStatus>;
+      setJavaAutoUpdate: (enabled: boolean) => Promise<QortiumCoreStatus>;
       onProgress: (callback: (progress: QortiumCoreProgress) => void) => () => void;
       start: () => Promise<QortiumCoreStatus>;
       stop: () => Promise<QortiumCoreStatus>;

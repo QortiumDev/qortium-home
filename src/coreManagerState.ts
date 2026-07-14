@@ -250,6 +250,23 @@ export function useCoreManager({
   const canInstallPrerelease = !!releases?.prerelease.available;
   const canInstallStable = !!releases?.stable.available;
   const canInstallJava = !!status && !runtimeBlocked && !status.java.available && status.supported;
+  // A Home-managed runtime with a known newer version: same action as install,
+  // surfaced as an explicit "Update Java" (never applied silently unless the
+  // auto-update setting is on).
+  const canUpdateJava =
+    !!status &&
+    !runtimeBlocked &&
+    status.supported &&
+    status.java.source === 'managed' &&
+    status.java.managedUpgradeAvailable;
+  // Passive offer for system-Java users: their install is never touched, but
+  // they can opt into a Home-managed runtime at the newer target version.
+  const canUpgradeJava =
+    !!status &&
+    !runtimeBlocked &&
+    status.supported &&
+    status.java.source === 'system' &&
+    status.java.managedUpgradeAvailable;
   const canStart = !!status?.installed && !runtimeBlocked && !!status.java.available && !status.runtime.running;
   // Any running local core can be stopped: Home-owned ones via the stop script /
   // pid, and cores Home didn't start (or can't confirm ownership of, e.g. on
@@ -352,6 +369,25 @@ export function useCoreManager({
     }
   }
 
+  async function setJavaAutoUpdate(enabled: boolean) {
+    if (!coreApi) {
+      return;
+    }
+
+    setMessage(null);
+
+    try {
+      const nextStatus = await coreApi.setJavaAutoUpdate(enabled);
+
+      setStatus(nextStatus);
+    } catch (error) {
+      setMessage({
+        kind: 'error',
+        text: formatCoreError(error),
+      });
+    }
+  }
+
   async function installJava() {
     if (!coreApi) {
       return;
@@ -449,6 +485,8 @@ export function useCoreManager({
     canInstallStable: canInstallOrUpdateStable,
     canStart,
     canStop,
+    canUpdateJava,
+    canUpgradeJava,
     coreApi,
     detailRows,
     installCore,
@@ -460,6 +498,7 @@ export function useCoreManager({
     progressPercent,
     refreshStatus,
     releases,
+    setJavaAutoUpdate,
     stableUpdateAvailable,
     startCore,
     status,

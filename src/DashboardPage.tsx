@@ -295,6 +295,7 @@ function ManagedCoreDashboardCard({
   // dead-end when Core isn't installed: offer Install Java first, then Install Core
   // (fresh install OR update), and only surface Start/Stop once Java is present.
   const showJavaAction = coreManager.canInstallJava;
+  const showJavaUpdateAction = coreManager.canUpdateJava;
   const showOnChainInstallAction =
     !showJavaAction &&
     !!onChainStatus?.updateAvailable &&
@@ -370,7 +371,7 @@ function ManagedCoreDashboardCard({
       ) : null}
 
       <div className="dashboard-card__actions">
-        {showJavaAction ? (
+        {showJavaAction || showJavaUpdateAction ? (
           <button
             className="button"
             disabled={coreManager.isBusy}
@@ -378,7 +379,11 @@ function ManagedCoreDashboardCard({
             onClick={coreManager.installJava}
           >
             <Download aria-hidden="true" size={18} strokeWidth={2} />
-            {coreManager.busyAction === 'installing-java' ? t('common.installing') : t('core.installJava')}
+            {coreManager.busyAction === 'installing-java'
+              ? t('common.installing')
+              : showJavaAction
+                ? t('core.installJava')
+                : t('core.updateJava')}
           </button>
         ) : null}
         {showOnChainInstallAction ? (
