@@ -301,6 +301,7 @@ export const ro: Record<TranslationKey, string> = {
   "display.uiLabel": "Stil de interfață",
   "display.ui.classic": "Clasic",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Distractiv",
   "display.sectionTitle": "Setări de afișare",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Zoom aplicație",
@@ -622,5 +623,9 @@ export const ro: Record<TranslationKey, string> = {
   "notifications.mute": "Dezactivează sunetul",
   "notifications.revoke": "Revocă",
   "qdnWrite.action.notificationAdd": "Notificări în fundal",
+  "qdnWrite.action.updateNodeSettings": "Actualizează setările nodului",
+  "qdnWrite.action.restartNode": "Repornește nodul",
+  "qdnWrite.action.addToList": "Adaugă în listă",
+  "qdnWrite.action.removeFromList": "Elimină din listă",
   "qdnWrite.scopeAlways": "Până la revocarea din Setări",
 };

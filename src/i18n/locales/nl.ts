@@ -301,6 +301,7 @@ export const nl: Record<TranslationKey, string> = {
   "display.uiLabel": "UI-stijl",
   "display.ui.classic": "Klassiek",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Speels",
   "display.sectionTitle": "Weergave-instellingen",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Appzoom",
@@ -622,5 +623,9 @@ export const nl: Record<TranslationKey, string> = {
   "notifications.mute": "Dempen",
   "notifications.revoke": "Intrekken",
   "qdnWrite.action.notificationAdd": "Achtergrondmeldingen",
+  "qdnWrite.action.updateNodeSettings": "Node-instellingen bijwerken",
+  "qdnWrite.action.restartNode": "Node opnieuw starten",
+  "qdnWrite.action.addToList": "Aan lijst toevoegen",
+  "qdnWrite.action.removeFromList": "Uit lijst verwijderen",
   "qdnWrite.scopeAlways": "Tot intrekking in Instellingen",
 };

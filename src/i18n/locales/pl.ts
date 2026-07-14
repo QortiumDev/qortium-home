@@ -301,6 +301,7 @@ export const pl: Record<TranslationKey, string> = {
   "display.uiLabel": "Styl interfejsu",
   "display.ui.classic": "Klasyczny",
   "display.ui.modern": "Nowoczesny",
+  "display.ui.fun": "Zabawny",
   "display.sectionTitle": "Ustawienia wyświetlania",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Powiększenie aplikacji",
@@ -622,5 +623,9 @@ export const pl: Record<TranslationKey, string> = {
   "notifications.mute": "Wycisz",
   "notifications.revoke": "Cofnij",
   "qdnWrite.action.notificationAdd": "Powiadomienia w tle",
+  "qdnWrite.action.updateNodeSettings": "Zaktualizuj ustawienia węzła",
+  "qdnWrite.action.restartNode": "Uruchom ponownie węzeł",
+  "qdnWrite.action.addToList": "Dodaj do listy",
+  "qdnWrite.action.removeFromList": "Usuń z listy",
   "qdnWrite.scopeAlways": "Do odwołania w Ustawieniach",
 };

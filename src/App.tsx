@@ -1,3 +1,7 @@
+import '@fontsource/comic-neue/400.css';
+import '@fontsource/comic-neue/700.css';
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
 import './styles.css';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
@@ -396,6 +400,14 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.showNotification';
     case 'NOTIFICATION_ADD':
       return 'qdnWrite.action.notificationAdd';
+    case 'UPDATE_NODE_SETTINGS':
+      return 'qdnWrite.action.updateNodeSettings';
+    case 'RESTART_NODE':
+      return 'qdnWrite.action.restartNode';
+    case 'ADD_TO_LIST':
+      return 'qdnWrite.action.addToList';
+    case 'REMOVE_FROM_LIST':
+      return 'qdnWrite.action.removeFromList';
     case 'REQUEST_PRIVATE_GROUP_CHAT_KEY':
       return 'qdnWrite.action.requestPrivateGroupChatKey';
     case 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS':
@@ -548,12 +560,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
         role="dialog"
       >
         <h2 className="unlock-dialog__title">{t('qdnWrite.title')}</h2>
-        {request.action === 'SHOW_NOTIFICATION' || request.action === 'NOTIFICATION_ADD' ? null : (
+        {request.address ? (
           <>
             <p className="unlock-dialog__account">{request.accountName || t('qdnWrite.selectedAccountFallback')}</p>
             <p className="unlock-dialog__address">{request.address}</p>
           </>
-        )}
+        ) : null}
         <p className="qdn-permission-dialog__resource">{request.resourceUrl}</p>
         <dl className="detail-list qdn-permission-dialog__details">
           <div>

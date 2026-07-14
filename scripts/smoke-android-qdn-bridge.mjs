@@ -1616,16 +1616,26 @@ function assertNodeSettingsMetadata(metadata) {
     ['autoRestartEnabled', 'BOOLEAN'],
     ['minOutboundPeers', 'INTEGER'],
     ['minBlockchainPeers', 'INTEGER'],
+    ['minDataPeers', 'INTEGER'],
     ['minPeerVersion', 'PEER_VERSION'],
     ['allowConnectionsWithOlderPeerVersions', 'BOOLEAN'],
     ['chatMessageRetentionPeriod', 'LONG'],
+    ['apiKeyRemoteAccessEnabled', 'BOOLEAN'],
+    ['qdnPublishMaxSize', 'LONG'],
+    ['publicQdnPublishMaxSize', 'LONG'],
+    ['publicQdnPublishChunkMaxSize', 'LONG'],
+    ['publicQdnPublishChunkSessionLimit', 'INTEGER'],
   ]);
 
   assert(metadata && typeof metadata === 'object', 'GET_NODE_SETTINGS_METADATA did not return an object.');
   assert(metadata.writable && typeof metadata.writable === 'object', 'GET_NODE_SETTINGS_METADATA did not return writable settings.');
 
+  const writable = Array.isArray(metadata.writable.entry)
+    ? Object.fromEntries(metadata.writable.entry.map((entry) => [entry?.key, entry?.value]))
+    : metadata.writable;
+
   for (const [key, type] of expectedWritableSettings.entries()) {
-    assert(metadata.writable[key]?.type === type, `GET_NODE_SETTINGS_METADATA did not expose writable ${key}.`);
+    assert(writable[key]?.type === type, `GET_NODE_SETTINGS_METADATA did not expose writable ${key}.`);
   }
 }
 

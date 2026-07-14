@@ -9,6 +9,7 @@ import packageJson from '../package.json';
 import { compareAppVersions } from './appUpdates';
 import { sniffMagicMimeType } from './qdnContentType';
 import {
+  QDN_ACCOUNT_FREE_WRITE_ACTIONS,
   QDN_APP_BRIDGE_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
   QDN_CHAT_ACTIONS,
@@ -294,6 +295,7 @@ type QdnAppResourceRequest = {
 type QdnAppRequestContext = {
   accountId: string | null;
   displaySettings: QdnDisplaySettings;
+  isCurrent?: () => boolean;
   isViewFocused?: () => boolean;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
@@ -312,6 +314,7 @@ type QdnPollAction = (typeof QDN_POLL_ACTIONS)[number];
 type QdnTrustAction = (typeof QDN_TRUST_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
+type QdnAccountFreeWriteAction = (typeof QDN_ACCOUNT_FREE_WRITE_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
@@ -322,10 +325,13 @@ type QdnWriteApprovalAction =
   | QdnTrustAction
   | QdnChatAction
   | QdnPrivateGroupChatWriteAction
+  | QdnAccountFreeWriteAction
   | 'SEND_QORT'
   | 'SEND_QORTAL_GROUP_CHAT'
   | 'START_MINTING'
-  | 'REMOVE_MINTING_ACCOUNT';
+  | 'REMOVE_MINTING_ACCOUNT'
+  | 'SHOW_NOTIFICATION'
+  | 'NOTIFICATION_ADD';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
 
 type QdnWriteResourceRequest = {
@@ -3362,8 +3368,9 @@ async function selectNativePreviewDirectorySource(): Promise<Omit<NativePreviewC
 
 async function requestQdnWriteApproval(
   context: QdnAppRequestContext,
-  profile: QortiumAccountProfile,
+  profile: QortiumAccountProfile | null,
   details: QdnWriteApprovalDetails,
+  denialMessage = 'QDN write request was denied.',
 ) {
   if (qdnWriteListeners.size === 0) {
     throw new Error('QDN write request approval is unavailable.');
@@ -3383,9 +3390,9 @@ async function requestQdnWriteApproval(
 
     for (const listener of qdnWriteListeners) {
       listener({
-        accountName: profile.name,
+        accountName: profile?.name ?? null,
         action: details.action,
-        address: profile.address,
+        address: profile?.address ?? '',
         amount: typeof details.amount === 'undefined' ? null : String(details.amount),
         approval: typeof details.approval === 'boolean' ? details.approval : null,
         chatMessagePreview: details.chatMessagePreview ?? null,
@@ -3413,7 +3420,7 @@ async function requestQdnWriteApproval(
   });
 
   if (!approved) {
-    throw new Error('QDN write request was denied.');
+    throw new Error(denialMessage);
   }
 }
 
@@ -3474,50 +3481,12 @@ async function requestQdnNotificationPermissionApproval(
     return;
   }
 
-  if (qdnWriteListeners.size === 0) {
-    throw new Error('QDN write request approval is unavailable.');
-  }
-
-  const requestId = createRequestId();
-  const approved = await new Promise<boolean>((resolve) => {
-    const timeoutId = window.setTimeout(() => {
-      pendingQdnWriteApprovals.delete(requestId);
-      resolve(false);
-    }, QDN_WRITE_APPROVAL_TIMEOUT_MS);
-
-    pendingQdnWriteApprovals.set(requestId, {
-      resolve,
-      timeoutId,
-    });
-
-    for (const listener of qdnWriteListeners) {
-      listener({
-        accountName: null,
-        action,
-        address: '',
-        amount: null,
-        approval: null,
-        chatMessagePreview: null,
-        details: [],
-        groupId: null,
-        groupName: null,
-        id: requestId,
-        mintingKey: null,
-        name: null,
-        permissionScope: 'always',
-        recipientAddress: null,
-        resource: null,
-        resourceCount: null,
-        resourceUrl: context.resourceUrl || 'QDN app',
-        sourceKind: null,
-        sourceName: null,
-      });
-    }
-  });
-
-  if (!approved) {
-    throw new Error('Notification permission was denied.');
-  }
+  await requestQdnWriteApproval(
+    context,
+    null,
+    { action, permissionScope: 'always' },
+    'Notification permission was denied.',
+  );
 
   await grantAppNotifications(cacheKey);
 }
@@ -7409,6 +7378,211 @@ function getNodeSettingsPatch(request: QdnAppRequest) {
   return patch;
 }
 
+function isQdnAccountFreeWriteAction(action: string): action is QdnAccountFreeWriteAction {
+  return (QDN_ACCOUNT_FREE_WRITE_ACTIONS as readonly string[]).includes(action);
+}
+
+function getExactQdnApprovalValue(value: unknown, maxLength: number) {
+  const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+  const displayValue = serialized ?? String(value);
+
+  if (displayValue.length > maxLength) {
+    throw new Error(`QDN write request data is too large to display safely for approval (${maxLength} characters maximum).`);
+  }
+
+  return displayValue;
+}
+
+function getWritableSettingKeys(metadata: unknown) {
+  const keys = new Set<string>();
+
+  if (!isRecord(metadata) || !isRecord(metadata.writable)) {
+    return keys;
+  }
+
+  if (Array.isArray(metadata.writable.entry)) {
+    for (const entry of metadata.writable.entry) {
+      if (isRecord(entry) && typeof entry.key === 'string') {
+        keys.add(entry.key);
+      }
+    }
+    return keys;
+  }
+
+  for (const key of Object.keys(metadata.writable)) {
+    keys.add(key);
+  }
+
+  return keys;
+}
+
+async function fetchPinnedNodeApiData(
+  settings: StoredNodeSettings,
+  nodeApiUrl: string,
+  apiPath: string,
+) {
+  let response: HttpResponse;
+
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}${apiPath}`,
+      method: 'GET',
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+
+  const result = readNodeApiResponse(response, settings, QDN_APP_DEFAULT_MAX_BYTES);
+
+  if (!result.ok) {
+    throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+  }
+
+  return result.data;
+}
+
+async function handleQdnAccountFreeWriteAction(
+  action: QdnAccountFreeWriteAction,
+  request: QdnAppRequest,
+  context?: QdnAppRequestContext,
+) {
+  if (!context) {
+    throw new Error('QDN write request does not belong to an active window.');
+  }
+
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  if (settings.mode === 'network') {
+    throw new Error(getNetworkRestrictionMessage());
+  }
+
+  if (action === 'ADD_TO_LIST' || action === 'REMOVE_FROM_LIST') {
+    assertLocalWriteConnection(settings, nodeApiUrl);
+  }
+
+  const apiKey = getNodeApiKey(settings);
+
+  let details: Array<{ label: string; value: string }>;
+  let settingsPatch: Record<string, unknown> | undefined;
+  let listName: string | undefined;
+  let itemStrings: string[] | undefined;
+
+  if (action === 'UPDATE_NODE_SETTINGS') {
+    const entries = Object.entries(getNodeSettingsPatch(request));
+
+    if (entries.length === 0) {
+      throw new Error('Node settings update requests must include at least one setting.');
+    }
+
+    if (entries.length > 64) {
+      throw new Error('Node settings update requests may include at most 64 settings.');
+    }
+
+    for (const [key] of entries) {
+      if (key.length > 120) {
+        throw new Error('Node setting names may contain at most 120 characters.');
+      }
+    }
+
+    const [metadata, currentSettingsValue] = await Promise.all([
+      fetchPinnedNodeApiData(settings, nodeApiUrl, '/admin/settings/metadata'),
+      fetchPinnedNodeApiData(settings, nodeApiUrl, '/admin/settings'),
+    ]);
+    const writableKeys = getWritableSettingKeys(metadata);
+
+    for (const [key] of entries) {
+      if (!writableKeys.has(key)) {
+        throw new Error(`Node setting ${key} is not writable.`);
+      }
+    }
+
+    if (!isRecord(currentSettingsValue)) {
+      throw new Error('The current node settings response is not an object.');
+    }
+
+    details = entries.flatMap(([key, value]) => [
+      {
+        label: `${key} (current)`,
+        value: Object.prototype.hasOwnProperty.call(currentSettingsValue, key)
+          ? getExactQdnApprovalValue(currentSettingsValue[key], 1_000)
+          : '(not present)',
+      },
+      { label: `${key} (proposed)`, value: getExactQdnApprovalValue(value, 1_000) },
+    ]);
+    settingsPatch = Object.fromEntries(entries);
+  } else if (action === 'RESTART_NODE') {
+    details = [{ label: 'Impact', value: 'Restart the selected Core node' }];
+  } else {
+    listName = getRequiredListName(request);
+    itemStrings = [...getRequiredListItems(request)];
+
+    if (listName.length > 120) {
+      throw new Error('List names may contain at most 120 characters.');
+    }
+
+    details = [
+      { label: 'List', value: listName },
+      { label: 'Items', value: getExactQdnApprovalValue(itemStrings, 4_000) },
+    ];
+  }
+
+  details.unshift({ label: 'Node', value: getExactQdnApprovalValue(nodeApiUrl, 500) });
+
+  await requestQdnWriteApproval(context, null, { action, details });
+
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('QDN write request is stale because the app view changed before approval.');
+  }
+
+  if (action === 'UPDATE_NODE_SETTINGS') {
+    const responseBody = await requestProtectedNodeText(
+      nodeApiUrl,
+      apiKey,
+      '/admin/settings',
+      'PATCH',
+      settingsPatch,
+      'Node settings update request failed.',
+    );
+    return parseResponseData(responseBody, 'application/json');
+  }
+
+  if (action === 'RESTART_NODE') {
+    const responseBody = await requestProtectedNodeText(
+      nodeApiUrl,
+      apiKey,
+      '/admin/restart',
+      'GET',
+      undefined,
+      'Node restart request failed.',
+    );
+    return parseResponseData(responseBody, 'text/plain');
+  }
+
+  const body = JSON.stringify({ items: itemStrings });
+  const responseBody = action === 'ADD_TO_LIST'
+    ? await postLocalNodeText(
+        nodeApiUrl,
+        `/lists/${encodeURIComponent(listName as string)}`,
+        body,
+        apiKey,
+        'Failed to add items to list.',
+        'application/json',
+      )
+    : await deleteLocalNodeText(
+        nodeApiUrl,
+        `/lists/${encodeURIComponent(listName as string)}`,
+        body,
+        apiKey,
+        'Failed to remove items from list.',
+        'application/json',
+      );
+
+  return parseLocalPostData(responseBody);
+}
+
 async function getProtectedNodeRequestContext() {
   const settings = await readNodeSettings();
 
@@ -7420,34 +7594,6 @@ async function getProtectedNodeRequestContext() {
     apiKey: getNodeApiKey(settings),
     nodeApiUrl: await resolveNodeApiUrl(settings),
   };
-}
-
-async function updateNodeSettingsForQdnApp(request: QdnAppRequest) {
-  const context = await getProtectedNodeRequestContext();
-  const responseBody = await requestProtectedNodeText(
-    context.nodeApiUrl,
-    context.apiKey,
-    '/admin/settings',
-    'PATCH',
-    getNodeSettingsPatch(request),
-    'Node settings update request failed.',
-  );
-
-  return parseResponseData(responseBody, 'application/json');
-}
-
-async function restartNodeForQdnApp() {
-  const context = await getProtectedNodeRequestContext();
-  const responseBody = await requestProtectedNodeText(
-    context.nodeApiUrl,
-    context.apiKey,
-    '/admin/restart',
-    'GET',
-    undefined,
-    'Node restart request failed.',
-  );
-
-  return parseResponseData(responseBody, 'text/plain');
 }
 
 async function enableNodeApiDocumentation() {
@@ -10072,48 +10218,6 @@ async function getListForApp(request: QdnAppRequest) {
   return result.data;
 }
 
-async function addToListForApp(request: QdnAppRequest) {
-  const listName = getRequiredListName(request);
-  const itemStrings = getRequiredListItems(request);
-  const settings = await readNodeSettings();
-  const nodeApiUrl = await resolveNodeApiUrl(settings);
-
-  assertLocalWriteConnection(settings, nodeApiUrl);
-
-  const apiKey = getNodeApiKey(settings);
-  const result = await postLocalNodeText(
-    nodeApiUrl,
-    `/lists/${encodeURIComponent(listName)}`,
-    JSON.stringify({ items: itemStrings }),
-    apiKey,
-    'Failed to add items to list.',
-    'application/json',
-  );
-
-  return parseLocalPostData(result);
-}
-
-async function removeFromListForApp(request: QdnAppRequest) {
-  const listName = getRequiredListName(request);
-  const itemStrings = getRequiredListItems(request);
-  const settings = await readNodeSettings();
-  const nodeApiUrl = await resolveNodeApiUrl(settings);
-
-  assertLocalWriteConnection(settings, nodeApiUrl);
-
-  const apiKey = getNodeApiKey(settings);
-  const result = await deleteLocalNodeText(
-    nodeApiUrl,
-    `/lists/${encodeURIComponent(listName)}`,
-    JSON.stringify({ items: itemStrings }),
-    apiKey,
-    'Failed to remove items from list.',
-    'application/json',
-  );
-
-  return parseLocalPostData(result);
-}
-
 export async function handleQdnAppRequest(value: unknown, context?: QdnAppRequestContext) {
   if (!isRecord(value)) {
     throw new Error('QDN app requests must be objects.');
@@ -10124,6 +10228,10 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
   if (!action) {
     throw new Error('QDN app request action is required.');
+  }
+
+  if (isQdnAccountFreeWriteAction(action)) {
+    return handleQdnAccountFreeWriteAction(action, request, context);
   }
 
   switch (action) {
@@ -10145,12 +10253,6 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'GET_NODE_STATUS':
       return fetchNodeApiPayload('/admin/status', request);
-
-    case 'UPDATE_NODE_SETTINGS':
-      return updateNodeSettingsForQdnApp(request);
-
-    case 'RESTART_NODE':
-      return restartNodeForQdnApp();
 
     case 'GET_ACCOUNT_DATA':
       return fetchNodeApiPayload(
@@ -10458,12 +10560,6 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'GET_LIST':
       return getListForApp(request);
 
-    case 'ADD_TO_LIST':
-      return addToListForApp(request);
-
-    case 'REMOVE_FROM_LIST':
-      return removeFromListForApp(request);
-
     case 'REGISTER_NAME':
       return registerNameForApp(request, context);
 
@@ -10661,6 +10757,8 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'NOTIFICATION_REMOVE': {
       if (!context) throw new Error('QDN app notification request does not belong to an active app view.');
+      // This only removes the calling app's own rules, so it is deliberately
+      // unprompted: the action reduces an existing app-scoped capability.
       return removeAppNotificationRules(
         getQdnNotificationPermissionCacheKey(context),
         sanitizeQdnNotificationIds(getRequestValue(request, 'notificationIds')),

@@ -301,6 +301,7 @@ export const sv: Record<TranslationKey, string> = {
   "display.uiLabel": "UI-stil",
   "display.ui.classic": "Klassisk",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Lekfull",
   "display.sectionTitle": "Visningsinställningar",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "Appzoom",
@@ -622,5 +623,9 @@ export const sv: Record<TranslationKey, string> = {
   "notifications.mute": "Tysta",
   "notifications.revoke": "Återkalla",
   "qdnWrite.action.notificationAdd": "Bakgrundsaviseringar",
+  "qdnWrite.action.updateNodeSettings": "Uppdatera nodinställningar",
+  "qdnWrite.action.restartNode": "Starta om noden",
+  "qdnWrite.action.addToList": "Lägg till i lista",
+  "qdnWrite.action.removeFromList": "Ta bort från lista",
   "qdnWrite.scopeAlways": "Tills det återkallas i Inställningar",
 };

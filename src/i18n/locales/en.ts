@@ -299,6 +299,7 @@ export const en = {
   "display.uiLabel": "UI Style",
   "display.ui.classic": "Classic",
   "display.ui.modern": "Modern",
+  "display.ui.fun": "Fun",
   "display.sectionTitle": "Display Settings",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.textSize.extraLarge": "Extra Large",
@@ -621,6 +622,10 @@ export const en = {
   "notifications.mute": "Mute",
   "notifications.revoke": "Revoke",
   "qdnWrite.action.notificationAdd": "Background Notifications",
+  "qdnWrite.action.updateNodeSettings": "Update Node Settings",
+  "qdnWrite.action.restartNode": "Restart Node",
+  "qdnWrite.action.addToList": "Add To List",
+  "qdnWrite.action.removeFromList": "Remove From List",
   "qdnWrite.scopeAlways": "Until revoked in Settings",
 } as const;
 

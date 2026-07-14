@@ -301,6 +301,7 @@ export const ar: Record<TranslationKey, string> = {
   "display.uiLabel": "نمط الواجهة",
   "display.ui.classic": "تقليدي",
   "display.ui.modern": "عصري",
+  "display.ui.fun": "مرح",
   "display.sectionTitle": "إعدادات العرض",
   "display.summary": "{theme}، {language}، {textSize}",
   "display.appZoomLabel": "تكبير التطبيق",
@@ -622,5 +623,9 @@ export const ar: Record<TranslationKey, string> = {
   "notifications.mute": "كتم",
   "notifications.revoke": "إلغاء الإذن",
   "qdnWrite.action.notificationAdd": "إشعارات الخلفية",
+  "qdnWrite.action.updateNodeSettings": "تحديث إعدادات العقدة",
+  "qdnWrite.action.restartNode": "إعادة تشغيل العقدة",
+  "qdnWrite.action.addToList": "إضافة إلى القائمة",
+  "qdnWrite.action.removeFromList": "إزالة من القائمة",
   "qdnWrite.scopeAlways": "حتى يتم إلغاؤه في الإعدادات",
 };

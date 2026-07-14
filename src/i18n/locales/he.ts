@@ -301,6 +301,7 @@ export const he: Record<TranslationKey, string> = {
   "display.uiLabel": "סגנון ממשק",
   "display.ui.classic": "קלאסי",
   "display.ui.modern": "מודרני",
+  "display.ui.fun": "מהנה",
   "display.sectionTitle": "הגדרות תצוגה",
   "display.summary": "{theme}, {language}, {textSize}",
   "display.appZoomLabel": "זום האפליקציה",
@@ -622,5 +623,9 @@ export const he: Record<TranslationKey, string> = {
   "notifications.mute": "השתקה",
   "notifications.revoke": "ביטול הרשאה",
   "qdnWrite.action.notificationAdd": "התראות ברקע",
+  "qdnWrite.action.updateNodeSettings": "עדכון הגדרות הצומת",
+  "qdnWrite.action.restartNode": "הפעלה מחדש של הצומת",
+  "qdnWrite.action.addToList": "הוספה לרשימה",
+  "qdnWrite.action.removeFromList": "הסרה מהרשימה",
   "qdnWrite.scopeAlways": "עד לביטול בהגדרות",
 };

@@ -5876,3 +5876,252 @@ h1 {
 :root[data-ui="modern"] .top-bar {
   box-shadow: none;
 }
+
+/* Fun UI: a restrained Home-wide adaptation of ChibiHub's hand-drawn style. */
+:root[data-ui="fun"] {
+  --fun-ink: #07100c;
+  --fun-outline: var(--fun-ink);
+  --fun-focus: var(--fun-ink);
+  --fun-warm: #ffd447;
+  --radius-sm: 14px 7px 12px 8px / 8px 12px 7px 14px;
+  --radius-md: 22px 9px 19px 10px / 10px 19px 9px 22px;
+  --radius-pill: 255px 18px 230px 18px / 18px 230px 18px 255px;
+  --color-page-bg: #eaf4ff;
+  --color-frame-bg: #dfeaf3;
+  --color-frame-surface: #f6fbff;
+  --color-surface: #fffef8;
+  --color-surface-alt: #f2f7ed;
+  --color-surface-raised: #fffef8;
+  --color-control-bg: #edf5ec;
+  --color-control-hover: #dcebdc;
+  --color-control-selected: color-mix(in srgb, var(--color-accent) 18%, #fffef8);
+  --color-border: var(--fun-ink);
+  --color-border-strong: var(--fun-ink);
+  --color-text: #17201d;
+  --color-text-secondary: #3f4e49;
+  --color-text-subtle: #586761;
+  --color-text-faint: #718079;
+  --shadow-card: 5px 5px 0 var(--fun-ink);
+  --shadow-card-hover: 7px 7px 0 var(--fun-ink);
+  --shadow-bar: 0 4px 0 var(--fun-ink);
+  --shadow-tab-active: 3px 3px 0 var(--fun-ink);
+  --shadow-modal: 7px 7px 0 var(--fun-ink);
+  --shadow-pop: 5px 5px 0 var(--fun-ink);
+  --shadow-primary-button: 4px 4px 0 var(--fun-ink);
+  --shadow-primary-button-hover: 6px 6px 0 var(--fun-ink);
+  --shadow-primary-button-active: 1px 1px 0 var(--fun-ink);
+  font-family:
+    "Comic Neue", "Trebuchet MS", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="dark"][data-ui="fun"] {
+  --fun-ink: #020504;
+  --fun-outline: #9bb7ad;
+  --fun-focus: #fff9ed;
+  --color-page-bg: #07100f;
+  --color-frame-bg: #091411;
+  --color-frame-surface: #101c19;
+  --color-surface: #172420;
+  --color-surface-alt: #1d2d28;
+  --color-surface-raised: #22332e;
+  --color-control-bg: #263a34;
+  --color-control-hover: #314941;
+  --color-control-selected: color-mix(in srgb, var(--color-accent) 22%, #172420);
+  --color-border: var(--fun-outline);
+  --color-border-strong: var(--fun-outline);
+  --color-text: #fff9ed;
+  --color-text-secondary: #d5dfda;
+  --color-text-subtle: #b5c3bd;
+  --color-text-faint: #91a19a;
+}
+
+:root[data-ui="fun"] h1,
+:root[data-ui="fun"] h2,
+:root[data-ui="fun"] h3,
+:root[data-ui="fun"] .button,
+:root[data-ui="fun"] .icon-button,
+:root[data-ui="fun"] .dashboard-card__title,
+:root[data-ui="fun"] .settings-section__title,
+:root[data-ui="fun"] .top-bar__tab,
+:root[data-ui="fun"] .node-settings__title,
+:root[data-ui="fun"] .app-updates__title,
+:root[data-ui="fun"] .core-manager__title,
+:root[data-ui="fun"] .qdn-viewer__status-label {
+  font-family: "Fredoka", "Comic Neue", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+}
+
+:root[data-ui="fun"] .app-main--dashboard,
+:root[data-ui="fun"] .app-main--settings,
+:root[data-ui="fun"] .app-main--bookmarks {
+  background-color: var(--color-page-bg);
+  background-image:
+    radial-gradient(circle at 50% 0, var(--color-accent-soft), transparent 36%),
+    linear-gradient(rgb(7 16 12 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(7 16 12 / 3%) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+
+:root[data-ui="fun"] .top-bar {
+  border-bottom: 3px solid var(--fun-outline);
+  box-shadow: var(--shadow-bar);
+}
+
+:root[data-ui="fun"] .dashboard-card,
+:root[data-ui="fun"] .dashboard-pin__tile,
+:root[data-ui="fun"] .settings-section,
+:root[data-ui="fun"] .bookmarks-page__section,
+:root[data-ui="fun"] .app-notification-settings__app,
+:root[data-ui="fun"] .media-player-dialog,
+:root[data-ui="fun"] .unlock-dialog,
+:root[data-ui="fun"] .preview-dialog,
+:root[data-ui="fun"] .doc-viewer-dialog,
+:root[data-ui="fun"] .popover-panel,
+:root[data-ui="fun"] .top-bar__tab-menu,
+:root[data-ui="fun"] .top-bar__history-popover,
+:root[data-ui="fun"] .top-bar__bookmark-menu,
+:root[data-ui="fun"] .top-bar__mobile-menu-popover,
+:root[data-ui="fun"] .account-menu__popover,
+:root[data-ui="fun"] .node-status__popover,
+:root[data-ui="fun"] .saved-account-selector__menu,
+:root[data-ui="fun"] .segmented-control {
+  border: 3px solid var(--fun-outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-ui="fun"] .settings-page__sections {
+  gap: 16px;
+}
+
+:root[data-ui="fun"] .settings-section,
+:root[data-ui="fun"] .settings-section:first-child {
+  padding: 16px;
+  background: var(--color-surface);
+}
+
+:root[data-ui="fun"] .dashboard-card:nth-child(odd),
+:root[data-ui="fun"] .dashboard-pin:nth-child(even) .dashboard-pin__tile {
+  transform: rotate(-0.22deg);
+}
+
+:root[data-ui="fun"] .dashboard-card:nth-child(even),
+:root[data-ui="fun"] .dashboard-pin:nth-child(odd) .dashboard-pin__tile {
+  transform: rotate(0.22deg);
+}
+
+:root[data-ui="fun"] .button,
+:root[data-ui="fun"] .icon-button,
+:root[data-ui="fun"] .select,
+:root[data-ui="fun"] .field__input,
+:root[data-ui="fun"] .account-selector__address-select,
+:root[data-ui="fun"] .top-bar__address-control,
+:root[data-ui="fun"] .top-bar__tab--active,
+:root[data-ui="fun"] .segmented-control__option--selected {
+  border: 2px solid var(--fun-outline);
+  border-radius: var(--radius-sm);
+  box-shadow: 3px 3px 0 var(--fun-ink);
+}
+
+:root[data-ui="fun"] .button--primary {
+  border-color: var(--fun-outline);
+  border-width: 3px;
+  box-shadow: var(--shadow-primary-button);
+}
+
+:root[data-ui="fun"] .button:hover:not(:disabled),
+:root[data-ui="fun"] .icon-button:hover:not(:disabled),
+:root[data-ui="fun"] .dashboard-pin__tile:hover,
+:root[data-ui="fun"] .dashboard-pin__tile:focus-visible {
+  transform: translate(-1px, -2px) rotate(-0.2deg);
+}
+
+:root[data-ui="fun"] .button:active:not(:disabled),
+:root[data-ui="fun"] .icon-button:active:not(:disabled) {
+  box-shadow: 1px 1px 0 var(--fun-ink);
+  transform: translate(2px, 2px) scale(0.98);
+}
+
+:root[data-ui="fun"] .button:focus-visible:not(:disabled),
+:root[data-ui="fun"] .icon-button:focus-visible:not(:disabled),
+:root[data-ui="fun"] .segmented-control__option:focus-visible {
+  outline: 3px solid var(--fun-focus);
+  outline-offset: 3px;
+}
+
+:root[data-ui="fun"] .button--primary:hover:not(:disabled),
+:root[data-ui="fun"] .button--primary:focus-visible:not(:disabled) {
+  box-shadow: var(--shadow-primary-button-hover);
+}
+
+:root[data-ui="fun"] .button--primary:active:not(:disabled) {
+  box-shadow: var(--shadow-primary-button-active);
+}
+
+:root[data-ui="fun"] .dashboard-pin.dashboard-pin--dragging .dashboard-pin__tile {
+  box-shadow: var(--shadow-card-hover);
+  transform: scale(1.025) rotate(1deg);
+}
+
+:root[data-ui="fun"] .dashboard-page__header,
+:root[data-ui="fun"] .settings-page__header,
+:root[data-ui="fun"] .bookmarks-page__header {
+  position: relative;
+}
+
+:root[data-ui="fun"] .dashboard-page__header::after,
+:root[data-ui="fun"] .settings-page__header::after,
+:root[data-ui="fun"] .bookmarks-page__header::after {
+  width: 4.5rem;
+  height: 6px;
+  border: 2px solid var(--fun-outline);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--color-accent), var(--fun-warm));
+  box-shadow: 2px 2px 0 var(--fun-ink);
+  content: "";
+  transform: rotate(-1deg);
+}
+
+:root[data-theme="dark"][data-ui="fun"] .dashboard-card,
+:root[data-theme="dark"][data-ui="fun"] .dashboard-pin__tile,
+:root[data-theme="dark"][data-ui="fun"] .settings-section,
+:root[data-theme="dark"][data-ui="fun"] .media-player-dialog,
+:root[data-theme="dark"][data-ui="fun"] .unlock-dialog,
+:root[data-theme="dark"][data-ui="fun"] .preview-dialog,
+:root[data-theme="dark"][data-ui="fun"] .doc-viewer-dialog,
+:root[data-theme="dark"][data-ui="fun"] .popover-panel {
+  box-shadow: 5px 5px 0 var(--fun-ink), inset 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+@media (max-width: 760px) {
+  :root[data-ui="fun"] .dashboard-card,
+  :root[data-ui="fun"] .dashboard-pin .dashboard-pin__tile,
+  :root[data-ui="fun"] .dashboard-pin.dashboard-pin--dragging .dashboard-pin__tile {
+    box-shadow: 3px 3px 0 var(--fun-ink);
+    transform: none;
+  }
+}
+
+:root[data-ui="fun"][data-text-size="extra-large"] .dashboard-card,
+:root[data-ui="fun"][data-text-size="extra-large"] .dashboard-pin .dashboard-pin__tile,
+:root[data-ui="fun"][data-text-size="extra-large"] .dashboard-pin.dashboard-pin--dragging .dashboard-pin__tile,
+:root[data-ui="fun"][data-text-size="huge"] .dashboard-card,
+:root[data-ui="fun"][data-text-size="huge"] .dashboard-pin .dashboard-pin__tile,
+:root[data-ui="fun"][data-text-size="huge"] .dashboard-pin.dashboard-pin--dragging .dashboard-pin__tile {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui="fun"] .dashboard-card,
+  :root[data-ui="fun"] .dashboard-pin .dashboard-pin__tile,
+  :root[data-ui="fun"] .dashboard-pin.dashboard-pin--dragging .dashboard-pin__tile,
+  :root[data-ui="fun"] .dashboard-pin__tile:hover,
+  :root[data-ui="fun"] .dashboard-pin__tile:focus-visible,
+  :root[data-ui="fun"] .button:hover:not(:disabled),
+  :root[data-ui="fun"] .button:active:not(:disabled),
+  :root[data-ui="fun"] .icon-button:hover:not(:disabled),
+  :root[data-ui="fun"] .icon-button:active:not(:disabled) {
+    transform: none;
+  }
+}

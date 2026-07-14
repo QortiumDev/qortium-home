@@ -220,7 +220,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
         textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
-        ui: 'classic' | 'modern';
+        ui: 'classic' | 'modern' | 'fun';
       };
       nodeApiUrl: string;
       renderUrl: string;
@@ -240,7 +240,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
         textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
-        ui: 'classic' | 'modern';
+        ui: 'classic' | 'modern' | 'fun';
       };
       tabId: string;
     }) => ipcRenderer.invoke('qdn-views:updateDisplaySettings', request),

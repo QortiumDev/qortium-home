@@ -202,11 +202,12 @@ export const ACCENT_OPTIONS = [
 
 export type AccentSetting = (typeof ACCENT_OPTIONS)[number]['value'];
 
-export type UiSetting = 'classic' | 'modern';
+export type UiSetting = 'classic' | 'modern' | 'fun';
 
 export const UI_OPTIONS: ReadonlyArray<{ value: UiSetting; labelKey: TranslationKey }> = [
   { value: 'classic', labelKey: 'display.ui.classic' },
   { value: 'modern', labelKey: 'display.ui.modern' },
+  { value: 'fun', labelKey: 'display.ui.fun' },
 ];
 
 export const DEFAULT_UI: UiSetting = 'classic';
