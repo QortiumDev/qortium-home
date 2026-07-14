@@ -102,6 +102,7 @@ export function onNotificationStoreChanged(listener: () => void) {
 }
 
 export function registerNotificationStoreIpcHandlers() {
+  ipcMain.handle('qdn:hasNotificationStore', () => existsSync(getStorePath()));
   ipcMain.handle('qdn:getNotificationStore', () => readNotificationStore());
   ipcMain.handle('qdn:setAppNotificationMuted', (_event, appKey: unknown, muted: unknown) => {
     if (typeof appKey !== 'string' || !appKey) throw new Error('App key is required.');

@@ -105,7 +105,17 @@ import { QdnViewer } from './QdnViewer';
 import { ReleaseNotesPage } from './ReleaseNotesPage';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
 import { TopBar } from './TopBar';
-import { BOOKMARKS_ROUTE, DASHBOARD_ROUTE, SETTINGS_ROUTE, buildReleaseNotesRoute, parseAppAddress, type AppRoute } from './routes';
+import { WelcomePage } from './WelcomePage';
+import {
+  BOOKMARKS_ROUTE,
+  DASHBOARD_ROUTE,
+  SETTINGS_ROUTE,
+  WELCOME_ROUTE,
+  buildReleaseNotesRoute,
+  parseAppAddress,
+  type AppRoute,
+} from './routes';
+import { createWelcomeState, loadWelcomeState, saveWelcomeState, type WelcomeState, type WelcomeStep } from './welcomeState';
 
 type RouteHistoryState = {
   entries: AppRoute[];
@@ -748,6 +758,10 @@ function getTabLabel(tab: BrowserTab) {
     return t('common.settings');
   }
 
+  if (route.kind === 'welcome') {
+    return t('welcome.title');
+  }
+
   if (route.kind === 'bookmarks') {
     return t('bookmarks.manageTitle');
   }
@@ -831,9 +845,13 @@ export function App() {
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
+  const [hasWindowStartupPayload, setHasWindowStartupPayload] = useState(false);
   const [startPages, setStartPages] = useState<StartPage[]>([]);
   const [isLoadingStartPages, setIsLoadingStartPages] = useState(true);
+  const [welcomeState, setWelcomeState] = useState<WelcomeState | null>(null);
+  const [isLoadingWelcomeState, setIsLoadingWelcomeState] = useState(true);
   const startPagesAppliedRef = useRef(false);
+  const welcomeStateLoadRequestedRef = useRef(false);
   const [isTopBarOverlayOpen, setIsTopBarOverlayOpen] = useState(false);
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
@@ -872,6 +890,7 @@ export function App() {
   currentRouteRef.current = currentRoute;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
+  const isWelcomeRoute = currentRoute.kind === 'welcome';
   const isBookmarksRoute = currentRoute.kind === 'bookmarks';
   const isReleaseNotesRoute = currentRoute.kind === 'release-notes';
   const routeRefreshKey = isDashboardRoute || isSettingsRoute || isBookmarksRoute || isReleaseNotesRoute
@@ -882,10 +901,10 @@ export function App() {
     currentRoute.kind === 'service' ||
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
-  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isExplorerRoute;
+  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isWelcomeRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isExplorerRoute;
   const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentRoute.displayUrl);
   const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentRoute.displayUrl);
-  const canAddCurrentStartPage = isCurrentPageStartPage || startPages.length < MAX_START_PAGES;
+  const canAddCurrentStartPage = currentRoute.kind !== 'welcome' && (isCurrentPageStartPage || startPages.length < MAX_START_PAGES);
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
@@ -1077,6 +1096,7 @@ export function App() {
         const startupPayload = await windowsApi.getStartupPayload();
 
         if (!isDisposed && startupPayload?.tab) {
+          setHasWindowStartupPayload(true);
           const tab = createBrowserTabFromWindowSnapshot(startupPayload.tab);
 
           setTabState({
@@ -1102,10 +1122,36 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (isLoadingWindowStartupPayload || isLoadingStartPages || isLoadingAccounts) return;
+    if (isLoadingWindowStartupPayload || isLoadingStartPages || isLoadingAccounts || isLoadingWelcomeState) return;
     if (startPagesAppliedRef.current) return;
 
     startPagesAppliedRef.current = true;
+
+    // A tab moved into a new window is explicit user state, not application
+    // startup. It must remain intact even when the profile has not completed
+    // Welcome yet, and it must never be replaced by saved Start pages either.
+    if (hasWindowStartupPayload) return;
+
+    if (welcomeState?.status === 'in-progress') {
+      setTabState((currentTabState) => {
+        const activeTab = currentTabState.tabs.find((tab) => tab.id === currentTabState.activeTabId);
+        const currentRoute = activeTab?.history.entries[activeTab.history.index];
+
+        if (!activeTab || !currentRoute || currentRoute.kind !== 'dashboard') {
+          return currentTabState;
+        }
+
+        return {
+          ...currentTabState,
+          tabs: currentTabState.tabs.map((tab) =>
+            tab.id === activeTab.id
+              ? { ...tab, history: { entries: [WELCOME_ROUTE], index: 0 } }
+              : tab,
+          ),
+        };
+      });
+      return;
+    }
 
     if (startPages.length === 0) return;
 
@@ -1138,7 +1184,16 @@ export function App() {
         tabs: newTabs,
       };
     });
-  }, [accountsState, isLoadingAccounts, isLoadingWindowStartupPayload, isLoadingStartPages, startPages]);
+  }, [
+    accountsState,
+    hasWindowStartupPayload,
+    isLoadingAccounts,
+    isLoadingWelcomeState,
+    isLoadingWindowStartupPayload,
+    isLoadingStartPages,
+    startPages,
+    welcomeState,
+  ]);
 
   function reconcileTabsWithAccounts(nextAccountsState: QortiumAccountsState) {
     setTabState((currentTabState) => {
@@ -1198,6 +1253,40 @@ export function App() {
       isDisposed = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (isLoadingAccounts || welcomeStateLoadRequestedRef.current) {
+      return;
+    }
+
+    welcomeStateLoadRequestedRef.current = true;
+    let isDisposed = false;
+
+    loadWelcomeState({ hasAccounts: accountsState.accounts.length > 0 })
+      .then((state) => {
+        if (!isDisposed) {
+          setWelcomeState(state);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load welcome state.', error);
+        if (!isDisposed) {
+          // A failed read should not trap someone on a loading screen. The
+          // conservative fallback avoids showing onboarding to a profile whose
+          // stored state could not be inspected.
+          setWelcomeState(createWelcomeState('skipped', 'finish'));
+        }
+      })
+      .finally(() => {
+        if (!isDisposed) {
+          setIsLoadingWelcomeState(false);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [accountsState.accounts.length, isLoadingAccounts]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -1836,6 +1925,46 @@ export function App() {
       node: sectionId === 'node',
     });
     navigateToRoute(SETTINGS_ROUTE);
+  }
+
+  async function saveWelcomeProgress(status: WelcomeState['status'], currentStep: WelcomeStep) {
+    const nextState = createWelcomeState(status, currentStep);
+
+    await saveWelcomeState(nextState);
+    setWelcomeState(nextState);
+  }
+
+  async function handleWelcomeStepChange(currentStep: WelcomeStep) {
+    await saveWelcomeProgress('in-progress', currentStep);
+  }
+
+  async function handleWelcomeSkip() {
+    await saveWelcomeProgress('skipped', 'finish');
+    navigateToRoute(DASHBOARD_ROUTE, { replace: true });
+  }
+
+  async function handleWelcomeComplete(destination: 'apps' | 'dashboard' | 'display') {
+    await saveWelcomeProgress('completed', 'finish');
+
+    if (destination === 'display') {
+      openSettingsSection('display');
+      return;
+    }
+
+    if (destination === 'apps') {
+      const parsedUrl = parseAppAddress('qdn://APP');
+
+      if (parsedUrl.success) {
+        navigateToRoute(parsedUrl.route, { replace: true });
+      }
+      return;
+    }
+
+    navigateToRoute(DASHBOARD_ROUTE, { replace: true });
+  }
+
+  function openNamesApp(sourceTabId: string | null) {
+    openAppLinkInNewTab('qdn://APP/Names/Names', sourceTabId);
   }
 
   function openSettingsInNewTab() {
@@ -3185,6 +3314,7 @@ export function App() {
   const appMainClassName = [
     'app-main',
     isDashboardRoute ? 'app-main--dashboard' : '',
+    isWelcomeRoute ? 'app-main--welcome' : '',
     isViewerRoute ? 'app-main--viewer' : '',
     isExplorerRoute ? 'app-main--explorer' : '',
     isSettingsRoute ? 'app-main--settings' : '',
@@ -3271,14 +3401,14 @@ export function App() {
     }
   }
 
-  if (!nodeSettings || isLoadingWindowStartupPayload) {
+  if (!nodeSettings || isLoadingWindowStartupPayload || isLoadingWelcomeState) {
     return (
       <main className="app-shell">
         <section className="app-main" aria-label={t('common.appName')}>
           <div className="home-content">
             <h1>{t('common.appName')}</h1>
             <p className={`app-message${nodeSettingsError ? ' app-message--error' : ''}`}>
-              {nodeSettingsError || (isLoadingWindowStartupPayload ? t('common.loadingWindow') : t('node.loadingSettings'))}
+              {nodeSettingsError || (isLoadingWindowStartupPayload || isLoadingWelcomeState ? t('common.loadingWindow') : t('node.loadingSettings'))}
             </p>
           </div>
         </section>
@@ -3363,6 +3493,8 @@ export function App() {
             ? t('common.dashboard')
             : isSettingsRoute
               ? t('common.settings')
+              : isWelcomeRoute
+                ? t('welcome.title')
               : isBookmarksRoute
                 ? t('bookmarks.manageTitle')
                 : t('viewer.browserPageAria')
@@ -3462,6 +3594,27 @@ export function App() {
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
                 />
+              ) : tabRoute.kind === 'welcome' ? (
+                welcomeState ? <WelcomePage
+                  accountsError={accountsError}
+                  accountsState={accountsState}
+                  connectionRefreshEpoch={i2pRefreshEpoch}
+                  coreManager={coreManager}
+                  isLoadingAccounts={isLoadingAccounts}
+                  nodeEpoch={nodeEpoch}
+                  nodeSettings={nodeSettings}
+                  onAccountsStateChange={handleAccountsStateChange}
+                  onChainCoreUpdate={onChainCoreUpdate}
+                  onComplete={handleWelcomeComplete}
+                  onOpenNamesApp={() => openNamesApp(tab.id)}
+                  onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
+                  onSaveNodeSettings={saveNodeSettings}
+                  onSelectedAccountChange={updateActiveTabAccount}
+                  onSkip={handleWelcomeSkip}
+                  onStepChange={handleWelcomeStepChange}
+                  selectedAccountId={tab.accountId}
+                  state={welcomeState}
+                /> : null
               ) : tabRoute.kind === 'bookmarks' ? (
                 <BookmarksPage
                   bookmarksState={bookmarksState}

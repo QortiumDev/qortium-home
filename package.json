@@ -52,6 +52,7 @@
     "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
+    "test:welcome-state": "node scripts/test-welcome-state.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",
     "release:check": "node scripts/check-release-assets.mjs",

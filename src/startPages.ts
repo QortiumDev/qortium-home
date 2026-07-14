@@ -17,10 +17,14 @@ export type StartPageUpdateRequest = {
   title: string;
 };
 
+function isWelcomeStartPage(displayUrl: string) {
+  return /^home:\/\/welcome\/?$/i.test(displayUrl.trim());
+}
+
 function normalizePage(value: unknown): StartPage | null {
   if (typeof value === 'string') {
     const displayUrl = value.trim();
-    return displayUrl ? { accountId: null, displayUrl } : null;
+    return displayUrl && !isWelcomeStartPage(displayUrl) ? { accountId: null, displayUrl } : null;
   }
 
   if (!value || typeof value !== 'object' || !('displayUrl' in value)) {
@@ -28,7 +32,7 @@ function normalizePage(value: unknown): StartPage | null {
   }
 
   const displayUrl = typeof value.displayUrl === 'string' ? value.displayUrl.trim() : '';
-  if (!displayUrl) return null;
+  if (!displayUrl || isWelcomeStartPage(displayUrl)) return null;
 
   const title = 'title' in value && typeof value.title === 'string' ? value.title.trim() : '';
   const accountId = 'accountId' in value ? (value as { accountId?: string | null }).accountId : null;
@@ -91,7 +95,12 @@ export async function saveStartPages(pages: StartPage[]): Promise<void> {
 
 export function addStartPage(current: StartPage[], displayUrl: string, accountId: string | null, title = ''): StartPage[] {
   const trimmed = displayUrl.trim();
-  if (!trimmed || current.some((page) => page.displayUrl === trimmed) || current.length >= MAX_START_PAGES) {
+  if (
+    !trimmed ||
+    isWelcomeStartPage(trimmed) ||
+    current.some((page) => page.displayUrl === trimmed) ||
+    current.length >= MAX_START_PAGES
+  ) {
     return current;
   }
 
@@ -116,7 +125,11 @@ export function updateStartPage(
 ): StartPage[] {
   const nextDisplayUrl = request.displayUrl.trim();
 
-  if (!nextDisplayUrl || current.some((page) => page.displayUrl !== displayUrl && page.displayUrl === nextDisplayUrl)) {
+  if (
+    !nextDisplayUrl ||
+    isWelcomeStartPage(nextDisplayUrl) ||
+    current.some((page) => page.displayUrl !== displayUrl && page.displayUrl === nextDisplayUrl)
+  ) {
     return current;
   }
 

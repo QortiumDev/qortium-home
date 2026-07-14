@@ -23,6 +23,11 @@ export type DashboardRoute = {
   kind: 'dashboard';
 };
 
+export type WelcomeRoute = {
+  displayUrl: 'home://welcome';
+  kind: 'welcome';
+};
+
 export type BookmarksRoute = {
   displayUrl: 'home://bookmarks';
   kind: 'bookmarks';
@@ -38,6 +43,11 @@ export type ReleaseNotesRoute = {
 export const DASHBOARD_ROUTE: DashboardRoute = {
   kind: 'dashboard',
   displayUrl: 'home://dashboard',
+};
+
+export const WELCOME_ROUTE: WelcomeRoute = {
+  kind: 'welcome',
+  displayUrl: 'home://welcome',
 };
 
 export const BOOKMARKS_ROUTE: BookmarksRoute = {
@@ -62,7 +72,8 @@ export type AppRoute =
   | NodeApiRoute
   | QdnRoute
   | ReleaseNotesRoute
-  | SettingsRoute;
+  | SettingsRoute
+  | WelcomeRoute;
 
 type RouteParseResult =
   | {
@@ -158,6 +169,13 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
     return {
       success: true,
       route: SETTINGS_ROUTE,
+    };
+  }
+
+  if (normalizedPathname === 'welcome') {
+    return {
+      success: true,
+      route: WELCOME_ROUTE,
     };
   }
 
