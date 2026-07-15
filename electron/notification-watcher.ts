@@ -17,6 +17,7 @@ import {
   getQdnAppDisplayNameFromResourceUrl,
 } from './qdn.js';
 import { isQdnAppResourceFocused } from './qdn-views.js';
+import { appendNotificationTargetQuery } from './notification-target.js';
 
 const RECONNECT_MIN_MS = 5_000;
 const RECONNECT_MAX_MS = 60_000;
@@ -141,7 +142,10 @@ function handleNotificationMessage(message: NotificationMessage) {
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
-    window.webContents.send('qdn-app:open-new-tab', { address: rule.link ?? appKey, sourceTabId: null });
+    window.webContents.send('qdn-app:open-new-tab', {
+      address: appendNotificationTargetQuery(rule.link ?? appKey, message.data),
+      sourceTabId: null,
+    });
   });
 
   const latestGrant = readNotificationStore().grants[appKey];

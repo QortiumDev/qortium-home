@@ -864,11 +864,11 @@ async function showNotificationForApp(request: QdnAppRequest, context: QdnViewCo
   });
 
   notification.on('click', () => {
-    const hostWindow = getQdnViewHostWindow(context);
+    const hostWindow = getQdnViewHostWindow(context) ??
+      BrowserWindow.getFocusedWindow() ??
+      BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
 
-    if (!hostWindow) {
-      return;
-    }
+    if (!hostWindow) return;
 
     if (hostWindow.isMinimized()) {
       hostWindow.restore();

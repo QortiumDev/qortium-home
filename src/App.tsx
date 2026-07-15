@@ -90,6 +90,7 @@ import { setTranslationLanguage, subscribeTranslationChange, t, type Translation
 import { invalidateDesktopNodeSettingsCache } from './platform';
 import { getNotificationRulesVersion, onNotificationStoreChanged } from './notificationStore';
 import { startForegroundNotificationWatcher } from './notificationWatcher';
+import { getQdnAppTargetQuery, isSameQdnAppRoute, type QdnAppTargetQuery } from './qdn-app-target';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
@@ -133,6 +134,11 @@ type BrowserTabState = {
   activeTabId: string;
   closedTabs: ClosedBrowserTab[];
   tabs: BrowserTab[];
+};
+
+type QdnAppTargetRequest = {
+  query: QdnAppTargetQuery;
+  tabId: string;
 };
 
 type ClosedBrowserTab = {
@@ -837,6 +843,7 @@ export function App() {
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const [qdnAppTargetRequest, setQdnAppTargetRequest] = useState<QdnAppTargetRequest | null>(null);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
   const [bookmarksState, setBookmarksState] = useState<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
@@ -2329,6 +2336,22 @@ export function App() {
       return;
     }
 
+    const existingAppTab =
+      tabState.tabs.find(
+        (tab) => tab.id === tabState.activeTabId && isSameQdnAppRoute(getCurrentRouteForTab(tab), parsed.route),
+      ) ?? tabState.tabs.find((tab) => isSameQdnAppRoute(getCurrentRouteForTab(tab), parsed.route));
+
+    if (existingAppTab) {
+      selectTab(existingAppTab.id);
+      const query = getQdnAppTargetQuery(parsed.route);
+
+      if (query) {
+        setQdnAppTargetRequest({ query, tabId: existingAppTab.id });
+      }
+
+      return;
+    }
+
     const sourceTab = tabState.tabs.find((tab) => tab.id === sourceTabId);
     const tab = createBrowserTab(sourceTab ? sourceTab.accountId : getDefaultAccountId(accountsState), {
       entries: [parsed.route],
@@ -3545,6 +3568,7 @@ export function App() {
                 <QdnViewer
                   key={tabRenderKey}
                   account={tabAccount}
+                  appTarget={qdnAppTargetRequest?.tabId === tab.id ? qdnAppTargetRequest.query : null}
                   coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}

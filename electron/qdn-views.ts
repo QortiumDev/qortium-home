@@ -131,6 +131,20 @@ type SanitizedAccountStateRequest = {
   tabId: string;
 };
 
+type QdnAppTargetMessage = {
+  action: 'OPEN_APP_TARGET';
+  requestedHandler: 'UI';
+  query: {
+    address?: string;
+    group?: string;
+  };
+};
+
+type SanitizedPostMessageRequest = {
+  message: QdnAppTargetMessage;
+  tabId: string;
+};
+
 type SanitizedWheelCommand = {
   direction: 'in' | 'out';
   textSize: boolean;
@@ -413,6 +427,39 @@ function sanitizeAccountStateRequest(value: unknown): SanitizedAccountStateReque
   return {
     accountId: sanitizeOptionalAccountId(value.accountId),
     isUnlocked: value.isUnlocked === true,
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
+function sanitizeAppTargetValue(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function sanitizePostMessageRequest(value: unknown): SanitizedPostMessageRequest {
+  if (!isRecord(value) || !isRecord(value.message) || !isRecord(value.message.query)) {
+    throw new Error('QDN view message request is required.');
+  }
+
+  if (value.message.action !== 'OPEN_APP_TARGET' || value.message.requestedHandler !== 'UI') {
+    throw new Error('QDN view message is not supported.');
+  }
+
+  const address = sanitizeAppTargetValue(value.message.query.address);
+  const group = sanitizeAppTargetValue(value.message.query.group);
+
+  if (!address && !group) {
+    throw new Error('QDN app target is required.');
+  }
+
+  return {
+    message: {
+      action: 'OPEN_APP_TARGET',
+      requestedHandler: 'UI',
+      query: {
+        ...(address ? { address } : {}),
+        ...(group ? { group } : {}),
+      },
+    },
     tabId: sanitizeTabId(value.tabId),
   };
 }
@@ -1109,6 +1156,18 @@ export function registerQdnViewIpcHandlers() {
 
     entry.accountUnlocked = request.isUnlocked;
     queueQdnViewStateDelivery(entry);
+  });
+
+  ipcMain.handle('qdn-views:postMessage', async (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizePostMessageRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry) {
+      return;
+    }
+
+    await sendQdnMessages(entry, [request.message]);
   });
 
   ipcMain.handle('qdn-views:destroy', (event, rawRequest: unknown) => {

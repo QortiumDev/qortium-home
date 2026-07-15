@@ -22,6 +22,7 @@ import {
   isRemoteAuthorizationBlockedMessage,
   isTerminalQdnStatus,
 } from './qdn';
+import { getOpenAppTargetMessage, type QdnAppTargetQuery } from './qdn-app-target';
 import { marked } from 'marked';
 import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
 import {
@@ -92,6 +93,7 @@ type QdnFrameDisplaySettings = QdnDisplaySettings & {
 
 type QdnViewerProps = {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   // Core-offline recovery context; omitted by embedded uses (media-player
   // dialog), which then keep the generic error state.
   coreManager?: CoreManagerState;
@@ -208,6 +210,7 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
 
 export type QdnBridgeFrameContentProps = {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
@@ -3080,6 +3083,7 @@ function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQ
 
 export function QdnIsolatedFrameContent({
   account,
+  appTarget,
   displaySettings,
   nodeApiUrl,
   renderUrl,
@@ -3088,6 +3092,7 @@ export function QdnIsolatedFrameContent({
   tabId,
 }: {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
   renderUrl: string;
@@ -3278,6 +3283,18 @@ export function QdnIsolatedFrameContent({
     });
   }, [displaySettings, suspended, tabId]);
 
+  useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+
+    if (!qdnViews || suspended || !appTarget) {
+      return;
+    }
+
+    void qdnViews.postMessage({ tabId, message: getOpenAppTargetMessage(appTarget) }).catch((error) => {
+      console.warn('Unable to deliver QDN app target.', error);
+    });
+  }, [appTarget, suspended, tabId]);
+
   return (
     <div
       className={`qdn-viewer__isolated-frame${viewError ? ' qdn-viewer__isolated-frame--error' : ''}`}
@@ -3296,6 +3313,7 @@ export function QdnIsolatedFrameContent({
 
 export function QdnBridgeFrameContent({
   account,
+  appTarget,
   displaySettings,
   onAppTitleChange,
   onOpenDocumentViewer,
@@ -3356,6 +3374,18 @@ export function QdnBridgeFrameContent({
   useEffect(() => {
     postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
   }, [accountId, isAccountUnlocked, renderUrl]);
+
+  useEffect(() => {
+    if (!appTarget) {
+      return;
+    }
+
+    const frameWindow = frameRef.current?.contentWindow;
+
+    if (frameWindow) {
+      frameWindow.postMessage(getOpenAppTargetMessage(appTarget), getPostMessageTargetOrigin(renderUrl));
+    }
+  }, [appTarget, renderUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
@@ -3480,6 +3510,7 @@ export function QdnBridgeFrameContent({
 
 function QdnIframeContent({
   account,
+  appTarget,
   displaySettings,
   loadedResource,
   onAppTitleChange,
@@ -3491,6 +3522,7 @@ function QdnIframeContent({
   suspended,
 }: {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
   onAppTitleChange?: (title: string | null) => void;
@@ -3504,6 +3536,7 @@ function QdnIframeContent({
   return (
     <QdnBridgeFrameContent
       account={account}
+      appTarget={appTarget}
       displaySettings={displaySettings}
       onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
@@ -3520,6 +3553,7 @@ function QdnIframeContent({
 function QdnReadyContent({
   loadedResource,
   account,
+  appTarget,
   displaySettings,
   nodeApiUrl,
   onActionContextChange,
@@ -3533,6 +3567,7 @@ function QdnReadyContent({
   tabId,
 }: {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
@@ -3555,6 +3590,7 @@ function QdnReadyContent({
       return (
         <QdnIsolatedFrameContent
           account={account}
+          appTarget={appTarget}
           displaySettings={displaySettings}
           nodeApiUrl={loadedResource.nodeApiUrl ?? nodeApiUrl}
           renderUrl={loadedResource.renderUrl}
@@ -3568,6 +3604,7 @@ function QdnReadyContent({
     return (
       <QdnIframeContent
         account={account}
+        appTarget={appTarget}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
         onAppTitleChange={onAppTitleChange}
@@ -3735,6 +3772,7 @@ function QdnReadyContent({
 
 export function QdnViewer({
   account,
+  appTarget,
   displaySettings,
   nodeApiUrl,
   coreManager,
@@ -3851,6 +3889,7 @@ export function QdnViewer({
         <QdnReadyContent
           loadedResource={state.loadedResource}
           account={account}
+          appTarget={appTarget}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
           onActionContextChange={setActionContext}

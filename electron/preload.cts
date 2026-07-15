@@ -249,6 +249,14 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     }) => ipcRenderer.invoke('qdn-views:updateDisplaySettings', request),
     updateAccountState: (request: { accountId: string | null; isUnlocked: boolean; tabId: string }) =>
       ipcRenderer.invoke('qdn-views:updateAccountState', request),
+    postMessage: (request: {
+      message: {
+        action: 'OPEN_APP_TARGET';
+        requestedHandler: 'UI';
+        query: { address?: string; group?: string };
+      };
+      tabId: string;
+    }) => ipcRenderer.invoke('qdn-views:postMessage', request),
   },
   qdnPermissions: {
     onUnlockRequest: (callback: (request: unknown) => void) => {

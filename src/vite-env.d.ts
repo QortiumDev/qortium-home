@@ -517,6 +517,17 @@ type QortiumQdnViewAccountStateRequest = {
   tabId: string;
 };
 
+type QortiumQdnAppTargetMessage = {
+  action: 'OPEN_APP_TARGET';
+  requestedHandler: 'UI';
+  query: { address?: string; group?: string };
+};
+
+type QortiumQdnViewPostMessageRequest = {
+  message: QortiumQdnAppTargetMessage;
+  tabId: string;
+};
+
 type QortiumQdnMediaPlayerRequest = {
   identifier: string | null;
   name: string;
@@ -813,6 +824,7 @@ interface Window {
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
       updateAccountState: (request: QortiumQdnViewAccountStateRequest) => Promise<void>;
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
+      postMessage: (request: QortiumQdnViewPostMessageRequest) => Promise<void>;
     };
     qdnPermissions?: {
       onUnlockRequest?: (

@@ -42,6 +42,10 @@ errors from desktop no longer expose Electron's IPC prefix and now include the
 stable `PUBLIC_NODE_READ_ONLY` code when a public node blocks a restricted
 workflow. The first-run Welcome page can also scroll like other Home pages.
 
+- Chat notification clicks now open the relevant direct conversation or group
+  and reuse an already-open Chat tab where possible.
+- App-issued notification clicks now always restore and focus a Home window.
+
 ### 2026-07-14 - fix: stop notification watcher crashing Home when Core goes away
 
 Fixes a crash where stopping Qortium Core (for example from Core's own tray
