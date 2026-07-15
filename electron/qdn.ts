@@ -32,6 +32,12 @@ import {
   replaceAppNotificationRules,
 } from './notification-store.js';
 import { arbitraryRawToSigningBytes } from './arbitrary-tx.js';
+import { fetchBoundedBytes } from './bounded-response.js';
+import {
+  attestPublicQdnPublish,
+  type QdnPublishAttestationSource,
+  type QdnPublishVerificationInput,
+} from './qdn-content-attestation.js';
 import {
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
@@ -4259,9 +4265,11 @@ async function signAndProcessKeylessQdnTransaction(
   rawUnsignedBytes58: string,
   expected: Parameters<typeof assertPublicArbitraryTransaction>[1],
   isStillValid?: () => boolean | Promise<boolean>,
+  attest?: (details: ReturnType<typeof assertPublicArbitraryTransaction>) => Promise<void>,
 ) {
   const rawUnsignedBytes = base58Decode(rawUnsignedBytes58);
-  assertPublicArbitraryTransaction(rawUnsignedBytes, expected);
+  const details = assertPublicArbitraryTransaction(rawUnsignedBytes, expected);
+  if (attest) await attest(details);
   const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
   const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY, isStillValid);
   const rawBytesWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
@@ -4290,6 +4298,67 @@ async function signAndProcessKeylessQdnTransaction(
     signature: getSignedTransactionSignature(signedTransactionBytes),
     signedTransactionBytes,
   };
+}
+
+async function fetchPublicQdnAttestationArtifact(connection: NodeConnection, hash: Uint8Array, maxBytes: number) {
+  if (hash.length !== 32) throw new Error('Public QDN builder returned an invalid attestation hash.');
+  const { bytes, response } = await fetchBoundedBytes(
+    (signal) => fetchNode(
+      `/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`,
+      { signal },
+      connection.nodeApiUrl,
+    ),
+    maxBytes,
+  );
+  if (!response.ok) {
+    const message = new TextDecoder().decode(bytes).trim();
+    throw new Error(message || `Public QDN content attestation failed with HTTP ${response.status}.`);
+  }
+  if (bytes.byteLength === 0) throw new Error('Public QDN content attestation returned an empty artifact.');
+  return bytes;
+}
+
+function qdnPublishAttestationMetadata(resource: QdnWriteResourceRequest) {
+  return {
+    category: resource.category,
+    description: resource.description,
+    tags: resource.tags,
+    title: resource.title,
+  };
+}
+
+function createPublicQdnPublishAttestation(
+  connection: NodeConnection,
+  resource: QdnWriteResourceRequest,
+  source: QdnPublishAttestationSource,
+) {
+  return (details: ReturnType<typeof assertPublicArbitraryTransaction>) => attestPublicQdnPublish({
+    details,
+    expectedMetadata: qdnPublishAttestationMetadata(resource),
+    fetchArtifact: (hash, maxBytes) => fetchPublicQdnAttestationArtifact(connection, hash, maxBytes),
+    source,
+    verify: runPublicQdnAttestationWorker,
+  });
+}
+
+function runPublicQdnAttestationWorker(input: QdnPublishVerificationInput) {
+  return new Promise<void>((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, 'qdn-attestation.worker.js'));
+    const timeout = setTimeout(() => {
+      void worker.terminate();
+      reject(new Error('QDN content attestation worker timed out.'));
+    }, MEMORY_POW_TIMEOUT_MS);
+    const finish = (error?: Error) => {
+      clearTimeout(timeout);
+      void worker.terminate();
+      error ? reject(error) : resolve();
+    };
+    worker.once('error', (error) => finish(error));
+    worker.once('message', (message: { error?: string; ok?: boolean }) => {
+      message?.ok ? finish() : finish(new Error(message?.error || 'QDN content attestation worker failed.'));
+    });
+    worker.postMessage(input);
+  });
 }
 
 async function signAndProcessKeylessStandardTransaction(
@@ -5321,6 +5390,7 @@ async function publishQdnResourceForApp(
     const serviceValue = getStaticQdnServiceId(resource.service);
     const isStillValid = () => isKeylessWriteContextFresh(sender, context as QdnViewContext, keylessWriteContext);
     let unsignedTransaction: Awaited<ReturnType<typeof postLocalNodeText>>;
+    let attestationSource: QdnPublishAttestationSource | null = null;
 
     if (source.path) {
       const uploadSource = await preparePublicQdnPublishUploadSource(resource, source);
@@ -5337,6 +5407,14 @@ async function publishQdnResourceForApp(
           keylessWriteContext.apiKey,
           'QDN publish transaction build failed.',
         );
+        const uploadedBytes = Buffer.isBuffer(uploadSource.body)
+          ? new Uint8Array(uploadSource.body)
+          : new Uint8Array(await readFile(source.path));
+        attestationSource = {
+          bytes: uploadedBytes,
+          filename: uploadSource.source.filename ?? path.basename(source.path),
+          unpackZip: uploadSource.source.isZip === true,
+        };
       } catch (error) {
         if (!isQdnUploadEndpointUnsupported(error)) {
           throw error;
@@ -5351,6 +5429,11 @@ async function publishQdnResourceForApp(
           keylessWriteContext.apiKey,
           'QDN publish transaction build failed.',
         );
+        attestationSource = {
+          bytes: new Uint8Array(Buffer.from(publicSource.dataBase64, 'base64')),
+          filename: publicSource.filename ?? 'qdn-resource',
+          unpackZip: publicSource.isZip === true,
+        };
       } finally {
         // A failed/aborted upload can leave the file read stream (and its fd)
         // open — fetch teardown is not guaranteed to consume it. Destroy is a
@@ -5368,7 +5451,14 @@ async function publishQdnResourceForApp(
         keylessWriteContext.apiKey,
         'QDN publish transaction build failed.',
       );
+      attestationSource = {
+        bytes: new Uint8Array(Buffer.from(publicSource.dataBase64, 'base64')),
+        filename: publicSource.filename ?? 'qdn-resource',
+        unpackZip: publicSource.isZip === true,
+      };
     }
+
+    if (!attestationSource) throw new Error('QDN publish source could not be prepared for content attestation.');
 
     const processedTransaction = await signAndProcessKeylessQdnTransaction(
       keylessWriteContext,
@@ -5382,6 +5472,7 @@ async function publishQdnResourceForApp(
         txGroupId: 0,
       },
       isStillValid,
+      createPublicQdnPublishAttestation(keylessWriteContext.connection, resource, attestationSource),
     );
     releaseQdnPublishSourceToken(request);
 
@@ -5564,6 +5655,15 @@ async function publishMultipleQdnResourcesForApp(
               txGroupId: 0,
             },
             () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
+            createPublicQdnPublishAttestation(
+              (writeContext as QdnKeylessWriteContext).connection,
+              entry.resource,
+              {
+                bytes: new Uint8Array(Buffer.from(publicSource!.dataBase64, 'base64')),
+                filename: publicSource!.filename ?? 'qdn-resource',
+                unpackZip: publicSource!.isZip === true,
+              },
+            ),
           );
 
       published.push({

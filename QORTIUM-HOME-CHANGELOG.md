@@ -33,6 +33,29 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - chore(release): prepare home 1.5.0
+
+Bumps Qortium Home to 1.5.0 with Android versionCode 30. This release line adds
+capability-negotiated public-node poll writes, bounded client-side MemoryPoW,
+and complete content attestation for public-node QDN publishing before Home
+signs a transaction.
+
+### 2026-07-15 - feat(qdn): attest public-node publish content
+
+Home no longer trusts a public node to package the content it asks the user to
+publish. Before signing, desktop and Android Home retrieve the exact encrypted
+artifact named by the unsigned transaction, verify its SHA-256 hash and size,
+decrypt it with the transaction's authenticated AES-GCM key, and compare every
+file and byte with the approved source. Home also verifies the signed metadata
+artifact, approved title, description, tags, category and file list, along with
+the hashes of every QDN chunk. ZIP extraction and artifact reads are bounded to
+the public publish limit, use abortable streaming HTTP reads, and enforce ZIP
+entry-count and path-length ceilings before inflation. Cryptographic checks,
+decryption, and ZIP comparison run in a worker instead of the main/UI thread.
+Malicious, stalled, or unavailable artifacts fail closed, batch publishes
+attest each resource independently, and local/trusted publishes and delete
+tombstones retain their existing behavior.
+
 ### 2026-07-15 - feat(qdn): support secure public-node poll writes
 
 Compatible public nodes can now advertise unsigned poll builders to QDN apps,

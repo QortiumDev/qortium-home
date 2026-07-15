@@ -280,7 +280,19 @@ export type ArbitraryExpected = {
   txGroupId: number;
 };
 
-export function assertPublicArbitraryTransaction(bytes: Uint8Array, expected: ArbitraryExpected) {
+export type PublicArbitraryTransactionDetails = {
+  compression: 0 | 1;
+  data: Uint8Array;
+  dataType: 0 | 1;
+  metadataHash: Uint8Array;
+  rawSize: number;
+  secret: Uint8Array;
+};
+
+export function assertPublicArbitraryTransaction(
+  bytes: Uint8Array,
+  expected: ArbitraryExpected,
+): PublicArbitraryTransactionDetails {
   const label = 'ARBITRARY';
   const reader = new Reader(bytes, label);
   assertEqual(reader.readInt32('transaction type'), TYPE_ARBITRARY, 'transaction type', label);
@@ -293,7 +305,7 @@ export function assertPublicArbitraryTransaction(bytes: Uint8Array, expected: Ar
   assertEqual(reader.readInt32('method'), expected.method, 'method', label);
   const secretLength = reader.readInt32('secret length');
   if (secretLength < 0 || secretLength > 32) throw new Error('Public ARBITRARY builder returned an invalid secret.');
-  reader.readBytes(secretLength, 'secret');
+  const secret = reader.readBytes(secretLength, 'secret');
   const compression = reader.readInt32('compression');
   if (compression !== 0 && compression !== 1) throw new Error('Public ARBITRARY builder returned invalid compression.');
   const paymentCount = reader.readInt32('payment count');
@@ -304,16 +316,25 @@ export function assertPublicArbitraryTransaction(bytes: Uint8Array, expected: Ar
   if (dataType !== 0 && dataType !== 1) throw new Error('Public ARBITRARY builder returned an invalid data type.');
   const dataLength = reader.readInt32('data length');
   if (dataLength < 0 || dataLength > 256) throw new Error('Public ARBITRARY builder returned invalid transaction data.');
-  reader.readBytes(dataLength, 'data');
+  const data = reader.readBytes(dataLength, 'data');
   const rawSize = reader.readInt32('raw data size');
   if (rawSize < 0) throw new Error('Public ARBITRARY builder returned an invalid raw data size.');
   const metadataLength = reader.readInt32('metadata hash length');
   if (metadataLength < 0 || metadataLength > 32) throw new Error('Public ARBITRARY builder returned invalid metadata.');
-  reader.readBytes(metadataLength, 'metadata hash');
+  const metadataHash = reader.readBytes(metadataLength, 'metadata hash');
   assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
   reader.finish();
 
   if (expected.method === 2 && (secretLength !== 0 || compression !== 0 || dataType !== 1 || dataLength !== 0 || rawSize !== 0 || metadataLength !== 0)) {
     throw new Error('Public ARBITRARY delete builder returned a non-tombstone transaction.');
   }
+
+  return {
+    compression: compression as 0 | 1,
+    data,
+    dataType: dataType as 0 | 1,
+    metadataHash,
+    rawSize,
+    secret,
+  };
 }

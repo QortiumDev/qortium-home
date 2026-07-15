@@ -43,6 +43,12 @@ import {
   sanitizeQdnNotificationSubscriptions,
 } from '../electron/notification-rules';
 import { arbitraryRawToSigningBytes } from '../electron/arbitrary-tx';
+import { fetchBoundedBytes } from '../electron/bounded-response';
+import {
+  attestPublicQdnPublish,
+  type QdnPublishAttestationSource,
+  type QdnPublishVerificationInput,
+} from '../electron/qdn-content-attestation';
 import {
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
@@ -4000,9 +4006,11 @@ async function signAndProcessKeylessQdnTransaction(
   rawUnsignedBytes58: string,
   expected: Parameters<typeof assertPublicArbitraryTransaction>[1],
   isStillValid?: () => boolean | Promise<boolean>,
+  attest?: (details: ReturnType<typeof assertPublicArbitraryTransaction>) => Promise<void>,
 ) {
   const rawUnsignedBytes = base58Decode(rawUnsignedBytes58);
-  assertPublicArbitraryTransaction(rawUnsignedBytes, expected);
+  const details = assertPublicArbitraryTransaction(rawUnsignedBytes, expected);
+  if (attest) await attest(details);
   const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
   const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY, isStillValid);
   const rawBytesWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
@@ -4031,6 +4039,73 @@ async function signAndProcessKeylessQdnTransaction(
     signature: getSignedTransactionSignature(signedTransactionBytes),
     signedTransactionBytes,
   };
+}
+
+async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: number) {
+  if (hash.length !== 32) throw new Error('Public QDN builder returned an invalid attestation hash.');
+  let result: Awaited<ReturnType<typeof fetchBoundedBytes>>;
+  try {
+    result = await fetchBoundedBytes(
+      (signal) => window.fetch(
+        `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`,
+        { cache: 'no-store', signal },
+      ),
+      maxBytes,
+    );
+  } catch (error) {
+    throw new Error(
+      `Public QDN content attestation requires a bounded streaming connection to the selected node: ${error instanceof Error ? error.message : 'request failed'}`,
+    );
+  }
+  const { bytes, response } = result;
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(new TextDecoder().decode(bytes).trim() || `Public QDN content attestation failed with HTTP ${response.status}.`);
+  }
+  if (bytes.byteLength === 0) throw new Error('Public QDN content attestation returned an empty artifact.');
+  return bytes;
+}
+
+function qdnPublishAttestationMetadata(resource: QdnWriteResourceRequest) {
+  return {
+    category: resource.category,
+    description: resource.description,
+    tags: resource.tags,
+    title: resource.title,
+  };
+}
+
+function createPublicQdnPublishAttestation(
+  nodeApiUrl: string,
+  resource: QdnWriteResourceRequest,
+  source: QdnPublishAttestationSource,
+) {
+  return (details: ReturnType<typeof assertPublicArbitraryTransaction>) => attestPublicQdnPublish({
+    details,
+    expectedMetadata: qdnPublishAttestationMetadata(resource),
+    fetchArtifact: (hash, maxBytes) => fetchPublicQdnAttestationArtifact(nodeApiUrl, hash, maxBytes),
+    source,
+    verify: runPublicQdnAttestationWorker,
+  });
+}
+
+function runPublicQdnAttestationWorker(input: QdnPublishVerificationInput) {
+  return new Promise<void>((resolve, reject) => {
+    const worker = new Worker(new URL('./qdnAttestation.worker.ts', import.meta.url), { type: 'module' });
+    const timeout = window.setTimeout(() => {
+      worker.terminate();
+      reject(new Error('QDN content attestation worker timed out.'));
+    }, MEMORY_POW_TIMEOUT_MS);
+    const finish = (error?: Error) => {
+      window.clearTimeout(timeout);
+      worker.terminate();
+      error ? reject(error) : resolve();
+    };
+    worker.onerror = () => finish(new Error('QDN content attestation worker failed.'));
+    worker.onmessage = (event: MessageEvent<{ error?: string; ok?: boolean }>) => {
+      event.data?.ok ? finish() : finish(new Error(event.data?.error || 'QDN content attestation worker failed.'));
+    };
+    worker.postMessage(input);
+  });
 }
 
 async function signAndProcessKeylessStandardTransaction(
@@ -4273,6 +4348,15 @@ async function publishQdnResourceForApp(request: QdnAppRequest, context: QdnAppR
           txGroupId: 0,
         },
         () => isKeylessWriteContextFresh(context as QdnAppRequestContext, writeContext as QdnKeylessWriteContext),
+        createPublicQdnPublishAttestation(
+          (writeContext as QdnKeylessWriteContext).nodeApiUrl,
+          resource,
+          {
+            bytes: base64ToBytes(source.dataBase64),
+            filename: source.fileName,
+            unpackZip: uploadSource.source.isZip === true,
+          },
+        ),
       );
   releaseQdnPublishSourceToken(request);
 
@@ -4387,6 +4471,15 @@ async function publishMultipleQdnResourcesForApp(
               txGroupId: 0,
             },
             () => isKeylessWriteContextFresh(context as QdnAppRequestContext, writeContext as QdnKeylessWriteContext),
+            createPublicQdnPublishAttestation(
+              (writeContext as QdnKeylessWriteContext).nodeApiUrl,
+              entry.resource,
+              {
+                bytes: base64ToBytes(source.dataBase64),
+                filename: source.fileName,
+                unpackZip: shouldUseQdnPublishZipEndpoint(entry.resource, source),
+              },
+            ),
           );
 
       published.push({

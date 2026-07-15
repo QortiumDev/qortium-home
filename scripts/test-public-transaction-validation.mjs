@@ -113,7 +113,11 @@ function arbitraryBytes({ method = 0, payments = 0, deleteShape = false } = {}) 
   );
 }
 const arbitraryExpected = { identifier: 'Polls', method: 0, name: 'Polls', publicKey, service: 1000, txGroupId: 0 };
-assert.doesNotThrow(() => assertPublicArbitraryTransaction(arbitraryBytes(), arbitraryExpected));
+const arbitraryDetails = assertPublicArbitraryTransaction(arbitraryBytes(), arbitraryExpected);
+assert.equal(arbitraryDetails.compression, 0);
+assert.equal(arbitraryDetails.dataType, 0);
+assert.equal(arbitraryDetails.rawSize, 1234);
+assert.deepEqual(arbitraryDetails.data, sequence(32, 33));
 assert.throws(() => assertPublicArbitraryTransaction(arbitraryBytes({ payments: 1 }), arbitraryExpected), /payments/);
 assert.doesNotThrow(() => assertPublicArbitraryTransaction(
   arbitraryBytes({ deleteShape: true, method: 2 }),
