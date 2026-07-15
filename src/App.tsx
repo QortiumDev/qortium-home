@@ -3554,9 +3554,6 @@ export function App() {
                   coreManager={coreManager}
                   nodeEpoch={nodeEpoch}
                   nodeMode={nodeSettings.mode}
-                  onAppTargetDelivered={(target) => {
-                    setQdnAppTargetRequest((current) => current?.query === target ? null : current);
-                  }}
                   route={tabRoute}
                 />
               ) : tabRoute.kind === 'core-api-docs' ? (

@@ -98,6 +98,15 @@ import {
   resolvePollVoteOptionInput,
 } from './qdn-poll-vote-input.js';
 import {
+  assertPublicArbitraryTransaction,
+  assertPublicChatTransaction,
+  assertPublicCreatePollTransaction,
+  assertPublicUpdatePollTransaction,
+  assertPublicVoteOnPollTransaction,
+  getStaticQdnServiceId,
+} from './public-transaction-validation.js';
+import { parsePublicPollCapabilities, type PublicPollCapabilities } from './public-poll-capabilities.js';
+import {
   getQdnViewContextForWebContents,
   isQdnViewFocused,
   sanitizeAppTitle,
@@ -113,6 +122,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // previewchain.json chatDifficulty); keep in sync with src/platform.ts.
 const CHAT_POW_DIFFICULTY = 8;
 const ARBITRARY_POW_DIFFICULTY = 11;
+const MEMORY_POW_TIMEOUT_MS = 180_000;
+const PUBLIC_POLL_CAPABILITIES_TTL_MS = 5 * 60_000;
 const TRANSACTION_NONCE_OFFSET = 48;
 
 const PREVIEW_ACCOUNTS_PATH = path.join(
@@ -401,6 +412,32 @@ type QdnKeylessChatContext = {
 type QdnKeylessWriteContext = QdnKeylessChatContext;
 
 type NodeConnection = Awaited<ReturnType<typeof getNodeConnection>>;
+
+const publicPollCapabilitiesCache = new Map<string, { expiresAt: number; value: PublicPollCapabilities }>();
+
+function qdnCodedError(code: string, message: string) {
+  return Object.assign(new Error(message), { code });
+}
+
+async function getPublicPollCapabilities(connection: NodeConnection) {
+  const cacheKey = connection.nodeApiUrl;
+  const cached = publicPollCapabilitiesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  try {
+    const value = parsePublicPollCapabilities(await fetchLocalNodeApiPayload(
+      connection,
+      '/polls/public/capabilities',
+      'Public poll capability lookup failed.',
+    ));
+    publicPollCapabilitiesCache.clear();
+    publicPollCapabilitiesCache.set(cacheKey, { expiresAt: Date.now() + PUBLIC_POLL_CAPABILITIES_TTL_MS, value });
+    return value;
+  } catch (error) {
+    if (isRecord(error) && error.code === 'QDN_PUBLIC_POLL_CAPABILITY_UNAVAILABLE') throw error;
+    throw qdnCodedError('QDN_PUBLIC_POLL_CAPABILITY_UNAVAILABLE', 'The selected public node does not expose a compatible poll builder.');
+  }
+}
 
 type QdnWriteApprovalDetails = {
   action: QdnWriteApprovalAction;
@@ -4220,10 +4257,13 @@ function clearTransactionNonce(unsignedBytes: Uint8Array) {
 async function signAndProcessKeylessQdnTransaction(
   keylessContext: QdnKeylessWriteContext,
   rawUnsignedBytes58: string,
+  expected: Parameters<typeof assertPublicArbitraryTransaction>[1],
+  isStillValid?: () => boolean | Promise<boolean>,
 ) {
   const rawUnsignedBytes = base58Decode(rawUnsignedBytes58);
+  assertPublicArbitraryTransaction(rawUnsignedBytes, expected);
   const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
-  const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY);
+  const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY, isStillValid);
   const rawBytesWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
   const signingBytesWithNonce = stampTransactionNonce(signingBytes, nonce);
   if (keylessContext.secretKey.length !== 64) {
@@ -4233,6 +4273,9 @@ async function signAndProcessKeylessQdnTransaction(
   const signature = nacl.sign.detached(signingBytesWithNonce, keylessContext.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(rawBytesWithNonce, signature);
   const signedTransactionBytes = base58Encode(signedBytes);
+  if (isStillValid && !(await isStillValid())) {
+    throw qdnCodedError('QDN_POW_CANCELLED', 'The signing context changed before the transaction could be submitted.');
+  }
   const processedTransaction = await postLocalNodeText(
     keylessContext.connection,
     '/transactions/process?apiVersion=2',
@@ -4241,6 +4284,38 @@ async function signAndProcessKeylessQdnTransaction(
     'QDN transaction processing failed.',
   );
 
+  return {
+    body: processedTransaction.body,
+    data: parseResponseData(processedTransaction.body, processedTransaction.contentType),
+    signature: getSignedTransactionSignature(signedTransactionBytes),
+    signedTransactionBytes,
+  };
+}
+
+async function signAndProcessKeylessStandardTransaction(
+  keylessContext: QdnKeylessWriteContext,
+  rawUnsignedBytes58: string,
+  difficulty: number,
+  validate: (bytes: Uint8Array) => void,
+  isStillValid?: () => boolean | Promise<boolean>,
+) {
+  const unsignedBytes = base58Decode(rawUnsignedBytes58);
+  validate(unsignedBytes);
+  const nonce = await computeChatNonce(clearTransactionNonce(unsignedBytes), difficulty, isStillValid);
+  const bytesWithNonce = stampTransactionNonce(unsignedBytes, nonce);
+  if (keylessContext.secretKey.length !== 64) throw new Error('ed25519 secret key must be 64 bytes.');
+  const signature = nacl.sign.detached(bytesWithNonce, keylessContext.secretKey);
+  const signedTransactionBytes = base58Encode(appendSignatureToTransactionBytes(bytesWithNonce, signature));
+  if (isStillValid && !(await isStillValid())) {
+    throw qdnCodedError('QDN_POW_CANCELLED', 'The signing context changed before the transaction could be submitted.');
+  }
+  const processedTransaction = await postLocalNodeText(
+    keylessContext.connection,
+    '/transactions/process?apiVersion=2',
+    signedTransactionBytes,
+    keylessContext.apiKey,
+    'Transaction processing failed.',
+  );
   return {
     body: processedTransaction.body,
     data: parseResponseData(processedTransaction.body, processedTransaction.contentType),
@@ -5074,6 +5149,18 @@ async function getKeylessQdnWriteContext(context: QdnViewContext | null): Promis
   };
 }
 
+async function isKeylessWriteContextFresh(
+  sender: WebContents,
+  context: QdnViewContext,
+  keylessContext: QdnKeylessWriteContext,
+) {
+  if (!isSameQdnWriteContext(getQdnViewContextForWebContents(sender), context)) return false;
+  if (!isAccountUnlocked(keylessContext.accountId)) return false;
+  if (getActiveAccountAddress() !== keylessContext.profile.address) return false;
+  const connection = await getNodeConnection();
+  return connection.mode === 'network' && connection.nodeApiUrl === keylessContext.connection.nodeApiUrl;
+}
+
 async function fetchLocalNodeApiPayload(
   connection: NodeConnection,
   apiPath: string,
@@ -5230,6 +5317,9 @@ async function publishQdnResourceForApp(
 
   if (!useLocalWrite) {
     const keylessWriteContext = writeContext as QdnKeylessWriteContext;
+    if ((resource.fee ?? 0) !== 0) throw new Error('Public-node QDN writes require a zero fee.');
+    const serviceValue = getStaticQdnServiceId(resource.service);
+    const isStillValid = () => isKeylessWriteContextFresh(sender, context as QdnViewContext, keylessWriteContext);
     let unsignedTransaction: Awaited<ReturnType<typeof postLocalNodeText>>;
 
     if (source.path) {
@@ -5280,7 +5370,19 @@ async function publishQdnResourceForApp(
       );
     }
 
-    const processedTransaction = await signAndProcessKeylessQdnTransaction(keylessWriteContext, unsignedTransaction.body);
+    const processedTransaction = await signAndProcessKeylessQdnTransaction(
+      keylessWriteContext,
+      unsignedTransaction.body,
+      {
+        identifier: resource.identifier && resource.identifier !== 'default' ? resource.identifier : undefined,
+        method: 0,
+        name: resource.name,
+        publicKey: base58Decode(keylessWriteContext.publicKey58),
+        service: serviceValue,
+        txGroupId: 0,
+      },
+      isStillValid,
+    );
     releaseQdnPublishSourceToken(request);
 
     return {
@@ -5406,6 +5508,10 @@ async function publishMultipleQdnResourcesForApp(
         assertPublicQdnPublishSize(source.size, 'Selected QDN publish source');
       }
 
+      if (!useLocalWrite && (entry.resource.fee ?? 0) !== 0) {
+        throw new Error('Public-node QDN writes require a zero fee.');
+      }
+
       if (useLocalWrite && typeof source.size === 'number') {
         await assertLocalQdnPublishSize(connection, entry.resource.service, source.size, 'Selected QDN publish source');
       }
@@ -5446,7 +5552,19 @@ async function publishMultipleQdnResourcesForApp(
             privateKey58,
             unsignedTransaction.body,
           )
-        : await signAndProcessKeylessQdnTransaction(writeContext as QdnKeylessWriteContext, unsignedTransaction.body);
+        : await signAndProcessKeylessQdnTransaction(
+            writeContext as QdnKeylessWriteContext,
+            unsignedTransaction.body,
+            {
+              identifier: entry.resource.identifier && entry.resource.identifier !== 'default' ? entry.resource.identifier : undefined,
+              method: 0,
+              name: entry.resource.name,
+              publicKey: base58Decode((writeContext as QdnKeylessWriteContext).publicKey58),
+              service: getStaticQdnServiceId(entry.resource.service),
+              txGroupId: 0,
+            },
+            () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
+          );
 
       published.push({
         result: processedTransaction.data,
@@ -5524,7 +5642,19 @@ async function deleteQdnResourceForApp(
         privateKey58,
         unsignedTransaction.body,
       )
-    : await signAndProcessKeylessQdnTransaction(writeContext as QdnKeylessWriteContext, unsignedTransaction.body);
+    : await signAndProcessKeylessQdnTransaction(
+        writeContext as QdnKeylessWriteContext,
+        unsignedTransaction.body,
+        {
+          identifier: resource.identifier && resource.identifier !== 'default' ? resource.identifier : undefined,
+          method: 2,
+          name: resource.name,
+          publicKey: base58Decode((writeContext as QdnKeylessWriteContext).publicKey58),
+          service: getStaticQdnServiceId(resource.service),
+          txGroupId: 0,
+        },
+        () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
+      );
 
   return {
     accepted: true,
@@ -6879,7 +7009,15 @@ async function createPollForApp(
   const ownerInput = getOptionalAddressRequestString(request, 'Owner address', 'owner');
   const startTime = getOptionalIntegerRequestValue(request, 0, 'startTime', 'pollStartTime');
   const endTime = getOptionalIntegerRequestValue(request, 0, 'endTime', 'pollEndTime');
-  const writeContext = await getQdnChatContext(context);
+  const connection = await getNodeConnection();
+  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeContext = useLocalWrite
+    ? await getQdnChatContext(context)
+    : await getKeylessChatContext(context);
+  const capabilities = useLocalWrite ? null : await getPublicPollCapabilities(connection);
+  const fee = getTransactionFee(request);
+  const txGroupId = getTransactionGroupId(request);
+  if (!useLocalWrite && fee !== 0) throw new Error('Public-node poll writes require a zero fee.');
   const resolvedOwner = ownerInput || writeContext.profile.address;
 
   await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
@@ -6890,14 +7028,15 @@ async function createPollForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
+  const timestamp = Date.now();
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
-    '/polls/create',
+    useLocalWrite ? '/polls/create' : '/polls/public/create',
     JSON.stringify({
       type: 'CREATE_POLL',
-      timestamp: Date.now(),
-      txGroupId: getTransactionGroupId(request),
-      fee: getTransactionFee(request),
+      timestamp,
+      txGroupId,
+      fee,
       pollCreatorPublicKey: writeContext.publicKey58,
       owner: resolvedOwner,
       pollName,
@@ -6910,7 +7049,25 @@ async function createPollForApp(
     'Create poll transaction build failed.',
     'application/json',
   );
-  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+  const processedTransaction = useLocalWrite
+    ? await processQdnAccountTransaction(writeContext as QdnChatContext, unsignedTransaction)
+    : await signAndProcessKeylessStandardTransaction(
+        writeContext as QdnKeylessWriteContext,
+        unsignedTransaction.body,
+        capabilities!.mempowFeeAlternativeDifficulty,
+        (bytes) => assertPublicCreatePollTransaction(bytes, {
+          description,
+          endTime,
+          owner: base58Decode(resolvedOwner),
+          pollName,
+          pollOptions: pollOptions.map((option) => option.optionName),
+          publicKey: base58Decode(writeContext.publicKey58),
+          startTime,
+          timestamp,
+          txGroupId,
+        }),
+        () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
+      );
 
   return {
     accepted: true,
@@ -6932,7 +7089,15 @@ async function voteOnPollForApp(
     ? getRequiredIntegerRequestValue(request, 0, 'Option index', 'optionIndex', 'option')
     : getOptionalIntegerRequestValue(request, 0, 'optionIndex', 'option');
   const optionInput = resolvePollVoteOptionInput(optionIndex, optionIndexes);
-  const writeContext = await getQdnChatContext(context);
+  const connection = await getNodeConnection();
+  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeContext = useLocalWrite
+    ? await getQdnChatContext(context)
+    : await getKeylessChatContext(context);
+  const capabilities = useLocalWrite ? null : await getPublicPollCapabilities(connection);
+  const fee = getTransactionFee(request);
+  const txGroupId = getTransactionGroupId(request);
+  if (!useLocalWrite && fee !== 0) throw new Error('Public-node poll writes require a zero fee.');
 
   await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
     action: 'VOTE_ON_POLL',
@@ -6942,14 +7107,15 @@ async function voteOnPollForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
+  const timestamp = Date.now();
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
-    '/polls/vote',
+    useLocalWrite ? '/polls/vote' : '/polls/public/vote',
     JSON.stringify({
       type: 'VOTE_ON_POLL',
-      timestamp: Date.now(),
-      txGroupId: getTransactionGroupId(request),
-      fee: getTransactionFee(request),
+      timestamp,
+      txGroupId,
+      fee,
       voterPublicKey: writeContext.publicKey58,
       pollId,
       ...(typeof optionInput.optionIndexes === 'undefined'
@@ -6960,7 +7126,24 @@ async function voteOnPollForApp(
     'Vote on poll transaction build failed.',
     'application/json',
   );
-  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+  const approvedOptionIndexes = typeof optionInput.optionIndexes === 'undefined'
+    ? typeof optionInput.optionIndex === 'number' && optionInput.optionIndex !== 0 ? [optionInput.optionIndex] : []
+    : optionInput.optionIndexes.filter((index) => index !== 0);
+  const processedTransaction = useLocalWrite
+    ? await processQdnAccountTransaction(writeContext as QdnChatContext, unsignedTransaction)
+    : await signAndProcessKeylessStandardTransaction(
+        writeContext as QdnKeylessWriteContext,
+        unsignedTransaction.body,
+        capabilities!.mempowFeeAlternativeDifficulty,
+        (bytes) => assertPublicVoteOnPollTransaction(bytes, {
+          optionIndexes: approvedOptionIndexes,
+          pollId,
+          publicKey: base58Decode(writeContext.publicKey58),
+          timestamp,
+          txGroupId,
+        }),
+        () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
+      );
 
   return {
     accepted: true,
@@ -7264,7 +7447,15 @@ async function updatePollForApp(
   const newPollOptions = getPollOptionsRequestInput(request, 'newPollOptions', 'pollOptions', 'options');
   const newStartTime = getOptionalIntegerRequestValue(request, 0, 'newStartTime', 'startTime');
   const newEndTime = getOptionalIntegerRequestValue(request, 0, 'newEndTime', 'endTime');
-  const writeContext = await getQdnChatContext(context);
+  const connection = await getNodeConnection();
+  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeContext = useLocalWrite
+    ? await getQdnChatContext(context)
+    : await getKeylessChatContext(context);
+  const capabilities = useLocalWrite ? null : await getPublicPollCapabilities(connection);
+  const fee = getTransactionFee(request);
+  const txGroupId = getTransactionGroupId(request);
+  if (!useLocalWrite && fee !== 0) throw new Error('Public-node poll writes require a zero fee.');
 
   await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
     action: 'UPDATE_POLL',
@@ -7274,14 +7465,15 @@ async function updatePollForApp(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
+  const timestamp = Date.now();
   const unsignedTransaction = await postLocalNodeText(
     writeContext.connection,
-    '/polls/update',
+    useLocalWrite ? '/polls/update' : '/polls/public/update',
     JSON.stringify({
       type: 'UPDATE_POLL',
-      timestamp: Date.now(),
-      txGroupId: getTransactionGroupId(request),
-      fee: getTransactionFee(request),
+      timestamp,
+      txGroupId,
+      fee,
       ownerPublicKey: writeContext.publicKey58,
       pollId,
       newPollName,
@@ -7294,7 +7486,25 @@ async function updatePollForApp(
     'Update poll transaction build failed.',
     'application/json',
   );
-  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+  const processedTransaction = useLocalWrite
+    ? await processQdnAccountTransaction(writeContext as QdnChatContext, unsignedTransaction)
+    : await signAndProcessKeylessStandardTransaction(
+        writeContext as QdnKeylessWriteContext,
+        unsignedTransaction.body,
+        capabilities!.mempowFeeAlternativeDifficulty,
+        (bytes) => assertPublicUpdatePollTransaction(bytes, {
+          endTime: newEndTime,
+          newDescription,
+          newPollName,
+          newPollOptions: newPollOptions.map((option) => option.optionName),
+          pollId,
+          publicKey: base58Decode(writeContext.publicKey58),
+          startTime: newStartTime,
+          timestamp,
+          txGroupId,
+        }),
+        () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
+      );
 
   return {
     accepted: true,
@@ -7647,6 +7857,7 @@ type MemoryPowWorkerResponse =
   | { id: string; error: string };
 
 let memoryPowWorker: Worker | null = null;
+let memoryPowActive = false;
 
 function getMemoryPowWorker(): Worker {
   if (!memoryPowWorker) {
@@ -7675,32 +7886,64 @@ function getMemoryPowWorker(): Worker {
 
 // Runs the CHAT memory-pow off the main process and resolves with the nonce.
 // Mirrors src/platform.ts computeChatNonce.
-function computeChatNonce(data: Uint8Array, difficulty: number): Promise<number> {
+function computeChatNonce(
+  data: Uint8Array,
+  difficulty: number,
+  isStillValid?: () => boolean | Promise<boolean>,
+): Promise<number> {
+  if (memoryPowActive) {
+    return Promise.reject(qdnCodedError('QDN_POW_BUSY', 'Another proof-of-work computation is already running. Please retry.'));
+  }
+
   const worker = getMemoryPowWorker();
   const id = randomUUID();
+  memoryPowActive = true;
 
   return new Promise<number>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error, nonce?: number, terminate = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(validityTimer);
+      worker.off('message', onMessage);
+      worker.off('error', onError);
+      memoryPowActive = false;
+      if (terminate) {
+        if (memoryPowWorker === worker) memoryPowWorker = null;
+        void worker.terminate();
+      }
+      if (error) reject(error);
+      else resolve(nonce as number);
+    };
     const onMessage = (response: MemoryPowWorkerResponse) => {
       if (response.id !== id) {
         return;
       }
 
-      worker.off('message', onMessage);
-      worker.off('error', onError);
-
       if ('error' in response) {
-        reject(new Error(response.error));
+        finish(new Error(response.error));
         return;
       }
 
-      resolve(response.nonce);
+      finish(undefined, response.nonce);
     };
 
     const onError = (error: Error) => {
-      worker.off('message', onMessage);
-      worker.off('error', onError);
-      reject(new Error(error.message || 'Memory-pow computation failed.'));
+      finish(new Error(error.message || 'Memory-pow computation failed.'), undefined, true);
     };
+
+    const timeout = setTimeout(() => {
+      finish(qdnCodedError('QDN_POW_TIMEOUT', 'Proof-of-work did not finish within three minutes.'), undefined, true);
+    }, MEMORY_POW_TIMEOUT_MS);
+    const validityTimer = setInterval(() => {
+      if (!isStillValid) return;
+      void Promise.resolve(isStillValid()).then((valid) => {
+        if (!valid) finish(qdnCodedError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because the account, node, or app context changed.'), undefined, true);
+      }).catch(() => {
+        finish(qdnCodedError('QDN_POW_CANCELLED', 'Proof-of-work was canceled because its signing context could not be revalidated.'), undefined, true);
+      });
+    }, 500);
 
     worker.on('message', onMessage);
     worker.on('error', onError);
@@ -7717,18 +7960,23 @@ async function sendKeylessPublicGroupChatMessage(
   keylessContext: QdnKeylessChatContext,
   groupId: number,
   message: string,
+  chatReference?: string,
+  isStillValid?: () => boolean | Promise<boolean>,
 ) {
+  const timestamp = Date.now();
+  const data = encodeChatTextData(message);
   const unsignedTransaction = await postLocalNodeText(
     keylessContext.connection,
     '/chat/public/build',
     JSON.stringify({
       senderPublicKey: keylessContext.publicKey58,
-      data: encodeChatTextData(message),
+      data,
       isText: true,
       isEncrypted: false,
       txGroupId: groupId,
-      timestamp: Date.now(),
+      timestamp,
       fee: 0,
+      chatReference,
     }),
     keylessContext.apiKey,
     'Chat transaction build failed.',
@@ -7736,10 +7984,21 @@ async function sendKeylessPublicGroupChatMessage(
   );
 
   const unsignedBytes = base58Decode(unsignedTransaction.body);
+  assertPublicChatTransaction(unsignedBytes, {
+    chatReference: chatReference ? base58Decode(chatReference) : undefined,
+    data: base58Decode(data),
+    publicKey: base58Decode(keylessContext.publicKey58),
+    timestamp,
+    txGroupId: groupId,
+  });
   // The build endpoint returns nonce-free bytes (nonce field already zeroed), so
   // we hash the bytes as-is to seed the memory-pow.
-  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY);
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isStillValid);
   const signedBytes = signChatTransaction(unsignedBytes, nonce, keylessContext.secretKey);
+
+  if (isStillValid && !(await isStillValid())) {
+    throw qdnCodedError('QDN_POW_CANCELLED', 'The signing context changed before the chat message could be submitted.');
+  }
 
   const processedTransaction = await postLocalNodeText(
     keylessContext.connection,
@@ -7762,6 +8021,7 @@ async function trySendChatMessageOnNetworkNode(
   sender: WebContents,
   target: QdnChatMessageTarget,
   message: string,
+  chatReference?: string,
 ) {
   const connection = await getNodeConnection();
 
@@ -7802,7 +8062,13 @@ async function trySendChatMessageOnNetworkNode(
 
   assertFreshQdnWriteContext(sender, context as QdnViewContext);
 
-  const result = await sendKeylessPublicGroupChatMessage(keylessContext, groupId, message);
+  const result = await sendKeylessPublicGroupChatMessage(
+    keylessContext,
+    groupId,
+    message,
+    chatReference,
+    () => isKeylessWriteContextFresh(sender, context as QdnViewContext, keylessContext),
+  );
 
   return {
     accepted: true,
@@ -7826,7 +8092,7 @@ async function sendChatMessageForApp(
   // Network (public) nodes get the keyless local-sign path for open groups; any
   // path that would leak the private key is rejected. Local/custom nodes keep the
   // existing server-side signing behaviour below.
-  const networkResult = await trySendChatMessageOnNetworkNode(context, sender, target, message);
+  const networkResult = await trySendChatMessageOnNetworkNode(context, sender, target, message, chatReference);
 
   if (networkResult) {
     return networkResult;
@@ -9137,9 +9403,14 @@ async function handleQdnAppRequest(
       // RATE_ACCOUNT) that would throw for lack of a local write connection.
       const connection = await getNodeConnection();
 
-      return connection.mode === 'network'
-        ? [...QDN_PUBLIC_NODE_BRIDGE_ACTIONS]
-        : [...QDN_APP_BRIDGE_ACTIONS];
+      if (connection.mode !== 'network') return [...QDN_APP_BRIDGE_ACTIONS];
+
+      try {
+        await getPublicPollCapabilities(connection);
+        return [...QDN_PUBLIC_NODE_BRIDGE_ACTIONS, ...QDN_POLL_ACTIONS];
+      } catch {
+        return [...QDN_PUBLIC_NODE_BRIDGE_ACTIONS];
+      }
     }
 
     default:

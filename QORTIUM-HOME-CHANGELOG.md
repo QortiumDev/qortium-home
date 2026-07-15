@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - feat(qdn): support secure public-node poll writes
+
+Compatible public nodes can now advertise unsigned poll builders to QDN apps,
+letting Home create, vote on, and update polls without sending a private key to
+the node. Home verifies every approved poll and public chat field before local
+signing, and checks the security-critical identity, method, service, payment,
+group, nonce, and fee fields of public QDN publish/delete transactions. Free
+MemoryPoW runs off the UI thread with one active job, a three-minute computation
+limit, stale-context cancellation, and a final account/node check before
+broadcast. Older public nodes remain browse-only, while local/trusted write paths
+are unchanged.
+
 ### 2026-07-14 - release: prepare home 1.4.2
 
 Bumps Qortium Home to 1.4.2. QDN apps can now cast multi-option poll votes

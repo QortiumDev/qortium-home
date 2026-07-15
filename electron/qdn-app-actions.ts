@@ -173,6 +173,7 @@ const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
   ...QDN_PAYMENT_ACTIONS,
   ...QDN_FOREIGN_WALLET_READ_ACTIONS,
   ...QDN_FOREIGN_SERVER_ACTIONS,
+  // Poll actions are appended dynamically after a compatible public capability probe.
   ...QDN_POLL_ACTIONS,
   ...QDN_TRUST_ACTIONS,
   ...QDN_LIST_ACTIONS,
