@@ -101,6 +101,7 @@ type QdnViewerProps = {
   nodeApiUrl: string;
   nodeEpoch?: number;
   nodeMode?: QortiumNodeSettingsMode;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -212,6 +213,7 @@ export type QdnBridgeFrameContentProps = {
   account: QortiumAccountSummary | null;
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -3086,6 +3088,7 @@ export function QdnIsolatedFrameContent({
   appTarget,
   displaySettings,
   nodeApiUrl,
+  onAppTargetDelivered,
   renderUrl,
   resourceUrl,
   suspended,
@@ -3095,6 +3098,7 @@ export function QdnIsolatedFrameContent({
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   renderUrl: string;
   resourceUrl: string;
   suspended: boolean;
@@ -3102,6 +3106,7 @@ export function QdnIsolatedFrameContent({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastBoundsRef = useRef<QortiumQdnViewBounds | null>(null);
+  const deliveredAppTargetRef = useRef<QdnAppTargetQuery | null>(null);
   const suspendedRef = useRef(suspended);
   const [viewError, setViewError] = useState('');
   const [snapshotUrl, setSnapshotUrl] = useState('');
@@ -3286,14 +3291,18 @@ export function QdnIsolatedFrameContent({
   useEffect(() => {
     const qdnViews = window.qortiumHome.qdnViews;
 
-    if (!qdnViews || suspended || !appTarget) {
+    if (!qdnViews || suspended || !appTarget || deliveredAppTargetRef.current === appTarget) {
       return;
     }
 
-    void qdnViews.postMessage({ tabId, message: getOpenAppTargetMessage(appTarget) }).catch((error) => {
-      console.warn('Unable to deliver QDN app target.', error);
-    });
-  }, [appTarget, suspended, tabId]);
+    deliveredAppTargetRef.current = appTarget;
+    void qdnViews.postMessage({ tabId, message: getOpenAppTargetMessage(appTarget) })
+      .then(() => onAppTargetDelivered?.(appTarget))
+      .catch((error) => {
+        deliveredAppTargetRef.current = null;
+        console.warn('Unable to deliver QDN app target.', error);
+      });
+  }, [appTarget, onAppTargetDelivered, suspended, tabId]);
 
   return (
     <div
@@ -3315,6 +3324,7 @@ export function QdnBridgeFrameContent({
   account,
   appTarget,
   displaySettings,
+  onAppTargetDelivered,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3326,6 +3336,9 @@ export function QdnBridgeFrameContent({
   title = resourceUrl,
 }: QdnBridgeFrameContentProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const appTargetRef = useRef(appTarget);
+  const deliveredAppTargetRef = useRef<QdnAppTargetQuery | null>(null);
+  const frameLoadedRef = useRef(false);
   const onOpenNewTabRef = useRef(onOpenNewTab);
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
@@ -3338,6 +3351,7 @@ export function QdnBridgeFrameContent({
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   onAppTitleChangeRef.current = onAppTitleChange;
+  appTargetRef.current = appTarget;
   suspendedFrameRef.current = suspended;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
@@ -3375,16 +3389,29 @@ export function QdnBridgeFrameContent({
     postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
   }, [accountId, isAccountUnlocked, renderUrl]);
 
-  useEffect(() => {
-    if (!appTarget) {
+  function deliverAppTarget() {
+    const target = appTargetRef.current;
+
+    if (!frameLoadedRef.current || !target || deliveredAppTargetRef.current === target) {
       return;
     }
 
     const frameWindow = frameRef.current?.contentWindow;
 
     if (frameWindow) {
-      frameWindow.postMessage(getOpenAppTargetMessage(appTarget), getPostMessageTargetOrigin(renderUrl));
+      deliveredAppTargetRef.current = target;
+      frameWindow.postMessage(getOpenAppTargetMessage(target), getPostMessageTargetOrigin(renderUrl));
+      onAppTargetDelivered?.(target);
     }
+  }
+
+  useEffect(() => {
+    frameLoadedRef.current = false;
+    deliveredAppTargetRef.current = null;
+  }, [renderUrl]);
+
+  useEffect(() => {
+    deliverAppTarget();
   }, [appTarget, renderUrl]);
 
   useEffect(() => {
@@ -3458,6 +3485,7 @@ export function QdnBridgeFrameContent({
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : 'QDN app request failed.';
+        const code = isRecord(error) && typeof error.code === 'string' ? error.code : undefined;
 
         frameWindow.postMessage(
           {
@@ -3465,6 +3493,7 @@ export function QdnBridgeFrameContent({
             error: {
               error: message,
               message,
+              ...(code ? { code } : {}),
             },
             requestId,
             result: null,
@@ -3495,8 +3524,10 @@ export function QdnBridgeFrameContent({
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
+        frameLoadedRef.current = true;
         postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
         postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
+        deliverAppTarget();
       }}
     />
   );
@@ -3513,6 +3544,7 @@ function QdnIframeContent({
   appTarget,
   displaySettings,
   loadedResource,
+  onAppTargetDelivered,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3525,6 +3557,7 @@ function QdnIframeContent({
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -3538,6 +3571,7 @@ function QdnIframeContent({
       account={account}
       appTarget={appTarget}
       displaySettings={displaySettings}
+      onAppTargetDelivered={onAppTargetDelivered}
       onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
       onOpenMediaPlayer={onOpenMediaPlayer}
@@ -3556,6 +3590,7 @@ function QdnReadyContent({
   appTarget,
   displaySettings,
   nodeApiUrl,
+  onAppTargetDelivered,
   onActionContextChange,
   onAppTitleChange,
   onOpenDocumentViewer,
@@ -3571,6 +3606,7 @@ function QdnReadyContent({
   displaySettings: QdnFrameDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onActionContextChange: SetViewerActionContext;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
@@ -3593,6 +3629,7 @@ function QdnReadyContent({
           appTarget={appTarget}
           displaySettings={displaySettings}
           nodeApiUrl={loadedResource.nodeApiUrl ?? nodeApiUrl}
+          onAppTargetDelivered={onAppTargetDelivered}
           renderUrl={loadedResource.renderUrl}
           resourceUrl={resource.displayUrl}
           suspended={suspended}
@@ -3607,6 +3644,7 @@ function QdnReadyContent({
         appTarget={appTarget}
         displaySettings={displaySettings}
         loadedResource={loadedResource}
+        onAppTargetDelivered={onAppTargetDelivered}
         onAppTitleChange={onAppTitleChange}
         onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
@@ -3778,6 +3816,7 @@ export function QdnViewer({
   coreManager,
   nodeEpoch,
   nodeMode,
+  onAppTargetDelivered,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3892,6 +3931,7 @@ export function QdnViewer({
           appTarget={appTarget}
           displaySettings={displaySettings}
           nodeApiUrl={nodeApiUrl}
+          onAppTargetDelivered={onAppTargetDelivered}
           onActionContextChange={setActionContext}
           onAppTitleChange={onAppTitleChange}
           onOpenDocumentViewer={onOpenDocumentViewer}

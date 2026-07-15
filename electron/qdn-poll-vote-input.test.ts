@@ -41,6 +41,8 @@ assert.throws(
 );
 assert.throws(() => getOptionalPollVoteOptionIndexes([1.5], getInteger), /safe integers/);
 assert.throws(() => getOptionalPollVoteOptionIndexes([-1], getInteger), /at least 0/);
+assert.throws(() => getOptionalPollVoteOptionIndexes([2, 2], getInteger), /must not contain duplicates/);
+assert.throws(() => getOptionalPollVoteOptionIndexes([0, 2], getInteger), /cannot be combined/);
 assert.throws(() => resolvePollVoteOptionInput(undefined, undefined), /Option index is required/);
 assert.equal(getPollVoteApprovalName(7, { optionIndexes: [3, 1] }), 'Poll #7 · options 1, 3');
 assert.equal(getPollVoteApprovalName(7, { optionIndexes: [] }), 'Poll #7 · remove vote');

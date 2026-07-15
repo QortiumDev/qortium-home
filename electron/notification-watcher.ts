@@ -7,6 +7,7 @@ import {
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
   coreSupportsArrayFilters,
+  stripWireNotificationIdSuffix,
   toWireNotificationSubscriptions,
   type StoredQdnNotificationRule,
 } from './notification-rules.js';
@@ -93,7 +94,7 @@ function sendSubscriptions() {
 
 function findRule(message: NotificationMessage) {
   const candidates = getEligibleRules().filter(({ appKey, rule }) =>
-    rule.notificationId === message.notificationId &&
+    rule.notificationId === stripWireNotificationIdSuffix(message.notificationId) &&
     message.appName === appKey &&
     message.event === rule.event,
   );
@@ -143,7 +144,7 @@ function handleNotificationMessage(message: NotificationMessage) {
     window.show();
     window.focus();
     window.webContents.send('qdn-app:open-new-tab', {
-      address: appendNotificationTargetQuery(rule.link ?? appKey, message.data),
+      address: appendNotificationTargetQuery(rule.link ?? appKey, message.data, rule.event),
       sourceTabId: null,
     });
   });

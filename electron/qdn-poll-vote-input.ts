@@ -17,7 +17,7 @@ export function getOptionalPollVoteOptionIndexes(
     throw new Error('Option indexes must be an array.');
   }
 
-  return value.map((entry) => {
+  const optionIndexes = value.map((entry) => {
     const optionIndex = getInteger(entry);
 
     if (typeof optionIndex !== 'number') {
@@ -30,6 +30,18 @@ export function getOptionalPollVoteOptionIndexes(
 
     return optionIndex;
   });
+
+  if (optionIndexes.length > 1) {
+    if (optionIndexes.includes(0)) {
+      throw new Error('Option index 0 (remove vote) cannot be combined with other option indexes.');
+    }
+
+    if (new Set(optionIndexes).size !== optionIndexes.length) {
+      throw new Error('Option indexes must not contain duplicates.');
+    }
+  }
+
+  return optionIndexes;
 }
 
 export function resolvePollVoteOptionInput(

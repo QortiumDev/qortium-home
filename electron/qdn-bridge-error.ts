@@ -1,4 +1,5 @@
 export const QDN_BRIDGE_ERROR_KEY = '__qdnBridgeError_9f5f01d1';
+export const QDN_BRIDGE_RESULT_KEY = '__qdnBridgeResult_9f5f01d1';
 
 type QdnBridgeErrorPayload = {
   code?: string;
@@ -7,6 +8,10 @@ type QdnBridgeErrorPayload = {
 
 type QdnBridgeErrorEnvelope = {
   [QDN_BRIDGE_ERROR_KEY]: QdnBridgeErrorPayload;
+};
+
+type QdnBridgeResultEnvelope = {
+  [QDN_BRIDGE_RESULT_KEY]: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,6 +30,10 @@ export function encodeQdnBridgeError(error: unknown): QdnBridgeErrorEnvelope {
   };
 }
 
+export function encodeQdnBridgeResult(value: unknown): QdnBridgeResultEnvelope {
+  return { [QDN_BRIDGE_RESULT_KEY]: value };
+}
+
 export function decodeQdnBridgeError(value: unknown): Error | undefined {
   if (!isRecord(value) || Object.keys(value).length !== 1 || !isRecord(value[QDN_BRIDGE_ERROR_KEY])) {
     return undefined;
@@ -40,4 +49,18 @@ export function decodeQdnBridgeError(value: unknown): Error | undefined {
     new Error(payload.message),
     typeof payload.code === 'string' ? { code: payload.code } : {},
   );
+}
+
+export function decodeQdnBridgeResponse(value: unknown) {
+  const error = decodeQdnBridgeError(value);
+
+  if (error) {
+    throw error;
+  }
+
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !(QDN_BRIDGE_RESULT_KEY in value)) {
+    throw new Error('Malformed QDN bridge response.');
+  }
+
+  return value[QDN_BRIDGE_RESULT_KEY];
 }

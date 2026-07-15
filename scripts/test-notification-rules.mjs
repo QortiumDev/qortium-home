@@ -4,6 +4,7 @@ import {
   getQdnNotificationDefaultBody,
   matchesQdnNotificationRuleData,
   sanitizeQdnNotificationRuleInput,
+  stripWireNotificationIdSuffix,
   toWireNotificationSubscription,
   toWireNotificationSubscriptions,
 } from '../dist-electron/notification-rules.js';
@@ -107,7 +108,19 @@ assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', involvingArray
 }).filters, { involving: ['Qone', 'Qtwo'] });
 assert.deepEqual(toWireNotificationSubscriptions('qdn://APP/Test', involvingArrayRule, {
   serverSupportsArrayFilters: false,
-}).map((subscription) => subscription.filters), [{ involving: 'Qone' }, { involving: 'Qtwo' }]);
+}).map((subscription) => ({ filters: subscription.filters, notificationId: subscription.notificationId })), [
+  { filters: { involving: 'Qone' }, notificationId: 'involving-array~0' },
+  { filters: { involving: 'Qtwo' }, notificationId: 'involving-array~1' },
+]);
+assert.equal(stripWireNotificationIdSuffix('involving-array~1'), 'involving-array');
+assert.equal(stripWireNotificationIdSuffix('plain-id'), 'plain-id');
+assert.throws(
+  () => sanitizeRule('PAYMENT_RECEIVED', {
+    recipient: ['Qone', 'Qtwo', 'Qthree', 'Qfour', 'Qfive'],
+    sender: ['Qa', 'Qb', 'Qc', 'Qd', 'Qe'],
+  }, 'too-many-combinations'),
+  /expand to more than 20 value combinations/,
+);
 assert.deepEqual(toWireNotificationSubscriptions('qdn://APP/Test', storeRule(sanitizeRule(
   'PAYMENT_RECEIVED', { sender: ['Qsender'] }, 'sender-one',
 )), { serverSupportsArrayFilters: false }).map((subscription) => subscription.filters), [{ sender: 'Qsender' }]);

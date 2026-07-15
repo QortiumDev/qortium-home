@@ -279,7 +279,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "window.addEventListener('message',function(event){" +
             "var data=event.data;if(!data||data.type!=='qortium:qdn-response'||data.bridgeToken!==bridgeToken||typeof data.requestId!=='string')return;" +
             "var entry=pending[data.requestId];if(!entry)return;delete pending[data.requestId];clearTimeout(entry.timeoutId);" +
-            "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';entry.reject(new Error(message));return;}" +
+            "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';var err=new Error(message);if(typeof data.error.code==='string'){err.code=data.error.code;}entry.reject(err);return;}" +
             "entry.resolve(data.result);" +
             "});" +
             "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +

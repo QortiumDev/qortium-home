@@ -18,11 +18,12 @@ function getTargetValue(value: unknown) {
 export function getNotificationTargetQuery(data: Record<string, unknown> | undefined): NotificationTargetQuery {
   const address = getTargetValue(data?.sender);
   const group = getTargetValue(data?.groupId) ?? getTargetValue(data?.txGroupId);
+  const isDirect = getTargetValue(data?.recipient) !== undefined;
 
   // Direct chat messages have a sender and use Core's no-group sentinel (0).
   // Group messages can also carry a sender, but the explicit group target must
   // win so Chat opens the group conversation instead of a direct thread.
-  if (group && group !== '0') {
+  if (group && !isDirect) {
     return { group };
   }
 
@@ -37,7 +38,12 @@ export function getNotificationTargetQuery(data: Record<string, unknown> | undef
 export function appendNotificationTargetQuery(
   link: string,
   data: Record<string, unknown> | undefined,
+  event?: string,
 ) {
+  if (event !== 'CHAT_MESSAGE' || !/^qdn:\/\//i.test(link)) {
+    return link;
+  }
+
   const query = getNotificationTargetQuery(data);
 
   if (!query.address && !query.group) {

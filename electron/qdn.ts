@@ -90,7 +90,8 @@ import {
   QDN_WRITE_ACTIONS,
 } from './qdn-app-actions.js';
 import { getPlatformVersion } from './app-versioning.js';
-import { encodeQdnBridgeError } from './qdn-bridge-error.js';
+import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js';
+import { getPollOptionsInput } from './qdn-poll-options-input.js';
 import {
   getOptionalPollVoteOptionIndexes,
   getPollVoteApprovalName,
@@ -6193,7 +6194,7 @@ function getRequiredMemberAddress(request: QdnAppRequest, label: string, ...keys
   return address;
 }
 
-function getPollOptionsInput(request: QdnAppRequest, ...keys: string[]) {
+function getPollOptionsRequestInput(request: QdnAppRequest, ...keys: string[]) {
   let raw: unknown;
 
   for (const key of keys) {
@@ -6205,41 +6206,7 @@ function getPollOptionsInput(request: QdnAppRequest, ...keys: string[]) {
     }
   }
 
-  const names: string[] = [];
-
-  if (Array.isArray(raw)) {
-    for (const entry of raw) {
-      const name = isRecord(entry)
-        ? getString(entry.optionName) || getString(entry.name) || getString(entry.value)
-        : getString(entry);
-
-      if (name) {
-        names.push(name);
-      }
-    }
-  } else {
-    const text = getString(raw);
-
-    if (text) {
-      for (const part of text.split(',')) {
-        const name = part.trim();
-
-        if (name) {
-          names.push(name);
-        }
-      }
-    }
-  }
-
-  if (names.length < 2) {
-    throw new Error('A poll requires at least two options.');
-  }
-
-  if (new Set(names).size !== names.length) {
-    throw new Error('Poll options must be unique.');
-  }
-
-  return names.map((optionName) => ({ optionName }));
+  return getPollOptionsInput(raw);
 }
 
 async function createGroupForApp(
@@ -6908,7 +6875,7 @@ async function createPollForApp(
 ) {
   const pollName = getRequiredRequestString(request, 'pollName', 'Poll name');
   const description = getString(getRequestValue(request, 'description'));
-  const pollOptions = getPollOptionsInput(request, 'pollOptions', 'options');
+  const pollOptions = getPollOptionsRequestInput(request, 'pollOptions', 'options');
   const ownerInput = getOptionalAddressRequestString(request, 'Owner address', 'owner');
   const startTime = getOptionalIntegerRequestValue(request, 0, 'startTime', 'pollStartTime');
   const endTime = getOptionalIntegerRequestValue(request, 0, 'endTime', 'pollEndTime');
@@ -7294,7 +7261,7 @@ async function updatePollForApp(
   const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
   const newPollName = getRequiredRequestString(request, 'newPollName', 'New poll name');
   const newDescription = getString(getRequestValue(request, 'newDescription') ?? getRequestValue(request, 'description'));
-  const newPollOptions = getPollOptionsInput(request, 'newPollOptions', 'pollOptions', 'options');
+  const newPollOptions = getPollOptionsRequestInput(request, 'newPollOptions', 'pollOptions', 'options');
   const newStartTime = getOptionalIntegerRequestValue(request, 0, 'newStartTime', 'startTime');
   const newEndTime = getOptionalIntegerRequestValue(request, 0, 'newEndTime', 'endTime');
   const writeContext = await getQdnChatContext(context);
@@ -9189,7 +9156,7 @@ export function registerQdnIpcHandlers() {
         throw new Error('QDN app requests are only available to isolated QDN app views.');
       }
 
-      return await handleQdnAppRequest(request, context, event.sender);
+      return encodeQdnBridgeResult(await handleQdnAppRequest(request, context, event.sender));
     } catch (error) {
       return encodeQdnBridgeError(error);
     }

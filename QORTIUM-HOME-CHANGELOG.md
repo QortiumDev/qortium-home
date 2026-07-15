@@ -38,13 +38,20 @@ with its own clear scope.
 Bumps Qortium Home to 1.4.2. QDN apps can now cast multi-option poll votes
 and create or update polls with scheduled start times, while notification
 subscriptions accept multiple values for every supported generic filter. Bridge
-errors from desktop no longer expose Electron's IPC prefix and now include the
-stable `PUBLIC_NODE_READ_ONLY` code when a public node blocks a restricted
-workflow. The first-run Welcome page can also scroll like other Home pages.
+errors no longer expose Electron's IPC prefix, and desktop and Android apps now
+receive the stable `PUBLIC_NODE_READ_ONLY` code when a public node blocks a
+restricted workflow. The first-run Welcome page can also scroll like other
+Home pages.
 
 - Chat notification clicks now open the relevant direct conversation or group
-  and reuse an already-open Chat tab where possible.
+  and reuse an already-open Chat tab where possible, including on Android.
 - App-issued notification clicks now always restore and focus a Home window.
+- Notification filter compatibility with older Core versions preserves every
+  requested value instead of replacing or silently truncating subscriptions.
+- Poll writes reject invalid multi-option vote arrays before approval and
+  preserve option text exactly as Core validates it.
+- QDN app targets are delivered once after the app is ready, without hijacking
+  later navigation or conflating different identifiers and resource paths.
 
 ### 2026-07-14 - fix: stop notification watcher crashing Home when Core goes away
 

@@ -28,6 +28,7 @@ import {
   getPollVoteApprovalName,
   resolvePollVoteOptionInput,
 } from '../electron/qdn-poll-vote-input';
+import { getPollOptionsInput } from '../electron/qdn-poll-options-input';
 import {
   sanitizeQdnNotificationIds,
   sanitizeQdnNotificationSubscriptions,
@@ -4960,7 +4961,7 @@ function getRequiredMemberAddress(request: QdnAppRequest, label: string, ...keys
   return address;
 }
 
-function getPollOptionsInput(request: QdnAppRequest, ...keys: string[]) {
+function getPollOptionsRequestInput(request: QdnAppRequest, ...keys: string[]) {
   let raw: unknown;
 
   for (const key of keys) {
@@ -4972,41 +4973,7 @@ function getPollOptionsInput(request: QdnAppRequest, ...keys: string[]) {
     }
   }
 
-  const names: string[] = [];
-
-  if (Array.isArray(raw)) {
-    for (const entry of raw) {
-      const name = isRecord(entry)
-        ? getString(entry.optionName) || getString(entry.name) || getString(entry.value)
-        : getString(entry);
-
-      if (name) {
-        names.push(name);
-      }
-    }
-  } else {
-    const text = getString(raw);
-
-    if (text) {
-      for (const part of text.split(',')) {
-        const name = part.trim();
-
-        if (name) {
-          names.push(name);
-        }
-      }
-    }
-  }
-
-  if (names.length < 2) {
-    throw new Error('A poll requires at least two options.');
-  }
-
-  if (new Set(names).size !== names.length) {
-    throw new Error('Poll options must be unique.');
-  }
-
-  return names.map((optionName) => ({ optionName }));
+  return getPollOptionsInput(raw);
 }
 
 async function createGroupForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
@@ -5602,7 +5569,7 @@ async function transferAssetForApp(request: QdnAppRequest, context: QdnAppReques
 async function createPollForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const pollName = getRequiredRequestString(request, 'pollName', 'Poll name');
   const description = getString(getRequestValue(request, 'description'));
-  const pollOptions = getPollOptionsInput(request, 'pollOptions', 'options');
+  const pollOptions = getPollOptionsRequestInput(request, 'pollOptions', 'options');
   const ownerInput = getOptionalAddressRequestString(request, 'Owner address', 'owner');
   const startTime = getOptionalIntegerRequestValue(request, 0, 'startTime', 'pollStartTime');
   const endTime = getOptionalIntegerRequestValue(request, 0, 'endTime', 'pollEndTime');
@@ -5964,7 +5931,7 @@ async function updatePollForApp(request: QdnAppRequest, context: QdnAppRequestCo
   const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
   const newPollName = getRequiredRequestString(request, 'newPollName', 'New poll name');
   const newDescription = getString(getRequestValue(request, 'newDescription') ?? getRequestValue(request, 'description'));
-  const newPollOptions = getPollOptionsInput(request, 'newPollOptions', 'pollOptions', 'options');
+  const newPollOptions = getPollOptionsRequestInput(request, 'newPollOptions', 'pollOptions', 'options');
   const newStartTime = getOptionalIntegerRequestValue(request, 0, 'newStartTime', 'startTime');
   const newEndTime = getOptionalIntegerRequestValue(request, 0, 'newEndTime', 'endTime');
   const writeContext = await getQdnWriteContext(context);

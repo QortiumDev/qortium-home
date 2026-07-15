@@ -5,11 +5,28 @@ export type QdnAppTargetQuery = {
   group?: string;
 };
 
+function getPathWithoutTargetQuery(path: string) {
+  const queryIndex = path.indexOf('?');
+
+  if (queryIndex === -1) {
+    return path;
+  }
+
+  const params = new URLSearchParams(path.slice(queryIndex + 1));
+  params.delete('address');
+  params.delete('group');
+  const remainingQuery = params.toString();
+
+  return `${path.slice(0, queryIndex)}${remainingQuery ? `?${remainingQuery}` : ''}`;
+}
+
 export function isSameQdnAppRoute(candidate: AppRoute, target: AppRoute) {
   return candidate.kind === 'resource' &&
     target.kind === 'resource' &&
     candidate.resource.service === target.resource.service &&
-    candidate.resource.name === target.resource.name;
+    candidate.resource.name === target.resource.name &&
+    (candidate.resource.identifier ?? 'default') === (target.resource.identifier ?? 'default') &&
+    getPathWithoutTargetQuery(candidate.resource.path) === getPathWithoutTargetQuery(target.resource.path);
 }
 
 export function getQdnAppTargetQuery(route: AppRoute): QdnAppTargetQuery | null {

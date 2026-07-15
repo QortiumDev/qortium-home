@@ -97,7 +97,9 @@ type QdnViewEntry = {
   deliveredDisplaySettings: QdnDisplaySettings | undefined;
   displaySettings: QdnDisplaySettings;
   hostCssBounds: Rectangle | null;
+  isPageReady: boolean;
   nodeOrigin: string;
+  pendingAppTargetMessage: unknown | undefined;
   pendingStateDelivery: Promise<void>;
   resourceUrl: string | null;
   tabId: string;
@@ -805,9 +807,12 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
     entry.displaySettings,
   );
   const sendAccountChanged = entry.deliveredAccountStateKey !== getAccountStateKey(entry);
+  const appTargetMessage = entry.pendingAppTargetMessage;
+  const sendAppTarget = entry.isPageReady && typeof appTargetMessage !== 'undefined';
   const messages = [
     ...(sendDisplaySettings ? getQdnDisplaySettingMessages(entry.displaySettings) : []),
     ...(sendAccountChanged ? [getQdnSelectedAccountChangedMessage()] : []),
+    ...(sendAppTarget ? [appTargetMessage] : []),
   ];
 
   if (!messages.length) {
@@ -823,6 +828,10 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   if (sendAccountChanged) {
     entry.deliveredAccountStateKey = getAccountStateKey(entry);
   }
+
+  if (sendAppTarget && entry.pendingAppTargetMessage === appTargetMessage) {
+    entry.pendingAppTargetMessage = undefined;
+  }
 }
 
 // Deliveries are serialized per view so concurrent show/update calls cannot
@@ -833,6 +842,8 @@ function queueQdnViewStateDelivery(entry: QdnViewEntry) {
     .catch((error) => {
       console.warn('Unable to update isolated QDN view state.', error);
     });
+
+  return entry.pendingStateDelivery;
 }
 
 function createViewEntry(
@@ -855,7 +866,9 @@ function createViewEntry(
     deliveredDisplaySettings: undefined,
     displaySettings,
     hostCssBounds: null,
+    isPageReady: false,
     nodeOrigin,
+    pendingAppTargetMessage: undefined,
     pendingStateDelivery: Promise.resolve(),
     resourceUrl,
     tabId,
@@ -1055,10 +1068,12 @@ export function registerQdnViewIpcHandlers() {
     if (entry.requestedUrl !== request.renderUrl) {
       entry.requestedUrl = request.renderUrl;
       entry.currentUrl = request.renderUrl;
+      entry.isPageReady = false;
       void entry.view.webContents
         .loadURL(request.renderUrl)
         .then(() => {
           // The freshly loaded page has received nothing yet.
+          entry.isPageReady = true;
           entry.deliveredAccountStateKey = undefined;
           entry.deliveredDisplaySettings = undefined;
           queueQdnViewStateDelivery(entry);
@@ -1167,7 +1182,8 @@ export function registerQdnViewIpcHandlers() {
       return;
     }
 
-    await sendQdnMessages(entry, [request.message]);
+    entry.pendingAppTargetMessage = request.message;
+    await queueQdnViewStateDelivery(entry);
   });
 
   ipcMain.handle('qdn-views:destroy', (event, rawRequest: unknown) => {

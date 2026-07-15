@@ -204,6 +204,22 @@ export function sanitizeQdnNotificationRuleInput(
     throw new Error('TRANSACTION_CONFIRMED requires a signature or address filter.');
   }
 
+  if (event !== 'RESOURCE_PUBLISHED') {
+    let expansionCount = 1;
+
+    for (const [key, filterValue] of Object.entries(filters)) {
+      if (key !== 'txType' && Array.isArray(filterValue) && filterValue.length > 1) {
+        expansionCount *= filterValue.length;
+      }
+    }
+
+    if (expansionCount > QDN_NOTIFICATION_RULES_PER_APP_MAX) {
+      throw new Error(
+        `Notification filters expand to more than ${QDN_NOTIFICATION_RULES_PER_APP_MAX} value combinations; reduce multi-value filter sizes.`,
+      );
+    }
+  }
+
   const title = sanitizeText(value.title, 160) ?? undefined;
   const text = sanitizeText(value.text, 240) ?? undefined;
   const link = sanitizeQdnNotificationLink(value.link);
@@ -330,8 +346,23 @@ export function toWireNotificationSubscriptions(
     }
   }
 
-  return filterVariants.map((filters) =>
-    toWireNotificationSubscription(appKey, { ...rule, filters }, options));
+  return filterVariants.map((filters, index) => {
+    const subscription = toWireNotificationSubscription(appKey, { ...rule, filters }, options);
+
+    return filterVariants.length > 1
+      ? { ...subscription, notificationId: `${rule.notificationId}~${index}` }
+      : subscription;
+  });
+}
+
+export function stripWireNotificationIdSuffix(notificationId: string | undefined) {
+  if (!notificationId) {
+    return notificationId;
+  }
+
+  const suffixIndex = notificationId.indexOf('~');
+
+  return suffixIndex === -1 ? notificationId : notificationId.slice(0, suffixIndex);
 }
 
 export function getQdnNotificationDefaultTitle(event: QdnNotificationEvent) {

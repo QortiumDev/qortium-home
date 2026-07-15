@@ -4,9 +4,11 @@ import {
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
   coreSupportsArrayFilters,
+  stripWireNotificationIdSuffix,
   toWireNotificationSubscriptions,
   type StoredQdnNotificationRule,
 } from '../electron/notification-rules';
+import { appendNotificationTargetQuery } from '../electron/notification-target';
 import { loadDisplaySettings } from './displaySettings';
 import { getNotificationStore, onNotificationStoreChanged } from './notificationStore';
 
@@ -120,7 +122,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
       const latestGrant = latestStore.grants[appKey];
       if (!latestGrant || latestGrant.muted || !enabled || !hasCurrentRule(latestStore, appKey, rule)) return;
       const id = nextNotificationId++;
-      notificationLinks.set(id, rule.link ?? appKey);
+      notificationLinks.set(id, appendNotificationTargetQuery(rule.link ?? appKey, data, rule.event));
       await LocalNotifications.schedule({ notifications: [{ id, title, body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '' }] });
     } else if (typeof window.Notification === 'function' && window.Notification.permission === 'granted') {
       const [latestStore, enabled] = await Promise.all([
@@ -169,7 +171,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
           if (message.type !== 'notification' || !message.notificationId) return;
           void eligibleRules().then((eligible) => {
             const matches = eligible.filter(({ appKey, rule }) =>
-              rule.notificationId === message.notificationId &&
+              rule.notificationId === stripWireNotificationIdSuffix(message.notificationId) &&
               message.appName === appKey &&
               message.event === rule.event);
             if (matches.length === 1 && matchesQdnNotificationRuleData(matches[0].rule, message.data)) {
