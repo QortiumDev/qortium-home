@@ -102,6 +102,10 @@ function getNetworkRestrictionMessage() {
   return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
 }
 
+function networkRestrictionError() {
+  return Object.assign(new Error(getNetworkRestrictionMessage()), { code: 'PUBLIC_NODE_READ_ONLY' });
+}
+
 function getString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -1008,7 +1012,7 @@ async function requestProtectedNodeJson(
   body?: string,
 ) {
   if (settings.mode === 'network') {
-    throw new Error(getNetworkRestrictionMessage());
+    throw networkRestrictionError();
   }
 
   const resolvedSettings = await resolveLocalApiKey(settings);

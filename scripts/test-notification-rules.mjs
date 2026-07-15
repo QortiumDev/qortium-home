@@ -5,6 +5,7 @@ import {
   matchesQdnNotificationRuleData,
   sanitizeQdnNotificationRuleInput,
   toWireNotificationSubscription,
+  toWireNotificationSubscriptions,
 } from '../dist-electron/notification-rules.js';
 
 assert.equal(coreSupportsArrayFilters(undefined), false);
@@ -75,10 +76,43 @@ assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(txAr
   address: 'Qanchor',
   txType: ['PAYMENT', 'RATE_ACCOUNT'],
 });
-assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule({
-  ...sanitizeRule('CHAT_MESSAGE', { involving: 'Qanchor' }),
-  filters: { involving: ['Qone', 'Qtwo'] },
-})).filters, { involving: 'Qone,Qtwo' });
+for (const [event, key] of [
+  ['PAYMENT_RECEIVED', 'sender'],
+  ['PAYMENT_RECEIVED', 'recipient'],
+  ['TRANSACTION_CONFIRMED', 'address'],
+  ['TRANSACTION_CONFIRMED', 'signature'],
+  ['CHAT_MESSAGE', 'involving'],
+]) {
+  const rule = sanitizeRule(event, { [key]: [' ValueOne ', 'ValueTwo', 'ValueOne'] }, `array-${key}`);
+  assert.deepEqual(rule.filters[key], ['ValueOne', 'ValueTwo']);
+  assert.throws(
+    () => sanitizeRule(event, { [key]: [] }, `empty-${key}`),
+    new RegExp(`${key} must be a non-empty string or array of non-empty strings`),
+  );
+  assert.throws(
+    () => sanitizeRule(event, { [key]: ['ValueOne', 2] }, `non-string-${key}`),
+    new RegExp(`${key} must be a non-empty string or array of non-empty strings`),
+  );
+  assert.throws(
+    () => sanitizeRule(event, { [key]: ['ValueOne', ' '] }, `blank-${key}`),
+    new RegExp(`${key} must be a non-empty string or array of non-empty strings`),
+  );
+}
+
+const involvingArrayRule = storeRule(sanitizeRule('CHAT_MESSAGE', {
+  involving: ['Qone', 'Qtwo'],
+}, 'involving-array'));
+assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', involvingArrayRule, {
+  serverSupportsArrayFilters: true,
+}).filters, { involving: ['Qone', 'Qtwo'] });
+assert.deepEqual(toWireNotificationSubscriptions('qdn://APP/Test', involvingArrayRule, {
+  serverSupportsArrayFilters: false,
+}).map((subscription) => subscription.filters), [{ involving: 'Qone' }, { involving: 'Qtwo' }]);
+assert.deepEqual(toWireNotificationSubscriptions('qdn://APP/Test', storeRule(sanitizeRule(
+  'PAYMENT_RECEIVED', { sender: ['Qsender'] }, 'sender-one',
+)), { serverSupportsArrayFilters: false }).map((subscription) => subscription.filters), [{ sender: 'Qsender' }]);
+assert.doesNotThrow(() => sanitizeRule('PAYMENT_RECEIVED', { recipient: ['Qrecipient'] }, 'payment-array'));
+assert.doesNotThrow(() => sanitizeRule('TRANSACTION_CONFIRMED', { address: ['Qanchor'] }, 'tx-array'));
 assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(sanitizeRule(
   'RESOURCE_PUBLISHED',
   { service: 'APP', names: ['Qone', 'Qtwo'] },

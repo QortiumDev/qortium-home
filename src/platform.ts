@@ -24,6 +24,11 @@ import {
 } from '../electron/qdn-app-actions';
 import { getPlatformVersion } from '../electron/app-versioning';
 import {
+  getOptionalPollVoteOptionIndexes,
+  getPollVoteApprovalName,
+  resolvePollVoteOptionInput,
+} from '../electron/qdn-poll-vote-input';
+import {
   sanitizeQdnNotificationIds,
   sanitizeQdnNotificationSubscriptions,
 } from '../electron/notification-rules';
@@ -2975,7 +2980,7 @@ function isLocalWriteHostname(hostname: string) {
 
 function assertLocalWriteConnection(settings: StoredNodeSettings, nodeApiUrl: string) {
   if (settings.mode === 'network') {
-    throw new Error(getNetworkRestrictionMessage());
+    throw networkRestrictionError();
   }
 
   let url: URL;
@@ -5599,6 +5604,7 @@ async function createPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
   const description = getString(getRequestValue(request, 'description'));
   const pollOptions = getPollOptionsInput(request, 'pollOptions', 'options');
   const ownerInput = getOptionalAddressRequestString(request, 'Owner address', 'owner');
+  const startTime = getOptionalIntegerRequestValue(request, 0, 'startTime', 'pollStartTime');
   const endTime = getOptionalIntegerRequestValue(request, 0, 'endTime', 'pollEndTime');
   const writeContext = await getQdnWriteContext(context);
   const resolvedOwner = ownerInput || writeContext.profile.address;
@@ -5622,6 +5628,7 @@ async function createPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
       pollName,
       description,
       pollOptions,
+      ...(typeof startTime === 'number' ? { startTime } : {}),
       ...(typeof endTime === 'number' ? { endTime } : {}),
     }),
     writeContext.apiKey,
@@ -5641,12 +5648,16 @@ async function createPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
 
 async function voteOnPollForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const pollId = getRequiredIntegerRequestValue(request, 0, 'Poll id', 'pollId', 'poll');
-  const optionIndex = getRequiredIntegerRequestValue(request, 0, 'Option index', 'optionIndex', 'option');
+  const optionIndexes = getOptionalPollVoteOptionIndexes(getRequestValue(request, 'optionIndexes'), getInteger);
+  const optionIndex = typeof optionIndexes === 'undefined'
+    ? getRequiredIntegerRequestValue(request, 0, 'Option index', 'optionIndex', 'option')
+    : getOptionalIntegerRequestValue(request, 0, 'optionIndex', 'option');
+  const optionInput = resolvePollVoteOptionInput(optionIndex, optionIndexes);
   const writeContext = await getQdnWriteContext(context);
 
   await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
     action: 'VOTE_ON_POLL',
-    name: `Poll #${pollId} · option ${optionIndex}`,
+    name: getPollVoteApprovalName(pollId, optionInput),
     permissionScope: 'single-request',
   });
 
@@ -5660,7 +5671,9 @@ async function voteOnPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
       fee: getTransactionFee(request),
       voterPublicKey: writeContext.publicKey58,
       pollId,
-      optionIndex,
+      ...(typeof optionInput.optionIndexes === 'undefined'
+        ? { optionIndex: optionInput.optionIndex }
+        : { optionIndexes: optionInput.optionIndexes }),
     }),
     writeContext.apiKey,
     'Vote on poll transaction build failed.',
@@ -5672,7 +5685,9 @@ async function voteOnPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
     accepted: true,
     action: 'VOTE_ON_POLL',
     pollId,
-    optionIndex,
+    ...(typeof optionInput.optionIndexes === 'undefined'
+      ? { optionIndex: optionInput.optionIndex }
+      : { optionIndexes: optionInput.optionIndexes }),
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
   };
@@ -5863,7 +5878,7 @@ async function fetchOptionalNodeApiPayload(
   }
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+    throw getNodeApiResponseError(result, `Qortium node request failed with HTTP ${result.status}.`);
   }
 
   return result.data;
@@ -5950,6 +5965,7 @@ async function updatePollForApp(request: QdnAppRequest, context: QdnAppRequestCo
   const newPollName = getRequiredRequestString(request, 'newPollName', 'New poll name');
   const newDescription = getString(getRequestValue(request, 'newDescription') ?? getRequestValue(request, 'description'));
   const newPollOptions = getPollOptionsInput(request, 'newPollOptions', 'pollOptions', 'options');
+  const newStartTime = getOptionalIntegerRequestValue(request, 0, 'newStartTime', 'startTime');
   const newEndTime = getOptionalIntegerRequestValue(request, 0, 'newEndTime', 'endTime');
   const writeContext = await getQdnWriteContext(context);
 
@@ -5972,6 +5988,7 @@ async function updatePollForApp(request: QdnAppRequest, context: QdnAppRequestCo
       newPollName,
       newDescription,
       newPollOptions,
+      ...(typeof newStartTime === 'number' ? { newStartTime } : {}),
       ...(typeof newEndTime === 'number' ? { newEndTime } : {}),
     }),
     writeContext.apiKey,
@@ -7168,6 +7185,10 @@ function getNetworkRestrictionMessage() {
   return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
 }
 
+function networkRestrictionError() {
+  return Object.assign(new Error(getNetworkRestrictionMessage()), { code: 'PUBLIC_NODE_READ_ONLY' });
+}
+
 function getNodeApiUrlBase(nodeApiUrl: string) {
   return nodeApiUrl.replace(/\/+$/, '');
 }
@@ -7287,7 +7308,7 @@ async function requestCoreOnChainUpdate(method: 'GET' | 'POST'): Promise<Qortium
   const settings = await readNodeSettings();
 
   if (settings.mode === 'network') {
-    throw new Error(getNetworkRestrictionMessage());
+    throw networkRestrictionError();
   }
 
   const nodeApiUrl = await resolveNodeApiUrl(settings);
@@ -7456,7 +7477,7 @@ async function handleQdnAccountFreeWriteAction(
   const settings = await readNodeSettings();
   const nodeApiUrl = await resolveNodeApiUrl(settings);
   if (settings.mode === 'network') {
-    throw new Error(getNetworkRestrictionMessage());
+    throw networkRestrictionError();
   }
 
   if (action === 'ADD_TO_LIST' || action === 'REMOVE_FROM_LIST') {
@@ -7587,7 +7608,7 @@ async function getProtectedNodeRequestContext() {
   const settings = await readNodeSettings();
 
   if (settings.mode === 'network') {
-    throw new Error(getNetworkRestrictionMessage());
+    throw networkRestrictionError();
   }
 
   return {
@@ -8410,10 +8431,8 @@ function readNodeApiResponse(
   const contentLength = getContentLength(response);
   const contentType = getContentType(response);
   const rawBody = readBody ? stringifyResponseData(response.data) : '';
-  const body =
-    response.status === 403 && settings.mode === 'network'
-      ? getNetworkRestrictionMessage()
-      : rawBody;
+  const networkRestricted = response.status === 403 && settings.mode === 'network';
+  const body = networkRestricted ? getNetworkRestrictionMessage() : rawBody;
   const bodyLength = getByteLength(body);
 
   if (maxBytes > 0 && typeof contentLength === 'number' && contentLength > maxBytes) {
@@ -8430,10 +8449,21 @@ function readNodeApiResponse(
     contentType,
     data: parseResponseData(body, contentType),
     headers: getResponseHeaders(response),
+    ...(networkRestricted ? { code: 'PUBLIC_NODE_READ_ONLY' } : {}),
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
     statusText: getStatusText(response.status),
   };
+}
+
+function getNodeApiResponseError(
+  result: { body: string; code?: string; status: number },
+  fallbackMessage: string,
+) {
+  return Object.assign(
+    new Error(result.body || fallbackMessage),
+    result.code ? { code: result.code } : {},
+  );
 }
 
 async function fetchConfiguredNodeApi(
@@ -8454,7 +8484,7 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
   );
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+    throw getNodeApiResponseError(result, `Qortium node request failed with HTTP ${result.status}.`);
   }
 
   // Opt-in: return the status + response headers alongside the body, so apps can
@@ -9550,11 +9580,11 @@ async function fetchConfiguredRawResourceBase64(request: QortiumQdnRawResourceRe
   const { response } = await requestConfiguredNode(settings, buildRawResourcePath(request, true), 'arraybuffer');
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      response.status === 403 && settings.mode === 'network'
-        ? getNetworkRestrictionMessage()
-        : `QDN raw resource request failed with HTTP ${response.status}.`,
-    );
+    if (response.status === 403 && settings.mode === 'network') {
+      throw networkRestrictionError();
+    }
+
+    throw new Error(`QDN raw resource request failed with HTTP ${response.status}.`);
   }
 
   if (typeof response.data !== 'string') {
@@ -9600,11 +9630,11 @@ async function fetchQdnResourceFileList(
   const { response } = await requestConfiguredNode(settings, metadataPath, 'json');
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      response.status === 403 && settings.mode === 'network'
-        ? getNetworkRestrictionMessage()
-        : `Unable to read the resource file list (HTTP ${response.status}).`,
-    );
+    if (response.status === 403 && settings.mode === 'network') {
+      throw networkRestrictionError();
+    }
+
+    throw new Error(`Unable to read the resource file list (HTTP ${response.status}).`);
   }
 
   return isRecord(response.data) && Array.isArray(response.data.files)
@@ -10176,7 +10206,7 @@ async function getAllListsForApp() {
   const result = readNodeApiResponse(response, settings, QDN_APP_DEFAULT_MAX_BYTES);
 
   if (!result.ok) {
-    throw new Error(result.body || `Failed to get lists with HTTP ${result.status}.`);
+    throw getNodeApiResponseError(result, `Failed to get lists with HTTP ${result.status}.`);
   }
 
   return result.data;
@@ -10212,7 +10242,7 @@ async function getListForApp(request: QdnAppRequest) {
   }
 
   if (!result.ok) {
-    throw new Error(result.body || `Failed to get list with HTTP ${result.status}.`);
+    throw getNodeApiResponseError(result, `Failed to get list with HTTP ${result.status}.`);
   }
 
   return result.data;
@@ -10956,11 +10986,12 @@ function createFallbackApi(): PlatformApi {
         );
 
         if (response.status < 200 || response.status >= 300) {
+          if (response.status === 403 && settings.mode === 'network') {
+            throw networkRestrictionError();
+          }
+
           throw new Error(
-            response.status === 403 && settings.mode === 'network'
-              ? getNetworkRestrictionMessage()
-              : stringifyResponseData(response.data) ||
-              `QDN resource search failed with HTTP ${response.status}.`,
+            stringifyResponseData(response.data) || `QDN resource search failed with HTTP ${response.status}.`,
           );
         }
 
@@ -10980,11 +11011,12 @@ function createFallbackApi(): PlatformApi {
         );
 
         if (response.status < 200 || response.status >= 300) {
+          if (response.status === 403 && settings.mode === 'network') {
+            throw networkRestrictionError();
+          }
+
           throw new Error(
-            response.status === 403 && settings.mode === 'network'
-              ? getNetworkRestrictionMessage()
-              : stringifyResponseData(response.data) ||
-              `QDN name search failed with HTTP ${response.status}.`,
+            stringifyResponseData(response.data) || `QDN name search failed with HTTP ${response.status}.`,
           );
         }
 
@@ -11002,10 +11034,8 @@ function createFallbackApi(): PlatformApi {
           method,
         );
         const rawBody = method === 'HEAD' ? '' : stringifyResponseData(response.data);
-        const body =
-          response.status === 403 && settings.mode === 'network'
-            ? getNetworkRestrictionMessage()
-            : rawBody;
+        const networkRestricted = response.status === 403 && settings.mode === 'network';
+        const body = networkRestricted ? getNetworkRestrictionMessage() : rawBody;
         const contentLength = getContentLength(response);
         const contentType = getContentType(response);
         const bodyLength = getByteLength(body);
@@ -11034,6 +11064,7 @@ function createFallbackApi(): PlatformApi {
           body,
           contentLength: contentLength ?? bodyLength,
           contentType,
+          ...(networkRestricted ? { code: 'PUBLIC_NODE_READ_ONLY' } : {}),
           status: response.status,
           statusText: getStatusText(response.status),
           tooLarge: false,
@@ -11049,11 +11080,12 @@ function createFallbackApi(): PlatformApi {
         );
 
         if (response.status < 200 || response.status >= 300) {
+          if (response.status === 403 && settings.mode === 'network') {
+            throw networkRestrictionError();
+          }
+
           throw new Error(
-            response.status === 403 && settings.mode === 'network'
-              ? getNetworkRestrictionMessage()
-              : stringifyResponseData(response.data) ||
-              `QDN raw resource request failed with HTTP ${response.status}.`,
+            stringifyResponseData(response.data) || `QDN raw resource request failed with HTTP ${response.status}.`,
           );
         }
 

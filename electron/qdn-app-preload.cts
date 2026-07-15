@@ -1,11 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
+const { decodeQdnBridgeError } = require('./qdn-bridge-error.js') as typeof import('./qdn-bridge-error.js');
 
 type QdnAppRequest = Record<string, unknown>;
 
 let wheelAccumulator = 0;
 
 async function sendQdnAppRequest(request: QdnAppRequest) {
-  return ipcRenderer.invoke('qdn-app:request', request);
+  const response = await ipcRenderer.invoke('qdn-app:request', request);
+  const error = decodeQdnBridgeError(response);
+
+  if (error) {
+    throw error;
+  }
+
+  return response;
 }
 
 function sendWheelCommands(event: WheelEvent) {

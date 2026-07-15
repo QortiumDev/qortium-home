@@ -7,7 +7,7 @@ import {
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
   coreSupportsArrayFilters,
-  toWireNotificationSubscription,
+  toWireNotificationSubscriptions,
   type StoredQdnNotificationRule,
 } from './notification-rules.js';
 import { onNotificationStoreChanged, readNotificationStore } from './notification-store.js';
@@ -85,8 +85,8 @@ function sendSubscriptions() {
   socket.send(JSON.stringify({
     action: 'subscribe',
     address: getActiveAccountAddress(),
-    subscriptions: eligible.map(({ appKey, rule }) =>
-      toWireNotificationSubscription(appKey, rule, { serverSupportsArrayFilters })),
+    subscriptions: eligible.flatMap(({ appKey, rule }) =>
+      toWireNotificationSubscriptions(appKey, rule, { serverSupportsArrayFilters })),
   }));
 }
 

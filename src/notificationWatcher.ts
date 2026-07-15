@@ -4,7 +4,7 @@ import {
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
   coreSupportsArrayFilters,
-  toWireNotificationSubscription,
+  toWireNotificationSubscriptions,
   type StoredQdnNotificationRule,
 } from '../electron/notification-rules';
 import { loadDisplaySettings } from './displaySettings';
@@ -70,8 +70,8 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     socket.send(JSON.stringify({
       action: 'subscribe',
       address: options.activeAccountAddress,
-      subscriptions: eligible.map(({ appKey, rule }) =>
-        toWireNotificationSubscription(appKey, rule, { serverSupportsArrayFilters })),
+      subscriptions: eligible.flatMap(({ appKey, rule }) =>
+        toWireNotificationSubscriptions(appKey, rule, { serverSupportsArrayFilters })),
     }));
   };
 

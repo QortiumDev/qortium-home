@@ -67,6 +67,7 @@ const FILTER_KEYS: Record<QdnNotificationEvent, ReadonlySet<string>> = {
 };
 
 const STRING_ARRAY_FILTERS = new Set(['names', 'keywords']);
+const STRING_OR_ARRAY_FILTERS = new Set(['sender', 'recipient', 'address', 'signature', 'involving']);
 const BOOLEAN_FILTERS = new Set(['defaultResource', 'followedOnly', 'excludeBlocked']);
 // txType is a TransactionType enum NAME (e.g. "PAYMENT"), not a number.
 const NUMBER_FILTERS = new Set(['after', 'before', 'created', 'txGroupId']);
@@ -97,6 +98,22 @@ function sanitizeFilterValue(key: string, value: unknown) {
     }
 
     return value.map((entry) => entry.trim()).filter(Boolean);
+  }
+
+  if (STRING_OR_ARRAY_FILTERS.has(key)) {
+    if (typeof value === 'string') {
+      if (!value.trim()) {
+        throw new Error(`Notification filter ${key} must be a non-empty string or array of non-empty strings.`);
+      }
+
+      return value.trim();
+    }
+
+    if (!Array.isArray(value) || !value.length || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+      throw new Error(`Notification filter ${key} must be a non-empty string or array of non-empty strings.`);
+    }
+
+    return [...new Set(value.map((entry) => entry.trim()))];
   }
 
   if (BOOLEAN_FILTERS.has(key)) {
@@ -255,9 +272,9 @@ export function coreSupportsArrayFilters(buildVersion: string | undefined): bool
 // Maps a stored rule to the node's /websockets/notifications subscription shape.
 // RESOURCE_PUBLISHED uses the node's typed `resourceFilter` object (which keeps
 // arrays/booleans/numbers as-is); every other event uses the generic `filters`
-// string map, so their values are stringified (arrays joined) — the node matches
-// them with case-insensitive string equality. Core 1.4.0+ supports arrays for
-// generic filters, but Home still matches multi-value txType filters as a safety net.
+// string map. Core 1.4.0+ accepts generic filter arrays; older Core versions need
+// one subscription per identity-filter value. Home still matches multi-value
+// txType filters as a safety net.
 export function toWireNotificationSubscription(
   appKey: string,
   rule: StoredQdnNotificationRule,
@@ -276,10 +293,45 @@ export function toWireNotificationSubscription(
       if (options.serverSupportsArrayFilters) filters[key] = value;
       continue;
     }
+    if (Array.isArray(value) && value.length > 1 && options.serverSupportsArrayFilters) {
+      filters[key] = value;
+      continue;
+    }
     filters[key] = Array.isArray(value) ? value.join(',') : String(value);
   }
 
   return { ...base, filters };
+}
+
+export function toWireNotificationSubscriptions(
+  appKey: string,
+  rule: StoredQdnNotificationRule,
+  options: { serverSupportsArrayFilters?: boolean } = {},
+) {
+  if (rule.event === 'RESOURCE_PUBLISHED' || options.serverSupportsArrayFilters) {
+    return [toWireNotificationSubscription(appKey, rule, options)];
+  }
+
+  let filterVariants: QdnNotificationFilters[] = [{ ...rule.filters }];
+
+  for (const [key, value] of Object.entries(rule.filters)) {
+    if (key === 'txType' || !Array.isArray(value) || value.length <= 1) {
+      continue;
+    }
+
+    filterVariants = filterVariants.flatMap((filters) => value.map((entry) => ({ ...filters, [key]: entry })));
+
+    if (filterVariants.length > QDN_NOTIFICATION_RULES_PER_APP_MAX) {
+      console.warn(
+        `Notification rule ${rule.notificationId} expanded beyond ${QDN_NOTIFICATION_RULES_PER_APP_MAX} subscriptions; truncating.`,
+      );
+      filterVariants = filterVariants.slice(0, QDN_NOTIFICATION_RULES_PER_APP_MAX);
+      break;
+    }
+  }
+
+  return filterVariants.map((filters) =>
+    toWireNotificationSubscription(appKey, { ...rule, filters }, options));
 }
 
 export function getQdnNotificationDefaultTitle(event: QdnNotificationEvent) {
