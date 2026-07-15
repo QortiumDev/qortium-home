@@ -1,7 +1,13 @@
 import { app, ipcMain } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { getManagedCoreRuntimePath, isManagedCoreRuntimeRunning } from './core-manager.js';
+import {
+  getManagedCoreRuntimePath,
+  isManagedCoreRuntimeRunning,
+  scheduleManagedCoreUpdateCheck,
+} from './core-manager.js';
+import { withCoreInstallLock } from './core-install-lock.js';
+import { userMessage } from './user-message.js';
 import {
   ensurePreviewApiKey,
   readPreviewApiKey,
@@ -1227,17 +1233,38 @@ function checkCoreUpdateStatus() {
     readNodeSettings(),
     '/admin/update',
     'GET',
-    'Core on-chain update check failed.',
+    userMessage('core.error.onChainCheckFailed'),
   );
 }
 
-function installCoreUpdate() {
-  return requestProtectedNodeJson(
-    readNodeSettings(),
-    '/admin/update',
-    'POST',
-    'Core on-chain update install request failed.',
-  );
+async function installCoreUpdate() {
+  const status = await withCoreInstallLock('on-chain', async () => {
+    const settings = readNodeSettings();
+    const status = await requestProtectedNodeJson(
+      settings,
+      '/admin/update',
+      'GET',
+      userMessage('core.error.onChainCheckFailed'),
+    );
+
+    if (
+      status &&
+      typeof status === 'object' &&
+      String((status as { autoUpdateMode?: unknown }).autoUpdateMode).toUpperCase() === 'INSTALL'
+    ) {
+      return status;
+    }
+
+    return await requestProtectedNodeJson(
+      settings,
+      '/admin/update',
+      'POST',
+      userMessage('core.error.onChainInstallFailed'),
+    );
+  });
+
+  scheduleManagedCoreUpdateCheck();
+  return status;
 }
 
 async function enableApiDocumentation() {

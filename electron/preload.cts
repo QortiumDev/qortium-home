@@ -34,12 +34,32 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   core: {
     checkReleases: () => ipcRenderer.invoke('core:checkReleases'),
     getStatus: () => ipcRenderer.invoke('core:getStatus'),
-    install: (request: { channel?: 'prerelease' | 'stable' }) =>
+    install: (request: {
+      allowDowngrade?: boolean;
+      channel?: 'prerelease' | 'stable';
+      downgradeToken?: string;
+    }) =>
       ipcRenderer.invoke('core:install', request),
     installJava: () => ipcRenderer.invoke('core:installJava'),
+    refreshHelpers: () => ipcRenderer.invoke('core:refreshHelpers'),
     setJavaAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('core:setJavaAutoUpdate', enabled),
+    setUpdatePolicy: (request: {
+      coreUpdatePolicy?: 'install' | 'notify' | 'off';
+      javaUpdatePolicy?: 'install' | 'notify' | 'off';
+    }) => ipcRenderer.invoke('core:setUpdatePolicy', request),
     start: () => ipcRenderer.invoke('core:start'),
     stop: () => ipcRenderer.invoke('core:stop'),
+    onStatus: (callback: (status: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
+        callback(status);
+      };
+
+      ipcRenderer.on('core:status', listener);
+
+      return () => {
+        ipcRenderer.removeListener('core:status', listener);
+      };
+    },
     onProgress: (callback: (progress: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => {
         callback(progress);

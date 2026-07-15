@@ -147,6 +147,7 @@ type QortiumCoreOnChainUpdateStatus = {
 };
 
 type QortiumCoreChannel = 'prerelease' | 'stable';
+type QortiumCoreUpdatePolicy = 'install' | 'notify' | 'off';
 
 type QortiumCoreReleaseAsset = {
   digest: string | null;
@@ -166,6 +167,7 @@ type QortiumCoreReleaseSummary =
       available: true;
       channel: QortiumCoreChannel;
       commit: string;
+      commitTimestamp: string;
       htmlUrl: string;
       name: string;
       publishedAt: string;
@@ -190,12 +192,21 @@ type QortiumInstalledCore = {
   digest: string | null;
   downloadUrl: string;
   htmlUrl: string;
+  helpersRefreshedFor?: string;
   installPath: string;
   installedAt: string;
+  jarBuildTimestamp?: string;
+  jarBuildVersion?: string;
+  jarCommit?: string;
   jarPath: string;
+  jarSemver?: string;
   logPaths: QortiumCoreLogPaths;
+  modifiedSinceInstall?: boolean;
   name: string;
+  originJarBuildVersion?: string;
+  originJarCommit?: string;
   previewPath: string;
+  reconciledAt?: string;
   runtimePath: string;
   tagName: string;
 };
@@ -208,6 +219,8 @@ type QortiumCoreJavaStatus = {
   managedUpgradeAvailable: boolean;
   path: string;
   source: 'managed' | 'missing' | 'system' | 'unsupported';
+  updateAvailableVersion: string | null;
+  updatePolicy: QortiumCoreUpdatePolicy;
   version: string | null;
 };
 
@@ -239,10 +252,38 @@ type QortiumCoreRuntimeStatus = {
 };
 
 type QortiumCoreStatus = {
+  coreUpdate: {
+    available: {
+      action: 'available' | 'handled-by-core' | 'installing';
+      channel: 'github' | 'on-chain';
+      commit?: string;
+      githubChannel?: QortiumCoreChannel;
+      timestamp?: string;
+      version: string;
+    } | null;
+    checkedAt?: string;
+    error?: string;
+    helpersOutOfSync: {
+      targetTag: string | null;
+      version: string;
+    } | null;
+    javaUpdatePendingRestart?: boolean;
+    nodeAutoUpdateMode?: string;
+  };
+  downgradeConfirmation?: {
+    expiresAt: string;
+    installedVersion: string;
+    targetVersion: string;
+    token: string;
+  };
   installed: QortiumInstalledCore | null;
   java: QortiumCoreJavaStatus;
   runtime: QortiumCoreRuntimeStatus;
   supported: boolean;
+  updateSettings: {
+    coreUpdatePolicy: QortiumCoreUpdatePolicy;
+    javaUpdatePolicy: QortiumCoreUpdatePolicy;
+  };
 };
 
 type QortiumCoreProgress = {
@@ -713,9 +754,19 @@ interface Window {
     core?: {
       checkReleases: () => Promise<QortiumCoreReleases>;
       getStatus: () => Promise<QortiumCoreStatus>;
-      install: (request: { channel?: QortiumCoreChannel }) => Promise<QortiumCoreStatus>;
+      install: (request: {
+        allowDowngrade?: boolean;
+        channel?: QortiumCoreChannel;
+        downgradeToken?: string;
+      }) => Promise<QortiumCoreStatus>;
       installJava: () => Promise<QortiumCoreStatus>;
+      refreshHelpers: () => Promise<QortiumCoreStatus>;
       setJavaAutoUpdate: (enabled: boolean) => Promise<QortiumCoreStatus>;
+      setUpdatePolicy: (request: {
+        coreUpdatePolicy?: QortiumCoreUpdatePolicy;
+        javaUpdatePolicy?: QortiumCoreUpdatePolicy;
+      }) => Promise<QortiumCoreStatus>;
+      onStatus: (callback: (status: QortiumCoreStatus) => void) => () => void;
       onProgress: (callback: (progress: QortiumCoreProgress) => void) => () => void;
       start: () => Promise<QortiumCoreStatus>;
       stop: () => Promise<QortiumCoreStatus>;

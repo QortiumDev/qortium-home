@@ -33,6 +33,24 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - feat(updates): unified update policies for Core, Home, and Java
+
+Home now shows the Core version that is actually installed: it reads the
+version from the installed core file itself instead of trusting install
+records, so an on-chain auto-update or a manually replaced core no longer
+displays a stale version. Update checks compare against that real version,
+Home refuses to silently downgrade a newer core (it asks for confirmation
+instead), and the GitHub and on-chain install paths can no longer run at the
+same time. The Settings page gains matching three-way update policies — Off,
+Notify only, or automatic — for the managed Core (covering both GitHub
+releases and approved on-chain updates, always respecting the node's own
+on-chain auto-update setting), for Home itself (where "automatic" downloads
+the update and asks before installing), and for managed Java, replacing the
+old Java checkbox. When a core is updated outside Home, Home can also refresh
+the release's helper files (scripts, templates, docs) to match — automatically
+under the automatic policy, or with one click otherwise. The Home
+release-channel choice is now remembered between launches.
+
 ### 2026-07-15 - feat(qdn): add group and foreign-payment notification rules
 
 QDN apps can now subscribe to transaction confirmations by group and to

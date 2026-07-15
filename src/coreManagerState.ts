@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { compareAppVersions, UPDATE_CHANNEL_LABEL_KEYS } from './appUpdates';
+import { UPDATE_CHANNEL_LABEL_KEYS } from './appUpdates';
+import { compareCoreVersions, coreCommitsMatch } from '../electron/core-version';
 import { getTranslationLanguage, t } from './i18n';
+import { translateMainProcessMessage } from './mainProcessMessage';
 
 export type CoreMessage = {
   kind: 'error' | 'success';
@@ -12,6 +14,7 @@ export type CoreBusyAction =
   | 'installing-java'
   | 'installing-prerelease'
   | 'installing-stable'
+  | 'refreshing-helpers'
   | 'starting'
   | 'stopping'
   | 'updating'
@@ -35,11 +38,13 @@ export function formatCoreError(error: unknown) {
     return t('core.actionFailed');
   }
 
-  return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
+  return translateMainProcessMessage(
+    error.message.replace(/^Error invoking remote method '[^']+': Error: /, ''),
+  );
 }
 
 export function formatInstalledCore(installedCore: QortiumInstalledCore | null) {
-  return installedCore ? installedCore.tagName : t('common.notInstalled');
+  return installedCore ? installedCore.jarBuildVersion ?? installedCore.tagName : t('common.notInstalled');
 }
 
 export function formatJava(javaStatus: QortiumCoreJavaStatus | null) {
@@ -103,11 +108,11 @@ export function getCoreReleaseComparison(
   release: QortiumCoreReleaseSummary | undefined,
   installedCore: QortiumInstalledCore | null | undefined,
 ) {
-  if (!release?.available || !installedCore?.tagName) {
+  if (!release?.available || !installedCore) {
     return null;
   }
 
-  return compareAppVersions(release.tagName, installedCore.tagName);
+  return compareCoreVersions(release.tagName, installedCore.jarSemver ?? installedCore.tagName);
 }
 
 export function isCoreReleaseUpdateAvailable(
@@ -116,7 +121,30 @@ export function isCoreReleaseUpdateAvailable(
 ) {
   const comparison = getCoreReleaseComparison(release, installedCore);
 
-  return typeof comparison === 'number' && comparison > 0;
+  if (typeof comparison !== 'number') {
+    return false;
+  }
+
+  if (comparison > 0) {
+    return true;
+  }
+
+  if (comparison !== 0) {
+    return false;
+  }
+
+  if (!release?.available) {
+    return false;
+  }
+
+  const releaseHasCommit = /^[0-9a-f]{6,40}$/i.test(release.commit);
+
+  return (
+    installedCore?.modifiedSinceInstall === true ||
+    (releaseHasCommit &&
+      !!installedCore?.jarCommit &&
+      !coreCommitsMatch(release.commit, installedCore.jarCommit))
+  );
 }
 
 export function getCoreReleaseActionLabel({
@@ -145,7 +173,7 @@ export function getCoreReleaseActionLabel({
   const label = t(UPDATE_CHANNEL_LABEL_KEYS[channel]);
   const comparison = getCoreReleaseComparison(release, installedCore);
 
-  if (comparison === 0) {
+  if (comparison === 0 && !isCoreReleaseUpdateAvailable(release, installedCore)) {
     return t('core.releaseActionCurrent', { channel: label });
   }
 
@@ -213,6 +241,16 @@ export function useCoreManager({
 
     return coreApi.onProgress((nextProgress) => {
       setProgress(nextProgress);
+    });
+  }, [coreApi]);
+
+  useEffect(() => {
+    if (!coreApi) {
+      return undefined;
+    }
+
+    return coreApi.onStatus((nextStatus) => {
+      setStatus(nextStatus);
     });
   }, [coreApi]);
 
@@ -336,6 +374,21 @@ export function useCoreManager({
       return;
     }
 
+    const release = releases?.[channel];
+    const comparison = getCoreReleaseComparison(release, status?.installed);
+    const installedBuild =
+      status?.installed?.jarBuildVersion ?? status?.installed?.tagName ?? t('core.installedCoreFallback');
+    const requestedTag = release?.available ? release.tagName : channel;
+    if (
+      comparison === 0 &&
+      release?.available &&
+      isCoreReleaseUpdateAvailable(release, status?.installed) &&
+      (typeof window.confirm !== 'function' ||
+        !window.confirm(t('core.confirmDifferentBuild', { installed: installedBuild, release: requestedTag })))
+    ) {
+      return;
+    }
+
     // An in-place update (stop -> replace -> restart) happens when a managed
     // core is already running; surface it as a single "Updating" action.
     const isInPlaceUpdate = !!status?.installed && !!status?.runtime.running;
@@ -350,7 +403,39 @@ export function useCoreManager({
     setMessage(null);
 
     try {
-      const nextStatus = await coreApi.install({ channel });
+      let nextStatus = await coreApi.install({ channel });
+      const downgradeConfirmation = nextStatus.downgradeConfirmation;
+
+      if (downgradeConfirmation) {
+        setStatus(nextStatus);
+
+        if (
+          typeof window.confirm !== 'function' ||
+          !window.confirm(
+            t('core.confirmDowngrade', {
+              installed: downgradeConfirmation.installedVersion,
+              release: downgradeConfirmation.targetVersion,
+            }),
+          )
+        ) {
+          return;
+        }
+
+        nextStatus = await coreApi.install({
+          allowDowngrade: true,
+          channel,
+          downgradeToken: downgradeConfirmation.token,
+        });
+
+        if (nextStatus.downgradeConfirmation) {
+          throw new Error(
+            t('core.error.downgradeConfirmationRequired', {
+              installed: nextStatus.downgradeConfirmation.installedVersion,
+              release: nextStatus.downgradeConfirmation.targetVersion,
+            }),
+          );
+        }
+      }
 
       setStatus(nextStatus);
       setMessage({
@@ -369,15 +454,19 @@ export function useCoreManager({
     }
   }
 
-  async function setJavaAutoUpdate(enabled: boolean) {
+  async function setUpdatePolicy(
+    key: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    policy: QortiumCoreUpdatePolicy,
+  ) {
     if (!coreApi) {
       return;
     }
 
+    setBusyAction('checking');
     setMessage(null);
 
     try {
-      const nextStatus = await coreApi.setJavaAutoUpdate(enabled);
+      const nextStatus = await coreApi.setUpdatePolicy({ [key]: policy });
 
       setStatus(nextStatus);
     } catch (error) {
@@ -385,6 +474,8 @@ export function useCoreManager({
         kind: 'error',
         text: formatCoreError(error),
       });
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -403,6 +494,33 @@ export function useCoreManager({
       setMessage({
         kind: 'success',
         text: t('core.installedName', { name: formatJava(nextStatus.java) }),
+      });
+    } catch (error) {
+      setMessage({
+        kind: 'error',
+        text: formatCoreError(error),
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function refreshHelpers() {
+    if (!coreApi) {
+      return;
+    }
+
+    setBusyAction('refreshing-helpers');
+    setMessage(null);
+
+    try {
+      const target = status?.coreUpdate.helpersOutOfSync?.targetTag ?? status?.installed?.jarSemver ?? '';
+      const nextStatus = await coreApi.refreshHelpers();
+
+      setStatus(nextStatus);
+      setMessage({
+        kind: 'success',
+        text: t('core.helpersRefreshed', { version: target }),
       });
     } catch (error) {
       setMessage({
@@ -496,9 +614,10 @@ export function useCoreManager({
     prereleaseUpdateAvailable,
     progress,
     progressPercent,
+    refreshHelpers,
     refreshStatus,
     releases,
-    setJavaAutoUpdate,
+    setUpdatePolicy,
     stableUpdateAvailable,
     startCore,
     status,
