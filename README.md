@@ -87,6 +87,11 @@ selected tab account's public identity after a user approval prompt. The bridge
 accepts explicit object requests only, and Android APP/WEBSITE bridge injection
 is limited to Home-owned tokenized iframe loads.
 
+QDN apps can create scheduled polls with `startTime` (or `pollStartTime`) and
+can update their schedule with `newStartTime` (or `startTime`). Poll updates
+are full replacements in Core: an app updating a scheduled poll must resubmit
+the current start time verbatim, especially after votes exist.
+
 Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
 `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,

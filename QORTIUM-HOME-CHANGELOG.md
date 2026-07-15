@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-14 - release: prepare home 1.4.2
+
+Bumps Qortium Home to 1.4.2. QDN apps can now cast multi-option poll votes
+and create or update polls with scheduled start times, while notification
+subscriptions accept multiple values for every supported generic filter. Bridge
+errors from desktop no longer expose Electron's IPC prefix and now include the
+stable `PUBLIC_NODE_READ_ONLY` code when a public node blocks a restricted
+workflow. The first-run Welcome page can also scroll like other Home pages.
+
 ### 2026-07-14 - fix: stop notification watcher crashing Home when Core goes away
 
 Fixes a crash where stopping Qortium Core (for example from Core's own tray
