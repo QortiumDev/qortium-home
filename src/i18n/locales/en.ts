@@ -622,6 +622,7 @@ export const en = {
   "notifications.summary": "{count} approved apps",
   "notifications.empty": "No apps have notification permission.",
   "notifications.ruleCount": "{count} subscription rules",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Mute",
   "notifications.revoke": "Revoke",
   "qdnWrite.action.notificationAdd": "Background Notifications",

@@ -3,6 +3,7 @@ export const QDN_NOTIFICATION_EVENTS = [
   'PAYMENT_RECEIVED',
   'CHAT_MESSAGE',
   'TRANSACTION_CONFIRMED',
+  'FOREIGN_PAYMENT_RECEIVED',
 ] as const;
 
 export type QdnNotificationEvent = (typeof QDN_NOTIFICATION_EVENTS)[number];
@@ -63,11 +64,12 @@ const FILTER_KEYS: Record<QdnNotificationEvent, ReadonlySet<string>> = {
   ]),
   PAYMENT_RECEIVED: new Set(['recipient', 'sender', 'amount', 'created', 'signature']),
   CHAT_MESSAGE: new Set(['recipient', 'sender', 'txGroupId', 'involving']),
-  TRANSACTION_CONFIRMED: new Set(['signature', 'address', 'txType']),
+  TRANSACTION_CONFIRMED: new Set(['signature', 'address', 'groupId', 'txType']),
+  FOREIGN_PAYMENT_RECEIVED: new Set(['coin', 'xpub']),
 };
 
 const STRING_ARRAY_FILTERS = new Set(['names', 'keywords']);
-const STRING_OR_ARRAY_FILTERS = new Set(['sender', 'recipient', 'address', 'signature', 'involving']);
+const STRING_OR_ARRAY_FILTERS = new Set(['sender', 'recipient', 'address', 'signature', 'involving', 'groupId']);
 const BOOLEAN_FILTERS = new Set(['defaultResource', 'followedOnly', 'excludeBlocked']);
 // txType is a TransactionType enum NAME (e.g. "PAYMENT"), not a number.
 const NUMBER_FILTERS = new Set(['after', 'before', 'created', 'txGroupId']);
@@ -77,6 +79,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function sanitizeFilterValue(key: string, value: unknown) {
+  if (key === 'coin') {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Error('Notification filter coin must be a non-empty string.');
+    }
+
+    return value.trim().toUpperCase();
+  }
+
   if (key === 'txType') {
     if (typeof value === 'string') {
       if (!value.trim()) {
@@ -200,8 +210,12 @@ export function sanitizeQdnNotificationRuleInput(
     throw new Error('PAYMENT_RECEIVED requires a recipient or sender filter.');
   }
 
-  if (event === 'TRANSACTION_CONFIRMED' && !('signature' in filters) && !('address' in filters)) {
-    throw new Error('TRANSACTION_CONFIRMED requires a signature or address filter.');
+  if (event === 'TRANSACTION_CONFIRMED' && !('signature' in filters) && !('address' in filters) && !('groupId' in filters)) {
+    throw new Error('TRANSACTION_CONFIRMED requires a signature, address, or groupId filter.');
+  }
+
+  if (event === 'FOREIGN_PAYMENT_RECEIVED' && (!('coin' in filters) || !('xpub' in filters))) {
+    throw new Error('FOREIGN_PAYMENT_RECEIVED requires coin and xpub filters.');
   }
 
   if (event !== 'RESOURCE_PUBLISHED') {
@@ -278,11 +292,26 @@ export function sanitizeQdnNotificationIds(value: unknown): string[] | undefined
 }
 
 export function coreSupportsArrayFilters(buildVersion: string | undefined): boolean {
-  const match = buildVersion?.match(/-([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-.][0-9A-Za-z.]+)?-([0-9a-fA-F]{6,40})$/);
-  if (!match) return false;
+  const version = getCoreVersion(buildVersion);
+  if (!version) return false;
 
-  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  const [major, minor, patch] = version;
   return major > 1 || (major === 1 && (minor > 4 || (minor === 4 && patch >= 0)));
+}
+
+export function coreSupportsV15Notifications(buildVersion: string | undefined): boolean {
+  const version = getCoreVersion(buildVersion);
+  if (!version) return false;
+
+  const [major, minor, patch] = version;
+  return major > 1 || (major === 1 && (minor > 5 || (minor === 5 && patch >= 0)));
+}
+
+function getCoreVersion(buildVersion: string | undefined): [number, number, number] | undefined {
+  const match = buildVersion?.match(/-([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-.][0-9A-Za-z.]+)?-([0-9a-fA-F]{6,40})$/);
+  if (!match) return undefined;
+
+  return match.slice(1, 4).map(Number) as [number, number, number];
 }
 
 // Maps a stored rule to the node's /websockets/notifications subscription shape.
@@ -290,11 +319,12 @@ export function coreSupportsArrayFilters(buildVersion: string | undefined): bool
 // arrays/booleans/numbers as-is); every other event uses the generic `filters`
 // string map. Core 1.4.0+ accepts generic filter arrays; older Core versions need
 // one subscription per identity-filter value. Home still matches multi-value
-// txType filters as a safety net.
+// txType filters as a safety net. Core 1.5.0 adds groupId anchors and foreign
+// payment events, so those subscriptions are omitted or degraded on older nodes.
 export function toWireNotificationSubscription(
   appKey: string,
   rule: StoredQdnNotificationRule,
-  options: { serverSupportsArrayFilters?: boolean } = {},
+  options: { serverSupportsArrayFilters?: boolean; serverSupportsV15Notifications?: boolean } = {},
 ) {
   const base = { appName: appKey, event: rule.event, notificationId: rule.notificationId };
 
@@ -305,6 +335,7 @@ export function toWireNotificationSubscription(
   const filters: Record<string, string | string[]> = {};
 
   for (const [key, value] of Object.entries(rule.filters)) {
+    if (key === 'groupId' && !options.serverSupportsV15Notifications) continue;
     if (key === 'txType' && Array.isArray(value) && value.length > 1) {
       if (options.serverSupportsArrayFilters) filters[key] = value;
       continue;
@@ -322,15 +353,31 @@ export function toWireNotificationSubscription(
 export function toWireNotificationSubscriptions(
   appKey: string,
   rule: StoredQdnNotificationRule,
-  options: { serverSupportsArrayFilters?: boolean } = {},
+  options: { serverSupportsArrayFilters?: boolean; serverSupportsV15Notifications?: boolean } = {},
 ) {
+  if (rule.event === 'FOREIGN_PAYMENT_RECEIVED' && !options.serverSupportsV15Notifications) {
+    return [];
+  }
+
+  if (
+    rule.event === 'TRANSACTION_CONFIRMED' &&
+    'groupId' in rule.filters &&
+    !('signature' in rule.filters) &&
+    !('address' in rule.filters) &&
+    !options.serverSupportsV15Notifications
+  ) {
+    return [];
+  }
+
   if (rule.event === 'RESOURCE_PUBLISHED' || options.serverSupportsArrayFilters) {
     return [toWireNotificationSubscription(appKey, rule, options)];
   }
 
-  let filterVariants: QdnNotificationFilters[] = [{ ...rule.filters }];
+  const compatibleFilters = { ...rule.filters };
+  if (!options.serverSupportsV15Notifications) delete compatibleFilters.groupId;
+  let filterVariants: QdnNotificationFilters[] = [compatibleFilters];
 
-  for (const [key, value] of Object.entries(rule.filters)) {
+  for (const [key, value] of Object.entries(compatibleFilters)) {
     if (key === 'txType' || !Array.isArray(value) || value.length <= 1) {
       continue;
     }
@@ -355,6 +402,26 @@ export function toWireNotificationSubscriptions(
   });
 }
 
+// Core caps FOREIGN_PAYMENT_RECEIVED rules per websocket session and rejects the
+// whole subscribe action when the cap is exceeded. Home merges every app's rules
+// into one session, so it must never send more foreign subscriptions than Core
+// accepts — dropping the overflow keeps the combined subscription alive.
+export const FOREIGN_PAYMENT_WIRE_SUBSCRIPTIONS_MAX = 20;
+
+export function capForeignPaymentWireSubscriptions<T extends { event: string }>(subscriptions: T[]): T[] {
+  let foreignCount = 0;
+  const capped = subscriptions.filter(
+    (subscription) =>
+      subscription.event !== 'FOREIGN_PAYMENT_RECEIVED' || ++foreignCount <= FOREIGN_PAYMENT_WIRE_SUBSCRIPTIONS_MAX,
+  );
+  if (foreignCount > FOREIGN_PAYMENT_WIRE_SUBSCRIPTIONS_MAX) {
+    console.warn(
+      `Dropping ${foreignCount - FOREIGN_PAYMENT_WIRE_SUBSCRIPTIONS_MAX} foreign-payment subscriptions beyond the Core per-session limit of ${FOREIGN_PAYMENT_WIRE_SUBSCRIPTIONS_MAX}.`,
+    );
+  }
+  return capped;
+}
+
 export function stripWireNotificationIdSuffix(notificationId: string | undefined) {
   if (!notificationId) {
     return notificationId;
@@ -371,6 +438,7 @@ export function getQdnNotificationDefaultTitle(event: QdnNotificationEvent) {
     case 'PAYMENT_RECEIVED': return 'Payment received';
     case 'CHAT_MESSAGE': return 'New chat message';
     case 'TRANSACTION_CONFIRMED': return 'Transaction confirmed';
+    case 'FOREIGN_PAYMENT_RECEIVED': return 'Foreign payment received';
   }
 }
 
@@ -430,6 +498,52 @@ export function getQdnNotificationDefaultBody(
     }
     case 'RESOURCE_PUBLISHED':
       return undefined;
+    case 'FOREIGN_PAYMENT_RECEIVED': {
+      const amount = sanitizeNotificationBodyPart(data?.amount);
+      const coin = sanitizeNotificationBodyPart(data?.coin)?.toUpperCase();
+      return finishNotificationBody(amount && coin ? `Received ${amount} ${coin}` : undefined);
+    }
+  }
+}
+
+const FOREIGN_PAYMENT_REPLAY_DEDUP_MAX = 1_024;
+
+function getForeignPaymentReplayParts(data: Record<string, unknown> | undefined) {
+  const coin = sanitizeNotificationBodyPart(data?.coin)?.toUpperCase();
+  const txHash = sanitizeNotificationBodyPart(data?.txHash);
+  const address = sanitizeNotificationBodyPart(data?.address);
+  const checkpoint = sanitizeNotificationBodyPart(data?.checkpoint);
+  if (!coin || !txHash || !address || !checkpoint) return undefined;
+  return { checkpoint, identity: `${coin}\u0000${txHash}\u0000${address}` };
+}
+
+// Core can replay a foreign payment after a websocket reconnect. Keep both the
+// server checkpoint and the stable payment tuple: a changed checkpoint must not
+// result in a second user-visible notification for the same payment.
+export class ForeignPaymentReplayDeduper {
+  private readonly identities = new Set<string>();
+  private readonly checkpoints = new Set<string>();
+
+  hasDelivered(data: Record<string, unknown> | undefined) {
+    const parts = getForeignPaymentReplayParts(data);
+    if (!parts) return false;
+    return this.identities.has(parts.identity) || this.checkpoints.has(`${parts.checkpoint}\u0000${parts.identity}`);
+  }
+
+  markDelivered(data: Record<string, unknown> | undefined) {
+    const parts = getForeignPaymentReplayParts(data);
+    if (!parts || this.hasDelivered(data)) return;
+    const checkpointKey = `${parts.checkpoint}\u0000${parts.identity}`;
+    this.identities.add(parts.identity);
+    this.checkpoints.add(checkpointKey);
+    while (this.identities.size > FOREIGN_PAYMENT_REPLAY_DEDUP_MAX) {
+      const identity = this.identities.values().next().value;
+      if (!identity) break;
+      this.identities.delete(identity);
+      for (const key of this.checkpoints) {
+        if (key.endsWith(`\u0000${identity}`)) this.checkpoints.delete(key);
+      }
+    }
   }
 }
 

@@ -624,6 +624,7 @@ export const nb: Record<TranslationKey, string> = {
   "notifications.summary": "{count} godkjente apper",
   "notifications.empty": "Ingen apper har tillatelse til varsler.",
   "notifications.ruleCount": "{count} abonnementsregler",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Demp",
   "notifications.revoke": "Trekk tilbake",
   "qdnWrite.action.notificationAdd": "Bakgrunnsvarsler",

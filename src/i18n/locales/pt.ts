@@ -623,6 +623,7 @@ export const pt: Record<TranslationKey, string> = {
   "notifications.summary": "{count} aplicações aprovadas",
   "notifications.empty": "Nenhuma aplicação tem permissão para notificações.",
   "notifications.ruleCount": "{count} regras de subscrição",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Silenciar",
   "notifications.revoke": "Revogar",
   "qdnWrite.action.notificationAdd": "Notificações em segundo plano",

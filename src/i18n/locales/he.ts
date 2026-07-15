@@ -623,6 +623,7 @@ export const he: Record<TranslationKey, string> = {
   "notifications.summary": "{count} יישומים מאושרים",
   "notifications.empty": "אין יישומים עם הרשאה להתראות.",
   "notifications.ruleCount": "{count} כללי מינוי",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "השתקה",
   "notifications.revoke": "ביטול הרשאה",
   "qdnWrite.action.notificationAdd": "התראות ברקע",

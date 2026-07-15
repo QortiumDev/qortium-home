@@ -4,6 +4,9 @@ import {
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
   coreSupportsArrayFilters,
+  coreSupportsV15Notifications,
+  ForeignPaymentReplayDeduper,
+  capForeignPaymentWireSubscriptions,
   stripWireNotificationIdSuffix,
   toWireNotificationSubscriptions,
   type StoredQdnNotificationRule,
@@ -21,6 +24,7 @@ type WatcherOptions = {
 
 const lastNotificationAt = new Map<string, number>();
 const notificationLinks = new Map<number, string>();
+const foreignPaymentReplayDeduper = new ForeignPaymentReplayDeduper();
 let nextNotificationId = 10_000;
 
 function getDisplayName(appKey: string) {
@@ -46,6 +50,8 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
   let subscriptionRevision = 0;
   let connectionRevision = 0;
   let serverSupportsArrayFilters = false;
+  let serverSupportsV15Notifications = false;
+  let coreNotificationCapabilitiesKnown = false;
   let removeStoreListener: (() => void) | null = null;
   let removeActionListener: (() => Promise<void>) | null = null;
   let disposed = false;
@@ -59,12 +65,17 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     );
   };
 
+  const wireSubscriptions = async () => capForeignPaymentWireSubscriptions((await eligibleRules()).flatMap(({ appKey, rule }) =>
+    toWireNotificationSubscriptions(appKey, rule, { serverSupportsArrayFilters, serverSupportsV15Notifications })));
+
+  const hasSendableRules = async () => !coreNotificationCapabilitiesKnown || (await wireSubscriptions()).length > 0;
+
   const sendSubscriptions = async () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     const revision = ++subscriptionRevision;
-    const eligible = await eligibleRules();
+    const subscriptions = await wireSubscriptions();
     if (stopped || revision !== subscriptionRevision || !socket || socket.readyState !== WebSocket.OPEN) return;
-    if (!eligible.length) {
+    if (!subscriptions.length) {
       socket.close();
       return;
     }
@@ -72,8 +83,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     socket.send(JSON.stringify({
       action: 'subscribe',
       address: options.activeAccountAddress,
-      subscriptions: eligible.flatMap(({ appKey, rule }) =>
-        toWireNotificationSubscriptions(appKey, rule, { serverSupportsArrayFilters })),
+      subscriptions,
     }));
   };
 
@@ -94,11 +104,14 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
 
   const scheduleReconnect = () => {
     if (stopped || reconnectTimer !== null) return;
-    reconnectTimer = window.setTimeout(() => {
-      reconnectTimer = null;
-      void connect();
-    }, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
+    void hasSendableRules().then((sendable) => {
+      if (!sendable || stopped || reconnectTimer !== null) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
+    });
   };
 
   const fire = async (appKey: string, rule: StoredQdnNotificationRule, data?: Record<string, unknown>) => {
@@ -109,6 +122,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
     if (now - (lastNotificationAt.get(appKey) ?? 0) < 3_000) return;
     lastNotificationAt.set(appKey, now);
     if (options.isAppFocused(appKey)) return;
+    if (rule.event === 'FOREIGN_PAYMENT_RECEIVED' && foreignPaymentReplayDeduper.hasDelivered(data)) return;
 
     const title = `${rule.title ?? getQdnNotificationDefaultTitle(rule.event)} — ${getDisplayName(appKey)}`;
     if (Capacitor.isNativePlatform()) {
@@ -122,6 +136,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
       const latestGrant = latestStore.grants[appKey];
       if (!latestGrant || latestGrant.muted || !enabled || !hasCurrentRule(latestStore, appKey, rule)) return;
       const id = nextNotificationId++;
+      if (rule.event === 'FOREIGN_PAYMENT_RECEIVED') foreignPaymentReplayDeduper.markDelivered(data);
       notificationLinks.set(id, appendNotificationTargetQuery(rule.link ?? appKey, data, rule.event));
       await LocalNotifications.schedule({ notifications: [{ id, title, body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '' }] });
     } else if (typeof window.Notification === 'function' && window.Notification.permission === 'granted') {
@@ -131,6 +146,7 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
       ]);
       const latestGrant = latestStore.grants[appKey];
       if (!latestGrant || latestGrant.muted || !enabled || !hasCurrentRule(latestStore, appKey, rule)) return;
+      if (rule.event === 'FOREIGN_PAYMENT_RECEIVED') foreignPaymentReplayDeduper.markDelivered(data);
       new window.Notification(title, { body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '' });
     }
   };
@@ -138,18 +154,24 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
   const connect = async () => {
     if (stopped || socket) return;
     const revision = ++connectionRevision;
-    if (!(await eligibleRules()).length || stopped || socket || revision !== connectionRevision) return;
+    if (!(await eligibleRules()).length || !(await hasSendableRules()) || stopped || socket || revision !== connectionRevision) return;
     try {
       const response = await fetch(`${options.nodeApiUrl.replace(/\/$/, '')}/admin/info`, {
         signal: AbortSignal.timeout(5_000),
       });
-      const info: unknown = response.ok ? await response.json() : undefined;
+      if (!response.ok) throw new Error(`Core admin info returned ${response.status}.`);
+      const info: unknown = await response.json();
       if (stopped || socket || revision !== connectionRevision) return;
       const buildVersion = info && typeof info === 'object' ? (info as { buildVersion?: unknown }).buildVersion : undefined;
-      serverSupportsArrayFilters = coreSupportsArrayFilters(typeof buildVersion === 'string' ? buildVersion : undefined);
+      const version = typeof buildVersion === 'string' ? buildVersion : undefined;
+      serverSupportsArrayFilters = coreSupportsArrayFilters(version);
+      serverSupportsV15Notifications = coreSupportsV15Notifications(version);
+      coreNotificationCapabilitiesKnown = true;
     } catch {
       if (stopped || socket || revision !== connectionRevision) return;
       serverSupportsArrayFilters = false;
+      serverSupportsV15Notifications = false;
+      coreNotificationCapabilitiesKnown = false;
     }
     try {
       if (stopped || socket || revision !== connectionRevision) return;

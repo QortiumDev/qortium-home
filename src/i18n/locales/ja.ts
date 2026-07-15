@@ -623,6 +623,7 @@ export const ja: Record<TranslationKey, string> = {
   "notifications.summary": "承認済みアプリ: {count}",
   "notifications.empty": "通知を許可されたアプリはありません。",
   "notifications.ruleCount": "購読ルール: {count}",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "ミュート",
   "notifications.revoke": "取り消す",
   "qdnWrite.action.notificationAdd": "バックグラウンド通知",

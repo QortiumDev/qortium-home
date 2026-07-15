@@ -624,6 +624,7 @@ export const el: Record<TranslationKey, string> = {
   "notifications.summary": "{count} εγκεκριμένες εφαρμογές",
   "notifications.empty": "Καμία εφαρμογή δεν έχει άδεια ειδοποιήσεων.",
   "notifications.ruleCount": "{count} κανόνες συνδρομής",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Σίγαση",
   "notifications.revoke": "Ανάκληση",
   "qdnWrite.action.notificationAdd": "Ειδοποιήσεις παρασκηνίου",

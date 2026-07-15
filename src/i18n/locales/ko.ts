@@ -623,6 +623,7 @@ export const ko: Record<TranslationKey, string> = {
   "notifications.summary": "승인된 앱 {count}개",
   "notifications.empty": "알림 권한이 있는 앱이 없습니다.",
   "notifications.ruleCount": "구독 규칙 {count}개",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "음소거",
   "notifications.revoke": "권한 취소",
   "qdnWrite.action.notificationAdd": "백그라운드 알림",

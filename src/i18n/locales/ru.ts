@@ -623,6 +623,7 @@ export const ru: Record<TranslationKey, string> = {
   "notifications.summary": "Одобрено приложений: {count}",
   "notifications.empty": "Ни одному приложению не разрешены уведомления.",
   "notifications.ruleCount": "Правил подписки: {count}",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Без звука",
   "notifications.revoke": "Отозвать",
   "qdnWrite.action.notificationAdd": "Фоновые уведомления",

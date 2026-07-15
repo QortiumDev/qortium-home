@@ -623,6 +623,7 @@ export const nl: Record<TranslationKey, string> = {
   "notifications.summary": "{count} goedgekeurde apps",
   "notifications.empty": "Geen apps hebben toestemming voor meldingen.",
   "notifications.ruleCount": "{count} abonnementsregels",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Dempen",
   "notifications.revoke": "Intrekken",
   "qdnWrite.action.notificationAdd": "Achtergrondmeldingen",

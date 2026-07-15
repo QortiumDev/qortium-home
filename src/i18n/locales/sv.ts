@@ -623,6 +623,7 @@ export const sv: Record<TranslationKey, string> = {
   "notifications.summary": "{count} godkända appar",
   "notifications.empty": "Inga appar har behörighet för aviseringar.",
   "notifications.ruleCount": "{count} prenumerationsregler",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Tysta",
   "notifications.revoke": "Återkalla",
   "qdnWrite.action.notificationAdd": "Bakgrundsaviseringar",

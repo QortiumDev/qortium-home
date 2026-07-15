@@ -623,6 +623,7 @@ export const ro: Record<TranslationKey, string> = {
   "notifications.summary": "{count} aplicații aprobate",
   "notifications.empty": "Nicio aplicație nu are permisiune pentru notificări.",
   "notifications.ruleCount": "{count} reguli de abonare",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Dezactivează sunetul",
   "notifications.revoke": "Revocă",
   "qdnWrite.action.notificationAdd": "Notificări în fundal",

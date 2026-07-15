@@ -623,6 +623,7 @@ export const hu: Record<TranslationKey, string> = {
   "notifications.summary": "{count} jóváhagyott alkalmazás",
   "notifications.empty": "Egy alkalmazás sem rendelkezik értesítési engedéllyel.",
   "notifications.ruleCount": "{count} feliratkozási szabály",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Némítás",
   "notifications.revoke": "Visszavonás",
   "qdnWrite.action.notificationAdd": "Háttérértesítések",

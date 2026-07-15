@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - feat(qdn): add group and foreign-payment notification rules
+
+QDN apps can now subscribe to transaction confirmations by group and to
+watch-only foreign-coin payment receipts. Group and foreign-payment rules use
+the configured Core only when it supports the new 1.5.0 notification contract;
+older nodes keep compatible rules running without rejecting the combined
+subscription. Home explains that foreign-wallet monitoring reveals address
+history but never gives the node spending authority.
+
 ### 2026-07-15 - chore(release): prepare home 1.5.0
 
 Bumps Qortium Home to 1.5.0 with Android versionCode 30. This release line adds

@@ -623,6 +623,7 @@ export const et: Record<TranslationKey, string> = {
   "notifications.summary": "{count} kinnitatud rakendust",
   "notifications.empty": "Ühelgi rakendusel pole teavituste luba.",
   "notifications.ruleCount": "{count} tellimisreeglit",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "Vaigista",
   "notifications.revoke": "Tühista luba",
   "qdnWrite.action.notificationAdd": "Taustateavitused",

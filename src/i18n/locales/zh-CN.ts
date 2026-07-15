@@ -623,6 +623,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "notifications.summary": "{count} 个已批准的应用",
   "notifications.empty": "没有应用获得通知权限。",
   "notifications.ruleCount": "{count} 条订阅规则",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "静音",
   "notifications.revoke": "撤销",
   "qdnWrite.action.notificationAdd": "后台通知",

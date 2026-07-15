@@ -624,6 +624,7 @@ export const hi: Record<TranslationKey, string> = {
   "notifications.summary": "{count} स्वीकृत ऐप",
   "notifications.empty": "किसी ऐप को सूचना की अनुमति नहीं है।",
   "notifications.ruleCount": "{count} सदस्यता नियम",
+  "notifications.foreignPaymentPrivacy": "Foreign-coin rules share a watch-only wallet view (address history, never spending) with this Core node.",
   "notifications.mute": "म्यूट करें",
   "notifications.revoke": "अनुमति रद्द करें",
   "qdnWrite.action.notificationAdd": "पृष्ठभूमि सूचनाएँ",
