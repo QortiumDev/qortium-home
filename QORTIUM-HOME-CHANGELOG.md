@@ -33,6 +33,12 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-16 - chore(release): prepare home 1.5.1
+
+Bumps Qortium Home to 1.5.1 with Android versionCode 31. This is a hotfix
+release line: it restores the QDN app bridge inside sandboxed app views that
+was broken in 1.5.0, and contains no other changes.
+
 ### 2026-07-16 - fix(qdn): restore the app bridge inside sandboxed QDN app views
 
 Fixes the 1.5.0 regression where every QDN app lost its connection to Home:
