@@ -22,6 +22,7 @@ import {
   isRemoteAuthorizationBlockedMessage,
   isTerminalQdnStatus,
 } from './qdn';
+import { getOpenAppTargetMessage, type QdnAppTargetQuery } from './qdn-app-target';
 import { marked } from 'marked';
 import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
 import {
@@ -32,6 +33,7 @@ import {
   saveBytesToFile,
 } from './platform';
 import { ArchiveViewer } from './ArchiveViewer';
+import type { HomeSettings } from '../electron/home-settings-bridge';
 import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
 import type { CoreManagerState } from './coreManagerState';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
@@ -87,11 +89,13 @@ type QdnViewerState =
     };
 
 type QdnFrameDisplaySettings = QdnDisplaySettings & {
+  appNotifications?: boolean;
   appZoom?: number;
 };
 
 type QdnViewerProps = {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   // Core-offline recovery context; omitted by embedded uses (media-player
   // dialog), which then keep the generic error state.
   coreManager?: CoreManagerState;
@@ -99,11 +103,14 @@ type QdnViewerProps = {
   nodeApiUrl: string;
   nodeEpoch?: number;
   nodeMode?: QortiumNodeSettingsMode;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  getHomeSettings?: () => HomeSettings;
+  onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   resource: QdnResource;
   suspended?: boolean;
   tabId: string;
@@ -208,7 +215,11 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
 
 export type QdnBridgeFrameContentProps = {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
+  getHomeSettings?: () => HomeSettings;
+  onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -290,6 +301,24 @@ function postQdnDisplaySettings(
   for (const message of getQdnDisplaySettingMessages(displaySettings)) {
     frameWindow.postMessage(message, targetOrigin);
   }
+}
+
+function postQdnHomeSettingsChanged(
+  frameWindow: Window | null | undefined,
+  renderUrl: string,
+  displaySettings: QdnFrameDisplaySettings,
+) {
+  if (!frameWindow) return;
+  frameWindow.postMessage({
+    type: 'qortium:home-settings-changed',
+    detail: {
+      ...displaySettings,
+      appNotifications: displaySettings.appNotifications,
+      appZoom: displaySettings.appZoom,
+      lang: displaySettings.language,
+      uiStyle: displaySettings.ui,
+    },
+  }, getPostMessageTargetOrigin(renderUrl));
 }
 
 function formatError(error: unknown) {
@@ -3080,16 +3109,20 @@ function areViewBoundsEqual(first: QortiumQdnViewBounds | null, second: QortiumQ
 
 export function QdnIsolatedFrameContent({
   account,
+  appTarget,
   displaySettings,
   nodeApiUrl,
+  onAppTargetDelivered,
   renderUrl,
   resourceUrl,
   suspended,
   tabId,
 }: {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnDisplaySettings;
   nodeApiUrl: string;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   renderUrl: string;
   resourceUrl: string;
   suspended: boolean;
@@ -3097,6 +3130,7 @@ export function QdnIsolatedFrameContent({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastBoundsRef = useRef<QortiumQdnViewBounds | null>(null);
+  const deliveredAppTargetRef = useRef<QdnAppTargetQuery | null>(null);
   const suspendedRef = useRef(suspended);
   const [viewError, setViewError] = useState('');
   const [snapshotUrl, setSnapshotUrl] = useState('');
@@ -3278,6 +3312,22 @@ export function QdnIsolatedFrameContent({
     });
   }, [displaySettings, suspended, tabId]);
 
+  useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+
+    if (!qdnViews || suspended || !appTarget || deliveredAppTargetRef.current === appTarget) {
+      return;
+    }
+
+    deliveredAppTargetRef.current = appTarget;
+    void qdnViews.postMessage({ tabId, message: getOpenAppTargetMessage(appTarget) })
+      .then(() => onAppTargetDelivered?.(appTarget))
+      .catch((error) => {
+        deliveredAppTargetRef.current = null;
+        console.warn('Unable to deliver QDN app target.', error);
+      });
+  }, [appTarget, onAppTargetDelivered, suspended, tabId]);
+
   return (
     <div
       className={`qdn-viewer__isolated-frame${viewError ? ' qdn-viewer__isolated-frame--error' : ''}`}
@@ -3296,7 +3346,11 @@ export function QdnIsolatedFrameContent({
 
 export function QdnBridgeFrameContent({
   account,
+  appTarget,
   displaySettings,
+  getHomeSettings,
+  onHomeSettingsPatch,
+  onAppTargetDelivered,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3308,6 +3362,9 @@ export function QdnBridgeFrameContent({
   title = resourceUrl,
 }: QdnBridgeFrameContentProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const appTargetRef = useRef(appTarget);
+  const deliveredAppTargetRef = useRef<QdnAppTargetQuery | null>(null);
+  const frameLoadedRef = useRef(false);
   const onOpenNewTabRef = useRef(onOpenNewTab);
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
@@ -3320,6 +3377,7 @@ export function QdnBridgeFrameContent({
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   onAppTitleChangeRef.current = onAppTitleChange;
+  appTargetRef.current = appTarget;
   suspendedFrameRef.current = suspended;
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
@@ -3351,11 +3409,37 @@ export function QdnBridgeFrameContent({
 
   useEffect(() => {
     postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
+    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, renderUrl, displaySettings);
   }, [displaySettings, renderUrl]);
 
   useEffect(() => {
     postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
   }, [accountId, isAccountUnlocked, renderUrl]);
+
+  function deliverAppTarget() {
+    const target = appTargetRef.current;
+
+    if (!frameLoadedRef.current || !target || deliveredAppTargetRef.current === target) {
+      return;
+    }
+
+    const frameWindow = frameRef.current?.contentWindow;
+
+    if (frameWindow) {
+      deliveredAppTargetRef.current = target;
+      frameWindow.postMessage(getOpenAppTargetMessage(target), getPostMessageTargetOrigin(renderUrl));
+      onAppTargetDelivered?.(target);
+    }
+  }
+
+  useEffect(() => {
+    frameLoadedRef.current = false;
+    deliveredAppTargetRef.current = null;
+  }, [renderUrl]);
+
+  useEffect(() => {
+    deliverAppTarget();
+  }, [appTarget, renderUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
@@ -3397,6 +3481,8 @@ export function QdnBridgeFrameContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
+          getHomeSettings,
+          applyHomeSettingsPatch: onHomeSettingsPatch,
           isCurrent: () =>
             active && !suspendedFrameRef.current && frameRef.current?.contentWindow === frameWindow,
           isViewFocused: () =>
@@ -3428,6 +3514,7 @@ export function QdnBridgeFrameContent({
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : 'QDN app request failed.';
+        const code = isRecord(error) && typeof error.code === 'string' ? error.code : undefined;
 
         frameWindow.postMessage(
           {
@@ -3435,6 +3522,7 @@ export function QdnBridgeFrameContent({
             error: {
               error: message,
               message,
+              ...(code ? { code } : {}),
             },
             requestId,
             result: null,
@@ -3451,7 +3539,7 @@ export function QdnBridgeFrameContent({
       active = false;
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
+  }, [accountId, bridgeToken, displaySettings, getHomeSettings, isNativeFrame, onHomeSettingsPatch, renderUrl, resourceUrl]);
 
   const frame = (
     <iframe
@@ -3465,8 +3553,11 @@ export function QdnBridgeFrameContent({
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
+        frameLoadedRef.current = true;
         postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
+        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, renderUrl, displaySettings);
         postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
+        deliverAppTarget();
       }}
     />
   );
@@ -3480,36 +3571,48 @@ export function QdnBridgeFrameContent({
 
 function QdnIframeContent({
   account,
+  appTarget,
   displaySettings,
+  getHomeSettings,
   loadedResource,
+  onAppTargetDelivered,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  onHomeSettingsPatch,
   resource,
   suspended,
 }: {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
+  getHomeSettings?: () => HomeSettings;
   loadedResource: LoadedQdnResource;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   resource: QdnResource;
   suspended?: boolean;
 }) {
   return (
     <QdnBridgeFrameContent
       account={account}
+      appTarget={appTarget}
       displaySettings={displaySettings}
+      getHomeSettings={getHomeSettings}
+      onAppTargetDelivered={onAppTargetDelivered}
       onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
       onOpenMediaPlayer={onOpenMediaPlayer}
       onOpenNewTab={onOpenNewTab}
       onOpenInCurrentTab={onOpenInCurrentTab}
+      onHomeSettingsPatch={onHomeSettingsPatch}
       renderUrl={loadedResource.renderUrl}
       resourceUrl={resource.displayUrl}
       suspended={suspended}
@@ -3520,28 +3623,36 @@ function QdnIframeContent({
 function QdnReadyContent({
   loadedResource,
   account,
+  appTarget,
   displaySettings,
+  getHomeSettings,
   nodeApiUrl,
+  onAppTargetDelivered,
   onActionContextChange,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  onHomeSettingsPatch,
   resource,
   suspended,
   tabId,
 }: {
   account: QortiumAccountSummary | null;
+  appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
+  getHomeSettings?: () => HomeSettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onActionContextChange: SetViewerActionContext;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   resource: QdnResource;
   suspended: boolean;
   tabId: string;
@@ -3555,8 +3666,10 @@ function QdnReadyContent({
       return (
         <QdnIsolatedFrameContent
           account={account}
+          appTarget={appTarget}
           displaySettings={displaySettings}
           nodeApiUrl={loadedResource.nodeApiUrl ?? nodeApiUrl}
+          onAppTargetDelivered={onAppTargetDelivered}
           renderUrl={loadedResource.renderUrl}
           resourceUrl={resource.displayUrl}
           suspended={suspended}
@@ -3568,13 +3681,17 @@ function QdnReadyContent({
     return (
       <QdnIframeContent
         account={account}
+        appTarget={appTarget}
         displaySettings={displaySettings}
+        getHomeSettings={getHomeSettings}
         loadedResource={loadedResource}
+        onAppTargetDelivered={onAppTargetDelivered}
         onAppTitleChange={onAppTitleChange}
         onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
+        onHomeSettingsPatch={onHomeSettingsPatch}
         resource={resource}
         suspended={suspended}
       />
@@ -3735,16 +3852,20 @@ function QdnReadyContent({
 
 export function QdnViewer({
   account,
+  appTarget,
   displaySettings,
   nodeApiUrl,
   coreManager,
   nodeEpoch,
   nodeMode,
+  onAppTargetDelivered,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  getHomeSettings,
+  onHomeSettingsPatch,
   resource,
   suspended = false,
   tabId,
@@ -3851,14 +3972,18 @@ export function QdnViewer({
         <QdnReadyContent
           loadedResource={state.loadedResource}
           account={account}
+          appTarget={appTarget}
           displaySettings={displaySettings}
+          getHomeSettings={getHomeSettings}
           nodeApiUrl={nodeApiUrl}
+          onAppTargetDelivered={onAppTargetDelivered}
           onActionContextChange={setActionContext}
           onAppTitleChange={onAppTitleChange}
           onOpenDocumentViewer={onOpenDocumentViewer}
           onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}
+          onHomeSettingsPatch={onHomeSettingsPatch}
           resource={resource}
           suspended={suspended}
           tabId={tabId}

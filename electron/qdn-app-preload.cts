@@ -1,10 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
+const {
+  QDN_BRIDGE_ERROR_KEY,
+  QDN_BRIDGE_RESULT_KEY,
+} = require('./qdn-bridge-error.js') as typeof import('./qdn-bridge-error.js');
 
 type QdnAppRequest = Record<string, unknown>;
 
 let wheelAccumulator = 0;
 
-async function sendQdnAppRequest(request: QdnAppRequest) {
+async function sendQdnAppRequestRaw(request: QdnAppRequest) {
   return ipcRenderer.invoke('qdn-app:request', request);
 }
 
@@ -55,4 +59,43 @@ function sendWheelCommands(event: WheelEvent) {
 
 window.addEventListener('wheel', sendWheelCommands, { capture: true, passive: false });
 
-contextBridge.exposeInMainWorld('qdnRequest', sendQdnAppRequest);
+contextBridge.exposeInMainWorld('__qdnRequestRaw', sendQdnAppRequestRaw);
+contextBridge.executeInMainWorld({
+  func: (errorKey: string, resultKey: string) => {
+    const rawRequest = (window as unknown as { __qdnRequestRaw: (request: unknown) => Promise<unknown> }).__qdnRequestRaw;
+
+    Object.defineProperty(window, 'qdnRequest', {
+      configurable: false,
+      enumerable: true,
+      writable: false,
+      value: async (request: unknown) => {
+        const response = await rawRequest(request);
+        const envelope = response && typeof response === 'object' && !Array.isArray(response)
+          ? response as Record<string, unknown>
+          : null;
+
+        if (envelope && Object.keys(envelope).length === 1) {
+          const error = envelope[errorKey];
+
+          if (error && typeof error === 'object' && !Array.isArray(error)) {
+            const payload = error as Record<string, unknown>;
+
+            if (typeof payload.message === 'string') {
+              throw Object.assign(
+                new Error(payload.message),
+                typeof payload.code === 'string' ? { code: payload.code } : {},
+              );
+            }
+          }
+
+          if (resultKey in envelope) {
+            return envelope[resultKey];
+          }
+        }
+
+        throw new Error('Malformed QDN bridge response.');
+      },
+    });
+  },
+  args: [QDN_BRIDGE_ERROR_KEY, QDN_BRIDGE_RESULT_KEY],
+});

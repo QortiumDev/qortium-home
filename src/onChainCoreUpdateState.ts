@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { t } from './i18n';
+import { translateMainProcessMessage } from './mainProcessMessage';
 
 export type OnChainCoreUpdateState =
   | {
@@ -26,7 +27,9 @@ export function formatCoreAdminError(error: unknown) {
     return t('core.onChain.checkFailed');
   }
 
-  return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
+  return translateMainProcessMessage(
+    error.message.replace(/^Error invoking remote method '[^']+': Error: /, ''),
+  );
 }
 
 function getOnChainCoreUpdateUnavailableMessage(nodeSettings: QortiumNodeSettings) {

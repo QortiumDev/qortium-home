@@ -34,12 +34,32 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   core: {
     checkReleases: () => ipcRenderer.invoke('core:checkReleases'),
     getStatus: () => ipcRenderer.invoke('core:getStatus'),
-    install: (request: { channel?: 'prerelease' | 'stable' }) =>
+    install: (request: {
+      allowDowngrade?: boolean;
+      channel?: 'prerelease' | 'stable';
+      downgradeToken?: string;
+    }) =>
       ipcRenderer.invoke('core:install', request),
     installJava: () => ipcRenderer.invoke('core:installJava'),
+    refreshHelpers: () => ipcRenderer.invoke('core:refreshHelpers'),
     setJavaAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('core:setJavaAutoUpdate', enabled),
+    setUpdatePolicy: (request: {
+      coreUpdatePolicy?: 'install' | 'notify' | 'off';
+      javaUpdatePolicy?: 'install' | 'notify' | 'off';
+    }) => ipcRenderer.invoke('core:setUpdatePolicy', request),
     start: () => ipcRenderer.invoke('core:start'),
     stop: () => ipcRenderer.invoke('core:stop'),
+    onStatus: (callback: (status: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
+        callback(status);
+      };
+
+      ipcRenderer.on('core:status', listener);
+
+      return () => {
+        ipcRenderer.removeListener('core:status', listener);
+      };
+    },
     onProgress: (callback: (progress: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => {
         callback(progress);
@@ -215,6 +235,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     }) => ipcRenderer.invoke('qdn:downloadResource', request),
   },
   qdnViews: {
+    broadcastHomeSettingsChanged: (detail: unknown) => ipcRenderer.invoke('qdn-views:broadcastHomeSettingsChanged', { detail }),
     show: (request: {
       accountId: string | null;
       bounds: { height: number; width: number; x: number; y: number };
@@ -249,6 +270,14 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     }) => ipcRenderer.invoke('qdn-views:updateDisplaySettings', request),
     updateAccountState: (request: { accountId: string | null; isUnlocked: boolean; tabId: string }) =>
       ipcRenderer.invoke('qdn-views:updateAccountState', request),
+    postMessage: (request: {
+      message: {
+        action: 'OPEN_APP_TARGET';
+        requestedHandler: 'UI';
+        query: { address?: string; group?: string };
+      };
+      tabId: string;
+    }) => ipcRenderer.invoke('qdn-views:postMessage', request),
   },
   qdnPermissions: {
     onUnlockRequest: (callback: (request: unknown) => void) => {
@@ -273,10 +302,23 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:write-request', listener);
       };
     },
+    onHomeSettingsRequest: (callback: (request: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        callback(request);
+      };
+
+      ipcRenderer.on('qdn-app:home-settings-request', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:home-settings-request', listener);
+      };
+    },
     resolveUnlockRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
     resolveWriteRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
+    resolveHomeSettingsRequest: (requestId: string, settings: unknown) =>
+      ipcRenderer.invoke('qdn-app:resolveHomeSettingsRequest', { requestId, settings }),
   },
   qdnEvents: {
     onOpenNewTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {

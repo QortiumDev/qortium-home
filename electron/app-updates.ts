@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { access, chmod, constants as fsConstants, mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
@@ -364,6 +364,60 @@ type AppUpdateDownloadTarget = {
   finalPath: string;
 };
 
+async function getFileDigest(filePath: string) {
+  const hash = createHash('sha256');
+
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+  }
+
+  return `sha256:${hash.digest('hex')}`;
+}
+
+async function getVerifiedExistingDownload({
+  asset,
+  fileName,
+  finalPath,
+  releaseTag,
+}: {
+  asset: AppUpdateAsset;
+  fileName: string;
+  finalPath: string;
+  releaseTag: string;
+}) {
+  if (!asset.digest) {
+    return null;
+  }
+
+  try {
+    const fileStatus = await stat(finalPath);
+
+    if (!fileStatus.isFile()) {
+      return null;
+    }
+
+    const digest = await getFileDigest(finalPath);
+
+    if (digest !== asset.digest) {
+      return null;
+    }
+
+    return {
+      canOpen: true,
+      canReveal: true,
+      digest,
+      digestVerified: true,
+      downloadedAt: fileStatus.mtime.toISOString(),
+      fileName,
+      filePath: finalPath,
+      releaseTag,
+      size: fileStatus.size,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function getFallbackDownloadDir(releaseTag: string) {
   return path.join(getAppUpdatesPath(), sanitizePathSegment(releaseTag, 'release'));
 }
@@ -446,6 +500,17 @@ async function downloadAssetInternal(
   const { fileName, finalPath } = await resolveDownloadTarget(normalizedRequest.asset.name, normalizedRequest.releaseTag);
   const releasePath = path.dirname(finalPath);
   const partialPath = `${finalPath}.download`;
+
+  const existingDownload = await getVerifiedExistingDownload({
+    asset: normalizedRequest.asset,
+    fileName,
+    finalPath,
+    releaseTag: normalizedRequest.releaseTag,
+  });
+
+  if (existingDownload) {
+    return existingDownload;
+  }
 
   await mkdir(releasePath, { recursive: true });
   await rm(partialPath, { force: true });

@@ -1,8 +1,11 @@
+import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { checkAppUpdates } from './appUpdates';
 import { getTranslationLanguage, t, type TranslationKey } from './i18n';
 
 const UPDATE_CHANNELS: QortiumAppUpdateChannel[] = ['stable', 'prerelease'];
+const APP_UPDATE_PREFERENCES_STORAGE_KEY = 'qortium-home-app-update-preferences';
 const BYTE_UNIT_KEYS: TranslationKey[] = [
   'common.unit.bytes',
   'common.unit.kb',
@@ -16,6 +19,108 @@ export type UpdateMessage = {
 } | null;
 
 type UpdateResultsByChannel = Partial<Record<QortiumAppUpdateChannel, QortiumAppUpdateCheckResult>>;
+
+export type HomeUpdatePolicy = 'off' | 'notify' | 'auto-download';
+
+type AppUpdatePreferences = {
+  downloadedUpdate: QortiumAppUpdateDownloadResult | null;
+  homeUpdatePolicy: HomeUpdatePolicy;
+  releaseChannel: QortiumAppUpdateChannel | null;
+};
+
+const DEFAULT_APP_UPDATE_PREFERENCES: AppUpdatePreferences = {
+  downloadedUpdate: null,
+  homeUpdatePolicy: 'notify',
+  releaseChannel: null,
+};
+
+function isUpdatePolicy(value: unknown): value is HomeUpdatePolicy {
+  return value === 'off' || value === 'notify' || value === 'auto-download';
+}
+
+function isUpdateChannel(value: unknown): value is QortiumAppUpdateChannel {
+  return value === 'stable' || value === 'prerelease';
+}
+
+function parseDownloadedUpdate(value: unknown): QortiumAppUpdateDownloadResult | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const downloadedUpdate = value as Partial<QortiumAppUpdateDownloadResult>;
+
+  return typeof downloadedUpdate.fileName === 'string' &&
+    typeof downloadedUpdate.filePath === 'string' &&
+    typeof downloadedUpdate.releaseTag === 'string' &&
+    typeof downloadedUpdate.digest === 'string' &&
+    downloadedUpdate.digestVerified === true &&
+    typeof downloadedUpdate.canOpen === 'boolean' &&
+    typeof downloadedUpdate.canReveal === 'boolean' &&
+    typeof downloadedUpdate.downloadedAt === 'string' &&
+    typeof downloadedUpdate.size === 'number'
+    ? downloadedUpdate as QortiumAppUpdateDownloadResult
+    : null;
+}
+
+function parseAppUpdatePreferences(value: string | null): AppUpdatePreferences {
+  if (!value) {
+    return DEFAULT_APP_UPDATE_PREFERENCES;
+  }
+
+  try {
+    const parsedValue = JSON.parse(value) as Record<string, unknown>;
+
+    return {
+      downloadedUpdate: parseDownloadedUpdate(parsedValue.downloadedUpdate),
+      homeUpdatePolicy: isUpdatePolicy(parsedValue.homeUpdatePolicy)
+        ? parsedValue.homeUpdatePolicy
+        : DEFAULT_APP_UPDATE_PREFERENCES.homeUpdatePolicy,
+      releaseChannel: isUpdateChannel(parsedValue.releaseChannel) ? parsedValue.releaseChannel : null,
+    };
+  } catch {
+    return DEFAULT_APP_UPDATE_PREFERENCES;
+  }
+}
+
+async function loadAppUpdatePreferences() {
+  try {
+    const value = Capacitor.isNativePlatform()
+      ? (await Preferences.get({ key: APP_UPDATE_PREFERENCES_STORAGE_KEY })).value
+      : window.localStorage.getItem(APP_UPDATE_PREFERENCES_STORAGE_KEY);
+
+    return parseAppUpdatePreferences(value);
+  } catch {
+    return DEFAULT_APP_UPDATE_PREFERENCES;
+  }
+}
+
+async function saveAppUpdatePreferences(preferences: AppUpdatePreferences) {
+  const value = JSON.stringify(preferences);
+
+  if (Capacitor.isNativePlatform()) {
+    await Preferences.set({ key: APP_UPDATE_PREFERENCES_STORAGE_KEY, value });
+    return;
+  }
+
+  window.localStorage.setItem(APP_UPDATE_PREFERENCES_STORAGE_KEY, value);
+}
+
+function getMatchingDownloadedUpdate(
+  downloadedUpdate: QortiumAppUpdateDownloadResult | null,
+  result: QortiumAppUpdateCheckResult | null,
+) {
+  if (
+    !downloadedUpdate?.digestVerified ||
+    !result?.asset?.digest ||
+    !result.release ||
+    downloadedUpdate.releaseTag !== result.release.tagName ||
+    downloadedUpdate.digest !== result.asset.digest
+  ) {
+    return null;
+  }
+
+  return downloadedUpdate;
+}
 
 export function formatUpdateError(error: unknown) {
   if (!(error instanceof Error)) {
@@ -171,6 +276,7 @@ function getPreferredResultChannel({
 export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {}) {
   const [environment, setEnvironment] = useState<QortiumAppUpdateEnvironment | null>(null);
   const [channel, setChannelState] = useState<QortiumAppUpdateChannel>('stable');
+  const [preferences, setPreferences] = useState<AppUpdatePreferences | null>(null);
   const [results, setResults] = useState<UpdateResultsByChannel>({});
   const [downloadedUpdate, setDownloadedUpdate] = useState<QortiumAppUpdateDownloadResult | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<QortiumAppUpdateDownloadProgress | null>(null);
@@ -184,19 +290,23 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   const updateAvailable = result?.status === 'available';
   const availableChannels = useMemo(() => getResultChannels(results), [results]);
   const language = getTranslationLanguage();
+  const homeUpdatePolicy = preferences?.homeUpdatePolicy ?? DEFAULT_APP_UPDATE_PREFERENCES.homeUpdatePolicy;
 
   useEffect(() => {
     let isDisposed = false;
 
-    window.qortiumHome.updates
-      .getEnvironment()
-      .then((nextEnvironment) => {
+    Promise.all([
+      window.qortiumHome.updates.getEnvironment(),
+      loadAppUpdatePreferences(),
+    ])
+      .then(([nextEnvironment, nextPreferences]) => {
         if (isDisposed) {
           return;
         }
 
         setEnvironment(nextEnvironment);
-        setChannelState(getDefaultUpdateChannel(nextEnvironment));
+        setPreferences(nextPreferences);
+        setChannelState(nextPreferences.releaseChannel ?? getDefaultUpdateChannel(nextEnvironment));
       })
       .catch((error) => {
         if (!isDisposed) {
@@ -225,7 +335,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     [channel, downloadedUpdate, environment, language, result, updatePlatform],
   );
 
-  async function checkForUpdates() {
+  async function checkForUpdates({ autoDownload = false }: { autoDownload?: boolean } = {}) {
     if (!environment) {
       return;
     }
@@ -253,10 +363,18 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
 
       setResults(nextResults);
       setChannelState(nextChannel);
+      const existingDownloadedUpdate = getMatchingDownloadedUpdate(preferences?.downloadedUpdate ?? null, nextResult);
+      setDownloadedUpdate(existingDownloadedUpdate);
       setMessage({
         kind: nextKind ?? 'error',
-        text: nextResult?.message ?? t('updates.checkReleasesFailed'),
+        text: existingDownloadedUpdate
+          ? getDownloadedUpdateMessage(existingDownloadedUpdate, nextResult?.platform)
+          : nextResult?.message ?? t('updates.checkReleasesFailed'),
       });
+
+      if (autoDownload && nextResult?.status === 'available' && nextResult.asset && nextResult.release && !existingDownloadedUpdate) {
+        await downloadUpdateForResult(nextResult);
+      }
     } catch (error) {
       setMessage({
         kind: 'error',
@@ -268,58 +386,88 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
   }
 
   useEffect(() => {
-    if (!autoCheck || !environment) {
+    if (!autoCheck || !environment || !preferences || homeUpdatePolicy === 'off') {
       return;
     }
 
-    const autoCheckKey = `${environment.currentVersion}:${environment.platform.os}:${environment.platform.arch}`;
+    const autoCheckKey = `${environment.currentVersion}:${environment.platform.os}:${environment.platform.arch}:${homeUpdatePolicy}`;
 
     if (autoCheckKeyRef.current === autoCheckKey) {
       return;
     }
 
     autoCheckKeyRef.current = autoCheckKey;
-    void checkForUpdates();
-  }, [autoCheck, environment]);
+    void checkForUpdates({ autoDownload: homeUpdatePolicy === 'auto-download' });
+  }, [autoCheck, environment, homeUpdatePolicy, preferences]);
 
   function changeChannel(nextChannel: QortiumAppUpdateChannel) {
     setChannelState(nextChannel);
-    setDownloadedUpdate(null);
+    const nextDownloadedUpdate = getMatchingDownloadedUpdate(preferences?.downloadedUpdate ?? null, results[nextChannel] ?? null);
+    setDownloadedUpdate(nextDownloadedUpdate);
     setDownloadProgress(null);
     const nextResult = results[nextChannel] ?? null;
     const nextKind = getUpdateStatusKind(nextResult);
 
-    setMessage(nextResult ? { kind: nextKind ?? 'error', text: nextResult.message } : null);
+    setMessage(nextResult
+      ? {
+          kind: nextKind ?? 'error',
+          text: nextDownloadedUpdate
+            ? getDownloadedUpdateMessage(nextDownloadedUpdate, nextResult.platform)
+            : nextResult.message,
+        }
+      : null);
+    updatePreferences({ releaseChannel: nextChannel });
   }
 
-  async function downloadUpdate() {
-    if (!updateAvailable || !result?.asset || !result.release) {
+  function updatePreferences(nextValues: Partial<AppUpdatePreferences>) {
+    if (!preferences) {
+      return;
+    }
+
+    const nextPreferences = {
+      ...preferences,
+      ...nextValues,
+    };
+
+    setPreferences(nextPreferences);
+    void saveAppUpdatePreferences(nextPreferences).catch((error) => {
+      console.warn('Unable to save app update preferences.', error);
+    });
+  }
+
+  function changeHomeUpdatePolicy(nextPolicy: HomeUpdatePolicy) {
+    updatePreferences({ homeUpdatePolicy: nextPolicy });
+  }
+
+  async function downloadUpdateForResult(nextResult: QortiumAppUpdateCheckResult) {
+    if (!nextResult.asset || !nextResult.release) {
       return;
     }
 
     setIsDownloading(true);
     setDownloadProgress({
       action: 'downloading',
-      fileName: result.asset.name,
+      fileName: nextResult.asset.name,
       message: t('updates.progressDownloadingHome'),
-      percent: result.asset.size > 0 ? 0 : null,
+      percent: nextResult.asset.size > 0 ? 0 : null,
       receivedBytes: 0,
-      releaseTag: result.release.tagName,
-      totalBytes: result.asset.size > 0 ? result.asset.size : null,
+      releaseTag: nextResult.release.tagName,
+      totalBytes: nextResult.asset.size > 0 ? nextResult.asset.size : null,
     });
     setMessage(null);
 
     try {
       const nextDownloadedUpdate = await window.qortiumHome.updates.downloadAsset({
-        asset: result.asset,
-        platform: result.platform,
-        releaseTag: result.release.tagName,
+        asset: nextResult.asset,
+        platform: nextResult.platform,
+        releaseTag: nextResult.release.tagName,
       });
 
       setDownloadedUpdate(nextDownloadedUpdate);
+      updatePreferences({ downloadedUpdate: nextDownloadedUpdate });
       setMessage({
         kind: 'success',
-        text: getDownloadedUpdateMessage(nextDownloadedUpdate, result.platform),
+        text: getDownloadedUpdateMessage(nextDownloadedUpdate, nextResult.platform),
       });
     } catch (error) {
       setMessage({
@@ -330,6 +478,14 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
       setIsDownloading(false);
       setDownloadProgress(null);
     }
+  }
+
+  async function downloadUpdate() {
+    if (!updateAvailable || !result) {
+      return;
+    }
+
+    await downloadUpdateForResult(result);
   }
 
   async function openDownloadedUpdate() {
@@ -391,6 +547,7 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     downloadProgress,
     downloadUpdate,
     environment,
+    homeUpdatePolicy,
     isChecking,
     isDownloading,
     message,
@@ -400,6 +557,8 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
     result,
     results,
     setChannel: changeChannel,
+    setHomeUpdatePolicy: changeHomeUpdatePolicy,
+    preferencesLoaded: preferences !== null,
     showDownloadedFile,
     updatePlatform,
     updateAvailable,

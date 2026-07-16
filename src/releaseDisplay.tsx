@@ -1,6 +1,7 @@
 import { ArrowRight, ExternalLink, FolderOpen } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { compareAppVersions } from './appUpdates';
+import { coreCommitsMatch, getCoreReleaseTag, getCoreSemver } from '../electron/core-version';
 import { t } from './i18n';
 
 const HOME_RELEASE_TAG_BASE_URL = 'https://github.com/QortiumDev/qortium-home/releases/tag';
@@ -35,7 +36,7 @@ export function getHomeReleaseUrl(version: string | null | undefined) {
 }
 
 export function getCoreReleaseUrl(version: string | null | undefined) {
-  const tagName = formatReleaseTag(version);
+  const tagName = getCoreReleaseTag(version);
 
   if (!tagName) {
     return '';
@@ -244,40 +245,42 @@ export function getCoreVersionValue(status: QortiumCoreStatus | null) {
     return t('common.unavailable');
   }
 
-  // The build commit is parsed from the running core's /admin/info buildVersion,
-  // so it is only known while the core is running. Append it as a build suffix
-  // (e.g. "v1.1.0-b886a78") so the exact running build is identifiable.
-  const commit = status.runtime.runningCommit?.trim();
-  const withCommit = (tag: string) => (commit ? `${tag}-${commit}` : tag);
+  const runningBuildVersion = status.runtime.running
+    ? status.runtime.buildVersion?.trim().replace(/^qortium-/i, '')
+    : '';
+  const runningSemver = status.runtime.running ? getCoreSemver(status.runtime.runningVersion) : null;
+  const runningCommit = status.runtime.runningCommit?.trim();
+  const runningFallback = runningSemver
+    ? `${getCoreReleaseTag(runningSemver)}${runningCommit ? `-${runningCommit}` : ''}`
+    : '';
+  const jarBuildVersion = status.installed?.jarBuildVersion
+    ?.trim()
+    .replace(/^qortium-/i, '')
+    .replace(/^v/i, '');
+  const actualVersion = runningBuildVersion
+    ? `v${runningBuildVersion}`
+    : runningFallback || (jarBuildVersion ? `v${jarBuildVersion}` : '');
+  const originTag = status.installed?.tagName?.trim() ?? '';
 
-  // The installed jar tag is the most specific identifier, so prefer it. When
-  // the jar metadata is gone but a core is still running, fall back to the
-  // version reported by the running core API so the user still sees something
-  // useful (and can tell it apart from "not installed").
-  if (status.installed) {
-    return withCommit(status.installed.tagName);
-  }
-
-  if (status.runtime.running) {
-    if (status.runtime.runningVersion) {
-      return withCommit(formatReleaseTag(status.runtime.runningVersion));
+  if (actualVersion) {
+    if (originTag) {
+      return status.installed?.modifiedSinceInstall
+        ? t('core.versionInstalledFromModified', { origin: originTag, version: actualVersion })
+        : t('core.versionInstalledFrom', { origin: originTag, version: actualVersion });
     }
 
-    return t('common.detected');
+    return actualVersion;
   }
 
-  return t('common.notInstalled');
+  if (originTag) {
+    return originTag;
+  }
+
+  return status.runtime.running ? t('common.detected') : t('common.notInstalled');
 }
 
 function commitsMatch(first: string | null | undefined, second: string | null | undefined) {
-  const a = first?.trim().toLowerCase();
-  const b = second?.trim().toLowerCase();
-
-  if (!a || !b) {
-    return false;
-  }
-
-  return a.startsWith(b) || b.startsWith(a);
+  return coreCommitsMatch(first, second);
 }
 
 type CoreLatestEntry = {
@@ -388,8 +391,13 @@ export function getCoreVersionReleaseNotesValue(
   onOpenReleaseNotes?: (product: 'core' | 'home', tagName: string) => void,
 ): ReactNode {
   const text = getCoreVersionValue(status);
-  const releaseTag = formatReleaseTag(status?.installed?.tagName ?? status?.runtime.runningVersion ?? '');
-  const releaseUrl = status?.installed?.htmlUrl || getCoreReleaseUrl(releaseTag);
+  const actualVersion = status?.runtime.running
+    ? status.runtime.runningVersion ?? status.runtime.buildVersion
+    : status?.installed?.jarSemver ?? status?.installed?.jarBuildVersion;
+  const releaseTag = getCoreReleaseTag(actualVersion) || getCoreReleaseTag(status?.installed?.tagName);
+  const releaseUrl = areReleaseTagsEqual(releaseTag, status?.installed?.tagName)
+    ? status?.installed?.htmlUrl || getCoreReleaseUrl(releaseTag)
+    : getCoreReleaseUrl(releaseTag);
 
   if (onOpenReleaseNotes && releaseTag) {
     return (

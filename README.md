@@ -97,8 +97,14 @@ The authoritative action catalogue is
 [`electron/qdn-app-actions.ts`](electron/qdn-app-actions.ts). Documented
 bridge feature areas include app versioning
 ([docs/APP_VERSIONING.md](docs/APP_VERSIONING.md)), app notifications
-([docs/APP_NOTIFICATIONS.md](docs/APP_NOTIFICATIONS.md)), and same-tab
-navigation ([docs/OPEN_CURRENT_TAB.md](docs/OPEN_CURRENT_TAB.md)). The bridge
+([docs/APP_NOTIFICATIONS.md](docs/APP_NOTIFICATIONS.md)), same-tab
+navigation ([docs/OPEN_CURRENT_TAB.md](docs/OPEN_CURRENT_TAB.md)), and
+approval-gated Home display settings
+([docs/HOME_SETTINGS_BRIDGE.md](docs/HOME_SETTINGS_BRIDGE.md)). Operational
+details apps rely on — per-mode action availability, poll scheduling fields,
+the publish source-token flow, `FETCH_NODE_API` limits, and the rating
+actions — are collected in
+[docs/BRIDGE_ACTIONS.md](docs/BRIDGE_ACTIONS.md). The bridge
 also offers interoperability actions that target the separate Qortal network —
 such as `SEND_QORT` and the `GET_QORTAL_*` reads — which are kept distinct
 from Qortium's own actions; Qortium and Qortal remain separate networks.
@@ -474,6 +480,8 @@ or local preview secrets.
 - QDN app notifications: [docs/APP_NOTIFICATIONS.md](docs/APP_NOTIFICATIONS.md)
 - Core management: [docs/CORE_MANAGEMENT.md](docs/CORE_MANAGEMENT.md)
 - `OPEN_CURRENT_TAB` bridge action: [docs/OPEN_CURRENT_TAB.md](docs/OPEN_CURRENT_TAB.md)
+- Bridge action notes: [docs/BRIDGE_ACTIONS.md](docs/BRIDGE_ACTIONS.md)
+- Home settings QDN bridge: [docs/HOME_SETTINGS_BRIDGE.md](docs/HOME_SETTINGS_BRIDGE.md)
 - Remote macOS builds: [docs/REMOTE_MAC_BUILDS.md](docs/REMOTE_MAC_BUILDS.md)
 - Change log: [QORTIUM-HOME-CHANGELOG.md](QORTIUM-HOME-CHANGELOG.md) — every
   merged PR adds one plain-language entry in the same branch.

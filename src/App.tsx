@@ -63,6 +63,7 @@ import {
   subscribeToSystemThemeChange,
   type DisplaySettings,
 } from './displaySettings';
+import { getWritableHomeSettings, validateHomeSettingsPatch, type HomeSettings } from '../electron/home-settings-bridge';
 import {
   createDashboardPin,
   loadDashboardPins,
@@ -90,6 +91,7 @@ import { setTranslationLanguage, subscribeTranslationChange, t, type Translation
 import { invalidateDesktopNodeSettingsCache } from './platform';
 import { getNotificationRulesVersion, onNotificationStoreChanged } from './notificationStore';
 import { startForegroundNotificationWatcher } from './notificationWatcher';
+import { getQdnAppTargetQuery, isSameQdnAppRoute, type QdnAppTargetQuery } from './qdn-app-target';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
@@ -133,6 +135,11 @@ type BrowserTabState = {
   activeTabId: string;
   closedTabs: ClosedBrowserTab[];
   tabs: BrowserTab[];
+};
+
+type QdnAppTargetRequest = {
+  query: QdnAppTargetQuery;
+  tabId: string;
 };
 
 type ClosedBrowserTab = {
@@ -412,6 +419,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.notificationAdd';
     case 'UPDATE_NODE_SETTINGS':
       return 'qdnWrite.action.updateNodeSettings';
+    case 'UPDATE_HOME_SETTINGS':
+      return 'qdnWrite.action.updateHomeSettings';
     case 'RESTART_NODE':
       return 'qdnWrite.action.restartNode';
     case 'ADD_TO_LIST':
@@ -837,6 +846,7 @@ export function App() {
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
+  const [qdnAppTargetRequest, setQdnAppTargetRequest] = useState<QdnAppTargetRequest | null>(null);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
   const [bookmarksState, setBookmarksState] = useState<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
@@ -942,6 +952,34 @@ export function App() {
       });
     });
   }, []);
+
+  useEffect(() => {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+    if (!qdnPermissions?.onHomeSettingsRequest || !qdnPermissions.resolveHomeSettingsRequest) {
+      return undefined;
+    }
+
+    return qdnPermissions.onHomeSettingsRequest((request) => {
+      const respond = (settings: HomeSettings) => {
+        void qdnPermissions.resolveHomeSettingsRequest?.(request.id, getWritableHomeSettings(settings));
+      };
+
+      if (request.operation === 'read') {
+        respond(displaySettings);
+        return;
+      }
+
+      try {
+        const patch = validateHomeSettingsPatch(request.patch);
+        const nextSettings = { ...displaySettings, ...patch } as DisplaySettings;
+        updateDisplaySettings(nextSettings);
+        respond(nextSettings);
+      } catch (error) {
+        console.warn('Unable to apply QDN Home settings request.', error);
+        respond(displaySettings);
+      }
+    });
+  }, [displaySettings]);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -1374,6 +1412,18 @@ export function App() {
   }, [displaySettings, systemLanguage, systemTheme]);
 
   useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+    if (!qdnViews) return;
+    void qdnViews.broadcastHomeSettingsChanged({
+      ...effectiveDisplaySettings,
+      lang: effectiveDisplaySettings.language,
+      uiStyle: effectiveDisplaySettings.ui,
+    }).catch((error) => {
+      console.warn('Unable to broadcast Home display settings to QDN apps.', error);
+    });
+  }, [effectiveDisplaySettings]);
+
+  useEffect(() => {
     const zoomApi = window.qortiumHome.zoom;
 
     if (!zoomApi) {
@@ -1470,6 +1520,16 @@ export function App() {
     saveDisplaySettings(nextDisplaySettings).catch((error) => {
       console.warn('Unable to save display settings.', error);
     });
+  }
+
+  function getQdnHomeSettings(): HomeSettings {
+    return getWritableHomeSettings(displaySettings);
+  }
+
+  function applyQdnHomeSettingsPatch(patch: Partial<HomeSettings>): HomeSettings {
+    const nextSettings = { ...displaySettings, ...validateHomeSettingsPatch(patch) } as DisplaySettings;
+    updateDisplaySettings(nextSettings);
+    return getWritableHomeSettings(nextSettings);
   }
 
   function toggleStartPage(displayUrl: string) {
@@ -2326,6 +2386,22 @@ export function App() {
 
     if (!parsed.success) {
       console.warn('Ignoring QDN app request to open an unsupported address in a new tab.', address);
+      return;
+    }
+
+    const existingAppTab =
+      tabState.tabs.find(
+        (tab) => tab.id === tabState.activeTabId && isSameQdnAppRoute(getCurrentRouteForTab(tab), parsed.route),
+      ) ?? tabState.tabs.find((tab) => isSameQdnAppRoute(getCurrentRouteForTab(tab), parsed.route));
+
+    if (existingAppTab) {
+      selectTab(existingAppTab.id);
+      const query = getQdnAppTargetQuery(parsed.route);
+
+      if (query) {
+        setQdnAppTargetRequest({ query, tabId: existingAppTab.id });
+      }
+
       return;
     }
 
@@ -3545,16 +3621,19 @@ export function App() {
                 <QdnViewer
                   key={tabRenderKey}
                   account={tabAccount}
+                  appTarget={qdnAppTargetRequest?.tabId === tab.id ? qdnAppTargetRequest.query : null}
                   coreManager={coreManager}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   nodeEpoch={nodeEpoch}
                   nodeMode={nodeSettings.mode}
+                  getHomeSettings={getQdnHomeSettings}
                   onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
+                  onHomeSettingsPatch={applyQdnHomeSettingsPatch}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}

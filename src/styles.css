@@ -799,6 +799,12 @@ h1 {
   overscroll-behavior: contain;
 }
 
+.app-main--welcome {
+  place-items: start center;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .app-main--dashboard {
   place-items: start center;
   overflow: auto;
