@@ -3,11 +3,13 @@ import { useMemo } from 'react';
 import {
   formatJava,
   formatRuntime,
+  getCoreReleaseComparison,
   getCoreRuntimeAction,
   getCoreRuntimeBlockedMessage,
   type CoreManagerState,
 } from './coreManagerState';
 import { getTranslationLanguage, t } from './i18n';
+import { translateMainProcessMessage } from './mainProcessMessage';
 import { useI2pConnections } from './i2pState';
 import { useI2pdManager } from './i2pdManagerState';
 import { NodeConnectionSettings } from './NodeConnection';
@@ -92,7 +94,23 @@ function getCoreSettingsStatusText({
     return t('core.statusJavaRequired');
   }
 
+  if (coreManager.status.coreUpdate.helpersOutOfSync) {
+    return t('core.helpersOutOfSyncStatus');
+  }
+
+  if (coreManager.status.coreUpdate.javaUpdatePendingRestart) {
+    return t('core.javaUpdatePendingRestart');
+  }
+
   if (coreManager.stableUpdateAvailable || coreManager.prereleaseUpdateAvailable) {
+    return t('common.updateAvailable');
+  }
+
+  if (
+    coreManager.status.coreUpdate.available ||
+    (coreManager.status.java.updatePolicy === 'notify' &&
+      coreManager.status.java.updateAvailableVersion)
+  ) {
     return t('common.updateAvailable');
   }
 
@@ -114,7 +132,7 @@ function getCoreSettingsRows({
     status: coreManager.status,
   });
   const latestRelease = releaseTarget?.release ?? null;
-  const installedVersion = coreManager.status?.installed?.tagName ?? '';
+  const installedVersion = coreManager.status?.installed?.jarSemver ?? coreManager.status?.installed?.tagName ?? '';
   const rows: DetailRow[] = [
     {
       label: t('common.status'),
@@ -189,6 +207,76 @@ function getCoreSettingsRows({
 
   const onChainStatus =
     onChainCoreUpdate.status.state === 'available' ? onChainCoreUpdate.status.status : null;
+  const policyUpdate = coreManager.status?.coreUpdate.available;
+  const helpersOutOfSync = coreManager.status?.coreUpdate.helpersOutOfSync;
+
+  if (helpersOutOfSync) {
+    rows.push({
+      label: t('core.helpersLabel'),
+      value: helpersOutOfSync.targetTag
+        ? t('core.helpersOutOfSync', { version: helpersOutOfSync.version })
+        : t('core.helpersNoMatchingRelease', { version: helpersOutOfSync.version }),
+    });
+  }
+
+  if (policyUpdate) {
+    const channel =
+      policyUpdate.channel === 'github'
+        ? t('core.updateChannel.github')
+        : t('core.updateChannel.onChain');
+    const update = t('core.policyUpdateAvailable', {
+      channel,
+      version: policyUpdate.version,
+    });
+
+    rows.push({
+      label: t('core.updateAvailableLabel'),
+      value:
+        policyUpdate.action === 'handled-by-core'
+          ? t('core.policyUpdateHandledByCore', { update })
+          : policyUpdate.action === 'installing'
+            ? t('core.policyUpdateInstalling', { update })
+            : update,
+    });
+  }
+
+  const javaUpdateVersion = coreManager.status?.java.updateAvailableVersion;
+
+  if (coreManager.status?.java.updatePolicy !== 'install' && javaUpdateVersion) {
+    rows.push({
+      label: t('core.javaUpdateAvailableLabel'),
+      value: t('core.javaUpdateAvailable', { version: javaUpdateVersion }),
+    });
+  }
+
+  if (coreManager.status?.coreUpdate.javaUpdatePendingRestart) {
+    rows.push({
+      label: t('core.javaUpdateAvailableLabel'),
+      value: t('core.javaUpdatePendingRestart'),
+    });
+  }
+
+  const nodeAutoUpdateMode =
+    onChainStatus?.autoUpdateMode ?? coreManager.status?.coreUpdate.nodeAutoUpdateMode;
+
+  if (nodeAutoUpdateMode && nodeAutoUpdateMode !== 'OFF') {
+    rows.push({
+      label: t('core.nodeAutoUpdateLabel'),
+      value:
+        nodeAutoUpdateMode === 'INSTALL'
+          ? t('core.nodeAutoUpdateHandledByCore', { mode: nodeAutoUpdateMode })
+          : t('core.nodeAutoUpdateMode', { mode: nodeAutoUpdateMode }),
+    });
+  }
+
+  if (coreManager.status?.coreUpdate.error) {
+    rows.push({
+      label: t('core.updateCheckIssueLabel'),
+      value: t('core.updateCheckIssue', {
+        message: translateMainProcessMessage(coreManager.status.coreUpdate.error),
+      }),
+    });
+  }
 
   rows.push(
     ...getCoreLatestRows({
@@ -242,6 +330,9 @@ export function CoreManagerPanel({
       : releaseTarget?.channel === 'prerelease'
         ? coreManager.prereleaseUpdateAvailable
         : false;
+  const releaseTargetComparison = releaseTarget
+    ? getCoreReleaseComparison(releaseTarget.release, coreManager.status?.installed)
+    : null;
   const releaseTargetBusyAction = getCoreReleaseBusyAction(releaseTarget?.channel);
   const showJavaAction = coreManager.canInstallJava;
   const showJavaUpdateAction = coreManager.canUpdateJava;
@@ -250,7 +341,15 @@ export function CoreManagerPanel({
   const showCoreInstallAction =
     !showJavaAction &&
     !!releaseTarget &&
-    (!coreManager.status?.installed || releaseTargetUpdateAvailable);
+    (!coreManager.status?.installed ||
+      releaseTargetUpdateAvailable ||
+      (coreManager.status.installed.modifiedSinceInstall === true &&
+        releaseTargetComparison !== null &&
+        releaseTargetComparison < 0));
+  const helpersOutOfSync = coreManager.status?.coreUpdate.helpersOutOfSync;
+  const showRefreshHelpersAction =
+    !!helpersOutOfSync?.targetTag &&
+    coreManager.status?.updateSettings.coreUpdatePolicy !== 'install';
   const showOnChainInstallAction =
     !showJavaAction &&
     !!onChainStatus?.updateAvailable &&
@@ -316,9 +415,9 @@ export function CoreManagerPanel({
             </div>
             <span className="core-manager__progress-text">
               {coreManager.progressPercent === null
-                ? coreManager.progress.message
+                ? translateMainProcessMessage(coreManager.progress.message)
                 : t('common.progressWithPercent', {
-                    message: coreManager.progress.message,
+                    message: translateMainProcessMessage(coreManager.progress.message),
                     percent: coreManager.progressPercent,
                   })}
             </span>
@@ -386,6 +485,21 @@ export function CoreManagerPanel({
                     : t('core.installCore')}
             </button>
           ) : null}
+          {showRefreshHelpersAction ? (
+            <button
+              className="button"
+              disabled={coreManager.isBusy}
+              type="button"
+              onClick={coreManager.refreshHelpers}
+            >
+              <Download aria-hidden="true" size={18} strokeWidth={2} />
+              {coreManager.busyAction === 'refreshing-helpers'
+                ? t('core.helpersRefreshing')
+                : t('core.helpersRefreshAction', {
+                    version: helpersOutOfSync.targetTag ?? helpersOutOfSync.version,
+                  })}
+            </button>
+          ) : null}
           {runtimeAction ? (
             <button
               className="button button--secondary"
@@ -404,17 +518,47 @@ export function CoreManagerPanel({
           ) : null}
         </div>
 
+        {helpersOutOfSync?.targetTag ? (
+          <p className="field__hint">{t('core.helpersRestartNote')}</p>
+        ) : null}
+
+        <label className="field">
+          <span className="field__label">{t('core.coreUpdatePolicyLabel')}</span>
+          <select
+            className="field__input"
+            disabled={coreManager.isBusy}
+            value={coreManager.status?.updateSettings.coreUpdatePolicy ?? 'notify'}
+            onChange={(event) => {
+              void coreManager.setUpdatePolicy(
+                'coreUpdatePolicy',
+                event.target.value as QortiumCoreUpdatePolicy,
+              );
+            }}
+          >
+            <option value="off">{t('core.updatePolicy.off')}</option>
+            <option value="notify">{t('core.updatePolicy.notify')}</option>
+            <option value="install">{t('core.updatePolicy.install')}</option>
+          </select>
+        </label>
+
         {showJavaAutoUpdateSetting ? (
-          <label className="core-manager__java-auto-update">
-            <input
-              checked={coreManager.status?.java.autoUpdateEnabled === true}
+          <label className="field">
+            <span className="field__label">{t('core.javaUpdatePolicyLabel')}</span>
+            <select
+              className="field__input"
               disabled={coreManager.isBusy}
-              type="checkbox"
+              value={coreManager.status?.updateSettings.javaUpdatePolicy ?? 'notify'}
               onChange={(event) => {
-                void coreManager.setJavaAutoUpdate(event.target.checked);
+                void coreManager.setUpdatePolicy(
+                  'javaUpdatePolicy',
+                  event.target.value as QortiumCoreUpdatePolicy,
+                );
               }}
-            />
-            {t('core.autoUpdateJava')}
+            >
+              <option value="off">{t('core.updatePolicy.off')}</option>
+              <option value="notify">{t('core.updatePolicy.notify')}</option>
+              <option value="install">{t('core.updatePolicy.install')}</option>
+            </select>
           </label>
         ) : null}
 

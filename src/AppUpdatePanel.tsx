@@ -4,6 +4,7 @@ import {
   type AppUpdatesState,
   formatBytes,
   getOpenDownloadedFileLabel,
+  type HomeUpdatePolicy,
 } from './appUpdateState';
 import { AppUpdateProgress } from './AppUpdateProgress';
 import { t } from './i18n';
@@ -135,6 +136,20 @@ export function AppUpdatePanel({
       onRefresh={updates.checkForUpdates}
     >
       <div className="app-updates">
+        <label className="field">
+          <span className="field__label">{t('updates.homeUpdatePolicyLabel')}</span>
+          <select
+            className="field__input"
+            disabled={!updates.preferencesLoaded || updates.isChecking || updates.isDownloading}
+            value={updates.homeUpdatePolicy}
+            onChange={(event) => updates.setHomeUpdatePolicy(event.target.value as HomeUpdatePolicy)}
+          >
+            <option value="off">{t('updates.homeUpdatePolicy.off')}</option>
+            <option value="notify">{t('updates.homeUpdatePolicy.notify')}</option>
+            <option value="auto-download">{t('updates.homeUpdatePolicy.autoDownload')}</option>
+          </select>
+        </label>
+
         {showChannelSelect ? (
           <label className="field">
             <span className="field__label">{t('updates.releaseChannelLabel')}</span>
