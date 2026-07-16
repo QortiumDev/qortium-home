@@ -529,6 +529,12 @@ type QortiumQdnDocumentViewerRequest = {
   name: string;
   path: string | null;
   service: string;
+  // Filename hint for format detection (epub/pdf/cbz/txt) only - never used to
+  // build the fetch URL. Single-file resources have no `path`, so without this
+  // the viewer has nothing to detect the format from beyond an unreliable
+  // node Content-Type header.
+  filename?: string | null;
+  mimeType?: string | null;
 };
 
 type QortiumHomeRouteSnapshot = {

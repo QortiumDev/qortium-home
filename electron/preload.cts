@@ -320,11 +320,20 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         name: string;
         path: string | null;
         service: string;
+        filename: string | null;
+        mimeType: string | null;
       }) => void,
     ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        payload: { identifier: string | null; name: string; path: string | null; service: string },
+        payload: {
+          identifier: string | null;
+          name: string;
+          path: string | null;
+          service: string;
+          filename: string | null;
+          mimeType: string | null;
+        },
       ) => {
         callback(payload);
       };

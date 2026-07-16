@@ -730,16 +730,26 @@ function QdnMediaPlayerDialog({ displaySettings, nodeApiUrl, onDismiss, resource
 
 type QdnDocumentViewerDialogProps = {
   displaySettings: QdnDisplaySettings;
+  knownFilename?: string | null;
+  knownMimeType?: string | null;
   onDismiss: () => void;
   resource: QdnResource;
 };
 
-function QdnDocumentViewerDialog({ displaySettings, onDismiss, resource }: QdnDocumentViewerDialogProps) {
+function QdnDocumentViewerDialog({
+  displaySettings,
+  knownFilename,
+  knownMimeType,
+  onDismiss,
+  resource,
+}: QdnDocumentViewerDialogProps) {
   return (
     <ModalDialog onDismiss={onDismiss}>
       <DocumentViewer
         key={resource.displayUrl}
         displaySettings={displaySettings}
+        knownFilename={knownFilename}
+        knownMimeType={knownMimeType}
         onDismiss={onDismiss}
         resource={resource}
       />
@@ -836,6 +846,14 @@ export function App() {
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
   const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
+  // Filename/mimeType hint that came with the OPEN_QDN_DOCUMENT_VIEWER request -
+  // used only for format detection (epub/pdf/cbz/txt), never for the fetch path,
+  // since single-file resources have no `path` for DocumentViewer to derive a
+  // filename from.
+  const [qdnDocumentViewerHint, setQdnDocumentViewerHint] = useState<{
+    filename: string | null;
+    mimeType: string | null;
+  }>({ filename: null, mimeType: null });
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
   const [bookmarksState, setBookmarksState] = useState<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
@@ -2415,6 +2433,7 @@ export function App() {
       service,
     };
 
+    setQdnDocumentViewerHint({ filename: request.filename ?? null, mimeType: request.mimeType ?? null });
     setQdnDocumentViewerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
   }
 
@@ -3710,6 +3729,8 @@ export function App() {
       {qdnDocumentViewerResource && !activeQdnWriteRequest && !activeQdnUnlockRequest ? (
         <QdnDocumentViewerDialog
           displaySettings={effectiveDisplaySettings}
+          knownFilename={qdnDocumentViewerHint.filename}
+          knownMimeType={qdnDocumentViewerHint.mimeType}
           onDismiss={() => setQdnDocumentViewerResource(null)}
           resource={qdnDocumentViewerResource}
         />
