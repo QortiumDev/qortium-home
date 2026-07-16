@@ -53,6 +53,16 @@ the same test fails if the preload ever gains another local file load that
 would break it again. Reads through the node kept working throughout, which
 is why browsing and public group chat still looked normal.
 
+### 2026-07-16 - test: exercise the built QDN app preload in a sandboxed window
+
+Adds a release check that launches the real built QDN app preload inside a
+sandboxed Electron window - the same isolation QDN apps get - and confirms
+window.qdnRequest exists and correctly passes results, errors, and empty
+responses across the bridge. The 1.5.0 bridge regression failed exactly this
+way while every existing check still passed, because nothing verified the
+preload survives sandbox loading. Run with npm run test:qdn-app-preload. No
+application behavior changed.
+
 ### 2026-07-16 - qdn: open single-file documents in the right viewer format
 
 Single-file QDN documents now open correctly in the document viewer. These
