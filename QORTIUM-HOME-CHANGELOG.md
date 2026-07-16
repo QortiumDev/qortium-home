@@ -33,6 +33,25 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - docs: refresh README for the current feature set
+
+Brings the README back in line with what Qortium Home actually does today. It
+now introduces Home as a desktop and Android application, points to the
+GitHub releases page, and adds a Download section describing the published
+packages, the in-app self-update channels, and the unsigned-builds warning.
+The feature list is regrouped around wallets, node modes, the managed Core,
+Java, and I2P runtimes, QDN browsing and viewers, QDN app hosting and
+notifications, self-update, the Welcome setup, app versioning badges, display
+styles, and translations. The long inline list of QDN app bridge actions,
+which had fallen out of date, is replaced by a short summary that points at
+the real action catalogue in the code and the bridge documentation, including
+a note that the bridge's Qortal interoperability actions stay separate from
+Qortium's own. Outdated Java 17 references now describe the Java 25 managed
+runtime, already-shipped planned items are removed, and the Documentation
+section links every document in `docs/`, the change log convention, the
+qortium.app website, and the community discussions page. No application
+behavior changed.
+
 ### 2026-07-14 - fix: stop notification watcher crashing Home when Core goes away
 
 Fixes a crash where stopping Qortium Core (for example from Core's own tray
