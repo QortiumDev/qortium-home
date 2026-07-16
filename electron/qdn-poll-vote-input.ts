@@ -66,7 +66,10 @@ export function resolvePollVoteOptionInput(
     }
   }
 
-  return { optionIndexes };
+  // Core's canonical serialized order is ascending: it re-serializes stored
+  // votes sorted, so a multi-option vote signed in any other order breaks its
+  // own signature and can never confirm. Always normalize before building.
+  return { optionIndexes: [...optionIndexes].sort((a, b) => a - b) };
 }
 
 export function getPollVoteApprovalName(pollId: number, optionInput: PollVoteOptionInput) {

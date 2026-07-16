@@ -20,6 +20,14 @@ assert.deepEqual(
   { optionIndexes: [1, 3] },
 );
 assert.deepEqual(
+  resolvePollVoteOptionInput(undefined, getOptionalPollVoteOptionIndexes([3, 1], getInteger)),
+  { optionIndexes: [1, 3] },
+);
+assert.deepEqual(
+  resolvePollVoteOptionInput(undefined, getOptionalPollVoteOptionIndexes([4, 1, 2], getInteger)),
+  { optionIndexes: [1, 2, 4] },
+);
+assert.deepEqual(
   resolvePollVoteOptionInput(undefined, getOptionalPollVoteOptionIndexes([], getInteger)),
   { optionIndexes: [] },
 );

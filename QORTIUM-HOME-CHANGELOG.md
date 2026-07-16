@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-16 - fix(qdn): submit multi-option poll votes in ascending order
+
+Fixes multi-option poll votes that could get stuck forever without being
+recorded. The Qortium node stores a vote's chosen options in ascending order,
+so a vote signed with its options in any other order (for example picking
+option 2 before option 1) no longer matches its own signature when the network
+rebuilds it, and it silently never confirms. Home now sorts the chosen options
+into ascending order before asking for approval and signing, so multi-option
+votes always confirm regardless of the order the user picked them in. The
+approval prompt, the built transaction, and the reply to the app all use the
+same sorted order.
+
 ### 2026-07-16 - chore(release): prepare home 1.5.1
 
 Bumps Qortium Home to 1.5.1 with Android versionCode 31. This is a hotfix
