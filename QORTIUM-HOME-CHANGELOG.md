@@ -33,6 +33,130 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - docs: refresh README for the current feature set
+
+Brings the README back in line with what Qortium Home actually does today. It
+now introduces Home as a desktop and Android application, points to the
+GitHub releases page, and adds a Download section describing the published
+packages, the in-app self-update channels, and the unsigned-builds warning.
+The feature list is regrouped around wallets, node modes, the managed Core,
+Java, and I2P runtimes, QDN browsing and viewers, QDN app hosting and
+notifications, self-update, the Welcome setup, app versioning badges, display
+styles, and translations. The long inline list of QDN app bridge actions,
+which had fallen out of date, is replaced by a short summary that points at
+the real action catalogue in the code and the bridge documentation, including
+a note that the bridge's Qortal interoperability actions stay separate from
+Qortium's own. Outdated Java 17 references now describe the Java 25 managed
+runtime, already-shipped planned items are removed, and the Documentation
+section links every document in `docs/`, the change log convention, the
+qortium.app website, and the community discussions page. The detailed bridge notes that grew inline (poll
+scheduling, publishing sources, node-API limits, rating actions) move to
+`docs/BRIDGE_ACTIONS.md`. No application behavior changed.
+### 2026-07-15 - feat(qdn): let apps read and change Home display settings with approval
+
+QDN apps can now see the small set of Home display choices that already affect their appearance, such as theme, language, text size, accent, zoom, style, and app notifications. Apps can read those values without a prompt, while any requested change clearly shows the current and proposed values and needs the person's approval each time. Approved changes take effect and are saved immediately in Home and in open apps, without changing node connections, wallets, updates, or other personal Home data.
+
+### 2026-07-15 - feat(updates): unified update policies for Core, Home, and Java
+
+Home now shows the Core version that is actually installed: it reads the
+version from the installed core file itself instead of trusting install
+records, so an on-chain auto-update or a manually replaced core no longer
+displays a stale version. Update checks compare against that real version,
+Home refuses to silently downgrade a newer core (it asks for confirmation
+instead), and the GitHub and on-chain install paths can no longer run at the
+same time. The Settings page gains matching three-way update policies — Off,
+Notify only, or automatic — for the managed Core (covering both GitHub
+releases and approved on-chain updates, always respecting the node's own
+on-chain auto-update setting), for Home itself (where "automatic" downloads
+the update and asks before installing), and for managed Java, replacing the
+old Java checkbox. When a core is updated outside Home, Home can also refresh
+the release's helper files (scripts, templates, docs) to match — automatically
+under the automatic policy, or with one click otherwise. The Home
+release-channel choice is now remembered between launches.
+
+### 2026-07-15 - fix(updates): make Core and Java updates more reliable
+
+- Core's GitHub and on-chain update channels now cross-check commit identity,
+  preventing maintenance-branch hotfixes from causing repeated alternating
+  installs.
+- A GitHub Core release can now install while an externally managed Core is
+  running; the on-chain idle check applies only to Home-managed nodes and
+  reports the underlying cause when it fails.
+- Refreshing Core support files no longer changes the saved release channel.
+- A failed managed-Java update no longer blocks Core update checks; Home shows
+  the Java error instead.
+- Core, Home, and Java update policy changes now take effect immediately
+  instead of waiting for the next scheduled check.
+- Downgrade and same-version install guards now still work when Home cannot
+  read the installed jar's identity.
+- Stale install-staging and helpers-backup folders are now cleaned up.
+- Core and Java update policies now default to Notify only instead of Off, and
+  Java updates remain visible when their policy is Off.
+
+### 2026-07-15 - feat(qdn): add group and foreign-payment notification rules
+
+QDN apps can now subscribe to transaction confirmations by group and to
+watch-only foreign-coin payment receipts. Group and foreign-payment rules use
+the configured Core only when it supports the new 1.5.0 notification contract;
+older nodes keep compatible rules running without rejecting the combined
+subscription. Home explains that foreign-wallet monitoring reveals address
+history but never gives the node spending authority.
+
+### 2026-07-15 - chore(release): prepare home 1.5.0
+
+Bumps Qortium Home to 1.5.0 with Android versionCode 30. This release line adds
+capability-negotiated public-node poll writes, bounded client-side MemoryPoW,
+and complete content attestation for public-node QDN publishing before Home
+signs a transaction.
+
+### 2026-07-15 - feat(qdn): attest public-node publish content
+
+Home no longer trusts a public node to package the content it asks the user to
+publish. Before signing, desktop and Android Home retrieve the exact encrypted
+artifact named by the unsigned transaction, verify its SHA-256 hash and size,
+decrypt it with the transaction's authenticated AES-GCM key, and compare every
+file and byte with the approved source. Home also verifies the signed metadata
+artifact, approved title, description, tags, category and file list, along with
+the hashes of every QDN chunk. ZIP extraction and artifact reads are bounded to
+the public publish limit, use abortable streaming HTTP reads, and enforce ZIP
+entry-count and path-length ceilings before inflation. Cryptographic checks,
+decryption, and ZIP comparison run in a worker instead of the main/UI thread.
+Malicious, stalled, or unavailable artifacts fail closed, batch publishes
+attest each resource independently, and local/trusted publishes and delete
+tombstones retain their existing behavior.
+
+### 2026-07-15 - feat(qdn): support secure public-node poll writes
+
+Compatible public nodes can now advertise unsigned poll builders to QDN apps,
+letting Home create, vote on, and update polls without sending a private key to
+the node. Home verifies every approved poll and public chat field before local
+signing, and checks the security-critical identity, method, service, payment,
+group, nonce, and fee fields of public QDN publish/delete transactions. Free
+MemoryPoW runs off the UI thread with one active job, a three-minute computation
+limit, stale-context cancellation, and a final account/node check before
+broadcast. Older public nodes remain browse-only, while local/trusted write paths
+are unchanged.
+
+### 2026-07-14 - release: prepare home 1.4.2
+
+Bumps Qortium Home to 1.4.2. QDN apps can now cast multi-option poll votes
+and create or update polls with scheduled start times, while notification
+subscriptions accept multiple values for every supported generic filter. Bridge
+errors no longer expose Electron's IPC prefix, and desktop and Android apps now
+receive the stable `PUBLIC_NODE_READ_ONLY` code when a public node blocks a
+restricted workflow. The first-run Welcome page can also scroll like other
+Home pages.
+
+- Chat notification clicks now open the relevant direct conversation or group
+  and reuse an already-open Chat tab where possible, including on Android.
+- App-issued notification clicks now always restore and focus a Home window.
+- Notification filter compatibility with older Core versions preserves every
+  requested value instead of replacing or silently truncating subscriptions.
+- Poll writes reject invalid multi-option vote arrays before approval and
+  preserve option text exactly as Core validates it.
+- QDN app targets are delivered once after the app is ready, without hijacking
+  later navigation or conflating different identifiers and resource paths.
+
 ### 2026-07-14 - fix: stop notification watcher crashing Home when Core goes away
 
 Fixes a crash where stopping Qortium Core (for example from Core's own tray

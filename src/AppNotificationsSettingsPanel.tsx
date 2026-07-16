@@ -20,6 +20,10 @@ function getAppName(appKey: string) {
   try { return decodeURIComponent(match[1]); } catch { return match[1]; }
 }
 
+function hasForeignPaymentRule(store: QdnNotificationStore | null, appKey: string) {
+  return store?.rules[appKey]?.some((rule) => rule.event === 'FOREIGN_PAYMENT_RECEIVED') ?? false;
+}
+
 export function AppNotificationsSettingsPanel({ isExpanded, onExpandedChange }: Props) {
   const [store, setStore] = useState<QdnNotificationStore | null>(null);
   const [error, setError] = useState('');
@@ -47,6 +51,7 @@ export function AppNotificationsSettingsPanel({ isExpanded, onExpandedChange }: 
             <div className="app-notification-settings__identity">
               <strong>{getAppName(appKey)}</strong>
               <span>{t('notifications.ruleCount', { count: store?.rules[appKey]?.length ?? 0 })}</span>
+              {hasForeignPaymentRule(store, appKey) ? <span>{t('notifications.foreignPaymentPrivacy')}</span> : null}
             </div>
             <label className="app-notification-settings__mute">
               <input

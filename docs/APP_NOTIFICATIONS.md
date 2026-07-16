@@ -114,13 +114,23 @@ Supported events and filters are:
   Core represents them.
 - `CHAT_MESSAGE`: `recipient`, `sender`, `txGroupId`, or `involving`, with at
   least one required. Message content is never delivered by this event.
-- `TRANSACTION_CONFIRMED`: `signature`, `address`, and optional `txType`, with
-  at least `signature` or `address` required. `txType` accepts either one enum
+- `TRANSACTION_CONFIRMED`: `signature`, `address`, `groupId`, and optional `txType`, with
+  at least `signature`, `address`, or `groupId` required. `groupId` is a string
+  (for example, `"123"`) and accepts one value or an OR array, so an administrator
+  can watch multiple groups in one rule. `txType` accepts either one enum
   name string or an array of enum name strings (trimmed, uppercased, and
   deduplicated by Home). Multi-value arrays have identical matching behavior
   everywhere: with Core 1.4.0 or newer, Home sends the array to the node for
   narrower pushed events; with older Cores, it filters the pushed events
   client-side instead.
+- `FOREIGN_PAYMENT_RECEIVED`: `coin` and `xpub`, both required non-empty strings.
+  Home trims and uppercases `coin`; it deliberately does not maintain a coin
+  allowlist because Core decides which ElectrumX-backed coins it supports (ARRR
+  is not supported). These rules count toward the same 20-rules-per-app limit.
+  Core also caps foreign-payment rules per websocket session, and Home merges
+  every app's rules into one session, so Home sends at most 20 foreign-payment
+  subscriptions across all apps combined and drops the overflow rather than
+  letting the node reject the combined subscription.
 
 Apps always pass the filter under `filters` in `NOTIFICATION_ADD`; Home maps it
 to the node's wire format when it subscribes — the rich `RESOURCE_PUBLISHED`
@@ -136,10 +146,55 @@ array.
 When `text` is omitted, Home derives a sanitized default body from the pushed
 event data when possible: transaction type and sender for
 `TRANSACTION_CONFIRMED`, amount and sender for `PAYMENT_RECEIVED`, and sender
-or group id for `CHAT_MESSAGE`. Addresses are shortened, unsafe control and
+or group id for `CHAT_MESSAGE`. A `FOREIGN_PAYMENT_RECEIVED` notification uses
+`Received <amount> <coin>`. Addresses are shortened, unsafe control and
 bidirectional-override characters are removed, whitespace is collapsed, and
 the result is capped at 240 characters. `RESOURCE_PUBLISHED` continues to use
 an empty default body. An explicit `text` always wins.
+
+### Group transaction confirmations (Core 1.5.0+)
+
+Core 1.5.0 adds `groupId` as both a `TRANSACTION_CONFIRMED` generic filter and
+an anchor. It matches pushed event data case-insensitively. Home sends it as a
+string or OR array on Core 1.5.0 and newer. On older Cores, a rule anchored
+only by `groupId` is omitted completely because that Core rejects the anchor
+and does not push `groupId` for Home to match. If the rule also has a signature
+or address anchor, Home sends that compatible anchor but omits the `groupId`
+constraint; apps that require strict group filtering should require Core 1.5.0.
+
+### Foreign payment receipts (Core 1.5.0+)
+
+Foreign-payment rules require Core 1.5.0 or newer. Home sends one generic
+subscription per rule in this shape:
+
+```json
+{
+  "event": "FOREIGN_PAYMENT_RECEIVED",
+  "filters": { "coin": "BTC", "xpub": "<extended public key>" }
+}
+```
+
+For example, a wallet app can register a background rule that opens itself:
+
+```ts
+await qdnRequest({
+  action: 'NOTIFICATION_ADD',
+  subscriptions: [{
+    notificationId: 'btc-receipts',
+    event: 'FOREIGN_PAYMENT_RECEIVED',
+    filters: { coin: 'btc', xpub: accountXpub },
+    link: 'qdn://APP/Wallet',
+  }],
+});
+```
+
+The xpub gives the configured Core node a watch-only view of that wallet's
+address history. It cannot spend funds, but apps must present this privacy
+tradeoff clearly. Home suppresses replayed receipt pushes after reconnects
+using Core's `checkpoint` together with the coin, transaction hash, and
+address. On Core 1.4.x or earlier Home omits every foreign-payment rule from
+the combined websocket subscription, so those nodes cannot reject unrelated
+rules.
 
 Rules are tagged with the active account address when registered. Home sends
 only rules tagged for the currently active account, and apps should register

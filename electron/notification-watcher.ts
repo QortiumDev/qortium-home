@@ -7,7 +7,11 @@ import {
   getQdnNotificationDefaultTitle,
   matchesQdnNotificationRuleData,
   coreSupportsArrayFilters,
-  toWireNotificationSubscription,
+  coreSupportsV15Notifications,
+  ForeignPaymentReplayDeduper,
+  capForeignPaymentWireSubscriptions,
+  stripWireNotificationIdSuffix,
+  toWireNotificationSubscriptions,
   type StoredQdnNotificationRule,
 } from './notification-rules.js';
 import { onNotificationStoreChanged, readNotificationStore } from './notification-store.js';
@@ -17,6 +21,7 @@ import {
   getQdnAppDisplayNameFromResourceUrl,
 } from './qdn.js';
 import { isQdnAppResourceFocused } from './qdn-views.js';
+import { appendNotificationTargetQuery } from './notification-target.js';
 
 const RECONNECT_MIN_MS = 5_000;
 const RECONNECT_MAX_MS = 60_000;
@@ -35,6 +40,9 @@ let reconnectDelay = RECONNECT_MIN_MS;
 let generation = 0;
 let lastFocusedWindow: BrowserWindow | null = null;
 let serverSupportsArrayFilters = false;
+let serverSupportsV15Notifications = false;
+let coreNotificationCapabilitiesKnown = false;
+const foreignPaymentReplayDeduper = new ForeignPaymentReplayDeduper();
 
 function smokeLog(status: 'FIRED' | 'SUPPRESSED', appKey: string, rule: StoredQdnNotificationRule, reason?: string) {
   const logPath = process.env.QORTIUM_HOME_NOTIFICATION_SMOKE_LOG;
@@ -61,22 +69,36 @@ function toWebSocketUrl(nodeApiUrl: string) {
   return url.toString();
 }
 
-async function getCoreArrayFiltersSupport(nodeApiUrl: string) {
+async function getCoreNotificationSupport(nodeApiUrl: string) {
   try {
     const response = await fetch(`${nodeApiUrl.replace(/\/$/, '')}/admin/info`, { signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) return false;
+    if (!response.ok) return { known: false, serverSupportsArrayFilters: false, serverSupportsV15Notifications: false };
     const info: unknown = await response.json();
     const buildVersion = info && typeof info === 'object' ? (info as { buildVersion?: unknown }).buildVersion : undefined;
-    return coreSupportsArrayFilters(typeof buildVersion === 'string' ? buildVersion : undefined);
+    const version = typeof buildVersion === 'string' ? buildVersion : undefined;
+    return {
+      known: true,
+      serverSupportsArrayFilters: coreSupportsArrayFilters(version),
+      serverSupportsV15Notifications: coreSupportsV15Notifications(version),
+    };
   } catch {
-    return false;
+    return { known: false, serverSupportsArrayFilters: false, serverSupportsV15Notifications: false };
   }
+}
+
+function getWireSubscriptions() {
+  return capForeignPaymentWireSubscriptions(getEligibleRules().flatMap(({ appKey, rule }) =>
+    toWireNotificationSubscriptions(appKey, rule, { serverSupportsArrayFilters, serverSupportsV15Notifications })));
+}
+
+function hasSendableRules() {
+  return !coreNotificationCapabilitiesKnown || getWireSubscriptions().length > 0;
 }
 
 function sendSubscriptions() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  const eligible = getEligibleRules();
-  if (!eligible.length) {
+  const subscriptions = getWireSubscriptions();
+  if (!subscriptions.length) {
     socket.close();
     socket = null;
     return;
@@ -85,14 +107,13 @@ function sendSubscriptions() {
   socket.send(JSON.stringify({
     action: 'subscribe',
     address: getActiveAccountAddress(),
-    subscriptions: eligible.map(({ appKey, rule }) =>
-      toWireNotificationSubscription(appKey, rule, { serverSupportsArrayFilters })),
+    subscriptions,
   }));
 }
 
 function findRule(message: NotificationMessage) {
   const candidates = getEligibleRules().filter(({ appKey, rule }) =>
-    rule.notificationId === message.notificationId &&
+    rule.notificationId === stripWireNotificationIdSuffix(message.notificationId) &&
     message.appName === appKey &&
     message.event === rule.event,
   );
@@ -121,6 +142,9 @@ function handleNotificationMessage(message: NotificationMessage) {
   if (!match) return;
   const { appKey, rule } = match;
   if (!matchesQdnNotificationRuleData(rule, message.data)) return suppress(appKey, rule, 'type-filtered');
+  if (rule.event === 'FOREIGN_PAYMENT_RECEIVED' && foreignPaymentReplayDeduper.hasDelivered(message.data)) {
+    return suppress(appKey, rule, 'replayed');
+  }
   const grant = readNotificationStore().grants[appKey];
   if (!areQdnAppNotificationsEnabled()) return suppress(appKey, rule, 'disabled');
   if (!grant) return suppress(appKey, rule, 'revoked');
@@ -141,7 +165,10 @@ function handleNotificationMessage(message: NotificationMessage) {
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
-    window.webContents.send('qdn-app:open-new-tab', { address: rule.link ?? appKey, sourceTabId: null });
+    window.webContents.send('qdn-app:open-new-tab', {
+      address: appendNotificationTargetQuery(rule.link ?? appKey, message.data, rule.event),
+      sourceTabId: null,
+    });
   });
 
   const latestGrant = readNotificationStore().grants[appKey];
@@ -150,12 +177,13 @@ function handleNotificationMessage(message: NotificationMessage) {
   if (!areQdnAppNotificationsEnabled()) return suppress(appKey, rule, 'disabled');
   if (!hasCurrentRule(appKey, rule)) return suppress(appKey, rule, 'removed');
 
+  if (rule.event === 'FOREIGN_PAYMENT_RECEIVED') foreignPaymentReplayDeduper.markDelivered(message.data);
   notification.show();
   smokeLog('FIRED', appKey, rule);
 }
 
 function scheduleReconnect(expectedGeneration: number) {
-  if (expectedGeneration !== generation || reconnectTimer || !getEligibleRules().length) return;
+  if (expectedGeneration !== generation || reconnectTimer || !getEligibleRules().length || !hasSendableRules()) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     void connect(expectedGeneration);
@@ -164,13 +192,15 @@ function scheduleReconnect(expectedGeneration: number) {
 }
 
 async function connect(expectedGeneration = generation) {
-  if (expectedGeneration !== generation || socket || !getEligibleRules().length) return;
+  if (expectedGeneration !== generation || socket || !getEligibleRules().length || !hasSendableRules()) return;
   try {
     const { nodeApiUrl } = await getNodeConnection();
     if (expectedGeneration !== generation || socket) return;
-    const supportsArrayFilters = await getCoreArrayFiltersSupport(nodeApiUrl);
+    const support = await getCoreNotificationSupport(nodeApiUrl);
     if (expectedGeneration !== generation || socket) return;
-    serverSupportsArrayFilters = supportsArrayFilters;
+    serverSupportsArrayFilters = support.serverSupportsArrayFilters;
+    serverSupportsV15Notifications = support.serverSupportsV15Notifications;
+    coreNotificationCapabilitiesKnown = support.known;
     // A wss node using its own private CA may not be accepted by Node's global
     // WebSocket client; v1 intentionally does not add custom TLS plumbing.
     const nextSocket = new WebSocket(toWebSocketUrl(nodeApiUrl));
@@ -217,12 +247,14 @@ function refresh(reconnect = false) {
   if (reconnect) {
     generation += 1;
     serverSupportsArrayFilters = false;
+    serverSupportsV15Notifications = false;
+    coreNotificationCapabilitiesKnown = false;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = null;
     socket?.close();
     socket = null;
   }
-  if (!getEligibleRules().length) {
+  if (!getEligibleRules().length || !hasSendableRules()) {
     socket?.close();
     socket = null;
     return;
