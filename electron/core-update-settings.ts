@@ -14,8 +14,8 @@ export type CoreUpdateSettings = {
 };
 
 const DEFAULT_UPDATE_SETTINGS: CoreUpdateSettings = {
-  coreUpdatePolicy: 'off',
-  javaUpdatePolicy: 'off',
+  coreUpdatePolicy: 'notify',
+  javaUpdatePolicy: 'notify',
 };
 
 let settingsWriteQueue: Promise<void> = Promise.resolve();
@@ -25,7 +25,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizePolicy(value: unknown): CoreUpdatePolicy {
-  return value === 'install' || value === 'notify' ? value : 'off';
+  return value === 'install' || value === 'notify' || value === 'off' ? value : 'notify';
 }
 
 function getCoreBasePath() {
@@ -85,9 +85,9 @@ async function readLegacyJavaPolicy(): Promise<CoreUpdatePolicy> {
   try {
     const parsed: unknown = JSON.parse(await readFile(getLegacyJavaSettingsPath(), 'utf8'));
 
-    return isObject(parsed) && parsed.autoUpdate === true ? 'install' : 'off';
+    return isObject(parsed) && parsed.autoUpdate === true ? 'install' : 'notify';
   } catch {
-    return 'off';
+    return 'notify';
   }
 }
 

@@ -55,6 +55,25 @@ the release's helper files (scripts, templates, docs) to match — automatically
 under the automatic policy, or with one click otherwise. The Home
 release-channel choice is now remembered between launches.
 
+### 2026-07-15 - fix(updates): make Core and Java updates more reliable
+
+- Core's GitHub and on-chain update channels now cross-check commit identity,
+  preventing maintenance-branch hotfixes from causing repeated alternating
+  installs.
+- A GitHub Core release can now install while an externally managed Core is
+  running; the on-chain idle check applies only to Home-managed nodes and
+  reports the underlying cause when it fails.
+- Refreshing Core support files no longer changes the saved release channel.
+- A failed managed-Java update no longer blocks Core update checks; Home shows
+  the Java error instead.
+- Core, Home, and Java update policy changes now take effect immediately
+  instead of waiting for the next scheduled check.
+- Downgrade and same-version install guards now still work when Home cannot
+  read the installed jar's identity.
+- Stale install-staging and helpers-backup folders are now cleaned up.
+- Core and Java update policies now default to Notify only instead of Off, and
+  Java updates remain visible when their policy is Off.
+
 ### 2026-07-15 - feat(qdn): add group and foreign-payment notification rules
 
 QDN apps can now subscribe to transaction confirmations by group and to

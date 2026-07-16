@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -84,6 +84,7 @@ const MIN_JAVA_MAJOR_VERSION = 17;
 const MANAGED_JAVA_TARGET_MAJOR_VERSION = 25;
 const MANAGED_JAVA_UPGRADE_CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const CORE_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const CORE_OPERATION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const DOWNGRADE_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const ADOPTIUM_ASSETS_TIMEOUT_MS = 10_000;
 const JAVA_DISTRIBUTION = 'temurin';
@@ -1614,6 +1615,7 @@ let coreLayoutMigrationPromise: Promise<void> | null = null;
 
 async function migrateCoreLayout() {
   await mkdir(getCoreBasePath(), { recursive: true });
+  await cleanupStaleCoreOperationDirectories();
   await migrateLegacyJavaLayout();
   await migrateLegacyCoreLayout();
   const installedCore = await readInstalledCoreMetadata();
@@ -1623,6 +1625,29 @@ async function migrateCoreLayout() {
   if (installedCore) {
     await ensureInstalledCoreRuntimeChain(installedCore, { recordIfMissing: true });
   }
+}
+
+async function cleanupStaleCoreOperationDirectories() {
+  const cutoffMs = Date.now() - CORE_OPERATION_STALE_MS;
+  const entries = await readdir(getCoreBasePath(), { withFileTypes: true }).catch(() => []);
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (
+        !entry.isDirectory() ||
+        (!entry.name.startsWith('_helpers-backup-') && !entry.name.startsWith('_install-staging-'))
+      ) {
+        return;
+      }
+
+      const entryPath = path.join(getCoreBasePath(), entry.name);
+      const entryStat = await stat(entryPath).catch(() => null);
+
+      if (entryStat && entryStat.mtimeMs < cutoffMs) {
+        await rm(entryPath, { recursive: true, force: true }).catch(() => {});
+      }
+    }),
+  );
 }
 
 async function ensureCoreLayout() {
@@ -1972,12 +1997,9 @@ async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<
     if (managedStatus.available) {
       // Fire-and-forget: availability below reads only persisted metadata, so
       // a fresh check result shows up on a later status poll.
-      if (updatePolicy !== 'off') {
-        scheduleManagedJavaUpdateRefresh(installedJava);
-      }
+      scheduleManagedJavaUpdateRefresh(installedJava);
 
-      const managedUpgradeAvailable =
-        updatePolicy !== 'off' && isManagedJavaUpdateAvailable(installedJava);
+      const managedUpgradeAvailable = isManagedJavaUpdateAvailable(installedJava);
 
       return {
         ...managedStatus,
@@ -2228,6 +2250,7 @@ async function resolveRuntimeStatusOwner(
 type OnChainUpdateStatus = Record<string, unknown>;
 
 type GithubUpdateCandidate = {
+  autoInstall: boolean;
   channel: 'github';
   commit: string;
   commitTimeMs: number | null;
@@ -2237,6 +2260,7 @@ type GithubUpdateCandidate = {
 };
 
 type OnChainUpdateCandidate = {
+  autoInstall: boolean;
   channel: 'on-chain';
   commit: string;
   commitTimeMs: number;
@@ -2248,6 +2272,7 @@ type CoreUpdateCandidate = GithubUpdateCandidate | OnChainUpdateCandidate;
 
 let coreUpdateEngineStatus: CoreUpdateEngineStatus = { available: null, helpersOutOfSync: null };
 let coreUpdateEnginePromise: Promise<void> | null = null;
+let coreUpdateEngineRerunPromise: Promise<void> | null = null;
 let coreUpdateInterval: NodeJS.Timeout | null = null;
 
 function getManagedCoreApiKey(installedCore: InstalledCore) {
@@ -2299,17 +2324,26 @@ function getGithubUpdateCandidate(
   release: CoreReleaseSummary,
   installedCore: InstalledCore,
 ): GithubUpdateCandidate | null {
+  const commitTimeMs = release.available ? getCoreTimestampMs(release.commitTimestamp) : null;
+  const installedTimestamp = getCoreTimestampMs(installedCore.jarBuildTimestamp);
+  const releaseCommitIsResolved = release.available && /^[0-9a-f]{40}$/i.test(release.commit);
+
   if (
     !release.available ||
-    compareCoreVersions(release.tagName, installedCore.jarSemver ?? installedCore.tagName) !== 1
+    compareCoreVersions(release.tagName, installedCore.jarSemver ?? installedCore.tagName) !== 1 ||
+    (releaseCommitIsResolved &&
+      !!installedCore.jarCommit &&
+      coreCommitsMatch(release.commit, installedCore.jarCommit)) ||
+    (commitTimeMs !== null && installedTimestamp !== null && commitTimeMs <= installedTimestamp)
   ) {
     return null;
   }
 
   return {
+    autoInstall: commitTimeMs !== null,
     channel: 'github',
     commit: release.commit,
-    commitTimeMs: getCoreTimestampMs(release.commitTimestamp),
+    commitTimeMs,
     githubChannel: release.channel,
     release,
     version: release.tagName,
@@ -2327,20 +2361,20 @@ function getOnChainUpdateCandidate(
   );
   const installedTimestamp = getCoreTimestampMs(installedCore.jarBuildTimestamp);
   const approvalStatus = getString(status?.manifestApprovalStatus).toUpperCase();
+  const commit = getString(status?.commitHash);
 
   if (
     status?.updateAvailable !== true ||
     approvalStatus !== 'APPROVED' ||
     updateTimestamp === null ||
-    installedTimestamp === null ||
-    updateTimestamp <= installedTimestamp
+    (!!commit && !!installedCore.jarCommit && coreCommitsMatch(commit, installedCore.jarCommit)) ||
+    (installedTimestamp !== null && updateTimestamp <= installedTimestamp)
   ) {
     return null;
   }
 
-  const commit = getString(status.commitHash);
-
   return {
+    autoInstall: installedTimestamp !== null,
     channel: 'on-chain',
     commit,
     commitTimeMs: updateTimestamp,
@@ -2361,7 +2395,11 @@ function selectCoreUpdateCandidate(
     return github;
   }
 
-  return onChain.commitTimeMs >= (github.commitTimeMs ?? 0) ? onChain : github;
+  if (github.commitTimeMs === null) {
+    return onChain;
+  }
+
+  return onChain.commitTimeMs >= github.commitTimeMs ? onChain : github;
 }
 
 function toCoreUpdateAvailability(
@@ -2382,11 +2420,12 @@ function toCoreUpdateAvailability(
 async function runCoreUpdateEnginePass() {
   const updateSettings = await readCoreUpdateSettings();
   const checkedAt = new Date().toISOString();
+  const errors: string[] = [];
   let installedCore = await readInstalledCore();
   let installedJava = await readInstalledJavaMetadata();
   const shouldCheckForCoreUpdates = !!installedCore && updateSettings.coreUpdatePolicy !== 'off';
 
-  if (installedJava && updateSettings.javaUpdatePolicy !== 'off') {
+  if (installedJava) {
     installedJava = await refreshManagedJavaUpdateInfo(installedJava);
   }
 
@@ -2400,14 +2439,20 @@ async function runCoreUpdateEnginePass() {
       : null;
 
   if (javaUpdatePendingRestart && !runtime?.running) {
-    await maybeUpgradeManagedJava({ throwOnError: true });
-    javaUpdatePendingRestart = false;
+    try {
+      await maybeUpgradeManagedJava({ throwOnError: true });
+      javaUpdatePendingRestart = false;
+    } catch (error) {
+      console.warn('Unable to update the managed Java runtime during the Core update policy check.', error);
+      errors.push(getErrorMessage(error));
+    }
   }
 
   if (!installedCore) {
     coreUpdateEngineStatus = {
       available: null,
       checkedAt,
+      error: errors.length > 0 ? errors.join(' ') : undefined,
       helpersOutOfSync: null,
       javaUpdatePendingRestart,
     };
@@ -2436,7 +2481,6 @@ async function runCoreUpdateEnginePass() {
   const helperReleasePromise = shouldCheckHelpers
     ? getReleaseMatchingCoreVersion(installedCore.jarSemver ?? '')
     : Promise.resolve<AvailableCoreRelease | null>(null);
-  const errors: string[] = [];
   let helperLookupCompleted = true;
   const [githubRelease, onChainStatus, helperRelease] = await Promise.all([
     githubReleasePromise.catch((error): CoreReleaseSummary => {
@@ -2507,7 +2551,7 @@ async function runCoreUpdateEnginePass() {
       candidate?.channel === 'on-chain' && isOnChainCoreInstallActive(candidate.status);
   }
 
-  if (!candidate || updateSettings.coreUpdatePolicy !== 'install') {
+  if (!candidate || !candidate.autoInstall || updateSettings.coreUpdatePolicy !== 'install') {
     return;
   }
 
@@ -2526,6 +2570,7 @@ async function runCoreUpdateEnginePass() {
   coreUpdateEngineStatus = {
     available: null,
     checkedAt: new Date().toISOString(),
+    error: errors.length > 0 ? errors.join(' ') : undefined,
     helpersOutOfSync: null,
     javaUpdatePendingRestart,
     nodeAutoUpdateMode: nodeAutoUpdateMode || undefined,
@@ -2571,6 +2616,22 @@ function runCoreUpdateEngine() {
   });
 
   return coreUpdateEnginePromise;
+}
+
+function runCoreUpdateEngineAfterPolicyChange() {
+  if (!coreUpdateEnginePromise) {
+    return runCoreUpdateEngine();
+  }
+
+  if (!coreUpdateEngineRerunPromise) {
+    coreUpdateEngineRerunPromise = coreUpdateEnginePromise
+      .then(() => runCoreUpdateEngine())
+      .finally(() => {
+        coreUpdateEngineRerunPromise = null;
+      });
+  }
+
+  return coreUpdateEngineRerunPromise;
 }
 
 async function getStatus(): Promise<CoreStatus> {
@@ -2838,6 +2899,7 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
   await rm(backupPath, { recursive: true, force: true });
 
   let refreshSucceeded = false;
+  let rollbackFailed = false;
 
   try {
     const download = await downloadFile(
@@ -2906,7 +2968,7 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
         ...installedCore,
         assetName: release.asset.name,
         assetSize: download.size,
-        channel: release.channel,
+        channel: installedCore.channel,
         digest: download.digest,
         downloadUrl: release.asset.downloadUrl,
         helpersRefreshedFor: release.tagName,
@@ -2936,6 +2998,7 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
           }
         } catch (restoreError) {
           console.warn(`Unable to restore Core support file ${backup.destinationPath}.`, restoreError);
+          rollbackFailed = true;
         }
       }
 
@@ -2959,7 +3022,7 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
   } finally {
     await rm(downloadPath, { force: true });
     await rm(stagingPath, { recursive: true, force: true });
-    if (refreshSucceeded) {
+    if (refreshSucceeded || !rollbackFailed) {
       await rm(backupPath, { recursive: true, force: true });
     }
   }
@@ -3149,44 +3212,52 @@ function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
 }
 
 async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCore: InstalledCore | null) {
-  if (!runtime.running) {
+  if (!runtime.running || runtime.owner !== 'home' || !installedCore) {
     return;
   }
 
-  const apiKey = installedCore ? getManagedCoreApiKey(installedCore) : null;
+  const apiKey = getManagedCoreApiKey(installedCore);
 
   if (!apiKey) {
     throw new Error(userMessage('core.error.onChainStatusUnavailable'));
   }
 
-  const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
+  let lastError: unknown = null;
 
-  try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-      headers: { 'X-API-KEY': apiKey },
-      signal: abortController.signal,
-    });
-    const text = await response.text();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
-    if (!response.ok) {
-      throw new Error(text || userMessage('core.error.onChainHttp', { status: response.status }));
+    try {
+      const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
+        headers: { 'X-API-KEY': apiKey },
+        signal: abortController.signal,
+      });
+      const text = await response.text();
+
+      if (!response.ok) {
+        throw new Error(text || userMessage('core.error.onChainHttp', { status: response.status }));
+      }
+
+      const status: unknown = text ? JSON.parse(text) : null;
+
+      if (isOnChainCoreInstallActive(status)) {
+        throw new Error(userMessage('core.error.onChainInstallActive'));
+      }
+
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.message === userMessage('core.error.onChainInstallActive')) {
+        throw error;
+      }
+
+      lastError = error;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const status: unknown = text ? JSON.parse(text) : null;
-
-    if (isOnChainCoreInstallActive(status)) {
-      throw new Error(userMessage('core.error.onChainInstallActive'));
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('QORTIUM_I18N:')) {
-      throw error;
-    }
-
-    throw new Error(userMessage('core.error.onChainIdleCheckFailed'));
-  } finally {
-    clearTimeout(timeout);
   }
+
+  throw new Error(`${userMessage('core.error.onChainIdleCheckFailed')} ${getErrorMessage(lastError)}`);
 }
 
 async function installCoreUnlocked(request: CoreInstallRequest) {
@@ -3201,9 +3272,14 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   }
 
   const existingCore = await readInstalledCoreMetadata();
-  const versionComparison = existingCore?.jarSemver
-    ? compareCoreVersions(release.tagName, existingCore.jarSemver)
+  const versionComparison = existingCore
+    ? compareCoreVersions(release.tagName, existingCore.jarSemver ?? existingCore.tagName)
     : null;
+  const sameVersion = existingCore
+    ? existingCore.jarSemver
+      ? versionComparison === 0
+      : release.tagName === existingCore.tagName
+    : false;
 
   if (
     versionComparison !== null &&
@@ -3221,16 +3297,16 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     );
   }
 
-  const releaseHasCommit = /^[0-9a-f]{6,40}$/i.test(release.commit);
+  const releaseHasResolvedCommit = /^[0-9a-f]{40}$/i.test(release.commit);
   const equalVersionDifferentCommit =
-    versionComparison === 0 &&
-    releaseHasCommit &&
-    !!existingCore?.jarCommit &&
-    !coreCommitsMatch(release.commit, existingCore.jarCommit);
+    sameVersion &&
+    (!releaseHasResolvedCommit ||
+      !existingCore?.jarCommit ||
+      !coreCommitsMatch(release.commit, existingCore.jarCommit));
 
   if (
     existingCore &&
-    versionComparison === 0 &&
+    sameVersion &&
     !existingCore.modifiedSinceInstall &&
     !equalVersionDifferentCommit
   ) {
@@ -3247,7 +3323,9 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   // version to fall back to and restart if the update fails. A running core with
   // no/incomplete install metadata is left running and updated without the dance.
   const runtimeBefore = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), existingCore);
-  await ensureOnChainInstallIdle(runtimeBefore, existingCore);
+  if (runtimeBefore.running && runtimeBefore.owner === 'home' && existingCore !== null) {
+    await ensureOnChainInstallIdle(runtimeBefore, existingCore);
+  }
   const restartAfterInstall = runtimeBefore.running && runtimeBefore.owner === 'home' && existingCore !== null;
   const ownedPid = restartAfterInstall
     ? runtimeBefore.pid ?? (await readRuntimePid(runtimeBefore.runtimePath ?? getCoreRuntimePath()))
@@ -3754,12 +3832,12 @@ export function registerCoreManagerIpcHandlers() {
   ipcMain.handle('core:refreshHelpers', () => refreshCoreHelpers());
   ipcMain.handle('core:setJavaAutoUpdate', async (_event, enabled: unknown) => {
     await setCoreUpdateSettings({ javaUpdatePolicy: enabled === true ? 'install' : 'off' });
-    await runCoreUpdateEngine();
+    await runCoreUpdateEngineAfterPolicyChange();
     return await getStatus();
   });
   ipcMain.handle('core:setUpdatePolicy', async (_event, request: unknown) => {
     await setCoreUpdateSettings(isObject(request) ? request : {});
-    await runCoreUpdateEngine();
+    await runCoreUpdateEngineAfterPolicyChange();
     return await getStatus();
   });
   ipcMain.handle('core:start', () => startCore());

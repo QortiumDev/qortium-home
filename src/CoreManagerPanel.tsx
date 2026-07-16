@@ -242,7 +242,7 @@ function getCoreSettingsRows({
 
   const javaUpdateVersion = coreManager.status?.java.updateAvailableVersion;
 
-  if (coreManager.status?.java.updatePolicy === 'notify' && javaUpdateVersion) {
+  if (coreManager.status?.java.updatePolicy !== 'install' && javaUpdateVersion) {
     rows.push({
       label: t('core.javaUpdateAvailableLabel'),
       value: t('core.javaUpdateAvailable', { version: javaUpdateVersion }),
@@ -527,7 +527,7 @@ export function CoreManagerPanel({
           <select
             className="field__input"
             disabled={coreManager.isBusy}
-            value={coreManager.status?.updateSettings.coreUpdatePolicy ?? 'off'}
+            value={coreManager.status?.updateSettings.coreUpdatePolicy ?? 'notify'}
             onChange={(event) => {
               void coreManager.setUpdatePolicy(
                 'coreUpdatePolicy',
@@ -547,7 +547,7 @@ export function CoreManagerPanel({
             <select
               className="field__input"
               disabled={coreManager.isBusy}
-              value={coreManager.status?.updateSettings.javaUpdatePolicy ?? 'off'}
+              value={coreManager.status?.updateSettings.javaUpdatePolicy ?? 'notify'}
               onChange={(event) => {
                 void coreManager.setUpdatePolicy(
                   'javaUpdatePolicy',
