@@ -1,8 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
-const {
-  QDN_BRIDGE_ERROR_KEY,
-  QDN_BRIDGE_RESULT_KEY,
-} = require('./qdn-bridge-error.js') as typeof import('./qdn-bridge-error.js');
+
+// QDN app views run with sandbox: true, where require() only resolves Electron's
+// built-in shim modules — a relative require aborts the entire preload script,
+// leaving window.qdnRequest undefined for every QDN app. These literals must
+// stay equal to the constants in qdn-bridge-error.ts (pinned by
+// qdn-bridge-error.test.ts).
+const QDN_BRIDGE_ERROR_KEY = '__qdnBridgeError_9f5f01d1';
+const QDN_BRIDGE_RESULT_KEY = '__qdnBridgeResult_9f5f01d1';
 
 type QdnAppRequest = Record<string, unknown>;
 
