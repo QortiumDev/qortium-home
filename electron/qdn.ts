@@ -88,6 +88,7 @@ import {
   QDN_CHAT_ACTIONS,
   QDN_FOREIGN_SERVER_ACTIONS,
   QDN_GROUP_ACTIONS,
+  QDN_HOME_SETTINGS_ACTIONS,
   QDN_NAME_ACTIONS,
   QDN_PAYMENT_ACTIONS,
   QDN_POLL_ACTIONS,
@@ -95,6 +96,13 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from './qdn-app-actions.js';
+import {
+  getHomeSettingsApprovalDetails,
+  getHomeSettingsMetadata,
+  validateHomeSettings,
+  validateHomeSettingsPatch,
+  type HomeSettings,
+} from './home-settings-bridge.js';
 import { getPlatformVersion } from './app-versioning.js';
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js';
 import { getPollOptionsInput } from './qdn-poll-options-input.js';
@@ -321,6 +329,7 @@ type QdnTrustAction = (typeof QDN_TRUST_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnAccountFreeWriteAction = (typeof QDN_ACCOUNT_FREE_WRITE_ACTIONS)[number];
+type QdnHomeSettingsAction = (typeof QDN_HOME_SETTINGS_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
@@ -337,7 +346,8 @@ type QdnWriteApprovalAction =
   | 'START_MINTING'
   | 'REMOVE_MINTING_ACCOUNT'
   | 'SHOW_NOTIFICATION'
-  | 'NOTIFICATION_ADD';
+  | 'NOTIFICATION_ADD'
+  | 'UPDATE_HOME_SETTINGS';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
 
 type QdnWriteResourceRequest = {
@@ -491,6 +501,12 @@ type PendingQdnApproval = {
   windowWebContentsId: number;
 };
 
+type QdnHomeSettingsHostRequest = {
+  resolve: (settings: HomeSettings) => void;
+  reject: (error: Error) => void;
+  windowWebContentsId: number;
+};
+
 type ForeignPreparedSend = {
   activeNetwork: string;
   amount: string;
@@ -544,6 +560,7 @@ const QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO: SupportedBlockchainInfo = {
 };
 
 const pendingQdnWriteApprovals = new Map<string, PendingQdnApproval>();
+const pendingQdnHomeSettingsRequests = new Map<string, QdnHomeSettingsHostRequest>();
 const approvedQdnChatPermissions = new Set<string>();
 const lastQdnAppNotificationAt = new Map<string, number>();
 const QDN_APP_NOTIFICATION_MIN_INTERVAL_MS = 3_000;
@@ -796,6 +813,71 @@ async function requestQdnWriteApproval(
   if (!approved) {
     throw new Error(denialMessage);
   }
+}
+
+async function requestHomeSettingsFromHostWindow(
+  context: QdnViewContext,
+  operation: 'read' | 'apply',
+  patch?: Partial<HomeSettings>,
+) {
+  const hostWindow = getQdnViewHostWindow(context);
+  if (!hostWindow) {
+    throw new Error('QDN app request does not belong to an active window.');
+  }
+
+  const requestId = randomUUID();
+  return new Promise<HomeSettings>((resolve, reject) => {
+    let settled = false;
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      hostWindow.removeListener('closed', handleWindowClosed);
+      pendingQdnHomeSettingsRequests.delete(requestId);
+      callback();
+    };
+    const handleWindowClosed = () => settle(() => reject(new Error('QDN Home settings request was cancelled.')));
+    const timeoutId = setTimeout(
+      () => settle(() => reject(new Error('QDN Home settings request timed out.'))),
+      QDN_WRITE_APPROVAL_TIMEOUT_MS,
+    );
+
+    pendingQdnHomeSettingsRequests.set(requestId, {
+      resolve: (settings) => settle(() => resolve(settings)),
+      reject: (error) => settle(() => reject(error)),
+      windowWebContentsId: hostWindow.webContents.id,
+    });
+    hostWindow.once('closed', handleWindowClosed);
+    hostWindow.webContents.send('qdn-app:home-settings-request', { id: requestId, operation, patch: patch ?? null });
+  });
+}
+
+async function handleQdnHomeSettingsAction(
+  action: QdnHomeSettingsAction,
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  if (!context) {
+    throw new Error('QDN Home settings request does not belong to an active window.');
+  }
+  if (action === 'GET_HOME_SETTINGS_METADATA') return getHomeSettingsMetadata();
+
+  if (action === 'GET_HOME_SETTINGS') return requestHomeSettingsFromHostWindow(context, 'read');
+
+  const explicitPatch = getRequestValue(request, 'patch') ?? getRequestValue(request, 'settings');
+  const patch = validateHomeSettingsPatch(explicitPatch ?? (isRecord(request.payload) ? request.payload : undefined));
+  const current = await requestHomeSettingsFromHostWindow(context, 'read');
+  const details = getHomeSettingsApprovalDetails(current, patch);
+
+  await requestQdnWriteApproval(context, null, {
+    action,
+    details,
+    permissionScope: 'single-request',
+  });
+  assertFreshQdnWriteContext(sender, context);
+
+  return requestHomeSettingsFromHostWindow(context, 'apply', patch);
 }
 
 async function requestQdnChatPermissionApproval(
@@ -8967,6 +9049,10 @@ async function handleQdnAppRequest(
     return handleQdnAccountFreeWriteAction(action, request, context, sender);
   }
 
+  if ((QDN_HOME_SETTINGS_ACTIONS as readonly string[]).includes(action)) {
+    return handleQdnHomeSettingsAction(action as QdnHomeSettingsAction, request, context, sender);
+  }
+
   switch (action) {
     case 'FETCH_NODE_API': {
       const apiPath = getNodeApiPath(getRequestValue(request, 'path'), 'http://127.0.0.1');
@@ -9546,6 +9632,22 @@ export function registerQdnIpcHandlers() {
     }
 
     pendingApproval.resolve(response.approved);
+  });
+
+  ipcMain.handle('qdn-app:resolveHomeSettingsRequest', (event, rawResponse: unknown) => {
+    if (!isRecord(rawResponse) || typeof rawResponse.requestId !== 'string' || !rawResponse.requestId) {
+      throw new Error('QDN Home settings request response is required.');
+    }
+    const pendingRequest = pendingQdnHomeSettingsRequests.get(rawResponse.requestId);
+    if (!pendingRequest) return;
+    if (pendingRequest.windowWebContentsId !== event.sender.id) {
+      throw new Error('QDN Home settings response came from the wrong window.');
+    }
+    try {
+      pendingRequest.resolve(validateHomeSettings(rawResponse.settings));
+    } catch (error) {
+      pendingRequest.reject(error instanceof Error ? error : new Error('Invalid Home settings response.'));
+    }
   });
 
   ipcMain.handle('qdn:setAppNotificationsEnabled', (_event, enabled: unknown) => {

@@ -679,6 +679,7 @@ export const it: Record<TranslationKey, string> = {
   "notifications.mute": "Silenzia",
   "notifications.revoke": "Revoca",
   "qdnWrite.action.notificationAdd": "Notifiche in background",
+  "qdnWrite.action.updateHomeSettings": "Aggiorna impostazioni Home",
   "qdnWrite.action.updateNodeSettings": "Aggiorna impostazioni nodo",
   "qdnWrite.action.restartNode": "Riavvia nodo",
   "qdnWrite.action.addToList": "Aggiungi alla lista",

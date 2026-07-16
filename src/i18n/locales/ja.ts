@@ -679,6 +679,7 @@ export const ja: Record<TranslationKey, string> = {
   "notifications.mute": "ミュート",
   "notifications.revoke": "取り消す",
   "qdnWrite.action.notificationAdd": "バックグラウンド通知",
+  "qdnWrite.action.updateHomeSettings": "Home設定を更新",
   "qdnWrite.action.updateNodeSettings": "ノード設定を更新",
   "qdnWrite.action.restartNode": "ノードを再起動",
   "qdnWrite.action.addToList": "リストに追加",

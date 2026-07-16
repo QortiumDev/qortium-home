@@ -679,6 +679,7 @@ export const sv: Record<TranslationKey, string> = {
   "notifications.mute": "Tysta",
   "notifications.revoke": "Återkalla",
   "qdnWrite.action.notificationAdd": "Bakgrundsaviseringar",
+  "qdnWrite.action.updateHomeSettings": "Uppdatera Home-inställningar",
   "qdnWrite.action.updateNodeSettings": "Uppdatera nodinställningar",
   "qdnWrite.action.restartNode": "Starta om noden",
   "qdnWrite.action.addToList": "Lägg till i lista",

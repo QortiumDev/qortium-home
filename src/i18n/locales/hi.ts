@@ -680,6 +680,7 @@ export const hi: Record<TranslationKey, string> = {
   "notifications.mute": "म्यूट करें",
   "notifications.revoke": "अनुमति रद्द करें",
   "qdnWrite.action.notificationAdd": "पृष्ठभूमि सूचनाएँ",
+  "qdnWrite.action.updateHomeSettings": "Home सेटिंग अपडेट करें",
   "qdnWrite.action.updateNodeSettings": "नोड सेटिंग अपडेट करें",
   "qdnWrite.action.restartNode": "नोड पुनः आरंभ करें",
   "qdnWrite.action.addToList": "सूची में जोड़ें",

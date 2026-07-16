@@ -74,6 +74,13 @@ export type QdnDisplaySettings = {
   ui: 'classic' | 'modern' | 'fun';
 };
 
+export type QdnHomeSettingsChangedDetail = QdnDisplaySettings & {
+  appNotifications: boolean;
+  appZoom: number;
+  lang: QdnDisplaySettings['language'];
+  uiStyle: QdnDisplaySettings['ui'];
+};
+
 const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
   language: 'en',
   textSize: 'medium',
@@ -100,6 +107,7 @@ type QdnViewEntry = {
   isPageReady: boolean;
   nodeOrigin: string;
   pendingAppTargetMessage: unknown | undefined;
+  pendingHomeSettingsEvent: QdnHomeSettingsChangedDetail | undefined;
   pendingStateDelivery: Promise<void>;
   resourceUrl: string | null;
   tabId: string;
@@ -125,6 +133,10 @@ type SanitizedBoundsRequest = {
 type SanitizedDisplaySettingsRequest = {
   displaySettings: QdnDisplaySettings;
   tabId: string;
+};
+
+type SanitizedHomeSettingsBroadcastRequest = {
+  detail: QdnHomeSettingsChangedDetail;
 };
 
 type SanitizedAccountStateRequest = {
@@ -418,6 +430,29 @@ function sanitizeDisplaySettingsRequest(value: unknown): SanitizedDisplaySetting
   return {
     displaySettings: sanitizeDisplaySettings(value.displaySettings),
     tabId: sanitizeTabId(value.tabId),
+  };
+}
+
+function sanitizeHomeSettingsBroadcastRequest(value: unknown): SanitizedHomeSettingsBroadcastRequest {
+  if (!isRecord(value) || !isRecord(value.detail)) {
+    throw new Error('QDN Home settings broadcast is required.');
+  }
+  const detail = value.detail;
+  if (typeof detail.appZoom !== 'number' || !Number.isFinite(detail.appZoom) || typeof detail.appNotifications !== 'boolean') {
+    throw new Error('QDN Home settings broadcast is invalid.');
+  }
+  const displaySettings = sanitizeDisplaySettings(detail);
+  if (detail.lang !== displaySettings.language || detail.uiStyle !== displaySettings.ui) {
+    throw new Error('QDN Home settings broadcast is inconsistent.');
+  }
+  return {
+    detail: {
+      ...displaySettings,
+      appNotifications: detail.appNotifications,
+      appZoom: detail.appZoom,
+      lang: displaySettings.language,
+      uiStyle: displaySettings.ui,
+    },
   };
 }
 
@@ -781,6 +816,14 @@ async function sendQdnMessages(entry: QdnViewEntry, messages: unknown[]) {
   );
 }
 
+async function sendQdnHomeSettingsChangedEvent(entry: QdnViewEntry, detail: QdnHomeSettingsChangedDetail) {
+  if (entry.view.webContents.isDestroyed()) return;
+  await entry.view.webContents.executeJavaScript(
+    `window.dispatchEvent(new CustomEvent('qortiumHomeSettingsChanged', { detail: ${JSON.stringify(detail)} }));`,
+    true,
+  );
+}
+
 function areDisplaySettingsEqual(
   first: QdnDisplaySettings | undefined,
   second: QdnDisplaySettings,
@@ -808,6 +851,8 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   );
   const sendAccountChanged = entry.deliveredAccountStateKey !== getAccountStateKey(entry);
   const appTargetMessage = entry.pendingAppTargetMessage;
+  const homeSettingsEvent = entry.pendingHomeSettingsEvent;
+  const sendHomeSettingsEvent = entry.isPageReady && !!homeSettingsEvent;
   const sendAppTarget = entry.isPageReady && typeof appTargetMessage !== 'undefined';
   const messages = [
     ...(sendDisplaySettings ? getQdnDisplaySettingMessages(entry.displaySettings) : []),
@@ -815,11 +860,13 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
     ...(sendAppTarget ? [appTargetMessage] : []),
   ];
 
-  if (!messages.length) {
+  if (!messages.length && !sendHomeSettingsEvent) {
     return;
   }
 
-  await sendQdnMessages(entry, messages);
+  if (messages.length) {
+    await sendQdnMessages(entry, messages);
+  }
 
   if (sendDisplaySettings) {
     entry.deliveredDisplaySettings = entry.displaySettings;
@@ -831,6 +878,11 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
 
   if (sendAppTarget && entry.pendingAppTargetMessage === appTargetMessage) {
     entry.pendingAppTargetMessage = undefined;
+  }
+
+  if (sendHomeSettingsEvent && homeSettingsEvent && entry.pendingHomeSettingsEvent === homeSettingsEvent) {
+    await sendQdnHomeSettingsChangedEvent(entry, homeSettingsEvent);
+    entry.pendingHomeSettingsEvent = undefined;
   }
 }
 
@@ -869,6 +921,7 @@ function createViewEntry(
     isPageReady: false,
     nodeOrigin,
     pendingAppTargetMessage: undefined,
+    pendingHomeSettingsEvent: undefined,
     pendingStateDelivery: Promise.resolve(),
     resourceUrl,
     tabId,
@@ -1150,6 +1203,28 @@ export function registerQdnViewIpcHandlers() {
 
     entry.displaySettings = request.displaySettings;
     queueQdnViewStateDelivery(entry);
+  });
+
+  ipcMain.handle('qdn-views:broadcastHomeSettingsChanged', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeHomeSettingsBroadcastRequest(rawRequest);
+    const windowViews = qdnViewsByWindow.get(window.webContents.id);
+    if (!windowViews) {
+      return;
+    }
+    const deliveries: Promise<void>[] = [];
+    for (const entry of windowViews.values()) {
+      entry.displaySettings = {
+        accent: request.detail.accent,
+        language: request.detail.language,
+        textSize: request.detail.textSize,
+        theme: request.detail.theme,
+        ui: request.detail.ui,
+      };
+      entry.pendingHomeSettingsEvent = request.detail;
+      deliveries.push(queueQdnViewStateDelivery(entry));
+    }
+    return Promise.all(deliveries).then(() => undefined);
   });
 
   ipcMain.handle('qdn-views:updateAccountState', (event, rawRequest: unknown) => {

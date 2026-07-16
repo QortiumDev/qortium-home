@@ -679,6 +679,7 @@ export const ar: Record<TranslationKey, string> = {
   "notifications.mute": "كتم",
   "notifications.revoke": "إلغاء الإذن",
   "qdnWrite.action.notificationAdd": "إشعارات الخلفية",
+  "qdnWrite.action.updateHomeSettings": "تحديث إعدادات Home",
   "qdnWrite.action.updateNodeSettings": "تحديث إعدادات العقدة",
   "qdnWrite.action.restartNode": "إعادة تشغيل العقدة",
   "qdnWrite.action.addToList": "إضافة إلى القائمة",

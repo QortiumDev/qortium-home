@@ -679,6 +679,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "notifications.mute": "靜音",
   "notifications.revoke": "撤銷",
   "qdnWrite.action.notificationAdd": "背景通知",
+  "qdnWrite.action.updateHomeSettings": "更新 Home 設定",
   "qdnWrite.action.updateNodeSettings": "更新節點設定",
   "qdnWrite.action.restartNode": "重新啟動節點",
   "qdnWrite.action.addToList": "新增至清單",

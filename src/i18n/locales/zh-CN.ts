@@ -679,6 +679,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "notifications.mute": "静音",
   "notifications.revoke": "撤销",
   "qdnWrite.action.notificationAdd": "后台通知",
+  "qdnWrite.action.updateHomeSettings": "更新 Home 设置",
   "qdnWrite.action.updateNodeSettings": "更新节点设置",
   "qdnWrite.action.restartNode": "重启节点",
   "qdnWrite.action.addToList": "添加到列表",

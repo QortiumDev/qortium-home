@@ -282,6 +282,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';var err=new Error(message);if(typeof data.error.code==='string'){err.code=data.error.code;}entry.reject(err);return;}" +
             "entry.resolve(data.result);" +
             "});" +
+            // Home sends this additive runtime signal whenever its display settings
+            // change. Re-dispatch it as a document event so QDN apps use the same
+            // API on Android and desktop isolated views.
+            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:home-settings-changed'||!data.detail)return;window.dispatchEvent(new CustomEvent('qortiumHomeSettingsChanged',{detail:data.detail}));});" +
             "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +
             "return new Promise(function(resolve,reject){" +
             "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +

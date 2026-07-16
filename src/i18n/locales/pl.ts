@@ -679,6 +679,7 @@ export const pl: Record<TranslationKey, string> = {
   "notifications.mute": "Wycisz",
   "notifications.revoke": "Cofnij",
   "qdnWrite.action.notificationAdd": "Powiadomienia w tle",
+  "qdnWrite.action.updateHomeSettings": "Zaktualizuj ustawienia Home",
   "qdnWrite.action.updateNodeSettings": "Zaktualizuj ustawienia węzła",
   "qdnWrite.action.restartNode": "Uruchom ponownie węzeł",
   "qdnWrite.action.addToList": "Dodaj do listy",

@@ -679,6 +679,7 @@ export const he: Record<TranslationKey, string> = {
   "notifications.mute": "השתקה",
   "notifications.revoke": "ביטול הרשאה",
   "qdnWrite.action.notificationAdd": "התראות ברקע",
+  "qdnWrite.action.updateHomeSettings": "עדכון הגדרות Home",
   "qdnWrite.action.updateNodeSettings": "עדכון הגדרות הצומת",
   "qdnWrite.action.restartNode": "הפעלה מחדש של הצומת",
   "qdnWrite.action.addToList": "הוספה לרשימה",

@@ -679,6 +679,7 @@ export const ro: Record<TranslationKey, string> = {
   "notifications.mute": "Dezactivează sunetul",
   "notifications.revoke": "Revocă",
   "qdnWrite.action.notificationAdd": "Notificări în fundal",
+  "qdnWrite.action.updateHomeSettings": "Actualizează setările Home",
   "qdnWrite.action.updateNodeSettings": "Actualizează setările nodului",
   "qdnWrite.action.restartNode": "Repornește nodul",
   "qdnWrite.action.addToList": "Adaugă în listă",

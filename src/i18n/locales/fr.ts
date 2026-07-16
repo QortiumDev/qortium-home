@@ -679,6 +679,7 @@ export const fr: Record<TranslationKey, string> = {
   "notifications.mute": "Mettre en sourdine",
   "notifications.revoke": "Révoquer",
   "qdnWrite.action.notificationAdd": "Notifications en arrière-plan",
+  "qdnWrite.action.updateHomeSettings": "Mettre à jour les paramètres de Home",
   "qdnWrite.action.updateNodeSettings": "Mettre à jour les paramètres du nœud",
   "qdnWrite.action.restartNode": "Redémarrer le nœud",
   "qdnWrite.action.addToList": "Ajouter à la liste",

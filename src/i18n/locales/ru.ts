@@ -679,6 +679,7 @@ export const ru: Record<TranslationKey, string> = {
   "notifications.mute": "Без звука",
   "notifications.revoke": "Отозвать",
   "qdnWrite.action.notificationAdd": "Фоновые уведомления",
+  "qdnWrite.action.updateHomeSettings": "Обновить настройки Home",
   "qdnWrite.action.updateNodeSettings": "Обновить настройки узла",
   "qdnWrite.action.restartNode": "Перезапустить узел",
   "qdnWrite.action.addToList": "Добавить в список",

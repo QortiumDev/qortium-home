@@ -680,6 +680,7 @@ export const nb: Record<TranslationKey, string> = {
   "notifications.mute": "Demp",
   "notifications.revoke": "Trekk tilbake",
   "qdnWrite.action.notificationAdd": "Bakgrunnsvarsler",
+  "qdnWrite.action.updateHomeSettings": "Oppdater Home-innstillinger",
   "qdnWrite.action.updateNodeSettings": "Oppdater nodeinnstillinger",
   "qdnWrite.action.restartNode": "Start noden på nytt",
   "qdnWrite.action.addToList": "Legg til i liste",

@@ -552,6 +552,13 @@ type QortiumQdnViewDisplaySettingsRequest = {
   tabId: string;
 };
 
+type QortiumQdnHomeSettingsChangedDetail = QortiumQdnDisplaySettings & {
+  appNotifications: boolean;
+  appZoom: number;
+  lang: QortiumQdnDisplaySettings['language'];
+  uiStyle: QortiumQdnDisplaySettings['ui'];
+};
+
 type QortiumQdnViewAccountStateRequest = {
   accountId: string | null;
   isUnlocked: boolean;
@@ -688,6 +695,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SHOW_NOTIFICATION'
     | 'NOTIFICATION_ADD'
     | 'UPDATE_NODE_SETTINGS'
+    | 'UPDATE_HOME_SETTINGS'
     | 'RESTART_NODE'
     | 'ADD_TO_LIST'
     | 'REMOVE_FROM_LIST'
@@ -868,6 +876,7 @@ interface Window {
       ) => Promise<import('../electron/notification-rules').QdnNotificationStore>;
     };
     qdnViews?: {
+      broadcastHomeSettingsChanged: (detail: QortiumQdnHomeSettingsChangedDetail) => Promise<void>;
       capture: (tabId: string) => Promise<string | null>;
       destroy: (tabId: string) => Promise<void>;
       hide: (tabId: string) => Promise<void>;
@@ -884,8 +893,12 @@ interface Window {
       onWriteRequest: (
         callback: (request: QortiumQdnWriteApprovalRequest) => void,
       ) => () => void;
+      onHomeSettingsRequest?: (
+        callback: (request: { id: string; operation: 'apply' | 'read'; patch: unknown }) => void,
+      ) => () => void;
       resolveUnlockRequest?: (requestId: string, approved: boolean) => Promise<void>;
       resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
+      resolveHomeSettingsRequest?: (requestId: string, settings: unknown) => Promise<void>;
     };
     qdnEvents?: {
       onOpenNewTab: (

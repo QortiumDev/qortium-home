@@ -678,6 +678,7 @@ export const en = {
   "notifications.mute": "Mute",
   "notifications.revoke": "Revoke",
   "qdnWrite.action.notificationAdd": "Background Notifications",
+  "qdnWrite.action.updateHomeSettings": "Update Home Settings",
   "qdnWrite.action.updateNodeSettings": "Update Node Settings",
   "qdnWrite.action.restartNode": "Restart Node",
   "qdnWrite.action.addToList": "Add To List",

@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - feat(qdn): let apps read and change Home display settings with approval
+
+QDN apps can now see the small set of Home display choices that already affect their appearance, such as theme, language, text size, accent, zoom, style, and app notifications. Apps can read those values without a prompt, while any requested change clearly shows the current and proposed values and needs the person's approval each time. Approved changes take effect and are saved immediately in Home and in open apps, without changing node connections, wallets, updates, or other personal Home data.
+
 ### 2026-07-15 - feat(updates): unified update policies for Core, Home, and Java
 
 Home now shows the Core version that is actually installed: it reads the

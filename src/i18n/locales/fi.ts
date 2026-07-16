@@ -679,6 +679,7 @@ export const fi: Record<TranslationKey, string> = {
   "notifications.mute": "Mykistä",
   "notifications.revoke": "Peruuta lupa",
   "qdnWrite.action.notificationAdd": "Taustailmoitukset",
+  "qdnWrite.action.updateHomeSettings": "Päivitä Home-asetukset",
   "qdnWrite.action.updateNodeSettings": "Päivitä solmun asetukset",
   "qdnWrite.action.restartNode": "Käynnistä solmu uudelleen",
   "qdnWrite.action.addToList": "Lisää luetteloon",

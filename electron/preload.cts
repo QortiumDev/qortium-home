@@ -235,6 +235,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     }) => ipcRenderer.invoke('qdn:downloadResource', request),
   },
   qdnViews: {
+    broadcastHomeSettingsChanged: (detail: unknown) => ipcRenderer.invoke('qdn-views:broadcastHomeSettingsChanged', { detail }),
     show: (request: {
       accountId: string | null;
       bounds: { height: number; width: number; x: number; y: number };
@@ -301,10 +302,23 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:write-request', listener);
       };
     },
+    onHomeSettingsRequest: (callback: (request: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        callback(request);
+      };
+
+      ipcRenderer.on('qdn-app:home-settings-request', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:home-settings-request', listener);
+      };
+    },
     resolveUnlockRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
     resolveWriteRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
+    resolveHomeSettingsRequest: (requestId: string, settings: unknown) =>
+      ipcRenderer.invoke('qdn-app:resolveHomeSettingsRequest', { requestId, settings }),
   },
   qdnEvents: {
     onOpenNewTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {

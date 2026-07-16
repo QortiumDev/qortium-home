@@ -680,6 +680,7 @@ export const el: Record<TranslationKey, string> = {
   "notifications.mute": "Σίγαση",
   "notifications.revoke": "Ανάκληση",
   "qdnWrite.action.notificationAdd": "Ειδοποιήσεις παρασκηνίου",
+  "qdnWrite.action.updateHomeSettings": "Ενημέρωση ρυθμίσεων Home",
   "qdnWrite.action.updateNodeSettings": "Ενημέρωση ρυθμίσεων κόμβου",
   "qdnWrite.action.restartNode": "Επανεκκίνηση κόμβου",
   "qdnWrite.action.addToList": "Προσθήκη στη λίστα",

@@ -679,6 +679,7 @@ export const ko: Record<TranslationKey, string> = {
   "notifications.mute": "음소거",
   "notifications.revoke": "권한 취소",
   "qdnWrite.action.notificationAdd": "백그라운드 알림",
+  "qdnWrite.action.updateHomeSettings": "Home 설정 업데이트",
   "qdnWrite.action.updateNodeSettings": "노드 설정 업데이트",
   "qdnWrite.action.restartNode": "노드 다시 시작",
   "qdnWrite.action.addToList": "목록에 추가",

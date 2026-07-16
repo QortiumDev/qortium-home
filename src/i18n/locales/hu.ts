@@ -679,6 +679,7 @@ export const hu: Record<TranslationKey, string> = {
   "notifications.mute": "Némítás",
   "notifications.revoke": "Visszavonás",
   "qdnWrite.action.notificationAdd": "Háttérértesítések",
+  "qdnWrite.action.updateHomeSettings": "Home-beállítások frissítése",
   "qdnWrite.action.updateNodeSettings": "Csomópont-beállítások frissítése",
   "qdnWrite.action.restartNode": "Csomópont újraindítása",
   "qdnWrite.action.addToList": "Hozzáadás a listához",

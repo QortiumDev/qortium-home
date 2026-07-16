@@ -54,6 +54,7 @@
     "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
+    "test:home-settings-bridge": "npm run build:electron && node dist-electron/home-settings-bridge.test.js",
     "test:welcome-state": "node scripts/test-welcome-state.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",

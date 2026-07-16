@@ -679,6 +679,7 @@ export const et: Record<TranslationKey, string> = {
   "notifications.mute": "Vaigista",
   "notifications.revoke": "Tühista luba",
   "qdnWrite.action.notificationAdd": "Taustateavitused",
+  "qdnWrite.action.updateHomeSettings": "Uuenda Home'i seadeid",
   "qdnWrite.action.updateNodeSettings": "Uuenda sõlme seadeid",
   "qdnWrite.action.restartNode": "Taaskäivita sõlm",
   "qdnWrite.action.addToList": "Lisa loendisse",

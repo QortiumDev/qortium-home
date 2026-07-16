@@ -63,6 +63,7 @@ import {
   subscribeToSystemThemeChange,
   type DisplaySettings,
 } from './displaySettings';
+import { getWritableHomeSettings, validateHomeSettingsPatch, type HomeSettings } from '../electron/home-settings-bridge';
 import {
   createDashboardPin,
   loadDashboardPins,
@@ -418,6 +419,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.notificationAdd';
     case 'UPDATE_NODE_SETTINGS':
       return 'qdnWrite.action.updateNodeSettings';
+    case 'UPDATE_HOME_SETTINGS':
+      return 'qdnWrite.action.updateHomeSettings';
     case 'RESTART_NODE':
       return 'qdnWrite.action.restartNode';
     case 'ADD_TO_LIST':
@@ -952,6 +955,34 @@ export function App() {
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
+    if (!qdnPermissions?.onHomeSettingsRequest || !qdnPermissions.resolveHomeSettingsRequest) {
+      return undefined;
+    }
+
+    return qdnPermissions.onHomeSettingsRequest((request) => {
+      const respond = (settings: HomeSettings) => {
+        void qdnPermissions.resolveHomeSettingsRequest?.(request.id, getWritableHomeSettings(settings));
+      };
+
+      if (request.operation === 'read') {
+        respond(displaySettings);
+        return;
+      }
+
+      try {
+        const patch = validateHomeSettingsPatch(request.patch);
+        const nextSettings = { ...displaySettings, ...patch } as DisplaySettings;
+        updateDisplaySettings(nextSettings);
+        respond(nextSettings);
+      } catch (error) {
+        console.warn('Unable to apply QDN Home settings request.', error);
+        respond(displaySettings);
+      }
+    });
+  }, [displaySettings]);
+
+  useEffect(() => {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
 
     if (!qdnPermissions?.onWriteRequest) {
       return undefined;
@@ -1381,6 +1412,18 @@ export function App() {
   }, [displaySettings, systemLanguage, systemTheme]);
 
   useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+    if (!qdnViews) return;
+    void qdnViews.broadcastHomeSettingsChanged({
+      ...effectiveDisplaySettings,
+      lang: effectiveDisplaySettings.language,
+      uiStyle: effectiveDisplaySettings.ui,
+    }).catch((error) => {
+      console.warn('Unable to broadcast Home display settings to QDN apps.', error);
+    });
+  }, [effectiveDisplaySettings]);
+
+  useEffect(() => {
     const zoomApi = window.qortiumHome.zoom;
 
     if (!zoomApi) {
@@ -1477,6 +1520,16 @@ export function App() {
     saveDisplaySettings(nextDisplaySettings).catch((error) => {
       console.warn('Unable to save display settings.', error);
     });
+  }
+
+  function getQdnHomeSettings(): HomeSettings {
+    return getWritableHomeSettings(displaySettings);
+  }
+
+  function applyQdnHomeSettingsPatch(patch: Partial<HomeSettings>): HomeSettings {
+    const nextSettings = { ...displaySettings, ...validateHomeSettingsPatch(patch) } as DisplaySettings;
+    updateDisplaySettings(nextSettings);
+    return getWritableHomeSettings(nextSettings);
   }
 
   function toggleStartPage(displayUrl: string) {
@@ -3574,11 +3627,13 @@ export function App() {
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   nodeEpoch={nodeEpoch}
                   nodeMode={nodeSettings.mode}
+                  getHomeSettings={getQdnHomeSettings}
                   onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
+                  onHomeSettingsPatch={applyQdnHomeSettingsPatch}
                   resource={tabRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}

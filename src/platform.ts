@@ -15,6 +15,7 @@ import {
   QDN_CHAT_ACTIONS,
   QDN_FOREIGN_SERVER_ACTIONS,
   QDN_GROUP_ACTIONS,
+  QDN_HOME_SETTINGS_ACTIONS,
   QDN_NAME_ACTIONS,
   QDN_PAYMENT_ACTIONS,
   QDN_POLL_ACTIONS,
@@ -22,6 +23,12 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
+import {
+  getHomeSettingsApprovalDetails,
+  getHomeSettingsMetadata,
+  validateHomeSettingsPatch,
+  type HomeSettings,
+} from '../electron/home-settings-bridge';
 import { getPlatformVersion } from '../electron/app-versioning';
 import {
   getOptionalPollVoteOptionIndexes,
@@ -318,6 +325,8 @@ type QdnAppResourceRequest = {
 type QdnAppRequestContext = {
   accountId: string | null;
   displaySettings: QdnDisplaySettings;
+  getHomeSettings?: () => HomeSettings;
+  applyHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   isCurrent?: () => boolean;
   isViewFocused?: () => boolean;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -338,6 +347,7 @@ type QdnTrustAction = (typeof QDN_TRUST_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnAccountFreeWriteAction = (typeof QDN_ACCOUNT_FREE_WRITE_ACTIONS)[number];
+type QdnHomeSettingsAction = (typeof QDN_HOME_SETTINGS_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
@@ -354,7 +364,8 @@ type QdnWriteApprovalAction =
   | 'START_MINTING'
   | 'REMOVE_MINTING_ACCOUNT'
   | 'SHOW_NOTIFICATION'
-  | 'NOTIFICATION_ADD';
+  | 'NOTIFICATION_ADD'
+  | 'UPDATE_HOME_SETTINGS';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
 
 type QdnWriteResourceRequest = {
@@ -7926,6 +7937,38 @@ async function handleQdnAccountFreeWriteAction(
   return parseLocalPostData(responseBody);
 }
 
+async function handleQdnHomeSettingsAction(
+  action: QdnHomeSettingsAction,
+  request: QdnAppRequest,
+  context?: QdnAppRequestContext,
+) {
+  if (!context) {
+    throw new Error('QDN Home settings request does not belong to an active app view.');
+  }
+  if (action === 'GET_HOME_SETTINGS_METADATA') return getHomeSettingsMetadata();
+
+  if (!context.getHomeSettings) {
+    throw new Error('Home settings are unavailable in this view.');
+  }
+  if (action === 'GET_HOME_SETTINGS') return context.getHomeSettings();
+
+  const explicitPatch = getRequestValue(request, 'patch') ?? getRequestValue(request, 'settings');
+  const patch = validateHomeSettingsPatch(explicitPatch ?? (isRecord(request.payload) ? request.payload : undefined));
+  const current = context.getHomeSettings();
+  await requestQdnWriteApproval(context, null, {
+    action,
+    details: getHomeSettingsApprovalDetails(current, patch),
+    permissionScope: 'single-request',
+  });
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('QDN write request is stale because the app view changed before approval.');
+  }
+  if (!context.applyHomeSettingsPatch) {
+    throw new Error('Home settings updates are unavailable in this view.');
+  }
+  return context.applyHomeSettingsPatch(patch);
+}
+
 async function getProtectedNodeRequestContext() {
   const settings = await readNodeSettings();
 
@@ -10584,6 +10627,10 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
   if (isQdnAccountFreeWriteAction(action)) {
     return handleQdnAccountFreeWriteAction(action, request, context);
+  }
+
+  if ((QDN_HOME_SETTINGS_ACTIONS as readonly string[]).includes(action)) {
+    return handleQdnHomeSettingsAction(action as QdnHomeSettingsAction, request, context);
   }
 
   switch (action) {

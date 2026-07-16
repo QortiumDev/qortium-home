@@ -679,6 +679,7 @@ export const nl: Record<TranslationKey, string> = {
   "notifications.mute": "Dempen",
   "notifications.revoke": "Intrekken",
   "qdnWrite.action.notificationAdd": "Achtergrondmeldingen",
+  "qdnWrite.action.updateHomeSettings": "Home-instellingen bijwerken",
   "qdnWrite.action.updateNodeSettings": "Node-instellingen bijwerken",
   "qdnWrite.action.restartNode": "Node opnieuw starten",
   "qdnWrite.action.addToList": "Aan lijst toevoegen",

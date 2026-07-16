@@ -102,7 +102,11 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
 `SEARCH_QDN_RESOURCES`, `GET_RESOURCE_RATING`, `GET_ACCOUNT_RATING`, `GET_SELECTED_ACCOUNT`,
-`IS_USING_PUBLIC_NODE`,
+`IS_USING_PUBLIC_NODE`, `GET_HOME_SETTINGS_METADATA`, and `GET_HOME_SETTINGS`.
+`UPDATE_HOME_SETTINGS` is available in every node mode but requires a
+single-request approval before changing Home's display settings. See
+[Home settings QDN bridge](docs/HOME_SETTINGS_BRIDGE.md) for request shapes and
+the live settings-change event. Other supported actions include
 `WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
