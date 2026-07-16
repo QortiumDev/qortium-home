@@ -33,6 +33,20 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-16 - fix(qdn): restore the app bridge inside sandboxed QDN app views
+
+Fixes the 1.5.0 regression where every QDN app lost its connection to Home:
+Chat asked people to "share the selected account", direct chats and avatars
+disappeared, and attachments could not be added. The 1.5.0 bridge hardening
+made the QDN app preload script load its error-envelope keys from a shared
+module, but QDN app views run sandboxed, where scripts cannot load other local
+files - so the whole preload script silently failed and apps behaved as if
+they were running outside Home. The preload now carries those two constants
+itself, a test pins them to the shared module so they cannot drift apart, and
+the same test fails if the preload ever gains another local file load that
+would break it again. Reads through the node kept working throughout, which
+is why browsing and public group chat still looked normal.
+
 ### 2026-07-16 - qdn: open single-file documents in the right viewer format
 
 Single-file QDN documents now open correctly in the document viewer. These
