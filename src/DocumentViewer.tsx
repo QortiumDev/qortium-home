@@ -220,11 +220,25 @@ type DocumentViewerProps = {
   /** In-memory bytes to render instead of fetching from the node (archive entry). */
   bytes?: Uint8Array;
   displaySettings: QdnDisplaySettings;
+  /**
+   * Filename/mimeType hint for format detection only (never used to build the
+   * fetch URL/path) - the caller's best guess at what this resource is. Needed
+   * because single-file resources have no `resource.path` to derive a filename
+   * from, and the node's Content-Type header for raw resources is unreliable.
+   */
+  knownFilename?: string | null;
+  knownMimeType?: string | null;
   onDismiss: () => void;
   resource: QdnResource;
 };
 
-export function DocumentViewer({ bytes: providedBytes, onDismiss, resource }: DocumentViewerProps) {
+export function DocumentViewer({
+  bytes: providedBytes,
+  knownFilename,
+  knownMimeType,
+  onDismiss,
+  resource,
+}: DocumentViewerProps) {
   const [state, setState] = useState<ViewerState>({ message: t('viewer.loadingResource'), phase: 'loading' });
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);
@@ -272,8 +286,8 @@ export function DocumentViewer({ bytes: providedBytes, onDismiss, resource }: Do
           contentType = result.contentType;
         }
 
-        const filename = resource.path ? resource.path.split('/').pop() : undefined;
-        const format = detectDocumentFormat(filename, contentType);
+        const filename = (resource.path ? resource.path.split('/').pop() : undefined) ?? knownFilename ?? undefined;
+        const format = detectDocumentFormat(filename, contentType || knownMimeType || undefined);
 
         if (format === 'txt') {
           const content = new TextDecoder().decode(bytes);
@@ -329,7 +343,7 @@ export function DocumentViewer({ bytes: providedBytes, onDismiss, resource }: Do
       canceled = true;
       cleanup?.();
     };
-  }, [providedBytes, resource]);
+  }, [providedBytes, resource, knownFilename, knownMimeType]);
 
   // Track EPUB location changes
   useEffect(() => {

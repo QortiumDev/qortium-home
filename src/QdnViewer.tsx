@@ -2186,6 +2186,8 @@ function QdnDocumentContent({
                   name: resource.name,
                   path: resource.path || null,
                   service: resource.service,
+                  filename: loadedResource.properties?.filename ?? null,
+                  mimeType: loadedResource.properties?.mimeType ?? null,
                 })
               }
             >
@@ -3830,6 +3832,8 @@ function QdnReadyContent({
                   name: resource.name,
                   path: resource.path || null,
                   service: resource.service,
+                  filename: loadedResource.properties?.filename ?? null,
+                  mimeType: loadedResource.properties?.mimeType ?? null,
                 })
               }
             >

@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-16 - qdn: open single-file documents in the right viewer format
+
+Single-file QDN documents now open correctly in the document viewer. These
+resources have no file path for Home to guess the format from, and nodes do
+not always report a reliable content type, so formats like EPUB could show
+"cannot be displayed inline" instead of opening. QDN apps can now pass
+optional filename and content-type hints when asking Home to open the
+document viewer, and Home's own "Open in Document Viewer" button supplies the
+same hints from the resource's published properties. The hints are used only
+to pick the display format; they never change which resource is fetched from
+the node.
+
 ### 2026-07-15 - docs: refresh README for the current feature set
 
 Brings the README back in line with what Qortium Home actually does today. It

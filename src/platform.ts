@@ -11076,11 +11076,15 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       const name = getRequiredRequestString(request, 'name', 'Name');
       const identifier = getString(getRequestValue(request, 'identifier'));
       const resourcePath = getString(getRequestValue(request, 'path'));
+      const filename = getString(getRequestValue(request, 'filename'));
+      const mimeType = getString(getRequestValue(request, 'mimeType'));
 
       if (
         name.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
         identifier.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
-        resourcePath.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH
+        resourcePath.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
+        filename.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH ||
+        mimeType.length > QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH
       ) {
         throw new Error('QDN document viewer request fields are too long.');
       }
@@ -11094,6 +11098,8 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
         name,
         path: resourcePath || null,
         service,
+        filename: filename || null,
+        mimeType: mimeType || null,
       });
 
       return true;
