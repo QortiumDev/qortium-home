@@ -1,11 +1,14 @@
 # Qortium Home
 
-Qortium Home is an early preview desktop application for managing Qortium
-wallets, checking a configured node, and browsing QDN content from one simple
-interface.
+Qortium Home is a desktop and Android application for managing Qortium
+wallets, running or connecting to a Qortium node, and browsing QDN content
+from one simple interface.
 
 Qortium Home is focused on account management, QDN browsing, and a browser-like
-foundation that can grow into account-aware tabs over time.
+foundation built around account-aware tabs. Prebuilt packages are published at
+<https://github.com/QortiumDev/qortium-home/releases> (currently on the
+prerelease channel, v1.4.x). See [Status](#status) below before using wallets
+with meaningful funds.
 
 ## Status
 
@@ -18,47 +21,49 @@ more broadly.
 
 ## Current Features
 
-- Create a new encrypted wallet backup file on desktop and Android.
-- Load encrypted Qortium wallet files.
-- Save loaded wallet metadata in the local Electron app data folder.
-- Load encrypted wallet JSON files on Android, export encrypted Android wallet
-  backups, and keep saved Android wallet metadata in app-private storage.
-- Keep wallets locked after restart and unlocked only for the current session.
-- Select, unlock, lock, and remove saved wallets.
-- Show node status for the configured node, including sync phase, target
-  height, blocks remaining, sync percent, and peer counts when Core provides
+- **Wallets** — create, load, and export encrypted wallet backups on desktop
+  and Android, derive multiple addresses from one wallet, and keep saved
+  wallets locked after restart with per-session unlock, lock, and remove.
+- **Node modes** — switch between a local node, one saved custom node, and
+  Previewnet network discovery, with a node status dashboard showing sync
+  phase, target height, blocks remaining, and peer counts when Core provides
   them.
-- Switch between a local node, Previewnet network discovery, and one saved custom node.
-- Install the latest Qortium Core prerelease from GitHub into a desktop Core
-  app-data folder.
-- Install a Home-managed Java 17 runtime for desktop Core when system Java is
-  missing.
-- Start and stop the Home-created desktop Previewnet Core.
-- Show Core runtime log paths for `qortium-core/runtime/qortium.log`,
-  `qortium-core/runtime/run.log`, and the Windows
-  `qortium-core/runtime/run-error.log` when applicable.
-- Browse QDN services, names, and resources from `qdn://` URLs.
-- Load `APP` and `WEBSITE` resources in an embedded viewer.
-- Load image-style QDN resources such as `IMAGE`, `THUMBNAIL`, and
-  `QCHAT_IMAGE`.
-- Load media-style QDN resources such as `AUDIO`, `VOICE`, `PODCAST`, and
-  `VIDEO`.
-- Load text-style QDN resources such as `JSON`, `METADATA`, `BLOG`, and
-  `MESSAGE`.
-- Download file-style QDN resources such as `DOCUMENT`, `FILE`, `FILES`, and
-  `ATTACHMENT`.
-- Browse read-only node API endpoints with paths such as `/admin/status`.
-- Browse all public services for one name with `qdn://*/name`.
-- Use session-only browser tabs with independent page history.
-- Choose a separate selected wallet for each tab before navigating.
-- Show the active tab's selected wallet as an avatar or initial in the top bar.
-- Use in-session Back and Forward navigation history.
-- Approve QDN APP/WEBSITE publish, delete, group join, group chat, and direct
-  private chat requests on desktop and Android through the selected tab account
-  when using a local node.
-- Build Linux x64 and arm64 AppImages, macOS DMGs, and a Windows x64 portable executable.
-- Build Android debug APKs plus release APK/AAB packages with Capacitor.
-- Package Linux, Windows, and macOS build resources with the Qortium Home app icon.
+- **Managed Core node** — install the current Qortium Core prerelease from
+  GitHub into a stable desktop app-data folder, start and stop it, surface its
+  runtime log paths, and check Core's approved on-chain/QDN update status.
+- **Managed Java runtime** — install a Home-managed Java 25 runtime when
+  system Java is missing (any system Java 17 or newer keeps working), with a
+  visible weekly update check and an opt-in automatic Java update setting.
+- **Managed I2P transport** — install and run the i2pd router from
+  `QortiumDev/qortium-i2pd` with selectable IP/I2P transport modes for the
+  managed Core.
+- **QDN browsing** — explore services, names, and resources from `qdn://`
+  URLs in session-only tabs with independent history, a per-tab selected
+  account, read-only node API browsing, and saved bookmarks.
+- **Document and media viewers** — in-app viewers for images, audio, and
+  video; a document reader for PDF, EPUB, plain text, and CBZ/CBR comics; a
+  ZIP/RAR archive browser and a `GIT_REPOSITORY` file-tree browser; and
+  code, Markdown, CSV, and JSON views.
+- **QDN app hosting** — `APP` and `WEBSITE` resources run in isolated views
+  with the account-aware `qdnRequest` bridge for read lookups and
+  approval-gated writes (see [QDN App Bridge](#qdn-app-bridge)).
+- **QDN app notifications** — apps can show system notifications and register
+  subscription rules with filters that keep working while their tab is in the
+  background, plus app-controlled tab titles for unread counts.
+- **Self-update** — checks GitHub releases on a stable or prerelease channel,
+  downloads and verifies the matching platform asset, installs desktop
+  updates next to the running build, and hands Android updates to the system
+  package installer.
+- **First-run Welcome setup** — a resumable, skippable setup for new installs
+  that helps choose a connection mode, create or import an account, and pick
+  what to explore first.
+- **App versioning (QAVS)** — recognizes the Qortium App Versioning Standard
+  label on QDN apps and websites, shows compatibility badges, and answers
+  `GET_HOST_INFO` so apps can adapt to the platform version.
+- **UI styles and languages** — Classic, Modern, and Fun display styles,
+  adjustable text size, and translations for more than twenty locales.
+- **Build targets** — Linux x64/arm64 AppImages, macOS DMGs, a Windows x64
+  portable executable, and Android APK/AAB packages via Capacitor.
 
 ## Preview Limits
 
@@ -73,98 +78,57 @@ reachable node that can answer public QDN resource searches. Home does not send
 the local API key while using Previewnet network mode.
 
 Qortium Home does not yet expose a first-party direct chat UI or generic
-transaction signing workflows. Desktop and Android QDN apps can request QDN
-publish/delete, group membership and maintenance actions, name management,
-group and direct private chat sends, and private group/direct chat reads through
-the account-aware `qdnRequest` bridge after user approval when the selected node
-is local and has a saved API key.
+transaction signing workflows.
+
+## QDN App Bridge
 
 Desktop APP and WEBSITE pages rendered in isolated QDN views and Android
 APP/WEBSITE pages rendered in the Capacitor WebView can use the Qortium-native
-`qdnRequest` bridge for read-only node and QDN lookups through Home's currently
-selected node. Desktop QDN apps and Android QDN apps can also request the
-selected tab account's public identity after a user approval prompt. The bridge
-accepts explicit object requests only, and Android APP/WEBSITE bridge injection
-is limited to Home-owned tokenized iframe loads.
+`qdnRequest` bridge. It exposes read-only node, QDN, account, group, chat,
+rating, and market-data lookups, plus approval-gated write actions (QDN
+publish/delete, group, name, payment, poll, list, chat, minting, rating, and
+node-settings requests) that Home signs itself, so QDN apps never receive
+wallet private keys or generic signing capability. The bridge accepts strict
+object-form requests only — legacy aliases, string-form requests, external
+URLs, and write-style node API methods are rejected — and Android
+APP/WEBSITE bridge injection is limited to Home-owned tokenized iframe loads.
 
-QDN apps can create scheduled polls with `startTime` (or `pollStartTime`) and
-can update their schedule with `newStartTime` (or `startTime`). Poll updates
-are full replacements in Core: an app updating a scheduled poll must resubmit
-the current start time verbatim, especially after votes exist.
-
-Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
-`GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
-`GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,
-`GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_BALANCE`, `GET_GROUP`,
-`GET_GROUP_JOIN_REQUESTS`, `GET_GROUP_MEMBERS`, `GET_MINTING_STATUS`,
-`GET_NAME_DATA`, `LIST_GROUPS`, `SEARCH_GROUPS`, `SEARCH_CHAT_MESSAGES`,
-`GET_QDN_RESOURCE_METADATA`,
-`GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
-`GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
-`SEARCH_QDN_RESOURCES`, `GET_RESOURCE_RATING`, `GET_ACCOUNT_RATING`, `GET_SELECTED_ACCOUNT`,
-`IS_USING_PUBLIC_NODE`, `GET_HOME_SETTINGS_METADATA`, and `GET_HOME_SETTINGS`.
-`UPDATE_HOME_SETTINGS` is available in every node mode but requires a
-single-request approval before changing Home's display settings. See
-[Home settings QDN bridge](docs/HOME_SETTINGS_BRIDGE.md) for request shapes and
-the live settings-change event. Other supported actions include
-`WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
-APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
-`PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
-`APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
-`UPDATE_GROUP`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
-`CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`,
-`GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
-`GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
-`SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
-Single-resource publishing can use inline `data64`/`base64` payloads or a
-Home-owned file/folder picker on desktop and a Home-owned single-file native
-picker on Android. `SELECT_QDN_PUBLISH_SOURCE` can return a `sourceToken` and
-`sourceToken` is accepted on `PUBLISH_QDN_RESOURCE` and each entry of
-`PUBLISH_MULTIPLE_QDN_RESOURCES` as an alternative to inline `data64`/`base64`.
-`PUBLISH_MULTIPLE_QDN_RESOURCES` still requires either inline data or a token
-for each resource. `SELECT_QDN_PUBLISH_SOURCE` accepts optional `kind` (`file`
-or `directory`) and returns `{ canceled: true }` or a source result with
-`fileName`, `kind`, `size`, and `sourceToken`.
-Publish/delete, group, and name write requests require
-per-request approval before Home signs and processes the transaction with the
-selected tab account. Chat sends and private closed-group reads use a
-session-scoped approval for the current tab and selected account; direct private
-chat sends and reads use Core-managed direct-message helpers so QDN apps never
-receive wallet private keys or generic signing capability.
-
-`FETCH_NODE_API` accepts path-only requests such as `/admin/status` and only
-allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
-`GET_NODE_API`, string-form requests, and write-style methods are rejected.
-
-`RATE_RESOURCE` submits a Core resource rating for an existing public QDN
-resource after user approval. The action accepts `service`, `name`, optional
-`identifier` (defaulting to `default`), and `rating`; ratings `1` through `10`
-record a rating, while `0` removes the selected account's active rating.
-
-`GET_RESOURCE_RATING` fetches Core resource rating data for a target resource and
-the selected rater. The action accepts `service`, `name`, optional `identifier`
-(defaulting to `default`), and optional `rater` (an address). If `rater` is not
-provided, Home uses the currently selected account address. The response shape is
-`{ action, service, name, identifier, rater, summary, rating }` where `summary`
-or `rating` can be `null` when empty.
-
-`GET_ACCOUNT_RATING` fetches Core account rating summary data and the rater's
-own rating edges for `target`. The action accepts `target`, optional `category`,
-and optional `rater` (an address). If `rater` is not provided, Home uses the
-currently selected account address. The response shape is
-`{ action, target, category, rater, summary, ratings }` where `summary` is `null`
-and `ratings` is an array (empty when no ratings are returned).
+The authoritative action catalogue is
+[`electron/qdn-app-actions.ts`](electron/qdn-app-actions.ts). Documented
+bridge feature areas include app versioning
+([docs/APP_VERSIONING.md](docs/APP_VERSIONING.md)), app notifications
+([docs/APP_NOTIFICATIONS.md](docs/APP_NOTIFICATIONS.md)), same-tab
+navigation ([docs/OPEN_CURRENT_TAB.md](docs/OPEN_CURRENT_TAB.md)), and
+approval-gated Home display settings
+([docs/HOME_SETTINGS_BRIDGE.md](docs/HOME_SETTINGS_BRIDGE.md)). Operational
+details apps rely on — per-mode action availability, poll scheduling fields,
+the publish source-token flow, `FETCH_NODE_API` limits, and the rating
+actions — are collected in
+[docs/BRIDGE_ACTIONS.md](docs/BRIDGE_ACTIONS.md). The bridge
+also offers interoperability actions that target the separate Qortal network —
+such as `SEND_QORT` and the `GET_QORTAL_*` reads — which are kept distinct
+from Qortium's own actions; Qortium and Qortal remain separate networks.
 
 ## Planned Work
 
-- Additional derived addresses from the same wallet.
 - Additional `qdnRequest` approval prompts for generic signing and other
   write-style account actions.
 - First-party local-node workflows for chat management.
-- Service-specific viewers for more QDN service types.
-- Stable/mainnet Core profile selection and richer Core maintenance controls.
-- Android signing credential setup.
+- Mainnet Core profile selection and richer Core maintenance controls.
 - Code signing and release verification for production builds.
+
+## Download
+
+Prebuilt packages are published on the
+[GitHub Releases page](https://github.com/QortiumDev/qortium-home/releases):
+Linux AppImages (x64 and arm64), macOS DMGs, a Windows x64 portable
+executable, and an Android APK. Home also has an in-app self-update system
+with stable and prerelease channels that downloads and verifies the matching
+platform asset; releases are currently published on the prerelease channel.
+
+All current builds are unsigned. Expect operating-system warnings (Windows
+SmartScreen, macOS Gatekeeper approval, Android unknown-source prompts), and
+see [Status](#status) before using wallets with meaningful funds.
 
 ## Development Setup
 
@@ -232,6 +196,10 @@ Build a universal macOS DMG on macOS:
 ```sh
 npm run dist:mac:universal
 ```
+
+Each macOS dist target also has a `:remote` variant (for example
+`npm run dist:mac:universal:remote`) that runs the build on a remote Mac; see
+[docs/REMOTE_MAC_BUILDS.md](docs/REMOTE_MAC_BUILDS.md).
 
 Build a Windows x64 portable executable:
 
@@ -429,7 +397,7 @@ Android builds require a local Android SDK with Android Platform 36 and Build
 Tools 35 installed, SDK licenses accepted, and `ANDROID_HOME` or
 `ANDROID_SDK_ROOT` pointing at the SDK. The debug APK output is generated under
 `android/app/build/outputs/apk/debug/` with a filename like
-`Qortium-Home-1.0.0-android-debug.apk`. Release APK/AAB outputs are collected
+`Qortium-Home-<version>-android-debug.apk`. Release APK/AAB outputs are collected
 under `dist-release/`; `release:publish` expects signed Android release files
 without the `-unsigned` suffix.
 
@@ -464,7 +432,8 @@ Desktop can also manage a local Qortium Core Previewnet install from the node
 settings menu. The first Core management flow checks `QortiumDev/qortium-core`
 GitHub releases for the current `qortium-preview.zip` prerelease asset,
 installs it under the stable `qortium-core` app-data folder, can install a
-managed Java 17 runtime when needed, and runs the bundled preview start and stop
+managed Java 25 runtime when needed (any system Java 17 or newer is also
+accepted), and runs the bundled preview start and stop
 scripts. Home keeps its own desktop data under `qortium-home` by default, while
 Core release files, install metadata, downloads, Java, and runtime files live
 under `qortium-core`. Core updates replace only `qortium-core/install`, leaving
@@ -507,7 +476,17 @@ or local preview secrets.
 ## Documentation
 
 - Project plan: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
-- Change log: [QORTIUM-HOME-CHANGELOG.md](QORTIUM-HOME-CHANGELOG.md)
+- App versioning standard (QAVS): [docs/APP_VERSIONING.md](docs/APP_VERSIONING.md)
+- QDN app notifications: [docs/APP_NOTIFICATIONS.md](docs/APP_NOTIFICATIONS.md)
+- Core management: [docs/CORE_MANAGEMENT.md](docs/CORE_MANAGEMENT.md)
+- `OPEN_CURRENT_TAB` bridge action: [docs/OPEN_CURRENT_TAB.md](docs/OPEN_CURRENT_TAB.md)
+- Bridge action notes: [docs/BRIDGE_ACTIONS.md](docs/BRIDGE_ACTIONS.md)
+- Home settings QDN bridge: [docs/HOME_SETTINGS_BRIDGE.md](docs/HOME_SETTINGS_BRIDGE.md)
+- Remote macOS builds: [docs/REMOTE_MAC_BUILDS.md](docs/REMOTE_MAC_BUILDS.md)
+- Change log: [QORTIUM-HOME-CHANGELOG.md](QORTIUM-HOME-CHANGELOG.md) — every
+  merged PR adds one plain-language entry in the same branch.
+- Website: <https://qortium.app>
+- Community discussions: <https://github.com/orgs/QortiumDev/discussions>
 
 ## License
 

@@ -33,6 +33,25 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-15 - docs: refresh README for the current feature set
+
+Brings the README back in line with what Qortium Home actually does today. It
+now introduces Home as a desktop and Android application, points to the
+GitHub releases page, and adds a Download section describing the published
+packages, the in-app self-update channels, and the unsigned-builds warning.
+The feature list is regrouped around wallets, node modes, the managed Core,
+Java, and I2P runtimes, QDN browsing and viewers, QDN app hosting and
+notifications, self-update, the Welcome setup, app versioning badges, display
+styles, and translations. The long inline list of QDN app bridge actions,
+which had fallen out of date, is replaced by a short summary that points at
+the real action catalogue in the code and the bridge documentation, including
+a note that the bridge's Qortal interoperability actions stay separate from
+Qortium's own. Outdated Java 17 references now describe the Java 25 managed
+runtime, already-shipped planned items are removed, and the Documentation
+section links every document in `docs/`, the change log convention, the
+qortium.app website, and the community discussions page. The detailed bridge notes that grew inline (poll
+scheduling, publishing sources, node-API limits, rating actions) move to
+`docs/BRIDGE_ACTIONS.md`. No application behavior changed.
 ### 2026-07-15 - feat(qdn): let apps read and change Home display settings with approval
 
 QDN apps can now see the small set of Home display choices that already affect their appearance, such as theme, language, text size, accent, zoom, style, and app notifications. Apps can read those values without a prompt, while any requested change clearly shows the current and proposed values and needs the person's approval each time. Approved changes take effect and are saved immediately in Home and in open apps, without changing node connections, wallets, updates, or other personal Home data.
