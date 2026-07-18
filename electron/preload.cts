@@ -255,6 +255,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       bounds: { height: number; width: number; x: number; y: number };
       tabId: string;
     }) => ipcRenderer.invoke('qdn-views:setBounds', request),
+    navigate: (request: { index: number; tabId: string }) =>
+      ipcRenderer.invoke('qdn-views:navigate', request),
     capture: (tabId: string) => ipcRenderer.invoke('qdn-views:capture', { tabId }),
     hide: (tabId: string) => ipcRenderer.invoke('qdn-views:hide', { tabId }),
     destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
@@ -423,6 +425,30 @@ contextBridge.exposeInMainWorld('qortiumHome', {
 
       return () => {
         ipcRenderer.removeListener('qdn-views:app-title-changed', listener);
+      };
+    },
+    onAppNavigationChanged: (callback: (event: {
+      activeIndex: number;
+      entries: Array<{ index: number; url: string }>;
+      resourceUrl: string;
+      tabId: string;
+    }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: {
+          activeIndex: number;
+          entries: Array<{ index: number; url: string }>;
+          resourceUrl: string;
+          tabId: string;
+        },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-views:app-navigation-changed', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-views:app-navigation-changed', listener);
       };
     },
   },

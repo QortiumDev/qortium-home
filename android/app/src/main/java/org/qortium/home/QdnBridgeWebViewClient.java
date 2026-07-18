@@ -311,6 +311,26 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "new MutationObserver(postTitle).observe(document.head,{subtree:true,childList:true,characterData:true});" +
             "}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',watchTitle);}else{watchTitle();}" +
+            // Mirror the iframe's real browser history into Home. Chromium's
+            // Navigation API supplies stable indexes (including duplicate URLs);
+            // the small shadow stack keeps older Android WebViews functional.
+            "var lastNavigation=null;var fallbackEntries=[window.location.href];var fallbackIndex=0;" +
+            "function getNavigationSnapshot(){" +
+            "if(window.navigation&&typeof window.navigation.entries==='function'&&window.navigation.currentEntry){" +
+            "var nativeEntries=window.navigation.entries();return {activeIndex:window.navigation.currentEntry.index,entries:nativeEntries.map(function(entry){return {index:entry.index,url:entry.url};})};}" +
+            "return {activeIndex:fallbackIndex,entries:fallbackEntries.map(function(url,index){return {index:index,url:url};})};" +
+            "}" +
+            "function postNavigation(){var snapshot=getNavigationSnapshot();var serialized=JSON.stringify(snapshot);if(serialized===lastNavigation)return;lastNavigation=serialized;" +
+            "if(window.parent&&window.parent!==window){window.parent.postMessage({type:'qortium:qdn-navigation',bridgeToken:bridgeToken,activeIndex:snapshot.activeIndex,entries:snapshot.entries},'*');}}" +
+            "var originalPushState=window.history.pushState;" +
+            "window.history.pushState=function(){var result=originalPushState.apply(this,arguments);if(!window.navigation){fallbackEntries=fallbackEntries.slice(0,fallbackIndex+1);fallbackEntries.push(window.location.href);fallbackIndex+=1;}postNavigation();return result;};" +
+            "var originalReplaceState=window.history.replaceState;" +
+            "window.history.replaceState=function(){var result=originalReplaceState.apply(this,arguments);if(!window.navigation){fallbackEntries[fallbackIndex]=window.location.href;}postNavigation();return result;};" +
+            "window.addEventListener('popstate',function(){if(!window.navigation){var current=window.location.href;var match=fallbackEntries.lastIndexOf(current,fallbackIndex-1);if(match<0){match=fallbackEntries.indexOf(current,fallbackIndex+1);}if(match>=0){fallbackIndex=match;}}postNavigation();});" +
+            "if(window.navigation){window.navigation.addEventListener('currententrychange',postNavigation);}" +
+            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:qdn-navigation-command'||data.bridgeToken!==bridgeToken||!Number.isInteger(data.index)||data.index<0)return;" +
+            "var snapshot=getNavigationSnapshot();var target=snapshot.entries.find(function(entry){return entry.index===data.index;});if(!target)return;window.history.go(data.index-snapshot.activeIndex);});" +
+            "postNavigation();" +
             "})();" +
             "</script>";
     }

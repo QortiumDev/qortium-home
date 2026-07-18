@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": false,
+    "outDir": "dist-electron/qdn-live-location-test",
+    "types": ["node"]
+  },
+  "include": [
+    "src/qdn-app-history.ts",
+    "src/qdn-app-history.test.ts",
+    "src/qdn-live-location.ts",
+    "src/qdn-live-location.test.ts"
+  ]
+}

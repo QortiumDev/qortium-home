@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-18 - fix(qdn): sync in-app locations with Home
+
+Keeps Home's address bar and per-tab Back/Forward history synchronized with
+navigation inside QDN apps. Polls and Boards direct links now update as people
+move between polls, threads, and posts; toolbar buttons, mouse/keyboard
+shortcuts, Android's system Back button, reload, duplicate tabs, and reopened
+tabs all retain and traverse those pages before leaving the app. Desktop and
+Android accept navigation snapshots and commands only from the already-open app
+identity and node origin, discard Home-only rendering parameters, and ignore
+mismatched or non-web locations. Run the focused regression coverage with
+`npm run test:qdn-live-location`.
+
 ### 2026-07-16 - fix(qdn): submit multi-option poll votes in ascending order
 
 Fixes multi-option poll votes that could get stuck forever without being

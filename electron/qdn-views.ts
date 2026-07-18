@@ -130,6 +130,11 @@ type SanitizedBoundsRequest = {
   tabId: string;
 };
 
+type SanitizedNavigationRequest = {
+  index: number;
+  tabId: string;
+};
+
 type SanitizedDisplaySettingsRequest = {
   displaySettings: QdnDisplaySettings;
   tabId: string;
@@ -422,6 +427,21 @@ function sanitizeBoundsRequest(value: unknown): SanitizedBoundsRequest {
   };
 }
 
+function sanitizeNavigationRequest(value: unknown): SanitizedNavigationRequest {
+  if (!isRecord(value)) {
+    throw new Error('QDN view navigation request is required.');
+  }
+
+  if (!Number.isInteger(value.index) || (value.index as number) < 0 || (value.index as number) > 10_000) {
+    throw new Error('QDN view navigation index is invalid.');
+  }
+
+  return {
+    index: value.index as number,
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
 function sanitizeDisplaySettingsRequest(value: unknown): SanitizedDisplaySettingsRequest {
   if (!isRecord(value)) {
     throw new Error('QDN view display settings request is required.');
@@ -635,9 +655,43 @@ function sendTextSizeCommand(entry: QdnViewEntry, command: 'text-size-decrease' 
 }
 
 function applyViewGuards(entry: QdnViewEntry) {
+  const sendNavigationSnapshot = () => {
+    if (entry.window.isDestroyed() || !entry.resourceUrl) {
+      return;
+    }
+
+    const navigationHistory = entry.view.webContents.navigationHistory;
+    const activeIndex = navigationHistory.getActiveIndex();
+    const entries = navigationHistory
+      .getAllEntries()
+      .map((navigationEntry, index) => ({ index, url: navigationEntry.url }))
+      .filter((navigationEntry) => isAllowedRenderUrlForOrigin(navigationEntry.url, entry.nodeOrigin))
+      .slice(-200);
+
+    if (!entries.some((navigationEntry) => navigationEntry.index === activeIndex)) {
+      return;
+    }
+
+    entry.window.webContents.send('qdn-views:app-navigation-changed', {
+      activeIndex,
+      entries,
+      resourceUrl: entry.resourceUrl,
+      tabId: entry.tabId,
+    });
+  };
+
   const updateCurrentUrl = (url: string) => {
-    if (isAllowedRenderUrlForOrigin(url, entry.nodeOrigin)) {
-      entry.currentUrl = url;
+    if (!isAllowedRenderUrlForOrigin(url, entry.nodeOrigin)) {
+      return;
+    }
+
+    entry.currentUrl = url;
+
+    // A pushState can intentionally add the same URL twice. Always send the
+    // engine snapshot so its stable indexes, rather than URL equality, decide
+    // whether Home gained a history entry.
+    if (!entry.window.isDestroyed() && entry.resourceUrl) {
+      sendNavigationSnapshot();
     }
   };
 
@@ -1147,6 +1201,26 @@ export function registerQdnViewIpcHandlers() {
     if (entry) {
       applyHostViewBounds(entry, request.bounds);
     }
+  });
+
+  ipcMain.handle('qdn-views:navigate', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeNavigationRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry || entry.view.webContents.isDestroyed()) {
+      return false;
+    }
+
+    const navigationHistory = entry.view.webContents.navigationHistory;
+    const target = navigationHistory.getEntryAtIndex(request.index);
+
+    if (!target || !isAllowedRenderUrlForOrigin(target.url, entry.nodeOrigin)) {
+      return false;
+    }
+
+    navigationHistory.goToIndex(request.index);
+    return true;
   });
 
   ipcMain.handle('qdn-views:capture', async (event, rawRequest: unknown) => {

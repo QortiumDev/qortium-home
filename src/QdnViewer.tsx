@@ -23,6 +23,7 @@ import {
   isTerminalQdnStatus,
 } from './qdn';
 import { getOpenAppTargetMessage, type QdnAppTargetQuery } from './qdn-app-target';
+import type { QdnAppNavigationSnapshot } from './qdn-app-history';
 import { marked } from 'marked';
 import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
 import {
@@ -104,6 +105,8 @@ type QdnViewerProps = {
   nodeEpoch?: number;
   nodeMode?: QortiumNodeSettingsMode;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
+  onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
+  onAppNavigationControllerChange?: (controller: QdnAppNavigationController | null) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -193,6 +196,29 @@ function isQdnAppTitleMessage(value: unknown): value is QdnAppTitleMessage {
   return isRecord(value) && value.type === 'qortium:qdn-title';
 }
 
+type QdnAppNavigationMessage = {
+  activeIndex?: unknown;
+  bridgeToken?: unknown;
+  entries?: unknown;
+  type?: unknown;
+};
+
+function isQdnAppNavigationMessage(value: unknown): value is QdnAppNavigationMessage & QdnAppNavigationSnapshot {
+  return isRecord(value) &&
+    value.type === 'qortium:qdn-navigation' &&
+    Number.isInteger(value.activeIndex) &&
+    Array.isArray(value.entries) &&
+    value.entries.length > 0 &&
+    value.entries.length <= 200 &&
+    value.entries.every((entry) =>
+      isRecord(entry) && Number.isInteger(entry.index) && typeof entry.url === 'string' && entry.url.length <= 2_000,
+    );
+}
+
+export type QdnAppNavigationController = {
+  goToIndex: (index: number) => Promise<boolean>;
+};
+
 function createQdnBridgeToken() {
   const bytes = new Uint8Array(16);
 
@@ -220,6 +246,8 @@ export type QdnBridgeFrameContentProps = {
   getHomeSettings?: () => HomeSettings;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
+  onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
+  onAppNavigationControllerChange?: (controller: QdnAppNavigationController | null) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -3353,6 +3381,8 @@ export function QdnBridgeFrameContent({
   getHomeSettings,
   onHomeSettingsPatch,
   onAppTargetDelivered,
+  onAppNavigationChange,
+  onAppNavigationControllerChange,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3371,6 +3401,7 @@ export function QdnBridgeFrameContent({
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
+  const onAppNavigationChangeRef = useRef(onAppNavigationChange);
   const onAppTitleChangeRef = useRef(onAppTitleChange);
   const suspendedFrameRef = useRef(suspended);
 
@@ -3378,6 +3409,7 @@ export function QdnBridgeFrameContent({
   onOpenInCurrentTabRef.current = onOpenInCurrentTab;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
+  onAppNavigationChangeRef.current = onAppNavigationChange;
   onAppTitleChangeRef.current = onAppTitleChange;
   appTargetRef.current = appTarget;
   suspendedFrameRef.current = suspended;
@@ -3408,6 +3440,32 @@ export function QdnBridgeFrameContent({
         transformOrigin: '0 0',
       }
     : undefined;
+
+  useEffect(() => {
+    if (!isNativeFrame || !onAppNavigationControllerChange) {
+      return undefined;
+    }
+
+    const controller: QdnAppNavigationController = {
+      goToIndex: async (index) => {
+        const frameWindow = frameRef.current?.contentWindow;
+
+        if (!frameWindow || !Number.isInteger(index) || index < 0) {
+          return false;
+        }
+
+        frameWindow.postMessage({
+          type: 'qortium:qdn-navigation-command',
+          bridgeToken,
+          index,
+        }, getPostMessageTargetOrigin(renderUrl));
+        return true;
+      },
+    };
+
+    onAppNavigationControllerChange(controller);
+    return () => onAppNavigationControllerChange(null);
+  }, [bridgeToken, isNativeFrame, onAppNavigationControllerChange, renderUrl]);
 
   useEffect(() => {
     postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
@@ -3464,6 +3522,30 @@ export function QdnBridgeFrameContent({
           onAppTitleChangeRef.current?.(
             typeof event.data.title === 'string' ? event.data.title : null,
           );
+        }
+
+        return;
+      }
+
+      if (isQdnAppNavigationMessage(event.data)) {
+        if (event.data.bridgeToken === bridgeToken) {
+          const entries = event.data.entries.filter((entry) => {
+            try {
+              return new URL(entry.url, renderUrl).origin === allowedOrigin;
+            } catch {
+              return false;
+            }
+          }).map((entry) => ({
+            index: entry.index,
+            url: new URL(entry.url, renderUrl).toString(),
+          }));
+
+          if (entries.length === event.data.entries.length) {
+            onAppNavigationChangeRef.current?.({
+              activeIndex: event.data.activeIndex,
+              entries,
+            });
+          }
         }
 
         return;
@@ -3578,6 +3660,8 @@ function QdnIframeContent({
   getHomeSettings,
   loadedResource,
   onAppTargetDelivered,
+  onAppNavigationChange,
+  onAppNavigationControllerChange,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3593,6 +3677,8 @@ function QdnIframeContent({
   getHomeSettings?: () => HomeSettings;
   loadedResource: LoadedQdnResource;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
+  onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
+  onAppNavigationControllerChange?: (controller: QdnAppNavigationController | null) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -3609,6 +3695,8 @@ function QdnIframeContent({
       displaySettings={displaySettings}
       getHomeSettings={getHomeSettings}
       onAppTargetDelivered={onAppTargetDelivered}
+      onAppNavigationChange={onAppNavigationChange}
+      onAppNavigationControllerChange={onAppNavigationControllerChange}
       onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
       onOpenMediaPlayer={onOpenMediaPlayer}
@@ -3631,6 +3719,8 @@ function QdnReadyContent({
   nodeApiUrl,
   onAppTargetDelivered,
   onActionContextChange,
+  onAppNavigationChange,
+  onAppNavigationControllerChange,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3649,6 +3739,8 @@ function QdnReadyContent({
   nodeApiUrl: string;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onActionContextChange: SetViewerActionContext;
+  onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
+  onAppNavigationControllerChange?: (controller: QdnAppNavigationController | null) => void;
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -3688,6 +3780,8 @@ function QdnReadyContent({
         getHomeSettings={getHomeSettings}
         loadedResource={loadedResource}
         onAppTargetDelivered={onAppTargetDelivered}
+        onAppNavigationChange={onAppNavigationChange}
+        onAppNavigationControllerChange={onAppNavigationControllerChange}
         onAppTitleChange={onAppTitleChange}
         onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
@@ -3863,6 +3957,8 @@ export function QdnViewer({
   nodeEpoch,
   nodeMode,
   onAppTargetDelivered,
+  onAppNavigationChange,
+  onAppNavigationControllerChange,
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
@@ -3982,6 +4078,8 @@ export function QdnViewer({
           nodeApiUrl={nodeApiUrl}
           onAppTargetDelivered={onAppTargetDelivered}
           onActionContextChange={setActionContext}
+          onAppNavigationChange={onAppNavigationChange}
+          onAppNavigationControllerChange={onAppNavigationControllerChange}
           onAppTitleChange={onAppTitleChange}
           onOpenDocumentViewer={onOpenDocumentViewer}
           onOpenMediaPlayer={onOpenMediaPlayer}
