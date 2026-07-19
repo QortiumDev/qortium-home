@@ -1,4 +1,5 @@
 import { t, type TranslationKey } from './i18n';
+import { selectCompatibleUpdateAsset } from './app-update-assets';
 
 const HOME_REPOSITORY = 'QortiumDev/qortium-home';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${HOME_REPOSITORY}`;
@@ -110,51 +111,6 @@ function normalizeAsset(value: GithubAsset): QortiumAppUpdateAsset | null {
   };
 }
 
-function getAssetPriority(assetName: string, platform: QortiumAppUpdatePlatform) {
-  const normalizedName = assetName.toLowerCase();
-  const normalizedArch = platform.arch.toLowerCase();
-
-  if (platform.os === 'android') {
-    if (!normalizedName.endsWith('.apk') || normalizedName.includes('-unsigned')) {
-      return 0;
-    }
-
-    return normalizedName.includes('android-release') ? 20 : 10;
-  }
-
-  if (platform.os === 'linux' && normalizedName.endsWith('.appimage')) {
-    if (normalizedArch === 'x64' && /(?:x64|x86_64|amd64)/.test(normalizedName)) {
-      return 30;
-    }
-
-    if (normalizedArch === 'arm64' && /(?:arm64|aarch64)/.test(normalizedName)) {
-      return 30;
-    }
-  }
-
-  if (platform.os === 'macos' && normalizedName.endsWith('.dmg')) {
-    if (normalizedName.includes('universal')) {
-      return 20;
-    }
-
-    if (normalizedArch === 'x64' && /(?:x64|x86_64|amd64)/.test(normalizedName)) {
-      return 30;
-    }
-
-    if (normalizedArch === 'arm64' && /(?:arm64|aarch64)/.test(normalizedName)) {
-      return 30;
-    }
-  }
-
-  if (platform.os === 'windows' && normalizedName.endsWith('.exe')) {
-    if (normalizedArch === 'x64' && /(?:x64|x86_64|amd64)/.test(normalizedName)) {
-      return 30;
-    }
-  }
-
-  return 0;
-}
-
 function selectCompatibleAsset(
   release: GithubRelease,
   platform: QortiumAppUpdatePlatform,
@@ -163,18 +119,12 @@ function selectCompatibleAsset(
     return null;
   }
 
-  const candidates = release.assets
+  const assets = release.assets
     .filter(isObject)
-    .map((asset) => ({
-      asset: normalizeAsset(asset as GithubAsset),
-      priority: getAssetPriority(getString((asset as GithubAsset).name), platform),
-    }))
-    .filter((candidate): candidate is { asset: QortiumAppUpdateAsset; priority: number } =>
-      !!candidate.asset && candidate.priority > 0,
-    )
-    .sort((first, second) => second.priority - first.priority);
+    .map((asset) => normalizeAsset(asset as GithubAsset))
+    .filter((asset): asset is QortiumAppUpdateAsset => !!asset);
 
-  return candidates[0]?.asset ?? null;
+  return selectCompatibleUpdateAsset(assets, platform);
 }
 
 function parseVersion(value: string): ParsedVersion | null {

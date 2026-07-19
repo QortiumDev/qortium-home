@@ -52,6 +52,7 @@
     "test:public-transactions": "npm run build:electron && node scripts/test-public-transaction-validation.mjs",
     "test:qdn-content-attestation": "npm run build:electron && node scripts/test-qdn-content-attestation.mjs",
     "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
+    "test:app-update-assets": "esbuild src/app-update-assets.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/app-update-assets.test.js && node dist-electron/app-update-assets.test.js",
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:home-settings-bridge": "npm run build:electron && node dist-electron/home-settings-bridge.test.js",

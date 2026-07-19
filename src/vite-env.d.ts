@@ -319,6 +319,7 @@ type QortiumAppUpdatePlatform = {
   arch: string;
   label: string;
   os: QortiumAppUpdatePlatformOs;
+  osVersion?: string;
   supported: boolean;
 };
 
