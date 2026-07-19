@@ -37,6 +37,17 @@ import {
 } from './platform';
 import { ArchiveViewer } from './ArchiveViewer';
 import type { HomeSettings } from '../electron/home-settings-bridge';
+import type {
+  BookmarkManagerMutationRequest,
+  BookmarkManagerMutationResult,
+  BookmarkManagerSnapshot,
+} from '../electron/bookmark-manager-contract';
+import {
+  QDN_MANAGER_EVENT_KINDS,
+  QDN_MANAGER_MESSAGE_TYPES,
+  getQdnManagerRevisionEventDetail,
+  type QdnManagerRevisions,
+} from '../electron/qdn-manager-events';
 import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice';
 import type { CoreManagerState } from './coreManagerState';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
@@ -115,6 +126,11 @@ type QdnViewerProps = {
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   getHomeSettings?: () => HomeSettings;
+  getBookmarkManagerSnapshot?: () => BookmarkManagerSnapshot;
+  managerRevisions?: QdnManagerRevisions;
+  onBookmarkManagerMutation?: (
+    request: BookmarkManagerMutationRequest,
+  ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   resource: QdnResource;
   suspended?: boolean;
@@ -246,6 +262,11 @@ export type QdnBridgeFrameContentProps = {
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   getHomeSettings?: () => HomeSettings;
+  getBookmarkManagerSnapshot?: () => BookmarkManagerSnapshot;
+  managerRevisions?: QdnManagerRevisions;
+  onBookmarkManagerMutation?: (
+    request: BookmarkManagerMutationRequest,
+  ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
@@ -349,6 +370,22 @@ function postQdnHomeSettingsChanged(
       uiStyle: displaySettings.ui,
     },
   }, getPostMessageTargetOrigin(renderUrl));
+}
+
+function postQdnManagerRevisionChanged(
+  frameWindow: Window | null | undefined,
+  renderUrl: string,
+  managerRevisions: QdnManagerRevisions | undefined,
+) {
+  if (!frameWindow || !managerRevisions) return;
+  const targetOrigin = getPostMessageTargetOrigin(renderUrl);
+
+  for (const kind of QDN_MANAGER_EVENT_KINDS) {
+    frameWindow.postMessage({
+      type: QDN_MANAGER_MESSAGE_TYPES[kind],
+      detail: getQdnManagerRevisionEventDetail(managerRevisions[kind]),
+    }, targetOrigin);
+  }
 }
 
 function formatError(error: unknown) {
@@ -3143,6 +3180,7 @@ export function QdnIsolatedFrameContent({
   account,
   appTarget,
   displaySettings,
+  managerRevisions,
   nodeApiUrl,
   onAppTargetDelivered,
   renderUrl,
@@ -3153,6 +3191,7 @@ export function QdnIsolatedFrameContent({
   account: QortiumAccountSummary | null;
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnDisplaySettings;
+  managerRevisions?: QdnManagerRevisions;
   nodeApiUrl: string;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   renderUrl: string;
@@ -3263,6 +3302,7 @@ export function QdnIsolatedFrameContent({
           accountId,
           bounds,
           displaySettings,
+          managerRevisions,
           nodeApiUrl,
           renderUrl,
           resourceUrl,
@@ -3347,6 +3387,18 @@ export function QdnIsolatedFrameContent({
   useEffect(() => {
     const qdnViews = window.qortiumHome.qdnViews;
 
+    if (!qdnViews || suspended || !managerRevisions) {
+      return;
+    }
+
+    void qdnViews.updateManagerRevisions({ tabId, managerRevisions }).catch((error) => {
+      console.warn('Unable to update isolated QDN view manager revisions.', error);
+    });
+  }, [managerRevisions?.bookmarkManager, managerRevisions?.notificationManager, suspended, tabId]);
+
+  useEffect(() => {
+    const qdnViews = window.qortiumHome.qdnViews;
+
     if (!qdnViews || suspended || !appTarget || deliveredAppTargetRef.current === appTarget) {
       return;
     }
@@ -3381,6 +3433,9 @@ export function QdnBridgeFrameContent({
   appTarget,
   displaySettings,
   getHomeSettings,
+  getBookmarkManagerSnapshot,
+  managerRevisions,
+  onBookmarkManagerMutation,
   onHomeSettingsPatch,
   onAppTargetDelivered,
   onAppNavigationChange,
@@ -3405,6 +3460,8 @@ export function QdnBridgeFrameContent({
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
   const onAppNavigationChangeRef = useRef(onAppNavigationChange);
   const onAppTitleChangeRef = useRef(onAppTitleChange);
+  const getBookmarkManagerSnapshotRef = useRef(getBookmarkManagerSnapshot);
+  const onBookmarkManagerMutationRef = useRef(onBookmarkManagerMutation);
   const suspendedFrameRef = useRef(suspended);
 
   onOpenNewTabRef.current = onOpenNewTab;
@@ -3413,6 +3470,8 @@ export function QdnBridgeFrameContent({
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   onAppNavigationChangeRef.current = onAppNavigationChange;
   onAppTitleChangeRef.current = onAppTitleChange;
+  getBookmarkManagerSnapshotRef.current = getBookmarkManagerSnapshot;
+  onBookmarkManagerMutationRef.current = onBookmarkManagerMutation;
   appTargetRef.current = appTarget;
   suspendedFrameRef.current = suspended;
   const isNativeFrame = isNativePlatform();
@@ -3473,6 +3532,10 @@ export function QdnBridgeFrameContent({
     postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
     postQdnHomeSettingsChanged(frameRef.current?.contentWindow, renderUrl, displaySettings);
   }, [displaySettings, renderUrl]);
+
+  useEffect(() => {
+    postQdnManagerRevisionChanged(frameRef.current?.contentWindow, renderUrl, managerRevisions);
+  }, [managerRevisions?.bookmarkManager, managerRevisions?.notificationManager, renderUrl]);
 
   useEffect(() => {
     postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
@@ -3559,7 +3622,9 @@ export function QdnBridgeFrameContent({
           accountId,
           displaySettings,
           getHomeSettings,
+          getBookmarkManagerSnapshot: getBookmarkManagerSnapshotRef.current,
           applyHomeSettingsPatch: onHomeSettingsPatch,
+          applyBookmarkManagerMutation: onBookmarkManagerMutationRef.current,
           isCurrent: () =>
             active && !suspendedFrameRef.current && frameRef.current?.contentWindow === frameWindow,
           isViewFocused: () =>
@@ -3633,6 +3698,7 @@ export function QdnBridgeFrameContent({
         frameLoadedRef.current = true;
         postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
         postQdnHomeSettingsChanged(frameRef.current?.contentWindow, renderUrl, displaySettings);
+        postQdnManagerRevisionChanged(frameRef.current?.contentWindow, renderUrl, managerRevisions);
         postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
         deliverAppTarget();
       }}
@@ -3651,6 +3717,8 @@ function QdnIframeContent({
   appTarget,
   displaySettings,
   getHomeSettings,
+  getBookmarkManagerSnapshot,
+  managerRevisions,
   loadedResource,
   onAppTargetDelivered,
   onAppNavigationChange,
@@ -3661,6 +3729,7 @@ function QdnIframeContent({
   onOpenNewTab,
   onOpenInCurrentTab,
   onHomeSettingsPatch,
+  onBookmarkManagerMutation,
   resource,
   suspended,
 }: {
@@ -3668,6 +3737,8 @@ function QdnIframeContent({
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   getHomeSettings?: () => HomeSettings;
+  getBookmarkManagerSnapshot?: () => BookmarkManagerSnapshot;
+  managerRevisions?: QdnManagerRevisions;
   loadedResource: LoadedQdnResource;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
@@ -3678,6 +3749,9 @@ function QdnIframeContent({
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
+  onBookmarkManagerMutation?: (
+    request: BookmarkManagerMutationRequest,
+  ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   resource: QdnResource;
   suspended?: boolean;
 }) {
@@ -3687,6 +3761,8 @@ function QdnIframeContent({
       appTarget={appTarget}
       displaySettings={displaySettings}
       getHomeSettings={getHomeSettings}
+      getBookmarkManagerSnapshot={getBookmarkManagerSnapshot}
+      managerRevisions={managerRevisions}
       onAppTargetDelivered={onAppTargetDelivered}
       onAppNavigationChange={onAppNavigationChange}
       onAppNavigationControllerChange={onAppNavigationControllerChange}
@@ -3696,6 +3772,7 @@ function QdnIframeContent({
       onOpenNewTab={onOpenNewTab}
       onOpenInCurrentTab={onOpenInCurrentTab}
       onHomeSettingsPatch={onHomeSettingsPatch}
+      onBookmarkManagerMutation={onBookmarkManagerMutation}
       renderUrl={loadedResource.renderUrl}
       resourceUrl={resource.displayUrl}
       suspended={suspended}
@@ -3709,6 +3786,8 @@ function QdnReadyContent({
   appTarget,
   displaySettings,
   getHomeSettings,
+  getBookmarkManagerSnapshot,
+  managerRevisions,
   nodeApiUrl,
   onAppTargetDelivered,
   onActionContextChange,
@@ -3720,6 +3799,7 @@ function QdnReadyContent({
   onOpenNewTab,
   onOpenInCurrentTab,
   onHomeSettingsPatch,
+  onBookmarkManagerMutation,
   resource,
   suspended,
   tabId,
@@ -3728,6 +3808,8 @@ function QdnReadyContent({
   appTarget?: QdnAppTargetQuery | null;
   displaySettings: QdnFrameDisplaySettings;
   getHomeSettings?: () => HomeSettings;
+  getBookmarkManagerSnapshot?: () => BookmarkManagerSnapshot;
+  managerRevisions?: QdnManagerRevisions;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
@@ -3740,6 +3822,9 @@ function QdnReadyContent({
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
+  onBookmarkManagerMutation?: (
+    request: BookmarkManagerMutationRequest,
+  ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   resource: QdnResource;
   suspended: boolean;
   tabId: string;
@@ -3755,6 +3840,7 @@ function QdnReadyContent({
           account={account}
           appTarget={appTarget}
           displaySettings={displaySettings}
+          managerRevisions={managerRevisions}
           nodeApiUrl={loadedResource.nodeApiUrl ?? nodeApiUrl}
           onAppTargetDelivered={onAppTargetDelivered}
           renderUrl={loadedResource.renderUrl}
@@ -3771,6 +3857,8 @@ function QdnReadyContent({
         appTarget={appTarget}
         displaySettings={displaySettings}
         getHomeSettings={getHomeSettings}
+        getBookmarkManagerSnapshot={getBookmarkManagerSnapshot}
+        managerRevisions={managerRevisions}
         loadedResource={loadedResource}
         onAppTargetDelivered={onAppTargetDelivered}
         onAppNavigationChange={onAppNavigationChange}
@@ -3781,6 +3869,7 @@ function QdnReadyContent({
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
         onHomeSettingsPatch={onHomeSettingsPatch}
+        onBookmarkManagerMutation={onBookmarkManagerMutation}
         resource={resource}
         suspended={suspended}
       />
@@ -3958,6 +4047,9 @@ export function QdnViewer({
   onOpenNewTab,
   onOpenInCurrentTab,
   getHomeSettings,
+  getBookmarkManagerSnapshot,
+  managerRevisions,
+  onBookmarkManagerMutation,
   onHomeSettingsPatch,
   resource,
   suspended = false,
@@ -4068,6 +4160,8 @@ export function QdnViewer({
           appTarget={appTarget}
           displaySettings={displaySettings}
           getHomeSettings={getHomeSettings}
+          getBookmarkManagerSnapshot={getBookmarkManagerSnapshot}
+          managerRevisions={managerRevisions}
           nodeApiUrl={nodeApiUrl}
           onAppTargetDelivered={onAppTargetDelivered}
           onActionContextChange={setActionContext}
@@ -4079,6 +4173,7 @@ export function QdnViewer({
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}
           onHomeSettingsPatch={onHomeSettingsPatch}
+          onBookmarkManagerMutation={onBookmarkManagerMutation}
           resource={resource}
           suspended={suspended}
           tabId={tabId}

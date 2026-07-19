@@ -537,6 +537,7 @@ type QortiumQdnViewShowRequest = {
   accountId: string | null;
   bounds: QortiumQdnViewBounds;
   displaySettings: QortiumQdnDisplaySettings;
+  managerRevisions?: import('../electron/qdn-manager-events').QdnManagerRevisions;
   nodeApiUrl: string;
   renderUrl: string;
   resourceUrl?: string;
@@ -701,6 +702,12 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SEND_CHAT_MESSAGE'
     | 'SHOW_NOTIFICATION'
     | 'NOTIFICATION_ADD'
+    | 'BOOKMARKS_GET'
+    | 'BOOKMARKS_APPLY'
+    | 'NOTIFICATION_MANAGER_GET'
+    | 'NOTIFICATION_MANAGER_SET_MUTED'
+    | 'NOTIFICATION_MANAGER_REMOVE_RULES'
+    | 'NOTIFICATION_MANAGER_REVOKE'
     | 'UPDATE_NODE_SETTINGS'
     | 'UPDATE_HOME_SETTINGS'
     | 'RESTART_NODE'
@@ -881,6 +888,12 @@ interface Window {
       revokeAppNotifications?: (
         appKey: string,
       ) => Promise<import('../electron/notification-rules').QdnNotificationStore>;
+      getManagerPermissionStore?: () => Promise<import('../electron/qdn-manager-permissions').QdnManagerPermissionStore>;
+      onManagerPermissionsChanged?: (callback: () => void) => () => void;
+      revokeManagerPermission?: (
+        appKey: string,
+        capability: import('../electron/qdn-manager-permissions').QdnManagerCapability,
+      ) => Promise<import('../electron/qdn-manager-permissions').QdnManagerPermissionStore>;
     };
     qdnViews?: {
       broadcastHomeSettingsChanged: (detail: QortiumQdnHomeSettingsChangedDetail) => Promise<void>;
@@ -892,6 +905,10 @@ interface Window {
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
       updateAccountState: (request: QortiumQdnViewAccountStateRequest) => Promise<void>;
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
+      updateManagerRevisions: (request: {
+        managerRevisions: import('../electron/qdn-manager-events').QdnManagerRevisions;
+        tabId: string;
+      }) => Promise<void>;
       postMessage: (request: QortiumQdnViewPostMessageRequest) => Promise<void>;
     };
     qdnPermissions?: {
@@ -904,9 +921,21 @@ interface Window {
       onHomeSettingsRequest?: (
         callback: (request: { id: string; operation: 'apply' | 'read'; patch: unknown }) => void,
       ) => () => void;
+      onBookmarkManagerRequest?: (
+        callback: (request: {
+          id: string;
+          operation: 'apply' | 'get';
+          request: import('../electron/bookmark-manager-contract').BookmarkManagerMutationRequest | null;
+        }) => void,
+      ) => () => void;
       resolveUnlockRequest?: (requestId: string, approved: boolean) => Promise<void>;
       resolveWriteRequest: (requestId: string, approved: boolean) => Promise<void>;
       resolveHomeSettingsRequest?: (requestId: string, settings: unknown) => Promise<void>;
+      resolveBookmarkManagerRequest?: (
+        requestId: string,
+        result: unknown,
+        error?: { code?: string; message: string },
+      ) => Promise<void>;
     };
     qdnEvents?: {
       onOpenNewTab: (

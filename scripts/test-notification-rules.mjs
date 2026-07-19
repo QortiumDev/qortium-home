@@ -192,6 +192,28 @@ assert.deepEqual(sanitizeQdnNotificationStore({
   grants: { 'qdn://APP/Wallet': { grantedAt: '2026-07-15T00:00:00.000Z' } },
   rules: { 'qdn://APP/Wallet': [storeRule(foreignPaymentRule)] },
 }).rules['qdn://APP/Wallet']?.[0].filters, { coin: 'BTC', xpub: 'xpub6Example' });
+const canonicalizedStore = sanitizeQdnNotificationStore({
+  version: 1,
+  revision: 9,
+  grants: {
+    'qdn://APP/Chat/Chat/direct/Qone': { grantedAt: '2026-07-16T00:00:00.000Z' },
+    'qdn://APP/Chat/Chat?group=42': { grantedAt: '2026-07-15T00:00:00.000Z', muted: true },
+  },
+  rules: {
+    'qdn://APP/Chat/Chat/direct/Qone': [storeRule(sanitizeRule('CHAT_MESSAGE', { involving: 'Qone' }, 'messages'))],
+    'qdn://APP/Chat/Chat?group=42': [{
+      ...storeRule(sanitizeRule('CHAT_MESSAGE', { involving: 'Qtwo' }, 'messages')),
+      createdAt: '2026-07-11T00:00:00.000Z',
+    }],
+  },
+});
+assert.deepEqual(Object.keys(canonicalizedStore.grants), ['qdn://APP/Chat/Chat']);
+assert.deepEqual(canonicalizedStore.grants['qdn://APP/Chat/Chat'], {
+  grantedAt: '2026-07-15T00:00:00.000Z',
+  muted: true,
+});
+assert.equal(canonicalizedStore.rules['qdn://APP/Chat/Chat'].length, 1);
+assert.deepEqual(canonicalizedStore.rules['qdn://APP/Chat/Chat'][0].filters, { involving: 'Qtwo' });
 assert.deepEqual(toWireNotificationSubscriptions('qdn://APP/Test', storeRule(sanitizeRule(
   'PAYMENT_RECEIVED', { sender: ['Qsender'] }, 'sender-one',
 )), { serverSupportsArrayFilters: false }).map((subscription) => subscription.filters), [{ sender: 'Qsender' }]);

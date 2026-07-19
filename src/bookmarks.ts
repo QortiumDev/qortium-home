@@ -340,7 +340,12 @@ export function addBookmark(
   const displayUrl = request.displayUrl.trim();
   const folder = getItemsForTarget(state, folderId, parentFolderId);
 
-  if (!displayUrl || !folder || folder.some((item) => item.type === 'bookmark' && item.displayUrl === displayUrl)) {
+  if (
+    !displayUrl
+    || !folder
+    || folder.length >= MAX_BOOKMARKS_PER_FOLDER
+    || folder.some((item) => item.type === 'bookmark' && item.displayUrl === displayUrl)
+  ) {
     return state;
   }
 
@@ -369,7 +374,7 @@ export function addBookmarkFolder(
   const title = request.title.trim();
   const folder = getItemsForTarget(state, folderId, parentFolderId);
 
-  if (!title || !folder) {
+  if (!title || !folder || folder.length >= MAX_BOOKMARKS_PER_FOLDER) {
     return state;
   }
 
@@ -497,19 +502,23 @@ function insertItem(
   item: BookmarkTreeItem,
   targetItemId?: string | null,
   targetPosition: BookmarkDropPosition = 'after',
-): BookmarkTreeItem[] {
+): BookmarkTreeItem[] | null {
+  if (items.length >= MAX_BOOKMARKS_PER_FOLDER) {
+    return null;
+  }
+
   if (!targetItemId || targetPosition === 'inside') {
-    return [...items, item].slice(0, MAX_BOOKMARKS_PER_FOLDER);
+    return [...items, item];
   }
 
   const targetIndex = items.findIndex((candidate) => candidate.id === targetItemId);
 
   if (targetIndex === -1) {
-    return [...items, item].slice(0, MAX_BOOKMARKS_PER_FOLDER);
+    return [...items, item];
   }
 
   const insertIndex = targetPosition === 'before' ? targetIndex : targetIndex + 1;
-  return [...items.slice(0, insertIndex), item, ...items.slice(insertIndex)].slice(0, MAX_BOOKMARKS_PER_FOLDER);
+  return [...items.slice(0, insertIndex), item, ...items.slice(insertIndex)];
 }
 
 export function moveBookmarkItem(state: BookmarksState, request: BookmarkMoveRequest): BookmarksState {
@@ -535,11 +544,17 @@ export function moveBookmarkItem(state: BookmarksState, request: BookmarkMoveReq
     return state;
   }
 
+  const insertedItems = insertItem(targetItems, removal.item, request.targetItemId, request.targetPosition);
+
+  if (!insertedItems) {
+    return state;
+  }
+
   return setItemsForTarget(
     nextState,
     request.targetRootId,
     request.targetFolderId,
-    insertItem(targetItems, removal.item, request.targetItemId, request.targetPosition),
+    insertedItems,
   );
 }
 

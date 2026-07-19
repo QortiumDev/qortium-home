@@ -17,15 +17,22 @@ function getStorePath() {
   return path.join(app.getPath('userData'), NOTIFICATION_STORE_FILE);
 }
 
-function writeStore(store: QdnNotificationStore) {
-  cachedStore = store;
+export function replaceNotificationStore(store: QdnNotificationStore) {
+  const currentStore = readNotificationStore();
+  const requestedStore = sanitizeQdnNotificationStore(store);
+  if (JSON.stringify({ grants: currentStore.grants, rules: currentStore.rules })
+    === JSON.stringify({ grants: requestedStore.grants, rules: requestedStore.rules })) {
+    return currentStore;
+  }
+  cachedStore = sanitizeQdnNotificationStore({ ...requestedStore, revision: currentStore.revision + 1 });
   const storePath = getStorePath();
   mkdirSync(path.dirname(storePath), { recursive: true });
-  writeFileSync(storePath, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
+  writeFileSync(storePath, `${JSON.stringify(cachedStore, null, 2)}\n`, 'utf8');
   listeners.forEach((listener) => listener());
   BrowserWindow.getAllWindows().forEach((window) => {
     if (!window.isDestroyed()) window.webContents.send('qdn:notification-store-changed');
   });
+  return cachedStore;
 }
 
 export function readNotificationStore() {
@@ -45,13 +52,13 @@ export function hasNotificationGrant(appKey: string) {
 }
 
 export function grantAppNotifications(appKey: string) {
-  const store = readNotificationStore();
+  const store = sanitizeQdnNotificationStore(readNotificationStore());
   store.grants[appKey] = store.grants[appKey] ?? { grantedAt: new Date().toISOString() };
-  writeStore(store);
+  return replaceNotificationStore(store);
 }
 
 export function replaceAppNotificationRules(appKey: string, inputs: QdnNotificationRuleInput[], accountAddress: string) {
-  const store = readNotificationStore();
+  const store = sanitizeQdnNotificationStore(readNotificationStore());
   const existing = store.rules[appKey] ?? [];
   const now = new Date().toISOString();
   const replacements = new Map(inputs.map((rule) => [rule.notificationId, rule]));
@@ -60,12 +67,11 @@ export function replaceAppNotificationRules(appKey: string, inputs: QdnNotificat
     .concat(inputs.map((rule) => ({ ...rule, accountAddress, createdAt: now })));
   if (next.length > 20) throw new Error('An app can store at most 20 notification rules.');
   store.rules[appKey] = next;
-  writeStore(store);
-  return next;
+  return replaceNotificationStore(store).rules[appKey] ?? [];
 }
 
 export function removeAppNotificationRules(appKey: string, notificationIds?: string[]) {
-  const store = readNotificationStore();
+  const store = sanitizeQdnNotificationStore(readNotificationStore());
   if (!notificationIds) delete store.rules[appKey];
   else {
     const ids = new Set(notificationIds);
@@ -73,25 +79,22 @@ export function removeAppNotificationRules(appKey: string, notificationIds?: str
     if (next.length) store.rules[appKey] = next;
     else delete store.rules[appKey];
   }
-  writeStore(store);
-  return store.rules[appKey] ?? [];
+  return replaceNotificationStore(store).rules[appKey] ?? [];
 }
 
 export function setAppNotificationMuted(appKey: string, muted: boolean) {
-  const store = readNotificationStore();
+  const store = sanitizeQdnNotificationStore(readNotificationStore());
   const grant = store.grants[appKey];
   if (!grant) throw new Error('Notification permission is not granted for this app.');
   grant.muted = muted || undefined;
-  writeStore(store);
-  return readNotificationStore();
+  return replaceNotificationStore(store);
 }
 
 export function revokeAppNotifications(appKey: string) {
-  const store = readNotificationStore();
+  const store = sanitizeQdnNotificationStore(readNotificationStore());
   delete store.grants[appKey];
   delete store.rules[appKey];
-  writeStore(store);
-  return store;
+  return replaceNotificationStore(store);
 }
 
 export function onNotificationStoreChanged(listener: () => void) {

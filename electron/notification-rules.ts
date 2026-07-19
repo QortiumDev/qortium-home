@@ -1,3 +1,5 @@
+import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
+
 export const QDN_NOTIFICATION_EVENTS = [
   'RESOURCE_PUBLISHED',
   'PAYMENT_RECEIVED',
@@ -31,6 +33,7 @@ export type QdnNotificationGrant = {
 
 export type QdnNotificationStore = {
   grants: Record<string, QdnNotificationGrant>;
+  revision: number;
   rules: Record<string, StoredQdnNotificationRule[]>;
   version: 1;
 };
@@ -548,7 +551,7 @@ export class ForeignPaymentReplayDeduper {
 }
 
 export function createEmptyQdnNotificationStore(): QdnNotificationStore {
-  return { version: 1, grants: {}, rules: {} };
+  return { version: 1, revision: 0, grants: {}, rules: {} };
 }
 
 export function sanitizeQdnNotificationStore(value: unknown): QdnNotificationStore {
@@ -559,14 +562,28 @@ export function sanitizeQdnNotificationStore(value: unknown): QdnNotificationSto
   const grants: QdnNotificationStore['grants'] = {};
   const rules: QdnNotificationStore['rules'] = {};
 
-  for (const [appKey, grant] of Object.entries(value.grants)) {
+  const canonicalAppKey = (appKey: string) => {
+    try {
+      return sanitizeQdnManagerAppKey(appKey);
+    } catch {
+      return /^qdn:\/\/(?:APP|WEBSITE)\//i.test(appKey) ? appKey : null;
+    }
+  };
+
+  for (const [rawAppKey, grant] of Object.entries(value.grants)) {
+    const appKey = canonicalAppKey(rawAppKey);
     if (appKey && isRecord(grant) && typeof grant.grantedAt === 'string') {
-      grants[appKey] = { grantedAt: grant.grantedAt, ...(grant.muted === true ? { muted: true } : {}) };
+      const existing = grants[appKey];
+      grants[appKey] = {
+        grantedAt: existing && existing.grantedAt < grant.grantedAt ? existing.grantedAt : grant.grantedAt,
+        ...(existing?.muted === true || grant.muted === true ? { muted: true } : {}),
+      };
     }
   }
 
-  for (const [appKey, entries] of Object.entries(value.rules)) {
-    if (!Array.isArray(entries)) continue;
+  for (const [rawAppKey, entries] of Object.entries(value.rules)) {
+    const appKey = canonicalAppKey(rawAppKey);
+    if (!appKey || !Array.isArray(entries)) continue;
     const sanitized = entries.flatMap((entry) => {
       if (!isRecord(entry) || typeof entry.accountAddress !== 'string' || typeof entry.createdAt !== 'string') return [];
       try {
@@ -580,8 +597,21 @@ export function sanitizeQdnNotificationStore(value: unknown): QdnNotificationSto
         return [];
       }
     }).slice(0, QDN_NOTIFICATION_RULES_PER_APP_MAX);
-    if (sanitized.length) rules[appKey] = sanitized;
+    if (sanitized.length) {
+      const merged = new Map((rules[appKey] ?? []).map((rule) => [rule.notificationId, rule]));
+      for (const rule of sanitized) {
+        const existing = merged.get(rule.notificationId);
+        if (!existing || existing.createdAt <= rule.createdAt) merged.set(rule.notificationId, rule);
+      }
+      rules[appKey] = [...merged.values()]
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .slice(0, QDN_NOTIFICATION_RULES_PER_APP_MAX);
+    }
   }
 
-  return { version: 1, grants, rules };
+  const revision = Number.isSafeInteger(value.revision) && (value.revision as number) >= 0
+    ? value.revision as number
+    : 0;
+
+  return { version: 1, revision, grants, rules };
 }

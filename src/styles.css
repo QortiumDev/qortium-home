@@ -1724,6 +1724,48 @@ h1 {
   gap: 0.4rem;
 }
 
+.qdn-manager-permissions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.qdn-manager-permissions > .field__hint,
+.qdn-manager-permissions > .field__error {
+  margin: 0;
+}
+
+.qdn-manager-permissions__grant {
+  align-items: center;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
+  padding: 0.8rem;
+}
+
+.qdn-manager-permissions__identity,
+.qdn-manager-permissions__details {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.qdn-manager-permissions__identity code {
+  color: var(--color-text-subtle);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+  user-select: text;
+  white-space: normal;
+}
+
+.qdn-manager-permissions__details span,
+.qdn-manager-permissions__details time {
+  color: var(--color-text-subtle);
+  font-size: 0.85rem;
+}
+
 .display-settings__app-zoom-control {
   display: flex;
   flex-wrap: wrap;
@@ -5291,6 +5333,16 @@ h1 {
   }
 
   .app-notification-settings__identity {
+    grid-column: 1 / -1;
+  }
+
+  .qdn-manager-permissions__grant {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .qdn-manager-permissions__identity,
+  .qdn-manager-permissions__details {
     grid-column: 1 / -1;
   }
 

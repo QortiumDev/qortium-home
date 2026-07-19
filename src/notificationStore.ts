@@ -13,6 +13,7 @@ const listeners = new Set<(store: QdnNotificationStore) => void>();
 let storeVersion = 0;
 let cachedLocalStore: QdnNotificationStore | null = null;
 let removeDesktopStoreListener: (() => void) | null = null;
+let localWriteChain = Promise.resolve();
 
 function ensureDesktopStoreListener() {
   const subscribe = window.qortiumHome.qdn?.onNotificationStoreChanged;
@@ -37,14 +38,35 @@ async function readLocalStore() {
   catch { return (cachedLocalStore = createEmptyQdnNotificationStore()); }
 }
 
-async function writeLocalStore(store: QdnNotificationStore) {
-  cachedLocalStore = store;
-  const value = JSON.stringify(store);
-  if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
-  else window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
-  storeVersion += 1;
-  listeners.forEach((listener) => listener(store));
-  return store;
+function sameNotificationStoreData(first: QdnNotificationStore, second: QdnNotificationStore) {
+  return JSON.stringify({ grants: first.grants, rules: first.rules })
+    === JSON.stringify({ grants: second.grants, rules: second.rules });
+}
+
+export function updateNotificationStore(
+  mutate: (store: QdnNotificationStore) => QdnNotificationStore | void,
+  expectedRevision?: number,
+) {
+  const operation = localWriteChain.then(async () => {
+    const currentStore = sanitizeQdnNotificationStore(await readLocalStore());
+    if (expectedRevision !== undefined && currentStore.revision !== expectedRevision) {
+      throw Object.assign(new Error('Notification settings changed; refresh and try again.'), {
+        code: 'HOME_DATA_STALE',
+      });
+    }
+    const draftStore = sanitizeQdnNotificationStore(currentStore);
+    const requestedStore = sanitizeQdnNotificationStore(mutate(draftStore) ?? draftStore);
+    if (sameNotificationStoreData(currentStore, requestedStore)) return currentStore;
+    cachedLocalStore = sanitizeQdnNotificationStore({ ...requestedStore, revision: currentStore.revision + 1 });
+    const value = JSON.stringify(cachedLocalStore);
+    if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
+    else window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
+    storeVersion += 1;
+    listeners.forEach((listener) => listener(cachedLocalStore as QdnNotificationStore));
+    return cachedLocalStore;
+  });
+  localWriteChain = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export async function getNotificationStore() {
@@ -66,9 +88,9 @@ export function onNotificationStoreChanged(listener: (store: QdnNotificationStor
 }
 
 export async function grantAppNotifications(appKey: string) {
-  const store = await readLocalStore();
-  store.grants[appKey] = store.grants[appKey] ?? { grantedAt: new Date().toISOString() };
-  return writeLocalStore(store);
+  return updateNotificationStore((store) => {
+    store.grants[appKey] = store.grants[appKey] ?? { grantedAt: new Date().toISOString() };
+  });
 }
 
 export async function replaceAppNotificationRules(
@@ -76,29 +98,29 @@ export async function replaceAppNotificationRules(
   inputs: QdnNotificationRuleInput[],
   accountAddress: string,
 ) {
-  const store = await readLocalStore();
-  const replacements = new Map(inputs.map((rule) => [rule.notificationId, rule]));
-  const now = new Date().toISOString();
-  const next: StoredQdnNotificationRule[] = (store.rules[appKey] ?? [])
-    .filter((rule) => !replacements.has(rule.notificationId))
-    .concat(inputs.map((rule) => ({ ...rule, accountAddress, createdAt: now })));
-  if (next.length > 20) throw new Error('An app can store at most 20 notification rules.');
-  store.rules[appKey] = next;
-  await writeLocalStore(store);
-  return next;
+  const nextStore = await updateNotificationStore((store) => {
+    const replacements = new Map(inputs.map((rule) => [rule.notificationId, rule]));
+    const now = new Date().toISOString();
+    const next: StoredQdnNotificationRule[] = (store.rules[appKey] ?? [])
+      .filter((rule) => !replacements.has(rule.notificationId))
+      .concat(inputs.map((rule) => ({ ...rule, accountAddress, createdAt: now })));
+    if (next.length > 20) throw new Error('An app can store at most 20 notification rules.');
+    store.rules[appKey] = next;
+  });
+  return nextStore.rules[appKey] ?? [];
 }
 
 export async function removeAppNotificationRules(appKey: string, notificationIds?: string[]) {
-  const store = await readLocalStore();
-  if (!notificationIds) delete store.rules[appKey];
-  else {
-    const ids = new Set(notificationIds);
-    const next = (store.rules[appKey] ?? []).filter((rule) => !ids.has(rule.notificationId));
-    if (next.length) store.rules[appKey] = next;
-    else delete store.rules[appKey];
-  }
-  await writeLocalStore(store);
-  return store.rules[appKey] ?? [];
+  const nextStore = await updateNotificationStore((store) => {
+    if (!notificationIds) delete store.rules[appKey];
+    else {
+      const ids = new Set(notificationIds);
+      const next = (store.rules[appKey] ?? []).filter((rule) => !ids.has(rule.notificationId));
+      if (next.length) store.rules[appKey] = next;
+      else delete store.rules[appKey];
+    }
+  });
+  return nextStore.rules[appKey] ?? [];
 }
 
 export async function setAppNotificationMuted(appKey: string, muted: boolean) {
@@ -108,10 +130,10 @@ export async function setAppNotificationMuted(appKey: string, muted: boolean) {
     listeners.forEach((listener) => listener(store));
     return store;
   }
-  const store = await readLocalStore();
-  if (!store.grants[appKey]) throw new Error('Notification permission is not granted for this app.');
-  store.grants[appKey].muted = muted || undefined;
-  return writeLocalStore(store);
+  return updateNotificationStore((store) => {
+    if (!store.grants[appKey]) throw new Error('Notification permission is not granted for this app.');
+    store.grants[appKey].muted = muted || undefined;
+  });
 }
 
 export async function revokeAppNotifications(appKey: string) {
@@ -121,8 +143,8 @@ export async function revokeAppNotifications(appKey: string) {
     listeners.forEach((listener) => listener(store));
     return store;
   }
-  const store = await readLocalStore();
-  delete store.grants[appKey];
-  delete store.rules[appKey];
-  return writeLocalStore(store);
+  return updateNotificationStore((store) => {
+    delete store.grants[appKey];
+    delete store.rules[appKey];
+  });
 }

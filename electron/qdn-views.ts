@@ -11,6 +11,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
+import {
+  QDN_MANAGER_EVENT_KINDS,
+  QDN_MANAGER_EVENT_NAMES,
+  getQdnManagerRevisionEventDetail,
+  validateQdnManagerRevisions,
+  type QdnManagerEventKind,
+  type QdnManagerRevisions,
+} from './qdn-manager-events.js';
+import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 
 const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
@@ -102,6 +111,7 @@ type QdnViewEntry = {
   // yet, so state messages are only sent when these fall out of sync.
   deliveredAccountStateKey: string | undefined;
   deliveredDisplaySettings: QdnDisplaySettings | undefined;
+  deliveredManagerRevisions: QdnManagerRevisions | undefined;
   displaySettings: QdnDisplaySettings;
   hostCssBounds: Rectangle | null;
   isPageReady: boolean;
@@ -109,6 +119,7 @@ type QdnViewEntry = {
   pendingAppTargetMessage: unknown | undefined;
   pendingHomeSettingsEvent: QdnHomeSettingsChangedDetail | undefined;
   pendingStateDelivery: Promise<void>;
+  managerRevisions: QdnManagerRevisions | undefined;
   resourceUrl: string | null;
   tabId: string;
   view: WebContentsView;
@@ -119,6 +130,7 @@ type SanitizedShowRequest = {
   accountId: string | null;
   bounds: Rectangle;
   displaySettings: QdnDisplaySettings;
+  managerRevisions: QdnManagerRevisions | undefined;
   nodeOrigin: string;
   renderUrl: string;
   resourceUrl: string | null;
@@ -137,6 +149,11 @@ type SanitizedNavigationRequest = {
 
 type SanitizedDisplaySettingsRequest = {
   displaySettings: QdnDisplaySettings;
+  tabId: string;
+};
+
+type SanitizedManagerRevisionsRequest = {
+  managerRevisions: QdnManagerRevisions;
   tabId: string;
 };
 
@@ -409,9 +426,23 @@ function sanitizeShowRequest(value: unknown): SanitizedShowRequest {
     accountId: sanitizeOptionalAccountId(value.accountId),
     bounds: sanitizeBounds(value.bounds),
     displaySettings: sanitizeDisplaySettings(value.displaySettings),
+    managerRevisions: value.managerRevisions === undefined
+      ? undefined
+      : validateQdnManagerRevisions(value.managerRevisions),
     nodeOrigin,
     renderUrl: sanitizeRenderUrl(value.renderUrl, nodeOrigin),
     resourceUrl: sanitizeOptionalResourceUrl(value.resourceUrl),
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
+function sanitizeManagerRevisionsRequest(value: unknown): SanitizedManagerRevisionsRequest {
+  if (!isRecord(value)) {
+    throw new Error('QDN view manager revisions request is required.');
+  }
+
+  return {
+    managerRevisions: validateQdnManagerRevisions(value.managerRevisions),
     tabId: sanitizeTabId(value.tabId),
   };
 }
@@ -599,11 +630,22 @@ export function isQdnViewFocused(windowId: number, tabId: string) {
   return !!entry && !entry.window.isDestroyed() && entry.window.isFocused() && entry.view.getVisible();
 }
 
+function getCanonicalQdnAppKey(resourceUrl: string | null) {
+  if (!resourceUrl) return null;
+  try {
+    return sanitizeQdnManagerAppKey(resourceUrl);
+  } catch {
+    return null;
+  }
+}
+
 export function isQdnAppResourceFocused(resourceUrl: string) {
+  const appKey = getCanonicalQdnAppKey(resourceUrl);
+  if (!appKey) return false;
   for (const windowViews of qdnViewsByWindow.values()) {
     for (const entry of windowViews.values()) {
       if (
-        entry.resourceUrl === resourceUrl &&
+        getCanonicalQdnAppKey(entry.resourceUrl) === appKey &&
         !entry.window.isDestroyed() &&
         entry.window.isFocused() &&
         entry.view.getVisible()
@@ -878,6 +920,21 @@ async function sendQdnHomeSettingsChangedEvent(entry: QdnViewEntry, detail: QdnH
   );
 }
 
+async function sendQdnManagerRevisionChangedEvent(
+  entry: QdnViewEntry,
+  kind: QdnManagerEventKind,
+  revision: number,
+) {
+  if (entry.view.webContents.isDestroyed()) return;
+  const eventName = QDN_MANAGER_EVENT_NAMES[kind];
+  const detail = getQdnManagerRevisionEventDetail(revision);
+
+  await entry.view.webContents.executeJavaScript(
+    `window.dispatchEvent(new CustomEvent(${JSON.stringify(eventName)}, { detail: ${JSON.stringify(detail)} }));`,
+    true,
+  );
+}
+
 function areDisplaySettingsEqual(
   first: QdnDisplaySettings | undefined,
   second: QdnDisplaySettings,
@@ -907,6 +964,12 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   const appTargetMessage = entry.pendingAppTargetMessage;
   const homeSettingsEvent = entry.pendingHomeSettingsEvent;
   const sendHomeSettingsEvent = entry.isPageReady && !!homeSettingsEvent;
+  const managerRevisions = entry.managerRevisions;
+  const managerRevisionEvents = entry.isPageReady && managerRevisions
+    ? QDN_MANAGER_EVENT_KINDS.filter(
+        (kind) => entry.deliveredManagerRevisions?.[kind] !== managerRevisions[kind],
+      ).map((kind) => ({ kind, revision: managerRevisions[kind] }))
+    : [];
   const sendAppTarget = entry.isPageReady && typeof appTargetMessage !== 'undefined';
   const messages = [
     ...(sendDisplaySettings ? getQdnDisplaySettingMessages(entry.displaySettings) : []),
@@ -914,7 +977,7 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
     ...(sendAppTarget ? [appTargetMessage] : []),
   ];
 
-  if (!messages.length && !sendHomeSettingsEvent) {
+  if (!messages.length && !sendHomeSettingsEvent && managerRevisionEvents.length === 0) {
     return;
   }
 
@@ -937,6 +1000,14 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   if (sendHomeSettingsEvent && homeSettingsEvent && entry.pendingHomeSettingsEvent === homeSettingsEvent) {
     await sendQdnHomeSettingsChangedEvent(entry, homeSettingsEvent);
     entry.pendingHomeSettingsEvent = undefined;
+  }
+
+  for (const { kind, revision } of managerRevisionEvents) {
+    await sendQdnManagerRevisionChangedEvent(entry, kind, revision);
+  }
+
+  if (managerRevisionEvents.length > 0 && managerRevisions) {
+    entry.deliveredManagerRevisions = managerRevisions;
   }
 }
 
@@ -970,9 +1041,11 @@ function createViewEntry(
     requestedUrl: null,
     deliveredAccountStateKey: undefined,
     deliveredDisplaySettings: undefined,
+    deliveredManagerRevisions: undefined,
     displaySettings,
     hostCssBounds: null,
     isPageReady: false,
+    managerRevisions: undefined,
     nodeOrigin,
     pendingAppTargetMessage: undefined,
     pendingHomeSettingsEvent: undefined,
@@ -1110,6 +1183,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     // accountId is pinned at creation: a QDN app tab stays bound to its launch
     // account for its lifetime, so a re-show must never rebind it.
     existingEntry.displaySettings = request.displaySettings;
+    existingEntry.managerRevisions = request.managerRevisions;
     existingEntry.resourceUrl = request.resourceUrl;
     return existingEntry;
   }
@@ -1126,6 +1200,8 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     request.resourceUrl,
     request.displaySettings,
   );
+
+  entry.managerRevisions = request.managerRevisions;
 
   windowViews.set(request.tabId, entry);
   watchWindow(window);
@@ -1183,6 +1259,7 @@ export function registerQdnViewIpcHandlers() {
           entry.isPageReady = true;
           entry.deliveredAccountStateKey = undefined;
           entry.deliveredDisplaySettings = undefined;
+          entry.deliveredManagerRevisions = undefined;
           queueQdnViewStateDelivery(entry);
         })
         .catch((error) => {
@@ -1276,6 +1353,19 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.displaySettings = request.displaySettings;
+    queueQdnViewStateDelivery(entry);
+  });
+
+  ipcMain.handle('qdn-views:updateManagerRevisions', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeManagerRevisionsRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry) {
+      return;
+    }
+
+    entry.managerRevisions = request.managerRevisions;
     queueQdnViewStateDelivery(entry);
   });
 

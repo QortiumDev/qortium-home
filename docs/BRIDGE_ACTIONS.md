@@ -25,11 +25,15 @@ Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
 `SEARCH_QDN_RESOURCES`, `GET_RESOURCE_RATING`, `GET_ACCOUNT_RATING`, `GET_SELECTED_ACCOUNT`,
-`IS_USING_PUBLIC_NODE`, `GET_HOME_SETTINGS_METADATA`, and `GET_HOME_SETTINGS`.
+`IS_USING_PUBLIC_NODE`, `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS`,
+`BOOKMARKS_HAS_PERMISSION`, `NOTIFICATION_MANAGER_HAS_PERMISSION`, and the
+permissioned bookmark/notification manager reads.
 `UPDATE_HOME_SETTINGS` is available in every node mode but requires a
 single-request approval before changing Home's display settings. See
 [Home settings QDN bridge](HOME_SETTINGS_BRIDGE.md) for request shapes and
-the live settings-change event. Other supported actions include
+the live settings-change event. Bookmark and notification management use
+separate durable capabilities and revision-checked mutations; see
+[Home data manager QDN bridge](HOME_DATA_MANAGERS.md). Other supported actions include
 `WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
@@ -39,6 +43,13 @@ APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
+
+The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
+`BOOKMARKS_APPLY`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
+`NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`,
+`NOTIFICATION_MANAGER_REMOVE_RULES`, and `NOTIFICATION_MANAGER_REVOKE`. They
+remain available when Home uses a public/network node because they operate on
+Home's local device data rather than Core.
 
 ## Publishing sources
 

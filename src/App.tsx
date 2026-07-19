@@ -43,6 +43,13 @@ import {
   type BookmarksState,
 } from './bookmarks';
 import { BookmarksPage } from './BookmarksPage';
+import {
+  applyBookmarkManagerMutation,
+  createBookmarkManagerSnapshot,
+  type BookmarkManagerCollections,
+} from './bookmarkManager';
+import { loadBookmarkManagerRevision, saveBookmarkManagerRevision } from './bookmarkManagerRevision';
+import { loadBookmarkManagerSnapshot, saveBookmarkManagerSnapshot } from './bookmarkManagerStore';
 import { CoreApiDocsPage } from './CoreApiDocsPage';
 import { useCoreManager } from './coreManagerState';
 import { DashboardPage } from './DashboardPage';
@@ -64,6 +71,7 @@ import {
   type DisplaySettings,
 } from './displaySettings';
 import { getWritableHomeSettings, validateHomeSettingsPatch, type HomeSettings } from '../electron/home-settings-bridge';
+import { sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
 import {
   createDashboardPin,
   loadDashboardPins,
@@ -89,7 +97,7 @@ import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
 import { setTranslationLanguage, subscribeTranslationChange, t, type TranslationKey } from './i18n';
 import { invalidateDesktopNodeSettingsCache } from './platform';
-import { getNotificationRulesVersion, onNotificationStoreChanged } from './notificationStore';
+import { getNotificationRulesVersion, getNotificationStore, onNotificationStoreChanged } from './notificationStore';
 import { startForegroundNotificationWatcher } from './notificationWatcher';
 import { getQdnAppTargetQuery, isSameQdnAppRoute, type QdnAppTargetQuery } from './qdn-app-target';
 import {
@@ -225,6 +233,7 @@ const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
 const NAVIGATION_SWIPE_VERTICAL_CANCEL_PX = 48;
 const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   core: false,
+  dataPermissions: false,
   display: true,
   home: false,
   notifications: false,
@@ -436,6 +445,14 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateNodeSettings';
     case 'UPDATE_HOME_SETTINGS':
       return 'qdnWrite.action.updateHomeSettings';
+    case 'BOOKMARKS_GET':
+    case 'BOOKMARKS_APPLY':
+      return 'managerPermissions.action.bookmarks';
+    case 'NOTIFICATION_MANAGER_GET':
+    case 'NOTIFICATION_MANAGER_SET_MUTED':
+    case 'NOTIFICATION_MANAGER_REMOVE_RULES':
+    case 'NOTIFICATION_MANAGER_REVOKE':
+      return 'managerPermissions.action.notifications';
     case 'RESTART_NODE':
       return 'qdnWrite.action.restartNode';
     case 'ADD_TO_LIST':
@@ -452,6 +469,21 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.removeMintingAccount';
     default:
       return 'qdnWrite.action.default';
+  }
+}
+
+function getQdnManagerAccessKey(action: QortiumQdnWriteApprovalRequest['action']): TranslationKey | null {
+  switch (action) {
+    case 'BOOKMARKS_GET':
+    case 'BOOKMARKS_APPLY':
+      return 'managerPermissions.access.bookmarks';
+    case 'NOTIFICATION_MANAGER_GET':
+    case 'NOTIFICATION_MANAGER_SET_MUTED':
+    case 'NOTIFICATION_MANAGER_REMOVE_RULES':
+    case 'NOTIFICATION_MANAGER_REVOKE':
+      return 'managerPermissions.access.notifications';
+    default:
+      return null;
   }
 }
 
@@ -585,6 +617,8 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
     }
   }
 
+  const managerAccessKey = getQdnManagerAccessKey(request.action);
+
   return (
     <ModalDialog onDismiss={() => onResolve(request.id, false)}>
       <section
@@ -606,6 +640,12 @@ function QdnWriteDialog({ request, onResolve }: QdnWriteDialogProps) {
             <dt>{t('qdnWrite.field.action')}</dt>
             <dd>{t(getQdnWriteActionKey(request.action))}</dd>
           </div>
+          {managerAccessKey ? (
+            <div>
+              <dt>{t('managerPermissions.accessLabel')}</dt>
+              <dd>{t(managerAccessKey)}</dd>
+            </div>
+          ) : null}
           {request.resource ? (
             <div>
               <dt>{t('qdnWrite.field.resource')}</dt>
@@ -856,6 +896,18 @@ function shouldUseKeyboardShortcut(event: KeyboardEvent) {
   return !event.defaultPrevented && !event.isComposing;
 }
 
+function isSameSavedItems(first: unknown, second: unknown) {
+  return first === second || JSON.stringify(first) === JSON.stringify(second);
+}
+
+function isFocusedQdnAppResource(displayUrl: string, appKey: string) {
+  try {
+    return sanitizeQdnManagerAppKey(displayUrl) === appKey;
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [accountsState, setAccountsState] = useState<QortiumAccountsState>(EMPTY_ACCOUNTS_STATE);
   const [accountsError, setAccountsError] = useState('');
@@ -881,10 +933,16 @@ export function App() {
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [qdnAppTargetRequest, setQdnAppTargetRequest] = useState<QdnAppTargetRequest | null>(null);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
+  const [isLoadingDashboardPins, setIsLoadingDashboardPins] = useState(true);
   const [bookmarksState, setBookmarksState] = useState<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
+  const [isLoadingBookmarks, setIsLoadingBookmarks] = useState(true);
+  const [bookmarkManagerRevision, setBookmarkManagerRevision] = useState(0);
+  const [isLoadingBookmarkManagerRevision, setIsLoadingBookmarkManagerRevision] = useState(true);
+  const [hasBookmarkManagerLoadError, setHasBookmarkManagerLoadError] = useState(false);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
   const [notificationRulesVersion, setNotificationRulesVersion] = useState(getNotificationRulesVersion);
+  const [notificationManagerRevision, setNotificationManagerRevision] = useState(0);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
   const [systemLanguage, setSystemLanguage] = useState(getSystemLanguage);
   const [isLoadingWindowStartupPayload, setIsLoadingWindowStartupPayload] = useState(true);
@@ -899,6 +957,11 @@ export function App() {
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
   const dashboardPinsRef = useRef<DashboardPin[]>([]);
+  const bookmarksStateRef = useRef<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
+  const startPagesRef = useRef<StartPage[]>([]);
+  const bookmarkManagerRevisionRef = useRef(0);
+  const bookmarkManagerOperationChainRef = useRef(Promise.resolve());
+  const bookmarkManagerPersistenceChainRef = useRef(Promise.resolve());
   const openAppLinkInNewTabRef = useRef<
     ((address: string, sourceTabId: string | null) => void) | null
   >(null);
@@ -1015,6 +1078,39 @@ export function App() {
       }
     });
   }, [displaySettings]);
+
+  useEffect(() => {
+    const qdnPermissions = window.qortiumHome.qdnPermissions;
+    if (!qdnPermissions?.onBookmarkManagerRequest || !qdnPermissions.resolveBookmarkManagerRequest) {
+      return undefined;
+    }
+    return qdnPermissions.onBookmarkManagerRequest((request) => {
+      const run = request.operation === 'get'
+        ? Promise.resolve().then(() => getQdnBookmarkManagerSnapshot())
+        : request.request
+          ? applyQdnBookmarkManagerMutation(request.request)
+          : Promise.reject(new Error('Bookmark manager mutation request is missing.'));
+      void run
+        .then((result) => qdnPermissions.resolveBookmarkManagerRequest?.(request.id, result))
+        .catch((error) => qdnPermissions.resolveBookmarkManagerRequest?.(
+          request.id,
+          null,
+          {
+            code: error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+              ? error.code
+              : undefined,
+            message: error instanceof Error ? error.message : 'Bookmark manager request failed.',
+          },
+        ));
+    });
+  }, [
+    bookmarkManagerRevision,
+    hasBookmarkManagerLoadError,
+    isLoadingBookmarkManagerRevision,
+    isLoadingBookmarks,
+    isLoadingDashboardPins,
+    isLoadingStartPages,
+  ]);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -1468,61 +1564,107 @@ export function App() {
 
   useEffect(() => {
     let isDisposed = false;
-
-    loadDashboardPins()
-      .then((storedPins) => {
-        if (!isDisposed) {
-          dashboardPinsRef.current = storedPins;
-          setDashboardPins(storedPins);
-        }
-      })
-      .catch((error) => {
-        console.warn('Unable to load dashboard pins.', error);
-      });
-
-    return () => {
-      isDisposed = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    loadStartPages()
-      .then((pages) => {
-        if (!isDisposed) {
-          setStartPages(pages);
-          setIsLoadingStartPages(false);
-        }
-      })
-      .catch((error) => {
-        console.warn('Unable to load start pages.', error);
-        if (!isDisposed) {
-          setIsLoadingStartPages(false);
-        }
-      });
-
-    return () => {
-      isDisposed = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    loadBookmarksState()
-      .then((state) => {
-        if (!isDisposed) {
-          setBookmarksState(state);
-        }
-      })
-      .catch((error) => {
+    let legacyLoadFailed = false;
+    Promise.all([
+      loadBookmarksState().catch((error) => {
+        legacyLoadFailed = true;
         console.warn('Unable to load bookmarks.', error);
+        return DEFAULT_BOOKMARKS_STATE;
+      }),
+      loadDashboardPins().catch((error) => {
+        legacyLoadFailed = true;
+        console.warn('Unable to load dashboard pins.', error);
+        return [];
+      }),
+      loadStartPages().catch((error) => {
+        legacyLoadFailed = true;
+        console.warn('Unable to load start pages.', error);
+        return [];
+      }),
+      loadBookmarkManagerRevision().catch((error) => {
+        legacyLoadFailed = true;
+        console.warn('Unable to load bookmark manager revision.', error);
+        return 0;
+      }),
+      loadBookmarkManagerSnapshot().catch((error) => {
+        console.warn('Unable to load bookmark manager snapshot.', error);
+        return null;
+      }),
+    ])
+      .then(async ([legacyBookmarks, legacyPins, legacyStartPages, legacyRevision, managerSnapshot]) => {
+        if (isDisposed) return;
+        let legacySnapshot: ReturnType<typeof createBookmarkManagerSnapshot> | null = null;
+        try {
+          legacySnapshot = createBookmarkManagerSnapshot({
+            bookmarksState: legacyBookmarks,
+            dashboardPins: legacyPins,
+            revision: legacyRevision,
+            startPages: legacyStartPages,
+          });
+        } catch (error) {
+          console.warn('Saved Home links exceed the bookmark manager safety limits.', error);
+        }
+        const useManagerSnapshot = !!managerSnapshot && (
+          legacyLoadFailed
+          || (!legacySnapshot && managerSnapshot.revision >= legacyRevision)
+          || managerSnapshot.revision > legacyRevision
+          || (!!legacySnapshot && managerSnapshot.revision === legacyRevision
+            && JSON.stringify(managerSnapshot) === JSON.stringify(legacySnapshot))
+        );
+        const nextBookmarks = useManagerSnapshot && managerSnapshot
+          ? {
+              ...DEFAULT_BOOKMARKS_STATE,
+              bookmarks: managerSnapshot.bookmarks,
+              toolbar: managerSnapshot.toolbar,
+              toolbarVisibility: managerSnapshot.toolbarVisibility,
+            }
+          : legacyBookmarks;
+        const nextPins = useManagerSnapshot && managerSnapshot ? managerSnapshot.dashboardPins : legacyPins;
+        const nextStartPages = useManagerSnapshot && managerSnapshot ? managerSnapshot.startPages : legacyStartPages;
+        const nextRevision = useManagerSnapshot && managerSnapshot ? managerSnapshot.revision : legacyRevision;
+        bookmarksStateRef.current = nextBookmarks;
+        dashboardPinsRef.current = nextPins;
+        startPagesRef.current = nextStartPages;
+        bookmarkManagerRevisionRef.current = nextRevision;
+        setBookmarksState(nextBookmarks);
+        setDashboardPins(nextPins);
+        setStartPages(nextStartPages);
+        setBookmarkManagerRevision(nextRevision);
+        const unsafeLegacyState = !useManagerSnapshot && (legacyLoadFailed || !legacySnapshot);
+        setHasBookmarkManagerLoadError(unsafeLegacyState);
+        if (useManagerSnapshot) {
+          // The canonical snapshot wins after an interrupted cross-root write.
+          // Repair every legacy mirror before writing its revision commit marker
+          // so a later downgrade does not reopen the partial state.
+          try {
+            await Promise.all([
+              saveBookmarksState(nextBookmarks),
+              saveDashboardPins(nextPins),
+              saveStartPages(nextStartPages),
+            ]);
+            await saveBookmarkManagerRevision(nextRevision);
+          } catch (error) {
+            console.warn('Unable to repair legacy bookmark storage from the manager snapshot.', error);
+            if (!isDisposed) setHasBookmarkManagerLoadError(true);
+          }
+        } else if (legacySnapshot) {
+          await saveBookmarkManagerSnapshot(legacySnapshot).catch((error) => {
+            console.warn('Unable to migrate bookmark manager snapshot.', error);
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to initialize bookmark manager data safely.', error);
+        if (!isDisposed) setHasBookmarkManagerLoadError(true);
+      })
+      .finally(() => {
+        if (isDisposed) return;
+        setIsLoadingBookmarks(false);
+        setIsLoadingDashboardPins(false);
+        setIsLoadingStartPages(false);
+        setIsLoadingBookmarkManagerRevision(false);
       });
-
-    return () => {
-      isDisposed = true;
-    };
+    return () => { isDisposed = true; };
   }, []);
 
   useEffect(() => subscribeToSystemThemeChange(setSystemTheme), []);
@@ -1654,123 +1796,181 @@ export function App() {
     return getWritableHomeSettings(nextSettings);
   }
 
-  function toggleStartPage(displayUrl: string) {
-    setStartPages((current) => {
-      const next = current.some((page) => page.displayUrl === displayUrl)
-        ? removeStartPage(current, displayUrl)
-        : addStartPage(current, displayUrl, getSavedPageAccountId(displayUrl, activeTab.accountId));
+  function getBookmarkManagerCollections(): BookmarkManagerCollections {
+    if (hasBookmarkManagerLoadError) {
+      throw new Error('Saved Home links could not be loaded safely. Restart Home and try again.');
+    }
+    if (isLoadingBookmarks || isLoadingDashboardPins || isLoadingStartPages || isLoadingBookmarkManagerRevision) {
+      throw new Error('Saved Home links are still loading. Please try again.');
+    }
+    return {
+      bookmarksState: bookmarksStateRef.current,
+      dashboardPins: dashboardPinsRef.current,
+      revision: bookmarkManagerRevisionRef.current,
+      startPages: startPagesRef.current,
+    };
+  }
 
-      if (next === current) {
-        return current;
-      }
+  function isBookmarkManagerReady() {
+    return !hasBookmarkManagerLoadError
+      && !isLoadingBookmarks
+      && !isLoadingDashboardPins
+      && !isLoadingStartPages
+      && !isLoadingBookmarkManagerRevision;
+  }
 
-      saveStartPages(next).catch((error) => {
-        console.warn('Unable to save start pages.', error);
-      });
+  function getQdnBookmarkManagerSnapshot() {
+    return createBookmarkManagerSnapshot(getBookmarkManagerCollections());
+  }
 
-      return next;
+  function bumpBookmarkManagerRevision() {
+    const revision = bookmarkManagerRevisionRef.current + 1;
+    bookmarkManagerRevisionRef.current = revision;
+    setBookmarkManagerRevision(revision);
+    return revision;
+  }
+
+  function queueBookmarkManagerPersistence(collections = getBookmarkManagerCollections()) {
+    const snapshot: BookmarkManagerCollections = {
+      bookmarksState: collections.bookmarksState,
+      dashboardPins: collections.dashboardPins,
+      revision: collections.revision,
+      startPages: collections.startPages,
+    };
+    // The single snapshot is authoritative for crash recovery and cross-root
+    // moves. Legacy keys remain mirrored so older Home builds can still read
+    // the data; their revision is written last as the commit marker.
+    const persistence = bookmarkManagerPersistenceChainRef.current
+      .then(() => saveBookmarkManagerSnapshot(createBookmarkManagerSnapshot(snapshot)))
+      .then(() => Promise.all([
+        saveBookmarksState(snapshot.bookmarksState),
+        saveDashboardPins(snapshot.dashboardPins),
+        saveStartPages(snapshot.startPages),
+      ]))
+      .then(() => saveBookmarkManagerRevision(snapshot.revision));
+    bookmarkManagerPersistenceChainRef.current = persistence.catch(() => undefined);
+    return persistence;
+  }
+
+  function persistCurrentBookmarkManagerState() {
+    void queueBookmarkManagerPersistence().catch((error) => {
+      console.warn('Unable to save bookmark manager data.', error);
     });
+  }
+
+  function applyQdnBookmarkManagerMutation(request: import('../electron/bookmark-manager-contract').BookmarkManagerMutationRequest) {
+    const operation = bookmarkManagerOperationChainRef.current.then(async () => {
+      const current = getBookmarkManagerCollections();
+      if (request.expectedRevision !== current.revision) {
+        throw Object.assign(new Error('Bookmarks changed; refresh and try again.'), { code: 'HOME_DATA_STALE' });
+      }
+      const result = applyBookmarkManagerMutation(current, request.mutation);
+      if (!result.changed) return { changed: false, snapshot: result.snapshot };
+
+      const next = result.collections;
+      bookmarkManagerRevisionRef.current = next.revision;
+      bookmarksStateRef.current = next.bookmarksState;
+      dashboardPinsRef.current = next.dashboardPins;
+      startPagesRef.current = next.startPages;
+      setBookmarksState(next.bookmarksState);
+      setDashboardPins(next.dashboardPins);
+      setStartPages(next.startPages);
+      setBookmarkManagerRevision(next.revision);
+      try {
+        await queueBookmarkManagerPersistence(next);
+      } catch (error) {
+        if (bookmarkManagerRevisionRef.current === next.revision) {
+          // A rollback is itself a new committed state. Give it a newer
+          // revision so a crash while repairing legacy mirrors cannot leave
+          // canonical and partial legacy data ambiguously tied.
+          const rollback = { ...current, revision: next.revision + 1 };
+          bookmarkManagerRevisionRef.current = rollback.revision;
+          bookmarksStateRef.current = rollback.bookmarksState;
+          dashboardPinsRef.current = rollback.dashboardPins;
+          startPagesRef.current = rollback.startPages;
+          setBookmarksState(rollback.bookmarksState);
+          setDashboardPins(rollback.dashboardPins);
+          setStartPages(rollback.startPages);
+          setBookmarkManagerRevision(rollback.revision);
+          await queueBookmarkManagerPersistence(rollback).catch((rollbackError) => {
+            console.warn('Unable to restore bookmark manager data after a failed save.', rollbackError);
+          });
+        }
+        throw error;
+      }
+      return { changed: true, snapshot: result.snapshot };
+    });
+    bookmarkManagerOperationChainRef.current = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  function toggleStartPage(displayUrl: string) {
+    if (!isBookmarkManagerReady()) return;
+    const current = startPagesRef.current;
+    const next = current.some((page) => page.displayUrl === displayUrl)
+      ? removeStartPage(current, displayUrl)
+      : addStartPage(current, displayUrl, getSavedPageAccountId(displayUrl, activeTab.accountId));
+
+    if (isSameSavedItems(next, current)) return;
+    startPagesRef.current = next;
+    setStartPages(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
   }
 
   function reorderStartPage(displayUrl: string, direction: -1 | 1) {
-    setStartPages((current) => {
-      const index = current.findIndex((page) => page.displayUrl === displayUrl);
-      const nextIndex = index + direction;
+    if (!isBookmarkManagerReady()) return;
+    const current = startPagesRef.current;
+    const index = current.findIndex((page) => page.displayUrl === displayUrl);
+    const nextIndex = index + direction;
+    if (index === -1 || nextIndex < 0 || nextIndex >= current.length) return;
 
-      if (index === -1 || nextIndex < 0 || nextIndex >= current.length) {
-        return current;
-      }
-
-      const next = [...current];
-      const [page] = next.splice(index, 1);
-      next.splice(nextIndex, 0, page);
-
-      saveStartPages(next).catch((error) => {
-        console.warn('Unable to save start pages.', error);
-      });
-
-      return next;
-    });
+    const next = [...current];
+    const [page] = next.splice(index, 1);
+    next.splice(nextIndex, 0, page);
+    startPagesRef.current = next;
+    setStartPages(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
   }
 
   function handleStartPageRemove(displayUrl: string) {
-    setStartPages((current) => {
-      const next = removeStartPage(current, displayUrl);
-
-      if (next === current) {
-        return current;
-      }
-
-      saveStartPages(next).catch((error) => {
-        console.warn('Unable to save start pages.', error);
-      });
-
-      return next;
-    });
+    if (!isBookmarkManagerReady()) return;
+    const current = startPagesRef.current;
+    const next = removeStartPage(current, displayUrl);
+    if (isSameSavedItems(next, current)) return;
+    startPagesRef.current = next;
+    setStartPages(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
   }
 
   function updateBookmarksState(updateState: (current: BookmarksState) => BookmarksState) {
-    setBookmarksState((current) => {
-      const next = updateState(current);
-
-      if (next === current) {
-        return current;
-      }
-
-      saveBookmarksState(next).catch((error) => {
-        console.warn('Unable to save bookmarks.', error);
-      });
-
-      return next;
-    });
+    if (!isBookmarkManagerReady()) return false;
+    const current = bookmarksStateRef.current;
+    const next = updateState(current);
+    if (isSameSavedItems(next, current)) return false;
+    bookmarksStateRef.current = next;
+    setBookmarksState(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
+    return true;
   }
 
   function addBookmarkToFolder(folderId: BookmarkFolderId, request: BookmarkUpdateRequest, parentFolderId?: string | null) {
-    let didAdd = false;
-
-    updateBookmarksState((current) => {
-      const next = addBookmark(current, folderId, request, parentFolderId);
-      didAdd = next !== current;
-      return next;
-    });
-
-    return didAdd;
+    return updateBookmarksState((current) => addBookmark(current, folderId, request, parentFolderId));
   }
 
   function addBookmarkFolderToFolder(folderId: BookmarkFolderId, request: BookmarkFolderRequest, parentFolderId?: string | null) {
-    let didAdd = false;
-
-    updateBookmarksState((current) => {
-      const next = addBookmarkFolder(current, folderId, request, parentFolderId);
-      didAdd = next !== current;
-      return next;
-    });
-
-    return didAdd;
+    return updateBookmarksState((current) => addBookmarkFolder(current, folderId, request, parentFolderId));
   }
 
   function updateBookmarkInFolder(folderId: BookmarkFolderId, bookmarkId: string, request: BookmarkUpdateRequest) {
-    let didUpdate = false;
-
-    updateBookmarksState((current) => {
-      const next = updateBookmark(current, folderId, bookmarkId, request);
-      didUpdate = next !== current;
-      return next;
-    });
-
-    return didUpdate;
+    return updateBookmarksState((current) => updateBookmark(current, folderId, bookmarkId, request));
   }
 
   function updateBookmarkFolderInFolder(folderId: BookmarkFolderId, bookmarkFolderId: string, request: BookmarkFolderRequest) {
-    let didUpdate = false;
-
-    updateBookmarksState((current) => {
-      const next = updateBookmarkFolder(current, folderId, bookmarkFolderId, request);
-      didUpdate = next !== current;
-      return next;
-    });
-
-    return didUpdate;
+    return updateBookmarksState((current) => updateBookmarkFolder(current, folderId, bookmarkFolderId, request));
   }
 
   function removeBookmarkFromFolder(folderId: BookmarkFolderId, bookmarkId: string) {
@@ -2172,6 +2372,7 @@ export function App() {
     // tile gears jump straight to the relevant controls.
     setSettingsExpansion({
       core: sectionId === 'core',
+      dataPermissions: sectionId === 'dataPermissions',
       display: sectionId === 'display',
       home: sectionId === 'home',
       notifications: sectionId === 'notifications',
@@ -2266,14 +2467,18 @@ export function App() {
   }
 
   function updateDashboardPins(updatePins: (currentPins: DashboardPin[]) => DashboardPin[]) {
-    const nextPins = updatePins(dashboardPinsRef.current);
+    if (!isBookmarkManagerReady()) return;
+    const currentPins = dashboardPinsRef.current;
+    const nextPins = updatePins(currentPins);
+
+    if (isSameSavedItems(nextPins, currentPins)) {
+      return;
+    }
 
     dashboardPinsRef.current = nextPins;
     setDashboardPins(nextPins);
-
-    saveDashboardPins(nextPins).catch((error) => {
-      console.warn('Unable to save dashboard pins.', error);
-    });
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
   }
 
   function pinTabToDashboard(tabId: string) {
@@ -2341,14 +2546,10 @@ export function App() {
   }
 
   function updateDashboardPinFromBookmarks(pinId: string, request: BookmarkUpdateRequest) {
-    let didUpdate = false;
-
-    updateDashboardPins((currentPins) => {
-      const next = updateDashboardPin(currentPins, pinId, request);
-      didUpdate = next !== currentPins;
-      return next;
-    });
-
+    const currentPins = dashboardPinsRef.current;
+    const nextPins = updateDashboardPin(currentPins, pinId, request);
+    const didUpdate = !isSameSavedItems(nextPins, currentPins);
+    if (didUpdate) updateDashboardPins(() => nextPins);
     return didUpdate;
   }
 
@@ -2374,23 +2575,15 @@ export function App() {
   }
 
   function addStartPageFromBookmark(displayUrl: string, accountId: string | null, title = '') {
-    let didAdd = false;
-
-    setStartPages((current) => {
-      const next = addStartPage(current, displayUrl, accountId, title);
-      didAdd = next !== current;
-
-      if (next === current) {
-        return current;
-      }
-
-      saveStartPages(next).catch((error) => {
-        console.warn('Unable to save start pages.', error);
-      });
-
-      return next;
-    });
-
+    if (!isBookmarkManagerReady()) return false;
+    const current = startPagesRef.current;
+    const next = addStartPage(current, displayUrl, accountId, title);
+    const didAdd = !isSameSavedItems(next, current);
+    if (!didAdd) return false;
+    startPagesRef.current = next;
+    setStartPages(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
     return didAdd;
   }
 
@@ -2403,58 +2596,38 @@ export function App() {
   }
 
   function updateStartPageFromBookmarks(displayUrl: string, request: BookmarkUpdateRequest) {
-    let didUpdate = false;
-
-    setStartPages((current) => {
-      const next = updateStartPage(current, displayUrl, request);
-      didUpdate = next !== current;
-
-      if (next === current) {
-        return current;
-      }
-
-      saveStartPages(next).catch((error) => {
-        console.warn('Unable to save start pages.', error);
-      });
-
-      return next;
-    });
-
+    if (!isBookmarkManagerReady()) return false;
+    const current = startPagesRef.current;
+    const next = updateStartPage(current, displayUrl, request);
+    const didUpdate = !isSameSavedItems(next, current);
+    if (!didUpdate) return false;
+    startPagesRef.current = next;
+    setStartPages(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
     return didUpdate;
   }
 
   function reorderStartPageToTarget(displayUrl: string, targetDisplayUrl: string, dropPosition: DashboardPinDropPosition) {
-    setStartPages((current) => {
-      if (displayUrl === targetDisplayUrl) {
-        return current;
-      }
-
-      const page = current.find((candidate) => candidate.displayUrl === displayUrl);
-
-      if (!page) {
-        return current;
-      }
-
-      const pagesWithoutDragged = current.filter((candidate) => candidate.displayUrl !== displayUrl);
-      const targetIndex = pagesWithoutDragged.findIndex((candidate) => candidate.displayUrl === targetDisplayUrl);
-
-      if (targetIndex === -1) {
-        return current;
-      }
-
-      const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex;
-      const next = [
-        ...pagesWithoutDragged.slice(0, insertIndex),
-        page,
-        ...pagesWithoutDragged.slice(insertIndex),
-      ];
-
-      saveStartPages(next).catch((error) => {
-        console.warn('Unable to save start pages.', error);
-      });
-
-      return next;
-    });
+    if (!isBookmarkManagerReady()) return;
+    if (displayUrl === targetDisplayUrl) return;
+    const current = startPagesRef.current;
+    const page = current.find((candidate) => candidate.displayUrl === displayUrl);
+    if (!page) return;
+    const pagesWithoutDragged = current.filter((candidate) => candidate.displayUrl !== displayUrl);
+    const targetIndex = pagesWithoutDragged.findIndex((candidate) => candidate.displayUrl === targetDisplayUrl);
+    if (targetIndex === -1) return;
+    const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex;
+    const next = [
+      ...pagesWithoutDragged.slice(0, insertIndex),
+      page,
+      ...pagesWithoutDragged.slice(insertIndex),
+    ];
+    if (isSameSavedItems(next, current)) return;
+    startPagesRef.current = next;
+    setStartPages(next);
+    bumpBookmarkManagerRevision();
+    persistCurrentBookmarkManagerState();
   }
 
   function getBookmarkMovePayload(request: BookmarkRootMoveRequest) {
@@ -3135,9 +3308,23 @@ export function App() {
       });
   }, [displaySettings.appNotifications]);
 
-  useEffect(() => onNotificationStoreChanged(() => {
-    setNotificationRulesVersion(getNotificationRulesVersion());
-  }), []);
+  useEffect(() => {
+    let active = true;
+    void getNotificationStore()
+      .then((store) => {
+        if (active) setNotificationManagerRevision(store.revision);
+      })
+      .catch((error) => console.warn('Unable to load notification manager revision.', error));
+    const unsubscribe = onNotificationStoreChanged((store) => {
+      if (!active) return;
+      setNotificationRulesVersion(getNotificationRulesVersion());
+      setNotificationManagerRevision(store.revision);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   const isNativeNotificationPlatform = Capacitor.isNativePlatform();
   const notificationNodeApiUrl = nodeSettings?.nodeApiUrl ?? '';
@@ -3153,7 +3340,7 @@ export function App() {
       isAppFocused: (appKey) =>
         document.hasFocus() &&
         currentRouteRef.current.kind === 'resource' &&
-        currentRouteRef.current.resource.displayUrl === appKey,
+        isFocusedQdnAppResource(currentRouteRef.current.resource.displayUrl, appKey),
       onOpenLink: (address) => openAppLinkInNewTabRef.current?.(address, null),
     });
   }, [
@@ -3824,6 +4011,11 @@ export function App() {
                   nodeEpoch={nodeEpoch}
                   nodeMode={nodeSettings.mode}
                   getHomeSettings={getQdnHomeSettings}
+                  getBookmarkManagerSnapshot={getQdnBookmarkManagerSnapshot}
+                  managerRevisions={isBookmarkManagerReady() ? {
+                    bookmarkManager: bookmarkManagerRevision,
+                    notificationManager: notificationManagerRevision,
+                  } : undefined}
                   onAppNavigationChange={(snapshot) =>
                     updateQdnAppNavigation(tab.id, tabRenderRoute.resource.displayUrl, snapshot)
                   }
@@ -3840,6 +4032,7 @@ export function App() {
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   onHomeSettingsPatch={applyQdnHomeSettingsPatch}
+                  onBookmarkManagerMutation={applyQdnBookmarkManagerMutation}
                   resource={tabRenderRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}
