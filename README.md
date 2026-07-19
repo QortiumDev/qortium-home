@@ -7,7 +7,7 @@ from one simple interface.
 Qortium Home is focused on account management, QDN browsing, and a browser-like
 foundation built around account-aware tabs. Prebuilt packages are published at
 <https://github.com/QortiumDev/qortium-home/releases> (currently on the
-prerelease channel, v1.4.x). See [Status](#status) below before using wallets
+prerelease channel). See [Status](#status) below before using wallets
 with meaningful funds.
 
 ## Status
