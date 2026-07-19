@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - fix(document-viewer): open QDN EPUBs reliably
+
+Fixes QDN EPUBs that stayed on “Loading QDN resource…” forever after opening
+in the Document Viewer. Home now gives epub.js the downloaded book bytes
+directly, so it reliably recognizes a packed EPUB instead of looking for an
+unpacked book directory, and it shows the normal document error if opening or
+reading the table of contents fails or takes too long.
+
 ### 2026-07-19 - feat(qdn): improve bookmark and notification managers
 
 Lets approved bookmark-manager apps list Home account labels, change the
@@ -41,6 +49,17 @@ account without reusing a tab from another account. Notification-manager apps
 can now receive filter values that Home verifies as real Qortal addresses, so
 they can resolve and display public names and avatars, while account bindings,
 wallet keys, signatures, and non-address values remain hidden.
+
+### 2026-07-19 - feat(qdn): add bookmark and notification manager bridges
+
+Adds the first bookmark-manager and notification-manager bridge actions for
+QDN apps. After a one-time permission approval in Home, a manager app can read
+the user's saved bookmarks and notification rules, apply changes such as
+adding or editing bookmarks, muting or removing notification rules, and
+revoking an app's notification access. Every read carries a revision marker,
+and Home rejects changes based on outdated data so two apps cannot silently
+overwrite each other. These actions work the same on desktop and Android and
+in public-node mode.
 
 ### 2026-07-19 - fix(updates): select macOS DMGs by OS version
 

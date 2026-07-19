@@ -10,6 +10,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { openArchive } from './archive';
+import { openEpubBook, type EpubBookLike } from './documentViewerEpub';
 import { t } from './i18n';
 import type { QdnDisplaySettings, QdnResource } from './qdn';
 
@@ -90,9 +91,7 @@ export type EpubTocItem = {
   subitems?: EpubTocItem[];
 };
 
-type EpubBook = {
-  destroy: () => void;
-  loaded: { navigation: Promise<{ toc: EpubTocItem[] }> };
+type EpubBook = EpubBookLike<EpubTocItem> & {
   renderTo: (element: HTMLElement, opts: object) => EpubRendition;
 };
 
@@ -313,13 +312,13 @@ export function DocumentViewer({
         if (format === 'epub') {
           const { default: ePub } = await import('epubjs');
           if (canceled) return;
-          const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/epub+zip' });
-          const blobUrl = URL.createObjectURL(blob);
-          const book = ePub(blobUrl) as unknown as EpubBook;
-          const nav = await book.loaded.navigation;
-          if (canceled) { book.destroy(); URL.revokeObjectURL(blobUrl); return; }
-          cleanup = () => { book.destroy(); URL.revokeObjectURL(blobUrl); };
-          setState({ book, format: 'epub', phase: 'ready', toc: nav.toc ?? [] });
+          const { book, toc } = await openEpubBook<EpubTocItem, EpubBook>(
+            ePub as unknown as (input: ArrayBuffer) => EpubBook,
+            bytes,
+          );
+          if (canceled) { book.destroy(); return; }
+          cleanup = () => { book.destroy(); };
+          setState({ book, format: 'epub', phase: 'ready', toc });
           return;
         }
 
