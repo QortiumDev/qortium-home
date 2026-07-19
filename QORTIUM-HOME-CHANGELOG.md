@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - fix(updates): select macOS DMGs by OS version
+
+Stops Intel Macs on current macOS releases from receiving the Catalina-only
+Home package just because it is architecture-specific. Desktop Home now reports
+the actual operating-system version, and update checks choose the standard
+universal DMG for macOS 12 and newer, the macOS-11 compatibility DMG for Big
+Sur, and the Catalina x64 DMG only for macOS 10.15. Unknown browser-mode
+versions safely prefer the current universal package, with focused coverage for
+Intel and Apple Silicon across each supported macOS line.
+
 ### 2026-07-19 - fix(notifications): accept boolean resource prefix filters
 
 Lets QDN apps subscribe to published-resource notifications using the node's

@@ -272,13 +272,13 @@ function normalizeDownloadRequest(value: AppUpdateDownloadRequest) {
   };
 }
 
-function getPlatformLabel(os: AppUpdatePlatformOs, arch: string) {
+function getPlatformLabel(os: AppUpdatePlatformOs, arch: string, osVersion: string) {
   if (os === 'linux') {
     return `Linux ${arch}`;
   }
 
   if (os === 'macos') {
-    return `macOS ${arch}`;
+    return `macOS ${osVersion} ${arch}`;
   }
 
   if (os === 'windows') {
@@ -303,6 +303,7 @@ function isSupportedPlatform(os: AppUpdatePlatformOs, arch: string) {
 function getUpdateEnvironment() {
   const os = getPlatformOs();
   const arch = process.arch;
+  const osVersion = process.getSystemVersion();
   const installFile = getInstallFile();
 
   return {
@@ -311,8 +312,9 @@ function getUpdateEnvironment() {
     installFile,
     platform: {
       arch,
-      label: getPlatformLabel(os, arch),
+      label: getPlatformLabel(os, arch, osVersion),
       os,
+      osVersion,
       supported: isSupportedPlatform(os, arch),
     },
     updatesDir: getAppUpdatesPath(),
