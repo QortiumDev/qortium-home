@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ClipboardCopy, Copy, Download, ExternalLink, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Copy, Download, ExternalLink, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t } from './i18n';
 import type {
@@ -53,6 +53,11 @@ import type { CoreManagerState } from './coreManagerState';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
 import { FileTree, type FileTreeEntry } from './FileTree';
 import { detectContentKind, sniffMagicBytes } from './qdnContentType';
+import {
+  getAdjacentGalleryFile,
+  getGallerySwipeDirection,
+  type GalleryNavigationDirection,
+} from './qdnGalleryNavigation';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -3002,6 +3007,13 @@ function QdnGalleryContent({
     phase: 'loading',
   });
   const [selectedFile, setSelectedFile] = useState('');
+  const galleryPointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressImageClickRef = useRef(false);
+
+  const navigateGallery = (direction: GalleryNavigationDirection) => {
+    if (state.phase !== 'ready') return;
+    setSelectedFile((currentFile) => getAdjacentGalleryFile(state.files, currentFile, direction) ?? currentFile);
+  };
 
   // Make the top-bar copy/download target what is on screen: the whole
   // repository (a zip) in the gallery, or the selected image when one is open.
@@ -3059,6 +3071,32 @@ function QdnGalleryContent({
     };
   }, [nodeApiUrl, resource]);
 
+  useEffect(() => {
+    if (state.phase !== 'ready' || !selectedFile) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
+      ) return;
+
+      const direction = event.key === 'ArrowLeft'
+        ? 'previous'
+        : event.key === 'ArrowRight'
+          ? 'next'
+          : null;
+      if (!direction || !getAdjacentGalleryFile(state.files, selectedFile, direction)) return;
+
+      event.preventDefault();
+      navigateGallery(direction);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedFile, state]);
+
   if (state.phase === 'loading') {
     return (
       <div className="qdn-viewer__empty qdn-viewer__empty--loading">
@@ -3083,16 +3121,66 @@ function QdnGalleryContent({
 
   if (selectedFile) {
     const selectedResource = getQdnResourceWithPath(resource, selectedFile);
+    const previousFile = getAdjacentGalleryFile(state.files, selectedFile, 'previous');
+    const nextFile = getAdjacentGalleryFile(state.files, selectedFile, 'next');
 
     return (
       <div className="qdn-viewer__gif-single">
-        <QdnImageButton
-          alt={selectedFile}
-          className="qdn-viewer__gif-single-button"
-          src={buildQdnRenderUrl(selectedResource, nodeApiUrl, displaySettings)}
-          title={t('common.back')}
-          onClick={() => setSelectedFile('')}
-        />
+        <div
+          className="qdn-viewer__gallery-stage"
+          onPointerCancel={() => {
+            galleryPointerStartRef.current = null;
+            suppressImageClickRef.current = false;
+          }}
+          onPointerDown={(event) => {
+            if (!event.isPrimary) return;
+            galleryPointerStartRef.current = { x: event.clientX, y: event.clientY };
+            suppressImageClickRef.current = false;
+          }}
+          onPointerUp={(event) => {
+            const start = galleryPointerStartRef.current;
+            galleryPointerStartRef.current = null;
+            if (!start || !event.isPrimary) return;
+            const direction = getGallerySwipeDirection(event.clientX - start.x, event.clientY - start.y);
+            if (!direction) return;
+            suppressImageClickRef.current = true;
+            navigateGallery(direction);
+          }}
+        >
+          <QdnImageButton
+            alt={selectedFile}
+            className="qdn-viewer__gif-single-button"
+            src={buildQdnRenderUrl(selectedResource, nodeApiUrl, displaySettings)}
+            title={t('common.back')}
+            onClick={() => {
+              if (suppressImageClickRef.current) {
+                suppressImageClickRef.current = false;
+                return;
+              }
+              setSelectedFile('');
+            }}
+          />
+          <button
+            aria-label={t('docViewer.prevPage')}
+            className="qdn-viewer__gallery-nav qdn-viewer__gallery-nav--previous"
+            disabled={!previousFile}
+            title={t('docViewer.prevPage')}
+            type="button"
+            onClick={() => navigateGallery('previous')}
+          >
+            <ChevronLeft aria-hidden="true" size={28} strokeWidth={2} />
+          </button>
+          <button
+            aria-label={t('docViewer.nextPage')}
+            className="qdn-viewer__gallery-nav qdn-viewer__gallery-nav--next"
+            disabled={!nextFile}
+            title={t('docViewer.nextPage')}
+            type="button"
+            onClick={() => navigateGallery('next')}
+          >
+            <ChevronRight aria-hidden="true" size={28} strokeWidth={2} />
+          </button>
+        </div>
       </div>
     );
   }

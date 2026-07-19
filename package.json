@@ -56,6 +56,7 @@
     "test:bookmark-manager-contract": "npm run build:electron && node dist-electron/bookmark-manager-contract.test.js",
     "test:bookmark-manager": "esbuild src/bookmarkManager.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/bookmark-manager.test.js && node dist-electron/bookmark-manager.test.js",
     "test:document-viewer-epub": "esbuild src/documentViewerEpub.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/document-viewer-epub.test.js && node dist-electron/document-viewer-epub.test.js",
+    "test:qdn-gallery-navigation": "esbuild src/qdnGalleryNavigation.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-gallery-navigation.test.js && node dist-electron/qdn-gallery-navigation.test.js",
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:notification-manager": "npm run build:electron && node dist-electron/notification-manager.test.js",
