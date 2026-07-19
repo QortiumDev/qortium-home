@@ -70,7 +70,7 @@ const FILTER_KEYS: Record<QdnNotificationEvent, ReadonlySet<string>> = {
 
 const STRING_ARRAY_FILTERS = new Set(['names', 'keywords']);
 const STRING_OR_ARRAY_FILTERS = new Set(['sender', 'recipient', 'address', 'signature', 'involving', 'groupId']);
-const BOOLEAN_FILTERS = new Set(['defaultResource', 'followedOnly', 'excludeBlocked']);
+const BOOLEAN_FILTERS = new Set(['prefix', 'defaultResource', 'followedOnly', 'excludeBlocked']);
 // txType is a TransactionType enum NAME (e.g. "PAYMENT"), not a number.
 const NUMBER_FILTERS = new Set(['after', 'before', 'created', 'txGroupId']);
 
