@@ -24,6 +24,8 @@ import {
 } from './qdn';
 import { getOpenAppTargetMessage, type QdnAppTargetQuery } from './qdn-app-target';
 import type { QdnAppNavigationSnapshot } from './qdn-app-history';
+import { appendQdnFragment } from './qdn-fragment';
+import { normalizeQdnBridgeNavigationSnapshot } from './qdn-navigation-bridge';
 import { marked } from 'marked';
 import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
 import {
@@ -468,7 +470,7 @@ async function prepareArchiveRenderUrl(resource: QdnResource) {
     path: resource.path,
   });
 
-  return result.renderUrl;
+  return appendQdnFragment(result.renderUrl, resource.fragment);
 }
 
 async function writeClipboardText(value: string) {
@@ -3529,22 +3531,13 @@ export function QdnBridgeFrameContent({
 
       if (isQdnAppNavigationMessage(event.data)) {
         if (event.data.bridgeToken === bridgeToken) {
-          const entries = event.data.entries.filter((entry) => {
-            try {
-              return new URL(entry.url, renderUrl).origin === allowedOrigin;
-            } catch {
-              return false;
-            }
-          }).map((entry) => ({
-            index: entry.index,
-            url: new URL(entry.url, renderUrl).toString(),
-          }));
+          const snapshot = normalizeQdnBridgeNavigationSnapshot({
+            activeIndex: event.data.activeIndex,
+            entries: event.data.entries,
+          }, renderUrl);
 
-          if (entries.length === event.data.entries.length) {
-            onAppNavigationChangeRef.current?.({
-              activeIndex: event.data.activeIndex,
-              entries,
-            });
+          if (snapshot) {
+            onAppNavigationChangeRef.current?.(snapshot);
           }
         }
 

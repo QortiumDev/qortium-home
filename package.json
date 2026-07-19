@@ -56,7 +56,7 @@
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:home-settings-bridge": "npm run build:electron && node dist-electron/home-settings-bridge.test.js",
     "test:qdn-app-preload": "npm run build:electron && node scripts/test-qdn-app-preload.mjs",
-    "test:qdn-live-location": "tsc -p tsconfig.qdn-live-location-test.json && node dist-electron/qdn-live-location-test/qdn-live-location.test.js && node dist-electron/qdn-live-location-test/qdn-app-history.test.js",
+    "test:qdn-live-location": "tsc -p tsconfig.qdn-live-location-test.json && node dist-electron/qdn-live-location-test/qdn-live-location.test.js && node dist-electron/qdn-live-location-test/qdn-app-history.test.js && node dist-electron/qdn-live-location-test/qdn-fragment.test.js && esbuild src/qdn-fragment-routing.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-live-location-test/qdn-fragment-routing.test.js && node dist-electron/qdn-live-location-test/qdn-fragment-routing.test.js",
     "test:welcome-state": "node scripts/test-welcome-state.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",

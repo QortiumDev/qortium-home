@@ -103,14 +103,14 @@ export function getLiveQdnDisplayUrl(resourceDisplayUrl: string, renderLocation:
 
   const path = segments.join('/');
   const queryString = query.toString();
-  // Home's qdn:// route parser does not currently model URL fragments, so a
-  // render-only hash is deliberately omitted. Query-only app routes retain the
-  // established no-slash form: qdn://APP/Name/Identifier?key=value.
+  const fragment = renderUrl.hash;
+  // Query-only app routes retain the established no-slash form:
+  // qdn://APP/Name/Identifier?key=value.
   const suffix = path
     ? `/${path}${queryString ? `?${queryString}` : ''}`
     : queryString
       ? `?${queryString}`
       : '/';
 
-  return `${identity.baseDisplayUrl}${suffix}`;
+  return `${identity.baseDisplayUrl}${suffix}${fragment}`;
 }

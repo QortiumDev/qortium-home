@@ -326,7 +326,13 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "window.history.pushState=function(){var result=originalPushState.apply(this,arguments);if(!window.navigation){fallbackEntries=fallbackEntries.slice(0,fallbackIndex+1);fallbackEntries.push(window.location.href);fallbackIndex+=1;}postNavigation();return result;};" +
             "var originalReplaceState=window.history.replaceState;" +
             "window.history.replaceState=function(){var result=originalReplaceState.apply(this,arguments);if(!window.navigation){fallbackEntries[fallbackIndex]=window.location.href;}postNavigation();return result;};" +
-            "window.addEventListener('popstate',function(){if(!window.navigation){var current=window.location.href;var match=fallbackEntries.lastIndexOf(current,fallbackIndex-1);if(match<0){match=fallbackEntries.indexOf(current,fallbackIndex+1);}if(match>=0){fallbackIndex=match;}}postNavigation();});" +
+            "function pushFallbackLocation(){if(window.navigation)return;var current=window.location.href;if(fallbackEntries[fallbackIndex]===current)return;fallbackEntries=fallbackEntries.slice(0,fallbackIndex+1);fallbackEntries.push(current);fallbackIndex+=1;}" +
+            "function traverseFallbackLocation(){if(window.navigation)return;var current=window.location.href;if(fallbackEntries[fallbackIndex]===current)return;var match=fallbackEntries.lastIndexOf(current,fallbackIndex-1);if(match<0){match=fallbackEntries.indexOf(current,fallbackIndex+1);}if(match>=0){fallbackIndex=match;return;}pushFallbackLocation();}" +
+            "var fallbackPopstatePending=false;" +
+            "window.addEventListener('popstate',function(){fallbackPopstatePending=true;traverseFallbackLocation();postNavigation();setTimeout(function(){fallbackPopstatePending=false;},0);});" +
+            // Assigning location.hash creates a real history entry without
+            // calling pushState. Older WebViews need this explicit signal.
+            "window.addEventListener('hashchange',function(){if(!fallbackPopstatePending){pushFallbackLocation();}fallbackPopstatePending=false;postNavigation();});" +
             "if(window.navigation){window.navigation.addEventListener('currententrychange',postNavigation);}" +
             "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:qdn-navigation-command'||data.bridgeToken!==bridgeToken||!Number.isInteger(data.index)||data.index<0)return;" +
             "var snapshot=getNavigationSnapshot();var target=snapshot.entries.find(function(entry){return entry.index===data.index;});if(!target)return;window.history.go(data.index-snapshot.activeIndex);});" +

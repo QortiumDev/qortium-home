@@ -22,7 +22,15 @@ assert.equal(
     'qdn://APP/Boards/Boards/',
     'http://127.0.0.1:12391/render/APP/Boards/Boards?thread=new#reply-anchor',
   ),
-  'qdn://APP/Boards/Boards?thread=new',
+  'qdn://APP/Boards/Boards?thread=new#reply-anchor',
+);
+
+assert.equal(
+  getLiveQdnDisplayUrl(
+    'qdn://APP/Boards/Boards/#old-anchor',
+    'http://127.0.0.1:12391/render/APP/Boards/Boards/#new-anchor',
+  ),
+  'qdn://APP/Boards/Boards/#new-anchor',
 );
 
 assert.equal(

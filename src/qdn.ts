@@ -1,5 +1,6 @@
 import type { ResolvedDisplaySettings } from './displaySettings';
 import { detectContentKind } from './qdnContentType';
+import { appendQdnFragment, splitQdnFragment } from './qdn-fragment';
 import { t, type TranslationKey } from './i18n';
 
 const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
@@ -133,6 +134,7 @@ export type QdnExplorerRoute =
 
 export type QdnResource = {
   displayUrl: string;
+  fragment?: string;
   identifier?: string;
   name: string;
   path: string;
@@ -384,9 +386,11 @@ export function buildQdnWildcardNameUrl(name: string) {
 }
 
 export function buildQdnDisplayUrl(resource: Omit<QdnResource, 'displayUrl'>) {
-  return `qdn://${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
+  const displayUrl = `qdn://${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
     resource.identifier ?? 'default',
   )}${resource.path ? encodeDisplayPath(resource.path) : ''}`;
+
+  return appendQdnFragment(displayUrl, resource.fragment);
 }
 
 // Which segment of an in-progress qdn:// address the caret is sitting in, so the
@@ -513,7 +517,8 @@ export function parseQdnUrl(value: string): QdnParseResult {
     };
   }
 
-  const withoutProtocol = input.replace(/^qdn:\/\/?/i, '').trim();
+  const withoutProtocolWithFragment = input.replace(/^qdn:\/\/?/i, '').trim();
+  const { fragment, location: withoutProtocol } = splitQdnFragment(withoutProtocolWithFragment);
 
   if (!/[^/]/.test(withoutProtocol)) {
     return {
@@ -542,7 +547,7 @@ export function parseQdnUrl(value: string): QdnParseResult {
       };
     }
 
-    if (hasExtraPath || queryString) {
+    if (hasExtraPath || queryString || fragment) {
       return {
         success: false,
         message: t('address.error.wildcardFormat'),
@@ -612,6 +617,7 @@ export function parseQdnUrl(value: string): QdnParseResult {
   const resource = {
     service,
     name,
+    fragment: fragment || undefined,
     identifier: identifier || undefined,
     path,
   } satisfies Omit<QdnResource, 'displayUrl'>;
@@ -740,9 +746,14 @@ export function buildQdnRenderUrl(resource: QdnResource, nodeApiUrl: string, dis
 
   const renderQueryString = queryParams.toString();
 
-  return `${getNodeApiUrlBase(nodeApiUrl)}/render/${resource.service}/${encodeURIComponent(
+  const renderUrl = `${getNodeApiUrlBase(nodeApiUrl)}/render/${resource.service}/${encodeURIComponent(
     resource.name,
   )}${identifierSegment}${pathSuffix}${renderQueryString ? `?${renderQueryString}` : ''}`;
+
+  // Fragments select client-side state after the document loads. Appending one
+  // to the render URL makes cold/direct routes work while keeping it out of the
+  // HTTP request that Core receives.
+  return appendQdnFragment(renderUrl, resource.fragment);
 }
 
 export function isTerminalQdnStatus(status: string | undefined) {
