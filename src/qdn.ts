@@ -2,6 +2,13 @@ import type { ResolvedDisplaySettings } from './displaySettings';
 import { detectContentKind } from './qdnContentType';
 import { appendQdnFragment, splitQdnFragment } from './qdn-fragment';
 import { t, type TranslationKey } from './i18n';
+import {
+  PUBLIC_QDN_SERVICES,
+  isPublicQdnService,
+  type PublicQdnService,
+} from '../electron/qdn-public-services';
+
+export { PUBLIC_QDN_SERVICES } from '../electron/qdn-public-services';
 
 const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
   'common.unit.kb',
@@ -12,49 +19,6 @@ const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
 
 export const REMOTE_AUTHORIZATION_BLOCKED_MESSAGE =
   'This node does not allow remote app authorization. Switch to public network access or use a local node.';
-
-export const PUBLIC_QDN_SERVICES = [
-  'APP',
-  'WEBSITE',
-  'IMAGE',
-  'THUMBNAIL',
-  'QCHAT_IMAGE',
-  'VIDEO',
-  'AUDIO',
-  'VOICE',
-  'PODCAST',
-  'DOCUMENT',
-  'FILE',
-  'FILES',
-  'JSON',
-  'METADATA',
-  'BLOG',
-  'BLOG_POST',
-  'BLOG_COMMENT',
-  'LIST',
-  'PLAYLIST',
-  'GIT_REPOSITORY',
-  'GIF_REPOSITORY',
-  'IMAGE_GALLERY',
-  'STORE',
-  'PRODUCT',
-  'OFFER',
-  'COUPON',
-  'CODE',
-  'PLUGIN',
-  'EXTENSION',
-  'GAME',
-  'ITEM',
-  'NFT',
-  'DATABASE',
-  'SNAPSHOT',
-  'COMMENT',
-  'CHAIN_COMMENT',
-  'CHAIN_DATA',
-  'ATTACHMENT',
-  'MAIL',
-  'MESSAGE',
-] as const;
 
 const IFRAME_QDN_SERVICES = ['APP', 'WEBSITE'] as const;
 const IMAGE_QDN_SERVICES = ['IMAGE', 'THUMBNAIL', 'QCHAT_IMAGE'] as const;
@@ -90,7 +54,7 @@ const RENDERABLE_QDN_SERVICES = [
   ...DOWNLOAD_QDN_SERVICES,
 ] as const;
 
-export type QdnService = (typeof PUBLIC_QDN_SERVICES)[number];
+export type QdnService = PublicQdnService;
 export type QdnRenderableService = (typeof RENDERABLE_QDN_SERVICES)[number];
 export type QdnViewerKind =
   | 'archive'
@@ -267,7 +231,7 @@ function getNodeApiUrlBase(nodeApiUrl: string) {
 }
 
 export function isQdnService(value: string): value is QdnService {
-  return PUBLIC_QDN_SERVICES.includes(value as QdnService);
+  return isPublicQdnService(value);
 }
 
 // Core marks its encrypted services with a `_PRIVATE` suffix (APP_PRIVATE,

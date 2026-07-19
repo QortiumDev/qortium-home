@@ -191,6 +191,16 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn:setAppNotificationMuted', appKey, muted),
     revokeAppNotifications: (appKey: string) =>
       ipcRenderer.invoke('qdn:revokeAppNotifications', appKey),
+    getManagerPermissionStore: () => ipcRenderer.invoke('qdn:getManagerPermissionStore'),
+    onManagerPermissionsChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('qdn:manager-permissions-changed', listener);
+      return () => {
+        ipcRenderer.removeListener('qdn:manager-permissions-changed', listener);
+      };
+    },
+    revokeManagerPermission: (appKey: string, capability: string) =>
+      ipcRenderer.invoke('qdn:revokeManagerPermission', appKey, capability),
     listResources: (request: {
       exactMatchNames?: boolean;
       includeMetadata?: boolean;
@@ -246,6 +256,10 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         theme: 'dark' | 'light';
         ui: 'classic' | 'modern' | 'fun';
       };
+      managerRevisions?: {
+        bookmarkManager: number;
+        notificationManager: number;
+      };
       nodeApiUrl: string;
       renderUrl: string;
       resourceUrl?: string;
@@ -270,6 +284,13 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       };
       tabId: string;
     }) => ipcRenderer.invoke('qdn-views:updateDisplaySettings', request),
+    updateManagerRevisions: (request: {
+      managerRevisions: {
+        bookmarkManager: number;
+        notificationManager: number;
+      };
+      tabId: string;
+    }) => ipcRenderer.invoke('qdn-views:updateManagerRevisions', request),
     updateAccountState: (request: { accountId: string | null; isUnlocked: boolean; tabId: string }) =>
       ipcRenderer.invoke('qdn-views:updateAccountState', request),
     postMessage: (request: {
@@ -315,12 +336,29 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:home-settings-request', listener);
       };
     },
+    onBookmarkManagerRequest: (callback: (request: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        callback(request);
+      };
+
+      ipcRenderer.on('qdn-app:bookmark-manager-request', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:bookmark-manager-request', listener);
+      };
+    },
     resolveUnlockRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
     resolveWriteRequest: (requestId: string, approved: boolean) =>
       ipcRenderer.invoke('qdn-app:resolveWriteApproval', { approved, requestId }),
     resolveHomeSettingsRequest: (requestId: string, settings: unknown) =>
       ipcRenderer.invoke('qdn-app:resolveHomeSettingsRequest', { requestId, settings }),
+    resolveBookmarkManagerRequest: (requestId: string, result: unknown, error?: { code?: string; message: string }) =>
+      ipcRenderer.invoke('qdn-app:resolveBookmarkManagerRequest', {
+        requestId,
+        result,
+        ...(error ? { code: error.code, error: error.message } : {}),
+      }),
   },
   qdnEvents: {
     onOpenNewTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {

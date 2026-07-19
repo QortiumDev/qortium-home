@@ -102,6 +102,22 @@ await qdnRequest({
 limited to 160 and 240 characters. `link` may be a `qdn://`, `home://`, or
 `core://` address and defaults to the registering app's resource URL.
 
+### Elevated notification management
+
+The four subscription actions above remain scoped to their calling app. Home
+also exposes a separate, durable `notifications.manage` capability for a QDN
+notification-manager app to inspect sanitized summaries across apps, mute or
+unmute an app, remove selected rules, or revoke an app's notification grant.
+The manager cannot create or replace another app's subscriptions.
+
+Manager summaries omit stored account bindings and mask wallet xpubs,
+addresses, contacts, and signatures. Manager mutations require the current
+notification-store revision and reject stale edits with `HOME_DATA_STALE`.
+See [Home data manager QDN bridge](HOME_DATA_MANAGERS.md) for the exact actions
+and request shapes. This manager capability is distinct from the notification
+grant described above: permission to administer subscriptions does not grant
+permission to send notifications, and vice versa.
+
 Supported events and filters are:
 
 - `RESOURCE_PUBLISHED`: `service`, `names`, `identifier`, `title`,

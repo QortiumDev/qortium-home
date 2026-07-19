@@ -33,6 +33,7 @@ import {
   sweepOrphanedQdnPreviewStagingDirs,
 } from './qdn.js';
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
+import { registerQdnManagerPermissionStoreIpcHandlers } from './qdn-manager-permission-store.js';
 import { installNodeTlsForDefaultSessions } from './node-tls.js';
 import { registerSystemIpcHandlers } from './system.js';
 import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
@@ -794,6 +795,7 @@ app.whenReady().then(() => {
   registerI2pdManagerIpcHandlers();
   registerNodeSettingsIpcHandlers();
   registerNotificationStoreIpcHandlers();
+  registerQdnManagerPermissionStoreIpcHandlers();
   registerQdnIpcHandlers();
   registerQdnViewIpcHandlers();
   registerMenuIpcHandlers();

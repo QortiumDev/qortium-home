@@ -11,11 +11,13 @@ import { sniffMagicMimeType } from './qdnContentType';
 import {
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
   QDN_APP_BRIDGE_ACTIONS,
+  QDN_BOOKMARK_MANAGER_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
   QDN_CHAT_ACTIONS,
   QDN_FOREIGN_SERVER_ACTIONS,
   QDN_GROUP_ACTIONS,
   QDN_HOME_SETTINGS_ACTIONS,
+  QDN_NOTIFICATION_MANAGER_ACTIONS,
   QDN_NAME_ACTIONS,
   QDN_PAYMENT_ACTIONS,
   QDN_POLL_ACTIONS,
@@ -23,6 +25,17 @@ import {
   QDN_TRUST_ACTIONS,
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
+import {
+  validateBookmarkManagerMutationRequest,
+  type BookmarkManagerMutationRequest,
+  type BookmarkManagerMutationResult,
+  type BookmarkManagerSnapshot,
+} from '../electron/bookmark-manager-contract';
+import {
+  applyQdnNotificationManagerMutation,
+  getQdnNotificationManagerSummary,
+  sanitizeQdnNotificationManagerMutation,
+} from '../electron/notification-manager';
 import {
   getHomeSettingsApprovalDetails,
   getHomeSettingsMetadata,
@@ -85,8 +98,14 @@ import {
   getNotificationStore,
   grantAppNotifications,
   removeAppNotificationRules,
+  updateNotificationStore,
   replaceAppNotificationRules,
 } from './notificationStore';
+import {
+  grantQdnManagerPermission,
+  hasQdnManagerPermission,
+} from './qdnManagerPermissions';
+import { sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
 import {
   assertOpenQortalGroupMetadata,
   assertPositiveQortalGroupId,
@@ -327,6 +346,10 @@ type QdnAppRequestContext = {
   displaySettings: QdnDisplaySettings;
   getHomeSettings?: () => HomeSettings;
   applyHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
+  getBookmarkManagerSnapshot?: () => BookmarkManagerSnapshot;
+  applyBookmarkManagerMutation?: (
+    request: BookmarkManagerMutationRequest,
+  ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   isCurrent?: () => boolean;
   isViewFocused?: () => boolean;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
@@ -348,6 +371,8 @@ type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnAccountFreeWriteAction = (typeof QDN_ACCOUNT_FREE_WRITE_ACTIONS)[number];
 type QdnHomeSettingsAction = (typeof QDN_HOME_SETTINGS_ACTIONS)[number];
+type QdnBookmarkManagerAction = (typeof QDN_BOOKMARK_MANAGER_ACTIONS)[number];
+type QdnNotificationManagerAction = (typeof QDN_NOTIFICATION_MANAGER_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
   | QdnGroupAction
@@ -365,6 +390,12 @@ type QdnWriteApprovalAction =
   | 'REMOVE_MINTING_ACCOUNT'
   | 'SHOW_NOTIFICATION'
   | 'NOTIFICATION_ADD'
+  | 'BOOKMARKS_GET'
+  | 'BOOKMARKS_APPLY'
+  | 'NOTIFICATION_MANAGER_GET'
+  | 'NOTIFICATION_MANAGER_SET_MUTED'
+  | 'NOTIFICATION_MANAGER_REMOVE_RULES'
+  | 'NOTIFICATION_MANAGER_REVOKE'
   | 'UPDATE_HOME_SETTINGS';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
 
@@ -3519,7 +3550,7 @@ async function requestQdnChatPermissionApproval(
 // resource URL is the durable grant and rule-storage identity.
 function getQdnNotificationPermissionCacheKey(context: QdnAppRequestContext) {
   if (!context.resourceUrl) throw new Error('QDN app notification request is missing its stable resource URL.');
-  return context.resourceUrl;
+  return sanitizeQdnManagerAppKey(context.resourceUrl);
 }
 
 // "qdn://APP/name/path" → "name"; falls back to the full resource URL so the
@@ -7969,6 +8000,98 @@ async function handleQdnHomeSettingsAction(
   return context.applyHomeSettingsPatch(patch);
 }
 
+async function requireQdnManagerPermission(
+  context: QdnAppRequestContext,
+  capability: 'bookmarks.manage' | 'notifications.manage',
+  action: QdnWriteApprovalAction,
+) {
+  const appKey = context.resourceUrl;
+  if (await hasQdnManagerPermission(appKey, capability)) return appKey;
+  await requestQdnWriteApproval(context, null, {
+    action,
+    details: [],
+    permissionScope: 'always',
+  }, 'Home data manager permission was denied.');
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('QDN manager request is stale because the app view changed before approval.');
+  }
+  await grantQdnManagerPermission(appKey, capability);
+  return appKey;
+}
+
+async function handleQdnBookmarkManagerAction(
+  action: QdnBookmarkManagerAction,
+  request: QdnAppRequest,
+  context?: QdnAppRequestContext,
+) {
+  if (!context) throw new Error('Bookmark manager request does not belong to an active app view.');
+  if (action === 'BOOKMARKS_HAS_PERMISSION') {
+    return { granted: await hasQdnManagerPermission(context.resourceUrl, 'bookmarks.manage') };
+  }
+  const mutationRequest = action === 'BOOKMARKS_APPLY'
+    ? validateBookmarkManagerMutationRequest(
+        getRequestValue(request, 'request') ?? {
+          expectedRevision: getRequestValue(request, 'expectedRevision'),
+          mutation: getRequestValue(request, 'mutation'),
+        },
+      )
+    : undefined;
+  await requireQdnManagerPermission(context, 'bookmarks.manage', action);
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('QDN manager request is stale because the app view changed before it could run.');
+  }
+  if (action === 'BOOKMARKS_GET') {
+    if (!context.getBookmarkManagerSnapshot) throw new Error('Bookmark manager data is unavailable in this view.');
+    return context.getBookmarkManagerSnapshot();
+  }
+  if (!context.applyBookmarkManagerMutation || !mutationRequest) {
+    throw new Error('Bookmark manager updates are unavailable in this view.');
+  }
+  return context.applyBookmarkManagerMutation(mutationRequest);
+}
+
+function getExpectedNotificationManagerRevision(request: QdnAppRequest) {
+  const value = getRequestValue(request, 'expectedRevision');
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error('Notification manager expectedRevision must be a non-negative safe integer.');
+  }
+  return value as number;
+}
+
+async function handleQdnNotificationManagerAction(
+  action: QdnNotificationManagerAction,
+  request: QdnAppRequest,
+  context?: QdnAppRequestContext,
+) {
+  if (!context) throw new Error('Notification manager request does not belong to an active app view.');
+  if (action === 'NOTIFICATION_MANAGER_HAS_PERMISSION') {
+    return { granted: await hasQdnManagerPermission(context.resourceUrl, 'notifications.manage') };
+  }
+  const mutation = action === 'NOTIFICATION_MANAGER_SET_MUTED'
+    ? sanitizeQdnNotificationManagerMutation({
+        type: 'SET_APP_MUTED', appKey: getRequestValue(request, 'appKey'), muted: getRequestValue(request, 'muted'),
+      })
+    : action === 'NOTIFICATION_MANAGER_REMOVE_RULES'
+      ? sanitizeQdnNotificationManagerMutation({
+          type: 'REMOVE_APP_RULES',
+          appKey: getRequestValue(request, 'appKey'),
+          notificationIds: getRequestValue(request, 'notificationIds'),
+        })
+      : action === 'NOTIFICATION_MANAGER_REVOKE'
+        ? sanitizeQdnNotificationManagerMutation({ type: 'REVOKE_APP', appKey: getRequestValue(request, 'appKey') })
+        : null;
+  const expectedRevision = mutation ? getExpectedNotificationManagerRevision(request) : null;
+  await requireQdnManagerPermission(context, 'notifications.manage', action);
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('QDN manager request is stale because the app view changed before it could run.');
+  }
+  if (!mutation) return getQdnNotificationManagerSummary(await getNotificationStore());
+  return getQdnNotificationManagerSummary(await updateNotificationStore(
+    (store) => applyQdnNotificationManagerMutation(store, mutation),
+    expectedRevision ?? undefined,
+  ));
+}
+
 async function getProtectedNodeRequestContext() {
   const settings = await readNodeSettings();
 
@@ -10631,6 +10754,14 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
   if ((QDN_HOME_SETTINGS_ACTIONS as readonly string[]).includes(action)) {
     return handleQdnHomeSettingsAction(action as QdnHomeSettingsAction, request, context);
+  }
+
+  if ((QDN_BOOKMARK_MANAGER_ACTIONS as readonly string[]).includes(action)) {
+    return handleQdnBookmarkManagerAction(action as QdnBookmarkManagerAction, request, context);
+  }
+
+  if ((QDN_NOTIFICATION_MANAGER_ACTIONS as readonly string[]).includes(action)) {
+    return handleQdnNotificationManagerAction(action as QdnNotificationManagerAction, request, context);
   }
 
   switch (action) {

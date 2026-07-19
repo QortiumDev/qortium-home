@@ -286,12 +286,17 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // change. Re-dispatch it as a document event so QDN apps use the same
             // API on Android and desktop isolated views.
             "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:home-settings-changed'||!data.detail)return;window.dispatchEvent(new CustomEvent('qortiumHomeSettingsChanged',{detail:data.detail}));});" +
+            // Manager change signals contain only a monotonic revision. Apps
+            // refresh through their permissioned qdnRequest read instead of
+            // receiving bookmark or notification data through postMessage.
+            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:bookmark-manager-changed'||!data.detail||!Number.isSafeInteger(data.detail.revision)||data.detail.revision<0)return;window.dispatchEvent(new CustomEvent('qortiumBookmarkManagerChanged',{detail:{revision:data.detail.revision}}));});" +
+            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:notification-manager-changed'||!data.detail||!Number.isSafeInteger(data.detail.revision)||data.detail.revision<0)return;window.dispatchEvent(new CustomEvent('qortiumNotificationManagerChanged',{detail:{revision:data.detail.revision}}));});" +
             "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +
             "return new Promise(function(resolve,reject){" +
             "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
             "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
             "var action=request&&typeof request==='object'?String(request.action||'').toUpperCase():'';" +
-            "var longActions={PUBLISH_MULTIPLE_QDN_RESOURCES:1,PUBLISH_QDN_RESOURCE:1,DELETE_QDN_RESOURCE:1,APPROVE_GROUP_JOIN_REQUEST:1,INVITE_TO_GROUP:1,JOIN_GROUP:1,LEAVE_GROUP:1,UPDATE_GROUP:1,BUY_NAME:1,CANCEL_SELL_NAME:1,REGISTER_NAME:1,SELL_NAME:1,UPDATE_NAME:1,SEND_CHAT_MESSAGE:1,CREATE_POLL:1,VOTE_ON_POLL:1,UPDATE_POLL:1,SHOW_NOTIFICATION:1,NOTIFICATION_ADD:1,UNLOCK_SELECTED_ACCOUNT:1,GET_USER_WALLET:1,GET_WALLET_BALANCE:1,GET_USER_WALLET_INFO:1,GET_USER_WALLET_TRANSACTIONS:1,SEND_COIN:1,SET_CURRENT_FOREIGN_SERVER:1,GET_PRIVATE_DIRECT_ACTIVE_CHATS:1,GET_PRIVATE_GROUP_ACTIVE_CHATS:1,SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES:1,SEARCH_PRIVATE_GROUP_CHAT_MESSAGES:1};" +
+            "var longActions={PUBLISH_MULTIPLE_QDN_RESOURCES:1,PUBLISH_QDN_RESOURCE:1,DELETE_QDN_RESOURCE:1,APPROVE_GROUP_JOIN_REQUEST:1,INVITE_TO_GROUP:1,JOIN_GROUP:1,LEAVE_GROUP:1,UPDATE_GROUP:1,BUY_NAME:1,CANCEL_SELL_NAME:1,REGISTER_NAME:1,SELL_NAME:1,UPDATE_NAME:1,SEND_CHAT_MESSAGE:1,CREATE_POLL:1,VOTE_ON_POLL:1,UPDATE_POLL:1,SHOW_NOTIFICATION:1,NOTIFICATION_ADD:1,BOOKMARKS_GET:1,BOOKMARKS_APPLY:1,NOTIFICATION_MANAGER_GET:1,NOTIFICATION_MANAGER_SET_MUTED:1,NOTIFICATION_MANAGER_REMOVE_RULES:1,NOTIFICATION_MANAGER_REVOKE:1,UNLOCK_SELECTED_ACCOUNT:1,GET_USER_WALLET:1,GET_WALLET_BALANCE:1,GET_USER_WALLET_INFO:1,GET_USER_WALLET_TRANSACTIONS:1,SEND_COIN:1,SET_CURRENT_FOREIGN_SERVER:1,GET_PRIVATE_DIRECT_ACTIVE_CHATS:1,GET_PRIVATE_GROUP_ACTIVE_CHATS:1,SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES:1,SEARCH_PRIVATE_GROUP_CHAT_MESSAGES:1};" +
             "var timeoutMs=longActions[action]?330000:30000;" +
             "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},timeoutMs);" +
             "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +

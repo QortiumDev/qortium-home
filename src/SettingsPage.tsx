@@ -1,5 +1,6 @@
 import { AppUpdatePanel } from './AppUpdatePanel';
 import { AppNotificationsSettingsPanel } from './AppNotificationsSettingsPanel';
+import { QdnManagerPermissionsPanel } from './QdnManagerPermissionsPanel';
 import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
 import type { CoreManagerState } from './coreManagerState';
@@ -17,7 +18,7 @@ import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'notifications';
+export type SettingsSectionId = 'core' | 'dataPermissions' | 'display' | 'home' | 'node' | 'notifications';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -89,6 +90,10 @@ export function SettingsPage({
         <AppNotificationsSettingsPanel
           isExpanded={sectionExpansion.notifications}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('notifications', isExpanded)}
+        />
+        <QdnManagerPermissionsPanel
+          isExpanded={sectionExpansion.dataPermissions}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('dataPermissions', isExpanded)}
         />
         {hasManagedCore ? null : (
           <SettingsSection
