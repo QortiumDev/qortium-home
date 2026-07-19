@@ -47,7 +47,7 @@ async function writeLocalStore(store: QdnNotificationStore) {
     // selectors, never passwords, private keys, wallet files, or auth tokens.
     // Browser Home intentionally persists it beside bookmarks and other user
     // preferences; native and desktop builds use their platform-owned stores.
-    // codeql[js/clear-text-storage-of-sensitive-data]
+    // lgtm[js/clear-text-storage-of-sensitive-data]
     window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
   }
   storeVersion += 1;
