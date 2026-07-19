@@ -33,6 +33,21 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - fix(notifications): accept boolean resource prefix filters
+
+Lets QDN apps subscribe to published-resource notifications using the node's
+boolean `prefix` filter. Home now preserves both `true` and `false` when it
+validates and forwards the rule, while rejecting strings and other values that
+the node's typed resource filter does not accept.
+
+### 2026-07-18 - docs: refresh release and license wording
+
+Removes the stale Home 1.4.x prerelease version from the README so the release
+description stays accurate as new versions ship. The license now uses GitHub's
+canonical BSD Zero Clause heading and identifies QuickMythril and Qortium Home
+contributors as the copyright holders, helping repository tools recognize the
+project's existing 0BSD terms without changing those terms.
+
 ### 2026-07-18 - fix(qdn): preserve app URL fragments
 
 Preserves the `#fragment` portion of a QDN app's browser location in Home's

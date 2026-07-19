@@ -204,6 +204,18 @@ assert.deepEqual(toWireNotificationSubscription('qdn://APP/Test', storeRule(sani
   service: 'APP',
   names: ['Qone', 'Qtwo'],
 });
+for (const prefix of [true, false]) {
+  const resourceRule = sanitizeRule('RESOURCE_PUBLISHED', { service: 'APP', prefix }, `resource-prefix-${prefix}`);
+  assert.equal(resourceRule.filters.prefix, prefix);
+  assert.equal(
+    toWireNotificationSubscription('qdn://APP/Test', storeRule(resourceRule)).resourceFilter.prefix,
+    prefix,
+  );
+}
+assert.throws(
+  () => sanitizeRule('RESOURCE_PUBLISHED', { service: 'APP', prefix: 'true' }, 'resource-prefix-invalid'),
+  /prefix must be a boolean/,
+);
 
 const paymentRule = sanitizeRule('PAYMENT_RECEIVED', {
   sender: 'Qsender',
