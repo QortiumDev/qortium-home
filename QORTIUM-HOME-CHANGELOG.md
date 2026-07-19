@@ -33,7 +33,7 @@ with its own clear scope.
 
 ## Change Entries
 
-### 2026-07-19 - fix(document-viewer): open QDN EPUBs reliably (#156)
+### 2026-07-19 - fix(document-viewer): open QDN EPUBs reliably
 
 Fixes QDN EPUBs that stayed on “Loading QDN resource…” forever after opening
 in the Document Viewer. Home now gives epub.js the downloaded book bytes
