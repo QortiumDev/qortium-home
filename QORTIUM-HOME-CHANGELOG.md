@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - fix(document-viewer): open QDN EPUBs reliably (#156)
+
+Fixes QDN EPUBs that stayed on “Loading QDN resource…” forever after opening
+in the Document Viewer. Home now gives epub.js the downloaded book bytes
+directly, so it reliably recognizes a packed EPUB instead of looking for an
+unpacked book directory, and it shows the normal document error if opening or
+reading the table of contents fails or takes too long.
+
 ### 2026-07-19 - feat(qdn): improve bookmark and notification managers
 
 Lets approved bookmark-manager apps list Home account labels, change the
