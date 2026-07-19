@@ -887,6 +887,7 @@ interface Window {
       destroy: (tabId: string) => Promise<void>;
       hide: (tabId: string) => Promise<void>;
       setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;
+      navigate: (request: { index: number; tabId: string }) => Promise<boolean>;
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
       updateAccountState: (request: QortiumQdnViewAccountStateRequest) => Promise<void>;
       updateDisplaySettings: (request: QortiumQdnViewDisplaySettingsRequest) => Promise<void>;
@@ -924,6 +925,14 @@ interface Window {
       ) => () => void;
       onAppTitleChanged?: (
         callback: (event: { tabId: string; title: string | null }) => void,
+      ) => () => void;
+      onAppNavigationChanged?: (
+        callback: (event: {
+          activeIndex: number;
+          entries: Array<{ index: number; url: string }>;
+          resourceUrl: string;
+          tabId: string;
+        }) => void,
       ) => () => void;
     };
   };

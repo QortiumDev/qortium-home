@@ -103,7 +103,14 @@ import {
 import { QdnExplorer } from './QdnExplorer';
 import { QdnPreviewViewer } from './QdnPreview';
 import { DocumentViewer } from './DocumentViewer';
-import { QdnViewer } from './QdnViewer';
+import { QdnViewer, type QdnAppNavigationController } from './QdnViewer';
+import { getLiveQdnDisplayUrl } from './qdn-live-location';
+import {
+  mergeQdnAppHistory,
+  spliceQdnAppHistory,
+  type QdnAppHistorySession,
+  type QdnAppNavigationSnapshot,
+} from './qdn-app-history';
 import { ReleaseNotesPage } from './ReleaseNotesPage';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
 import { TopBar } from './TopBar';
@@ -128,7 +135,14 @@ type BrowserTab = {
   accountId: string | null;
   history: RouteHistoryState;
   id: string;
+  qdnHistorySession?: BrowserQdnHistorySession;
   reloadNonce: number;
+};
+
+type ResourceRoute = Extract<AppRoute, { kind: 'resource' }>;
+
+type BrowserQdnHistorySession = QdnAppHistorySession & {
+  baseRoute: ResourceRoute;
 };
 
 type BrowserTabState = {
@@ -331,7 +345,8 @@ function getCurrentRouteForTab(tab: BrowserTab) {
 }
 
 function getQdnViewRouteKey(tab: BrowserTab) {
-  return `${tab.reloadNonce}:${getCurrentRouteForTab(tab).displayUrl}`;
+  const route = tab.qdnHistorySession?.baseRoute ?? getCurrentRouteForTab(tab);
+  return `${tab.reloadNonce}:${route.displayUrl}`;
 }
 
 function createInitialTabState(): BrowserTabState {
@@ -767,7 +782,7 @@ function QdnDocumentViewerDialog({
 }
 
 function getTabLabel(tab: BrowserTab) {
-  const route = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+  const route = getCurrentRouteForTab(tab);
 
   if (route.kind === 'dashboard') {
     return t('common.dashboard');
@@ -904,6 +919,7 @@ export function App() {
   const didRunInitialRouteRefreshRef = useRef(false);
   const lastRouteRefreshKeyRef = useRef<string | null>(null);
   const qdnViewRouteKeysRef = useRef<Map<string, string>>(new Map());
+  const qdnNavigationControllersRef = useRef<Map<string, QdnAppNavigationController>>(new Map());
   // App-provided tab titles (document.title on desktop, bridge title messages on
   // Android), keyed by tab id. Purely presentational: route-derived labels stay
   // the fallback, and bookmarks/pins/closed-tab snapshots keep route labels.
@@ -914,6 +930,7 @@ export function App() {
     accountsState.accounts.find((account) => account.id === activeTab.accountId) ?? null;
   const routeHistory = activeTab.history;
   const currentRoute = routeHistory.entries[routeHistory.index] ?? DASHBOARD_ROUTE;
+  const currentDisplayUrl = currentRoute.displayUrl;
   const currentRouteRef = useRef(currentRoute);
   currentRouteRef.current = currentRoute;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
@@ -930,8 +947,8 @@ export function App() {
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isWelcomeRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isExplorerRoute;
-  const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentRoute.displayUrl);
-  const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentRoute.displayUrl);
+  const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentDisplayUrl);
+  const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentDisplayUrl);
   const canAddCurrentStartPage = currentRoute.kind !== 'welcome' && (isCurrentPageStartPage || startPages.length < MAX_START_PAGES);
   const canGoBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
@@ -1073,6 +1090,78 @@ export function App() {
     qdnViewRouteKeysRef.current = nextRouteKeys;
   }, [tabState.tabs]);
 
+  function updateQdnAppNavigation(
+    tabId: string,
+    resourceUrl: string,
+    snapshot: QdnAppNavigationSnapshot,
+  ) {
+    setTabState((currentTabState) => {
+      let didChange = false;
+      const tabs = currentTabState.tabs.map((tab) => {
+        if (tab.id !== tabId) {
+          return tab;
+        }
+
+        const route = tab.qdnHistorySession?.baseRoute ?? getCurrentRouteForTab(tab);
+
+        // Bind every live location to the exact QDN resource Home opened. A
+        // stale view or app-controlled URL cannot relabel a different tab/app.
+        if (route.kind !== 'resource' || route.resource.displayUrl !== resourceUrl) {
+          return tab;
+        }
+
+        const converted = snapshot.entries.map((entry) => {
+          const displayUrl = getLiveQdnDisplayUrl(route.resource.displayUrl, entry.url);
+          const parsed = displayUrl ? parseAppAddress(displayUrl) : null;
+
+          return parsed?.success && parsed.route.kind === 'resource'
+            ? { displayUrl, entry, route: parsed.route }
+            : null;
+        }).filter((entry): entry is { displayUrl: string; entry: QdnAppNavigationSnapshot['entries'][number]; route: ResourceRoute } => !!entry);
+
+        if (converted.length !== snapshot.entries.length) {
+          return tab;
+        }
+
+        const merge = mergeQdnAppHistory({
+          activeIndex: snapshot.activeIndex,
+          currentHistoryIndex: tab.history.index,
+          displayUrls: converted.map((entry) => entry.displayUrl),
+          entries: converted.map((entry) => entry.entry),
+          previous: tab.qdnHistorySession,
+          resourceUrl,
+        });
+
+        if (!merge) {
+          return tab;
+        }
+
+        const history = spliceQdnAppHistory({
+          currentEntries: tab.history.entries,
+          merge,
+          nextAppEntries: converted.map((entry) => entry.route),
+          previousSessionLength: tab.qdnHistorySession?.displayUrls.length ?? 1,
+        });
+
+        didChange = true;
+        return {
+          ...tab,
+          history,
+          qdnHistorySession: {
+            ...merge.session,
+            baseRoute: tab.qdnHistorySession?.baseRoute ?? route,
+          },
+        };
+      });
+
+      return didChange ? { ...currentTabState, tabs } : currentTabState;
+    });
+  }
+
+  const updateQdnAppNavigationRef = useRef(updateQdnAppNavigation);
+
+  updateQdnAppNavigationRef.current = updateQdnAppNavigation;
+
   function updateQdnAppTitle(tabId: string, title: string | null) {
     const sanitizedTitle = sanitizeQdnAppTitle(title);
 
@@ -1135,6 +1224,21 @@ export function App() {
 
     return qdnEvents.onAppTitleChanged((event) => {
       updateQdnAppTitleRef.current(event.tabId, event.title);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onAppNavigationChanged) {
+      return undefined;
+    }
+
+    return qdnEvents.onAppNavigationChanged((event) => {
+      updateQdnAppNavigationRef.current(event.tabId, event.resourceUrl, {
+        activeIndex: event.activeIndex,
+        entries: event.entries,
+      });
     });
   }, []);
 
@@ -1682,7 +1786,6 @@ export function App() {
   }
 
   function toggleCurrentBookmark() {
-    const currentDisplayUrl = currentRoute.displayUrl;
     const existing = [...flattenBookmarkItems(bookmarksState.bookmarks), ...flattenBookmarkItems(bookmarksState.toolbar)]
       .filter((item) => item.type === 'bookmark')
       .find((bookmark) => bookmark.displayUrl === currentDisplayUrl);
@@ -1887,6 +1990,7 @@ export function App() {
     updateActiveTab((tab) => ({
       ...tab,
       history: updateHistory(tab.history),
+      qdnHistorySession: undefined,
     }));
   }
 
@@ -1948,7 +2052,7 @@ export function App() {
                 index: tab.history.index + 1,
               };
 
-      if (history === tab.history && accountId === tab.accountId) {
+      if (history === tab.history && accountId === tab.accountId && !tab.qdnHistorySession) {
         return tab;
       }
 
@@ -1956,11 +2060,72 @@ export function App() {
         ...tab,
         accountId,
         history,
+        qdnHistorySession: undefined,
       };
     });
   }
 
+  function requestActiveQdnHistoryIndex(targetHistoryIndex: number) {
+    const tab = tabState.tabs.find((candidate) => candidate.id === tabState.activeTabId);
+    const session = tab?.qdnHistorySession;
+
+    if (!tab || !session) {
+      return false;
+    }
+
+    const position = targetHistoryIndex - session.startIndex;
+    const target = session.entries[position];
+
+    if (!target || tab.history.index !== session.startIndex + session.entries.findIndex((entry) => entry.index === session.activeIndex)) {
+      return false;
+    }
+
+    const desktopNavigate = window.qortiumHome.qdnViews?.navigate;
+    const navigation = desktopNavigate
+      ? desktopNavigate({ tabId: tab.id, index: target.index })
+      : qdnNavigationControllersRef.current.get(tab.id)?.goToIndex(target.index);
+
+    if (!navigation) {
+      return false;
+    }
+
+    const fallBackToHostHistory = () => {
+      setTabState((currentTabState) => ({
+        ...currentTabState,
+        tabs: currentTabState.tabs.map((candidate) =>
+          candidate.id === tab.id
+            ? {
+                ...candidate,
+                history: {
+                  ...candidate.history,
+                  index: Math.max(0, Math.min(candidate.history.entries.length - 1, targetHistoryIndex)),
+                },
+                qdnHistorySession: undefined,
+              }
+            : candidate,
+        ),
+      }));
+    };
+
+    void navigation.then((didNavigate) => {
+      if (!didNavigate) {
+        fallBackToHostHistory();
+      }
+    }).catch((error) => {
+      console.warn('Unable to navigate QDN app history.', error);
+      fallBackToHostHistory();
+    });
+
+    return true;
+  }
+
   function goBack() {
+    const targetIndex = routeHistory.index - 1;
+
+    if (targetIndex >= 0 && requestActiveQdnHistoryIndex(targetIndex)) {
+      return;
+    }
+
     updateActiveTabHistory((currentHistory) => ({
       ...currentHistory,
       index: Math.max(0, currentHistory.index - 1),
@@ -1968,6 +2133,12 @@ export function App() {
   }
 
   function goForward() {
+    const targetIndex = routeHistory.index + 1;
+
+    if (targetIndex < routeHistory.entries.length && requestActiveQdnHistoryIndex(targetIndex)) {
+      return;
+    }
+
     updateActiveTabHistory((currentHistory) => ({
       ...currentHistory,
       index: Math.min(currentHistory.entries.length - 1, currentHistory.index + 1),
@@ -1982,6 +2153,10 @@ export function App() {
   }
 
   function goToHistoryIndex(index: number) {
+    if (requestActiveQdnHistoryIndex(index)) {
+      return;
+    }
+
     updateActiveTabHistory((currentHistory) => ({
       ...currentHistory,
       index: Math.max(0, Math.min(currentHistory.entries.length - 1, index)),
@@ -2465,7 +2640,7 @@ export function App() {
         ...currentTabState,
         activeTabId: targetTab.id,
         tabs: currentTabState.tabs.map((tab) =>
-          tab.id === targetTab.id ? { ...tab, history: newHistory } : tab,
+          tab.id === targetTab.id ? { ...tab, history: newHistory, qdnHistorySession: undefined } : tab,
         ),
       };
     });
@@ -2699,6 +2874,7 @@ export function App() {
         tab.id === tabId
           ? {
               ...tab,
+              qdnHistorySession: undefined,
               reloadNonce: tab.reloadNonce + 1,
             }
           : tab,
@@ -3569,7 +3745,7 @@ export function App() {
         onToggleCurrentBookmark={toggleCurrentBookmark}
         onPinCurrentPageToDashboard={pinCurrentPageToDashboard}
         onPinTabToDashboard={pinTabToDashboard}
-        onToggleStartPage={() => toggleStartPage(currentRoute.displayUrl)}
+        onToggleStartPage={() => toggleStartPage(currentDisplayUrl)}
         onReorderTab={reorderTab}
         onReloadTab={reloadTab}
         onReopenClosedTab={reopenClosedTab}
@@ -3603,6 +3779,7 @@ export function App() {
         {tabState.tabs.map((tab) => {
           const isActiveTab = tab.id === activeTab.id;
           const tabRoute = tab.history.entries[tab.history.index] ?? DASHBOARD_ROUTE;
+          const tabRenderRoute = tab.qdnHistorySession?.baseRoute ?? tabRoute;
           const tabAccount =
             accountsState.accounts.find((account) => account.id === tab.accountId) ?? null;
           // Repository file navigation only changes the path within one resource;
@@ -3610,9 +3787,9 @@ export function App() {
           // file tree refetched) on every file open — the live resource prop still
           // carries the selected path down to the browser.
           const tabRenderKeyUrl =
-            tabRoute.kind === 'resource' && getQdnViewerKind(tabRoute.resource.service) === 'repository'
-              ? buildQdnDisplayUrl({ ...tabRoute.resource, path: '' })
-              : tabRoute.displayUrl;
+            tabRenderRoute.kind === 'resource' && getQdnViewerKind(tabRenderRoute.resource.service) === 'repository'
+              ? buildQdnDisplayUrl({ ...tabRenderRoute.resource, path: '' })
+              : tabRenderRoute.displayUrl;
           const tabRenderKey = `${tab.id}:${tab.reloadNonce}:${tabRenderKeyUrl}`;
 
           return (
@@ -3636,7 +3813,7 @@ export function App() {
                   nodeEpoch={nodeEpoch}
                   nodeSettings={nodeSettings}
                 />
-              ) : tabRoute.kind === 'resource' ? (
+              ) : tabRoute.kind === 'resource' && tabRenderRoute.kind === 'resource' ? (
                 <QdnViewer
                   key={tabRenderKey}
                   account={tabAccount}
@@ -3647,13 +3824,23 @@ export function App() {
                   nodeEpoch={nodeEpoch}
                   nodeMode={nodeSettings.mode}
                   getHomeSettings={getQdnHomeSettings}
+                  onAppNavigationChange={(snapshot) =>
+                    updateQdnAppNavigation(tab.id, tabRenderRoute.resource.displayUrl, snapshot)
+                  }
+                  onAppNavigationControllerChange={(controller) => {
+                    if (controller) {
+                      qdnNavigationControllersRef.current.set(tab.id, controller);
+                    } else {
+                      qdnNavigationControllersRef.current.delete(tab.id);
+                    }
+                  }}
                   onOpenDocumentViewer={openQdnDocumentViewer}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   onHomeSettingsPatch={applyQdnHomeSettingsPatch}
-                  resource={tabRoute.resource}
+                  resource={tabRenderRoute.resource}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}
                 />
@@ -3768,7 +3955,10 @@ export function App() {
                   onAccountsStateChange={handleAccountsStateChange}
                   onSelectedAccountChange={updateActiveTabAccount}
                 />
-              ) : (
+              ) : tabRoute.kind === 'services' ||
+                tabRoute.kind === 'service' ||
+                tabRoute.kind === 'name' ||
+                tabRoute.kind === 'name-services' ? (
                 <QdnExplorer
                   key={tabRenderKey}
                   coreManager={coreManager}
@@ -3779,7 +3969,7 @@ export function App() {
                   route={tabRoute}
                   onNavigate={navigateToRoute}
                 />
-              )}
+              ) : null}
             </div>
           );
         })}
