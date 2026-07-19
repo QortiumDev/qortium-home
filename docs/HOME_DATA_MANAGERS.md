@@ -27,10 +27,10 @@ await qdnRequest({ action: 'NOTIFICATION_MANAGER_HAS_PERMISSION' });
 // { granted: boolean }
 ```
 
-The first `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, or notification-manager read or
-mutation opens a durable permission dialog. A denial rejects the request and
-does not create a grant. The grant is device-local and does not depend on the
-selected account.
+The first `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, or
+notification-manager read or mutation opens a durable permission dialog. A
+denial rejects the request and does not create a grant. The grant is
+device-local and does not depend on the selected account.
 
 If the app view changes while the permission dialog is open, Home rejects the
 stale request instead of granting or using the capability for the replacement
@@ -49,13 +49,27 @@ const snapshot = await qdnRequest({ action: 'BOOKMARKS_GET' });
 //   toolbar: [...],
 //   toolbarVisibility: 'hidden' | 'dashboard' | 'always',
 //   dashboardPins: [...],
-//   startPages: [...]
+//   startPages: [...],
+//   availableAccounts: [{ id: 'account-1', label: 'Main' }, ...],
+//   activeAccountId: 'account-1' | null
 // }
 ```
 
 `bookmarks` and `toolbar` are trees of `bookmark` and `folder` items. Saved
 links, dashboard pins, and start pages can carry a Home account id so opening
 the saved address restores its account context when that account still exists.
+
+`availableAccounts` and `activeAccountId` are permission-scoped account
+choices for the manager UI: just an `id` and display `label` per account,
+never wallet filenames, keys, addresses, or unlock state. `activeAccountId`
+is Home's currently selected account; `null` means the built-in "Current"
+account, the same meaning `null`/omitted `accountId` already has on saved
+links, dashboard pins, and start pages (follow whichever account the tab
+that opens the address is using). Both fields are optional on the wire so
+older Home builds and any locally cached snapshot without them keep
+validating unchanged; a manager app should treat their absence the same as
+an empty account list. `BOOKMARKS_APPLY` results include the same two fields
+in `snapshot`, not just the initial `BOOKMARKS_GET`.
 
 `BOOKMARKS_APPLY` performs one typed mutation against an exact revision:
 
@@ -109,6 +123,28 @@ If `expectedRevision` is no longer current, the request rejects with error code
 `HOME_DATA_STALE`. Fetch a new snapshot, reconcile the user's pending edit, and
 retry; do not silently overwrite the newer Home state.
 
+`BOOKMARKS_OPEN` asks Home to open a saved address in a tab, under the
+`bookmarks.manage` capability like `BOOKMARKS_GET`/`BOOKMARKS_APPLY`:
+
+```js
+await qdnRequest({
+  action: 'BOOKMARKS_OPEN',
+  address: 'qdn://APP/Boards/Boards',
+  accountId: 'account-1', // or null for "Current"
+});
+// true
+```
+
+`address` must be a supported `qdn://`, `home://`, or `core://` address.
+`accountId` is optional and nullable: a non-null id must match one of
+`availableAccounts` from the same snapshot, or the request is rejected;
+`null` (or omitting the field) means "Current" — inherit whichever account
+the Bookmarks manager's own tab is using, the same meaning `null` has on
+saved links, dashboard pins, and start pages. Home reuses an existing tab
+for the same app only when that tab's account also matches the effective
+account; otherwise it opens a new tab rather than silently switching
+another tab's account.
+
 ## Notification manager
 
 The existing `NOTIFICATION_ADD`, `NOTIFICATION_GET`, and
@@ -131,6 +167,7 @@ const summary = await qdnRequest({ action: 'NOTIFICATION_MANAGER_GET' });
 //       event: 'CHAT_MESSAGE',
 //       filters: { ...safeFilters },
 //       maskedFilterKeys: ['involving'],
+//       partiallyMaskedFilterKeys: [],
 //       title: '...', text: '...', link: '...', createdAt: '...'
 //     }]
 //   }]
@@ -138,9 +175,20 @@ const summary = await qdnRequest({ action: 'NOTIFICATION_MANAGER_GET' });
 ```
 
 Home omits each rule's stored account binding. It also removes foreign-wallet
-`xpub` values and address-, contact-, and signature-like filter values from the
-summary; `maskedFilterKeys` tells the manager which fields were present without
-revealing their values.
+`xpub` values and signature values from the summary unconditionally.
+
+For the address-like `address`, `involving`, `recipient`, and `sender`
+filters, Home exposes a value only when it validates as a real Qortal
+address (checked with Home's address-decoding and checksum logic, not a
+shape-based guess); anything else — a contact name, a malformed value, or
+any other non-address string — stays masked. When one of these filters is an
+array with a mix of valid and invalid entries, `filters` keeps only the valid
+addresses and the key is listed in `partiallyMaskedFilterKeys` instead, so the
+manager knows entries were omitted without ever seeing them.
+
+`maskedFilterKeys` lists fields that were fully removed (present in the rule
+but absent from `filters`); `partiallyMaskedFilterKeys` lists array fields
+that were filtered down to their valid addresses only.
 
 The administrative mutations are:
 

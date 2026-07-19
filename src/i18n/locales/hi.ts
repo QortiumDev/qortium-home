@@ -684,7 +684,7 @@ export const hi: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "{date} को अनुमति दी गई",
   "managerPermissions.sectionTitle": "QDN ऐप अनुमतियाँ",
   "managerPermissions.access.bookmarks": "इस डिवाइस के सभी बुकमार्क, टूलबार लिंक, डैशबोर्ड पिन और आरंभ पेज पढ़ें और प्रबंधित करें।",
-  "managerPermissions.access.notifications": "इस डिवाइस के सभी ऐप्स की सूचना अनुमतियाँ और सदस्यता नियम पढ़ें और प्रबंधित करें।",
+  "managerPermissions.access.notifications": "इस डिवाइस के सभी ऐप्स की सूचना अनुमतियाँ और सदस्यता नियम पढ़ें और प्रबंधित करें, जिसमें मान्य Qortal पता फ़िल्टर भी शामिल हैं।",
   "managerPermissions.accessLabel": "एक्सेस",
   "managerPermissions.action.bookmarks": "बुकमार्क और सहेजे गए Home लिंक प्रबंधित करें",
   "managerPermissions.action.notifications": "सभी ऐप्स की सूचना अनुमतियाँ प्रबंधित करें",

@@ -683,7 +683,7 @@ export const nl: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Verleend op {date}",
   "managerPermissions.sectionTitle": "QDN-appmachtigingen",
   "managerPermissions.access.bookmarks": "Alle bladwijzers, werkbalklinks, dashboardpins en startpagina's op dit apparaat lezen en beheren.",
-  "managerPermissions.access.notifications": "Meldingsmachtigingen en abonnementsregels voor alle apps op dit apparaat lezen en beheren.",
+  "managerPermissions.access.notifications": "Meldingsmachtigingen en abonnementsregels voor alle apps op dit apparaat lezen en beheren, inclusief geldige Qortal-adresfilters.",
   "managerPermissions.accessLabel": "Toegang",
   "managerPermissions.action.bookmarks": "Bladwijzers en opgeslagen Home-links beheren",
   "managerPermissions.action.notifications": "Meldingsmachtigingen voor alle apps beheren",

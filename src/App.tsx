@@ -447,6 +447,7 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateHomeSettings';
     case 'BOOKMARKS_GET':
     case 'BOOKMARKS_APPLY':
+    case 'BOOKMARKS_OPEN':
       return 'managerPermissions.action.bookmarks';
     case 'NOTIFICATION_MANAGER_GET':
     case 'NOTIFICATION_MANAGER_SET_MUTED':
@@ -476,6 +477,7 @@ function getQdnManagerAccessKey(action: QortiumQdnWriteApprovalRequest['action']
   switch (action) {
     case 'BOOKMARKS_GET':
     case 'BOOKMARKS_APPLY':
+    case 'BOOKMARKS_OPEN':
       return 'managerPermissions.access.bookmarks';
     case 'NOTIFICATION_MANAGER_GET':
     case 'NOTIFICATION_MANAGER_SET_MUTED':
@@ -957,6 +959,7 @@ export function App() {
   const tabCommandActionsRef = useRef<TabCommandActions | null>(null);
   const navigationActionsRef = useRef<NavigationActions | null>(null);
   const dashboardPinsRef = useRef<DashboardPin[]>([]);
+  const accountsStateRef = useRef<QortiumAccountsState>(EMPTY_ACCOUNTS_STATE);
   const bookmarksStateRef = useRef<BookmarksState>(DEFAULT_BOOKMARKS_STATE);
   const startPagesRef = useRef<StartPage[]>([]);
   const bookmarkManagerRevisionRef = useRef(0);
@@ -967,6 +970,9 @@ export function App() {
   >(null);
   const openInCurrentTabRef = useRef<
     ((address: string, sourceTabId: string | null) => void) | null
+  >(null);
+  const openBookmarksManagerLinkRef = useRef<
+    ((address: string, accountId: string | null, sourceTabId: string | null) => void) | null
   >(null);
   const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
   const textSizeControlRef = useRef<{
@@ -996,6 +1002,7 @@ export function App() {
   const currentDisplayUrl = currentRoute.displayUrl;
   const currentRouteRef = useRef(currentRoute);
   currentRouteRef.current = currentRoute;
+  accountsStateRef.current = accountsState;
   const isDashboardRoute = currentRoute.kind === 'dashboard';
   const isSettingsRoute = currentRoute.kind === 'settings';
   const isWelcomeRoute = currentRoute.kind === 'welcome';
@@ -1804,6 +1811,13 @@ export function App() {
       throw new Error('Saved Home links are still loading. Please try again.');
     }
     return {
+      accounts: {
+        activeAccountId: accountsStateRef.current.activeAccountId,
+        availableAccounts: accountsStateRef.current.accounts.map((account) => ({
+          id: account.id,
+          label: account.label,
+        })),
+      },
       bookmarksState: bookmarksStateRef.current,
       dashboardPins: dashboardPinsRef.current,
       revision: bookmarkManagerRevisionRef.current,
@@ -2819,6 +2833,59 @@ export function App() {
     });
   }
 
+  // BOOKMARKS_OPEN: unlike openAppLinkInNewTab (which reuses any matching app
+  // tab regardless of account), this only reuses a tab whose account context
+  // also matches the requested one - otherwise a manager-driven open could
+  // silently reuse another account's tab. A null accountId means "Current":
+  // inherit whichever account the Bookmarks manager's own tab is using.
+  function openBookmarksManagerLink(address: string, accountId: string | null, sourceTabId: string | null) {
+    const parsed = parseAppAddress(address);
+
+    if (!parsed.success) {
+      console.warn('Ignoring BOOKMARKS_OPEN request for an unsupported address.', address);
+      return;
+    }
+
+    const sourceTab = tabState.tabs.find((tab) => tab.id === sourceTabId);
+    const effectiveAccountId = accountId !== null
+      ? (accountExists(accountsState, accountId) ? accountId : null)
+      : sourceTab
+        ? sourceTab.accountId
+        : getDefaultAccountId(accountsState);
+
+    const existingAppTab =
+      tabState.tabs.find(
+        (tab) => tab.id === tabState.activeTabId
+          && isSameQdnAppRoute(getCurrentRouteForTab(tab), parsed.route)
+          && tab.accountId === effectiveAccountId,
+      ) ?? tabState.tabs.find(
+        (tab) => isSameQdnAppRoute(getCurrentRouteForTab(tab), parsed.route)
+          && tab.accountId === effectiveAccountId,
+      );
+
+    if (existingAppTab) {
+      selectTab(existingAppTab.id);
+      const query = getQdnAppTargetQuery(parsed.route);
+
+      if (query) {
+        setQdnAppTargetRequest({ query, tabId: existingAppTab.id });
+      }
+
+      return;
+    }
+
+    const tab = createBrowserTab(effectiveAccountId, {
+      entries: [parsed.route],
+      index: 0,
+    });
+
+    setTabState((currentTabState) => ({
+      ...currentTabState,
+      tabs: [...currentTabState.tabs, tab],
+      activeTabId: tab.id,
+    }));
+  }
+
   function openQdnMediaPlayer(request: QortiumQdnMediaPlayerRequest) {
     const service = request.service.toUpperCase() as QdnService;
 
@@ -3173,6 +3240,7 @@ export function App() {
 
   openAppLinkInNewTabRef.current = openAppLinkInNewTab;
   openInCurrentTabRef.current = openInCurrentTab;
+  openBookmarksManagerLinkRef.current = openBookmarksManagerLink;
   openQdnMediaPlayerRef.current = openQdnMediaPlayer;
   textSizeControlRef.current = {
     current: effectiveDisplaySettings.textSize,
@@ -3282,6 +3350,18 @@ export function App() {
 
     return qdnEvents.onOpenCurrentTab((event) => {
       openInCurrentTabRef.current?.(event.address, event.sourceTabId);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onBookmarksOpen) {
+      return undefined;
+    }
+
+    return qdnEvents.onBookmarksOpen((event) => {
+      openBookmarksManagerLinkRef.current?.(event.address, event.accountId, event.sourceTabId);
     });
   }, []);
 
@@ -4031,6 +4111,7 @@ export function App() {
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
+                  onBookmarksOpen={(address, accountId) => openBookmarksManagerLink(address, accountId, tab.id)}
                   onHomeSettingsPatch={applyQdnHomeSettingsPatch}
                   onBookmarkManagerMutation={applyQdnBookmarkManagerMutation}
                   resource={tabRenderRoute.resource}

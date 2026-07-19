@@ -683,7 +683,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "授权于 {date}",
   "managerPermissions.sectionTitle": "QDN 应用权限",
   "managerPermissions.access.bookmarks": "读取并管理此设备上的所有书签、工具栏链接、仪表板固定项和起始页。",
-  "managerPermissions.access.notifications": "读取并管理此设备上所有应用的通知权限和订阅规则。",
+  "managerPermissions.access.notifications": "读取并管理此设备上所有应用的通知权限和订阅规则，包括有效的 Qortal 地址过滤器。",
   "managerPermissions.accessLabel": "访问权限",
   "managerPermissions.action.bookmarks": "管理书签和已保存的 Home 链接",
   "managerPermissions.action.notifications": "管理所有应用的通知权限",

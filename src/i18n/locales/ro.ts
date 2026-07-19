@@ -683,7 +683,7 @@ export const ro: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Acordată la {date}",
   "managerPermissions.sectionTitle": "Permisiuni pentru aplicații QDN",
   "managerPermissions.access.bookmarks": "Citește și gestionează toate marcajele, linkurile din bara de instrumente, elementele fixate în panoul de control și paginile de pornire de pe acest dispozitiv.",
-  "managerPermissions.access.notifications": "Citește și gestionează permisiunile de notificare și regulile de abonare pentru toate aplicațiile de pe acest dispozitiv.",
+  "managerPermissions.access.notifications": "Citește și gestionează permisiunile de notificare și regulile de abonare pentru toate aplicațiile de pe acest dispozitiv, inclusiv filtrele de adresă Qortal valide.",
   "managerPermissions.accessLabel": "Acces",
   "managerPermissions.action.bookmarks": "Gestionează marcajele și linkurile Home salvate",
   "managerPermissions.action.notifications": "Gestionează permisiunile de notificare pentru toate aplicațiile",

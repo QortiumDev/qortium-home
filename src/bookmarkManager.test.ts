@@ -3,6 +3,10 @@ import { DEFAULT_BOOKMARKS_STATE } from './bookmarks';
 import { applyBookmarkManagerMutation, type BookmarkManagerCollections } from './bookmarkManager';
 
 const initial: BookmarkManagerCollections = {
+  accounts: {
+    activeAccountId: 'account-1',
+    availableAccounts: [{ id: 'account-1', label: 'Main' }],
+  },
   bookmarksState: {
     ...DEFAULT_BOOKMARKS_STATE,
     bookmarks: [{
@@ -31,6 +35,8 @@ const noChange = applyBookmarkManagerMutation(initial, {
 assert.equal(noChange.changed, false);
 assert.equal(noChange.collections, initial);
 assert.equal(noChange.snapshot.revision, 4);
+assert.equal(noChange.snapshot.activeAccountId, 'account-1');
+assert.deepEqual(noChange.snapshot.availableAccounts, [{ id: 'account-1', label: 'Main' }]);
 
 const visibility = applyBookmarkManagerMutation(initial, {
   type: 'setToolbarVisibility',
@@ -40,6 +46,9 @@ assert.equal(visibility.changed, true);
 assert.equal(visibility.snapshot.revision, 5);
 assert.equal(visibility.snapshot.toolbarVisibility, 'always');
 assert.equal(initial.bookmarksState.toolbarVisibility, 'hidden');
+// BOOKMARKS_APPLY results carry the same account choices as BOOKMARKS_GET, not just the initial read.
+assert.equal(visibility.snapshot.activeAccountId, 'account-1');
+assert.deepEqual(visibility.snapshot.availableAccounts, [{ id: 'account-1', label: 'Main' }]);
 
 const toStartPages = applyBookmarkManagerMutation(initial, {
   type: 'moveItem',

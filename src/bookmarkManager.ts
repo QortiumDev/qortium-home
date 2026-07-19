@@ -2,6 +2,7 @@ import {
   BOOKMARK_MANAGER_SCHEMA_VERSION,
   validateBookmarkManagerMutation,
   validateBookmarkManagerSnapshot,
+  type BookmarkManagerAccountChoice,
   type BookmarkManagerMutation,
   type BookmarkManagerMutationResult,
   type BookmarkManagerSnapshot,
@@ -27,7 +28,16 @@ import {
 } from './dashboardPins';
 import { addStartPage, removeStartPage, updateStartPage, type StartPage } from './startPages';
 
+// Permission-scoped account choices for the calling manager app. Omitted for
+// callers (disk persistence, legacy migration) that don't need them; when
+// present, `activeAccountId: null` means Home's built-in "Current" account.
+export type BookmarkManagerCollectionsAccounts = {
+  activeAccountId: string | null;
+  availableAccounts: BookmarkManagerAccountChoice[];
+};
+
 export type BookmarkManagerCollections = {
+  accounts?: BookmarkManagerCollectionsAccounts;
   bookmarksState: BookmarksState;
   dashboardPins: DashboardPin[];
   revision: number;
@@ -47,6 +57,10 @@ export function createBookmarkManagerSnapshot(collections: BookmarkManagerCollec
     toolbarVisibility: collections.bookmarksState.toolbarVisibility,
     dashboardPins: collections.dashboardPins,
     startPages: collections.startPages,
+    ...(collections.accounts ? {
+      activeAccountId: collections.accounts.activeAccountId,
+      availableAccounts: collections.accounts.availableAccounts,
+    } : {}),
   });
 }
 

@@ -683,7 +683,7 @@ export const et: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Antud {date}",
   "managerPermissions.sectionTitle": "QDN-i rakenduste õigused",
   "managerPermissions.access.bookmarks": "Loe ja halda kõiki selle seadme järjehoidjaid, tööriistariba linke, töölaua kinnitusi ja avalehti.",
-  "managerPermissions.access.notifications": "Loe ja halda kõigi selle seadme rakenduste teavitusõigusi ja tellimisreegleid.",
+  "managerPermissions.access.notifications": "Loe ja halda kõigi selle seadme rakenduste teavitusõigusi ja tellimisreegleid, sealhulgas kehtivaid Qortali aadressifiltreid.",
   "managerPermissions.accessLabel": "Juurdepääs",
   "managerPermissions.action.bookmarks": "Halda järjehoidjaid ja salvestatud Home'i linke",
   "managerPermissions.action.notifications": "Halda kõigi rakenduste teavitusõigusi",

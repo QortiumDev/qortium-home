@@ -1,3 +1,4 @@
+import { isValidQortalAddress } from './qortal-payment.js';
 import {
   sanitizeQdnNotificationIds,
   sanitizeQdnNotificationStore,
@@ -15,6 +16,10 @@ export type QdnNotificationManagerRuleSummary = {
   link?: string;
   maskedFilterKeys: string[];
   notificationId: string;
+  // Present only for an address-like filter that mixed valid Qortal addresses
+  // with invalid/non-address values: `filters` keeps the valid addresses and
+  // this flags that some array entries were omitted, without leaking them.
+  partiallyMaskedFilterKeys: string[];
   text?: string;
   title?: string;
 };
@@ -99,12 +104,43 @@ export function sanitizeQdnNotificationManagerMutation(value: unknown): QdnNotif
   }
 }
 
+// Only these keys can hold real Qortal addresses; their values are exposed to
+// the manager when (and only when) they validate as such. `signature` looks
+// address-shaped but never is, so it stays fully masked alongside `xpub`.
+const ADDRESS_LIKE_FILTER_KEYS = new Set(['address', 'involving', 'recipient', 'sender']);
+const ALWAYS_MASKED_FILTER_KEYS = ['signature'];
+
 function summarizeRule(rule: StoredQdnNotificationRule): QdnNotificationManagerRuleSummary {
   const filters = { ...rule.filters };
   const maskedFilterKeys: string[] = [];
-  const sensitiveKeys = ['address', 'involving', 'recipient', 'sender', 'signature'];
+  const partiallyMaskedFilterKeys: string[] = [];
 
-  for (const key of sensitiveKeys) {
+  for (const key of ADDRESS_LIKE_FILTER_KEYS) {
+    if (!Object.hasOwn(filters, key)) continue;
+    const value = filters[key];
+
+    if (typeof value === 'string') {
+      if (isValidQortalAddress(value)) continue;
+      delete filters[key];
+      maskedFilterKeys.push(key);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      const validAddresses = value.filter((entry) => isValidQortalAddress(entry));
+      if (validAddresses.length === value.length) continue;
+      if (validAddresses.length > 0) {
+        filters[key] = validAddresses;
+        partiallyMaskedFilterKeys.push(key);
+        continue;
+      }
+    }
+
+    delete filters[key];
+    maskedFilterKeys.push(key);
+  }
+
+  for (const key of ALWAYS_MASKED_FILTER_KEYS) {
     if (Object.hasOwn(filters, key)) {
       delete filters[key];
       maskedFilterKeys.push(key);
@@ -121,6 +157,7 @@ function summarizeRule(rule: StoredQdnNotificationRule): QdnNotificationManagerR
     event: rule.event,
     filters,
     maskedFilterKeys,
+    partiallyMaskedFilterKeys,
     createdAt: rule.createdAt,
     ...(rule.title ? { title: rule.title } : {}),
     ...(rule.text ? { text: rule.text } : {}),

@@ -682,7 +682,7 @@ export const en = {
   "managerPermissions.grantedAt": "Granted {date}",
   "managerPermissions.sectionTitle": "QDN app permissions",
   "managerPermissions.access.bookmarks": "Read and manage all bookmarks, toolbar links, dashboard pins, and start pages on this device.",
-  "managerPermissions.access.notifications": "Read and manage notification permissions and subscription rules for all apps on this device.",
+  "managerPermissions.access.notifications": "Read and manage notification permissions and subscription rules for all apps on this device, including valid Qortal address filters.",
   "managerPermissions.accessLabel": "Access",
   "managerPermissions.action.bookmarks": "Manage bookmarks and saved Home links",
   "managerPermissions.action.notifications": "Manage notification permissions for all apps",

@@ -4,6 +4,7 @@ import {
   validateBookmarkManagerMutation,
   validateBookmarkManagerMutationRequest,
   validateBookmarkManagerSnapshot,
+  validateBookmarksOpenRequest,
   type BookmarkManagerMutation,
   type BookmarkManagerSnapshot,
 } from './bookmark-manager-contract.js';
@@ -72,6 +73,31 @@ assert.throws(
   /type must be bookmark or folder/,
 );
 
+// availableAccounts/activeAccountId are optional and safe-fields-only.
+const snapshotWithAccounts = {
+  ...snapshot,
+  activeAccountId: 'account-1',
+  availableAccounts: [{ id: 'account-1', label: 'Main' }, { id: 'account-2', label: 'Trading' }],
+};
+assert.deepEqual(validateBookmarkManagerSnapshot(snapshotWithAccounts), snapshotWithAccounts);
+assert.deepEqual(
+  validateBookmarkManagerSnapshot({ ...snapshot, activeAccountId: null, availableAccounts: [] }),
+  { ...snapshot, activeAccountId: null, availableAccounts: [] },
+);
+assert.equal(Object.hasOwn(validateBookmarkManagerSnapshot(snapshot), 'activeAccountId'), false);
+assert.equal(Object.hasOwn(validateBookmarkManagerSnapshot(snapshot), 'availableAccounts'), false);
+assert.throws(
+  () => validateBookmarkManagerSnapshot({
+    ...snapshot,
+    availableAccounts: [{ id: 'account-1', label: 'Main', walletFilename: 'wallet.json' }],
+  }),
+  /availableAccounts\[0\]\.walletFilename is not supported/,
+);
+assert.throws(
+  () => validateBookmarkManagerSnapshot({ ...snapshot, availableAccounts: [{ id: 'account-1' }] }),
+  /availableAccounts\[0\]\.label must be a string/,
+);
+
 const mutations: BookmarkManagerMutation[] = [
   { type: 'addTreeLink', rootId: 'bookmarks', parentFolderId: 'folder-1', link: { displayUrl: 'qdn://APP/Polls/Polls', title: 'Polls' } },
   { type: 'addTreeLink', rootId: 'bookmarks', link: { displayUrl: 'qdn://*/Alice', title: 'Alice resources' } },
@@ -134,6 +160,41 @@ assert.throws(
 assert.throws(
   () => validateBookmarkManagerMutation({ type: 'moveItem', itemId: 'one', sourceRootId: 'bookmarks', targetRootId: 'toolbar', targetPosition: 'inside' }),
   /inside requires mutation.targetFolderId/,
+);
+
+// BOOKMARKS_OPEN request shape.
+assert.deepEqual(
+  validateBookmarksOpenRequest({ address: 'qdn://APP/Boards/Boards', accountId: 'account-1' }),
+  { accountId: 'account-1', address: 'qdn://APP/Boards/Boards' },
+);
+// Missing accountId means "Current" (null), matching the built-in accountId semantics elsewhere.
+assert.deepEqual(
+  validateBookmarksOpenRequest({ address: 'home://dashboard' }),
+  { accountId: null, address: 'home://dashboard' },
+);
+assert.deepEqual(
+  validateBookmarksOpenRequest({ address: 'core://', accountId: null }),
+  { accountId: null, address: 'core://' },
+);
+assert.throws(
+  () => validateBookmarksOpenRequest({ address: 'https://example.com' }),
+  /must be a supported qdn:\/\//,
+);
+assert.throws(
+  () => validateBookmarksOpenRequest({ address: '' }),
+  /must not be empty/,
+);
+assert.throws(
+  () => validateBookmarksOpenRequest({ address: 'qdn://APP/Boards/Boards', accountId: 42 }),
+  /request\.accountId must be a string/,
+);
+assert.throws(
+  () => validateBookmarksOpenRequest({ address: 'qdn://APP/Boards/Boards', accountId: 'a', extra: true }),
+  /request\.extra is not supported/,
+);
+assert.throws(
+  () => validateBookmarksOpenRequest({ address: `qdn://APP/${'a'.repeat(2048)}` }),
+  /request\.address must be at most/,
 );
 
 console.log('Bookmark manager contract tests passed.');

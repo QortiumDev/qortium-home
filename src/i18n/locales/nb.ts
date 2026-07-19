@@ -684,7 +684,7 @@ export const nb: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Gitt {date}",
   "managerPermissions.sectionTitle": "QDN-apptillatelser",
   "managerPermissions.access.bookmarks": "Les og administrer alle bokmerker, verktøylinjekoblinger, festede elementer på kontrollpanelet og startsider på denne enheten.",
-  "managerPermissions.access.notifications": "Les og administrer varslingstillatelser og abonnementsregler for alle apper på denne enheten.",
+  "managerPermissions.access.notifications": "Les og administrer varslingstillatelser og abonnementsregler for alle apper på denne enheten, inkludert gyldige Qortal-adressefiltre.",
   "managerPermissions.accessLabel": "Tilgang",
   "managerPermissions.action.bookmarks": "Administrer bokmerker og lagrede Home-lenker",
   "managerPermissions.action.notifications": "Administrer varslingstillatelser for alle apper",

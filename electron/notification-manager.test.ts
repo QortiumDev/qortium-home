@@ -8,7 +8,14 @@ import type { QdnNotificationStore, StoredQdnNotificationRule } from './notifica
 
 const appOne = 'qdn://APP/Chat/Chat';
 const appTwo = 'qdn://APP/Wallet/Wallet';
+const appThree = 'qdn://APP/Trust/Trust';
 const createdAt = '2026-07-19T12:00:00.000Z';
+
+// A real, checksum-valid Qortal address (and a one-character-mutated invalid
+// sibling) so the address-visibility tests exercise actual validation rather
+// than a naive shape check.
+const validAddress = 'QT4zHex8JEULmBhYmKd5UhpiNA46T5wUko';
+const invalidAddress = 'QT4zHex8JEULmBhYmKd5UhpiNA46T5wUkn';
 
 const rule = (
   notificationId: string,
@@ -38,23 +45,54 @@ const makeStore = (): QdnNotificationStore => ({
       coin: 'BTC',
       xpub: 'xpub6RawSensitiveWalletKey',
     })],
+    [appThree]: [
+      rule('valid-single', 'PAYMENT_RECEIVED', { recipient: validAddress, sender: invalidAddress }),
+      rule('mixed-array', 'TRANSACTION_CONFIRMED', { address: [validAddress, invalidAddress] }),
+      rule('signature-stays-masked', 'TRANSACTION_CONFIRMED', { signature: validAddress }),
+    ],
   },
 });
 
 const original = makeStore();
 const summary = getQdnNotificationManagerSummary(original);
-assert.deepEqual(summary.apps.map((app) => app.appKey), [appOne, appTwo]);
+const summaryApp = (appKey: string) => summary.apps.find((app) => app.appKey === appKey)!;
+assert.deepEqual(summary.apps.map((app) => app.appKey), [appOne, appThree, appTwo]);
 assert.equal(summary.revision, 7);
-assert.equal(summary.apps[0].grant?.muted, undefined);
-assert.equal(summary.apps[1].grant?.muted, true);
-assert.deepEqual(summary.apps[0].rules[0].filters, {});
-assert.deepEqual(summary.apps[0].rules[0].maskedFilterKeys, ['involving']);
-assert.deepEqual(summary.apps[1].rules[0].filters, { coin: 'BTC' });
-assert.deepEqual(summary.apps[1].rules[0].maskedFilterKeys, ['xpub']);
-assert.equal(JSON.stringify(summary).includes('xpub6RawSensitiveWalletKey'), false);
-assert.equal(Object.hasOwn(summary.apps[0].rules[0], 'accountAddress'), false);
+assert.equal(summaryApp(appOne).grant?.muted, undefined);
+assert.equal(summaryApp(appTwo).grant?.muted, true);
+assert.equal(summaryApp(appThree).grant, null);
 
-summary.apps[0].rules[0].filters.coin = 'changed';
+// Invalid-looking "address" values (not real Qortal addresses) stay masked.
+assert.deepEqual(summaryApp(appOne).rules[0].filters, {});
+assert.deepEqual(summaryApp(appOne).rules[0].maskedFilterKeys, ['involving']);
+assert.deepEqual(summaryApp(appOne).rules[0].partiallyMaskedFilterKeys, []);
+
+// xpub stays masked regardless of address validity handling.
+assert.deepEqual(summaryApp(appTwo).rules[0].filters, { coin: 'BTC' });
+assert.deepEqual(summaryApp(appTwo).rules[0].maskedFilterKeys, ['xpub']);
+assert.equal(JSON.stringify(summary).includes('xpub6RawSensitiveWalletKey'), false);
+
+// A valid Qortal address filter is exposed; an invalid one on the same rule stays masked.
+const validSingleRule = summaryApp(appThree).rules.find((r) => r.notificationId === 'valid-single')!;
+assert.deepEqual(validSingleRule.filters, { recipient: validAddress });
+assert.deepEqual(validSingleRule.maskedFilterKeys, ['sender']);
+assert.deepEqual(validSingleRule.partiallyMaskedFilterKeys, []);
+
+// A mixed array keeps only the valid addresses and flags the omission explicitly.
+const mixedArrayRule = summaryApp(appThree).rules.find((r) => r.notificationId === 'mixed-array')!;
+assert.deepEqual(mixedArrayRule.filters, { address: [validAddress] });
+assert.deepEqual(mixedArrayRule.maskedFilterKeys, []);
+assert.deepEqual(mixedArrayRule.partiallyMaskedFilterKeys, ['address']);
+
+// signature never gets exposed, even when its value happens to be a valid Qortal address.
+const signatureRule = summaryApp(appThree).rules.find((r) => r.notificationId === 'signature-stays-masked')!;
+assert.deepEqual(signatureRule.filters, {});
+assert.deepEqual(signatureRule.maskedFilterKeys, ['signature']);
+assert.equal(JSON.stringify(summary).includes(validAddress), true, 'valid address is exposed somewhere in the summary');
+
+assert.equal(Object.hasOwn(summaryApp(appOne).rules[0], 'accountAddress'), false);
+
+summaryApp(appOne).rules[0].filters.coin = 'changed';
 assert.equal(original.rules[appOne][0].filters.involving, 'QchatAccount');
 
 const withOrphanRule = makeStore();

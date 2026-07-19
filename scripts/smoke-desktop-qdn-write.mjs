@@ -1303,6 +1303,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
           'BOOKMARKS_HAS_PERMISSION',
           'BOOKMARKS_GET',
           'BOOKMARKS_APPLY',
+          'BOOKMARKS_OPEN',
           'NOTIFICATION_MANAGER_HAS_PERMISSION',
           'NOTIFICATION_MANAGER_GET',
           'NOTIFICATION_MANAGER_SET_MUTED',

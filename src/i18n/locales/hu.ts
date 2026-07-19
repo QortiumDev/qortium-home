@@ -683,7 +683,7 @@ export const hu: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Megadva: {date}",
   "managerPermissions.sectionTitle": "QDN-alkalmazások engedélyei",
   "managerPermissions.access.bookmarks": "Az eszköz összes könyvjelzőjének, eszköztárhivatkozásának, irányítópult-kitűzésének és kezdőlapjának olvasása és kezelése.",
-  "managerPermissions.access.notifications": "Az eszköz összes alkalmazásához tartozó értesítési engedélyek és feliratkozási szabályok olvasása és kezelése.",
+  "managerPermissions.access.notifications": "Az eszköz összes alkalmazásához tartozó értesítési engedélyek és feliratkozási szabályok olvasása és kezelése, beleértve az érvényes Qortal-címszűrőket is.",
   "managerPermissions.accessLabel": "Hozzáférés",
   "managerPermissions.action.bookmarks": "Könyvjelzők és mentett Home-hivatkozások kezelése",
   "managerPermissions.action.notifications": "Az összes alkalmazás értesítési engedélyeinek kezelése",

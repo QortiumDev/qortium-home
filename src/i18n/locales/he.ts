@@ -683,7 +683,7 @@ export const he: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "הוענקה ב־{date}",
   "managerPermissions.sectionTitle": "הרשאות אפליקציות QDN",
   "managerPermissions.access.bookmarks": "קריאה וניהול של כל הסימניות, קישורי סרגל הכלים, הפריטים המוצמדים ללוח המחוונים ודפי הפתיחה במכשיר זה.",
-  "managerPermissions.access.notifications": "קריאה וניהול של הרשאות ההתראות וכללי המינוי לכל האפליקציות במכשיר זה.",
+  "managerPermissions.access.notifications": "קריאה וניהול של הרשאות ההתראות וכללי המינוי לכל האפליקציות במכשיר זה, כולל מסנני כתובות Qortal תקפות.",
   "managerPermissions.accessLabel": "גישה",
   "managerPermissions.action.bookmarks": "ניהול סימניות וקישורי Home שמורים",
   "managerPermissions.action.notifications": "ניהול הרשאות התראות לכל האפליקציות",

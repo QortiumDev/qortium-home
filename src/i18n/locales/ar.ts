@@ -683,7 +683,7 @@ export const ar: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "مُنح في {date}",
   "managerPermissions.sectionTitle": "أذونات تطبيقات QDN",
   "managerPermissions.access.bookmarks": "قراءة وإدارة جميع الإشارات المرجعية وروابط شريط الأدوات والعناصر المثبتة في لوحة المعلومات وصفحات البدء على هذا الجهاز.",
-  "managerPermissions.access.notifications": "قراءة وإدارة أذونات الإشعارات وقواعد الاشتراك لجميع التطبيقات على هذا الجهاز.",
+  "managerPermissions.access.notifications": "قراءة وإدارة أذونات الإشعارات وقواعد الاشتراك لجميع التطبيقات على هذا الجهاز، بما في ذلك عوامل تصفية عناوين Qortal الصالحة.",
   "managerPermissions.accessLabel": "الوصول",
   "managerPermissions.action.bookmarks": "إدارة الإشارات المرجعية وروابط Home المحفوظة",
   "managerPermissions.action.notifications": "إدارة أذونات الإشعارات لجميع التطبيقات",
