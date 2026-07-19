@@ -4115,6 +4115,7 @@ export function App() {
                   onHomeSettingsPatch={applyQdnHomeSettingsPatch}
                   onBookmarkManagerMutation={applyQdnBookmarkManagerMutation}
                   resource={tabRenderRoute.resource}
+                  requestContextActive={isActiveTab}
                   suspended={isQdnViewSuspended || !isActiveTab}
                   tabId={tab.id}
                 />
