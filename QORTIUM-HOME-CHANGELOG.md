@@ -50,6 +50,17 @@ can now receive filter values that Home verifies as real Qortal addresses, so
 they can resolve and display public names and avatars, while account bindings,
 wallet keys, signatures, and non-address values remain hidden.
 
+### 2026-07-19 - feat(qdn): add bookmark and notification manager bridges
+
+Adds the first bookmark-manager and notification-manager bridge actions for
+QDN apps. After a one-time permission approval in Home, a manager app can read
+the user's saved bookmarks and notification rules, apply changes such as
+adding or editing bookmarks, muting or removing notification rules, and
+revoking an app's notification access. Every read carries a revision marker,
+and Home rejects changes based on outdated data so two apps cannot silently
+overwrite each other. These actions work the same on desktop and Android and
+in public-node mode.
+
 ### 2026-07-19 - fix(updates): select macOS DMGs by OS version
 
 Stops Intel Macs on current macOS releases from receiving the Catalina-only
