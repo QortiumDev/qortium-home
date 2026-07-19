@@ -38,6 +38,16 @@ async function readLocalStore() {
   catch { return (cachedLocalStore = createEmptyQdnNotificationStore()); }
 }
 
+async function writeLocalStore(store: QdnNotificationStore) {
+  cachedLocalStore = store;
+  const value = JSON.stringify(store);
+  if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
+  else window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
+  storeVersion += 1;
+  listeners.forEach((listener) => listener(store));
+  return store;
+}
+
 function sameNotificationStoreData(first: QdnNotificationStore, second: QdnNotificationStore) {
   return JSON.stringify({ grants: first.grants, rules: first.rules })
     === JSON.stringify({ grants: second.grants, rules: second.rules });
@@ -57,13 +67,8 @@ export function updateNotificationStore(
     const draftStore = sanitizeQdnNotificationStore(currentStore);
     const requestedStore = sanitizeQdnNotificationStore(mutate(draftStore) ?? draftStore);
     if (sameNotificationStoreData(currentStore, requestedStore)) return currentStore;
-    cachedLocalStore = sanitizeQdnNotificationStore({ ...requestedStore, revision: currentStore.revision + 1 });
-    const value = JSON.stringify(cachedLocalStore);
-    if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
-    else window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
-    storeVersion += 1;
-    listeners.forEach((listener) => listener(cachedLocalStore as QdnNotificationStore));
-    return cachedLocalStore;
+    const nextStore = sanitizeQdnNotificationStore({ ...requestedStore, revision: currentStore.revision + 1 });
+    return writeLocalStore(nextStore);
   });
   localWriteChain = operation.then(() => undefined, () => undefined);
   return operation;
