@@ -17,6 +17,7 @@ const expectedBookmarkActions = [
   'BOOKMARKS_HAS_PERMISSION',
   'BOOKMARKS_GET',
   'BOOKMARKS_APPLY',
+  'BOOKMARKS_OPEN',
 ];
 const expectedNotificationActions = [
   'NOTIFICATION_MANAGER_HAS_PERMISSION',

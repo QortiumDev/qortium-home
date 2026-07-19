@@ -683,7 +683,7 @@ export const fr: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Accordée le {date}",
   "managerPermissions.sectionTitle": "Autorisations des applications QDN",
   "managerPermissions.access.bookmarks": "Lire et gérer tous les favoris, liens de barre d’outils, éléments épinglés au tableau de bord et pages de démarrage sur cet appareil.",
-  "managerPermissions.access.notifications": "Lire et gérer les autorisations de notification et les règles d’abonnement de toutes les applications sur cet appareil.",
+  "managerPermissions.access.notifications": "Lire et gérer les autorisations de notification et les règles d’abonnement de toutes les applications sur cet appareil, y compris les filtres d’adresse Qortal valides.",
   "managerPermissions.accessLabel": "Accès",
   "managerPermissions.action.bookmarks": "Gérer les favoris et les liens Home enregistrés",
   "managerPermissions.action.notifications": "Gérer les autorisations de notification de toutes les applications",

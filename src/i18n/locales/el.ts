@@ -684,7 +684,7 @@ export const el: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Παραχωρήθηκε {date}",
   "managerPermissions.sectionTitle": "Δικαιώματα εφαρμογών QDN",
   "managerPermissions.access.bookmarks": "Ανάγνωση και διαχείριση όλων των σελιδοδεικτών, συνδέσμων γραμμής εργαλείων, καρφιτσωμένων στοιχείων πίνακα και σελίδων εκκίνησης σε αυτήν τη συσκευή.",
-  "managerPermissions.access.notifications": "Ανάγνωση και διαχείριση δικαιωμάτων ειδοποιήσεων και κανόνων συνδρομής για όλες τις εφαρμογές σε αυτήν τη συσκευή.",
+  "managerPermissions.access.notifications": "Ανάγνωση και διαχείριση δικαιωμάτων ειδοποιήσεων και κανόνων συνδρομής για όλες τις εφαρμογές σε αυτήν τη συσκευή, συμπεριλαμβανομένων έγκυρων φίλτρων διεύθυνσης Qortal.",
   "managerPermissions.accessLabel": "Πρόσβαση",
   "managerPermissions.action.bookmarks": "Διαχείριση σελιδοδεικτών και αποθηκευμένων συνδέσμων Home",
   "managerPermissions.action.notifications": "Διαχείριση δικαιωμάτων ειδοποιήσεων για όλες τις εφαρμογές",

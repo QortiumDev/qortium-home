@@ -440,6 +440,22 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:open-current-tab', listener);
       };
     },
+    onBookmarksOpen: (
+      callback: (event: { accountId: string | null; address: string; sourceTabId: string | null }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { accountId: string | null; address: string; sourceTabId: string | null },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:bookmarks-open', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:bookmarks-open', listener);
+      };
+    },
     onNotificationClicked: (callback: (event: { tabId: string }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: { tabId: string }) => {
         callback(payload);

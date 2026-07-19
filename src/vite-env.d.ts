@@ -704,6 +704,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'NOTIFICATION_ADD'
     | 'BOOKMARKS_GET'
     | 'BOOKMARKS_APPLY'
+    | 'BOOKMARKS_OPEN'
     | 'NOTIFICATION_MANAGER_GET'
     | 'NOTIFICATION_MANAGER_SET_MUTED'
     | 'NOTIFICATION_MANAGER_REMOVE_RULES'
@@ -949,6 +950,9 @@ interface Window {
       ) => () => void;
       onOpenCurrentTab: (
         callback: (event: { address: string; sourceTabId: string | null }) => void,
+      ) => () => void;
+      onBookmarksOpen?: (
+        callback: (event: { accountId: string | null; address: string; sourceTabId: string | null }) => void,
       ) => () => void;
       onNotificationClicked?: (
         callback: (event: { tabId: string }) => void,

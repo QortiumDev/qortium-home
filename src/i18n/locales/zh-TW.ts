@@ -683,7 +683,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "授權於 {date}",
   "managerPermissions.sectionTitle": "QDN 應用程式權限",
   "managerPermissions.access.bookmarks": "讀取並管理此裝置上的所有書籤、工具列連結、儀表板固定項目和起始頁。",
-  "managerPermissions.access.notifications": "讀取並管理此裝置上所有應用程式的通知權限和訂閱規則。",
+  "managerPermissions.access.notifications": "讀取並管理此裝置上所有應用程式的通知權限和訂閱規則，包括有效的 Qortal 地址篩選器。",
   "managerPermissions.accessLabel": "存取權",
   "managerPermissions.action.bookmarks": "管理書籤和已儲存的 Home 連結",
   "managerPermissions.action.notifications": "管理所有應用程式的通知權限",

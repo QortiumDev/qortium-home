@@ -110,8 +110,11 @@ notification-manager app to inspect sanitized summaries across apps, mute or
 unmute an app, remove selected rules, or revoke an app's notification grant.
 The manager cannot create or replace another app's subscriptions.
 
-Manager summaries omit stored account bindings and mask wallet xpubs,
-addresses, contacts, and signatures. Manager mutations require the current
+Manager summaries omit stored account bindings and mask wallet xpubs and
+signatures. Address-like filters (`address`, `involving`, `recipient`,
+`sender`) are exposed only when they validate as real Qortal addresses;
+contact names and other non-address values stay masked. Manager mutations
+require the current
 notification-store revision and reject stale edits with `HOME_DATA_STALE`.
 See [Home data manager QDN bridge](HOME_DATA_MANAGERS.md) for the exact actions
 and request shapes. This manager capability is distinct from the notification

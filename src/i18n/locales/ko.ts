@@ -683,7 +683,7 @@ export const ko: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "허용됨: {date}",
   "managerPermissions.sectionTitle": "QDN 앱 권한",
   "managerPermissions.access.bookmarks": "이 기기의 모든 북마크, 도구 모음 링크, 대시보드 고정 항목 및 시작 페이지를 읽고 관리합니다.",
-  "managerPermissions.access.notifications": "이 기기의 모든 앱에 대한 알림 권한 및 구독 규칙을 읽고 관리합니다.",
+  "managerPermissions.access.notifications": "이 기기의 모든 앱에 대한 알림 권한 및 구독 규칙을 읽고 관리합니다. 유효한 Qortal 주소 필터도 포함됩니다.",
   "managerPermissions.accessLabel": "접근 권한",
   "managerPermissions.action.bookmarks": "북마크 및 저장된 Home 링크 관리",
   "managerPermissions.action.notifications": "모든 앱의 알림 권한 관리",

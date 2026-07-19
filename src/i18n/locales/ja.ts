@@ -683,7 +683,7 @@ export const ja: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "付与日時: {date}",
   "managerPermissions.sectionTitle": "QDNアプリの権限",
   "managerPermissions.access.bookmarks": "このデバイス上のすべてのブックマーク、ツールバーリンク、ダッシュボードのピン、スタートページを読み取り、管理します。",
-  "managerPermissions.access.notifications": "このデバイス上のすべてのアプリの通知権限と購読ルールを読み取り、管理します。",
+  "managerPermissions.access.notifications": "このデバイス上のすべてのアプリの通知権限と購読ルールを読み取り、管理します。有効な Qortal アドレスのフィルターも含まれます。",
   "managerPermissions.accessLabel": "アクセス",
   "managerPermissions.action.bookmarks": "ブックマークと保存済みのHomeリンクを管理",
   "managerPermissions.action.notifications": "すべてのアプリの通知権限を管理",

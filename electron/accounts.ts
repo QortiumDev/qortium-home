@@ -793,6 +793,10 @@ export async function getAccountProfile(accountId: string): Promise<AccountProfi
   };
 }
 
+export function accountExists(accountId: string) {
+  return resolveWalletAccount(readWalletStore().wallets, accountId) !== null;
+}
+
 export function isAccountUnlocked(accountId: string) {
   const resolved = resolveWalletAccount(readWalletStore().wallets, accountId);
 

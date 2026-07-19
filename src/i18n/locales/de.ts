@@ -683,7 +683,7 @@ export const de: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Gewährt: {date}",
   "managerPermissions.sectionTitle": "QDN-App-Berechtigungen",
   "managerPermissions.access.bookmarks": "Alle Lesezeichen, Symbolleistenlinks, Dashboard-Anheftungen und Startseiten auf diesem Gerät lesen und verwalten.",
-  "managerPermissions.access.notifications": "Benachrichtigungsberechtigungen und Abonnementregeln aller Apps auf diesem Gerät lesen und verwalten.",
+  "managerPermissions.access.notifications": "Benachrichtigungsberechtigungen und Abonnementregeln aller Apps auf diesem Gerät lesen und verwalten, einschließlich gültiger Qortal-Adressfilter.",
   "managerPermissions.accessLabel": "Zugriff",
   "managerPermissions.action.bookmarks": "Lesezeichen und gespeicherte Home-Links verwalten",
   "managerPermissions.action.notifications": "Benachrichtigungsberechtigungen aller Apps verwalten",

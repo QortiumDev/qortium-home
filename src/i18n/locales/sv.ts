@@ -683,7 +683,7 @@ export const sv: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Beviljad {date}",
   "managerPermissions.sectionTitle": "QDN-appbehörigheter",
   "managerPermissions.access.bookmarks": "Läs och hantera alla bokmärken, verktygsfältslänkar, fästa objekt på kontrollpanelen och startsidor på den här enheten.",
-  "managerPermissions.access.notifications": "Läs och hantera aviseringsbehörigheter och prenumerationsregler för alla appar på den här enheten.",
+  "managerPermissions.access.notifications": "Läs och hantera aviseringsbehörigheter och prenumerationsregler för alla appar på den här enheten, inklusive giltiga Qortal-adressfilter.",
   "managerPermissions.accessLabel": "Åtkomst",
   "managerPermissions.action.bookmarks": "Hantera bokmärken och sparade Home-länkar",
   "managerPermissions.action.notifications": "Hantera aviseringsbehörigheter för alla appar",

@@ -125,6 +125,7 @@ type QdnViewerProps = {
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onBookmarksOpen?: (address: string, accountId: string | null) => void;
   getHomeSettings?: () => HomeSettings;
   getBookmarkManagerSnapshot?: () => BookmarkManagerSnapshot;
   managerRevisions?: QdnManagerRevisions;
@@ -276,6 +277,7 @@ export type QdnBridgeFrameContentProps = {
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onBookmarksOpen?: (address: string, accountId: string | null) => void;
   renderUrl: string;
   resourceUrl: string;
   suspended?: boolean;
@@ -3445,6 +3447,7 @@ export function QdnBridgeFrameContent({
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  onBookmarksOpen,
   renderUrl,
   resourceUrl,
   suspended = false,
@@ -3456,6 +3459,7 @@ export function QdnBridgeFrameContent({
   const frameLoadedRef = useRef(false);
   const onOpenNewTabRef = useRef(onOpenNewTab);
   const onOpenInCurrentTabRef = useRef(onOpenInCurrentTab);
+  const onBookmarksOpenRef = useRef(onBookmarksOpen);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
   const onAppNavigationChangeRef = useRef(onAppNavigationChange);
@@ -3466,6 +3470,7 @@ export function QdnBridgeFrameContent({
 
   onOpenNewTabRef.current = onOpenNewTab;
   onOpenInCurrentTabRef.current = onOpenInCurrentTab;
+  onBookmarksOpenRef.current = onBookmarksOpen;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   onAppNavigationChangeRef.current = onAppNavigationChange;
@@ -3641,6 +3646,9 @@ export function QdnBridgeFrameContent({
           onOpenInCurrentTab: (address: string) => {
             onOpenInCurrentTabRef.current?.(address);
           },
+          onBookmarksOpen: (address: string, accountId: string | null) => {
+            onBookmarksOpenRef.current?.(address, accountId);
+          },
           resourceUrl,
           sessionKey: bridgeToken,
         });
@@ -3728,6 +3736,7 @@ function QdnIframeContent({
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  onBookmarksOpen,
   onHomeSettingsPatch,
   onBookmarkManagerMutation,
   resource,
@@ -3748,6 +3757,7 @@ function QdnIframeContent({
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onBookmarksOpen?: (address: string, accountId: string | null) => void;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   onBookmarkManagerMutation?: (
     request: BookmarkManagerMutationRequest,
@@ -3771,6 +3781,7 @@ function QdnIframeContent({
       onOpenMediaPlayer={onOpenMediaPlayer}
       onOpenNewTab={onOpenNewTab}
       onOpenInCurrentTab={onOpenInCurrentTab}
+      onBookmarksOpen={onBookmarksOpen}
       onHomeSettingsPatch={onHomeSettingsPatch}
       onBookmarkManagerMutation={onBookmarkManagerMutation}
       renderUrl={loadedResource.renderUrl}
@@ -3798,6 +3809,7 @@ function QdnReadyContent({
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  onBookmarksOpen,
   onHomeSettingsPatch,
   onBookmarkManagerMutation,
   resource,
@@ -3821,6 +3833,7 @@ function QdnReadyContent({
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onBookmarksOpen?: (address: string, accountId: string | null) => void;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   onBookmarkManagerMutation?: (
     request: BookmarkManagerMutationRequest,
@@ -3868,6 +3881,7 @@ function QdnReadyContent({
         onOpenMediaPlayer={onOpenMediaPlayer}
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
+        onBookmarksOpen={onBookmarksOpen}
         onHomeSettingsPatch={onHomeSettingsPatch}
         onBookmarkManagerMutation={onBookmarkManagerMutation}
         resource={resource}
@@ -4046,6 +4060,7 @@ export function QdnViewer({
   onOpenMediaPlayer,
   onOpenNewTab,
   onOpenInCurrentTab,
+  onBookmarksOpen,
   getHomeSettings,
   getBookmarkManagerSnapshot,
   managerRevisions,
@@ -4172,6 +4187,7 @@ export function QdnViewer({
           onOpenMediaPlayer={onOpenMediaPlayer}
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}
+          onBookmarksOpen={onBookmarksOpen}
           onHomeSettingsPatch={onHomeSettingsPatch}
           onBookmarkManagerMutation={onBookmarkManagerMutation}
           resource={resource}

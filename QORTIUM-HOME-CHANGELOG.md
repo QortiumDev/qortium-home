@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - feat(qdn): improve bookmark and notification managers
+
+Lets approved bookmark-manager apps list Home account labels, change the
+account assigned to a saved place, and ask Home to open it under that exact
+account without reusing a tab from another account. Notification-manager apps
+can now receive filter values that Home verifies as real Qortal addresses, so
+they can resolve and display public names and avatars, while account bindings,
+wallet keys, signatures, and non-address values remain hidden.
+
 ### 2026-07-19 - fix(updates): select macOS DMGs by OS version
 
 Stops Intel Macs on current macOS releases from receiving the Catalina-only

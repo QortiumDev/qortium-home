@@ -253,6 +253,19 @@ export function assertValidQortalAddress(address: string, label = 'Qortal addres
   return address;
 }
 
+export function isValidQortalAddress(value: unknown): value is string {
+  if (typeof value !== 'string' || !value) {
+    return false;
+  }
+
+  try {
+    assertValidQortalAddress(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildUnsignedPaymentTransactionBytes(input: PaymentTransactionBytesInput) {
   const senderPublicKey = getBytes(input.senderPublicKey, 'Sender public key', 32);
   const lastReference = getBytes(input.lastReference, 'Last reference', 64);

@@ -683,7 +683,7 @@ export const ru: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Предоставлено: {date}",
   "managerPermissions.sectionTitle": "Разрешения приложений QDN",
   "managerPermissions.access.bookmarks": "Чтение и управление всеми закладками, ссылками панели инструментов, закреплёнными элементами панели управления и стартовыми страницами на этом устройстве.",
-  "managerPermissions.access.notifications": "Чтение и управление разрешениями на уведомления и правилами подписки для всех приложений на этом устройстве.",
+  "managerPermissions.access.notifications": "Чтение и управление разрешениями на уведомления и правилами подписки для всех приложений на этом устройстве, включая действительные адресные фильтры Qortal.",
   "managerPermissions.accessLabel": "Доступ",
   "managerPermissions.action.bookmarks": "Управление закладками и сохранёнными ссылками Home",
   "managerPermissions.action.notifications": "Управление разрешениями на уведомления для всех приложений",

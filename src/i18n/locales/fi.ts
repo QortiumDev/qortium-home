@@ -683,7 +683,7 @@ export const fi: Record<TranslationKey, string> = {
   "managerPermissions.grantedAt": "Myönnetty {date}",
   "managerPermissions.sectionTitle": "QDN-sovellusten oikeudet",
   "managerPermissions.access.bookmarks": "Lue ja hallitse kaikkia tämän laitteen kirjanmerkkejä, työkalupalkin linkkejä, koontinäytön kiinnityksiä ja aloitussivuja.",
-  "managerPermissions.access.notifications": "Lue ja hallitse kaikkien tämän laitteen sovellusten ilmoitusoikeuksia ja tilaussääntöjä.",
+  "managerPermissions.access.notifications": "Lue ja hallitse kaikkien tämän laitteen sovellusten ilmoitusoikeuksia ja tilaussääntöjä, mukaan lukien kelvolliset Qortal-osoitesuodattimet.",
   "managerPermissions.accessLabel": "Käyttöoikeus",
   "managerPermissions.action.bookmarks": "Hallitse kirjanmerkkejä ja tallennettuja Home-linkkejä",
   "managerPermissions.action.notifications": "Hallitse kaikkien sovellusten ilmoitusoikeuksia",

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import nacl from 'tweetnacl';
 import {
+  accountExists,
   assertAccountUnlocked,
   getAccountForeignWalletSeed,
   getActiveAccountAddress,
@@ -108,6 +109,7 @@ import {
 import {
   validateBookmarkManagerMutationRequest,
   validateBookmarkManagerSnapshot,
+  validateBookmarksOpenRequest,
   type BookmarkManagerMutationRequest,
   type BookmarkManagerMutationResult,
   type BookmarkManagerSnapshot,
@@ -331,6 +333,7 @@ type QdnWriteApprovalAction =
   | 'NOTIFICATION_ADD'
   | 'BOOKMARKS_GET'
   | 'BOOKMARKS_APPLY'
+  | 'BOOKMARKS_OPEN'
   | 'NOTIFICATION_MANAGER_GET'
   | 'NOTIFICATION_MANAGER_SET_MUTED'
   | 'NOTIFICATION_MANAGER_REMOVE_RULES'
@@ -950,6 +953,35 @@ async function handleQdnBookmarkManagerAction(
   if (!context) throw new Error('Bookmark manager request does not belong to an active app view.');
   if (action === 'BOOKMARKS_HAS_PERMISSION') {
     return { granted: hasQdnManagerPermission(getQdnManagerPermissionAppKey(context), 'bookmarks.manage') };
+  }
+
+  if (action === 'BOOKMARKS_OPEN') {
+    const { accountId, address } = validateBookmarksOpenRequest(
+      getRequestValue(request, 'request') ?? {
+        accountId: getRequestValue(request, 'accountId') ?? null,
+        address: getRequestValue(request, 'address'),
+      },
+    );
+
+    await requireQdnManagerPermission(context, sender, 'bookmarks.manage', action);
+    assertFreshQdnWriteContext(sender, context);
+
+    if (accountId && !accountExists(accountId)) {
+      throw new Error('BOOKMARKS_OPEN accountId does not match a saved Home account.');
+    }
+
+    const hostWindow = getQdnViewHostWindow(context);
+    if (!hostWindow) {
+      throw new Error('Bookmark manager open request does not belong to an active window.');
+    }
+
+    hostWindow.webContents.send('qdn-app:bookmarks-open', {
+      accountId,
+      address,
+      sourceTabId: context.tabId,
+    });
+
+    return true;
   }
 
   const mutationRequest = action === 'BOOKMARKS_APPLY'

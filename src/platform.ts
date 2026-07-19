@@ -27,6 +27,7 @@ import {
 } from '../electron/qdn-app-actions';
 import {
   validateBookmarkManagerMutationRequest,
+  validateBookmarksOpenRequest,
   type BookmarkManagerMutationRequest,
   type BookmarkManagerMutationResult,
   type BookmarkManagerSnapshot,
@@ -356,6 +357,7 @@ type QdnAppRequestContext = {
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
+  onBookmarksOpen?: (address: string, accountId: string | null) => void;
   resourceUrl: string;
   sessionKey: string;
 };
@@ -392,6 +394,7 @@ type QdnWriteApprovalAction =
   | 'NOTIFICATION_ADD'
   | 'BOOKMARKS_GET'
   | 'BOOKMARKS_APPLY'
+  | 'BOOKMARKS_OPEN'
   | 'NOTIFICATION_MANAGER_GET'
   | 'NOTIFICATION_MANAGER_SET_MUTED'
   | 'NOTIFICATION_MANAGER_REMOVE_RULES'
@@ -1474,6 +1477,11 @@ async function readWalletStore() {
   } catch {
     return createEmptyWalletStore();
   }
+}
+
+async function accountExists(accountId: string) {
+  const store = await readWalletStore();
+  return resolveWalletAccount(store.wallets, accountId) !== null;
 }
 
 async function getActiveAccountAddressForNotifications() {
@@ -8028,6 +8036,32 @@ async function handleQdnBookmarkManagerAction(
   if (action === 'BOOKMARKS_HAS_PERMISSION') {
     return { granted: await hasQdnManagerPermission(context.resourceUrl, 'bookmarks.manage') };
   }
+
+  if (action === 'BOOKMARKS_OPEN') {
+    const { accountId, address } = validateBookmarksOpenRequest(
+      getRequestValue(request, 'request') ?? {
+        accountId: getRequestValue(request, 'accountId') ?? null,
+        address: getRequestValue(request, 'address'),
+      },
+    );
+
+    await requireQdnManagerPermission(context, 'bookmarks.manage', action);
+    if (context.isCurrent && !context.isCurrent()) {
+      throw new Error('QDN manager request is stale because the app view changed before it could run.');
+    }
+
+    if (accountId && !(await accountExists(accountId))) {
+      throw new Error('BOOKMARKS_OPEN accountId does not match a saved Home account.');
+    }
+
+    if (!context.onBookmarksOpen) {
+      throw new Error('Opening bookmarks is not available in this view.');
+    }
+
+    context.onBookmarksOpen(address, accountId);
+    return true;
+  }
+
   const mutationRequest = action === 'BOOKMARKS_APPLY'
     ? validateBookmarkManagerMutationRequest(
         getRequestValue(request, 'request') ?? {

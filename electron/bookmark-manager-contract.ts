@@ -53,7 +53,18 @@ export type BookmarkManagerStartPage = {
   title?: string;
 };
 
+// Safe, permission-scoped account choices for a manager app: just enough to
+// let it label and select an account, never wallet filenames, keys,
+// addresses, or unlock state. A `null` id/activeAccountId means Home's
+// built-in "Current" account (the calling tab's active account).
+export type BookmarkManagerAccountChoice = {
+  id: string;
+  label: string;
+};
+
 export type BookmarkManagerSnapshot = {
+  activeAccountId?: string | null;
+  availableAccounts?: BookmarkManagerAccountChoice[];
   bookmarks: BookmarkManagerTreeItem[];
   dashboardPins: BookmarkManagerDashboardPin[];
   revision: number;
@@ -149,6 +160,16 @@ export type BookmarkManagerMutationResult = {
   snapshot: BookmarkManagerSnapshot;
 };
 
+// BOOKMARKS_OPEN request shape: a supported address plus an optional,
+// nullable account choice. `accountId: null` means Home's built-in
+// "Current" account - inherit whichever account the calling tab is using.
+// This only validates shape; the caller is still responsible for checking a
+// non-null accountId against Home's actual saved accounts.
+export type BookmarksOpenRequest = {
+  accountId: string | null;
+  address: string;
+};
+
 const MAX_TREE_DEPTH = 32;
 const MAX_TREE_ITEMS_PER_FOLDER = 128;
 const MAX_TREE_ITEMS_TOTAL = 4096;
@@ -158,6 +179,11 @@ const MAX_ID_LENGTH = 2048;
 const MAX_TITLE_LENGTH = 4096;
 const MAX_DISPLAY_URL_LENGTH = 16384;
 const MAX_ACCOUNT_ID_LENGTH = 256;
+const MAX_ACCOUNT_LABEL_LENGTH = 256;
+// Matches the sibling OPEN_NEW_TAB/OPEN_CURRENT_TAB address limit, not the
+// larger MAX_DISPLAY_URL_LENGTH used for stored bookmark links.
+const BOOKMARKS_OPEN_ADDRESS_MAX_LENGTH = 2048;
+const MAX_AVAILABLE_ACCOUNTS = 256;
 
 type PlainRecord = Record<string, unknown>;
 
@@ -378,9 +404,29 @@ function parseStartPage(value: unknown, name: string): BookmarkManagerStartPage 
   };
 }
 
+function parseAccountChoice(value: unknown, name: string): BookmarkManagerAccountChoice {
+  const record = getRecord(value, name);
+  assertKnownKeys(record, ['id', 'label'], name);
+
+  return {
+    id: getString(record.id, `${name}.id`, MAX_ACCOUNT_ID_LENGTH),
+    label: getString(record.label, `${name}.label`, MAX_ACCOUNT_LABEL_LENGTH),
+  };
+}
+
+function parseAvailableAccounts(value: unknown, name: string): BookmarkManagerAccountChoice[] {
+  if (!Array.isArray(value) || value.length > MAX_AVAILABLE_ACCOUNTS) {
+    throw new Error(`${name} must contain at most ${MAX_AVAILABLE_ACCOUNTS} items.`);
+  }
+
+  return value.map((account, index) => parseAccountChoice(account, `${name}[${index}]`));
+}
+
 export function validateBookmarkManagerSnapshot(value: unknown): BookmarkManagerSnapshot {
   const record = getRecord(value, 'snapshot');
   assertKnownKeys(record, [
+    'activeAccountId',
+    'availableAccounts',
     'bookmarks',
     'dashboardPins',
     'revision',
@@ -402,7 +448,16 @@ export function validateBookmarkManagerSnapshot(value: unknown): BookmarkManager
     throw new Error(`snapshot.startPages must contain at most ${MAX_START_PAGES} items.`);
   }
 
+  // Both fields are optional so legacy/local snapshots without account
+  // choices (e.g. disk-persisted collections) keep validating unchanged.
+  const activeAccountId = getOptionalNullableString(record.activeAccountId, 'snapshot.activeAccountId', MAX_ACCOUNT_ID_LENGTH);
+  const availableAccounts = record.availableAccounts === undefined
+    ? undefined
+    : parseAvailableAccounts(record.availableAccounts, 'snapshot.availableAccounts');
+
   return {
+    ...(activeAccountId !== undefined ? { activeAccountId } : {}),
+    ...(availableAccounts !== undefined ? { availableAccounts } : {}),
     bookmarks: parseTree(record.bookmarks, 'snapshot.bookmarks'),
     dashboardPins: record.dashboardPins.map((pin, index) => parseDashboardPin(pin, `snapshot.dashboardPins[${index}]`)),
     revision: getRevision(record.revision),
@@ -554,4 +609,18 @@ export function validateBookmarkManagerMutationRequest(value: unknown): Bookmark
     expectedRevision: getRevision(record.expectedRevision, 'request.expectedRevision'),
     mutation: validateBookmarkManagerMutation(record.mutation),
   };
+}
+
+export function validateBookmarksOpenRequest(value: unknown): BookmarksOpenRequest {
+  const record = getRecord(value, 'request');
+  assertKnownKeys(record, ['accountId', 'address'], 'request');
+
+  const address = getString(record.address, 'request.address', BOOKMARKS_OPEN_ADDRESS_MAX_LENGTH);
+  if (!/^(?:qdn|home|core):\/\//i.test(address)) {
+    throw new Error('request.address must be a supported qdn://, home://, or core:// address.');
+  }
+
+  const accountId = getOptionalNullableString(record.accountId, 'request.accountId', MAX_ACCOUNT_ID_LENGTH);
+
+  return { accountId: accountId ?? null, address };
 }
