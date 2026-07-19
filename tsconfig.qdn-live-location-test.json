@@ -10,7 +10,10 @@
   "include": [
     "src/qdn-app-history.ts",
     "src/qdn-app-history.test.ts",
+    "src/qdn-fragment.ts",
+    "src/qdn-fragment.test.ts",
     "src/qdn-live-location.ts",
-    "src/qdn-live-location.test.ts"
+    "src/qdn-live-location.test.ts",
+    "src/qdn-navigation-bridge.ts"
   ]
 }

@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-18 - fix(qdn): preserve app URL fragments
+
+Preserves the `#fragment` portion of a QDN app's browser location in Home's
+address bar and combined Back/Forward history. Direct fragment links open at
+the requested client-side location, hash-only pushes, replacements, and
+traversals stay synchronized on desktop and Android, and reload, duplicate,
+reopen, bookmark, pin, copy, and move-to-window flows retain the visible
+address. Home models the fragment separately from the QDN resource path so it
+is never sent to Core as a filepath or API query parameter.
+
 ### 2026-07-18 - fix(qdn): sync in-app locations with Home
 
 Keeps Home's address bar and per-tab Back/Forward history synchronized with

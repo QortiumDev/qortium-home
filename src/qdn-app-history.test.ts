@@ -118,4 +118,49 @@ const duplicateTraversal = mergeQdnAppHistory({
 assert.ok(duplicateTraversal);
 assert.equal(duplicateTraversal.historyIndex, 2, 'engine indexes disambiguate duplicate URLs');
 
+const hashBase = { index: 8, url: 'https://node/render/APP/Help/Help/page?view=docs#overview' };
+const hashDetails = { index: 9, url: 'https://node/render/APP/Help/Help/page?view=docs#details' };
+const hashPushed = mergeQdnAppHistory({
+  activeIndex: 9,
+  currentHistoryIndex: 4,
+  displayUrls: [
+    'qdn://APP/Help/Help/page?view=docs#overview',
+    'qdn://APP/Help/Help/page?view=docs#details',
+  ],
+  entries: [hashBase, hashDetails],
+  resourceUrl: 'qdn://APP/Help/Help/page?view=docs#overview',
+});
+
+assert.ok(hashPushed);
+assert.equal(hashPushed.historyIndex, 5, 'a hash-only push gets its own Home history entry');
+assert.equal(hashPushed.truncateForward, true);
+
+const hashReplaced = mergeQdnAppHistory({
+  activeIndex: 9,
+  currentHistoryIndex: 5,
+  displayUrls: [
+    'qdn://APP/Help/Help/page?view=docs#overview',
+    'qdn://APP/Help/Help/page?view=docs#replacement',
+  ],
+  entries: [hashBase, { ...hashDetails, url: 'https://node/render/APP/Help/Help/page?view=docs#replacement' }],
+  previous: hashPushed.session,
+  resourceUrl: hashPushed.session.resourceUrl,
+});
+
+assert.ok(hashReplaced);
+assert.equal(hashReplaced.truncateForward, false, 'a hash-only replace retains outer forward history');
+
+const hashTraversed = mergeQdnAppHistory({
+  activeIndex: 8,
+  currentHistoryIndex: 5,
+  displayUrls: hashReplaced.displayUrls,
+  entries: hashReplaced.session.entries,
+  previous: hashReplaced.session,
+  resourceUrl: hashReplaced.session.resourceUrl,
+});
+
+assert.ok(hashTraversed);
+assert.equal(hashTraversed.historyIndex, 4, 'hash-only Back traverses to the preceding composite entry');
+assert.equal(hashTraversed.truncateForward, false);
+
 console.log('QDN app history tests passed.');
