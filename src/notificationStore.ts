@@ -42,7 +42,14 @@ async function writeLocalStore(store: QdnNotificationStore) {
   cachedLocalStore = store;
   const value = JSON.stringify(store);
   if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
-  else window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
+  else {
+    // This store contains sanitized notification preferences and watch-only
+    // selectors, never passwords, private keys, wallet files, or auth tokens.
+    // Browser Home intentionally persists it beside bookmarks and other user
+    // preferences; native and desktop builds use their platform-owned stores.
+    // codeql[js/clear-text-storage-of-sensitive-data]
+    window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
+  }
   storeVersion += 1;
   listeners.forEach((listener) => listener(store));
   return store;

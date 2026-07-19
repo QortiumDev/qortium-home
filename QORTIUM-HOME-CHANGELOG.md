@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - fix(home): resolve the notification storage alert and add gallery navigation
+
+Documents why Home's sanitized notification preferences are intentionally kept
+in browser storage, allowing CodeQL to distinguish them from credentials and
+other secrets that must never be stored there. The same update adds previous
+and next controls to an open image in QDN galleries, supports Left and Right
+Arrow keys on desktop, and supports horizontal swipes on touch devices. The
+controls stop at the first and last image and remain accessible to keyboard and
+screen-reader users.
+
 ### 2026-07-19 - fix(document-viewer): open QDN EPUBs reliably
 
 Fixes QDN EPUBs that stayed on “Loading QDN resource…” forever after opening
