@@ -10806,6 +10806,13 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       return fetchConfiguredNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')), method);
     }
 
+    case 'FETCH_QORTAL_NODE_API': {
+      const apiPath = getNodeApiPath(getRequestValue(request, 'path'), 'http://127.0.0.1');
+      const method = getReadOnlyMethod(getRequestValue(request, 'method'));
+
+      return fetchQortalNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')), method);
+    }
+
     case 'GET_NODE_INFO':
       return fetchNodeApiPayload('/admin/info', request);
 

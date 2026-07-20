@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - feat(qdn): add FETCH_QORTAL_NODE_API bridge action
+
+Adds a read-only bridge action that lets QDN apps query the configured Qortal
+node the same way FETCH_NODE_API queries the Qortium node. Apps could already
+read a few fixed Qortal values (like the QORT balance), but had no way to run
+other Qortal read queries such as searching an address's QORT payment history —
+which is why the Wallets app showed a QORT balance but an empty transaction
+list. The new action accepts the same path, method (GET/HEAD only), and size
+limits as FETCH_NODE_API, and works on both desktop and Android.
+
 ### 2026-07-19 - feat(qdn): browse Git repository branches and commits
 
 Recognizes real Git data published through QDN as either a normal repository
