@@ -14,6 +14,8 @@ const adbPath = process.env.ADB || path.join(androidSdkRoot, 'platform-tools', '
 const emulatorPath = process.env.ANDROID_EMULATOR || path.join(androidSdkRoot, 'emulator', 'emulator');
 const avdHome = process.env.ANDROID_AVD_HOME || path.join(os.homedir(), '.config', '.android', 'avd');
 const avdName = process.env.QORTIUM_HOME_ANDROID_AVD || 'qortium_home_api36';
+const requestedSerial = process.env.QORTIUM_HOME_ANDROID_SERIAL?.trim() || '';
+let warnedAboutNonEmulator = false;
 const packageName = 'org.qortium.home';
 const activityName = `${packageName}/.MainActivity`;
 const nodeApiUrl = (process.env.QORTIUM_HOME_NODE_API_URL ?? 'http://127.0.0.1:24891').replace(
@@ -33,16 +35,32 @@ const mediaFixtures = [
     selector: '.qdn-viewer__image',
   },
   {
-    address: `qdn://AUDIO/${fixtureName}/${process.env.QORTIUM_HOME_QDN_MEDIA_AUDIO_IDENTIFIER ?? 'home-audio'}`,
-    identifier: process.env.QORTIUM_HOME_QDN_MEDIA_AUDIO_IDENTIFIER ?? 'home-audio',
+    address: `qdn://AUDIO/${fixtureName}/${process.env.QORTIUM_HOME_QDN_MEDIA_AUDIO_IDENTIFIER ?? 'home-audio-mp3'}`,
+    identifier: process.env.QORTIUM_HOME_QDN_MEDIA_AUDIO_IDENTIFIER ?? 'home-audio-mp3',
     label: 'AUDIO',
+    seekable: true,
     service: 'AUDIO',
     selector: 'audio.qdn-viewer__media-player--audio',
   },
   {
+    // Stays on the short VP8 fixture. The emulator dies decoding the H.264 MP4: the run
+    // vanishes right after "Opening ... home-video-mp4" with no error and the emulator's
+    // own log ending at Created/Destroyed VkInstance, taking node down with it (which is
+    // why the run could even exit 0). It is the decode, not the seek — it happens with
+    // seeking disabled, during the probe's element.load(). Software rendering is already
+    // in use, so no flag avoids it. Point this at home-video-mp4 with
+    // QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER on hardware that can decode it; video
+    // scrubbing is otherwise covered by real-device testing.
     address: `qdn://VIDEO/${fixtureName}/${process.env.QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER ?? 'home-video'}`,
     identifier: process.env.QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER ?? 'home-video',
     label: 'VIDEO',
+    // Off by default: seeking forces the emulator to software-decode H.264, which tears
+    // down its graphics stack and kills the whole emulator mid-run (observed as the
+    // process vanishing right after "Opening ... home-video-mp4", with the emulator log
+    // ending at Created/Destroyed VkInstance). Software rendering is already in use, so
+    // there is no flag that avoids it. Video scrubbing is covered on real hardware
+    // instead; set QORTIUM_HOME_QDN_MEDIA_SEEK_VIDEO=1 to attempt it anyway.
+    seekable: process.env.QORTIUM_HOME_QDN_MEDIA_SEEK_VIDEO === '1',
     service: 'VIDEO',
     selector: 'video.qdn-viewer__media-player--video',
   },
@@ -52,6 +70,12 @@ const bootTimeoutMs = 180_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
 const mediaTimeoutMs = 90_000;
+const seekTimeoutMs = 20_000;
+// The old AUDIO/VIDEO fixtures were 2 and 3 seconds long, which is far too short to
+// assert a position change. Fail loudly rather than silently "passing" a seek that
+// never had room to move if this is ever pointed back at them.
+const minSeekableDurationSeconds = 20;
+const seekTargetRatio = 0.7;
 
 function log(message) {
   console.log(`[android-qdn-media-smoke] ${message}`);
@@ -127,7 +151,35 @@ async function getAttachedDevice() {
     .filter(([serial, state]) => serial && state === 'device')
     .map(([serial]) => serial);
 
-  return devices[0] ?? null;
+  if (requestedSerial) {
+    if (!devices.includes(requestedSerial)) {
+      return null;
+    }
+
+    return requestedSerial;
+  }
+
+  // This smoke installs a debug APK and reaches the host node at 10.0.2.2, which only
+  // means anything inside an emulator. Picking whatever device happened to be listed
+  // first would target a developer's plugged-in phone instead: the debug APK cannot
+  // install over a release build without uninstalling it (different signing key, so
+  // the app's data would be wiped), and the node address would not resolve. Prefer an
+  // emulator, and never silently fall back to physical hardware.
+  const emulator = devices.find((serial) => serial.startsWith('emulator-'));
+
+  if (emulator) {
+    return emulator;
+  }
+
+  if (devices.length > 0 && !warnedAboutNonEmulator) {
+    warnedAboutNonEmulator = true;
+    log(
+      `Ignoring attached non-emulator device(s) ${devices.join(', ')}. ` +
+        'This smoke needs an emulator; set QORTIUM_HOME_ANDROID_SERIAL to override.',
+    );
+  }
+
+  return null;
 }
 
 async function waitUntil(label, timeoutMs, action) {
@@ -541,6 +593,103 @@ async function waitForMediaReady(client, fixture) {
   }
 }
 
+/**
+ * Drags the position of an already-loaded media element and proves it landed and stayed.
+ *
+ * Android feeds these elements a blob: URL, so the whole file is already local — this
+ * exercises the player and the touch-action handling that let the native scrubber move,
+ * NOT Core's HTTP byte ranges. Range support is covered by smoke:desktop:qdn-media-seek,
+ * which asserts the source is a Core /render/ URL.
+ */
+async function assertSeek(client, fixture, duration) {
+  if (!(duration >= minSeekableDurationSeconds)) {
+    fail(
+      `${fixture.label} fixture ${fixture.identifier} is only ${Number(duration).toFixed(2)}s long; ` +
+        `a seek assertion needs at least ${minSeekableDurationSeconds}s. Publish the seekable fixtures ` +
+        `with npm run qdn:bootstrap-media-test-data.`,
+    );
+  }
+
+  const target = duration * seekTargetRatio;
+  const selector = JSON.stringify(fixture.selector);
+
+  // Arm a one-shot listener and start the seek, then return immediately. Holding an
+  // awaited promise open across CDP for the whole seek killed the WebSocket while the
+  // emulator software-decoded H.264; every call here stays short and we poll instead.
+  const armed = await evaluate(
+    client,
+    `
+    (() => {
+      const element = document.querySelector(${selector});
+
+      if (!element) {
+        return { ok: false, reason: 'missing-element' };
+      }
+
+      element.__qortiumSmokeSeeked = false;
+      const onSeeked = () => {
+        element.__qortiumSmokeSeeked = true;
+        element.removeEventListener('seeked', onSeeked);
+      };
+      element.addEventListener('seeked', onSeeked);
+
+      const before = element.currentTime;
+      element.currentTime = ${JSON.stringify(target)};
+
+      return { before, ok: true };
+    })()
+  `,
+    `${fixture.label} seek start`,
+  );
+
+  if (!armed?.ok) {
+    fail(`${fixture.label} seek could not start: ${armed?.reason ?? 'unknown'}.`);
+  }
+
+  const probe = await waitUntil(`${fixture.label} seeked event`, seekTimeoutMs, async () => {
+    const state = await evaluate(
+      client,
+      `
+      (() => {
+        const element = document.querySelector(${selector});
+
+        if (!element) {
+          return { seeked: false, missing: true };
+        }
+
+        return {
+          currentTime: element.currentTime,
+          mediaError: element.error ? { code: element.error.code } : null,
+          seeked: element.__qortiumSmokeSeeked === true,
+          seeking: element.seeking
+        };
+      })()
+    `,
+      `${fixture.label} seek poll`,
+    );
+
+    if (state?.mediaError) {
+      fail(`${fixture.label} reported a media error while seeking: code ${state.mediaError.code}.`);
+    }
+
+    return state?.seeked ? state : null;
+  });
+
+  // A snap back toward the start is the failure this is really guarding against.
+  const tolerance = 2;
+  if (Math.abs(probe.currentTime - target) > tolerance) {
+    fail(
+      `${fixture.label} landed at ${Number(probe.currentTime).toFixed(2)}s instead of the requested ` +
+        `${target.toFixed(2)}s (tolerance ${tolerance}s).`,
+    );
+  }
+
+  log(
+    `${fixture.label} seeked from ${Number(armed.before).toFixed(2)}s to ` +
+      `${Number(probe.currentTime).toFixed(2)}s (target ${target.toFixed(2)}s of ${Number(duration).toFixed(2)}s).`,
+  );
+}
+
 async function runMediaAssertions(client) {
   for (const fixture of mediaFixtures) {
     log(`Opening ${fixture.address}.`);
@@ -557,6 +706,10 @@ async function runMediaAssertions(client) {
         : `${probe.width}x${probe.height}`;
 
     log(`${fixture.label} loaded from ${probe.src} (${summary}).`);
+
+    if (fixture.seekable) {
+      await assertSeek(client, fixture, probe.duration);
+    }
   }
 }
 
