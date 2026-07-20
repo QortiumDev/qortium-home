@@ -3680,7 +3680,9 @@ export function QdnBridgeFrameContent({
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
   const onAppNavigationChangeRef = useRef(onAppNavigationChange);
   const onAppTitleChangeRef = useRef(onAppTitleChange);
+  const getHomeSettingsRef = useRef(getHomeSettings);
   const getBookmarkManagerSnapshotRef = useRef(getBookmarkManagerSnapshot);
+  const onHomeSettingsPatchRef = useRef(onHomeSettingsPatch);
   const onBookmarkManagerMutationRef = useRef(onBookmarkManagerMutation);
   const suspendedFrameRef = useRef(suspended);
   const requestContextActiveRef = useRef(resolveQdnRequestContextActive(requestContextActive, suspended));
@@ -3692,7 +3694,9 @@ export function QdnBridgeFrameContent({
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   onAppNavigationChangeRef.current = onAppNavigationChange;
   onAppTitleChangeRef.current = onAppTitleChange;
+  getHomeSettingsRef.current = getHomeSettings;
   getBookmarkManagerSnapshotRef.current = getBookmarkManagerSnapshot;
+  onHomeSettingsPatchRef.current = onHomeSettingsPatch;
   onBookmarkManagerMutationRef.current = onBookmarkManagerMutation;
   appTargetRef.current = appTarget;
   suspendedFrameRef.current = suspended;
@@ -3844,9 +3848,9 @@ export function QdnBridgeFrameContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
-          getHomeSettings,
+          getHomeSettings: getHomeSettingsRef.current,
           getBookmarkManagerSnapshot: getBookmarkManagerSnapshotRef.current,
-          applyHomeSettingsPatch: onHomeSettingsPatch,
+          applyHomeSettingsPatch: onHomeSettingsPatchRef.current,
           applyBookmarkManagerMutation: onBookmarkManagerMutationRef.current,
           isCurrent: () =>
             isQdnRequestContextCurrent(
@@ -3912,7 +3916,7 @@ export function QdnBridgeFrameContent({
       active = false;
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, displaySettings, getHomeSettings, isNativeFrame, onHomeSettingsPatch, renderUrl, resourceUrl]);
+  }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
 
   const frame = (
     <iframe
