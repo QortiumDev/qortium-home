@@ -15,7 +15,8 @@ the current start time verbatim, especially after votes exist.
 
 ## Action availability and approvals
 
-Supported read-only actions are `FETCH_NODE_API`, `GET_NODE_INFO`,
+Supported read-only actions are `FETCH_NODE_API`, `FETCH_QORTAL_NODE_API`,
+`SEARCH_QORTAL_TRANSACTIONS`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
 `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,
 `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_BALANCE`, `GET_GROUP`,
@@ -74,6 +75,35 @@ receive wallet private keys or generic signing capability.
 `FETCH_NODE_API` accepts path-only requests such as `/admin/status` and only
 allows `GET` or `HEAD`. Full external URLs, legacy aliases such as
 `GET_NODE_API`, string-form requests, and write-style methods are rejected.
+
+`FETCH_QORTAL_NODE_API` is the same read-only passthrough aimed at the
+configured Qortal node instead of the Qortium node, with identical path,
+method, and `maxBytes` rules. It is the escape hatch for Qortal read
+endpoints that have no dedicated `GET_QORTAL_*`/`SEARCH_QORTAL_*` action.
+Both passthrough actions return the node-API result envelope
+(`{ ok, status, data, body, ... }`), not the bare response body — apps should
+check `ok` and read `data`.
+
+## `SEARCH_QORTAL_TRANSACTIONS`
+
+`SEARCH_QORTAL_TRANSACTIONS` searches the Qortal chain's transaction history
+(`/transactions/search` on the configured Qortal node) and returns the parsed
+transaction array directly — no envelope, and a failed request throws like the
+other dedicated read actions. `address` defaults to the selected account.
+Optional fields pass straight through to Core: `txType` (a string or an array
+for several types; `txTypes` is accepted as an alias), `confirmationStatus`
+(defaults to `CONFIRMED`), `limit`, `offset`, `reverse`, `startBlock`,
+`blockLimit`, and `txGroupId`. Example — the 20 most recent confirmed QORT
+payments for the selected account:
+
+```js
+await qdnRequest({
+  action: 'SEARCH_QORTAL_TRANSACTIONS',
+  txType: 'PAYMENT',
+  limit: 20,
+  reverse: true,
+});
+```
 
 ## Rating actions
 

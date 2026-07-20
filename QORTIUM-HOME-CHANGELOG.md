@@ -128,6 +128,19 @@ nothing at all. The existing test file for this behavior was never wired into
 the test scripts and now runs, covering both the new routing and that
 protection.
 
+### 2026-07-19 - feat(qdn): add Qortal transaction search and node passthrough bridge actions
+
+Adds two read-only bridge actions for Qortal chain data. Apps could already
+read a few fixed Qortal values (like the QORT balance), but had no way to run
+other Qortal read queries such as searching an address's transaction history —
+which is why the Wallets app showed a QORT balance but an empty transaction
+list. SEARCH_QORTAL_TRANSACTIONS searches Qortal transaction history for any
+transaction type (defaulting to the selected account's address) and returns
+the transaction list directly. FETCH_QORTAL_NODE_API is a general passthrough
+that lets apps query the configured Qortal node the same way FETCH_NODE_API
+queries the Qortium node, with the same path, method (GET/HEAD only), and size
+limits. Both work on desktop and Android.
+
 ### 2026-07-19 - feat(qdn): browse Git repository branches and commits
 
 Recognizes real Git data published through QDN as either a normal repository
