@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - perf(test): stop recompiling the Electron sources for every test
+
+Fourteen of the test commands each recompiled the Electron sources before
+running, so a full test run compiled the same code fourteen times over. The
+compile now happens once and is reused, and is redone automatically whenever
+those sources actually change, so each command still works on its own.
+
+Everything except one long-running test now finishes in about fifteen seconds
+instead of roughly a minute and a half. The test run also reports which
+commands took longest, which makes it clear that the remaining time is almost
+entirely the memory-proof-of-work self-test that checks Home's implementation
+against Core's reference values.
+
 ### 2026-07-20 - chore(ci): build and test every pull request
 
 Until now the only automated check on a Qortium Home change was the security

@@ -9,7 +9,12 @@
     "allowSyntheticDefaultImports": true,
     "types": ["node", "electron"],
     "outDir": "../dist-electron",
-    "rootDir": "."
+    "rootDir": ".",
+    // Every electron/*.test.ts script runs build:electron before its test, so
+    // this compiles ~14 times per suite. Incremental turns the repeats into
+    // near no-ops while keeping each script runnable on its own.
+    "incremental": true,
+    "tsBuildInfoFile": "../dist-electron/.tsbuildinfo"
   },
   "include": ["*.ts", "*.cts"]
 }
