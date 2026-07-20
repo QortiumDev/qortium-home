@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - fix(qdn): restore Catalina bridge and prepare Home 1.5.2
+
+Restores QDN apps in the macOS 10.15 compatibility build. Electron 32 predates
+`contextBridge.executeInMainWorld`, so the sandboxed preload now feature-detects
+that API and uses Electron 32's sandbox-supported `webFrame` only to install the
+same trusted, static `qdnRequest` wrapper in the page world. New runtime checks
+exercise the real built preload under Electron 32.3.3, 36.9.5, and 39.8.10 and
+verify the bridge is ready before page scripts, survives strict page CSP, keeps
+its locked descriptor, and preserves results and main-world error behavior.
+The desktop and Android packages also advance to 1.5.2, with Android version
+code 32, so this prerelease remains distinct from the existing 1.5.1 release.
+
 ### 2026-07-20 - perf(test): shorten the proof-of-work self-test on pull requests
 
 The proof-of-work self-test was taking about two minutes of every automated
@@ -100,13 +112,6 @@ listen for the instruction, so reusing their tab would leave the link doing
 nothing at all. The existing test file for this behavior was never wired into
 the test scripts and now runs, covering both the new routing and that
 protection.
-
-### 2026-07-19 - chore(release): prepare Home 1.5.2
-
-Advances the desktop and Android package versions for the next Home prerelease.
-Android now uses version code 32 so the signed 1.5.2 package can update existing
-1.5.1 installations after the merged prerelease fixes and Git repository
-navigation have completed acceptance testing.
 
 ### 2026-07-19 - feat(qdn): browse Git repository branches and commits
 

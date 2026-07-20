@@ -211,6 +211,8 @@
     }
   },
   "allowScripts": {
+    "electron@32.3.3": true,
+    "electron@36.9.5": true,
     "electron@39.8.10": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.27.7": true

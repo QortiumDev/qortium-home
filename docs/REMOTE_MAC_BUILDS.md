@@ -71,13 +71,11 @@ renaming the DMG to `Qortium-Home-<version>-macos11-universal.dmg`. If any
 bundled binary still requires a newer macOS release, the build fails before the
 artifact is copied back.
 
-## Ad-hoc macOS 10.15 tester builds
+## macOS 10.15 compatibility builds
 
-macOS 10.15 Catalina is not a normal release target. Electron 33 and newer
-require macOS 11 or later, so a Catalina tester build must use the last suitable
-Electron 32 line. Build it as an x64-only DMG, label it separately from the
-normal macOS 11 legacy artifact, and treat it as an unsupported compatibility
-test.
+Electron 33 and newer require macOS 11 or later, so a Catalina build must use
+the last suitable Electron 32 line. Build it as an x64-only DMG and label it
+separately from the normal macOS 11 legacy artifact.
 
 When rebuilding a Catalina tester DMG for a specific prerelease, archive that
 exact tag or commit into a separate remote directory instead of using the
@@ -105,6 +103,8 @@ cd "$HOME/build/qortium-home-macos1015-v1.1.2"
 npm ci
 rm -rf dist-release
 npm run build
+npm install --no-save --package-lock=false electron@32.3.3
+QORTIUM_HOME_EXPECTED_ELECTRON_VERSION=32.3.3 node scripts/test-qdn-app-preload.mjs
 ./node_modules/.bin/electron-builder --mac dmg --x64 --publish never \
   -c.electronVersion=32.3.3 \
   -c.mac.minimumSystemVersion=10.15.0
@@ -126,7 +126,9 @@ REMOTE
 Copy the resulting `Qortium-Home-<version>-macos1015-x64.dmg` and optional
 `.blockmap` back into local `dist-release/`, then verify the copied DMG by
 extracting the app and rerunning `scripts/verify-macos-min-version.mjs` with
-`10.15.0`.
+`10.15.0`. The exact Electron 32 preload test is a required release gate: it
+proves the sandboxed QDN bridge is present before page scripts run and preserves
+successful, empty, coded-error, and malformed-response behavior.
 
 Use the existing local scripts for other platforms:
 

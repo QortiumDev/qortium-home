@@ -56,5 +56,17 @@ assert.ok(
   !/require\(\s*['"]\.{1,2}\//.test(preloadSource),
   'qdn-app-preload.cts must not require relative modules (sandboxed preload)',
 );
+assert.ok(
+  preloadSource.includes("typeof contextBridge.executeInMainWorld === 'function'"),
+  'qdn-app-preload.cts must feature-detect executeInMainWorld for Electron 32',
+);
+assert.ok(
+  preloadSource.includes('webFrame.executeJavaScript(source, false'),
+  'qdn-app-preload.cts must retain the Electron 32 page-world installer',
+);
+assert.ok(
+  preloadSource.includes('if (!completed)'),
+  'qdn-app-preload.cts must fail closed if Electron 32 defers bridge installation',
+);
 
 console.log('QDN bridge error envelope tests passed.');
