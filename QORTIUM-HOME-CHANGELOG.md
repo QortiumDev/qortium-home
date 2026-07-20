@@ -33,6 +33,24 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - test(qdn): assert a real position change in the Android media check
+
+Makes the Android media check prove that a track can actually be skipped
+through. It previously opened a two second sound file and a three second video
+and only confirmed they had loaded, which could never show whether dragging the
+position worked. It now opens the minute long sound file published for this
+purpose and jumps to forty-two seconds in, failing if the position does not
+arrive and stay there, and refusing to run at all against a file too short for
+the jump to mean anything.
+
+Video is deliberately left as a load-only check. The Android emulator shuts down
+while decoding the newer high quality video, taking the whole test run with it,
+so video skipping is confirmed on a real phone instead.
+
+The check also no longer takes over a phone that happens to be plugged into the
+computer. It needs an emulator, and would previously have picked whichever
+device was listed first and tried to install a test build over the real one.
+
 ### 2026-07-20 - fix(qdn): keep the embedded video player usable on phone screens
 
 Gives embedded QDN video a proper size on a phone. The area below the player
