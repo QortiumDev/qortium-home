@@ -4586,6 +4586,23 @@ h1 {
   background: #000000;
 }
 
+/* The details row is sized to its content, and for video that content is the
+   open-with-system-player button plus the whole resource property list. On a
+   phone-height viewport it is tall enough to consume the entire grid, and
+   because the stage track may shrink to zero the player collapsed to a sliver
+   until the user happened to find the fill toggle. Give the video stage a floor
+   and let the details scroll instead, so the player is usable on first sight.
+   Scoped away from the filled state, which deliberately drops the details row. */
+.qdn-viewer__media--video:not(.qdn-viewer__media--filled) {
+  grid-template-rows: minmax(min(55vh, 340px), 1fr) minmax(0, auto);
+}
+
+.qdn-viewer__media--video:not(.qdn-viewer__media--filled) .qdn-viewer__media-details {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 /* Full-view mode: the video fills the whole content area and the details row
    below is removed. */
 .qdn-viewer__media--filled {
