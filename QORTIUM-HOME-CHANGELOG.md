@@ -51,6 +51,15 @@ reservation was being applied to the players themselves, so dragging the
 position slider did nothing. The players now keep their own touch handling, and
 sideways swipes still change pages everywhere else.
 
+A new automated desktop check proves that embedded QDN media can really be
+skipped through. It opens a large video from the node inside the real
+application, notes how little of it has been downloaded so far, drags the
+position far past that point, waits for the player to confirm it arrived, and
+then plays on from there. That last step is the one that matters: it can only
+succeed when the node serves a piece from the middle of a file on request, so
+the check would have failed against the older behaviour that always sent the
+whole file from the beginning.
+
 ### 2026-07-20 - perf(test): shorten the proof-of-work self-test on pull requests
 
 The proof-of-work self-test was taking about two minutes of every automated
