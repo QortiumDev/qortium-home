@@ -45,6 +45,12 @@ its locked descriptor, and preserves results and main-world error behavior.
 The desktop and Android packages also advance to 1.5.2, with Android version
 code 32, so this prerelease remains distinct from the existing 1.5.1 release.
 
+Embedded QDN audio and video players also become draggable again on Android.
+The mobile build reserves sideways swipes for moving between pages, and that
+reservation was being applied to the players themselves, so dragging the
+position slider did nothing. The players now keep their own touch handling, and
+sideways swipes still change pages everywhere else.
+
 ### 2026-07-20 - perf(test): shorten the proof-of-work self-test on pull requests
 
 The proof-of-work self-test was taking about two minutes of every automated
