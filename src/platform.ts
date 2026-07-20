@@ -10552,6 +10552,29 @@ function buildQortalChatMessagesPath(request: QdnAppRequest) {
   return `/chat/messages?${queryParams.toString()}`;
 }
 
+async function buildQortalTransactionsSearchPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const queryParams = new URLSearchParams({ address });
+
+  appendRequestQueryFields(queryParams, request, {
+    blockLimit: 'blockLimit',
+    confirmationStatus: 'confirmationStatus',
+    limit: 'limit',
+    offset: 'offset',
+    reverse: 'reverse',
+    startBlock: 'startBlock',
+    txGroupId: 'txGroupId',
+    txType: 'txType',
+    txTypes: 'txType',
+  });
+
+  if (!queryParams.has('confirmationStatus')) {
+    queryParams.set('confirmationStatus', 'CONFIRMED');
+  }
+
+  return `/transactions/search?${queryParams.toString()}`;
+}
+
 async function buildActiveChatsPath(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   const address = await getAddressForQdnRequest(request, context, 'Address');
   const queryParams = new URLSearchParams();
@@ -10893,6 +10916,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'GET_QORTAL_TRANSACTION':
       return getQortalTransactionForApp(request);
+
+    case 'SEARCH_QORTAL_TRANSACTIONS':
+      return fetchQortalNodeApiPayload(await buildQortalTransactionsSearchPath(request, context), request);
 
     case 'GET_QORTAL_ACTIVE_CHATS':
       return fetchQortalNodeApiPayload(await buildQortalActiveChatsPath(request, context), request);
