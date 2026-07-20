@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - chore(ci): build and test every pull request
+
+Until now the only automated check on a Qortium Home change was the security
+scanner. Nothing built the application or ran its tests, so a change that broke
+either could be merged and only be noticed later by hand.
+
+Every pull request and every push to the main branch now builds the application
+and runs the full test suite. That also makes the recently added check for
+unrun test files binding rather than advisory: a test that no command runs will
+now stop a pull request instead of quietly passing review.
+
 ### 2026-07-20 - chore(test): run every test file and fail on unwired ones
 
 Six existing test files were never actually run by anything. They compiled and
