@@ -27,8 +27,8 @@ const VIDEO_QDN_SERVICES = ['VIDEO'] as const;
 // Multi-file image collections. GIF_REPOSITORY (gifs only) and IMAGE_GALLERY
 // (the broader image set added in Core v1.1.0) share the same gallery viewer.
 const GALLERY_QDN_SERVICES = ['GIF_REPOSITORY', 'IMAGE_GALLERY'] as const;
-// Multi-file source/working-tree directories browsed as a file tree. Core serves
-// GIT_REPOSITORY as a plain directory of files (no git refs), like a website.
+// Multi-file Git resources. Home detects real bare or .git-backed repositories
+// for history navigation and keeps a plain file-tree fallback for old snapshots.
 const REPOSITORY_QDN_SERVICES = ['GIT_REPOSITORY'] as const;
 const TEXT_QDN_SERVICES = [
   'JSON',

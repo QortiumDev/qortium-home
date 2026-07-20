@@ -42,7 +42,8 @@ more broadly.
   account, read-only node API browsing, and saved bookmarks.
 - **Document and media viewers** — in-app viewers for images, audio, and
   video; a document reader for PDF, EPUB, plain text, and CBZ/CBR comics; a
-  ZIP/RAR archive browser and a `GIT_REPOSITORY` file-tree browser; and
+  ZIP/RAR archive browser and a `GIT_REPOSITORY` branch, commit, and file-tree
+  browser with a plain-snapshot fallback; and
   code, Markdown, CSV, and JSON views.
 - **QDN app hosting** — `APP` and `WEBSITE` resources run in isolated views
   with the account-aware `qdnRequest` bridge for read lookups and
