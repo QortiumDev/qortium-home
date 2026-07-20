@@ -9,6 +9,13 @@ const APP_IDENTIFIER = 'home-test';
 const IMAGE_IDENTIFIER = 'home-image';
 const AUDIO_IDENTIFIER = 'home-audio';
 const VIDEO_IDENTIFIER = 'home-video';
+// Seekable, mobile-friendly media. The Vorbis/VP8 fixtures above are only 2-3 seconds
+// long, which is far too short to drag a position slider, and not every container that
+// plays on desktop Chromium decodes in Android WebView (.mkv does not). These are a
+// minute each of MP3 and H.264/AAC MP4 so scrubbing can be tested for real on a phone.
+const AUDIO_LONG_IDENTIFIER = 'home-audio-mp3';
+const VIDEO_LONG_IDENTIFIER = 'home-video-mp4';
+const LONG_MEDIA_DURATION_SECONDS = 60;
 const JSON_IDENTIFIER = 'home-json';
 const FILE_IDENTIFIER = 'home-file';
 const GIT_IDENTIFIER = 'home-git-demo';
@@ -28,6 +35,10 @@ const previewAccountsPath = expandHomePath(
     '~/qortium/git/qortium-core/preview/secrets/initial-minting-accounts.json',
 );
 const gitOnly = process.argv.includes('--git-only');
+// Republishing every fixture just to refresh media would also bump home-git-demo, whose
+// exact branch/commit shape the Git viewer acceptance testing depends on. This publishes
+// only the long seekable media.
+const mediaOnly = process.argv.includes('--media-only');
 
 function expandHomePath(filePath) {
   if (filePath === '~') {
@@ -408,6 +419,8 @@ function createFixtureFiles() {
   const imagePath = path.join(fixtureRoot, 'qortium-home-test-image.svg');
   const audioPath = path.join(fixtureRoot, 'qortium-home-test-audio.ogg');
   const videoPath = path.join(fixtureRoot, 'qortium-home-test-video.webm');
+  const audioLongPath = path.join(fixtureRoot, 'qortium-home-test-audio-long.mp3');
+  const videoLongPath = path.join(fixtureRoot, 'qortium-home-test-video-long.mp4');
   const jsonPath = path.join(fixtureRoot, 'qortium-home-test.json');
   const filePath = path.join(fixtureRoot, 'qortium-home-test-file.txt');
   const gitDirectory = createGitFixture(fixtureRoot);
@@ -603,6 +616,64 @@ function createFixtureFiles() {
       ],
       { stdio: 'pipe' },
     );
+
+    // A rising frequency sweep rather than a constant tone, so a listener can tell by
+    // ear whether a seek actually landed somewhere new instead of restarting.
+    execFileSync(
+      'ffmpeg',
+      [
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        `sine=frequency=220:beep_factor=4:duration=${LONG_MEDIA_DURATION_SECONDS}:sample_rate=44100`,
+        '-c:a',
+        'libmp3lame',
+        '-q:a',
+        '5',
+        audioLongPath,
+      ],
+      { stdio: 'pipe' },
+    );
+
+    // testsrc2 burns a running timestamp into the picture, so a seek is visually
+    // verifiable. -movflags +faststart moves the moov atom to the front, without which
+    // a browser cannot start playback (or seek) until the whole file has arrived.
+    execFileSync(
+      'ffmpeg',
+      [
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        `testsrc2=size=640x360:rate=24:duration=${LONG_MEDIA_DURATION_SECONDS}`,
+        '-f',
+        'lavfi',
+        '-i',
+        `sine=frequency=440:beep_factor=4:duration=${LONG_MEDIA_DURATION_SECONDS}:sample_rate=44100`,
+        '-shortest',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-profile:v',
+        'baseline',
+        '-level',
+        '3.0',
+        '-pix_fmt',
+        'yuv420p',
+        '-b:v',
+        '500k',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '96k',
+        '-movflags',
+        '+faststart',
+        videoLongPath,
+      ],
+      { stdio: 'pipe' },
+    );
   } catch (error) {
     throw new Error(
       `Unable to generate AUDIO and VIDEO fixtures with ffmpeg. Install ffmpeg and retry. ${
@@ -613,12 +684,14 @@ function createFixtureFiles() {
 
   return {
     appDirectory,
+    audioLongPath,
     audioPath,
     filePath,
     fixtureRoot,
     gitDirectory,
     imagePath,
     jsonPath,
+    videoLongPath,
     videoPath,
     websiteDirectory,
   };
@@ -712,6 +785,33 @@ if (gitOnly) {
   } finally {
     rmSync(gitFixtures.fixtureRoot, { recursive: true, force: true });
   }
+} else if (mediaOnly) {
+  const fixtures = createFixtureFiles();
+
+  try {
+    await ensureNameRegistered(testName, account);
+    await publishResource({
+      service: 'AUDIO',
+      identifier: AUDIO_LONG_IDENTIFIER,
+      path: fixtures.audioLongPath,
+      title: 'Qortium Home long AUDIO Test (MP3)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s MP3 for audio scrubbing tests on desktop and Android`,
+    });
+    await publishResource({
+      service: 'VIDEO',
+      identifier: VIDEO_LONG_IDENTIFIER,
+      path: fixtures.videoLongPath,
+      title: 'Qortium Home long VIDEO Test (MP4)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s H.264/AAC MP4 for video scrubbing tests on desktop and Android`,
+    });
+    await waitForResourceReady('AUDIO', AUDIO_LONG_IDENTIFIER);
+    await waitForResourceReady('VIDEO', VIDEO_LONG_IDENTIFIER);
+    console.log('QDN long media fixture bootstrap complete.');
+    console.log(`AUDIO (long MP3): qdn://AUDIO/${testName}/${AUDIO_LONG_IDENTIFIER}`);
+    console.log(`VIDEO (long MP4): qdn://VIDEO/${testName}/${VIDEO_LONG_IDENTIFIER}`);
+  } finally {
+    rmSync(fixtures.fixtureRoot, { recursive: true, force: true });
+  }
 } else {
   const fixtures = createFixtureFiles();
 
@@ -753,6 +853,20 @@ if (gitOnly) {
       description: 'Temporary Qortium Home QDN browser video-player test data',
     });
     await publishResource({
+      service: 'AUDIO',
+      identifier: AUDIO_LONG_IDENTIFIER,
+      path: fixtures.audioLongPath,
+      title: 'Qortium Home long AUDIO Test (MP3)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s MP3 for audio scrubbing tests on desktop and Android`,
+    });
+    await publishResource({
+      service: 'VIDEO',
+      identifier: VIDEO_LONG_IDENTIFIER,
+      path: fixtures.videoLongPath,
+      title: 'Qortium Home long VIDEO Test (MP4)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s H.264/AAC MP4 for video scrubbing tests on desktop and Android`,
+    });
+    await publishResource({
       service: 'JSON',
       identifier: JSON_IDENTIFIER,
       path: fixtures.jsonPath,
@@ -779,6 +893,8 @@ if (gitOnly) {
     await waitForResourceReady('IMAGE', IMAGE_IDENTIFIER);
     await waitForResourceReady('AUDIO', AUDIO_IDENTIFIER);
     await waitForResourceReady('VIDEO', VIDEO_IDENTIFIER);
+    await waitForResourceReady('AUDIO', AUDIO_LONG_IDENTIFIER);
+    await waitForResourceReady('VIDEO', VIDEO_LONG_IDENTIFIER);
     await waitForResourceReady('JSON', JSON_IDENTIFIER);
     await waitForResourceReady('FILE', FILE_IDENTIFIER);
     await waitForResourceReady('GIT_REPOSITORY', GIT_IDENTIFIER);
@@ -789,6 +905,8 @@ if (gitOnly) {
     console.log(`IMAGE: qdn://IMAGE/${testName}/${IMAGE_IDENTIFIER}`);
     console.log(`AUDIO: qdn://AUDIO/${testName}/${AUDIO_IDENTIFIER}`);
     console.log(`VIDEO: qdn://VIDEO/${testName}/${VIDEO_IDENTIFIER}`);
+    console.log(`AUDIO (long MP3): qdn://AUDIO/${testName}/${AUDIO_LONG_IDENTIFIER}`);
+    console.log(`VIDEO (long MP4): qdn://VIDEO/${testName}/${VIDEO_LONG_IDENTIFIER}`);
     console.log(`JSON: qdn://JSON/${testName}/${JSON_IDENTIFIER}`);
     console.log(`FILE: qdn://FILE/${testName}/${FILE_IDENTIFIER}`);
     console.log(`GIT_REPOSITORY: qdn://GIT_REPOSITORY/${testName}/${GIT_IDENTIFIER}`);

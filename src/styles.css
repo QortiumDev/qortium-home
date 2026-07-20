@@ -4565,6 +4565,14 @@ h1 {
   display: block;
   max-width: 100%;
   color: var(--color-text);
+  /* Hand every touch gesture on the player to the browser's own media controls.
+     On Android the ancestor .app-main--gesture-nav sets touch-action:pan-y, and
+     the browser resolves touch-action before Home's JavaScript swipe recognizer
+     runs, so a horizontal drag on the native scrubber was discarded and the
+     trackbar could not be dragged. The recognizer already exempts audio/video
+     targets, so lifting the constraint here costs no navigation swipe, and the
+     media stage does not scroll, so no page scrolling is lost either. */
+  touch-action: none;
 }
 
 .qdn-viewer__media-player--audio {

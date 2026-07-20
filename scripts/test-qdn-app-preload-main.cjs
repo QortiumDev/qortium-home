@@ -8,35 +8,45 @@
 // window.qdnRequest from every QDN app (the Home 1.5.0 chat regression).
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 const distElectron = path.join(__dirname, '..', 'dist-electron');
 const preload = path.join(distElectron, 'qdn-app-preload.cjs');
-const { encodeQdnBridgeError, encodeQdnBridgeResult } = require(
-  path.join(distElectron, 'qdn-bridge-error.js'),
-);
-
 let preloadError = null;
 
-ipcMain.handle('qdn-app:request', async (_event, request) => {
-  try {
-    const action = request && typeof request === 'object' ? request.action : undefined;
-
-    switch (action) {
-      case 'TEST_RESULT':
-        return encodeQdnBridgeResult({ address: 'QTestAddress123', name: 'tester' });
-      case 'TEST_UNDEFINED_RESULT':
-        return encodeQdnBridgeResult(undefined);
-      case 'TEST_ERROR':
-        throw Object.assign(new Error('Account request was denied'), { code: 'ACCOUNT_DENIED' });
-      default:
-        throw new Error(`Unexpected test action: ${String(action)}`);
-    }
-  } catch (error) {
-    return encodeQdnBridgeError(error);
-  }
-});
-
 app.whenReady().then(async () => {
+  const { encodeQdnBridgeError, encodeQdnBridgeResult } = await import(
+    pathToFileURL(path.join(distElectron, 'qdn-bridge-error.js')).href
+  );
+  const expectedElectronVersion = process.env.QORTIUM_HOME_EXPECTED_ELECTRON_VERSION;
+
+  if (expectedElectronVersion && process.versions.electron !== expectedElectronVersion) {
+    throw new Error(
+      `Expected Electron ${expectedElectronVersion}, received ${process.versions.electron}`,
+    );
+  }
+
+  ipcMain.handle('qdn-app:request', async (_event, request) => {
+    try {
+      const action = request && typeof request === 'object' ? request.action : undefined;
+
+      switch (action) {
+        case 'TEST_RESULT':
+          return encodeQdnBridgeResult({ address: 'QTestAddress123', name: 'tester' });
+        case 'TEST_UNDEFINED_RESULT':
+          return encodeQdnBridgeResult(undefined);
+        case 'TEST_ERROR':
+          throw Object.assign(new Error('Account request was denied'), { code: 'ACCOUNT_DENIED' });
+        case 'TEST_MALFORMED_RESULT':
+          return { unexpected: true };
+        default:
+          throw new Error(`Unexpected test action: ${String(action)}`);
+      }
+    } catch (error) {
+      return encodeQdnBridgeError(error);
+    }
+  });
+
   const win = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -51,7 +61,15 @@ app.whenReady().then(async () => {
     preloadError = `${preloadPath}: ${error.message}`;
   });
 
-  await win.loadURL('data:text/html,<html><body>qdn-app-preload-test</body></html>');
+  const html = `<!doctype html>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'nonce-qdn-preload-test'">
+    <script nonce="qdn-preload-test">
+      window.__qdnRequestAtFirstParserScript = typeof window.qdnRequest;
+    </script>
+    <body>qdn-app-preload-test</body>`;
+  const fixtureUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+
+  await win.loadURL(fixtureUrl);
 
   if (preloadError) {
     console.error(`[qdn-app-preload-test] FAIL preload-error ${preloadError}`);
@@ -60,8 +78,17 @@ app.whenReady().then(async () => {
   }
 
   const outcome = await win.webContents.executeJavaScript(`(async () => {
+    if (window.__qdnRequestAtFirstParserScript !== 'function') {
+      return { failure: 'qdnRequest was not ready for the first parser script: ' + window.__qdnRequestAtFirstParserScript };
+    }
+
     if (typeof window.qdnRequest !== 'function') {
       return { failure: 'window.qdnRequest is not a function: ' + typeof window.qdnRequest };
+    }
+
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'qdnRequest');
+    if (!descriptor || descriptor.configurable || !descriptor.enumerable || descriptor.writable) {
+      return { failure: 'qdnRequest property descriptor is not locked: ' + JSON.stringify(descriptor) };
     }
 
     const result = await window.qdnRequest({ action: 'TEST_RESULT' });
@@ -78,8 +105,21 @@ app.whenReady().then(async () => {
       await window.qdnRequest({ action: 'TEST_ERROR' });
       return { failure: 'error envelope did not throw' };
     } catch (error) {
+      if (!(error instanceof Error)) {
+        return { failure: 'error envelope did not create a main-world Error' };
+      }
+
       if (error.message !== 'Account request was denied' || error.code !== 'ACCOUNT_DENIED') {
         return { failure: 'error envelope lost message/code: ' + error.message + ' / ' + error.code };
+      }
+    }
+
+    try {
+      await window.qdnRequest({ action: 'TEST_MALFORMED_RESULT' });
+      return { failure: 'malformed envelope did not throw' };
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== 'Malformed QDN bridge response.') {
+        return { failure: 'malformed envelope lost main-world error behavior: ' + String(error) };
       }
     }
 
@@ -92,6 +132,11 @@ app.whenReady().then(async () => {
     return;
   }
 
-  console.log('[qdn-app-preload-test] PASS qdnRequest works in a sandboxed QDN app view');
+  console.log(
+    `[qdn-app-preload-test] PASS qdnRequest works in a sandboxed QDN app view on Electron ${process.versions.electron}`,
+  );
   app.exit(0);
+}).catch((error) => {
+  console.error(`[qdn-app-preload-test] FAIL ${error instanceof Error ? error.stack : String(error)}`);
+  app.exit(1);
 });

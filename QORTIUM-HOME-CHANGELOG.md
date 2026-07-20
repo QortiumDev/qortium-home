@@ -33,6 +33,33 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - fix(qdn): restore Catalina bridge and prepare Home 1.5.2
+
+Restores QDN apps in the macOS 10.15 compatibility build. Electron 32 predates
+`contextBridge.executeInMainWorld`, so the sandboxed preload now feature-detects
+that API and uses Electron 32's sandbox-supported `webFrame` only to install the
+same trusted, static `qdnRequest` wrapper in the page world. New runtime checks
+exercise the real built preload under Electron 32.3.3, 36.9.5, and 39.8.10 and
+verify the bridge is ready before page scripts, survives strict page CSP, keeps
+its locked descriptor, and preserves results and main-world error behavior.
+The desktop and Android packages also advance to 1.5.2, with Android version
+code 32, so this prerelease remains distinct from the existing 1.5.1 release.
+
+Embedded QDN audio and video players also become draggable again on Android.
+The mobile build reserves sideways swipes for moving between pages, and that
+reservation was being applied to the players themselves, so dragging the
+position slider did nothing. The players now keep their own touch handling, and
+sideways swipes still change pages everywhere else.
+
+A new automated desktop check proves that embedded QDN media can really be
+skipped through. It opens a large video from the node inside the real
+application, notes how little of it has been downloaded so far, drags the
+position far past that point, waits for the player to confirm it arrived, and
+then plays on from there. That last step is the one that matters: it can only
+succeed when the node serves a piece from the middle of a file on request, so
+the check would have failed against the older behaviour that always sent the
+whole file from the beginning.
+
 ### 2026-07-20 - perf(test): shorten the proof-of-work self-test on pull requests
 
 The proof-of-work self-test was taking about two minutes of every automated

@@ -1,6 +1,6 @@
 {
   "name": "qortium-home",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "license": "0BSD",
   "author": "QortiumDev",
@@ -45,6 +45,7 @@
     "smoke:desktop:core-runtime": "node scripts/smoke-desktop-core-runtime.mjs",
     "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
+    "smoke:desktop:qdn-media-seek": "node scripts/smoke-desktop-qdn-media-seek.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/smoke-qdn-services.mjs",
@@ -86,6 +87,7 @@
     "release:publish": "node scripts/publish-release.mjs",
     "qdn:bootstrap-test-data": "node scripts/bootstrap-qdn-test-data.mjs",
     "qdn:bootstrap-git-test-data": "node scripts/bootstrap-qdn-test-data.mjs --git-only",
+    "qdn:bootstrap-media-test-data": "node scripts/bootstrap-qdn-test-data.mjs --media-only",
     "preview": "vite preview",
     "postinstall": "node scripts/patch-local-notifications-receiver.mjs && node scripts/patch-isomorphic-git.mjs"
   },
@@ -211,6 +213,8 @@
     }
   },
   "allowScripts": {
+    "electron@32.3.3": true,
+    "electron@36.9.5": true,
     "electron@39.8.10": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.27.7": true
