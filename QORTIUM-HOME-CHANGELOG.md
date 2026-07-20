@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - fix(qdn): route recipe links into an already-open Recipes tab
+
+Opening a link to a specific recipe while the Recipes app was already open
+added a second Recipes tab instead of moving the open one to that recipe. Home
+now recognizes which parts of a link are a "go to this thing" instruction
+rather than part of the app's identity, so such a link reuses the tab already
+showing that app.
+
+Home only does this for apps that are known to understand the instruction,
+which currently means Chat and Recipes. Other apps that put a target in the
+link, such as Help and Boards, deliberately keep opening a new tab: they do not
+listen for the instruction, so reusing their tab would leave the link doing
+nothing at all. The existing test file for this behavior was never wired into
+the test scripts and now runs, covering both the new routing and that
+protection.
+
 ### 2026-07-19 - feat(qdn): browse Git repository branches and commits
 
 Recognizes real Git data published through QDN as either a normal repository
