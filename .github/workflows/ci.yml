@@ -46,7 +46,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Pull requests run the memory-PoW self-test in quick mode: fewer
+      # differential trials and no benchmark. The Core known-answer vectors
+      # still run in full on every event. Pushes to main run everything.
       # Gated on scripts/check-test-wiring.mjs, so a test file that no script
       # runs fails the build rather than going silently dead.
       - name: Test
         run: npm test
+        env:
+          MEMORY_POW_TEST_MODE: ${{ github.event_name == 'pull_request' && 'quick' || 'full' }}

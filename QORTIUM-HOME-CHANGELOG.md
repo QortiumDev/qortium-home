@@ -33,6 +33,21 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - perf(test): shorten the proof-of-work self-test on pull requests
+
+The proof-of-work self-test was taking about two minutes of every automated
+check, far more than everything else combined. Most of that was not testing
+anything: it was a speed comparison that re-ran a deliberately slow reference
+version at full production size purely to report how much faster the real one
+is.
+
+Pull requests now skip that speed comparison and use fewer randomized
+comparison rounds. The checks that confirm Home's proof-of-work agrees with
+Core's published reference values still run in full on every change, and merges
+to the main branch still run everything including the speed comparison. Both
+kinds of deliberate error introduced while testing this were still caught by
+the shortened run on its first round.
+
 ### 2026-07-20 - perf(test): stop recompiling the Electron sources for every test
 
 Fourteen of the test commands each recompiled the Electron sources before
