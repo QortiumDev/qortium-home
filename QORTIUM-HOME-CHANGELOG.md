@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - chore(test): run every test file and fail on unwired ones
+
+Six existing test files were never actually run by anything. They compiled and
+looked like working coverage when reading the code, but no command executed
+them, so whatever they checked was unprotected. All six pass, so nothing was
+found to be broken — they were simply not being consulted.
+
+Each is now runnable, and `npm test` runs the whole suite in one command
+instead of requiring someone to know each individual command name. A wiring
+check runs first and fails if any test file exists that no command runs, so a
+test cannot go silently dead again. All 33 test commands pass and none of them
+need a network connection or a running node.
+
 ### 2026-07-20 - fix(qdn): route recipe links into an already-open Recipes tab
 
 Opening a link to a specific recipe while the Recipes app was already open
