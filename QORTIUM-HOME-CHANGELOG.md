@@ -33,6 +33,24 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - fix(qdn): keep the embedded video player usable on phone screens
+
+Gives embedded QDN video a proper size on a phone. The area below the player
+holds the open-with-system-player button and the full list of resource
+properties, and that block was allowed to take as much height as it wanted while
+the player was allowed to shrink to nothing. On a phone the result was a video
+squeezed into a sliver a few pixels tall, with its play and position controls
+effectively unreachable, unless the viewer happened to discover the expand
+button. The player now keeps a sensible minimum share of the screen and the
+property list scrolls within what is left, so a video is watchable as soon as it
+opens. Audio, which needs only a slim control bar, is unchanged, as is the
+existing expand-to-fill view.
+
+Also stabilises the desktop media seek check. It deliberately leaves the video
+playing at the end of the seek assertions, and navigating away from a playing
+video occasionally raced the next check and failed the run for no real reason.
+The video is now stopped before the check moves on.
+
 ### 2026-07-20 - fix(qdn): restore Catalina bridge and prepare Home 1.5.2
 
 Restores QDN apps in the macOS 10.15 compatibility build. Electron 32 predates

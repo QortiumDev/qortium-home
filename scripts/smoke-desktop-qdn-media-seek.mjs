@@ -842,6 +842,21 @@ async function runVideoSeekAssertions(client) {
   );
 
   await assertNoMediaErrors(client, videoSelector, 'after seeking and playback');
+
+  // The playback assertion deliberately leaves the video running. Navigating away
+  // from a still-playing element raced the next page's CDP evaluation and showed up
+  // as an intermittent "Promise was collected" failure, so stop it before moving on.
+  await evaluate(
+    client,
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(videoSelector)});
+      if (element) {
+        element.pause();
+      }
+      return true;
+    })()`,
+    'pause VIDEO before navigating away',
+  );
 }
 
 // Secondary check only. The AUDIO fixture is a few kilobytes, so it can be
