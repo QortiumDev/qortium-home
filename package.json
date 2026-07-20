@@ -87,6 +87,7 @@
     "release:publish": "node scripts/publish-release.mjs",
     "qdn:bootstrap-test-data": "node scripts/bootstrap-qdn-test-data.mjs",
     "qdn:bootstrap-git-test-data": "node scripts/bootstrap-qdn-test-data.mjs --git-only",
+    "qdn:bootstrap-media-test-data": "node scripts/bootstrap-qdn-test-data.mjs --media-only",
     "preview": "vite preview",
     "postinstall": "node scripts/patch-local-notifications-receiver.mjs && node scripts/patch-isomorphic-git.mjs"
   },
