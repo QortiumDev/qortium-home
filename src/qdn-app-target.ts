@@ -1,32 +1,80 @@
 import type { AppRoute } from './routes';
 
-export type QdnAppTargetQuery = {
-  address?: string;
-  group?: string;
-};
+export type QdnAppTargetQuery = Record<string, string>;
 
-function getPathWithoutTargetQuery(path: string) {
+// Apps that handle the OPEN_APP_TARGET message, and the query parameters each
+// one treats as a navigation target rather than as part of its identity.
+//
+// This is deliberately an allowlist rather than "every query parameter is a
+// target". Apps that deep-link through the URL but do not handle the message —
+// qortium-help and qortium-boards both use `?post=<id>` — rely on a differing
+// query producing a NEW tab. Treating their parameters as targets would make
+// Home focus the existing tab and post a message they ignore, so the link would
+// silently do nothing.
+//
+// Longer term an app should declare this itself (qortium-app.json), but that
+// manifest is fetched asynchronously inside QdnViewer, while the tab-matching
+// decision in App.tsx is synchronous and runs before any tab exists.
+const QDN_APP_TARGET_PARAMS: ReadonlyArray<{
+  service: string;
+  name: string;
+  identifier: string;
+  params: readonly string[];
+}> = [
+  { service: 'APP', name: 'Chat', identifier: 'Chat', params: ['address', 'group'] },
+  { service: 'APP', name: 'Recipes', identifier: 'Recipes', params: ['recipe', 'author'] },
+];
+
+function getTargetParams(route: AppRoute): readonly string[] {
+  if (route.kind !== 'resource') {
+    return [];
+  }
+
+  const { identifier, name, service } = route.resource;
+  const entry = QDN_APP_TARGET_PARAMS.find(
+    (candidate) =>
+      candidate.service === service &&
+      candidate.name === name &&
+      candidate.identifier === (identifier ?? 'default'),
+  );
+
+  return entry?.params ?? [];
+}
+
+function getPathWithoutTargetQuery(path: string, params: readonly string[]) {
   const queryIndex = path.indexOf('?');
 
   if (queryIndex === -1) {
     return path;
   }
 
-  const params = new URLSearchParams(path.slice(queryIndex + 1));
-  params.delete('address');
-  params.delete('group');
-  const remainingQuery = params.toString();
+  const search = new URLSearchParams(path.slice(queryIndex + 1));
+  for (const parameter of params) {
+    search.delete(parameter);
+  }
+  const remainingQuery = search.toString();
 
   return `${path.slice(0, queryIndex)}${remainingQuery ? `?${remainingQuery}` : ''}`;
 }
 
 export function isSameQdnAppRoute(candidate: AppRoute, target: AppRoute) {
-  return candidate.kind === 'resource' &&
-    target.kind === 'resource' &&
-    candidate.resource.service === target.resource.service &&
-    candidate.resource.name === target.resource.name &&
-    (candidate.resource.identifier ?? 'default') === (target.resource.identifier ?? 'default') &&
-    getPathWithoutTargetQuery(candidate.resource.path) === getPathWithoutTargetQuery(target.resource.path);
+  if (candidate.kind !== 'resource' || target.kind !== 'resource') {
+    return false;
+  }
+
+  if (
+    candidate.resource.service !== target.resource.service ||
+    candidate.resource.name !== target.resource.name ||
+    (candidate.resource.identifier ?? 'default') !== (target.resource.identifier ?? 'default')
+  ) {
+    return false;
+  }
+
+  // Both sides address the same app, so either one resolves the same params.
+  const params = getTargetParams(target);
+
+  return getPathWithoutTargetQuery(candidate.resource.path, params) ===
+    getPathWithoutTargetQuery(target.resource.path, params);
 }
 
 export function getQdnAppTargetQuery(route: AppRoute): QdnAppTargetQuery | null {
@@ -40,18 +88,17 @@ export function getQdnAppTargetQuery(route: AppRoute): QdnAppTargetQuery | null 
     return null;
   }
 
-  const params = new URLSearchParams(route.resource.path.slice(queryIndex + 1));
-  const address = params.get('address')?.trim();
-  const group = params.get('group')?.trim();
+  const search = new URLSearchParams(route.resource.path.slice(queryIndex + 1));
+  const query: QdnAppTargetQuery = {};
 
-  if (!address && !group) {
-    return null;
+  for (const parameter of getTargetParams(route)) {
+    const value = search.get(parameter)?.trim();
+    if (value) {
+      query[parameter] = value;
+    }
   }
 
-  return {
-    ...(address ? { address } : {}),
-    ...(group ? { group } : {}),
-  };
+  return Object.keys(query).length > 0 ? query : null;
 }
 
 export function getOpenAppTargetMessage(query: QdnAppTargetQuery) {
