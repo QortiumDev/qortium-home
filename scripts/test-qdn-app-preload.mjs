@@ -24,7 +24,7 @@ function getBin(name) {
   return path.join(repoRoot, 'node_modules', '.bin', `${name}${extension}`);
 }
 
-const electronBin = getBin('electron');
+const electronBin = process.env.QORTIUM_HOME_ELECTRON_BIN?.trim() || getBin('electron');
 
 if (!existsSync(electronBin)) {
   console.error(`[qdn-app-preload-test] electron was not found at ${electronBin}. Run npm install first.`);

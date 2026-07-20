@@ -33,6 +33,101 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-20 - fix(qdn): restore Catalina bridge and prepare Home 1.5.2
+
+Restores QDN apps in the macOS 10.15 compatibility build. Electron 32 predates
+`contextBridge.executeInMainWorld`, so the sandboxed preload now feature-detects
+that API and uses Electron 32's sandbox-supported `webFrame` only to install the
+same trusted, static `qdnRequest` wrapper in the page world. New runtime checks
+exercise the real built preload under Electron 32.3.3, 36.9.5, and 39.8.10 and
+verify the bridge is ready before page scripts, survives strict page CSP, keeps
+its locked descriptor, and preserves results and main-world error behavior.
+The desktop and Android packages also advance to 1.5.2, with Android version
+code 32, so this prerelease remains distinct from the existing 1.5.1 release.
+
+Embedded QDN audio and video players also become draggable again on Android.
+The mobile build reserves sideways swipes for moving between pages, and that
+reservation was being applied to the players themselves, so dragging the
+position slider did nothing. The players now keep their own touch handling, and
+sideways swipes still change pages everywhere else.
+
+A new automated desktop check proves that embedded QDN media can really be
+skipped through. It opens a large video from the node inside the real
+application, notes how little of it has been downloaded so far, drags the
+position far past that point, waits for the player to confirm it arrived, and
+then plays on from there. That last step is the one that matters: it can only
+succeed when the node serves a piece from the middle of a file on request, so
+the check would have failed against the older behaviour that always sent the
+whole file from the beginning.
+
+### 2026-07-20 - perf(test): shorten the proof-of-work self-test on pull requests
+
+The proof-of-work self-test was taking about two minutes of every automated
+check, far more than everything else combined. Most of that was not testing
+anything: it was a speed comparison that re-ran a deliberately slow reference
+version at full production size purely to report how much faster the real one
+is.
+
+Pull requests now skip that speed comparison and use fewer randomized
+comparison rounds. The checks that confirm Home's proof-of-work agrees with
+Core's published reference values still run in full on every change, and merges
+to the main branch still run everything including the speed comparison. Both
+kinds of deliberate error introduced while testing this were still caught by
+the shortened run on its first round.
+
+### 2026-07-20 - perf(test): stop recompiling the Electron sources for every test
+
+Fourteen of the test commands each recompiled the Electron sources before
+running, so a full test run compiled the same code fourteen times over. The
+compile now happens once and is reused, and is redone automatically whenever
+those sources actually change, so each command still works on its own.
+
+Everything except one long-running test now finishes in about fifteen seconds
+instead of roughly a minute and a half. The test run also reports which
+commands took longest, which makes it clear that the remaining time is almost
+entirely the memory-proof-of-work self-test that checks Home's implementation
+against Core's reference values.
+
+### 2026-07-20 - chore(ci): build and test every pull request
+
+Until now the only automated check on a Qortium Home change was the security
+scanner. Nothing built the application or ran its tests, so a change that broke
+either could be merged and only be noticed later by hand.
+
+Every pull request and every push to the main branch now builds the application
+and runs the full test suite. That also makes the recently added check for
+unrun test files binding rather than advisory: a test that no command runs will
+now stop a pull request instead of quietly passing review.
+
+### 2026-07-20 - chore(test): run every test file and fail on unwired ones
+
+Six existing test files were never actually run by anything. They compiled and
+looked like working coverage when reading the code, but no command executed
+them, so whatever they checked was unprotected. All six pass, so nothing was
+found to be broken — they were simply not being consulted.
+
+Each is now runnable, and `npm test` runs the whole suite in one command
+instead of requiring someone to know each individual command name. A wiring
+check runs first and fails if any test file exists that no command runs, so a
+test cannot go silently dead again. All 33 test commands pass and none of them
+need a network connection or a running node.
+
+### 2026-07-20 - fix(qdn): route recipe links into an already-open Recipes tab
+
+Opening a link to a specific recipe while the Recipes app was already open
+added a second Recipes tab instead of moving the open one to that recipe. Home
+now recognizes which parts of a link are a "go to this thing" instruction
+rather than part of the app's identity, so such a link reuses the tab already
+showing that app.
+
+Home only does this for apps that are known to understand the instruction,
+which currently means Chat and Recipes. Other apps that put a target in the
+link, such as Help and Boards, deliberately keep opening a new tab: they do not
+listen for the instruction, so reusing their tab would leave the link doing
+nothing at all. The existing test file for this behavior was never wired into
+the test scripts and now runs, covering both the new routing and that
+protection.
+
 ### 2026-07-19 - feat(qdn): add Qortal transaction search and node passthrough bridge actions
 
 Adds two read-only bridge actions for Qortal chain data. Apps could already

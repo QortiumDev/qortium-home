@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron') as typeof import('electron');
 
 // QDN app views run with sandbox: true, where require() only resolves Electron's
 // built-in shim modules — a relative require aborts the entire preload script,
@@ -63,43 +63,69 @@ function sendWheelCommands(event: WheelEvent) {
 
 window.addEventListener('wheel', sendWheelCommands, { capture: true, passive: false });
 
-contextBridge.exposeInMainWorld('__qdnRequestRaw', sendQdnAppRequestRaw);
-contextBridge.executeInMainWorld({
-  func: (errorKey: string, resultKey: string) => {
-    const rawRequest = (window as unknown as { __qdnRequestRaw: (request: unknown) => Promise<unknown> }).__qdnRequestRaw;
+function installQdnRequest(errorKey: string, resultKey: string) {
+  const rawRequest = (window as unknown as { __qdnRequestRaw: (request: unknown) => Promise<unknown> }).__qdnRequestRaw;
 
-    Object.defineProperty(window, 'qdnRequest', {
-      configurable: false,
-      enumerable: true,
-      writable: false,
-      value: async (request: unknown) => {
-        const response = await rawRequest(request);
-        const envelope = response && typeof response === 'object' && !Array.isArray(response)
-          ? response as Record<string, unknown>
-          : null;
+  Object.defineProperty(window, 'qdnRequest', {
+    configurable: false,
+    enumerable: true,
+    writable: false,
+    value: async (request: unknown) => {
+      const response = await rawRequest(request);
+      const envelope = response && typeof response === 'object' && !Array.isArray(response)
+        ? response as Record<string, unknown>
+        : null;
 
-        if (envelope && Object.keys(envelope).length === 1) {
-          const error = envelope[errorKey];
+      if (envelope && Object.keys(envelope).length === 1) {
+        const error = envelope[errorKey];
 
-          if (error && typeof error === 'object' && !Array.isArray(error)) {
-            const payload = error as Record<string, unknown>;
+        if (error && typeof error === 'object' && !Array.isArray(error)) {
+          const payload = error as Record<string, unknown>;
 
-            if (typeof payload.message === 'string') {
-              throw Object.assign(
-                new Error(payload.message),
-                typeof payload.code === 'string' ? { code: payload.code } : {},
-              );
-            }
-          }
-
-          if (resultKey in envelope) {
-            return envelope[resultKey];
+          if (typeof payload.message === 'string') {
+            throw Object.assign(
+              new Error(payload.message),
+              typeof payload.code === 'string' ? { code: payload.code } : {},
+            );
           }
         }
 
-        throw new Error('Malformed QDN bridge response.');
-      },
-    });
-  },
-  args: [QDN_BRIDGE_ERROR_KEY, QDN_BRIDGE_RESULT_KEY],
-});
+        if (resultKey in envelope) {
+          return envelope[resultKey];
+        }
+      }
+
+      throw new Error('Malformed QDN bridge response.');
+    },
+  });
+}
+
+contextBridge.exposeInMainWorld('__qdnRequestRaw', sendQdnAppRequestRaw);
+
+if (typeof contextBridge.executeInMainWorld === 'function') {
+  contextBridge.executeInMainWorld({
+    func: installQdnRequest,
+    args: [QDN_BRIDGE_ERROR_KEY, QDN_BRIDGE_RESULT_KEY],
+  });
+} else {
+  // Electron 32 (the Catalina compatibility runtime) predates
+  // contextBridge.executeInMainWorld. Evaluate only this trusted, static
+  // installer plus the fixed JSON-encoded envelope keys in the page world so
+  // bridge errors retain their main-world Error identity and stable code.
+  const source = `(${installQdnRequest.toString()})(${JSON.stringify(QDN_BRIDGE_ERROR_KEY)},${JSON.stringify(QDN_BRIDGE_RESULT_KEY)})`;
+  let completed = false;
+  let executionError: Error | null = null;
+
+  void webFrame.executeJavaScript(source, false, (_result, error) => {
+    completed = true;
+    executionError = error ?? null;
+  });
+
+  if (!completed) {
+    throw new Error('Electron 32 did not install the QDN app bridge during preload.');
+  }
+
+  if (executionError) {
+    throw executionError;
+  }
+}

@@ -210,9 +210,18 @@ function randomSeedHash(rng: () => number): Uint8Array {
 const DIFF_BUFFER_WORDS = 8192; // 64 KiB fast buffer for the differential sweep.
 const rng = makeRng(0x1234abcd);
 
+// `quick` trims the parts that scale with time rather than coverage, for use on
+// pull requests: fewer differential trials, and no benchmark. The Core
+// known-answer vectors in section 2 always run in full — they are the actual
+// consensus-parity guard and cost only a couple of seconds.
+const QUICK_MODE = (process.env.MEMORY_POW_TEST_MODE ?? 'full').toLowerCase() === 'quick';
+const DIFF_TRIALS = QUICK_MODE ? 8 : 64;
+
+console.log(`memoryPow self-test mode: ${QUICK_MODE ? 'quick' : 'full'} (${DIFF_TRIALS} differential trials).`);
+
 let diffChecks = 0;
 
-for (let trial = 0; trial < 64; trial += 1) {
+for (let trial = 0; trial < DIFF_TRIALS; trial += 1) {
   const seed = randomSeedHash(rng);
 
   // compute2 agreement across a few low difficulties (cheap to find a nonce).
@@ -282,24 +291,33 @@ console.log('known-answer (8 MiB): compute2/verify2 match Core vectors.');
 // 3. BENCHMARK: time finding nonce 326 (TEST_DATA, diff 8, 8 MiB) for both impls.
 // ---------------------------------------------------------------------------
 
-const optStart = process.hrtime.bigint();
-const optNonce = compute2(seedHash, 8);
-const optEnd = process.hrtime.bigint();
-const optMs = Number(optEnd - optStart) / 1e6;
-assert(optNonce === 326, `benchmark optimized compute2 expected 326, got ${optNonce}`);
+// Skipped in quick mode. This is a benchmark: it reports a speedup rather than
+// covering behaviour, and running the BigInt reference at the production 8 MiB
+// buffer is by far the most expensive thing in the suite (~100s in CI). Its
+// only unique assertion is that the reference also lands on nonce 326; the
+// optimized side is already asserted by the known-answer section above.
+if (QUICK_MODE) {
+  console.log('benchmark: skipped in quick mode.');
+} else {
+  const optStart = process.hrtime.bigint();
+  const optNonce = compute2(seedHash, 8);
+  const optEnd = process.hrtime.bigint();
+  const optMs = Number(optEnd - optStart) / 1e6;
+  assert(optNonce === 326, `benchmark optimized compute2 expected 326, got ${optNonce}`);
 
-const refBuf = POW_BUFFER_WORDS;
-const refStart = process.hrtime.bigint();
-const refNonce = refCompute2(seedHash, 8, refBuf);
-const refEnd = process.hrtime.bigint();
-const refMs = Number(refEnd - refStart) / 1e6;
-assert(refNonce === 326, `benchmark reference compute2 expected 326, got ${refNonce}`);
+  const refBuf = POW_BUFFER_WORDS;
+  const refStart = process.hrtime.bigint();
+  const refNonce = refCompute2(seedHash, 8, refBuf);
+  const refEnd = process.hrtime.bigint();
+  const refMs = Number(refEnd - refStart) / 1e6;
+  assert(refNonce === 326, `benchmark reference compute2 expected 326, got ${refNonce}`);
 
-const speedup = refMs / optMs;
-console.log(
-  `benchmark (find nonce 326, diff 8, 8 MiB): reference BigInt ${refMs.toFixed(0)} ms, ` +
-    `optimized ${optMs.toFixed(0)} ms, speedup ${speedup.toFixed(1)}x.`,
-);
+  const speedup = refMs / optMs;
+  console.log(
+    `benchmark (find nonce 326, diff 8, 8 MiB): reference BigInt ${refMs.toFixed(0)} ms, ` +
+      `optimized ${optMs.toFixed(0)} ms, speedup ${speedup.toFixed(1)}x.`,
+  );
+}
 
 // eslint-disable-next-line no-console
 console.log('memoryPow self-test passed: differential + Core known-answer vectors.');
