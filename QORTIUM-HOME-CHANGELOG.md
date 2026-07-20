@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - fix(android): load gallery images and approve manager access
+
+Fixes two Android-only prerelease blockers. QDN galleries now load public-node
+images through Home's trusted bridge and safe local blob URLs instead of direct
+HTTP image links that Android blocked as mixed content; grid images are fetched
+only as they approach the viewport. Bookmark and notification manager apps can
+also complete their first durable permission approval without Home mistaking
+the approval dialog's temporary iframe suspension for navigation away from the
+requesting app.
+
 ### 2026-07-19 - fix(home): resolve the notification storage alert and add gallery navigation
 
 Documents why Home's sanitized notification preferences are intentionally kept

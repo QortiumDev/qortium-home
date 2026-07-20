@@ -1,5 +1,14 @@
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Copy, Download, ExternalLink, File as FileIcon, FolderOpen, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactEventHandler,
+  type ReactNode,
+} from 'react';
 import { t } from './i18n';
 import type {
   QdnDisplaySettings,
@@ -58,6 +67,12 @@ import {
   getGallerySwipeDirection,
   type GalleryNavigationDirection,
 } from './qdnGalleryNavigation';
+import { getQdnGalleryImageSource } from './qdnGalleryImage';
+import {
+  isQdnRequestContextCurrent,
+  resolveQdnRequestContextActive,
+} from './qdnRequestContext';
+import { useQdnImageResource } from './useQdnImageResource';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
 const TEXT_PREVIEW_MAX_BYTES = 1_048_576;
@@ -139,6 +154,7 @@ type QdnViewerProps = {
   ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
   resource: QdnResource;
+  requestContextActive?: boolean;
   suspended?: boolean;
   tabId: string;
 };
@@ -284,6 +300,7 @@ export type QdnBridgeFrameContentProps = {
   onOpenInCurrentTab?: (address: string) => void;
   onBookmarksOpen?: (address: string, accountId: string | null) => void;
   renderUrl: string;
+  requestContextActive?: boolean;
   resourceUrl: string;
   suspended?: boolean;
   title?: string;
@@ -2631,9 +2648,93 @@ function getContainedImageSize(containerSize: ElementSize, naturalSize: NaturalI
   };
 }
 
+type QdnGalleryImageProps = {
+  alt: string;
+  className: string;
+  displaySettings: QdnDisplaySettings;
+  eager?: boolean;
+  nodeApiUrl: string;
+  nodeEpoch: number;
+  onLoad?: ReactEventHandler<HTMLImageElement>;
+  resource: QdnResource;
+  style?: CSSProperties;
+};
+
+function QdnGalleryImage({
+  alt,
+  className,
+  displaySettings,
+  eager = false,
+  nodeApiUrl,
+  nodeEpoch,
+  onLoad,
+  resource,
+  style,
+}: QdnGalleryImageProps) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const isNative = isNativePlatform();
+  const [shouldLoad, setShouldLoad] = useState(eager || !isNative);
+  const stableResource = useMemo(
+    () => resource,
+    [resource.displayUrl, resource.identifier, resource.name, resource.path, resource.service],
+  );
+
+  useEffect(() => {
+    if (eager || !isNative) {
+      setShouldLoad(true);
+      return undefined;
+    }
+
+    const element = imageRef.current;
+
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '320px' },
+    );
+
+    observer.observe(element.parentElement ?? element);
+    return () => observer.disconnect();
+  }, [eager, isNative, resource.displayUrl]);
+
+  const source = useMemo(
+    () => getQdnGalleryImageSource(stableResource, nodeApiUrl, displaySettings, isNative, shouldLoad),
+    [displaySettings, isNative, nodeApiUrl, shouldLoad, stableResource],
+  );
+  const resolved = useQdnImageResource(
+    source.kind === 'bridge' ? source.resource : null,
+    nodeApiUrl,
+    nodeEpoch,
+  );
+  const src = source.kind === 'direct' ? source.url : resolved.url ?? undefined;
+
+  return (
+    <img
+      ref={imageRef}
+      alt={alt}
+      className={className}
+      data-qdn-image-state={source.kind === 'direct' ? 'ready' : resolved.state}
+      loading={eager ? 'eager' : 'lazy'}
+      src={src}
+      style={style}
+      onLoad={onLoad}
+    />
+  );
+}
+
 function QdnImageButton({
   alt,
   className,
+  galleryImage,
   isActualSize = false,
   onClick,
   pressed,
@@ -2642,10 +2743,11 @@ function QdnImageButton({
 }: {
   alt: string;
   className: string;
+  galleryImage?: Omit<QdnGalleryImageProps, 'alt' | 'className' | 'onLoad' | 'style'>;
   isActualSize?: boolean;
   onClick: () => void;
   pressed?: boolean;
-  src: string;
+  src?: string;
   title: string;
 }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -2679,7 +2781,7 @@ function QdnImageButton({
 
   useEffect(() => {
     setNaturalSize(null);
-  }, [src]);
+  }, [galleryImage?.resource.displayUrl, src]);
 
   const fittedSize =
     !isActualSize && naturalSize
@@ -2696,18 +2798,33 @@ function QdnImageButton({
       type="button"
       onClick={onClick}
     >
-      <img
-        className={`qdn-viewer__image qdn-viewer__image--${isActualSize ? 'actual' : 'fit'}`}
-        alt={alt}
-        src={src}
-        style={fittedSize}
-        onLoad={(event) => {
-          setNaturalSize({
-            height: event.currentTarget.naturalHeight,
-            width: event.currentTarget.naturalWidth,
-          });
-        }}
-      />
+      {galleryImage ? (
+        <QdnGalleryImage
+          {...galleryImage}
+          alt={alt}
+          className={`qdn-viewer__image qdn-viewer__image--${isActualSize ? 'actual' : 'fit'}`}
+          style={fittedSize}
+          onLoad={(event) => {
+            setNaturalSize({
+              height: event.currentTarget.naturalHeight,
+              width: event.currentTarget.naturalWidth,
+            });
+          }}
+        />
+      ) : (
+        <img
+          className={`qdn-viewer__image qdn-viewer__image--${isActualSize ? 'actual' : 'fit'}`}
+          alt={alt}
+          src={src}
+          style={fittedSize}
+          onLoad={(event) => {
+            setNaturalSize({
+              height: event.currentTarget.naturalHeight,
+              width: event.currentTarget.naturalWidth,
+            });
+          }}
+        />
+      )}
     </button>
   );
 }
@@ -2992,6 +3109,7 @@ function QdnGalleryContent({
   displaySettings,
   loadedResource,
   nodeApiUrl,
+  nodeEpoch,
   onActionContextChange,
   onOpenNewTab,
   resource,
@@ -2999,6 +3117,7 @@ function QdnGalleryContent({
   displaySettings: QdnDisplaySettings;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  nodeEpoch: number;
   onActionContextChange: SetViewerActionContext;
   onOpenNewTab?: (address: string) => void;
   resource: QdnResource;
@@ -3150,7 +3269,13 @@ function QdnGalleryContent({
           <QdnImageButton
             alt={selectedFile}
             className="qdn-viewer__gif-single-button"
-            src={buildQdnRenderUrl(selectedResource, nodeApiUrl, displaySettings)}
+            galleryImage={{
+              displaySettings,
+              eager: true,
+              nodeApiUrl,
+              nodeEpoch,
+              resource: selectedResource,
+            }}
             title={t('common.back')}
             onClick={() => {
               if (suppressImageClickRef.current) {
@@ -3200,11 +3325,13 @@ function QdnGalleryContent({
                 type="button"
                 onClick={() => setSelectedFile(file)}
               >
-                <img
+                <QdnGalleryImage
                   className="qdn-viewer__gif-image"
                   alt={file}
-                  loading="lazy"
-                  src={buildQdnRenderUrl(fileResource, nodeApiUrl, displaySettings)}
+                  displaySettings={displaySettings}
+                  nodeApiUrl={nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  resource={fileResource}
                 />
               </button>
               <figcaption className="qdn-viewer__gif-caption">
@@ -3537,6 +3664,7 @@ export function QdnBridgeFrameContent({
   onOpenInCurrentTab,
   onBookmarksOpen,
   renderUrl,
+  requestContextActive,
   resourceUrl,
   suspended = false,
   title = resourceUrl,
@@ -3552,9 +3680,12 @@ export function QdnBridgeFrameContent({
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
   const onAppNavigationChangeRef = useRef(onAppNavigationChange);
   const onAppTitleChangeRef = useRef(onAppTitleChange);
+  const getHomeSettingsRef = useRef(getHomeSettings);
   const getBookmarkManagerSnapshotRef = useRef(getBookmarkManagerSnapshot);
+  const onHomeSettingsPatchRef = useRef(onHomeSettingsPatch);
   const onBookmarkManagerMutationRef = useRef(onBookmarkManagerMutation);
   const suspendedFrameRef = useRef(suspended);
+  const requestContextActiveRef = useRef(resolveQdnRequestContextActive(requestContextActive, suspended));
 
   onOpenNewTabRef.current = onOpenNewTab;
   onOpenInCurrentTabRef.current = onOpenInCurrentTab;
@@ -3563,10 +3694,13 @@ export function QdnBridgeFrameContent({
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
   onAppNavigationChangeRef.current = onAppNavigationChange;
   onAppTitleChangeRef.current = onAppTitleChange;
+  getHomeSettingsRef.current = getHomeSettings;
   getBookmarkManagerSnapshotRef.current = getBookmarkManagerSnapshot;
+  onHomeSettingsPatchRef.current = onHomeSettingsPatch;
   onBookmarkManagerMutationRef.current = onBookmarkManagerMutation;
   appTargetRef.current = appTarget;
   suspendedFrameRef.current = suspended;
+  requestContextActiveRef.current = resolveQdnRequestContextActive(requestContextActive, suspended);
   const isNativeFrame = isNativePlatform();
   const bridgeToken = useMemo(
     () => (isNativeFrame ? createQdnBridgeToken() : ''),
@@ -3714,12 +3848,17 @@ export function QdnBridgeFrameContent({
         const result = await handleQdnAppRequest(event.data.request, {
           accountId,
           displaySettings,
-          getHomeSettings,
+          getHomeSettings: getHomeSettingsRef.current,
           getBookmarkManagerSnapshot: getBookmarkManagerSnapshotRef.current,
-          applyHomeSettingsPatch: onHomeSettingsPatch,
+          applyHomeSettingsPatch: onHomeSettingsPatchRef.current,
           applyBookmarkManagerMutation: onBookmarkManagerMutationRef.current,
           isCurrent: () =>
-            active && !suspendedFrameRef.current && frameRef.current?.contentWindow === frameWindow,
+            isQdnRequestContextCurrent(
+              active,
+              requestContextActiveRef.current,
+              frameWindow,
+              frameRef.current?.contentWindow,
+            ),
           isViewFocused: () =>
             !suspendedFrameRef.current && document.visibilityState === 'visible',
           onOpenDocumentViewer: (docRequest: QortiumQdnDocumentViewerRequest) => {
@@ -3777,7 +3916,7 @@ export function QdnBridgeFrameContent({
       active = false;
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, displaySettings, getHomeSettings, isNativeFrame, onHomeSettingsPatch, renderUrl, resourceUrl]);
+  }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
 
   const frame = (
     <iframe
@@ -3828,6 +3967,7 @@ function QdnIframeContent({
   onHomeSettingsPatch,
   onBookmarkManagerMutation,
   resource,
+  requestContextActive,
   suspended,
 }: {
   account: QortiumAccountSummary | null;
@@ -3851,6 +3991,7 @@ function QdnIframeContent({
     request: BookmarkManagerMutationRequest,
   ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   resource: QdnResource;
+  requestContextActive?: boolean;
   suspended?: boolean;
 }) {
   return (
@@ -3873,6 +4014,7 @@ function QdnIframeContent({
       onHomeSettingsPatch={onHomeSettingsPatch}
       onBookmarkManagerMutation={onBookmarkManagerMutation}
       renderUrl={loadedResource.renderUrl}
+      requestContextActive={requestContextActive}
       resourceUrl={resource.displayUrl}
       suspended={suspended}
     />
@@ -3888,6 +4030,7 @@ function QdnReadyContent({
   getBookmarkManagerSnapshot,
   managerRevisions,
   nodeApiUrl,
+  nodeEpoch,
   onAppTargetDelivered,
   onActionContextChange,
   onAppNavigationChange,
@@ -3901,6 +4044,7 @@ function QdnReadyContent({
   onHomeSettingsPatch,
   onBookmarkManagerMutation,
   resource,
+  requestContextActive,
   suspended,
   tabId,
 }: {
@@ -3912,6 +4056,7 @@ function QdnReadyContent({
   managerRevisions?: QdnManagerRevisions;
   loadedResource: LoadedQdnResource;
   nodeApiUrl: string;
+  nodeEpoch: number;
   onAppTargetDelivered?: (target: QdnAppTargetQuery) => void;
   onActionContextChange: SetViewerActionContext;
   onAppNavigationChange?: (snapshot: QdnAppNavigationSnapshot) => void;
@@ -3927,6 +4072,7 @@ function QdnReadyContent({
     request: BookmarkManagerMutationRequest,
   ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   resource: QdnResource;
+  requestContextActive: boolean;
   suspended: boolean;
   tabId: string;
 }) {
@@ -3973,6 +4119,7 @@ function QdnReadyContent({
         onHomeSettingsPatch={onHomeSettingsPatch}
         onBookmarkManagerMutation={onBookmarkManagerMutation}
         resource={resource}
+        requestContextActive={requestContextActive}
         suspended={suspended}
       />
     );
@@ -4037,6 +4184,7 @@ function QdnReadyContent({
         displaySettings={displaySettings}
         loadedResource={loadedResource}
         nodeApiUrl={nodeApiUrl}
+        nodeEpoch={nodeEpoch}
         onActionContextChange={onActionContextChange}
         onOpenNewTab={onOpenNewTab}
         resource={resource}
@@ -4155,9 +4303,11 @@ export function QdnViewer({
   onBookmarkManagerMutation,
   onHomeSettingsPatch,
   resource,
+  requestContextActive,
   suspended = false,
   tabId,
 }: QdnViewerProps) {
+  const isRequestContextActive = resolveQdnRequestContextActive(requestContextActive, suspended);
   const [retryToken, setRetryToken] = useState(0);
   const [statusHidden, setStatusHidden] = useState(false);
   const [actionContext, setActionContext] = useState<ViewerActionContext>({});
@@ -4266,6 +4416,7 @@ export function QdnViewer({
           getBookmarkManagerSnapshot={getBookmarkManagerSnapshot}
           managerRevisions={managerRevisions}
           nodeApiUrl={nodeApiUrl}
+          nodeEpoch={nodeEpoch ?? 0}
           onAppTargetDelivered={onAppTargetDelivered}
           onActionContextChange={setActionContext}
           onAppNavigationChange={onAppNavigationChange}
@@ -4279,6 +4430,7 @@ export function QdnViewer({
           onHomeSettingsPatch={onHomeSettingsPatch}
           onBookmarkManagerMutation={onBookmarkManagerMutation}
           resource={resource}
+          requestContextActive={isRequestContextActive}
           suspended={suspended}
           tabId={tabId}
         />
