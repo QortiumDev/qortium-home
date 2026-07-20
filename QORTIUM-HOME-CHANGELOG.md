@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-19 - feat(qdn): browse Git repository branches and commits
+
+Recognizes real Git data published through QDN as either a normal repository
+with a `.git` directory or a bare repository. The repository viewer can switch
+branches, browse a bounded list of commits, inspect the file tree at any shown
+commit, and preview historical file contents without checking out or executing
+repository data. Repository paths, history depth, cached bytes, inflated Git
+objects, and delta expansion are bounded before untrusted data is rendered.
+Older `GIT_REPOSITORY` resources that contain only a source
+snapshot keep the existing file-tree view. The QortiumHomeTest fixture is now a
+real, deterministic repository with divergent `main` and `feature/greeting`
+branches so this flow can be tested against live QDN data.
+
 ### 2026-07-19 - fix(android): load gallery images and approve manager access
 
 Fixes two Android-only prerelease blockers. QDN galleries now load public-node

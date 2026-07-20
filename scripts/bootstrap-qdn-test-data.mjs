@@ -11,6 +11,7 @@ const AUDIO_IDENTIFIER = 'home-audio';
 const VIDEO_IDENTIFIER = 'home-video';
 const JSON_IDENTIFIER = 'home-json';
 const FILE_IDENTIFIER = 'home-file';
+const GIT_IDENTIFIER = 'home-git-demo';
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 180_000;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -20,12 +21,13 @@ const REGISTER_NAME_TRANSACTION_TYPE = 3;
 const nodeApiUrl = (process.env.QORTIUM_HOME_NODE_API_URL ?? DEFAULT_NODE_API_URL).replace(/\/+$/, '');
 const testName = process.env.QORTIUM_HOME_TEST_NAME ?? DEFAULT_NAME;
 const apiKeyPath = expandHomePath(
-  process.env.QORTIUM_HOME_NODE_API_KEY_PATH ?? '~/git/qortium/preview/apikey.txt',
+  process.env.QORTIUM_HOME_NODE_API_KEY_PATH ?? '~/.config/qortium-core/runtime/apikey.txt',
 );
 const previewAccountsPath = expandHomePath(
   process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH ??
-    '~/git/qortium/preview/secrets/initial-minting-accounts.json',
+    '~/qortium/git/qortium-core/preview/secrets/initial-minting-accounts.json',
 );
+const gitOnly = process.argv.includes('--git-only');
 
 function expandHomePath(filePath) {
   if (filePath === '~') {
@@ -324,6 +326,81 @@ async function ensureNameRegistered(name, account) {
   console.log(`Name registered: ${name}`);
 }
 
+function createGitFixture(fixtureRoot) {
+  const gitDirectory = path.join(fixtureRoot, 'git-repository');
+  const gitEnvironment = {
+    ...process.env,
+    GIT_AUTHOR_DATE: '2026-07-19T12:00:00Z',
+    GIT_AUTHOR_NAME: 'Qortium Test Fixture',
+    GIT_AUTHOR_EMAIL: 'fixture@qortium.invalid',
+    GIT_COMMITTER_DATE: '2026-07-19T12:00:00Z',
+    GIT_COMMITTER_NAME: 'Qortium Test Fixture',
+    GIT_COMMITTER_EMAIL: 'fixture@qortium.invalid',
+  };
+  const runGit = (args, date) =>
+    execFileSync('git', args, {
+      cwd: gitDirectory,
+      env: date
+        ? { ...gitEnvironment, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+        : gitEnvironment,
+      stdio: 'pipe',
+    });
+
+  mkdirSync(gitDirectory);
+  runGit(['init', '-b', 'main']);
+  writeFileSync(
+    path.join(gitDirectory, 'README.md'),
+    '# Qortium Home Git fixture\n\nA small real repository published to QDN for Home viewer testing.\n',
+    'utf8',
+  );
+  writeFileSync(path.join(gitDirectory, 'LICENSE'), '0BSD test fixture\n', 'utf8');
+  mkdirSync(path.join(gitDirectory, 'src'));
+  writeFileSync(path.join(gitDirectory, 'src', 'hello.js'), "export const greeting = 'Hello from main';\n", 'utf8');
+  runGit(['add', 'README.md', 'LICENSE', 'src/hello.js']);
+  runGit(['commit', '-m', 'Create Qortium Home Git fixture'], '2026-07-19T12:00:00Z');
+
+  runGit(['switch', '-c', 'feature/greeting']);
+  writeFileSync(
+    path.join(gitDirectory, 'src', 'hello.js'),
+    "export const greeting = 'Hello from the feature branch';\n",
+    'utf8',
+  );
+  writeFileSync(
+    path.join(gitDirectory, 'FEATURE.md'),
+    '# Greeting feature\n\nThis file exists only on `feature/greeting`.\n',
+    'utf8',
+  );
+  runGit(['add', 'src/hello.js', 'FEATURE.md']);
+  runGit(['commit', '-m', 'Add feature branch greeting'], '2026-07-19T13:00:00Z');
+
+  runGit(['switch', 'main']);
+  writeFileSync(
+    path.join(gitDirectory, 'CHANGELOG.md'),
+    '# Changelog\n\n- Added branch and commit navigation fixture data.\n',
+    'utf8',
+  );
+  writeFileSync(
+    path.join(gitDirectory, 'README.md'),
+    '# Qortium Home Git fixture\n\nBrowse `main` and `feature/greeting` to verify branch-specific history and files.\n',
+    'utf8',
+  );
+  runGit(['add', 'README.md', 'CHANGELOG.md']);
+  runGit(['commit', '-m', 'Document repository navigation'], '2026-07-19T14:00:00Z');
+
+  // Keep the published fixture deterministic and free of executable hook
+  // samples or mutable local checkout state. Git recreates its index as needed.
+  rmSync(path.join(gitDirectory, '.git', 'hooks'), { force: true, recursive: true });
+  rmSync(path.join(gitDirectory, '.git', 'index'), { force: true });
+  rmSync(path.join(gitDirectory, '.git', 'COMMIT_EDITMSG'), { force: true });
+
+  return gitDirectory;
+}
+
+function createGitFixtureFiles() {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'qortium-home-qdn-git-'));
+  return { fixtureRoot, gitDirectory: createGitFixture(fixtureRoot) };
+}
+
 function createFixtureFiles() {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'qortium-home-qdn-'));
   const appDirectory = path.join(fixtureRoot, 'app');
@@ -333,6 +410,7 @@ function createFixtureFiles() {
   const videoPath = path.join(fixtureRoot, 'qortium-home-test-video.webm');
   const jsonPath = path.join(fixtureRoot, 'qortium-home-test.json');
   const filePath = path.join(fixtureRoot, 'qortium-home-test-file.txt');
+  const gitDirectory = createGitFixture(fixtureRoot);
 
   mkdirSync(appDirectory);
   mkdirSync(websiteDirectory);
@@ -538,6 +616,7 @@ function createFixtureFiles() {
     audioPath,
     filePath,
     fixtureRoot,
+    gitDirectory,
     imagePath,
     jsonPath,
     videoPath,
@@ -616,76 +695,104 @@ if (!status || status.syncPercent !== 100 || status.isSynchronizing) {
 
 console.log(`Node synced at height ${status.height}.`);
 
-const fixtures = createFixtureFiles();
+if (gitOnly) {
+  const gitFixtures = createGitFixtureFiles();
+  try {
+    await ensureNameRegistered(testName, account);
+    await publishResource({
+      service: 'GIT_REPOSITORY',
+      identifier: GIT_IDENTIFIER,
+      path: gitFixtures.gitDirectory,
+      title: 'Qortium Home Git repository demo',
+      description: 'Real Git repository with main and feature/greeting branches for Home viewer testing',
+    });
+    await waitForResourceReady('GIT_REPOSITORY', GIT_IDENTIFIER);
+    console.log('QDN Git repository fixture bootstrap complete.');
+    console.log(`GIT_REPOSITORY: qdn://GIT_REPOSITORY/${testName}/${GIT_IDENTIFIER}`);
+  } finally {
+    rmSync(gitFixtures.fixtureRoot, { recursive: true, force: true });
+  }
+} else {
+  const fixtures = createFixtureFiles();
 
-try {
-  await ensureNameRegistered(testName, account);
+  try {
+    await ensureNameRegistered(testName, account);
 
-  await publishResource({
-    service: 'APP',
-    identifier: APP_IDENTIFIER,
-    path: fixtures.appDirectory,
-    title: 'Qortium Home APP Test',
-    description: 'Temporary Qortium Home QDN browser test app',
-  });
-  await publishResource({
-    service: 'WEBSITE',
-    path: fixtures.websiteDirectory,
-    title: 'Qortium Home WEBSITE Test',
-    description: 'Temporary Qortium Home QDN browser test website',
-  });
-  await publishResource({
-    service: 'IMAGE',
-    identifier: IMAGE_IDENTIFIER,
-    path: fixtures.imagePath,
-    title: 'Qortium Home IMAGE Test',
-    description: 'Temporary Qortium Home QDN browser test image',
-  });
-  await publishResource({
-    service: 'AUDIO',
-    identifier: AUDIO_IDENTIFIER,
-    path: fixtures.audioPath,
-    title: 'Qortium Home AUDIO Test',
-    description: 'Temporary Qortium Home QDN browser audio-player test data',
-  });
-  await publishResource({
-    service: 'VIDEO',
-    identifier: VIDEO_IDENTIFIER,
-    path: fixtures.videoPath,
-    title: 'Qortium Home VIDEO Test',
-    description: 'Temporary Qortium Home QDN browser video-player test data',
-  });
-  await publishResource({
-    service: 'JSON',
-    identifier: JSON_IDENTIFIER,
-    path: fixtures.jsonPath,
-    title: 'Qortium Home JSON Test',
-    description: 'Temporary Qortium Home QDN browser text-viewer test data',
-  });
-  await publishResource({
-    service: 'FILE',
-    identifier: FILE_IDENTIFIER,
-    path: fixtures.filePath,
-    title: 'Qortium Home FILE Test',
-    description: 'Temporary Qortium Home QDN browser download-viewer test file',
-  });
+    await publishResource({
+      service: 'APP',
+      identifier: APP_IDENTIFIER,
+      path: fixtures.appDirectory,
+      title: 'Qortium Home APP Test',
+      description: 'Temporary Qortium Home QDN browser test app',
+    });
+    await publishResource({
+      service: 'WEBSITE',
+      path: fixtures.websiteDirectory,
+      title: 'Qortium Home WEBSITE Test',
+      description: 'Temporary Qortium Home QDN browser test website',
+    });
+    await publishResource({
+      service: 'IMAGE',
+      identifier: IMAGE_IDENTIFIER,
+      path: fixtures.imagePath,
+      title: 'Qortium Home IMAGE Test',
+      description: 'Temporary Qortium Home QDN browser test image',
+    });
+    await publishResource({
+      service: 'AUDIO',
+      identifier: AUDIO_IDENTIFIER,
+      path: fixtures.audioPath,
+      title: 'Qortium Home AUDIO Test',
+      description: 'Temporary Qortium Home QDN browser audio-player test data',
+    });
+    await publishResource({
+      service: 'VIDEO',
+      identifier: VIDEO_IDENTIFIER,
+      path: fixtures.videoPath,
+      title: 'Qortium Home VIDEO Test',
+      description: 'Temporary Qortium Home QDN browser video-player test data',
+    });
+    await publishResource({
+      service: 'JSON',
+      identifier: JSON_IDENTIFIER,
+      path: fixtures.jsonPath,
+      title: 'Qortium Home JSON Test',
+      description: 'Temporary Qortium Home QDN browser text-viewer test data',
+    });
+    await publishResource({
+      service: 'FILE',
+      identifier: FILE_IDENTIFIER,
+      path: fixtures.filePath,
+      title: 'Qortium Home FILE Test',
+      description: 'Temporary Qortium Home QDN browser download-viewer test file',
+    });
+    await publishResource({
+      service: 'GIT_REPOSITORY',
+      identifier: GIT_IDENTIFIER,
+      path: fixtures.gitDirectory,
+      title: 'Qortium Home Git repository demo',
+      description: 'Real Git repository with main and feature/greeting branches for Home viewer testing',
+    });
 
-  await waitForResourceReady('APP', APP_IDENTIFIER);
-  await waitForResourceReady('WEBSITE');
-  await waitForResourceReady('IMAGE', IMAGE_IDENTIFIER);
-  await waitForResourceReady('AUDIO', AUDIO_IDENTIFIER);
-  await waitForResourceReady('VIDEO', VIDEO_IDENTIFIER);
-  await waitForResourceReady('JSON', JSON_IDENTIFIER);
-  await waitForResourceReady('FILE', FILE_IDENTIFIER);
+    await waitForResourceReady('APP', APP_IDENTIFIER);
+    await waitForResourceReady('WEBSITE');
+    await waitForResourceReady('IMAGE', IMAGE_IDENTIFIER);
+    await waitForResourceReady('AUDIO', AUDIO_IDENTIFIER);
+    await waitForResourceReady('VIDEO', VIDEO_IDENTIFIER);
+    await waitForResourceReady('JSON', JSON_IDENTIFIER);
+    await waitForResourceReady('FILE', FILE_IDENTIFIER);
+    await waitForResourceReady('GIT_REPOSITORY', GIT_IDENTIFIER);
 
-  console.log('QDN test data bootstrap complete.');
-  console.log(`APP: qdn://APP/${testName}/${APP_IDENTIFIER}`);
-  console.log(`WEBSITE: qdn://WEBSITE/${testName}/default`);
-  console.log(`IMAGE: qdn://IMAGE/${testName}/${IMAGE_IDENTIFIER}`);
-  console.log(`AUDIO: qdn://AUDIO/${testName}/${AUDIO_IDENTIFIER}`);
-  console.log(`VIDEO: qdn://VIDEO/${testName}/${VIDEO_IDENTIFIER}`);
-  console.log(`JSON: qdn://JSON/${testName}/${JSON_IDENTIFIER}`);
-  console.log(`FILE: qdn://FILE/${testName}/${FILE_IDENTIFIER}`);
-} finally {
-  rmSync(fixtures.fixtureRoot, { recursive: true, force: true });
+    console.log('QDN test data bootstrap complete.');
+    console.log(`APP: qdn://APP/${testName}/${APP_IDENTIFIER}`);
+    console.log(`WEBSITE: qdn://WEBSITE/${testName}/default`);
+    console.log(`IMAGE: qdn://IMAGE/${testName}/${IMAGE_IDENTIFIER}`);
+    console.log(`AUDIO: qdn://AUDIO/${testName}/${AUDIO_IDENTIFIER}`);
+    console.log(`VIDEO: qdn://VIDEO/${testName}/${VIDEO_IDENTIFIER}`);
+    console.log(`JSON: qdn://JSON/${testName}/${JSON_IDENTIFIER}`);
+    console.log(`FILE: qdn://FILE/${testName}/${FILE_IDENTIFIER}`);
+    console.log(`GIT_REPOSITORY: qdn://GIT_REPOSITORY/${testName}/${GIT_IDENTIFIER}`);
+  } finally {
+    rmSync(fixtures.fixtureRoot, { recursive: true, force: true });
+  }
 }
