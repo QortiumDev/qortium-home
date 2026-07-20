@@ -101,6 +101,13 @@ nothing at all. The existing test file for this behavior was never wired into
 the test scripts and now runs, covering both the new routing and that
 protection.
 
+### 2026-07-19 - chore(release): prepare Home 1.5.2
+
+Advances the desktop and Android package versions for the next Home prerelease.
+Android now uses version code 32 so the signed 1.5.2 package can update existing
+1.5.1 installations after the merged prerelease fixes and Git repository
+navigation have completed acceptance testing.
+
 ### 2026-07-19 - feat(qdn): browse Git repository branches and commits
 
 Recognizes real Git data published through QDN as either a normal repository
