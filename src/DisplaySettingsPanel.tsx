@@ -52,7 +52,6 @@ export function DisplaySettingsPanel({
     language: getLanguageLabel(displaySettings.language),
     textSize: getTextSizeLabel(displaySettings.textSize),
   });
-  const accentSwatch = ACCENT_OPTIONS.find((option) => option.value === displaySettings.accent)?.swatch;
   const accentLabel = t('display.accentLabel');
   // Desktop-only keyboard hint; hidden on Android (no hardware keyboard). The
   // modifier matches the renderer/Electron shortcut: ⌘⇧ on macOS, Ctrl+Shift elsewhere.
@@ -72,10 +71,14 @@ export function DisplaySettingsPanel({
       summary={
         <>
           {summary}
+          {/* Reads the live variable rather than looking the hex up in
+              ACCENT_OPTIONS: this dot always shows the *active* accent, so the
+              stylesheet already holds the right answer and the two cannot
+              drift apart. */}
           <span
             aria-hidden="true"
             className="settings-section__summary-swatch"
-            style={{ backgroundColor: accentSwatch ?? 'var(--color-accent)' }}
+            style={{ backgroundColor: 'var(--color-accent)' }}
           />
         </>
       }

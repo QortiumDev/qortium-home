@@ -61,6 +61,7 @@
     "test:public-transactions": "node scripts/ensure-electron-build.mjs && node scripts/test-public-transaction-validation.mjs",
     "test:qdn-content-attestation": "node scripts/ensure-electron-build.mjs && node scripts/test-qdn-content-attestation.mjs",
     "test:home-release-behavior": "node scripts/test-home-release-behavior.mjs",
+    "test:accent-swatches": "node scripts/test-accent-swatches.mjs",
     "test:app-update-assets": "esbuild src/app-update-assets.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/app-update-assets.test.js && node dist-electron/app-update-assets.test.js",
     "test:bookmark-manager-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/bookmark-manager-contract.test.js",
     "test:bookmark-manager": "esbuild src/bookmarkManager.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/bookmark-manager.test.js && node dist-electron/bookmark-manager.test.js",

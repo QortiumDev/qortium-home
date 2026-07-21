@@ -161,7 +161,7 @@ export const ACCENT_OPTIONS = [
   {
     labelKey: 'display.accent.blue',
     value: 'blue',
-    swatch: '#2a79f3',
+    swatch: '#2368cf',
   },
   {
     labelKey: 'display.accent.orange',
@@ -176,7 +176,7 @@ export const ACCENT_OPTIONS = [
   {
     labelKey: 'display.accent.red',
     value: 'red',
-    swatch: '#d53e3e',
+    swatch: '#c63838',
   },
   {
     labelKey: 'display.accent.teal',
@@ -191,7 +191,7 @@ export const ACCENT_OPTIONS = [
   {
     labelKey: 'display.accent.pink',
     value: 'pink',
-    swatch: '#d43f86',
+    swatch: '#bd3673',
   },
   {
     labelKey: 'display.accent.yellow',
