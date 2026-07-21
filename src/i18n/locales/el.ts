@@ -741,4 +741,9 @@ export const el: Record<TranslationKey, string> = {
   "welcome.step.node": "Κόμβος",
   "welcome.subtitle": "Λίγες επιλογές τώρα θα βοηθήσουν το Qortium Home να λειτουργεί όπως θέλετε.",
   "welcome.title": "Καλώς ήρθατε στο Qortium Home",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

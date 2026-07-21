@@ -740,4 +740,9 @@ export const fi: Record<TranslationKey, string> = {
   "welcome.step.node": "Solmu",
   "welcome.subtitle": "Muutama valinta auttaa Qortium Homea toimimaan haluamallasi tavalla.",
   "welcome.title": "Tervetuloa Qortium Homeen",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

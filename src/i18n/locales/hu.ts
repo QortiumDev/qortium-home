@@ -740,4 +740,9 @@ export const hu: Record<TranslationKey, string> = {
   "welcome.step.node": "Csomópont",
   "welcome.subtitle": "Néhány választás most segít abban, hogy a Qortium Home úgy működjön, ahogyan szeretnéd.",
   "welcome.title": "Üdvözli a Qortium Home",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

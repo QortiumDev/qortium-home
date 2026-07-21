@@ -77,6 +77,7 @@
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:notification-manager": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-manager.test.js",
+    "test:preferred-apps": "esbuild src/preferredApps.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/preferred-apps.test.js && node dist-electron/preferred-apps.test.js",
     "test:qdn-manager-permissions-panel": "esbuild src/qdnManagerPermissionsPanelModel.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-manager-permissions-panel.test.js && node dist-electron/qdn-manager-permissions-panel.test.js",
     "test:home-settings-bridge": "node scripts/ensure-electron-build.mjs && node dist-electron/home-settings-bridge.test.js",
     "test:qdn-manager-permissions": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-manager-permissions.test.js",

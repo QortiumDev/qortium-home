@@ -740,4 +740,9 @@ export const ko: Record<TranslationKey, string> = {
   "welcome.step.node": "노드",
   "welcome.subtitle": "지금 몇 가지를 선택하면 Qortium Home을 원하는 방식으로 사용할 수 있습니다.",
   "welcome.title": "Qortium Home에 오신 것을 환영합니다",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

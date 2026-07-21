@@ -741,4 +741,9 @@ export const hi: Record<TranslationKey, string> = {
   "welcome.step.node": "नोड",
   "welcome.subtitle": "अभी कुछ विकल्प चुनने से Qortium Home आपकी पसंद के अनुसार काम करेगा।",
   "welcome.title": "Qortium Home में आपका स्वागत है",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

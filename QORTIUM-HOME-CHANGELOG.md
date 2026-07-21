@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - feat(settings): let people choose the app that manages bookmarks
+
+Adds the first entry in a new Preferred apps section of Settings. Bookmarks
+Manager now defaults to the official Bookmarks QDN app, but people can replace
+that address with another QDN APP or WEBSITE resource on their device. Home
+checks and tidies the address before saving it, and the Bookmarks Manager menu
+opens the chosen app in a tab instead of the built-in manager page. This is a
+local preference only: QDN apps cannot set it remotely, and the shared saved
+links data and the permission bridge stay exactly as they were.
+
 ### 2026-07-21 - feat(qdn): name the error when a bookmark address is not supported
 
 Gives bookmark manager apps a clear, machine-readable answer when they try to
