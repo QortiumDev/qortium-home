@@ -33,6 +33,25 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - feat(qdn): one loading panel for every QDN service
+
+Gives every kind of QDN content the same loading screen. Waiting for a video, a
+document or an app used to look different from waiting for a website, because
+the application showed a plain line of text in most places while the node
+itself showed a designed panel. There is now a single panel used everywhere,
+styled from the application's own colours so it follows the chosen theme,
+accent colour and interface style automatically, and carrying the same status
+wording, progress bar and file count. It also shows the drifting hexagon
+pattern from the node's own loading page, which switches itself off on small
+panes and for anyone who has asked their system to reduce motion.
+
+Two related annoyances are fixed at the same time. When content is not ready
+yet the node replies with its own loading page, and the application mistook
+that reply for an error message, showing the entire page as the error text.
+Video and audio were also handed content without checking the reply first, so a
+file that was merely still downloading announced itself as an unsupported
+format. Both now report what is actually happening.
+
 ### 2026-07-20 - test(qdn): assert a real position change in the Android media check
 
 Makes the Android media check prove that a track can actually be skipped

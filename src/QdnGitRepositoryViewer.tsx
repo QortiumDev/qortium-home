@@ -7,6 +7,7 @@ import {
   type QdnGitCommit,
   type QdnGitOverview,
 } from './qdnGitRepository';
+import { QdnLoadingPanel } from './QdnLoadingPanel';
 import type { QdnDisplaySettings, QdnResource } from './qdn';
 import { QdnEntryContent, type SetViewerActionContext } from './QdnViewer';
 
@@ -247,9 +248,7 @@ export function QdnGitRepositoryViewer({
 
   if (overview.phase !== 'ready') {
     return (
-      <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-        <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
-      </div>
+      <QdnLoadingPanel message={t('viewer.loadingResource')} />
     );
   }
 
@@ -327,9 +326,7 @@ export function QdnGitRepositoryViewer({
             {selection ? (
               <div className="qdn-git__preview">
                 {selection.phase === 'loading' ? (
-                  <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-                    <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
-                  </div>
+                  <QdnLoadingPanel message={t('viewer.preview.loading')} />
                 ) : selection.phase === 'error' ? (
                   <div className="qdn-viewer__empty qdn-viewer__empty--error">
                     <p className="qdn-viewer__message">{selection.message}</p>
@@ -346,9 +343,7 @@ export function QdnGitRepositoryViewer({
                 ) : null}
               </div>
             ) : tree.phase === 'loading' || tree.phase === 'idle' ? (
-              <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-                <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
-              </div>
+              <QdnLoadingPanel message={t('viewer.loadingResource')} />
             ) : tree.phase === 'error' ? (
               <div className="qdn-viewer__empty qdn-viewer__empty--error">
                 <p className="qdn-viewer__message">{tree.message}</p>

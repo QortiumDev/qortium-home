@@ -4,6 +4,7 @@ import { openArchive, UnsupportedArchiveError, type ArchiveEntry } from './archi
 import { FileTree, type FileTreeEntry } from './FileTree';
 import { t } from './i18n';
 import { saveBytesToFile } from './platform';
+import { QdnLoadingPanel } from './QdnLoadingPanel';
 import type { QdnDisplaySettings, QdnResource } from './qdn';
 import { QdnEntryContent, type SetViewerActionContext } from './QdnViewer';
 
@@ -181,9 +182,7 @@ export function ArchiveViewer({
         </div>
         <div className="qdn-archive__entry">
           {selection.phase === 'loading' ? (
-            <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-              <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
-            </div>
+            <QdnLoadingPanel message={t('viewer.preview.loading')} />
           ) : selection.phase === 'error' ? (
             <div className="qdn-viewer__empty qdn-viewer__empty--error">
               <p className="qdn-viewer__message">{selection.message}</p>
@@ -228,9 +227,7 @@ export function ArchiveViewer({
         ) : null}
       </div>
       {load.phase === 'loading' ? (
-        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
-        </div>
+        <QdnLoadingPanel message={t('viewer.loadingResource')} />
       ) : load.phase === 'error' ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--error">
           <p className="qdn-viewer__message">{load.message}</p>
