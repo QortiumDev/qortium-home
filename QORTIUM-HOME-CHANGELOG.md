@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - fix(scripts): stop desktop smoke runs orphaning Xvfb and Chromium
+
+Stops the desktop test runs leaving browsers behind. Those checks start the
+application inside a hidden display so they can drive it without a window
+appearing. When a run finished, the shutdown signal reached only the small
+helper that sets up that hidden display, and never the application or the
+hidden display itself, so both kept running afterwards. Nothing cleaned them up
+if a run was interrupted either. They accumulated quietly: one machine was
+found holding seventy-seven leftover browser processes and six abandoned
+displays, using several gigabytes of memory, the oldest more than six hours
+old. Shutdown now reaches the whole group of processes a run started, and an
+interrupted run cleans up after itself.
+
 ### 2026-07-21 - feat(qdn): one loading panel for every QDN service
 
 Gives every kind of QDN content the same loading screen. Waiting for a video, a
