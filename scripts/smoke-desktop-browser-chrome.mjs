@@ -331,6 +331,45 @@ async function dispatchDomKey(client, keyName, options = {}) {
   await delay(80);
 }
 
+async function clickWithNativePointer(client, selector) {
+  const bounds = await evaluate(
+    client,
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`,
+  );
+
+  if (!bounds) {
+    fail(`Cannot click ${selector}: its visible bounds were not found.`);
+  }
+
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: bounds.x,
+    y: bounds.y,
+  });
+  await client.send('Input.dispatchMouseEvent', {
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+    type: 'mousePressed',
+    x: bounds.x,
+    y: bounds.y,
+  });
+  await client.send('Input.dispatchMouseEvent', {
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseReleased',
+    x: bounds.x,
+    y: bounds.y,
+  });
+  await delay(80);
+}
+
 async function waitForAddressBar(client) {
   await waitUntil('Qortium Home address bar', appTimeoutMs, async () => {
     const found = await evaluate(client, "!!document.querySelector('#browser-address')");
@@ -570,24 +609,34 @@ async function runHistoryShortcutAssertions(client) {
   await expectAddressValue(client, 'home://dashboard');
 }
 
+async function getTabAudioState(client) {
+  return evaluate(
+    client,
+    `(() => {
+      const button = document.querySelector('.top-bar__tab-audio');
+      const tab = button?.closest('.top-bar__tab');
+      const tabButtons = [...document.querySelectorAll('[role="tab"]')];
+      const tabButton = tab?.querySelector('[role="tab"]');
+
+      if (!button || !tabButton) return null;
+
+      return {
+        label: button.getAttribute('aria-label'),
+        pressed: button.getAttribute('aria-pressed'),
+        selectedTabIndex: tabButtons.findIndex((candidate) => candidate.getAttribute('aria-selected') === 'true'),
+        tabIndex: tabButtons.indexOf(tabButton),
+      };
+    })()`,
+  );
+}
+
 async function runTabAudioAssertions(client) {
   log('Checking the tab audio indicator.');
   await submitAddress(client, tabAudioAddress);
 
   // The indicator only exists once the app actually produces sound, so this waits on
   // real playback rather than on the page having loaded.
-  const initial = await waitUntil('tab audio indicator', tabAudioTimeoutMs, async () => {
-    const state = await evaluate(
-      client,
-      `(() => {
-        const button = document.querySelector('.top-bar__tab-audio');
-        if (!button) return null;
-        return JSON.stringify({ pressed: button.getAttribute('aria-pressed'), label: button.getAttribute('aria-label') });
-      })()`,
-    );
-
-    return state ? JSON.parse(state) : null;
-  });
+  const initial = await waitUntil('tab audio indicator', tabAudioTimeoutMs, async () => getTabAudioState(client));
 
   assert(
     initial.pressed === 'false',
@@ -598,33 +647,32 @@ async function runTabAudioAssertions(client) {
     `Tab audio indicator is missing an accessible label, got "${initial.label}".`,
   );
 
-  await evaluate(client, `document.querySelector('.top-bar__tab-audio').click()`);
+  // Put the audible tab in the background. The speaker must still toggle audio
+  // without selecting that tab, which exercises the tab container's pointer
+  // capture path rather than bypassing it with element.click().
+  await pressKey(client, 'KeyT', { ctrl: true });
+  await waitUntil('background audible tab', appTimeoutMs, async () => {
+    const state = await getTabAudioState(client);
+
+    return state && state.selectedTabIndex !== state.tabIndex ? state : null;
+  });
+
+  await clickWithNativePointer(client, '.top-bar__tab-audio');
 
   const muted = await waitUntil('tab audio muted', tabAudioTimeoutMs, async () => {
-    const state = await evaluate(
-      client,
-      `(() => {
-        const button = document.querySelector('.top-bar__tab-audio');
-        if (!button) return null;
-        return JSON.stringify({ pressed: button.getAttribute('aria-pressed') });
-      })()`,
-    );
-    const parsed = state ? JSON.parse(state) : null;
+    const state = await getTabAudioState(client);
 
-    return parsed?.pressed === 'true' ? parsed : null;
+    return state?.pressed === 'true' && state.selectedTabIndex !== state.tabIndex ? state : null;
   });
 
   assert(muted.pressed === 'true', 'Clicking the tab audio indicator did not mute the tab.');
 
   // Unmuting has to restore the original state, or a muted tab could never be recovered.
-  await evaluate(client, `document.querySelector('.top-bar__tab-audio').click()`);
+  await clickWithNativePointer(client, '.top-bar__tab-audio');
   await waitUntil('tab audio unmuted', tabAudioTimeoutMs, async () => {
-    const state = await evaluate(
-      client,
-      `document.querySelector('.top-bar__tab-audio')?.getAttribute('aria-pressed') ?? null`,
-    );
+    const state = await getTabAudioState(client);
 
-    return state === 'false' ? state : null;
+    return state?.pressed === 'false' && state.selectedTabIndex !== state.tabIndex ? state : null;
   });
 
   log('Tab audio indicator appeared, muted, and unmuted.');

@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - fix(tabs): make the tab mute button clickable
+
+Makes the little speaker on a noisy tab work when you click it. The tab strip
+was treating that click as the start of a drag, so the speaker never got to
+mute anything and could unexpectedly bring that tab to the front instead. It
+now behaves as a separate control: a background tab keeps playing in the
+background while its speaker mutes or unmutes it. The desktop browser check now
+uses a real pointer click on a background audible tab, so this exact interaction
+cannot quietly break again.
+
 ### 2026-07-21 - feat(settings): let people choose the app that manages bookmarks
 
 Adds the first entry in a new Preferred apps section of Settings. Bookmarks
