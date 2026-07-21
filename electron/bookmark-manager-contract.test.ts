@@ -157,6 +157,29 @@ assert.throws(
   () => validateBookmarkManagerMutation({ type: 'addTreeLink', rootId: 'bookmarks', link: { displayUrl: 'qdn://NOT_A_REAL_SERVICE/Alice/item', title: 'Nope' } }),
   /must be a supported qdn:\/\//,
 );
+// Unsupported addresses reject with a stable code so manager apps can show a
+// specific localized error instead of relaying the raw message.
+const hasInvalidAddressCode = (error: unknown) => (error as { code?: string }).code === 'INVALID_ADDRESS';
+const invalidAddressMutations = [
+  { type: 'addTreeLink', rootId: 'bookmarks', link: { displayUrl: 'https://example.com', title: 'Nope' } },
+  { type: 'updateTreeLink', rootId: 'bookmarks', itemId: 'bookmark-1', link: { displayUrl: 'not an address', title: 'Nope' } },
+  { type: 'addDashboardPin', pin: { displayUrl: 'qdn://NOT_A_REAL_SERVICE/Alice', title: 'Nope' } },
+  { type: 'updateDashboardPin', pinId: 'pin-1', pin: { displayUrl: 'ftp://example.com', title: 'Nope' } },
+  { type: 'addStartPage', page: { displayUrl: 'home://not-a-page', title: 'Nope' } },
+  { type: 'updateStartPage', displayUrl: 'qdn://APP/Trust/Trust', page: { displayUrl: 'garbage', title: 'Nope' } },
+];
+for (const invalidMutation of invalidAddressMutations) {
+  assert.throws(
+    () => validateBookmarkManagerMutation(invalidMutation),
+    hasInvalidAddressCode,
+    `${invalidMutation.type} rejects with INVALID_ADDRESS`,
+  );
+}
+assert.throws(
+  () => validateBookmarksOpenRequest({ address: 'https://example.com' }),
+  hasInvalidAddressCode,
+  'BOOKMARKS_OPEN rejects with INVALID_ADDRESS',
+);
 assert.throws(
   () => validateBookmarkManagerMutation({ type: 'moveItem', itemId: 'one', sourceRootId: 'bookmarks', targetRootId: 'toolbar', targetPosition: 'inside' }),
   /inside requires mutation.targetFolderId/,

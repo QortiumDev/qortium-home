@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - feat(qdn): name the error when a bookmark address is not supported
+
+Gives bookmark manager apps a clear, machine-readable answer when they try to
+save or open an address Home does not support. Home already refused such
+addresses, but the refusal was a plain message that an app could only show
+verbatim. The refusal now also carries the error code `INVALID_ADDRESS` — the
+same pattern as the existing `HOME_DATA_STALE` code — so an app like Bookmarks
+can recognise the situation and show its own translated "that address is not
+valid" message instead of raw English error text. New checks confirm every
+kind of saved link (bookmarks, toolbar links, dashboard pins, start pages, and
+the open-a-bookmark request) rejects unsupported addresses with this code, and
+those checks were confirmed to fail before the change was made.
+
 ### 2026-07-21 - test(updates): drive the real app to check update status after installing
 
 Adds an automated check that the update status people actually see is correct,
