@@ -583,6 +583,8 @@ export const fi: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Aloitussivut",
   "startPages.summary": "{count} sivu(a) avautuu, kun Home käynnistyy",
   "tabs.closeNamed": "Sulje {label}",
+  "tabs.muteNamed": "Mykistä {label}",
+  "tabs.unmuteNamed": "Poista mykistys: {label}",
   "tabs.closeOtherTabs": "Sulje muut välilehdet",
   "tabs.closeTab": "Sulje välilehti",
   "tabs.closeTabsToRight": "Sulje oikealla olevat välilehdet",

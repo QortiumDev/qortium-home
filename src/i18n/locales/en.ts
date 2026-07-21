@@ -554,6 +554,8 @@ export const en = {
   "qdnWrite.voteDirection": "Vote",
   "qdnWrite.voteOppose": "Oppose",
   "tabs.closeNamed": "Close {label}",
+  "tabs.muteNamed": "Mute {label}",
+  "tabs.unmuteNamed": "Unmute {label}",
   "tabs.closeOtherTabs": "Close Other Tabs",
   "tabs.closeTab": "Close Tab",
   "tabs.closeTabsToRight": "Close Tabs to the Right",

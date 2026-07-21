@@ -583,6 +583,8 @@ export const et: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Avalehed",
   "startPages.summary": "Home käivitumisel avatakse {count} leht(e)",
   "tabs.closeNamed": "Sulge {label}",
+  "tabs.muteNamed": "Vaigista {label}",
+  "tabs.unmuteNamed": "Taasta {label} heli",
   "tabs.closeOtherTabs": "Sulge teised vahekaardid",
   "tabs.closeTab": "Sulge vahekaart",
   "tabs.closeTabsToRight": "Sulge paremal asuvad vahekaardid",

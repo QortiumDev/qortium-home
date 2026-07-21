@@ -10,9 +10,25 @@ import { createManagedProcess as createManagedProcessBase } from './lib/managed-
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
+function expandHome(value) {
+  return value.startsWith('~') ? path.join(os.homedir(), value.slice(1)) : value;
+}
+
+// Home resolves QDN resource details through the local node's API key. This smoke runs
+// against a throwaway profile, so the key path has to be handed in explicitly or the
+// QDN address used by the tab audio check never resolves.
+const nodeApiKeyPath = expandHome(
+  process.env.QORTIUM_HOME_NODE_API_KEY_PATH ?? '~/.config/qortium-core/runtime/apikey.txt',
+);
 const commandTimeoutMs = 120_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
+const tabAudioTimeoutMs = 60_000;
+// The tab audio indicator needs a published QDN resource that actually plays sound, so
+// the address is overridable and the check can be skipped where no such fixture exists.
+const tabAudioAddress =
+  process.env.QORTIUM_HOME_TAB_AUDIO_FIXTURE ?? 'qdn://WEBSITE/QuickMythril/qm-site';
+const skipTabAudioCheck = process.env.QORTIUM_HOME_TAB_AUDIO_SKIP === '1';
 const keyCodes = {
   '1': { code: 'Digit1', key: '1', windowsVirtualKeyCode: 49 },
   '9': { code: 'Digit9', key: '9', windowsVirtualKeyCode: 57 },
@@ -554,6 +570,66 @@ async function runHistoryShortcutAssertions(client) {
   await expectAddressValue(client, 'home://dashboard');
 }
 
+async function runTabAudioAssertions(client) {
+  log('Checking the tab audio indicator.');
+  await submitAddress(client, tabAudioAddress);
+
+  // The indicator only exists once the app actually produces sound, so this waits on
+  // real playback rather than on the page having loaded.
+  const initial = await waitUntil('tab audio indicator', tabAudioTimeoutMs, async () => {
+    const state = await evaluate(
+      client,
+      `(() => {
+        const button = document.querySelector('.top-bar__tab-audio');
+        if (!button) return null;
+        return JSON.stringify({ pressed: button.getAttribute('aria-pressed'), label: button.getAttribute('aria-label') });
+      })()`,
+    );
+
+    return state ? JSON.parse(state) : null;
+  });
+
+  assert(
+    initial.pressed === 'false',
+    `Tab audio indicator should start unmuted, got aria-pressed=${initial.pressed}.`,
+  );
+  assert(
+    /mute/i.test(initial.label ?? ''),
+    `Tab audio indicator is missing an accessible label, got "${initial.label}".`,
+  );
+
+  await evaluate(client, `document.querySelector('.top-bar__tab-audio').click()`);
+
+  const muted = await waitUntil('tab audio muted', tabAudioTimeoutMs, async () => {
+    const state = await evaluate(
+      client,
+      `(() => {
+        const button = document.querySelector('.top-bar__tab-audio');
+        if (!button) return null;
+        return JSON.stringify({ pressed: button.getAttribute('aria-pressed') });
+      })()`,
+    );
+    const parsed = state ? JSON.parse(state) : null;
+
+    return parsed?.pressed === 'true' ? parsed : null;
+  });
+
+  assert(muted.pressed === 'true', 'Clicking the tab audio indicator did not mute the tab.');
+
+  // Unmuting has to restore the original state, or a muted tab could never be recovered.
+  await evaluate(client, `document.querySelector('.top-bar__tab-audio').click()`);
+  await waitUntil('tab audio unmuted', tabAudioTimeoutMs, async () => {
+    const state = await evaluate(
+      client,
+      `document.querySelector('.top-bar__tab-audio')?.getAttribute('aria-pressed') ?? null`,
+    );
+
+    return state === 'false' ? state : null;
+  });
+
+  log('Tab audio indicator appeared, muted, and unmuted.');
+}
+
 async function runSmoke({ electronBin, viteBin }) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-browser-chrome-'));
   const userDataDir = path.join(tempRoot, 'user-data');
@@ -564,6 +640,7 @@ async function runSmoke({ electronBin, viteBin }) {
   let electronProcess = null;
   const smokeEnv = {
     ...process.env,
+    QORTIUM_HOME_NODE_API_KEY_PATH: nodeApiKeyPath,
     QORTIUM_HOME_NODE_API_URL: 'http://127.0.0.1:24891',
     QORTIUM_HOME_USER_DATA_DIR: userDataDir,
     VITE_DEV_SERVER_URL: devServerUrl,
@@ -602,6 +679,13 @@ async function runSmoke({ electronBin, viteBin }) {
       await runAddressSuggestionAssertions(mainClient);
       await runShortcutAssertions(mainClient);
       await runHistoryShortcutAssertions(mainClient);
+
+      if (skipTabAudioCheck) {
+        log('Skipping the tab audio indicator check.');
+      } else {
+        await runTabAudioAssertions(mainClient);
+      }
+
       await closeBrowser(mainClient);
     } finally {
       mainClient.close();

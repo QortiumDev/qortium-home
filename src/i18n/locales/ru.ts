@@ -583,6 +583,8 @@ export const ru: Record<TranslationKey, string> = {
   "qdnWrite.voteDirection": "Голос",
   "qdnWrite.voteOppose": "Против",
   "tabs.closeNamed": "Закрыть {label}",
+  "tabs.muteNamed": "Отключить звук {label}",
+  "tabs.unmuteNamed": "Включить звук {label}",
   "tabs.closeOtherTabs": "Закрыть другие вкладки",
   "tabs.closeTab": "Закрыть вкладку",
   "tabs.closeTabsToRight": "Закрыть вкладки справа",

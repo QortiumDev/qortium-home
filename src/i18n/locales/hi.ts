@@ -584,6 +584,8 @@ export const hi: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "स्टार्ट पेज",
   "startPages.summary": "Home शुरू होने पर {count} पेज खुलेंगे",
   "tabs.closeNamed": "{label} बंद करें",
+  "tabs.muteNamed": "{label} को म्यूट करें",
+  "tabs.unmuteNamed": "{label} को अनम्यूट करें",
   "tabs.closeOtherTabs": "अन्य टैब बंद करें",
   "tabs.closeTab": "टैब बंद करें",
   "tabs.closeTabsToRight": "दाईं ओर के टैब बंद करें",

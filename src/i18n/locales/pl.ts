@@ -583,6 +583,8 @@ export const pl: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Strony startowe",
   "startPages.summary": "Po uruchomieniu Home otworzy się {count} strona/stron",
   "tabs.closeNamed": "Zamknij {label}",
+  "tabs.muteNamed": "Wycisz {label}",
+  "tabs.unmuteNamed": "Wyłącz wyciszenie {label}",
   "tabs.closeOtherTabs": "Zamknij pozostałe karty",
   "tabs.closeTab": "Zamknij kartę",
   "tabs.closeTabsToRight": "Zamknij karty po prawej stronie",
