@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - test(updates): drive the real app to check update status after installing
+
+Adds an automated check that the update status people actually see is correct,
+on both desktop and Android. It runs the real application, tells it an update
+has already been downloaded and installed, and confirms the app then says "Up
+to date" with no leftover "Show file" or "Install APK" button — the problem
+fixed earlier the same day. It also checks the opposite case, that an update
+which genuinely is still waiting keeps its button, so that fix cannot quietly
+go too far. Both checks were confirmed to fail against the old code before
+being accepted, so they can be trusted to catch the problem coming back.
+
 ### 2026-07-21 - fix(updates): stop reporting an installed update as still downloaded
 
 Says "Up to date" again once you have actually installed an update. If you used

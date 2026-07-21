@@ -317,6 +317,29 @@ Home's app-private update download directory, verifies that unsafe paths and
 non-APK filenames are rejected, then confirms the valid APK reaches Android's
 package installer or the unknown-app-source Settings screen.
 
+Smoke-test the update status shown after an update has been installed:
+
+```sh
+npm run smoke:desktop:app-update-state
+npm run smoke:android:app-update-state
+```
+
+Both commands seed a downloaded-update record, stub the GitHub release
+endpoints, and assert what the update card reports. The `installed` scenario
+covers the regression fixed in #179, where a downloaded update that had already
+been installed kept being reported as "Downloaded" with a "Show file" /
+"Install APK" action instead of "Up to date". The `pending` scenario covers the
+other half, that a download for a release which really is still available
+survives. Pass `--scenario=installed` or `--scenario=pending` to run one.
+
+The Android command needs a debuggable build, since a release APK exposes
+neither `run-as` nor a WebView debugging socket: run `npm run
+dist:android:debug` first. It reuses an attached device when there is one and
+otherwise boots the default emulator; pass `--emulator` to force the emulator.
+If the device already has a release build installed, the signing keys differ and
+installing fails — pass `--reinstall` to uninstall it first, which erases that
+app's data on the device.
+
 Smoke-test desktop QDN app publish/delete writes against the local Core:
 
 ```sh
