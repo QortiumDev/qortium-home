@@ -71,9 +71,13 @@ import {
   type DisplaySettings,
 } from './displaySettings';
 import { getWritableHomeSettings, validateHomeSettingsPatch, type HomeSettings } from '../electron/home-settings-bridge';
-import { sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
-import { getInitialPreferredApps, loadPreferredApps, savePreferredApps } from './preferredAppsStore';
-import type { PreferredApps } from './preferredApps';
+import {
+  createDefaultQdnAppRolesStore,
+  DEFAULT_BOOKMARKS_MANAGER_URL,
+  sanitizeQdnManagerAppKey,
+  type QdnAppRolesStore,
+} from '../electron/qdn-manager-permissions';
+import { getQdnAppRolesStore, onQdnManagerPermissionsChanged } from './qdnManagerPermissions';
 import {
   createDashboardPin,
   loadDashboardPins,
@@ -234,12 +238,11 @@ const NAVIGATION_SWIPE_HORIZONTAL_RATIO = 1.6;
 const NAVIGATION_SWIPE_VERTICAL_CANCEL_PX = 48;
 const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   core: false,
-  dataPermissions: false,
   display: true,
   home: false,
   notifications: false,
   node: false,
-  preferredApps: false,
+  qdnApps: false,
 };
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
@@ -945,7 +948,7 @@ export function App() {
   const [hasBookmarkManagerLoadError, setHasBookmarkManagerLoadError] = useState(false);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
-  const [preferredApps, setPreferredApps] = useState<PreferredApps>(getInitialPreferredApps);
+  const [qdnAppRoles, setQdnAppRoles] = useState<QdnAppRolesStore>(createDefaultQdnAppRolesStore);
   const [notificationRulesVersion, setNotificationRulesVersion] = useState(getNotificationRulesVersion);
   const [notificationManagerRevision, setNotificationManagerRevision] = useState(0);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
@@ -1048,14 +1051,23 @@ export function App() {
   const [, bumpLocaleVersion] = useState(0);
   useEffect(() => subscribeTranslationChange(() => bumpLocaleVersion((version) => version + 1)), []);
 
+  // The QDN app role store drives menu routing (which app the bookmarks menu
+  // opens), so keep it live: a grant prompt or Settings edit that changes the
+  // Bookmarks Manager takes effect immediately.
   useEffect(() => {
     let active = true;
-    void loadPreferredApps()
-      .then((nextPreferredApps) => {
-        if (active) setPreferredApps(nextPreferredApps);
+    const unsubscribe = onQdnManagerPermissionsChanged((nextStore) => {
+      if (active) setQdnAppRoles(nextStore);
+    });
+    void getQdnAppRolesStore()
+      .then((nextStore) => {
+        if (active) setQdnAppRoles(nextStore);
       })
-      .catch((error) => console.warn('Unable to load preferred apps.', error));
-    return () => { active = false; };
+      .catch((error) => console.warn('Unable to load QDN app roles.', error));
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -2251,14 +2263,6 @@ export function App() {
     }));
   }
 
-  function updateBookmarksManagerApp(bookmarksManager: string) {
-    const nextPreferredApps = { ...preferredApps, bookmarksManager };
-    setPreferredApps(nextPreferredApps);
-    void savePreferredApps(nextPreferredApps).catch((error) => {
-      console.warn('Unable to save preferred apps.', error);
-    });
-  }
-
   function updateActiveTab(updateTab: (tab: BrowserTab) => BrowserTab) {
     setTabState((currentTabState) => ({
       ...currentTabState,
@@ -2454,12 +2458,11 @@ export function App() {
     // tile gears jump straight to the relevant controls.
     setSettingsExpansion({
       core: sectionId === 'core',
-      dataPermissions: sectionId === 'dataPermissions',
       display: sectionId === 'display',
       home: sectionId === 'home',
       notifications: sectionId === 'notifications',
       node: sectionId === 'node',
-      preferredApps: sectionId === 'preferredApps',
+      qdnApps: sectionId === 'qdnApps',
     });
     navigateToRoute(SETTINGS_ROUTE);
   }
@@ -2591,7 +2594,10 @@ export function App() {
   }
 
   function openBookmarksManager() {
-    openAppLinkInNewTab(preferredApps.bookmarksManager, tabState.activeTabId);
+    openAppLinkInNewTab(
+      qdnAppRoles.roles.bookmarksManager.url ?? DEFAULT_BOOKMARKS_MANAGER_URL,
+      tabState.activeTabId,
+    );
   }
 
   function openSavedAddress(displayUrl: string, accountId?: string | null) {
@@ -4232,11 +4238,9 @@ export function App() {
                   onAccentChange={updateAccent}
                   onAppNotificationsChange={updateAppNotifications}
                   onAppZoomChange={updateAppZoom}
-                  onBookmarksManagerChange={updateBookmarksManagerApp}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}
                   onUiChange={updateUi}
-                  preferredApps={preferredApps}
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
                 />

@@ -889,12 +889,18 @@ interface Window {
       revokeAppNotifications?: (
         appKey: string,
       ) => Promise<import('../electron/notification-rules').QdnNotificationStore>;
-      getManagerPermissionStore?: () => Promise<import('../electron/qdn-manager-permissions').QdnManagerPermissionStore>;
-      onManagerPermissionsChanged?: (callback: () => void) => () => void;
-      revokeManagerPermission?: (
-        appKey: string,
-        capability: import('../electron/qdn-manager-permissions').QdnManagerCapability,
-      ) => Promise<import('../electron/qdn-manager-permissions').QdnManagerPermissionStore>;
+      getAppRolesStore?: () => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
+      onAppRolesChanged?: (callback: () => void) => () => void;
+      setAppRoleUrl?: (
+        role: import('../electron/qdn-manager-permissions').QdnAppRole,
+        url: string | null,
+      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
+      revokeAppRole?: (
+        role: import('../electron/qdn-manager-permissions').QdnAppRole,
+      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
+      migrateLegacyPreferredApps?: (
+        legacyPreferredApps: unknown,
+      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
     };
     qdnViews?: {
       broadcastHomeSettingsChanged: (detail: QortiumQdnHomeSettingsChangedDetail) => Promise<void>;

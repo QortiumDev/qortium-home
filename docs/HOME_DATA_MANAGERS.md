@@ -17,6 +17,22 @@ permission to send notifications. They are keyed by the calling app's stable
 `qdn://SERVICE/name/identifier` resource base (not its current deep-link path,
 query, or fragment) and persist until the user revokes them in Home settings.
 
+Each capability is a Home **role** held by at most one app at a time:
+`bookmarks.manage` belongs to the Bookmarks Manager role and
+`notifications.manage` belongs to the Notifications Manager role. Home stores
+one `{ url, grantedAt }` pair per role, so a second holder is unrepresentable —
+granting a capability to a new app replaces the previous holder, and the
+approval dialog names the app being replaced. The Bookmarks Manager role URL
+also drives Home's bookmarks menu routing, so it always has a value (the
+official Bookmarks app by default); revoking a role clears only the grant and
+keeps the chosen app for routing.
+
+Users manage both roles in the Settings "QDN Apps" section: they can assign a
+role's app (an explicit assignment there also grants the role's capability),
+revoke it, or reset the Bookmarks Manager to the default app. Apps cannot read
+or change role assignments through the settings bridge; the only app-facing
+write path is the approval dialog below.
+
 The non-prompting checks are:
 
 ```js
@@ -30,7 +46,8 @@ await qdnRequest({ action: 'NOTIFICATION_MANAGER_HAS_PERMISSION' });
 The first `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, or
 notification-manager read or mutation opens a durable permission dialog. A
 denial rejects the request and does not create a grant. The grant is
-device-local and does not depend on the selected account.
+device-local, does not depend on the selected account, and makes the calling
+app the role's sole holder.
 
 If the app view changes while the permission dialog is open, Home rejects the
 stale request instead of granting or using the capability for the replacement

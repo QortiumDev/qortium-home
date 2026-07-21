@@ -43,6 +43,27 @@ background while its speaker mutes or unmutes it. The desktop browser check now
 uses a real pointer click on a background audible tab, so this exact interaction
 cannot quietly break again.
 
+### 2026-07-21 - feat(settings): merge app permissions and preferred apps into one QDN Apps section
+
+Replaces the separate "QDN app permissions" and "Preferred apps" sections of
+Settings with a single "QDN Apps" section, because they were really one idea:
+each Home job (managing bookmarks, managing notifications) is a role that only
+one app can hold at a time. Before, you could point the Bookmarks Manager menu
+at one app while a different app still quietly kept permission to manage your
+bookmarks; that confusing state is now impossible. The new section shows one
+row per role with the chosen app's address, whether it currently has access
+and since when, and a Revoke button. Typing a new address there counts as
+choosing that app, so it gets access right away; revoking removes the access
+but keeps the app as your menu choice, and Bookmarks Manager can always be
+reset to the official Bookmarks app. When a QDN app asks for a role another
+app already holds, the approval dialog now says which app would be replaced.
+Existing choices and permissions are carried over automatically the first time
+the new version runs, always erring on the side of fewer permissions, and the
+old settings storage is cleaned up. Only Home's own Settings window can change
+these role choices — embedded QDN apps are refused outright, the one-time
+carry-over cannot be replayed later to change them, and a garbled stored
+"granted" date now counts as not granted rather than granted.
+
 ### 2026-07-21 - feat(settings): let people choose the app that manages bookmarks
 
 Adds the first entry in a new Preferred apps section of Settings. Bookmarks

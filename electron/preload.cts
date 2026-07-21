@@ -191,16 +191,19 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn:setAppNotificationMuted', appKey, muted),
     revokeAppNotifications: (appKey: string) =>
       ipcRenderer.invoke('qdn:revokeAppNotifications', appKey),
-    getManagerPermissionStore: () => ipcRenderer.invoke('qdn:getManagerPermissionStore'),
-    onManagerPermissionsChanged: (callback: () => void) => {
+    getAppRolesStore: () => ipcRenderer.invoke('qdn:getAppRolesStore'),
+    onAppRolesChanged: (callback: () => void) => {
       const listener = () => callback();
-      ipcRenderer.on('qdn:manager-permissions-changed', listener);
+      ipcRenderer.on('qdn:app-roles-changed', listener);
       return () => {
-        ipcRenderer.removeListener('qdn:manager-permissions-changed', listener);
+        ipcRenderer.removeListener('qdn:app-roles-changed', listener);
       };
     },
-    revokeManagerPermission: (appKey: string, capability: string) =>
-      ipcRenderer.invoke('qdn:revokeManagerPermission', appKey, capability),
+    setAppRoleUrl: (role: string, url: string | null) =>
+      ipcRenderer.invoke('qdn:setAppRoleUrl', role, url),
+    revokeAppRole: (role: string) => ipcRenderer.invoke('qdn:revokeAppRole', role),
+    migrateLegacyPreferredApps: (legacyPreferredApps: unknown) =>
+      ipcRenderer.invoke('qdn:migrateLegacyPreferredApps', legacyPreferredApps),
     listResources: (request: {
       exactMatchNames?: boolean;
       includeMetadata?: boolean;
