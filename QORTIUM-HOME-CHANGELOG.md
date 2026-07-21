@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - fix(display): show the accent colour the app actually uses
+
+Makes the accent colour picker honest. Three of the nine coloured dots in
+settings — blue, red and pink — advertised a brighter colour than the one you
+got when you picked them, because the dot's colour was written down separately
+from the colour the application really uses and the two had drifted apart. The
+dots now show the real colours. The single dot in the collapsed settings
+summary reads the colour straight from the active theme instead of a copy, so
+it cannot drift at all, and a new automated check compares every dot against
+the real colour and fails if anyone lets them separate again.
+
 ### 2026-07-21 - fix(scripts): stop desktop smoke runs orphaning Xvfb and Chromium
 
 Stops the desktop test runs leaving browsers behind. Those checks start the
