@@ -6,6 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createManagedProcess as createManagedProcessBase } from './lib/managed-process.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -133,42 +134,11 @@ function run(command, args, options = {}) {
   });
 }
 
+// Wraps the shared helper to preserve this script's repoRoot cwd default.
+// The helper spawns detached and kills the whole process group, so tearing down
+// an xvfb-run-wrapped Electron no longer orphans Xvfb and the browser.
 function createManagedProcess(command, args, options = {}) {
-  const output = [];
-  let stopped = false;
-  const child = spawn(command, args, {
-    cwd: options.cwd ?? repoRoot,
-    env: options.env ?? process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  child.stdout?.on('data', (chunk) => output.push(String(chunk)));
-  child.stderr?.on('data', (chunk) => output.push(String(chunk)));
-
-  child.once('exit', (code, signal) => {
-    if (!options.allowExit && !stopped) {
-      output.push(`\nProcess exited with code=${code} signal=${signal}\n`);
-    }
-  });
-
-  return {
-    child,
-    output,
-    stop: async () => {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        return;
-      }
-
-      stopped = true;
-      child.kill('SIGTERM');
-      await delay(500);
-
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGKILL');
-      }
-    },
-    wasStopped: () => stopped,
-  };
+  return createManagedProcessBase(command, args, { cwd: repoRoot, ...options });
 }
 
 function getFreePort() {
