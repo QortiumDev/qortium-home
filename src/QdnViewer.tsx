@@ -62,6 +62,7 @@ import type { CoreManagerState } from './coreManagerState';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
 import { FileTree, type FileTreeEntry } from './FileTree';
 import { QdnGitRepositoryViewer } from './QdnGitRepositoryViewer';
+import { QdnLoadingPanel } from './QdnLoadingPanel';
 import { detectGitRepositoryLayout } from './qdnGitRepository';
 import { detectContentKind, sniffMagicBytes } from './qdnContentType';
 import {
@@ -1720,11 +1721,7 @@ function QdnTextContent({
         <span className="qdn-viewer__type-label">{statusText}</span>
       </div>
 
-      {state.phase === 'loading' ? (
-        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
-        </div>
-      ) : null}
+      {state.phase === 'loading' ? <QdnLoadingPanel message={t('viewer.preview.loading')} /> : null}
 
       {state.phase === 'ready' ? (
         <pre className="qdn-viewer__text-content">
@@ -1810,11 +1807,7 @@ function QdnPreviewShell({
         <span className="qdn-viewer__type-label">{label}</span>
       </div>
 
-      {state.phase === 'loading' ? (
-        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
-        </div>
-      ) : null}
+      {state.phase === 'loading' ? <QdnLoadingPanel message={t('viewer.preview.loading')} /> : null}
 
       {state.phase === 'ready' ? children : null}
 
@@ -2224,11 +2217,7 @@ function QdnRichTextContent({
         <span className="qdn-viewer__type-label">{typeLabel}</span>
       </div>
 
-      {state.phase === 'loading' ? (
-        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">{t('viewer.preview.loading')}</p>
-        </div>
-      ) : null}
+      {state.phase === 'loading' ? <QdnLoadingPanel message={t('viewer.preview.loading')} /> : null}
 
       {state.phase === 'ready' ? (
         <iframe
@@ -3045,9 +3034,7 @@ function QdnRepositoryContent({
   if (state.phase === 'loading') {
     return (
       <div className="qdn-archive">
-        <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-          <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
-        </div>
+        <QdnLoadingPanel message={t('viewer.loadingResource')} />
       </div>
     );
   }
@@ -3251,11 +3238,7 @@ function QdnGalleryContent({
   }, [selectedFile, state]);
 
   if (state.phase === 'loading') {
-    return (
-      <div className="qdn-viewer__empty qdn-viewer__empty--loading">
-        <p className="qdn-viewer__message">{t('viewer.loadingResource')}</p>
-      </div>
-    );
+    return <QdnLoadingPanel message={t('viewer.loadingResource')} />;
   }
 
   if (state.phase === 'error') {
@@ -4469,6 +4452,8 @@ export function QdnViewer({
           suspended={suspended}
           tabId={tabId}
         />
+      ) : state.phase === 'loading' ? (
+        <QdnLoadingPanel message={state.message} progress={progress} progressText={progressText} />
       ) : (
         <div className={`qdn-viewer__empty qdn-viewer__empty--${state.phase}`}>
           <p className="qdn-viewer__message">
