@@ -105,10 +105,18 @@ async function saveAppUpdatePreferences(preferences: AppUpdatePreferences) {
   window.localStorage.setItem(APP_UPDATE_PREFERENCES_STORAGE_KEY, value);
 }
 
-function getMatchingDownloadedUpdate(
+export function getMatchingDownloadedUpdate(
   downloadedUpdate: QortiumAppUpdateDownloadResult | null,
   result: QortiumAppUpdateCheckResult | null,
 ) {
+  // An 'up-to-date' result still carries the compatible asset for the installed
+  // release, so tag and digest keep matching a download the user has already
+  // installed. Without this guard the panel reports "Downloaded" and offers to
+  // reveal/install it forever, instead of confirming the app is up to date.
+  if (result?.status !== 'available') {
+    return null;
+  }
+
   if (
     !downloadedUpdate?.digestVerified ||
     !result?.asset?.digest ||
@@ -120,6 +128,13 @@ function getMatchingDownloadedUpdate(
   }
 
   return downloadedUpdate;
+}
+
+export function isDownloadedUpdatePending(
+  downloadedUpdate: QortiumAppUpdateDownloadResult | null,
+  results: UpdateResultsByChannel,
+) {
+  return UPDATE_CHANNELS.some((channel) => !!getMatchingDownloadedUpdate(downloadedUpdate, results[channel] ?? null));
 }
 
 export function formatUpdateError(error: unknown) {
@@ -363,8 +378,17 @@ export function useAppUpdates({ autoCheck = false }: { autoCheck?: boolean } = {
 
       setResults(nextResults);
       setChannelState(nextChannel);
-      const existingDownloadedUpdate = getMatchingDownloadedUpdate(preferences?.downloadedUpdate ?? null, nextResult);
+      const storedDownloadedUpdate = preferences?.downloadedUpdate ?? null;
+      const existingDownloadedUpdate = getMatchingDownloadedUpdate(storedDownloadedUpdate, nextResult);
       setDownloadedUpdate(existingDownloadedUpdate);
+
+      // Drop the stored download once no channel still offers it — usually
+      // because it has been installed. Matching any channel keeps it, so
+      // switching channels does not discard a pending download.
+      if (storedDownloadedUpdate && !isDownloadedUpdatePending(storedDownloadedUpdate, nextResults)) {
+        updatePreferences({ downloadedUpdate: null });
+      }
+
       setMessage({
         kind: nextKind ?? 'error',
         text: existingDownloadedUpdate
