@@ -583,6 +583,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "啟動頁面",
   "startPages.summary": "Home 啟動時會開啟 {count} 個頁面",
   "tabs.closeNamed": "關閉 {label}",
+  "tabs.muteNamed": "將 {label} 靜音",
+  "tabs.unmuteNamed": "取消 {label} 靜音",
   "tabs.closeOtherTabs": "關閉其他分頁",
   "tabs.closeTab": "關閉分頁",
   "tabs.closeTabsToRight": "關閉右側分頁",

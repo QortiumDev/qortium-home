@@ -993,6 +993,11 @@ export function App() {
   // Android), keyed by tab id. Purely presentational: route-derived labels stay
   // the fallback, and bookmarks/pins/closed-tab snapshots keep route labels.
   const [qdnAppTitles, setQdnAppTitles] = useState<Record<string, string>>({});
+  // Which tabs are making sound, and which the user has silenced, keyed by tab id.
+  // Chromium treats these as independent — a muted tab still reports itself audible —
+  // so both are tracked rather than deriving one from the other. Desktop only: the
+  // main process is the sole writer, via qdn-views:app-audio-state-changed.
+  const [qdnAppAudio, setQdnAppAudio] = useState<Record<string, { audible: boolean; muted: boolean }>>({});
   const qdnAppTitleRouteKeysRef = useRef<Map<string, string>>(new Map());
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? tabState.tabs[0];
   const activeAccount =
@@ -1318,6 +1323,26 @@ export function App() {
     });
   }, [tabState.tabs]);
 
+  // Forget audio state for tabs that no longer exist, so the map cannot grow without
+  // bound and a reopened tab id cannot inherit a stale speaker icon. Unlike titles this
+  // is keyed on tab existence alone: mute deliberately survives navigation within a tab.
+  useEffect(() => {
+    const liveTabIds = new Set(tabState.tabs.map((tab) => tab.id));
+
+    setQdnAppAudio((current) => {
+      let next: Record<string, { audible: boolean; muted: boolean }> | null = null;
+
+      for (const tabId of Object.keys(current)) {
+        if (!liveTabIds.has(tabId)) {
+          next = next ?? { ...current };
+          delete next[tabId];
+        }
+      }
+
+      return next ?? current;
+    });
+  }, [tabState.tabs]);
+
   useEffect(() => {
     const qdnEvents = window.qortiumHome.qdnEvents;
 
@@ -1327,6 +1352,28 @@ export function App() {
 
     return qdnEvents.onAppTitleChanged((event) => {
       updateQdnAppTitleRef.current(event.tabId, event.title);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    // Absent on Android, where QDN apps are iframes with no observable audio state, so
+    // the indicator simply never appears there.
+    if (!qdnEvents?.onAppAudioStateChanged) {
+      return undefined;
+    }
+
+    return qdnEvents.onAppAudioStateChanged((event) => {
+      setQdnAppAudio((current) => {
+        const existing = current[event.tabId];
+
+        if (existing && existing.audible === event.audible && existing.muted === event.muted) {
+          return current;
+        }
+
+        return { ...current, [event.tabId]: { audible: event.audible, muted: event.muted } };
+      });
     });
   }, []);
 
@@ -3145,6 +3192,18 @@ export function App() {
     });
   }
 
+  // The main process owns the real mute state and echoes it back, so the strip is not
+  // updated optimistically here — the round trip is local and immediate.
+  async function toggleTabAudioMuted(tabId: string) {
+    const setAudioMuted = window.qortiumHome.qdnViews?.setAudioMuted;
+
+    if (!setAudioMuted) {
+      return;
+    }
+
+    await setAudioMuted({ muted: !(qdnAppAudio[tabId]?.muted ?? false), tabId });
+  }
+
   async function moveTabToNewWindow(tabId: string) {
     const windowsApi = window.qortiumHome.windows;
     const tab = tabState.tabs.find((candidateTab) => candidateTab.id === tabId);
@@ -3974,6 +4033,8 @@ export function App() {
           canPinToDashboard: getCurrentRouteForTab(tab).kind !== 'dashboard',
           displayUrl: getCurrentRouteForTab(tab).displayUrl,
           id: tab.id,
+          isAudible: qdnAppAudio[tab.id]?.audible ?? false,
+          isAudioMuted: qdnAppAudio[tab.id]?.muted ?? false,
           label: qdnAppTitles[tab.id] ?? getTabLabel(tab),
         }))}
         onAddTab={addTab}
@@ -3981,6 +4042,7 @@ export function App() {
         onCloseOtherTabs={closeOtherTabs}
         onCloseTabsToRight={closeTabsToRight}
         onDuplicateTab={duplicateTab}
+        onToggleTabAudioMuted={toggleTabAudioMuted}
         onGoBack={goBack}
         onGoForward={goForward}
         onGoToHistoryIndex={goToHistoryIndex}

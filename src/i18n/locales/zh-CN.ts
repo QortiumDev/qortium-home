@@ -583,6 +583,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "qdnWrite.voteDirection": "投票",
   "qdnWrite.voteOppose": "反对",
   "tabs.closeNamed": "关闭 {label}",
+  "tabs.muteNamed": "将 {label} 静音",
+  "tabs.unmuteNamed": "取消 {label} 静音",
   "tabs.closeOtherTabs": "关闭其他标签页",
   "tabs.closeTab": "关闭标签页",
   "tabs.closeTabsToRight": "关闭右侧标签页",

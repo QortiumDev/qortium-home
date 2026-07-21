@@ -1,4 +1,4 @@
-import { Bookmark, ChevronLeft, ChevronRight, ChevronDown, Folder, LoaderCircle, Lock, Menu, Pin, Plus, RefreshCw, Unlock, X } from 'lucide-react';
+import { Bookmark, ChevronLeft, ChevronRight, ChevronDown, Folder, LoaderCircle, Lock, Menu, Pin, Plus, RefreshCw, Unlock, Volume2, VolumeX, X } from 'lucide-react';
 import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -55,6 +55,7 @@ type TopBarProps = {
   onCloseOtherTabs: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
   onDuplicateTab: (tabId: string) => void;
+  onToggleTabAudioMuted: (tabId: string) => void;
   onGoBack: () => void;
   onGoForward: () => void;
   onGoToHistoryIndex: (index: number) => void;
@@ -91,6 +92,8 @@ type BrowserTabSummary = {
   canPinToDashboard: boolean;
   displayUrl: string;
   id: string;
+  isAudible: boolean;
+  isAudioMuted: boolean;
   label: string;
 };
 
@@ -1551,6 +1554,7 @@ function BrowserTabs({
   onCloseOtherTabs,
   onCloseTabsToRight,
   onDuplicateTab,
+  onToggleTabAudioMuted,
   onMoveTabToNewWindow,
   onPinTabToDashboard,
   onReorderTab,
@@ -1572,6 +1576,7 @@ function BrowserTabs({
   onCloseOtherTabs: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
   onDuplicateTab: (tabId: string) => void;
+  onToggleTabAudioMuted: (tabId: string) => void;
   onMoveTabToNewWindow?: (tabId: string) => void;
   onPinTabToDashboard: (tabId: string) => void;
   onReorderTab: (draggedTabId: string, targetTabId: string, dropPosition: TabDropPosition) => void;
@@ -2017,6 +2022,26 @@ function BrowserTabs({
                 </span>
                 <span className="top-bar__tab-label">{tab.label}</span>
               </button>
+              {tab.isAudible || tab.isAudioMuted ? (
+                <button
+                  className="top-bar__tab-audio"
+                  type="button"
+                  title={tab.isAudioMuted
+                    ? t('tabs.unmuteNamed', { label: tab.label })
+                    : t('tabs.muteNamed', { label: tab.label })}
+                  aria-label={tab.isAudioMuted
+                    ? t('tabs.unmuteNamed', { label: tab.label })
+                    : t('tabs.muteNamed', { label: tab.label })}
+                  aria-pressed={tab.isAudioMuted}
+                  onClick={() => onToggleTabAudioMuted(tab.id)}
+                >
+                  {tab.isAudioMuted ? (
+                    <VolumeX aria-hidden="true" size={18} strokeWidth={2} />
+                  ) : (
+                    <Volume2 aria-hidden="true" size={18} strokeWidth={2} />
+                  )}
+                </button>
+              ) : null}
               <button
                 className="top-bar__tab-close"
                 type="button"
@@ -2154,6 +2179,7 @@ export function TopBar({
   onCloseOtherTabs,
   onCloseTabsToRight,
   onDuplicateTab,
+  onToggleTabAudioMuted,
   onGoBack,
   onGoForward,
   onGoToHistoryIndex,
@@ -2422,6 +2448,7 @@ export function TopBar({
         onCloseOtherTabs={onCloseOtherTabs}
         onCloseTabsToRight={onCloseTabsToRight}
         onDuplicateTab={onDuplicateTab}
+        onToggleTabAudioMuted={onToggleTabAudioMuted}
         onMoveTabToNewWindow={onMoveTabToNewWindow}
         onPinTabToDashboard={onPinTabToDashboard}
         onReorderTab={onReorderTab}

@@ -583,6 +583,8 @@ export const nl: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Startpagina’s",
   "startPages.summary": "{count} pagina(’s) worden geopend wanneer Home start",
   "tabs.closeNamed": "{label} sluiten",
+  "tabs.muteNamed": "{label} dempen",
+  "tabs.unmuteNamed": "Dempen van {label} opheffen",
   "tabs.closeOtherTabs": "Andere tabbladen sluiten",
   "tabs.closeTab": "Tabblad sluiten",
   "tabs.closeTabsToRight": "Tabbladen aan de rechterkant sluiten",

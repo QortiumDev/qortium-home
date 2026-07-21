@@ -157,6 +157,11 @@ type SanitizedManagerRevisionsRequest = {
   tabId: string;
 };
 
+type SanitizedAudioMutedRequest = {
+  muted: boolean;
+  tabId: string;
+};
+
 type SanitizedHomeSettingsBroadcastRequest = {
   detail: QdnHomeSettingsChangedDetail;
 };
@@ -443,6 +448,17 @@ function sanitizeManagerRevisionsRequest(value: unknown): SanitizedManagerRevisi
 
   return {
     managerRevisions: validateQdnManagerRevisions(value.managerRevisions),
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
+function sanitizeAudioMutedRequest(value: unknown): SanitizedAudioMutedRequest {
+  if (!isRecord(value)) {
+    throw new Error('QDN view audio muted request is required.');
+  }
+
+  return {
+    muted: value.muted === true,
     tabId: sanitizeTabId(value.tabId),
   };
 }
@@ -829,6 +845,21 @@ function applyViewGuards(entry: QdnViewEntry) {
       title: explicitSet ? sanitizeAppTitle(title) : null,
     });
   });
+  // Chromium reports a view as audible whenever it is producing sound, independently of
+  // whether it is muted, so the tab strip is sent both and never infers one from the
+  // other. Muting raises no event of its own, which is why the mute IPC handler echoes
+  // the new state back rather than leaving the strip waiting on this listener.
+  entry.view.webContents.on('audio-state-changed', (event) => {
+    if (entry.window.isDestroyed()) {
+      return;
+    }
+
+    entry.window.webContents.send('qdn-views:app-audio-state-changed', {
+      audible: event.audible,
+      muted: entry.view.webContents.isAudioMuted(),
+      tabId: entry.tabId,
+    });
+  });
 
   const isolatedSession = entry.view.webContents.session;
 
@@ -1204,6 +1235,19 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
   entry.managerRevisions = request.managerRevisions;
 
   windowViews.set(request.tabId, entry);
+
+  // A brand new view starts silent and unmuted, and stays silent until something plays.
+  // Without this the tab strip would keep showing whatever the destroyed view last
+  // reported. Mute deliberately survives navigation within a reused view, matching how
+  // a browser keeps a tab muted as you move around inside it.
+  if (!window.isDestroyed()) {
+    window.webContents.send('qdn-views:app-audio-state-changed', {
+      audible: false,
+      muted: false,
+      tabId: request.tabId,
+    });
+  }
+
   watchWindow(window);
 
   return entry;
@@ -1354,6 +1398,28 @@ export function registerQdnViewIpcHandlers() {
 
     entry.displaySettings = request.displaySettings;
     queueQdnViewStateDelivery(entry);
+  });
+
+  ipcMain.handle('qdn-views:setAudioMuted', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeAudioMutedRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry || entry.view.webContents.isDestroyed()) {
+      return;
+    }
+
+    entry.view.webContents.setAudioMuted(request.muted);
+
+    // Chromium raises no audio-state event for a mute change, so the tab strip is told
+    // directly instead of being left to guess.
+    if (!entry.window.isDestroyed()) {
+      entry.window.webContents.send('qdn-views:app-audio-state-changed', {
+        audible: entry.view.webContents.isCurrentlyAudible(),
+        muted: request.muted,
+        tabId: entry.tabId,
+      });
+    }
   });
 
   ipcMain.handle('qdn-views:updateManagerRevisions', (event, rawRequest: unknown) => {

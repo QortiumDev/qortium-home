@@ -583,6 +583,8 @@ export const sv: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Startsidor",
   "startPages.summary": "{count} sida/sidor öppnas när Home startar",
   "tabs.closeNamed": "Stäng {label}",
+  "tabs.muteNamed": "Stäng av ljudet för {label}",
+  "tabs.unmuteNamed": "Slå på ljudet för {label}",
   "tabs.closeOtherTabs": "Stäng övriga flikar",
   "tabs.closeTab": "Stäng flik",
   "tabs.closeTabsToRight": "Stäng flikar till höger",

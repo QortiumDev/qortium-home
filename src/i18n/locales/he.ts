@@ -583,6 +583,8 @@ export const he: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "דפי התחלה",
   "startPages.summary": "{count} דפים ייפתחו כאשר Home יופעל",
   "tabs.closeNamed": "סגירת {label}",
+  "tabs.muteNamed": "השתקת {label}",
+  "tabs.unmuteNamed": "ביטול השתקת {label}",
   "tabs.closeOtherTabs": "סגירת הכרטיסיות האחרות",
   "tabs.closeTab": "סגירת כרטיסייה",
   "tabs.closeTabsToRight": "סגירת הכרטיסיות שמימין",

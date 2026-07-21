@@ -555,6 +555,8 @@ export const it: Record<TranslationKey, string> = {
   "qdnWrite.voteDirection": "Voto",
   "qdnWrite.voteOppose": "Contrario",
   "tabs.closeNamed": "Chiudi {label}",
+  "tabs.muteNamed": "Disattiva audio di {label}",
+  "tabs.unmuteNamed": "Riattiva audio di {label}",
   "tabs.closeOtherTabs": "Chiudi le altre schede",
   "tabs.closeTab": "Chiudi scheda",
   "tabs.closeTabsToRight": "Chiudi le schede a destra",

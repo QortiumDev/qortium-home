@@ -33,6 +33,27 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - feat(tabs): show which tab is making sound
+
+Tells you which tab the noise is coming from, and lets you silence it. When a
+Q-App or website starts playing audio, a speaker appears on its tab, exactly
+like the one your web browser shows. Clicking that speaker mutes only that tab
+— the page carries on running and playing, you just stop hearing it — and
+clicking again brings the sound back. Previously a tab could start playing in
+the background with nothing to show which one it was and no way to quieten it
+short of closing the tab.
+
+The speaker stays visible on tabs you are not currently looking at, since that
+is the whole point of it, and it disappears again once a tab falls silent.
+Muting deliberately survives moving around inside a tab, matching how a browser
+keeps a tab muted as you follow links, while a tab that is closed and reopened
+starts fresh. This is a desktop feature: on Android, apps run in a way that
+gives the application no view of their audio, so no speaker appears there.
+
+Also fixes the desktop browser check, which could not open QDN addresses at all
+because it was never told where the node's key lives, and extends it to confirm
+the speaker appears, mutes and unmutes.
+
 ### 2026-07-21 - fix(display): show the accent colour the app actually uses
 
 Makes the accent colour picker honest. Three of the nine coloured dots in

@@ -274,6 +274,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     capture: (tabId: string) => ipcRenderer.invoke('qdn-views:capture', { tabId }),
     hide: (tabId: string) => ipcRenderer.invoke('qdn-views:hide', { tabId }),
     destroy: (tabId: string) => ipcRenderer.invoke('qdn-views:destroy', { tabId }),
+    setAudioMuted: (request: { muted: boolean; tabId: string }) =>
+      ipcRenderer.invoke('qdn-views:setAudioMuted', request),
     updateDisplaySettings: (request: {
       displaySettings: {
         language: 'ar' | 'de' | 'el' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'it' | 'ja' | 'ko' | 'nb' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
@@ -479,6 +481,24 @@ contextBridge.exposeInMainWorld('qortiumHome', {
 
       return () => {
         ipcRenderer.removeListener('qdn-views:app-title-changed', listener);
+      };
+    },
+    onAppAudioStateChanged: (callback: (event: {
+      audible: boolean;
+      muted: boolean;
+      tabId: string;
+    }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { audible: boolean; muted: boolean; tabId: string },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-views:app-audio-state-changed', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-views:app-audio-state-changed', listener);
       };
     },
     onAppNavigationChanged: (callback: (event: {

@@ -583,6 +583,8 @@ export const ar: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "صفحات البدء",
   "startPages.summary": "سيتم فتح {count} صفحة عند بدء Home",
   "tabs.closeNamed": "إغلاق {label}",
+  "tabs.muteNamed": "كتم {label}",
+  "tabs.unmuteNamed": "إلغاء كتم {label}",
   "tabs.closeOtherTabs": "إغلاق علامات التبويب الأخرى",
   "tabs.closeTab": "إغلاق علامة التبويب",
   "tabs.closeTabsToRight": "إغلاق علامات التبويب إلى اليمين",

@@ -583,6 +583,8 @@ export const ja: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "スタートページ",
   "startPages.summary": "Home の起動時に {count} ページが開きます",
   "tabs.closeNamed": "{label}を閉じる",
+  "tabs.muteNamed": "{label}をミュート",
+  "tabs.unmuteNamed": "{label}のミュートを解除",
   "tabs.closeOtherTabs": "他のタブを閉じる",
   "tabs.closeTab": "タブを閉じる",
   "tabs.closeTabsToRight": "右側のタブを閉じる",

@@ -583,6 +583,8 @@ export const hu: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Kezdőoldalak",
   "startPages.summary": "A Home indulásakor {count} oldal nyílik meg",
   "tabs.closeNamed": "{label} bezárása",
+  "tabs.muteNamed": "{label} némítása",
+  "tabs.unmuteNamed": "{label} némításának feloldása",
   "tabs.closeOtherTabs": "Többi lap bezárása",
   "tabs.closeTab": "Lap bezárása",
   "tabs.closeTabsToRight": "Jobbra lévő lapok bezárása",

@@ -556,6 +556,8 @@ export const el: Record<TranslationKey, string> = {
   "qdnWrite.voteDirection": "Ψήφος",
   "qdnWrite.voteOppose": "Εναντίωση",
   "tabs.closeNamed": "Κλείσιμο {label}",
+  "tabs.muteNamed": "Σίγαση {label}",
+  "tabs.unmuteNamed": "Κατάργηση σίγασης {label}",
   "tabs.closeOtherTabs": "Κλείσιμο άλλων καρτελών",
   "tabs.closeTab": "Κλείσιμο καρτέλας",
   "tabs.closeTabsToRight": "Κλείσιμο καρτελών προς τα δεξιά",

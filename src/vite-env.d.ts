@@ -901,6 +901,7 @@ interface Window {
       capture: (tabId: string) => Promise<string | null>;
       destroy: (tabId: string) => Promise<void>;
       hide: (tabId: string) => Promise<void>;
+      setAudioMuted?: (request: { muted: boolean; tabId: string }) => Promise<void>;
       setBounds: (request: QortiumQdnViewBoundsRequest) => Promise<void>;
       navigate: (request: { index: number; tabId: string }) => Promise<boolean>;
       show: (request: QortiumQdnViewShowRequest) => Promise<void>;
@@ -959,6 +960,9 @@ interface Window {
       ) => () => void;
       onAppTitleChanged?: (
         callback: (event: { tabId: string; title: string | null }) => void,
+      ) => () => void;
+      onAppAudioStateChanged?: (
+        callback: (event: { audible: boolean; muted: boolean; tabId: string }) => void,
       ) => () => void;
       onAppNavigationChanged?: (
         callback: (event: {

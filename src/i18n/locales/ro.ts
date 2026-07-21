@@ -583,6 +583,8 @@ export const ro: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Pagini de pornire",
   "startPages.summary": "{count} pagină/pagini se vor deschide la pornirea Home",
   "tabs.closeNamed": "Închide {label}",
+  "tabs.muteNamed": "Dezactivează sunetul pentru {label}",
+  "tabs.unmuteNamed": "Activează sunetul pentru {label}",
   "tabs.closeOtherTabs": "Închide celelalte file",
   "tabs.closeTab": "Închide fila",
   "tabs.closeTabsToRight": "Închide filele din dreapta",

@@ -584,6 +584,8 @@ export const nb: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Startsider",
   "startPages.summary": "{count} side(r) åpnes når Home starter",
   "tabs.closeNamed": "Lukk {label}",
+  "tabs.muteNamed": "Demp {label}",
+  "tabs.unmuteNamed": "Slå på lyd for {label}",
   "tabs.closeOtherTabs": "Lukk andre faner",
   "tabs.closeTab": "Lukk fane",
   "tabs.closeTabsToRight": "Lukk faner til høyre",

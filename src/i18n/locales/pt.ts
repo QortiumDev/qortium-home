@@ -583,6 +583,8 @@ export const pt: Record<TranslationKey, string> = {
   "startPages.sectionTitle": "Páginas iniciais",
   "startPages.summary": "{count} página(s) serão abertas quando o Home iniciar",
   "tabs.closeNamed": "Fechar {label}",
+  "tabs.muteNamed": "Silenciar {label}",
+  "tabs.unmuteNamed": "Reativar som de {label}",
   "tabs.closeOtherTabs": "Fechar outras abas",
   "tabs.closeTab": "Fechar aba",
   "tabs.closeTabsToRight": "Fechar abas à direita",
