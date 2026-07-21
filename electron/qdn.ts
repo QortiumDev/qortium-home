@@ -128,6 +128,7 @@ import {
 } from './home-settings-bridge.js';
 import { getPlatformVersion } from './app-versioning.js';
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js';
+import { shouldUseQdnLocalArchiveUpload } from './qdn-publish-routing.js';
 import { getPollOptionsInput } from './qdn-poll-options-input.js';
 import {
   getOptionalPollVoteOptionIndexes,
@@ -5221,18 +5222,21 @@ async function readDirectoryAsZipBase64(sourcePath: string) {
   };
 }
 
-async function buildDirectoryZipBuffer(sourcePath: string) {
+async function buildDirectoryZipBuffer(
+  sourcePath: string,
+  assertSize: (size: number, label: string) => void = assertPublicQdnStreamedPublishSize,
+) {
   const entries: Record<string, Uint8Array> = {};
   const total = { bytes: 0 };
 
-  await buildDirectoryZipEntries(sourcePath, sourcePath, entries, total, assertPublicQdnStreamedPublishSize);
+  await buildDirectoryZipEntries(sourcePath, sourcePath, entries, total, assertSize);
 
   if (Object.keys(entries).length === 0) {
     throw new Error('Selected QDN publish folder is empty.');
   }
 
   const zipBytes = Buffer.from(zipSync(entries));
-  assertPublicQdnStreamedPublishSize(zipBytes.byteLength, 'Selected QDN publish folder archive');
+  assertSize(zipBytes.byteLength, 'Selected QDN publish folder archive');
 
   return zipBytes;
 }
@@ -5338,6 +5342,53 @@ async function preparePublicQdnPublishUploadSource(
       isZip: shouldUseQdnPublishZipEndpoint(resource, fileSource) ? true : undefined,
     },
   };
+}
+
+/**
+ * Local publishes normally pass a filesystem path to Core. Archive services
+ * need the streamed endpoint instead so the ZIP can be unpacked before Core
+ * checks for WEBSITE's root index.html (or APP's archive content).
+ */
+async function prepareLocalQdnArchiveUploadSource(
+  resource: QdnWriteResourceRequest,
+  source: QdnWriteSourceSelection,
+) {
+  if (!source.path || !ARCHIVE_RENDER_SERVICES.has(resource.service)) {
+    return null;
+  }
+
+  const sourceStats = await stat(source.path);
+
+  if (sourceStats.isDirectory()) {
+    const zipBytes = await buildDirectoryZipBuffer(source.path, () => undefined);
+    const directorySource = {
+      ...source,
+      filename: `${path.basename(source.path) || 'qdn-resource'}.zip`,
+      isZip: true,
+      kind: 'directory' as const,
+      size: zipBytes.byteLength,
+    };
+
+    return shouldUseQdnLocalArchiveUpload(resource, directorySource)
+      ? { body: zipBytes, source: directorySource }
+      : null;
+  }
+
+  if (!sourceStats.isFile()) {
+    throw new Error('QDN publish source must be a file or folder.');
+  }
+
+  const fileSource = {
+    ...source,
+    filename: source.filename ?? path.basename(source.path) ?? 'qdn-resource',
+    isZip: path.extname(source.path).toLowerCase() === '.zip',
+    kind: 'file' as const,
+    size: sourceStats.size,
+  };
+
+  return shouldUseQdnLocalArchiveUpload(resource, fileSource)
+    ? { body: createReadStream(source.path), source: fileSource }
+    : null;
 }
 
 function assertLegacyQdnPublishFallbackSize(size: number) {
@@ -5743,19 +5794,61 @@ async function publishQdnResourceForApp(
   const apiKey = localWriteContext.apiKey;
   const privateKey58 = getQdnWritePrivateKey(localWriteContext);
   const inlineSource = isInlineQdnWriteSource(source) ? source : null;
-  const publishPath = inlineSource
-    ? shouldUseQdnPublishZipEndpoint(resource, inlineSource)
+  let unsignedTransaction: Awaited<ReturnType<typeof postLocalNodeText>>;
+
+  if (source.path) {
+    const uploadSource = await prepareLocalQdnArchiveUploadSource(resource, source);
+
+    if (uploadSource) {
+      try {
+        unsignedTransaction = await postLocalNodeUpload(
+          localWriteContext.connection,
+          buildQdnPublishUploadPath(resource, uploadSource.source),
+          uploadSource.body,
+          apiKey,
+          'QDN publish transaction build failed.',
+        );
+      } catch (error) {
+        if (!isQdnUploadEndpointUnsupported(error)) {
+          throw error;
+        }
+
+        assertLegacyQdnPublishFallbackSize(uploadSource.source.size ?? 0);
+        const fallbackSource = await normalizePublicQdnPublishSource(source);
+        unsignedTransaction = await postLocalNodeText(
+          localWriteContext.connection,
+          buildQdnPublishZipPath(resource),
+          fallbackSource.dataBase64,
+          apiKey,
+          'QDN publish transaction build failed.',
+        );
+      } finally {
+        if (!Buffer.isBuffer(uploadSource.body) && !uploadSource.body.destroyed) {
+          uploadSource.body.destroy();
+        }
+      }
+    } else {
+      unsignedTransaction = await postLocalNodeText(
+        localWriteContext.connection,
+        buildQdnPublishPath(resource),
+        source.path,
+        apiKey,
+        'QDN publish transaction build failed.',
+      );
+    }
+  } else {
+    const publishPath = inlineSource && shouldUseQdnPublishZipEndpoint(resource, inlineSource)
       ? buildQdnPublishZipPath(resource)
-      : buildQdnPublishBase64Path(resource, inlineSource)
-    : buildQdnPublishPath(resource);
-  const publishBody = inlineSource ? inlineSource.dataBase64 : source.path ?? '';
-  const unsignedTransaction = await postLocalNodeText(
-    localWriteContext.connection,
-    publishPath,
-    publishBody,
-    apiKey,
-    'QDN publish transaction build failed.',
-  );
+      : buildQdnPublishBase64Path(resource, inlineSource ?? source);
+    const publishBody = inlineSource ? inlineSource.dataBase64 : source.dataBase64 ?? '';
+    unsignedTransaction = await postLocalNodeText(
+      localWriteContext.connection,
+      publishPath,
+      publishBody,
+      apiKey,
+      'QDN publish transaction build failed.',
+    );
+  }
   const processedTransaction = await signAndProcessTransaction(
     localWriteContext.connection,
     apiKey,
