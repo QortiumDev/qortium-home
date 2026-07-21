@@ -108,7 +108,10 @@ The four subscription actions above remain scoped to their calling app. Home
 also exposes a separate, durable `notifications.manage` capability for a QDN
 notification-manager app to inspect sanitized summaries across apps, mute or
 unmute an app, remove selected rules, or revoke an app's notification grant.
-The manager cannot create or replace another app's subscriptions.
+The manager cannot create or replace another app's subscriptions. The
+capability is Home's Notifications Manager role and is held by at most one app
+at a time: granting it to a new app replaces the previous holder, and users
+assign or revoke it in the Settings "QDN Apps" section.
 
 Manager summaries omit stored account bindings and mask wallet xpubs and
 signatures. Address-like filters (`address`, `involving`, `recipient`,

@@ -1,6 +1,6 @@
 # Home settings QDN bridge
 
-Home 1.5.0 adds a deliberately narrow display-settings bridge for APP and WEBSITE resources. It never exposes node connections, wallets, bookmarks, start pages, dashboard pins, update policies, or notification storage. Bookmark and notification management use separate, elevated, revision-checked capabilities documented in [Home data manager QDN bridge](HOME_DATA_MANAGERS.md).
+Home 1.5.0 adds a deliberately narrow display-settings bridge for APP and WEBSITE resources. It never exposes node connections, wallets, bookmarks, start pages, dashboard pins, update policies, notification storage, or Home's QDN app role assignments (which app is the Bookmarks or Notifications Manager). Bookmark and notification management use separate, elevated, revision-checked role capabilities documented in [Home data manager QDN bridge](HOME_DATA_MANAGERS.md); the only app-facing way to gain or change a role is that document's approval dialog, never this settings bridge.
 
 Use `SHOW_ACTIONS` to feature-detect these actions. They are available in local, custom, and public/network node modes.
 

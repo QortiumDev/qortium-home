@@ -1,25 +1,23 @@
 import {
-  QDN_MANAGER_CAPABILITIES,
-  type QdnManagerCapability,
-  type QdnManagerPermissionStore,
+  QDN_APP_ROLES,
+  type QdnAppRole,
+  type QdnAppRolesStore,
 } from '../electron/qdn-manager-permissions';
 
-export type QdnManagerPermissionRow = {
-  appKey: string;
-  capability: QdnManagerCapability;
-  grantedAt: string;
+export type QdnAppRoleRow = {
+  role: QdnAppRole;
+  url: string | null;
+  grantedAt: string | null;
 };
 
-export function getQdnManagerPermissionRows(store: QdnManagerPermissionStore | null): QdnManagerPermissionRow[] {
+/** One row per role, in the fixed role order — unassigned roles still get a row. */
+export function getQdnAppRoleRows(store: QdnAppRolesStore | null): QdnAppRoleRow[] {
   if (!store) return [];
-
-  return Object.entries(store.grants)
-    .flatMap(([appKey, capabilities]) => QDN_MANAGER_CAPABILITIES.flatMap((capability) => {
-      const grant = capabilities[capability];
-      return grant ? [{ appKey, capability, grantedAt: grant.grantedAt }] : [];
-    }))
-    .sort((left, right) => left.appKey.localeCompare(right.appKey)
-      || left.capability.localeCompare(right.capability));
+  return QDN_APP_ROLES.map((role) => ({
+    role,
+    url: store.roles[role].url,
+    grantedAt: store.roles[role].grantedAt,
+  }));
 }
 
 export function getQdnManagerPermissionAppName(appKey: string) {

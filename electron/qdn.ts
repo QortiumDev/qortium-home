@@ -117,8 +117,13 @@ import {
 import {
   grantQdnManagerPermission,
   hasQdnManagerPermission,
+  readQdnAppRolesStore,
 } from './qdn-manager-permission-store.js';
-import { sanitizeQdnManagerAppKey, type QdnManagerCapability } from './qdn-manager-permissions.js';
+import {
+  getQdnAppRoleReplacedHolder,
+  sanitizeQdnManagerAppKey,
+  type QdnManagerCapability,
+} from './qdn-manager-permissions.js';
 import {
   getHomeSettingsApprovalDetails,
   getHomeSettingsMetadata,
@@ -896,9 +901,12 @@ async function requireQdnManagerPermission(
   const appKey = getQdnManagerPermissionAppKey(context);
   if (hasQdnManagerPermission(appKey, capability)) return appKey;
 
+  // A role is held by at most one app, so approving this prompt replaces any
+  // current holder; surface that in the approval dialog.
+  const replacedHolder = getQdnAppRoleReplacedHolder(readQdnAppRolesStore(), appKey, capability);
   await requestQdnWriteApproval(context, null, {
     action,
-    details: [],
+    details: replacedHolder ? [{ label: 'Replaces current manager', value: replacedHolder }] : [],
     permissionScope: 'always',
   }, 'Home data manager permission was denied.');
   assertFreshQdnWriteContext(sender, context);

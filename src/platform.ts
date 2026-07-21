@@ -103,10 +103,11 @@ import {
   replaceAppNotificationRules,
 } from './notificationStore';
 import {
+  getQdnAppRolesStore,
   grantQdnManagerPermission,
   hasQdnManagerPermission,
 } from './qdnManagerPermissions';
-import { sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
+import { getQdnAppRoleReplacedHolder, sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
 import {
   assertOpenQortalGroupMetadata,
   assertPositiveQortalGroupId,
@@ -8015,9 +8016,12 @@ async function requireQdnManagerPermission(
 ) {
   const appKey = context.resourceUrl;
   if (await hasQdnManagerPermission(appKey, capability)) return appKey;
+  // A role is held by at most one app, so approving this prompt replaces any
+  // current holder; surface that in the approval dialog.
+  const replacedHolder = getQdnAppRoleReplacedHolder(await getQdnAppRolesStore(), appKey, capability);
   await requestQdnWriteApproval(context, null, {
     action,
-    details: [],
+    details: replacedHolder ? [{ label: 'Replaces current manager', value: replacedHolder }] : [],
     permissionScope: 'always',
   }, 'Home data manager permission was denied.');
   if (context.isCurrent && !context.isCurrent()) {

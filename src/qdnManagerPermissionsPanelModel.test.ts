@@ -1,40 +1,32 @@
 import assert from 'node:assert/strict';
-import type { QdnManagerPermissionStore } from '../electron/qdn-manager-permissions';
+import type { QdnAppRolesStore } from '../electron/qdn-manager-permissions';
 import {
   formatQdnManagerPermissionTime,
+  getQdnAppRoleRows,
   getQdnManagerPermissionAppName,
-  getQdnManagerPermissionRows,
 } from './qdnManagerPermissionsPanelModel';
 
-const store: QdnManagerPermissionStore = {
+const store: QdnAppRolesStore = {
   version: 1,
-  grants: {
-    'qdn://WEBSITE/Zed/Home': {
-      'notifications.manage': { grantedAt: '2026-07-19T15:30:00.000Z' },
-    },
-    'qdn://APP/Bookmarks/Bookmarks': {
-      'notifications.manage': { grantedAt: '2026-07-19T14:00:00.000Z' },
-      'bookmarks.manage': { grantedAt: '2026-07-19T13:00:00.000Z' },
-    },
+  legacyMigrated: true,
+  roles: {
+    bookmarksManager: { url: 'qdn://APP/Bookmarks/Bookmarks', grantedAt: '2026-07-19T13:00:00.000Z' },
+    notificationsManager: { url: null, grantedAt: null },
   },
 };
 
-assert.deepEqual(getQdnManagerPermissionRows(null), []);
-assert.deepEqual(getQdnManagerPermissionRows(store), [
+assert.deepEqual(getQdnAppRoleRows(null), []);
+// One row per role, in fixed role order; unassigned roles still get a row.
+assert.deepEqual(getQdnAppRoleRows(store), [
   {
-    appKey: 'qdn://APP/Bookmarks/Bookmarks',
-    capability: 'bookmarks.manage',
+    role: 'bookmarksManager',
+    url: 'qdn://APP/Bookmarks/Bookmarks',
     grantedAt: '2026-07-19T13:00:00.000Z',
   },
   {
-    appKey: 'qdn://APP/Bookmarks/Bookmarks',
-    capability: 'notifications.manage',
-    grantedAt: '2026-07-19T14:00:00.000Z',
-  },
-  {
-    appKey: 'qdn://WEBSITE/Zed/Home',
-    capability: 'notifications.manage',
-    grantedAt: '2026-07-19T15:30:00.000Z',
+    role: 'notificationsManager',
+    url: null,
+    grantedAt: null,
   },
 ]);
 assert.equal(getQdnManagerPermissionAppName('qdn://APP/My%20Bookmarks/Bookmarks'), 'My Bookmarks');
@@ -42,4 +34,4 @@ assert.equal(getQdnManagerPermissionAppName('not-a-qdn-url'), 'not-a-qdn-url');
 assert.equal(formatQdnManagerPermissionTime('invalid'), 'invalid');
 assert.match(formatQdnManagerPermissionTime('2026-07-19T15:30:00.000Z', 'en-US'), /2026/);
 
-console.log('QDN manager permission panel model fixtures passed.');
+console.log('QDN apps panel model fixtures passed.');
