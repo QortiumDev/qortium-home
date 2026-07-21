@@ -1789,7 +1789,9 @@ function BrowserTabs({
       return;
     }
 
-    if ((event.target as HTMLElement).closest('.top-bar__tab-close')) {
+    // The tab surface itself supports pointer dragging, but its independent
+    // controls must receive an ordinary click without pointer capture.
+    if ((event.target as HTMLElement).closest('.top-bar__tab-audio, .top-bar__tab-close')) {
       return;
     }
 
