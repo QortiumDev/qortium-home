@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-21 - fix(updates): stop reporting an installed update as still downloaded
+
+Says "Up to date" again once you have actually installed an update. If you used
+the in-app downloader to fetch a new Qortium Home and then installed it, the
+Qortium Home status kept saying "Downloaded" and kept offering "Show file" on
+desktop or "Install APK" on mobile, as though the update were still waiting for
+you. The check itself was correct — the app simply never forgot the file it had
+downloaded earlier, and that remembered file still looked like a match for the
+release you were now running. Home now only treats a downloaded file as pending
+while an update is genuinely available, and forgets it once no release channel
+still offers it. This was only visible to people who updated through the app and
+had then reached the newest release, which is why it surfaced with 1.5.2.
+
 ### 2026-07-21 - feat(tabs): show which tab is making sound
 
 Tells you which tab the noise is coming from, and lets you silence it. When a
