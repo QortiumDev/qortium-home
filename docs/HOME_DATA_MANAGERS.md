@@ -123,6 +123,11 @@ If `expectedRevision` is no longer current, the request rejects with error code
 `HOME_DATA_STALE`. Fetch a new snapshot, reconcile the user's pending edit, and
 retry; do not silently overwrite the newer Home state.
 
+If a link draft's `displayUrl` (or a `BOOKMARKS_OPEN` address) is not a
+supported `qdn://`, `core://`, or `home://` address, the request rejects with
+error code `INVALID_ADDRESS`. Show the user a specific "not a valid address"
+message rather than relaying the raw error text.
+
 `BOOKMARKS_OPEN` asks Home to open a saved address in a tab, under the
 `bookmarks.manage` capability like `BOOKMARKS_GET`/`BOOKMARKS_APPLY`:
 

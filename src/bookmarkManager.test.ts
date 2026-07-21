@@ -111,4 +111,16 @@ assert.equal(rejectedFullMove.changed, false);
 assert.equal(rejectedFullMove.snapshot.dashboardPins.length, 1);
 assert.equal(rejectedFullMove.snapshot.bookmarks.length, 128);
 
+// The bridge apply path surfaces the contract's INVALID_ADDRESS code, so
+// manager apps can distinguish a bad address from other failures.
+assert.throws(
+  () => applyBookmarkManagerMutation(initial, {
+    type: 'addTreeLink',
+    rootId: 'bookmarks',
+    link: { displayUrl: 'https://example.com', title: 'Nope' },
+  }),
+  (error: unknown) => (error as { code?: string }).code === 'INVALID_ADDRESS',
+  'apply rejects unsupported addresses with INVALID_ADDRESS',
+);
+
 console.log('Bookmark manager reducer tests passed.');

@@ -310,7 +310,12 @@ function parseLinkDraft(value: unknown, name: string): BookmarkManagerLinkDraft 
   const isQdnUrl = isQdnWildcardUrl
     || (!!qdnMatch && isPublicQdnService(qdnMatch[1].toUpperCase()));
   if (!isHomeUrl && !isCoreUrl && !isQdnUrl) {
-    throw new Error(`${name}.displayUrl must be a supported qdn://, core://, or home:// address.`);
+    // Stable code, like HOME_DATA_STALE: manager apps key localized errors off
+    // it rather than parsing the message.
+    throw Object.assign(
+      new Error(`${name}.displayUrl must be a supported qdn://, core://, or home:// address.`),
+      { code: 'INVALID_ADDRESS' },
+    );
   }
 
   return {
@@ -617,7 +622,10 @@ export function validateBookmarksOpenRequest(value: unknown): BookmarksOpenReque
 
   const address = getString(record.address, 'request.address', BOOKMARKS_OPEN_ADDRESS_MAX_LENGTH);
   if (!/^(?:qdn|home|core):\/\//i.test(address)) {
-    throw new Error('request.address must be a supported qdn://, home://, or core:// address.');
+    throw Object.assign(
+      new Error('request.address must be a supported qdn://, home://, or core:// address.'),
+      { code: 'INVALID_ADDRESS' },
+    );
   }
 
   const accountId = getOptionalNullableString(record.accountId, 'request.accountId', MAX_ACCOUNT_ID_LENGTH);
