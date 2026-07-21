@@ -840,6 +840,31 @@ async function loadResourceMetadata(resource: QdnResource, nodeApiUrl: string, s
   return data;
 }
 
+// Core answers a not-yet-built resource with 503 and its full HTML loading
+// splash, so an error body is not necessarily a message worth showing. Only
+// short, non-HTML bodies are used verbatim -- those are Core's plain-text
+// errors ("Error 404: File Not Found"). Anything else falls back to the
+// localised status message, otherwise a ~24KB HTML document ends up as the
+// error string in the UI.
+const MAX_RENDER_ERROR_BODY_LENGTH = 200;
+
+async function renderErrorMessage(response: Response) {
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (contentType.includes('text/html')) {
+    await response.body?.cancel();
+    return t('viewer.renderRequestFailed', { status: response.status });
+  }
+
+  const body = (await response.text()).trim();
+
+  if (body.length === 0 || body.length > MAX_RENDER_ERROR_BODY_LENGTH) {
+    return t('viewer.renderRequestFailed', { status: response.status });
+  }
+
+  return body;
+}
+
 async function verifyRenderUrl(renderUrl: string, signal: AbortSignal) {
   const response = await fetch(renderUrl, { signal });
 
@@ -848,8 +873,7 @@ async function verifyRenderUrl(renderUrl: string, signal: AbortSignal) {
   }
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || t('viewer.renderRequestFailed', { status: response.status }));
+    throw new Error(await renderErrorMessage(response));
   }
 
   await response.body?.cancel();
@@ -1072,9 +1096,20 @@ function useQdnResourceLoader(
       const useBlobRenderUrl = shouldUseBlobRenderUrl(viewerKind);
       let renderUrl = directRenderUrl;
 
+      // Media elements cannot report why a source failed -- a <video> handed
+      // Core's HTML loading splash fires a bare MEDIA_ERR_SRC_NOT_SUPPORTED --
+      // so verify the response for them too, not just iframe and image. The
+      // fetch resolves on headers and the body is cancelled immediately, so
+      // this costs a round trip rather than a download. The blob path fetches
+      // the bytes itself and surfaces its own errors, so it is left alone.
+      const shouldVerifyRenderUrl =
+        viewerKind === 'iframe' ||
+        (!useBlobRenderUrl &&
+          (viewerKind === 'image' || viewerKind === 'video' || viewerKind === 'audio'));
+
       if (useArchiveRenderUrl) {
         renderUrl = await prepareArchiveRenderUrl(activeResource);
-      } else if (viewerKind === 'iframe' || (viewerKind === 'image' && !useBlobRenderUrl)) {
+      } else if (shouldVerifyRenderUrl) {
         await verifyRenderUrl(directRenderUrl, abortController.signal);
       }
 
