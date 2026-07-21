@@ -740,4 +740,9 @@ export const ru: Record<TranslationKey, string> = {
   "welcome.step.node": "Узел",
   "welcome.subtitle": "Несколько решений сейчас помогут Qortium Home работать так, как вам нужно.",
   "welcome.title": "Добро пожаловать в Qortium Home",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

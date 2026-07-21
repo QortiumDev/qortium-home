@@ -739,6 +739,11 @@ export const en = {
   "welcome.step.node": "Node",
   "welcome.subtitle": "A few choices now will help Qortium Home work the way you want.",
   "welcome.title": "Welcome to Qortium Home",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 } as const;
 
 export type TranslationKey = keyof typeof en;

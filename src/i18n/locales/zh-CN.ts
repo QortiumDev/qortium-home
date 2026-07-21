@@ -740,4 +740,9 @@ export const zhCN: Record<TranslationKey, string> = {
   "welcome.step.node": "节点",
   "welcome.subtitle": "现在做出几项选择，帮助 Qortium Home 按你的方式运行。",
   "welcome.title": "欢迎使用 Qortium Home",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

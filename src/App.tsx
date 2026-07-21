@@ -72,6 +72,8 @@ import {
 } from './displaySettings';
 import { getWritableHomeSettings, validateHomeSettingsPatch, type HomeSettings } from '../electron/home-settings-bridge';
 import { sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
+import { getInitialPreferredApps, loadPreferredApps, savePreferredApps } from './preferredAppsStore';
+import type { PreferredApps } from './preferredApps';
 import {
   createDashboardPin,
   loadDashboardPins,
@@ -124,7 +126,6 @@ import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } fro
 import { TopBar } from './TopBar';
 import { WelcomePage } from './WelcomePage';
 import {
-  BOOKMARKS_ROUTE,
   DASHBOARD_ROUTE,
   SETTINGS_ROUTE,
   WELCOME_ROUTE,
@@ -238,6 +239,7 @@ const INITIAL_SETTINGS_EXPANSION: SettingsExpansionState = {
   home: false,
   notifications: false,
   node: false,
+  preferredApps: false,
 };
 
 function accountExists(accountsState: QortiumAccountsState, accountId: string | null) {
@@ -943,6 +945,7 @@ export function App() {
   const [hasBookmarkManagerLoadError, setHasBookmarkManagerLoadError] = useState(false);
   const [settingsExpansion, setSettingsExpansion] = useState<SettingsExpansionState>(INITIAL_SETTINGS_EXPANSION);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings>(getInitialDisplaySettings);
+  const [preferredApps, setPreferredApps] = useState<PreferredApps>(getInitialPreferredApps);
   const [notificationRulesVersion, setNotificationRulesVersion] = useState(getNotificationRulesVersion);
   const [notificationManagerRevision, setNotificationManagerRevision] = useState(0);
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
@@ -1044,6 +1047,16 @@ export function App() {
   // catalog finishes loading to swap the English fallback for the real strings.
   const [, bumpLocaleVersion] = useState(0);
   useEffect(() => subscribeTranslationChange(() => bumpLocaleVersion((version) => version + 1)), []);
+
+  useEffect(() => {
+    let active = true;
+    void loadPreferredApps()
+      .then((nextPreferredApps) => {
+        if (active) setPreferredApps(nextPreferredApps);
+      })
+      .catch((error) => console.warn('Unable to load preferred apps.', error));
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const qdnPermissions = window.qortiumHome.qdnPermissions;
@@ -2238,6 +2251,14 @@ export function App() {
     }));
   }
 
+  function updateBookmarksManagerApp(bookmarksManager: string) {
+    const nextPreferredApps = { ...preferredApps, bookmarksManager };
+    setPreferredApps(nextPreferredApps);
+    void savePreferredApps(nextPreferredApps).catch((error) => {
+      console.warn('Unable to save preferred apps.', error);
+    });
+  }
+
   function updateActiveTab(updateTab: (tab: BrowserTab) => BrowserTab) {
     setTabState((currentTabState) => ({
       ...currentTabState,
@@ -2438,6 +2459,7 @@ export function App() {
       home: sectionId === 'home',
       notifications: sectionId === 'notifications',
       node: sectionId === 'node',
+      preferredApps: sectionId === 'preferredApps',
     });
     navigateToRoute(SETTINGS_ROUTE);
   }
@@ -2569,7 +2591,7 @@ export function App() {
   }
 
   function openBookmarksManager() {
-    navigateToRoute(BOOKMARKS_ROUTE);
+    openAppLinkInNewTab(preferredApps.bookmarksManager, tabState.activeTabId);
   }
 
   function openSavedAddress(displayUrl: string, accountId?: string | null) {
@@ -4210,9 +4232,11 @@ export function App() {
                   onAccentChange={updateAccent}
                   onAppNotificationsChange={updateAppNotifications}
                   onAppZoomChange={updateAppZoom}
+                  onBookmarksManagerChange={updateBookmarksManagerApp}
                   onThemeChange={updateTheme}
                   onTextSizeChange={updateTextSize}
                   onUiChange={updateUi}
+                  preferredApps={preferredApps}
                   sectionExpansion={settingsExpansion}
                   displaySettings={displaySettings}
                 />

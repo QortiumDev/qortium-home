@@ -740,4 +740,9 @@ export const ja: Record<TranslationKey, string> = {
   "welcome.step.node": "ノード",
   "welcome.subtitle": "いくつか選択するだけで、Qortium Homeを希望どおりに使えるようになります。",
   "welcome.title": "Qortium Homeへようこそ",
+  "preferredApps.bookmarksManager": "Bookmarks Manager",
+  "preferredApps.description": "Choose which QDN app Home opens for each feature. Your choices stay on this device.",
+  "preferredApps.invalidAddress": "Enter a valid QDN APP or WEBSITE resource URL.",
+  "preferredApps.sectionTitle": "Preferred apps",
+  "preferredApps.useDefault": "Use default",
 };

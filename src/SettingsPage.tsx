@@ -16,9 +16,11 @@ import type {
 import { t } from './i18n';
 import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
+import { PreferredAppsSettingsPanel } from './PreferredAppsSettingsPanel';
+import type { PreferredApps } from './preferredApps';
 import { SettingsSection } from './SettingsSection';
 
-export type SettingsSectionId = 'core' | 'dataPermissions' | 'display' | 'home' | 'node' | 'notifications';
+export type SettingsSectionId = 'core' | 'dataPermissions' | 'display' | 'home' | 'node' | 'notifications' | 'preferredApps';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -34,6 +36,7 @@ type SettingsPageProps = {
   onAccentChange: (accent: AccentSetting) => void;
   onAppNotificationsChange: (appNotifications: boolean) => void;
   onAppZoomChange: (appZoom: number) => void;
+  onBookmarksManagerChange: (bookmarksManager: string) => void;
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
@@ -41,6 +44,7 @@ type SettingsPageProps = {
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
   onUiChange: (ui: UiSetting) => void;
+  preferredApps: PreferredApps;
 };
 
 export function SettingsPage({
@@ -53,6 +57,7 @@ export function SettingsPage({
   onLanguageChange,
   onAppNotificationsChange,
   onAppZoomChange,
+  onBookmarksManagerChange,
   onOpenReleaseNotes,
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
@@ -61,6 +66,7 @@ export function SettingsPage({
   onThemeChange,
   onTextSizeChange,
   onUiChange,
+  preferredApps,
   sectionExpansion,
 }: SettingsPageProps) {
   // On desktop the node-connection controls live inside the Qortium Core section.
@@ -94,6 +100,12 @@ export function SettingsPage({
         <QdnManagerPermissionsPanel
           isExpanded={sectionExpansion.dataPermissions}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('dataPermissions', isExpanded)}
+        />
+        <PreferredAppsSettingsPanel
+          isExpanded={sectionExpansion.preferredApps}
+          preferredApps={preferredApps}
+          onBookmarksManagerChange={onBookmarksManagerChange}
+          onExpandedChange={(isExpanded) => onSectionExpansionChange('preferredApps', isExpanded)}
         />
         {hasManagedCore ? null : (
           <SettingsSection

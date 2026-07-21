@@ -1734,6 +1734,9 @@ h1 {
   margin: 0;
 }
 
+.preferred-apps-settings { display: grid; gap: 14px; }
+.preferred-apps-settings__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
 .qdn-manager-permissions__grant {
   align-items: center;
   background: var(--color-surface-alt);
