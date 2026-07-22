@@ -526,6 +526,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "顯示通知",
   "qdnWrite.action.sendCoin": "傳送幣",
   "qdnWrite.action.setGroup": "設定預設群組",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "開始鑄造",
   "qdnWrite.action.transferAsset": "轉移資產",

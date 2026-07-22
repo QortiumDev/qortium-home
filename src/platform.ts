@@ -9,6 +9,28 @@ import packageJson from '../package.json';
 import { compareAppVersions } from './appUpdates';
 import { sniffMagicMimeType } from './qdnContentType';
 import {
+  buildAccountAvatarPath,
+  buildAvatarInfoPath,
+  buildAccountAvatarPendingResult,
+  buildAvatarResourcePath,
+  buildLegacyAccountAvatarResource,
+  buildLegacyGroupAvatarResource,
+  buildGroupAvatarPendingResult,
+  buildGroupAvatarPath,
+  buildSetAccountAvatarTransactionBody,
+  buildSetGroupAvatarTransactionBody,
+  getAvatarDescriptorFromHeaders,
+  getAvatarDescriptor,
+  getAvatarImageContentType,
+  getGroupAvatarContentType,
+  getGroupAvatarGroupId,
+  getGroupAvatarMaxBytes,
+  getOptionalGroupAvatarSignature,
+  type AccountAvatarFetchResult,
+  type GroupAvatarFetchResult,
+} from '../electron/qdn-group-avatar-input';
+import {
+  QDN_ACCOUNT_AVATAR_ACTIONS,
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
   QDN_APP_BRIDGE_ACTIONS,
   QDN_BOOKMARK_MANAGER_ACTIONS,
@@ -365,6 +387,7 @@ type QdnAppRequestContext = {
 };
 
 type QdnWriteAction = (typeof QDN_WRITE_ACTIONS)[number];
+type QdnAccountAvatarAction = (typeof QDN_ACCOUNT_AVATAR_ACTIONS)[number];
 type QdnGroupAction = (typeof QDN_GROUP_ACTIONS)[number];
 type QdnNameAction = (typeof QDN_NAME_ACTIONS)[number];
 type QdnPaymentAction = (typeof QDN_PAYMENT_ACTIONS)[number];
@@ -379,6 +402,7 @@ type QdnBookmarkManagerAction = (typeof QDN_BOOKMARK_MANAGER_ACTIONS)[number];
 type QdnNotificationManagerAction = (typeof QDN_NOTIFICATION_MANAGER_ACTIONS)[number];
 type QdnWriteApprovalAction =
   | QdnWriteAction
+  | QdnAccountAvatarAction
   | QdnGroupAction
   | QdnNameAction
   | QdnPaymentAction
@@ -5168,6 +5192,214 @@ async function updateGroupForApp(request: QdnAppRequest, context: QdnAppRequestC
     action: 'UPDATE_GROUP',
     groupId,
     groupName,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+// Core resolves the group-authorized, immutable QDN transaction signature before
+// serving these bytes. Home intentionally returns bounded base64 instead of a
+// node URL so apps cannot bypass the on-chain group-avatar authorization state.
+async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvatarFetchResult> {
+  const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+  const maxBytes = getGroupAvatarMaxBytes(getRequestValue(request, 'maxBytes'));
+  const settings = await readNodeSettings();
+  const { nodeApiUrl, response: infoResponse } = await requestConfiguredNode(settings, buildAvatarInfoPath('group', groupId), 'json');
+  if (infoResponse.status === 404) {
+    const groupData = await getGroupDataForChat(nodeApiUrl, groupId).catch(() => null);
+    const ownerPrimaryName = isRecord(groupData) ? getString(groupData.ownerPrimaryName) : '';
+    if (ownerPrimaryName) {
+      const legacyResponse = await requestNode(nodeApiUrl, buildAvatarResourcePath(buildLegacyGroupAvatarResource(ownerPrimaryName, groupId)), 'arraybuffer');
+      if (legacyResponse.status === 202) return buildGroupAvatarPendingResult(groupId, getHeader(legacyResponse, 'retry-after'), 'LEGACY');
+      if (legacyResponse.status >= 200 && legacyResponse.status < 300 && typeof legacyResponse.data === 'string') {
+        const declaredLength = getContentLength(legacyResponse);
+        if (typeof declaredLength === 'number' && declaredLength > maxBytes) {
+          throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+        }
+        const legacyBytes = base64ToBytes(legacyResponse.data);
+        if (legacyBytes.byteLength > maxBytes) throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+        const contentType = getAvatarImageContentType(getContentType(legacyResponse), legacyBytes);
+        if (!contentType) throw new Error('Legacy group avatar was not a supported image.');
+        return { groupId, body: legacyResponse.data, encoding: 'base64' as const, contentType, contentLength: legacyBytes.byteLength, source: 'LEGACY' as const, descriptor: null };
+      }
+    }
+    throw new Error('Group avatar is not set.');
+  }
+  if (infoResponse.status < 200 || infoResponse.status >= 300 || !isRecord(infoResponse.data)) {
+    throw new Error(`Group avatar authorization lookup failed with HTTP ${infoResponse.status}.`);
+  }
+  const authorizedDescriptor = getAvatarDescriptor({
+    signature: getString(infoResponse.data.signature), service: getString(infoResponse.data.service), name: getString(infoResponse.data.name), identifier: getString(infoResponse.data.identifier) || null,
+  });
+  if (!authorizedDescriptor) throw new Error('Group avatar authorization metadata was invalid.');
+  const response = await requestNode(nodeApiUrl, buildGroupAvatarPath(groupId), 'arraybuffer');
+  const descriptor = getAvatarDescriptorFromHeaders((name) => getHeader(response, name)) ?? authorizedDescriptor;
+
+  if (response.status === 202) {
+    return buildGroupAvatarPendingResult(groupId, getHeader(response, 'retry-after'), 'AUTHORIZED', descriptor);
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Group avatar request failed with HTTP ${response.status}.`);
+  }
+  if (typeof response.data !== 'string') {
+    throw new Error('Group avatar response was not binary data.');
+  }
+
+  const bytes = base64ToBytes(response.data);
+  const contentLength = getContentLength(response) ?? bytes.byteLength;
+  if (contentLength > maxBytes) {
+    throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  return {
+    groupId,
+    body: response.data,
+    encoding: 'base64' as const,
+    contentType: getAvatarImageContentType(getContentType(response), bytes) ?? (() => { throw new Error('Group avatar was not a supported image.'); })(),
+    contentLength,
+    source: 'AUTHORIZED' as const,
+    descriptor,
+  };
+}
+
+async function fetchAccountAvatarForApp(
+  request: QdnAppRequest,
+  context: QdnAppRequestContext | undefined,
+): Promise<AccountAvatarFetchResult> {
+  const address = await getAddressForQdnRequest(request, context, 'Address');
+  const maxBytes = getGroupAvatarMaxBytes(getRequestValue(request, 'maxBytes'));
+  const settings = await readNodeSettings();
+  const { nodeApiUrl, response: infoResponse } = await requestConfiguredNode(settings, buildAvatarInfoPath('account', address), 'json');
+  if (infoResponse.status === 404) {
+    const primaryName = await getPrimaryName(address, nodeApiUrl);
+    if (primaryName) {
+      for (const kind of ['qortium', 'qortal-hub'] as const) {
+        const legacyResponse = await requestNode(nodeApiUrl, buildAvatarResourcePath(buildLegacyAccountAvatarResource(primaryName, kind)), 'arraybuffer');
+        if (legacyResponse.status === 202) return buildAccountAvatarPendingResult(address, getHeader(legacyResponse, 'retry-after'), 'LEGACY');
+        if (legacyResponse.status < 200 || legacyResponse.status >= 300 || typeof legacyResponse.data !== 'string') continue;
+        const declaredLength = getContentLength(legacyResponse);
+        if (typeof declaredLength === 'number' && declaredLength > maxBytes) continue;
+        const legacyBytes = base64ToBytes(legacyResponse.data);
+        if (legacyBytes.byteLength > maxBytes) throw new Error(`Account avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+        const contentType = getAvatarImageContentType(getContentType(legacyResponse), legacyBytes);
+        if (!contentType) continue;
+        return { address, body: legacyResponse.data, encoding: 'base64' as const, contentType, contentLength: legacyBytes.byteLength, source: 'LEGACY' as const, descriptor: null };
+      }
+    }
+    throw new Error('Account avatar is not set.');
+  }
+  if (infoResponse.status < 200 || infoResponse.status >= 300 || !isRecord(infoResponse.data)) {
+    throw new Error(`Account avatar authorization lookup failed with HTTP ${infoResponse.status}.`);
+  }
+  const authorizedDescriptor = getAvatarDescriptor({
+    signature: getString(infoResponse.data.signature), service: getString(infoResponse.data.service), name: getString(infoResponse.data.name), identifier: getString(infoResponse.data.identifier) || null,
+  });
+  if (!authorizedDescriptor) throw new Error('Account avatar authorization metadata was invalid.');
+  const response = await requestNode(nodeApiUrl, buildAccountAvatarPath(address), 'arraybuffer');
+  const descriptor = getAvatarDescriptorFromHeaders((name) => getHeader(response, name)) ?? authorizedDescriptor;
+
+  if (response.status === 202) {
+    return buildAccountAvatarPendingResult(address, getHeader(response, 'retry-after'), 'AUTHORIZED', descriptor);
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Account avatar request failed with HTTP ${response.status}.`);
+  }
+  if (typeof response.data !== 'string') {
+    throw new Error('Account avatar response was not binary data.');
+  }
+
+  const bytes = base64ToBytes(response.data);
+  const contentLength = getContentLength(response) ?? bytes.byteLength;
+  if (contentLength > maxBytes) {
+    throw new Error(`Account avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  return {
+    address,
+    body: response.data,
+    encoding: 'base64' as const,
+    contentType: getAvatarImageContentType(getContentType(response), bytes) ?? (() => { throw new Error('Account avatar was not a supported image.'); })(),
+    contentLength,
+    source: 'AUTHORIZED' as const,
+    descriptor,
+  };
+}
+
+async function setAccountAvatarForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const avatarSignature = getOptionalGroupAvatarSignature(getRequestValue(request, 'avatarSignature'));
+  const writeContext = await getQdnWriteContext(context);
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'SET_ACCOUNT_AVATAR',
+    name: writeContext.profile.name ?? undefined,
+    permissionScope: 'single-request',
+  });
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/addresses/avatar',
+    JSON.stringify(buildSetAccountAvatarTransactionBody({
+      timestamp: Date.now(),
+      fee: getTransactionFee(request),
+      ownerPublicKey: writeContext.publicKey58,
+      avatarSignature,
+    })),
+    writeContext.apiKey,
+    'Set account avatar transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'SET_ACCOUNT_AVATAR',
+    address: writeContext.profile.address,
+    avatarSignature,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
+async function setGroupAvatarForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+  const avatarSignature = getOptionalGroupAvatarSignature(getRequestValue(request, 'avatarSignature'));
+  const writeContext = await getQdnWriteContext(context);
+  const groupData = await getGroupDataForChat(writeContext.nodeApiUrl, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
+    action: 'SET_GROUP_AVATAR',
+    groupId,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.nodeApiUrl,
+    '/groups/avatar',
+    JSON.stringify(
+      buildSetGroupAvatarTransactionBody({
+        timestamp: Date.now(),
+        txGroupId: getTransactionGroupId(request, getGroupCreationGroupId(groupData)),
+        fee: getTransactionFee(request),
+        ownerPublicKey: writeContext.publicKey58,
+        groupId,
+        avatarSignature,
+      }),
+    ),
+    writeContext.apiKey,
+    'Set group avatar transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'SET_GROUP_AVATAR',
+    groupId,
+    groupName,
+    avatarSignature,
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
   };
@@ -10983,6 +11215,12 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
     case 'FETCH_QDN_RESOURCE':
       return fetchNodeApiPayload(buildFetchQdnResourcePath(request), request);
 
+    case 'FETCH_ACCOUNT_AVATAR':
+      return fetchAccountAvatarForApp(request, context);
+
+    case 'FETCH_GROUP_AVATAR':
+      return fetchGroupAvatarForApp(request);
+
     case 'LIST_QDN_RESOURCES':
       return fetchNodeApiPayload(buildQdnAppResourcesPath(request, '/arbitrary/resources'), request);
 
@@ -11069,6 +11307,12 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'UPDATE_GROUP':
       return updateGroupForApp(request, context);
+
+    case 'SET_GROUP_AVATAR':
+      return setGroupAvatarForApp(request, context);
+
+    case 'SET_ACCOUNT_AVATAR':
+      return setAccountAvatarForApp(request, context);
 
     case 'CREATE_GROUP':
       return createGroupForApp(request, context);

@@ -526,6 +526,8 @@ export const nl: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Meldingen tonen",
   "qdnWrite.action.sendCoin": "Munt verzenden",
   "qdnWrite.action.setGroup": "Standaardgroep instellen",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Minting starten",
   "qdnWrite.action.transferAsset": "Asset overdragen",

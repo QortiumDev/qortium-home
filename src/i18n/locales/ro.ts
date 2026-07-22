@@ -526,6 +526,8 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Afișare notificări",
   "qdnWrite.action.sendCoin": "Trimite monedă",
   "qdnWrite.action.setGroup": "Setează grupul implicit",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Pornește minting",
   "qdnWrite.action.transferAsset": "Transferă activ",

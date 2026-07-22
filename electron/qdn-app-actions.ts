@@ -10,6 +10,7 @@
 // platform-specific request/sign/approval handlers stay separate by design.
 
 export const QDN_WRITE_ACTIONS = ['PUBLISH_MULTIPLE_QDN_RESOURCES', 'PUBLISH_QDN_RESOURCE', 'DELETE_QDN_RESOURCE'] as const;
+export const QDN_ACCOUNT_AVATAR_ACTIONS = ['SET_ACCOUNT_AVATAR'] as const;
 export const QDN_GROUP_ACTIONS = [
   'ADD_GROUP_ADMIN',
   'APPROVE_GROUP_JOIN_REQUEST',
@@ -24,6 +25,7 @@ export const QDN_GROUP_ACTIONS = [
   'LEAVE_GROUP',
   'REMOVE_GROUP_ADMIN',
   'SET_GROUP',
+  'SET_GROUP_AVATAR',
   'UPDATE_GROUP',
 ] as const;
 export const QDN_NAME_ACTIONS = [
@@ -84,6 +86,8 @@ export const QDN_ACCOUNT_FREE_WRITE_ACTIONS = [
 ] as const;
 export const QDN_APP_BRIDGE_ACTIONS = [
   'FETCH_NODE_API',
+  'FETCH_ACCOUNT_AVATAR',
+  'FETCH_GROUP_AVATAR',
   'FETCH_QDN_RESOURCE',
   'FETCH_QORTAL_NODE_API',
   'FETCH_QORTAL_RESOURCE',
@@ -143,6 +147,7 @@ export const QDN_APP_BRIDGE_ACTIONS = [
   'SEND_QORT',
   'SEND_QORTAL_GROUP_CHAT',
   ...QDN_WRITE_ACTIONS,
+  ...QDN_ACCOUNT_AVATAR_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
   ...QDN_PAYMENT_ACTIONS,
@@ -182,6 +187,7 @@ export const QDN_MINTING_ACTIONS = ['START_MINTING', 'REMOVE_MINTING_ACCOUNT'] a
 // NOT here: their keyless paths sign locally and work against public nodes.
 const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
   ...QDN_NODE_SETTINGS_ACTIONS,
+  ...QDN_ACCOUNT_AVATAR_ACTIONS,
   ...QDN_GROUP_ACTIONS,
   ...QDN_NAME_ACTIONS,
   ...QDN_PAYMENT_ACTIONS,

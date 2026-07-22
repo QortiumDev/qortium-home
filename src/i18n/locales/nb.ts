@@ -527,6 +527,8 @@ export const nb: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Vis varsler",
   "qdnWrite.action.sendCoin": "Send mynt",
   "qdnWrite.action.setGroup": "Angi standardgruppe",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Start minting",
   "qdnWrite.action.transferAsset": "Overfør aktivum",

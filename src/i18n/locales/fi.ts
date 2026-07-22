@@ -526,6 +526,8 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Näytä ilmoituksia",
   "qdnWrite.action.sendCoin": "Lähetä kolikoita",
   "qdnWrite.action.setGroup": "Aseta oletusryhmä",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Aloita minttaus",
   "qdnWrite.action.transferAsset": "Siirrä omaisuuserä",
