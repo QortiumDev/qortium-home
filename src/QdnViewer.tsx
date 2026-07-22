@@ -37,6 +37,7 @@ import { appendQdnFragment } from './qdn-fragment';
 import { normalizeQdnBridgeNavigationSnapshot } from './qdn-navigation-bridge';
 import { marked } from 'marked';
 import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
+import { readableNodeErrorMessage } from '../electron/node-error-body';
 import {
   fetchNativeHttpBlobUrl,
   getQortiumHomeHostInfo,
@@ -828,7 +829,7 @@ async function loadResourceMetadata(resource: QdnResource, nodeApiUrl: string, s
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(text || `QDN metadata request failed with HTTP ${response.status}.`);
+    throw new Error(readableNodeErrorMessage(text, `QDN metadata request failed with HTTP ${response.status}.`));
   }
 
   const data: unknown = JSON.parse(text);
@@ -989,8 +990,9 @@ async function createBlobRenderUrl({
   }
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || t('viewer.renderRequestFailed', { status: response.status }));
+    // Same guard as verifyRenderUrl: /render answers failures with an HTML page,
+    // which must not become the viewer's error text.
+    throw new Error(await renderErrorMessage(response));
   }
 
   const responseContentType = response.headers.get('content-type') ?? '';
