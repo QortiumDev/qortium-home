@@ -79,6 +79,7 @@
     "test:notification-rules": "node scripts/test-notification-rules.mjs",
     "test:notification-manager": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-manager.test.js",
     "test:qdn-manager-permissions-panel": "esbuild src/qdnManagerPermissionsPanelModel.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-manager-permissions-panel.test.js && node dist-electron/qdn-manager-permissions-panel.test.js",
+    "test:settings-section-target": "esbuild src/settingsSectionTarget.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/settings-section-target.test.js && node dist-electron/settings-section-target.test.js",
     "test:home-settings-bridge": "node scripts/ensure-electron-build.mjs && node dist-electron/home-settings-bridge.test.js",
     "test:qdn-manager-permissions": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-manager-permissions.test.js",
     "test:qdn-manager-events": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-manager-events.test.js",

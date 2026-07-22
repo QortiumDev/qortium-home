@@ -1,5 +1,4 @@
 import { AppUpdatePanel } from './AppUpdatePanel';
-import { AppNotificationsSettingsPanel } from './AppNotificationsSettingsPanel';
 import { QdnAppsSettingsPanel } from './QdnAppsSettingsPanel';
 import type { AppUpdatesState } from './appUpdateState';
 import { CoreManagerPanel } from './CoreManagerPanel';
@@ -17,8 +16,9 @@ import { t } from './i18n';
 import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { SettingsSection } from './SettingsSection';
+import type { SettingsSectionId } from './settingsSectionTarget';
 
-export type SettingsSectionId = 'core' | 'display' | 'home' | 'node' | 'notifications' | 'qdnApps';
+export type { SettingsSectionId } from './settingsSectionTarget';
 
 export type SettingsExpansionState = Record<SettingsSectionId, boolean>;
 
@@ -37,6 +37,7 @@ type SettingsPageProps = {
   onSectionExpansionChange: (sectionId: SettingsSectionId, isExpanded: boolean) => void;
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
+  onOpenNotificationsManager: (url: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
@@ -54,6 +55,7 @@ export function SettingsPage({
   onAppNotificationsChange,
   onAppZoomChange,
   onOpenReleaseNotes,
+  onOpenNotificationsManager,
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
   onSaveNodeSettings,
@@ -87,13 +89,10 @@ export function SettingsPage({
           onTextSizeChange={onTextSizeChange}
           onUiChange={onUiChange}
         />
-        <AppNotificationsSettingsPanel
-          isExpanded={sectionExpansion.notifications}
-          onExpandedChange={(isExpanded) => onSectionExpansionChange('notifications', isExpanded)}
-        />
         <QdnAppsSettingsPanel
           isExpanded={sectionExpansion.qdnApps}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('qdnApps', isExpanded)}
+          onOpenNotificationsManager={onOpenNotificationsManager}
         />
         {hasManagedCore ? null : (
           <SettingsSection

@@ -1,5 +1,6 @@
 import {
   QDN_APP_ROLES,
+  sanitizeQdnManagerAppKey,
   type QdnAppRole,
   type QdnAppRolesStore,
 } from '../electron/qdn-manager-permissions';
@@ -24,6 +25,17 @@ export function getQdnManagerPermissionAppName(appKey: string) {
   const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(appKey);
   if (!match) return appKey;
   try { return decodeURIComponent(match[1]); } catch { return match[1]; }
+}
+
+export function getQdnAppRoleSaveState(value: string, currentUrl: string | null) {
+  const trimmed = value.trim();
+  if (!trimmed) return { changed: false, normalized: null, valid: false };
+  try {
+    const normalized = sanitizeQdnManagerAppKey(trimmed);
+    return { changed: normalized !== currentUrl, normalized, valid: true };
+  } catch {
+    return { changed: true, normalized: null, valid: false };
+  }
 }
 
 export function formatQdnManagerPermissionTime(value: string, locales?: Intl.LocalesArgument) {

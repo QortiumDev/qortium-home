@@ -15,7 +15,8 @@ Home's data.
 Manager permissions are separate from account permissions and from an app's
 permission to send notifications. They are keyed by the calling app's stable
 `qdn://SERVICE/name/identifier` resource base (not its current deep-link path,
-query, or fragment) and persist until the user revokes them in Home settings.
+query, or fragment) and persist until the role is replaced by a new approval
+or Settings assignment.
 
 Each capability is a Home **role** held by at most one app at a time:
 `bookmarks.manage` belongs to the Bookmarks Manager role and
@@ -24,14 +25,15 @@ one `{ url, grantedAt }` pair per role, so a second holder is unrepresentable â€
 granting a capability to a new app replaces the previous holder, and the
 approval dialog names the app being replaced. The Bookmarks Manager role URL
 also drives Home's bookmarks menu routing, so it always has a value (the
-official Bookmarks app by default); revoking a role clears only the grant and
-keeps the chosen app for routing.
+official Bookmarks app by default). New profiles select the official Notify app
+for Notifications Manager, but that selection grants no access on its own.
 
-Users manage both roles in the Settings "QDN Apps" section: they can assign a
-role's app (an explicit assignment there also grants the role's capability),
-revoke it, or reset the Bookmarks Manager to the default app. Apps cannot read
-or change role assignments through the settings bridge; the only app-facing
-write path is the approval dialog below.
+Users manage both roles in the Settings "QDN Apps" section: they can replace a
+role's app or reset it to the default app. Assignment is not a permission
+grant; the assigned app must request the matching capability through the
+approval dialog below. Home does not expose a Settings control that clears or
+revokes a role. Apps cannot read or change role assignments through the
+settings bridge; the only app-facing write path is the approval dialog below.
 
 The non-prompting checks are:
 

@@ -127,6 +127,7 @@ import {
 } from './qdn-app-history';
 import { ReleaseNotesPage } from './ReleaseNotesPage';
 import { SettingsPage, type SettingsExpansionState, type SettingsSectionId } from './SettingsPage';
+import { resolveSettingsSectionTarget } from './settingsSectionTarget';
 import { TopBar } from './TopBar';
 import { WelcomePage } from './WelcomePage';
 import {
@@ -2257,9 +2258,10 @@ export function App() {
   ]);
 
   function updateSettingsSectionExpansion(sectionId: SettingsSectionId, isExpanded: boolean) {
+    const resolvedSectionId = resolveSettingsSectionTarget(sectionId);
     setSettingsExpansion((currentExpansion) => ({
       ...currentExpansion,
-      [sectionId]: isExpanded,
+      [resolvedSectionId]: isExpanded,
     }));
   }
 
@@ -2454,15 +2456,18 @@ export function App() {
   }
 
   function openSettingsSection(sectionId: SettingsSectionId) {
+    // App-notification controls now live in QDN Apps. Keep the old target as
+    // an alias for existing dashboard links and callers.
+    const resolvedSectionId = resolveSettingsSectionTarget(sectionId);
     // Open Settings with only the requested section expanded, so the Dashboard
     // tile gears jump straight to the relevant controls.
     setSettingsExpansion({
-      core: sectionId === 'core',
-      display: sectionId === 'display',
-      home: sectionId === 'home',
-      notifications: sectionId === 'notifications',
-      node: sectionId === 'node',
-      qdnApps: sectionId === 'qdnApps',
+      core: resolvedSectionId === 'core',
+      display: resolvedSectionId === 'display',
+      home: resolvedSectionId === 'home',
+      notifications: false,
+      node: resolvedSectionId === 'node',
+      qdnApps: resolvedSectionId === 'qdnApps',
     });
     navigateToRoute(SETTINGS_ROUTE);
   }
@@ -4231,6 +4236,7 @@ export function App() {
                   nodeSettings={nodeSettings}
                   onChainCoreUpdate={onChainCoreUpdate}
                   onOpenReleaseNotes={openReleaseNotes}
+                  onOpenNotificationsManager={(url) => openAppLinkInNewTab(url, tab.id)}
                   onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
                   onLanguageChange={updateLanguage}
                   onSectionExpansionChange={updateSettingsSectionExpansion}

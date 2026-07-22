@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import path from 'node:path';
 import {
   applyLegacyPreferredBookmarksUrl,
+  createDefaultQdnAppRolesStore,
   getQdnAppRoleForCapability,
   isQdnAppRole,
   isTrustedQdnAppRolesSender,
@@ -62,7 +63,7 @@ export function readQdnAppRolesStore() {
   // matching legacy bookmarks grant. With no legacy file there is nothing to
   // import and migration starts (and durably stays) completed.
   const legacyStorePath = getLegacyStorePath();
-  if (!existsSync(legacyStorePath)) return (cachedStore = migrateLegacyQdnAppStores(null, null));
+  if (!existsSync(legacyStorePath)) return (cachedStore = createDefaultQdnAppRolesStore());
   const migrated = migrateLegacyQdnAppStores(readJsonFile(legacyStorePath), null);
   migrated.legacyMigrated = false;
   return writeStore(migrated);
@@ -122,35 +123,13 @@ export function grantQdnManagerPermission(appKey: string, capability: QdnManager
   return writeStore(store);
 }
 
-/** Clears the grant only; the role URL (routing preference) is untouched. */
-export function revokeQdnManagerPermission(appKey: string, capability: QdnManagerCapability) {
-  const normalizedAppKey = sanitizeQdnManagerAppKey(appKey);
-  const store = readQdnAppRolesStore();
-  const role = getQdnAppRoleForCapability(capability);
-  if (store.roles[role].url !== normalizedAppKey) return store;
-  store.roles[role] = { ...store.roles[role], grantedAt: null };
-  return writeStore(store);
-}
-
 /**
- * Sets a role's app from the Settings UI. Typing or choosing a URL there is
- * explicit consent, so the new app is granted immediately; clearing the URL
- * (notificationsManager only) unassigns the role.
+ * Settings only selects the app for a role. The selected app must still use
+ * the normal approval dialog before it receives the matching capability.
  */
-export function setQdnAppRoleUrl(role: QdnAppRole, url: string | null) {
+export function setQdnAppRoleUrl(role: QdnAppRole, url: string) {
   const store = readQdnAppRolesStore();
-  if (url === null) {
-    if (role === 'bookmarksManager') throw new Error('Bookmarks Manager requires an app URL.');
-    store.roles[role] = { url: null, grantedAt: null };
-  } else {
-    store.roles[role] = { url: sanitizeQdnManagerAppKey(url), grantedAt: new Date().toISOString() };
-  }
-  return writeStore(store);
-}
-
-export function revokeQdnAppRole(role: QdnAppRole) {
-  const store = readQdnAppRolesStore();
-  store.roles[role] = { ...store.roles[role], grantedAt: null };
+  store.roles[role] = { url: sanitizeQdnManagerAppKey(url), grantedAt: null };
   return writeStore(store);
 }
 
@@ -160,9 +139,9 @@ function assertQdnAppRole(role: unknown): QdnAppRole {
 }
 
 // The whole role-store surface (read included — it names granted apps) is for
-// Home's own settings/shell UI. setAppRoleUrl is grant-capable, so preload
-// topology must not be the only barrier: require the sender to be a Home shell
-// window's webContents and explicitly reject QDN app views and anything else.
+// Home's own settings/shell UI. setAppRoleUrl changes a device-local role, so
+// preload topology must not be the only barrier: require the sender to be a
+// Home shell window's webContents and explicitly reject QDN app views.
 function assertShellWindowSender(sender: WebContents) {
   const trusted = isTrustedQdnAppRolesSender({
     senderId: sender.id,
@@ -181,12 +160,8 @@ export function registerQdnManagerPermissionStoreIpcHandlers() {
   });
   ipcMain.handle('qdn:setAppRoleUrl', (event, role: unknown, url: unknown) => {
     assertShellWindowSender(event.sender);
-    if (url !== null && typeof url !== 'string') throw new Error('QDN app role URL is invalid.');
+    if (typeof url !== 'string') throw new Error('QDN app role URL is invalid.');
     return setQdnAppRoleUrl(assertQdnAppRole(role), url);
-  });
-  ipcMain.handle('qdn:revokeAppRole', (event, role: unknown) => {
-    assertShellWindowSender(event.sender);
-    return revokeQdnAppRole(assertQdnAppRole(role));
   });
   ipcMain.handle('qdn:migrateLegacyPreferredApps', (event, legacyPreferredApps: unknown) => {
     assertShellWindowSender(event.sender);

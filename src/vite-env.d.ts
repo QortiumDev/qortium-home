@@ -893,10 +893,7 @@ interface Window {
       onAppRolesChanged?: (callback: () => void) => () => void;
       setAppRoleUrl?: (
         role: import('../electron/qdn-manager-permissions').QdnAppRole,
-        url: string | null,
-      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
-      revokeAppRole?: (
-        role: import('../electron/qdn-manager-permissions').QdnAppRole,
+        url: string,
       ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
       migrateLegacyPreferredApps?: (
         legacyPreferredApps: unknown,
