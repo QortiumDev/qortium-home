@@ -44,6 +44,7 @@ import {
   type HomeSettings,
 } from '../electron/home-settings-bridge';
 import { getPlatformVersion } from '../electron/app-versioning';
+import { readableNodeErrorMessage } from '../electron/node-error-body';
 import {
   getOptionalPollVoteOptionIndexes,
   getPollVoteApprovalName,
@@ -3735,7 +3736,7 @@ async function postLocalNodeText(
   const responseBody = stringifyResponseData(response.data).trim();
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(responseBody || fallbackMessage);
+    throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
   }
 
   return {
@@ -3788,7 +3789,7 @@ async function postLocalNodeBytes(
   const responseBody = (await response.text()).trim();
 
   if (!response.ok) {
-    throw new QdnUploadPostError(response.status, responseBody || fallbackMessage);
+    throw new QdnUploadPostError(response.status, readableNodeErrorMessage(responseBody, fallbackMessage));
   }
 
   return {
@@ -3971,7 +3972,7 @@ async function deleteLocalNodeText(
   const responseBody = stringifyResponseData(response.data).trim();
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(responseBody || fallbackMessage);
+    throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
   }
 
   return {
@@ -4110,7 +4111,10 @@ async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8
   }
   const { bytes, response } = result;
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(new TextDecoder().decode(bytes).trim() || `Public QDN content attestation failed with HTTP ${response.status}.`);
+    throw new Error(readableNodeErrorMessage(
+      new TextDecoder().decode(bytes),
+      `Public QDN content attestation failed with HTTP ${response.status}.`,
+    ));
   }
   if (bytes.byteLength === 0) throw new Error('Public QDN content attestation returned an empty artifact.');
   return bytes;
@@ -4196,7 +4200,7 @@ async function fetchLocalNodeApiPayload(nodeApiUrl: string, apiPath: string, fal
   const body = stringifyResponseData(response.data);
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(body || fallbackMessage);
+    throw new Error(readableNodeErrorMessage(body, fallbackMessage));
   }
 
   return parseResponseData(body, getContentType(response));
@@ -4647,7 +4651,6 @@ async function joinGroupForApp(request: QdnAppRequest, context: QdnAppRequestCon
     writeContext.nodeApiUrl,
     '/groups/join',
     JSON.stringify({
-      type: 'JOIN_GROUP',
       timestamp: Date.now(),
       txGroupId: 0,
       fee: 0,
@@ -4792,7 +4795,6 @@ async function startMintingForApp(context: QdnAppRequestContext | undefined) {
       writeContext.nodeApiUrl,
       '/addresses/rewardshare',
       JSON.stringify({
-        type: 'REWARD_SHARE',
         timestamp: Date.now(),
         txGroupId: 0,
         fee: 0,
@@ -4908,7 +4910,6 @@ async function approveGroupJoinRequestForApp(
     writeContext.nodeApiUrl,
     '/groups/invite',
     JSON.stringify({
-      type: 'GROUP_INVITE',
       timestamp: Date.now(),
       txGroupId: 0,
       fee: 0,
@@ -4979,7 +4980,6 @@ async function requestGroupApprovalForApp(
     writeContext.nodeApiUrl,
     '/groups/approval',
     JSON.stringify({
-      type: 'GROUP_APPROVAL',
       timestamp: Date.now(),
       txGroupId: 0,
       fee: 0,
@@ -5049,7 +5049,6 @@ async function inviteToGroupForApp(request: QdnAppRequest, context: QdnAppReques
     writeContext.nodeApiUrl,
     '/groups/invite',
     JSON.stringify({
-      type: 'GROUP_INVITE',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5092,7 +5091,6 @@ async function leaveGroupForApp(request: QdnAppRequest, context: QdnAppRequestCo
     writeContext.nodeApiUrl,
     '/groups/leave',
     JSON.stringify({
-      type: 'LEAVE_GROUP',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5147,7 +5145,6 @@ async function updateGroupForApp(request: QdnAppRequest, context: QdnAppRequestC
     writeContext.nodeApiUrl,
     '/groups/update',
     JSON.stringify({
-      type: 'UPDATE_GROUP',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request, getGroupCreationGroupId(groupData)),
       fee: getTransactionFee(request),
@@ -5267,7 +5264,6 @@ async function createGroupForApp(request: QdnAppRequest, context: QdnAppRequestC
     writeContext.nodeApiUrl,
     '/groups/create',
     JSON.stringify({
-      type: 'CREATE_GROUP',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5313,7 +5309,6 @@ async function addGroupAdminForApp(request: QdnAppRequest, context: QdnAppReques
     writeContext.nodeApiUrl,
     '/groups/addadmin',
     JSON.stringify({
-      type: 'ADD_GROUP_ADMIN',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5357,7 +5352,6 @@ async function removeGroupAdminForApp(request: QdnAppRequest, context: QdnAppReq
     writeContext.nodeApiUrl,
     '/groups/removeadmin',
     JSON.stringify({
-      type: 'REMOVE_GROUP_ADMIN',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5403,7 +5397,6 @@ async function banFromGroupForApp(request: QdnAppRequest, context: QdnAppRequest
     writeContext.nodeApiUrl,
     '/groups/ban',
     JSON.stringify({
-      type: 'GROUP_BAN',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5449,7 +5442,6 @@ async function cancelGroupBanForApp(request: QdnAppRequest, context: QdnAppReque
     writeContext.nodeApiUrl,
     '/groups/ban/cancel',
     JSON.stringify({
-      type: 'CANCEL_GROUP_BAN',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5494,7 +5486,6 @@ async function kickFromGroupForApp(request: QdnAppRequest, context: QdnAppReques
     writeContext.nodeApiUrl,
     '/groups/kick',
     JSON.stringify({
-      type: 'GROUP_KICK',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5539,7 +5530,6 @@ async function cancelGroupInviteForApp(request: QdnAppRequest, context: QdnAppRe
     writeContext.nodeApiUrl,
     '/groups/invite/cancel',
     JSON.stringify({
-      type: 'CANCEL_GROUP_INVITE',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5587,7 +5577,6 @@ async function setDefaultGroupForApp(request: QdnAppRequest, context: QdnAppRequ
     writeContext.nodeApiUrl,
     '/groups/setdefault',
     JSON.stringify({
-      type: 'SET_GROUP',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5661,7 +5650,6 @@ async function sendNativeAssetForApp(
     writeContext.nodeApiUrl,
     '/assets/transfer',
     JSON.stringify({
-      type: 'TRANSFER_ASSET',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5810,7 +5798,6 @@ async function transferAssetForApp(request: QdnAppRequest, context: QdnAppReques
     writeContext.nodeApiUrl,
     '/assets/transfer',
     JSON.stringify({
-      type: 'TRANSFER_ASSET',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -5866,7 +5853,6 @@ async function createPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
     writeContext.nodeApiUrl,
     useLocalWrite ? '/polls/create' : '/polls/public/create',
     JSON.stringify({
-      type: 'CREATE_POLL',
       timestamp,
       txGroupId,
       fee,
@@ -5940,7 +5926,6 @@ async function voteOnPollForApp(request: QdnAppRequest, context: QdnAppRequestCo
     writeContext.nodeApiUrl,
     useLocalWrite ? '/polls/vote' : '/polls/public/vote',
     JSON.stringify({
-      type: 'VOTE_ON_POLL',
       timestamp,
       txGroupId,
       fee,
@@ -6022,7 +6007,6 @@ async function rateAccountForApp(request: QdnAppRequest, context: QdnAppRequestC
     writeContext.nodeApiUrl,
     '/account-ratings/rate',
     JSON.stringify({
-      type: 'RATE_ACCOUNT',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -6114,7 +6098,6 @@ async function rateResourceForApp(request: QdnAppRequest, context: QdnAppRequest
     writeContext.nodeApiUrl,
     '/resource-ratings/rate',
     JSON.stringify({
-      type: 'RATE_RESOURCE',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -6281,7 +6264,6 @@ async function updatePollForApp(request: QdnAppRequest, context: QdnAppRequestCo
     writeContext.nodeApiUrl,
     useLocalWrite ? '/polls/update' : '/polls/public/update',
     JSON.stringify({
-      type: 'UPDATE_POLL',
       timestamp,
       txGroupId,
       fee,
@@ -6342,7 +6324,6 @@ async function registerNameForApp(request: QdnAppRequest, context: QdnAppRequest
     writeContext.nodeApiUrl,
     '/names/register',
     JSON.stringify({
-      type: 'REGISTER_NAME',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -6386,7 +6367,6 @@ async function updateNameForApp(request: QdnAppRequest, context: QdnAppRequestCo
     writeContext.nodeApiUrl,
     '/names/update',
     JSON.stringify({
-      type: 'UPDATE_NAME',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request, getNameCreationGroupId(nameData)),
       fee: getTransactionFee(request),
@@ -6430,7 +6410,6 @@ async function sellNameForApp(request: QdnAppRequest, context: QdnAppRequestCont
     writeContext.nodeApiUrl,
     '/names/sell',
     JSON.stringify({
-      type: 'SELL_NAME',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -6470,7 +6449,6 @@ async function cancelSellNameForApp(request: QdnAppRequest, context: QdnAppReque
     writeContext.nodeApiUrl,
     '/names/sell/cancel',
     JSON.stringify({
-      type: 'CANCEL_SELL_NAME',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -6524,7 +6502,6 @@ async function buyNameForApp(request: QdnAppRequest, context: QdnAppRequestConte
     writeContext.nodeApiUrl,
     '/names/buy',
     JSON.stringify({
-      type: 'BUY_NAME',
       timestamp: Date.now(),
       txGroupId: getTransactionGroupId(request),
       fee: getTransactionFee(request),
@@ -6717,7 +6694,6 @@ async function sendPublicGroupChatMessage(
     writeContext.nodeApiUrl,
     '/chat',
     JSON.stringify({
-      type: 'CHAT',
       timestamp: Date.now(),
       txGroupId: groupId,
       fee: 0,
@@ -7755,7 +7731,7 @@ async function requestProtectedNodeText(
       throw new Error('Node API key was rejected. Reconnect to the active local Core or update the node API key in settings.');
     }
 
-    throw new Error(responseBody || fallbackMessage);
+    throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
   }
 
   return responseBody;
@@ -7832,7 +7808,7 @@ async function fetchPinnedNodeApiData(
   const result = readNodeApiResponse(response, settings, QDN_APP_DEFAULT_MAX_BYTES);
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortium node request failed with HTTP ${result.status}.`);
+    throw new Error(readableNodeErrorMessage(result.body, `Qortium node request failed with HTTP ${result.status}.`));
   }
 
   return result.data;
@@ -8987,7 +8963,7 @@ function getNodeApiResponseError(
   fallbackMessage: string,
 ) {
   return Object.assign(
-    new Error(result.body || fallbackMessage),
+    new Error(readableNodeErrorMessage(result.body, fallbackMessage)),
     result.code ? { code: result.code } : {},
   );
 }
@@ -9153,7 +9129,7 @@ async function fetchQortalNodeApiPayload(apiPath: string, request: QdnAppRequest
   const result = await fetchQortalNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')));
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+    throw new Error(readableNodeErrorMessage(result.body, `Qortal node request failed with HTTP ${result.status}.`));
   }
 
   return result.data;
@@ -9171,7 +9147,7 @@ async function getQortalPrimaryNameForApp(request: QdnAppRequest, context: QdnAp
   }
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+    throw new Error(readableNodeErrorMessage(result.body, `Qortal node request failed with HTTP ${result.status}.`));
   }
 
   return result.data ?? null;
@@ -9195,7 +9171,7 @@ async function getQortalNameData(name: string, maxBytes = QDN_APP_DEFAULT_MAX_BY
   }
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+    throw new Error(readableNodeErrorMessage(result.body, `Qortal node request failed with HTTP ${result.status}.`));
   }
 
   return result.data ?? null;
@@ -9227,7 +9203,7 @@ async function getQortalTransactionForApp(request: QdnAppRequest) {
   }
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+    throw new Error(readableNodeErrorMessage(result.body, `Qortal node request failed with HTTP ${result.status}.`));
   }
 
   return result.data ?? null;
@@ -9245,7 +9221,7 @@ async function getQortalChatMessageForApp(request: QdnAppRequest) {
   }
 
   if (!result.ok) {
-    throw new Error(result.body || `Qortal node request failed with HTTP ${result.status}.`);
+    throw new Error(readableNodeErrorMessage(result.body, `Qortal node request failed with HTTP ${result.status}.`));
   }
 
   return result.data ?? null;
@@ -9376,7 +9352,7 @@ async function postQortalNodeText(
   const contentTypeHeader = getContentType(response);
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(responseBody || fallbackMessage);
+    throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
   }
 
   return {
@@ -9410,7 +9386,7 @@ async function fetchSendQortFeeAtomic() {
   const result = await fetchQortalNodeApi('/transactions/unitfee?txType=PAYMENT', 1024);
 
   if (!result.ok) {
-    throw new SendQortValidationError(result.body || `QORT fee lookup failed with HTTP ${result.status}.`);
+    throw new SendQortValidationError(readableNodeErrorMessage(result.body, `QORT fee lookup failed with HTTP ${result.status}.`));
   }
 
   return parseQortalFeeAtomic(result.data ?? result.body);
@@ -9420,7 +9396,7 @@ async function fetchSendQortBalanceAtomic(address: string) {
   const result = await fetchQortalNodeApi(`/addresses/balance/${encodeURIComponent(address)}`, 1024);
 
   if (!result.ok) {
-    throw new SendQortValidationError(result.body || `QORT balance lookup failed with HTTP ${result.status}.`);
+    throw new SendQortValidationError(readableNodeErrorMessage(result.body, `QORT balance lookup failed with HTTP ${result.status}.`));
   }
 
   return parseQortalBalanceAtomic(result.data ?? result.body);
@@ -9913,11 +9889,7 @@ function buildQdnRenderPath(resource: QortiumQdnAuthorizeRequest) {
 }
 
 function getAuthorizationFailureMessage(status: number, responseBody: string) {
-  if (responseBody.startsWith('<')) {
-    return `QDN authorization failed with HTTP ${status}.`;
-  }
-
-  return responseBody || `QDN resource authorization failed with HTTP ${status}.`;
+  return readableNodeErrorMessage(responseBody, `QDN resource authorization failed with HTTP ${status}.`);
 }
 
 async function isPublicRenderAvailable(nodeApiUrl: string, resource: QortiumQdnAuthorizeRequest) {

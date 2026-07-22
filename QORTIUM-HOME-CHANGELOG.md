@@ -33,6 +33,47 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-22 - fix(qdn): repair broken transaction actions and hide raw node error pages
+
+Fixes six app actions that could not work at all: updating a name, selling a
+name, cancelling a name sale, buying a name, transferring an asset, and setting
+your default group. Each one failed, and what the app showed you was a page of
+raw web-page code instead of a message.
+
+Two separate problems were behind that.
+
+The first is that Home was sending the node one extra piece of information it
+could already work out for itself — the kind of transaction being built. For
+these six kinds the node cannot currently make sense of being told, so it gave
+up before it even looked at the rest of the request. Home now leaves that out
+everywhere, which is what the node expects, and a test makes sure it cannot
+creep back in. The same oversight would have broken the next action anyone
+added in the same style.
+
+Desktop and Android build these requests through separate code, and both had
+the problem, so both are fixed and both are covered by that test. Fixing only
+the desktop side would have left every phone still broken.
+
+The second is that when the node replies with something that is not a real
+error message — an error web page, or a page from a proxy sitting in front of
+it — Home passed that straight through for you to read. Home now recognises
+those and shows the clear message the app already provides, such as "Update
+name transaction build failed.", while still passing genuine node error
+messages through unchanged so nothing useful is lost. This is applied to every
+place Home reads a failed reply from a node on either platform — app requests,
+uploads, resource authorization, node settings and status, wallet balance and
+fee lookups, and the document and media viewer — not only the one place where
+it was first noticed. A test pins each of those paths so a later edit cannot
+quietly go back to showing the raw reply.
+
+The node-side fault behind the first problem is tracked separately as
+qortium-core#148.
+
+One honest caveat: on the current Previewnet chain, sending the native coin has
+a second, unrelated obstacle on the node side, so asset transfer still will not
+complete there. What changes for it here is that it now fails with a clear
+message from the node instead of a page of markup.
+
 ### 2026-07-21 - fix(tabs): make the tab mute button clickable
 
 Makes the little speaker on a noisy tab work when you click it. The tab strip

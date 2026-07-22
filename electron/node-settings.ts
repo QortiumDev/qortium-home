@@ -14,6 +14,7 @@ import {
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
 import { ensureNodeCa, nodeFetch } from './node-tls.js';
+import { readableNodeErrorMessage } from './node-error-body.js';
 
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
@@ -1037,7 +1038,7 @@ async function requestProtectedNodeJson(
   }
 
   if (!result.response.ok) {
-    throw new Error(result.text || fallbackMessage);
+    throw new Error(readableNodeErrorMessage(result.text, fallbackMessage));
   }
 
   return result.text ? (JSON.parse(result.text) as unknown) : null;
@@ -1057,7 +1058,7 @@ async function fetchNodeStatus(nodeApiUrl: string, apiKey: string | null = null)
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(text || `Node status request failed with HTTP ${response.status}.`);
+    throw new Error(readableNodeErrorMessage(text, `Node status request failed with HTTP ${response.status}.`));
   }
 
   return text ? (JSON.parse(text) as unknown) : null;
