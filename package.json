@@ -57,6 +57,8 @@
     "test:notification-target": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-target.test.js",
     "test:qdn-bridge-error": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-bridge-error.test.js",
     "test:node-error-body": "node scripts/ensure-electron-build.mjs && node dist-electron/node-error-body.test.js",
+    "test:node-ca-bootstrap": "node scripts/ensure-electron-build.mjs && node dist-electron/node-ca-bootstrap.test.js",
+    "test:managed-java-asset": "node scripts/ensure-electron-build.mjs && node dist-electron/managed-java-asset.test.js",
     "test:qdn-group-avatar-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-group-avatar-input.test.js",
     "test:qdn-poll-options-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-options-input.test.js",
     "test:qdn-poll-vote-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-vote-input.test.js",

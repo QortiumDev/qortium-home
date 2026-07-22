@@ -35,6 +35,7 @@ import {
   type CoreUpdateSettings,
 } from './core-update-settings.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
+import { selectManagedJavaBinary } from './managed-java-asset.js';
 import { userMessage } from './user-message.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
@@ -88,7 +89,6 @@ const CORE_OPERATION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const DOWNGRADE_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const ADOPTIUM_ASSETS_TIMEOUT_MS = 10_000;
 const JAVA_DISTRIBUTION = 'temurin';
-const ADOPTIUM_JAVA_API_BASE_URL = 'https://api.adoptium.net/v3/binary/latest';
 const ADOPTIUM_JAVA_ASSETS_API_BASE_URL = 'https://api.adoptium.net/v3/assets/latest';
 const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
 const RUNTIME_ENTRY_NAMES = [
@@ -1694,10 +1694,6 @@ function getJavaArchiveExtension(archiveType: JavaArchiveType) {
   return archiveType === 'zip' ? 'zip' : 'tar.gz';
 }
 
-function getJavaDownloadUrl(javaPlatform: JavaPlatform) {
-  return `${ADOPTIUM_JAVA_API_BASE_URL}/${MANAGED_JAVA_TARGET_MAJOR_VERSION}/ga/${javaPlatform.apiOs}/${javaPlatform.apiArch}/jre/hotspot/normal/eclipse`;
-}
-
 function parseInstalledJava(value: unknown): ManagedJava | null {
   if (!isObject(value)) {
     return null;
@@ -1800,7 +1796,11 @@ function isNewerJavaVersion(candidate: string, installed: string) {
   return false;
 }
 
-async function fetchLatestManagedJavaVersion(javaPlatform: JavaPlatform) {
+// Single source for both the managed-runtime download and the "is a newer
+// runtime out?" check, so the version Home advertises is always one it can
+// actually install: a package Adoptium publishes without a usable checksum is
+// not offered, because it would be refused at install time anyway.
+async function fetchLatestManagedJavaBinary(javaPlatform: JavaPlatform) {
   const url =
     `${ADOPTIUM_JAVA_ASSETS_API_BASE_URL}/${MANAGED_JAVA_TARGET_MAJOR_VERSION}/hotspot` +
     `?architecture=${javaPlatform.apiArch}&image_type=jre&os=${javaPlatform.apiOs}&vendor=eclipse`;
@@ -1815,34 +1815,14 @@ async function fetchLatestManagedJavaVersion(javaPlatform: JavaPlatform) {
       return null;
     }
 
-    const releases: unknown = await response.json();
-
-    if (!Array.isArray(releases)) {
-      return null;
-    }
-
-    for (const release of releases) {
-      if (!isObject(release)) {
-        continue;
-      }
-
-      const version = (release as { version?: unknown }).version;
-
-      if (!isObject(version)) {
-        continue;
-      }
-
-      const openjdkVersion = getString((version as { openjdk_version?: unknown }).openjdk_version);
-
-      if (openjdkVersion) {
-        return openjdkVersion;
-      }
-    }
+    return selectManagedJavaBinary(await response.json(), {
+      apiArch: javaPlatform.apiArch,
+      apiOs: javaPlatform.apiOs,
+      archiveExtension: getJavaArchiveExtension(javaPlatform.archiveType),
+    });
   } catch {
     return null;
   }
-
-  return null;
 }
 
 function isManagedJavaUpdateAvailable(installedJava: ManagedJava) {
@@ -1872,7 +1852,7 @@ async function refreshManagedJavaUpdateInfo(installedJava: ManagedJava): Promise
   await writeInstalledJava(refreshed);
 
   const javaPlatform = getJavaPlatform();
-  const latestVersion = javaPlatform ? await fetchLatestManagedJavaVersion(javaPlatform) : null;
+  const latestVersion = javaPlatform ? (await fetchLatestManagedJavaBinary(javaPlatform))?.version : null;
 
   if (latestVersion) {
     refreshed = { ...refreshed, latestKnownVersion: latestVersion };
@@ -3092,14 +3072,26 @@ async function installJava() {
     throw new Error(`Managed Java is not available for ${process.platform}/${process.arch}.`);
   }
 
+  // The managed runtime ends up as JAVA_HOME for Core, so it is only ever
+  // installed from an Adoptium record that names both the package and its
+  // sha256. No checksum means no install, rather than an unverified one.
+  const javaBinary = await fetchLatestManagedJavaBinary(javaPlatform);
+
+  if (!javaBinary) {
+    throw new Error(
+      `Adoptium did not publish a verifiable Java ${MANAGED_JAVA_TARGET_MAJOR_VERSION} runtime for ` +
+        `${javaPlatform.apiOs}/${javaPlatform.apiArch}. Home will not install a runtime it cannot verify.`,
+    );
+  }
+
   const previousJava = await readInstalledJavaMetadata();
   const archiveExtension = getJavaArchiveExtension(javaPlatform.archiveType);
   const archiveName = `${JAVA_DISTRIBUTION}-${MANAGED_JAVA_TARGET_MAJOR_VERSION}-${javaPlatform.apiOs}-${javaPlatform.apiArch}.${archiveExtension}`;
   const archive: DownloadAsset = {
-    digest: null,
-    downloadUrl: getJavaDownloadUrl(javaPlatform),
+    digest: javaBinary.checksum,
+    downloadUrl: javaBinary.downloadUrl,
     name: archiveName,
-    size: 0,
+    size: javaBinary.size,
   };
   const downloadPath = path.join(getCoreDownloadsPath(), archiveName);
   const stagingPath = path.join(

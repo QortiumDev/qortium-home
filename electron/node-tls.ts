@@ -3,6 +3,12 @@ import { X509Certificate } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import path from 'node:path';
+import {
+  isLoopbackHostname,
+  normalizeHostname,
+  planNodeCaBootstrap,
+  type NodeCaBootstrapPlan,
+} from './node-ca-bootstrap.js';
 
 type NodeFetchInit = RequestInit & { duplex?: 'half' };
 
@@ -25,16 +31,6 @@ function delay(ms: number) {
 
 function normalizePem(pem: string) {
   return pem.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-}
-
-function normalizeHostname(hostname: string) {
-  const host = hostname.trim().toLowerCase();
-
-  if (host.startsWith('[') && host.endsWith(']')) {
-    return host.slice(1, -1);
-  }
-
-  return host;
 }
 
 function sanitizeFilenamePart(value: string) {
@@ -136,21 +132,8 @@ function writeStoredCa(url: URL, caPem: string) {
   return true;
 }
 
-function buildHttpCaUrl(url: URL, pathname: string) {
-  const caUrl = new URL(url.toString());
-  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
-
-  caUrl.protocol = 'http:';
-  caUrl.port = port;
-  caUrl.pathname = pathname;
-  caUrl.search = '';
-  caUrl.hash = '';
-
-  return caUrl.toString();
-}
-
-async function fetchNodeCa(url: URL) {
-  const response = await nodeFetch(buildHttpCaUrl(url, '/admin/http/getca'), {
+async function fetchNodeCa(getCaUrl: string) {
+  const response = await nodeFetch(getCaUrl, {
     headers: { Accept: 'text/plain' },
     signal: AbortSignal.timeout(5_000),
   });
@@ -164,8 +147,8 @@ async function fetchNodeCa(url: URL) {
   return caPem && isValidCertificatePem(caPem) ? caPem : null;
 }
 
-async function createNodeCa(url: URL, apiKey: string) {
-  const response = await nodeFetch(buildHttpCaUrl(url, '/admin/http/createca'), {
+async function createNodeCa(createCaUrl: string, apiKey: string) {
+  const response = await nodeFetch(createCaUrl, {
     method: 'POST',
     headers: {
       Accept: 'text/plain',
@@ -177,7 +160,11 @@ async function createNodeCa(url: URL, apiKey: string) {
   return response.ok;
 }
 
-async function ensureNodeCaUncached(url: URL, apiKey: string | null) {
+async function ensureNodeCaUncached(
+  url: URL,
+  apiKey: string | null,
+  plan: Extract<NodeCaBootstrapPlan, { kind: 'plaintext' }>,
+) {
   try {
     const existingCa = readStoredCa(url);
 
@@ -185,14 +172,14 @@ async function ensureNodeCaUncached(url: URL, apiKey: string | null) {
       return true;
     }
 
-    let caPem = await fetchNodeCa(url).catch(() => null);
+    let caPem = await fetchNodeCa(plan.getCaUrl).catch(() => null);
 
     if (!caPem && apiKey) {
-      await createNodeCa(url, apiKey).catch(() => false);
+      await createNodeCa(plan.createCaUrl, apiKey).catch(() => false);
       await delay(CREATE_CA_RESTART_DELAY_MS);
 
       for (let attempt = 0; attempt < GET_CA_RETRY_COUNT && !caPem; attempt += 1) {
-        caPem = await fetchNodeCa(url).catch(() => null);
+        caPem = await fetchNodeCa(plan.getCaUrl).catch(() => null);
 
         if (!caPem && attempt < GET_CA_RETRY_COUNT - 1) {
           await delay(GET_CA_RETRY_DELAY_MS);
@@ -215,14 +202,23 @@ export async function ensureNodeCa(nodeApiUrl: string, apiKey: string | null): P
     return false;
   }
 
-  if (url.protocol !== 'https:') {
+  const plan = planNodeCaBootstrap(url);
+
+  if (plan.kind === 'not-required') {
     return true;
   }
 
-  configuredNodeHosts.add(normalizeHostname(url.hostname));
-
+  // Registering the host for pinning is left to readStoredCa/writeStoredCa, so
+  // a host only becomes eligible once an authority has actually been obtained
+  // in a way we are willing to trust.
   if (readStoredCa(url)) {
     return true;
+  }
+
+  if (plan.kind === 'refused') {
+    console.warn(plan.reason);
+
+    return false;
   }
 
   const key = getNodeCaKey(url);
@@ -232,7 +228,7 @@ export async function ensureNodeCa(nodeApiUrl: string, apiKey: string | null): P
     return cachedEnsure;
   }
 
-  const ensurePromise = ensureNodeCaUncached(url, apiKey?.trim() || null);
+  const ensurePromise = ensureNodeCaUncached(url, apiKey?.trim() || null, plan);
   ensureCaByKey.set(key, ensurePromise);
 
   if (!(await ensurePromise)) {
@@ -246,7 +242,7 @@ export async function ensureNodeCa(nodeApiUrl: string, apiKey: string | null): P
 function isPrivateOrLoopbackHost(hostname: string) {
   const host = normalizeHostname(hostname);
 
-  if (host === 'localhost') {
+  if (isLoopbackHostname(host)) {
     return true;
   }
 
@@ -269,10 +265,6 @@ function isPrivateOrLoopbackHost(hostname: string) {
   }
 
   if (isIP(host) === 6) {
-    if (host === '::1') {
-      return true;
-    }
-
     const firstHextet = Number.parseInt(host.split(':')[0], 16);
 
     return (

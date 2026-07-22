@@ -33,6 +33,38 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-22 - fix(security): verify the Java download and stop trusting a remote node's certificate on faith
+
+Closes two ways someone sitting between you and the internet could have taken
+control of Home.
+
+The first is the Java runtime. Home can install Java for you, and that copy of
+Java is what actually runs your Qortium node — so whatever is inside that
+download gets to run on your machine. Home was downloading it without ever
+checking that what arrived was what Adoptium (the people who publish Java)
+actually sent. Anyone able to interfere with that download could have replaced
+it with something of their own. Home now asks Adoptium for the download link
+and the official fingerprint of that exact file together, checks the finished
+download against that fingerprint, and throws the file away if it does not
+match. If Adoptium does not publish a fingerprint, Home refuses to install
+rather than installing something it cannot check.
+
+The second is custom node connections. When you point Home at a node over a
+secure (https) address, the node may be using a certificate it issued itself,
+so Home has to be told which certificate to expect. Home was asking the node
+for that over an *insecure* connection — and remembering the answer forever,
+along with sending your node's API key in the clear. For a node on your own
+machine that is harmless, because nothing sits in between. For a node across
+the internet it meant whoever was in the middle could hand Home their own
+certificate, be trusted from then on, and read your API key on the way past.
+Home now only does that insecure exchange for a node on this machine. For a
+remote secure node it does not do it at all, does not send the API key, and
+writes a plain explanation to the log saying the node needs a certificate this
+machine already trusts.
+
+Both fixes are covered by tests, including tests that fail if either
+protection is removed again.
+
 ### 2026-07-22 - fix(qdn): repair broken transaction actions and hide raw node error pages
 
 Fixes six app actions that could not work at all: updating a name, selling a
