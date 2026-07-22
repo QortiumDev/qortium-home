@@ -15,7 +15,7 @@ the current start time verbatim, especially after votes exist.
 
 ## Action availability and approvals
 
-Supported read-only actions are `FETCH_NODE_API`, `FETCH_QORTAL_NODE_API`,
+Supported read-only actions are `FETCH_NODE_API`, `FETCH_GROUP_AVATAR`, `FETCH_QORTAL_NODE_API`,
 `SEARCH_QORTAL_TRANSACTIONS`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
 `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,
@@ -39,7 +39,7 @@ separate durable capabilities and revision-checked mutations; see
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
-`UPDATE_GROUP`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
+`UPDATE_GROUP`, `SET_GROUP_AVATAR`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
 `CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
@@ -51,6 +51,22 @@ The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `NOTIFICATION_MANAGER_REMOVE_RULES`, and `NOTIFICATION_MANAGER_REVOKE`. They
 remain available when Home uses a public/network node because they operate on
 Home's local device data rather than Core.
+
+## Group avatars
+
+`FETCH_GROUP_AVATAR` is a read-only, public-node-safe action. It accepts a
+positive `groupId` (or `txGroupId`) and optional `maxBytes`, and returns the
+Core-authorized avatar as `{ groupId, body, encoding: 'base64', contentType,
+contentLength }`. Home caps the response at 500 KiB, matching Core's
+`THUMBNAIL` limit. Apps should build an in-memory Blob from `body`; Home never
+returns a raw node URL that could bypass the group-authorized signature.
+
+`SET_GROUP_AVATAR` requires a single-request approval and a local/trusted
+node. It accepts `groupId` plus `avatarSignature`, which is either `null` to
+clear the avatar or a base58-encoded 64-byte QDN transaction signature. Home
+looks up the group for approval context, then builds and signs the Core
+`SET_GROUP_AVATAR` transaction. It is intentionally separate from
+`UPDATE_GROUP` so users approve the avatar assignment explicitly.
 
 ## Publishing sources
 

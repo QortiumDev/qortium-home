@@ -526,6 +526,7 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Értesítések megjelenítése",
   "qdnWrite.action.sendCoin": "Érme küldése",
   "qdnWrite.action.setGroup": "Alapértelmezett csoport beállítása",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Minting indítása",
   "qdnWrite.action.transferAsset": "Eszköz átutalása",

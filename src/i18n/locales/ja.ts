@@ -526,6 +526,7 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "通知を表示",
   "qdnWrite.action.sendCoin": "コインを送信",
   "qdnWrite.action.setGroup": "デフォルトグループを設定",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "ミンティングを開始",
   "qdnWrite.action.transferAsset": "資産を転送",

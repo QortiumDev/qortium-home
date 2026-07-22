@@ -554,6 +554,7 @@ export const ru: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Показ уведомлений",
   "qdnWrite.action.sendCoin": "Отправить монеты",
   "qdnWrite.action.setGroup": "Задать группу по умолчанию",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Начать минтинг",
   "qdnWrite.action.transferAsset": "Передать актив",

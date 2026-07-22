@@ -526,6 +526,7 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "알림 표시",
   "qdnWrite.action.sendCoin": "코인 전송",
   "qdnWrite.action.setGroup": "기본 그룹 설정",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "민팅 시작",
   "qdnWrite.action.transferAsset": "자산 전송",

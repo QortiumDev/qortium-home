@@ -69,6 +69,13 @@ import {
 import { nodeFetch } from './node-tls.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import {
+  buildGroupAvatarPath,
+  buildSetGroupAvatarTransactionBody,
+  getGroupAvatarGroupId,
+  getGroupAvatarMaxBytes,
+  getOptionalGroupAvatarSignature,
+} from './qdn-group-avatar-input.js';
+import {
   appendSignatureToTransactionBytes,
   assertPositiveQortAmount,
   assertValidQortalAddress,
@@ -6710,6 +6717,88 @@ async function updateGroupForApp(
   };
 }
 
+// Core resolves the group-authorized, immutable QDN transaction signature before
+// serving these bytes. Home intentionally returns bounded base64 instead of a
+// node URL so apps cannot bypass the on-chain group-avatar authorization state.
+async function fetchGroupAvatarForApp(request: QdnAppRequest) {
+  const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+  const maxBytes = getGroupAvatarMaxBytes(getRequestValue(request, 'maxBytes'));
+  const { response } = await fetchConfiguredNode(buildGroupAvatarPath(groupId), { method: 'GET' });
+
+  if (!response.ok) {
+    throw new Error(`Group avatar request failed with HTTP ${response.status}.`);
+  }
+
+  const contentLength = getContentLength(response);
+  if (typeof contentLength === 'number' && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength > maxBytes) {
+    throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+
+  return {
+    groupId,
+    body: Buffer.from(arrayBuffer).toString('base64'),
+    encoding: 'base64' as const,
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    contentLength: contentLength ?? arrayBuffer.byteLength,
+  };
+}
+
+async function setGroupAvatarForApp(
+  request: QdnAppRequest,
+  context: QdnViewContext | null,
+  sender: WebContents,
+) {
+  const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
+  const avatarSignature = getOptionalGroupAvatarSignature(getRequestValue(request, 'avatarSignature'));
+  const writeContext = await getQdnChatContext(context);
+  const groupData = await getGroupDataForChat(writeContext.connection, groupId);
+  const groupName = getGroupName(groupData);
+
+  await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
+    action: 'SET_GROUP_AVATAR',
+    groupId,
+    groupName,
+    permissionScope: 'single-request',
+  });
+
+  assertFreshQdnWriteContext(sender, context as QdnViewContext);
+
+  const unsignedTransaction = await postLocalNodeText(
+    writeContext.connection,
+    '/groups/avatar',
+    JSON.stringify(
+      buildSetGroupAvatarTransactionBody({
+        timestamp: Date.now(),
+        txGroupId: getTransactionGroupId(request, getGroupCreationGroupId(groupData)),
+        fee: getTransactionFee(request),
+        ownerPublicKey: writeContext.publicKey58,
+        groupId,
+        avatarSignature,
+      }),
+    ),
+    writeContext.apiKey,
+    'Set group avatar transaction build failed.',
+    'application/json',
+  );
+  const processedTransaction = await processQdnAccountTransaction(writeContext, unsignedTransaction);
+
+  return {
+    accepted: true,
+    action: 'SET_GROUP_AVATAR',
+    groupId,
+    groupName,
+    avatarSignature,
+    result: processedTransaction.data,
+    transactionSignature: processedTransaction.signature,
+  };
+}
+
 const QDN_GROUP_APPROVAL_THRESHOLDS = new Set([
   'NONE',
   'ONE',
@@ -9500,6 +9589,9 @@ async function handleQdnAppRequest(
     case 'FETCH_QDN_RESOURCE':
       return fetchNodeApiPayload(buildFetchQdnResourcePath(request), request);
 
+    case 'FETCH_GROUP_AVATAR':
+      return fetchGroupAvatarForApp(request);
+
     case 'LIST_QDN_RESOURCES':
       return fetchNodeApiPayload(buildQdnResourcesPath(request, '/arbitrary/resources'), request);
 
@@ -9586,6 +9678,9 @@ async function handleQdnAppRequest(
 
     case 'UPDATE_GROUP':
       return updateGroupForApp(request, context, sender);
+
+    case 'SET_GROUP_AVATAR':
+      return setGroupAvatarForApp(request, context, sender);
 
     case 'CREATE_GROUP':
       return createGroupForApp(request, context, sender);

@@ -527,6 +527,7 @@ export const el: Record<TranslationKey, string> = {
   "qdnWrite.action.showNotification": "Εμφάνιση ειδοποιήσεων",
   "qdnWrite.action.sendCoin": "Αποστολή νομίσματος",
   "qdnWrite.action.setGroup": "Ορισμός προεπιλεγμένης ομάδας",
+  "qdnWrite.action.setGroupAvatar": "Set group avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Έναρξη minting",
   "qdnWrite.action.transferAsset": "Μεταφορά asset",

@@ -683,6 +683,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'GROUP_KICK'
     | 'CANCEL_GROUP_INVITE'
     | 'SET_GROUP'
+    | 'SET_GROUP_AVATAR'
     | 'SET_CURRENT_FOREIGN_SERVER'
     | 'SEND_QORT'
     | 'SEND_QORTAL_GROUP_CHAT'
