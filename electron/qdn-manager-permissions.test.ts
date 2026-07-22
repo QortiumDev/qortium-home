@@ -3,6 +3,7 @@ import {
   applyLegacyPreferredBookmarksUrl,
   createDefaultQdnAppRolesStore,
   DEFAULT_BOOKMARKS_MANAGER_URL,
+  DEFAULT_NOTIFICATIONS_MANAGER_URL,
   getQdnAppRoleReplacedHolder,
   isTrustedQdnAppRolesSender,
   migrateLegacyQdnAppStores,
@@ -16,14 +17,14 @@ assert.equal(sanitizeQdnManagerAppKey('qdn://app/Bookmarks/Bookmarks/folder/item
 assert.throws(() => sanitizeQdnManagerAppKey('https://example.com'), /valid QDN APP or WEBSITE/);
 assert.throws(() => sanitizeQdnManagerAppKey('qdn://APP/Bookmarks'), /valid QDN APP or WEBSITE/);
 
-// Defaults: bookmarks routing URL is always set, nothing is granted, and a
-// fresh install never has migration pending.
+// Defaults select the official managers, grant neither capability, and a fresh
+// install never has migration pending.
 assert.deepEqual(createDefaultQdnAppRolesStore(), {
   version: 1,
   legacyMigrated: true,
   roles: {
     bookmarksManager: { url: DEFAULT_BOOKMARKS_MANAGER_URL, grantedAt: null },
-    notificationsManager: { url: null, grantedAt: null },
+    notificationsManager: { url: DEFAULT_NOTIFICATIONS_MANAGER_URL, grantedAt: null },
   },
 });
 
@@ -58,10 +59,26 @@ assert.deepEqual(sanitizeQdnAppRolesStore({
   version: 1,
   roles: {
     bookmarksManager: { url: 'https://invalid.example', grantedAt: '2026-07-19T00:00:00.000Z' },
-    notificationsManager: { url: null, grantedAt: '2026-07-19T00:00:00.000Z' },
+    notificationsManager: { url: 'https://invalid.example', grantedAt: '2026-07-19T00:00:00.000Z' },
     extraRole: { url: 'qdn://APP/Sneaky/App', grantedAt: '2026-07-19T00:00:00.000Z' },
   },
 }), createDefaultQdnAppRolesStore());
+// The previous default was explicitly unassigned. Preserve it on an upgrade,
+// but never preserve a grant without an assigned holder.
+assert.deepEqual(sanitizeQdnAppRolesStore({
+  version: 1,
+  roles: {
+    bookmarksManager: { url: DEFAULT_BOOKMARKS_MANAGER_URL, grantedAt: null },
+    notificationsManager: { url: null, grantedAt: '2026-07-19T00:00:00.000Z' },
+  },
+}), {
+  version: 1,
+  legacyMigrated: true,
+  roles: {
+    bookmarksManager: { url: DEFAULT_BOOKMARKS_MANAGER_URL, grantedAt: null },
+    notificationsManager: { url: null, grantedAt: null },
+  },
+});
 assert.deepEqual(sanitizeQdnAppRolesStore({ version: 2, roles: {} }), createDefaultQdnAppRolesStore());
 assert.deepEqual(sanitizeQdnAppRolesStore('nonsense'), createDefaultQdnAppRolesStore());
 // Corrupt grant timestamps (non-string or unparseable) clear the grant.
@@ -76,7 +93,7 @@ for (const grantedAt of [42, 'corrupt', '']) {
       legacyMigrated: true,
       roles: {
         bookmarksManager: { url: 'qdn://APP/Other/Manager', grantedAt: null },
-        notificationsManager: { url: null, grantedAt: null },
+        notificationsManager: { url: DEFAULT_NOTIFICATIONS_MANAGER_URL, grantedAt: null },
       },
     },
   );
@@ -146,15 +163,22 @@ assert.deepEqual(migrateLegacyQdnAppStores(
   null,
 ).roles.notificationsManager, { url: 'qdn://APP/NewNotify/New', grantedAt: '2026-07-01T00:00:00.000Z' });
 
-// Migration: garbage legacy data lands on the defaults, and corrupt legacy
-// grant timestamps are never imported as grants.
-assert.deepEqual(migrateLegacyQdnAppStores('nonsense', 17), createDefaultQdnAppRolesStore());
+// Migration: a pre-default profile stays unassigned when it has no legacy
+// notification manager. Corrupt legacy grant timestamps are never imported.
+const legacyNoDataStore = {
+  ...createDefaultQdnAppRolesStore(),
+  roles: {
+    ...createDefaultQdnAppRolesStore().roles,
+    notificationsManager: { url: null, grantedAt: null },
+  },
+};
+assert.deepEqual(migrateLegacyQdnAppStores('nonsense', 17), legacyNoDataStore);
 assert.deepEqual(
   migrateLegacyQdnAppStores(
     { version: 1, grants: { 'https://bad.example': { 'bookmarks.manage': { grantedAt: 'x' } } } },
     { version: 1, bookmarksManager: 'not an app' },
   ),
-  createDefaultQdnAppRolesStore(),
+  legacyNoDataStore,
 );
 assert.deepEqual(
   migrateLegacyQdnAppStores(
@@ -167,7 +191,7 @@ assert.deepEqual(
     },
     null,
   ),
-  createDefaultQdnAppRolesStore(),
+  legacyNoDataStore,
 );
 
 // Late preferred-apps reconciliation (desktop): moves the bookmarks routing URL

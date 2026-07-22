@@ -14,6 +14,7 @@ export const QDN_APP_ROLE_CAPABILITIES = {
 } as const satisfies Record<QdnAppRole, QdnManagerCapability>;
 
 export const DEFAULT_BOOKMARKS_MANAGER_URL = 'qdn://APP/Bookmarks/Bookmarks';
+export const DEFAULT_NOTIFICATIONS_MANAGER_URL = 'qdn://APP/Notify/Notify';
 
 export type QdnAppRoleState = {
   // Canonical qdn://APP|WEBSITE/name/identifier app key, or null when the role
@@ -70,7 +71,9 @@ export function createDefaultQdnAppRolesStore(): QdnAppRolesStore {
     legacyMigrated: true,
     roles: {
       bookmarksManager: { url: DEFAULT_BOOKMARKS_MANAGER_URL, grantedAt: null },
-      notificationsManager: { url: null, grantedAt: null },
+      // The official manager is selected for new profiles, but it still has
+      // to request notifications.manage through Home's approval dialog.
+      notificationsManager: { url: DEFAULT_NOTIFICATIONS_MANAGER_URL, grantedAt: null },
     },
   };
 }
@@ -99,11 +102,19 @@ export function sanitizeQdnAppRolesStore(value: unknown): QdnAppRolesStore {
   for (const role of QDN_APP_ROLES) {
     const rawRole = value.roles[role];
     if (!isRecord(rawRole)) continue;
+    // Home 1.5.2 persisted an explicitly unassigned Notifications Manager.
+    // Keep that deliberate legacy state during sanitizing instead of treating
+    // it as a missing/corrupt role and silently selecting the new default.
+    // An unassigned role can never retain a capability grant.
+    if (role === 'notificationsManager' && rawRole.url === null) {
+      store.roles[role] = { url: null, grantedAt: null };
+      continue;
+    }
     let url: string | null = null;
     try { url = sanitizeQdnManagerAppKey(rawRole.url); } catch { url = null; }
     if (url === null) {
-      // bookmarksManager keeps its default routing URL; the grant never
-      // survives without a valid holder URL.
+      // Invalid URLs keep the default routing URL; a grant never survives
+      // without a valid holder URL.
       continue;
     }
     store.roles[role] = { url, grantedAt: sanitizeGrantedAt(rawRole.grantedAt) };
@@ -189,6 +200,10 @@ export function migrateLegacyQdnAppStores(
   legacyPreferredApps: unknown,
 ): QdnAppRolesStore {
   const store = createDefaultQdnAppRolesStore();
+  // A pre-default profile may have deliberately left this role unassigned.
+  // Preserve that state during the one-time migration; never select Notify or
+  // grant it access just because Home was upgraded.
+  store.roles.notificationsManager = { url: null, grantedAt: null };
   const grants = readLegacyManagerGrants(legacyPermissions);
 
   const bookmarksUrl = readLegacyPreferredBookmarksUrl(legacyPreferredApps) ?? DEFAULT_BOOKMARKS_MANAGER_URL;

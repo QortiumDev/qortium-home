@@ -199,9 +199,8 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn:app-roles-changed', listener);
       };
     },
-    setAppRoleUrl: (role: string, url: string | null) =>
+    setAppRoleUrl: (role: string, url: string) =>
       ipcRenderer.invoke('qdn:setAppRoleUrl', role, url),
-    revokeAppRole: (role: string) => ipcRenderer.invoke('qdn:revokeAppRole', role),
     migrateLegacyPreferredApps: (legacyPreferredApps: unknown) =>
       ipcRenderer.invoke('qdn:migrateLegacyPreferredApps', legacyPreferredApps),
     listResources: (request: {

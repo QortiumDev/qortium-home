@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import {
   getQdnAppRoleForCapability,
+  createDefaultQdnAppRolesStore,
   migrateLegacyQdnAppStores,
   sanitizeQdnAppRolesStore,
   sanitizeQdnManagerAppKey,
@@ -84,9 +85,17 @@ async function readLocalStore() {
 
   // First load: migrate both legacy stores into the unified role store, then
   // remove the legacy keys.
-  const legacyPermissions = parseJson(await readLegacyLocalValue(LEGACY_PERMISSIONS_KEY));
-  const legacyPreferredApps = parseJson(await readLegacyLocalValue(LEGACY_PREFERRED_APPS_KEY));
-  const migrated = await writeLocalStore(migrateLegacyQdnAppStores(legacyPermissions, legacyPreferredApps));
+  const legacyPermissionsRaw = await readLegacyLocalValue(LEGACY_PERMISSIONS_KEY);
+  const legacyPreferredAppsRaw = await readLegacyLocalValue(LEGACY_PREFERRED_APPS_KEY);
+  const legacyPermissions = parseJson(legacyPermissionsRaw);
+  const legacyPreferredApps = parseJson(legacyPreferredAppsRaw);
+  // With no legacy keys this is a new profile, so select the current defaults.
+  // Any legacy key means this is an upgrade and must preserve an intentionally
+  // unassigned Notifications Manager role.
+  const initialStore = legacyPermissionsRaw === null && legacyPreferredAppsRaw === null
+    ? createDefaultQdnAppRolesStore()
+    : migrateLegacyQdnAppStores(legacyPermissions, legacyPreferredApps);
+  const migrated = await writeLocalStore(initialStore);
   await removeLegacyLocalValues();
   return migrated;
 }
@@ -128,38 +137,18 @@ export async function grantQdnManagerPermission(appKey: string, capability: QdnM
   return writeLocalStore(store);
 }
 
-/** Clears the grant only; the role URL (routing preference) is untouched. */
-export async function revokeQdnManagerPermission(appKey: string, capability: QdnManagerCapability) {
-  appKey = sanitizeQdnManagerAppKey(appKey);
-  const role = getQdnAppRoleForCapability(capability);
-  if (window.qortiumHome.qdn?.revokeAppRole) {
-    if ((await getQdnAppRolesStore()).roles[role].url !== appKey) return getQdnAppRolesStore();
-    return window.qortiumHome.qdn.revokeAppRole(role);
-  }
-  const store = await readLocalStore();
-  if (store.roles[role].url !== appKey) return store;
-  store.roles[role] = { ...store.roles[role], grantedAt: null };
-  return writeLocalStore(store);
-}
-
 /**
- * Sets a role's app from the Settings UI. Typing or choosing a URL there is
- * explicit consent, so the new app is granted immediately; a null URL
- * (notificationsManager only) unassigns the role.
+ * Settings only selects the app for a role. The selected app must still use
+ * the normal approval dialog before it receives the matching capability.
  */
-export async function setQdnAppRoleUrl(role: QdnAppRole, url: string | null) {
-  const normalizedUrl = url === null ? null : sanitizeQdnManagerAppKey(url);
-  if (normalizedUrl === null && role === 'bookmarksManager') {
-    throw new Error('Bookmarks Manager requires an app URL.');
-  }
+export async function setQdnAppRoleUrl(role: QdnAppRole, url: string) {
+  const normalizedUrl = sanitizeQdnManagerAppKey(url);
   if (window.qortiumHome.qdn?.setAppRoleUrl) {
     await ensureDesktopMigration();
     return window.qortiumHome.qdn.setAppRoleUrl(role, normalizedUrl);
   }
   const store = await readLocalStore();
-  store.roles[role] = normalizedUrl === null
-    ? { url: null, grantedAt: null }
-    : { url: normalizedUrl, grantedAt: new Date().toISOString() };
+  store.roles[role] = { url: normalizedUrl, grantedAt: null };
   return writeLocalStore(store);
 }
 

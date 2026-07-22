@@ -110,8 +110,9 @@ notification-manager app to inspect sanitized summaries across apps, mute or
 unmute an app, remove selected rules, or revoke an app's notification grant.
 The manager cannot create or replace another app's subscriptions. The
 capability is Home's Notifications Manager role and is held by at most one app
-at a time: granting it to a new app replaces the previous holder, and users
-assign or revoke it in the Settings "QDN Apps" section.
+at a time: granting it to a new app replaces the previous holder. Users can
+select a replacement or the default Notify app in Settings "QDN Apps"; that
+selection alone does not grant the manager capability.
 
 Manager summaries omit stored account bindings and mask wallet xpubs and
 signatures. Address-like filters (`address`, `involving`, `recipient`,
@@ -283,8 +284,8 @@ re-reads the rule, and deletes the fixture resource.
   `electron/notification-watcher.ts` — shared rule validation, durable desktop
   persistence, and the single Core websocket watcher.
 - `src/notificationStore.ts`, `src/notificationWatcher.ts`, and
-  `src/AppNotificationsSettingsPanel.tsx` — the Android/browser store and
-  foreground watcher plus the per-app Settings controls.
+  `src/QdnAppsSettingsPanel.tsx` — the Android/browser store and foreground
+  watcher plus the emergency per-app Settings controls.
 - `scripts/smoke-desktop-qdn-write.mjs` — `app-subscription` scenario.
 
 ## Verification
