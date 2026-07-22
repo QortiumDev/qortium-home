@@ -61,8 +61,10 @@ those and shows the clear message the app already provides, such as "Update
 name transaction build failed.", while still passing genuine node error
 messages through unchanged so nothing useful is lost. This is applied to every
 place Home reads a failed reply from a node on either platform — app requests,
-uploads, node settings and status, and the document and media viewer — not only
-the one place where it was first noticed.
+uploads, resource authorization, node settings and status, wallet balance and
+fee lookups, and the document and media viewer — not only the one place where
+it was first noticed. A test pins each of those paths so a later edit cannot
+quietly go back to showing the raw reply.
 
 The node-side fault behind the first problem is tracked separately as
 qortium-core#148.

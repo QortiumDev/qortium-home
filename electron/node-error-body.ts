@@ -15,9 +15,21 @@
 /** Longer than any Core error message; past this a body is a document, not a message. */
 export const MAX_NODE_ERROR_BODY_LENGTH = 2048;
 
-/** True when a response body looks like markup (HTML, XHTML, an XML fault document). */
+/**
+ * True when a response body looks like a markup document (HTML, XHTML, an XML
+ * fault page).
+ *
+ * A leading `<` alone is not enough: a plain-text node message may legitimately
+ * start with one, e.g. `<name> is already registered`. A real document also
+ * opens with a declaration (`<!DOCTYPE`, `<?xml`) or closes a tag somewhere,
+ * which a one-line message never does.
+ */
 export function isMarkupErrorBody(body: string) {
-  return body.trimStart().startsWith('<');
+  const trimmed = body.trimStart();
+
+  if (!trimmed.startsWith('<')) return false;
+
+  return trimmed.startsWith('<!') || trimmed.startsWith('<?') || trimmed.includes('</');
 }
 
 /**

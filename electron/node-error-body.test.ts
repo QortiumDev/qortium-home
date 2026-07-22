@@ -41,8 +41,18 @@ assert.equal(
   '{"message":"unexpected <html> in payload"}',
 );
 
-assert.equal(isMarkupErrorBody('<html>'), true);
+// A leading `<` alone is not markup: a node message may legitimately start with
+// one, and losing it to the generic fallback would hide the real reason.
+assert.equal(
+  readableNodeErrorMessage('<name> is already registered', FALLBACK),
+  '<name> is already registered',
+);
+
+assert.equal(isMarkupErrorBody('<html><body>x</body></html>'), true);
 assert.equal(isMarkupErrorBody('  <!DOCTYPE html>'), true);
+assert.equal(isMarkupErrorBody('<?xml version="1.0"?>'), true);
+assert.equal(isMarkupErrorBody('<h2>HTTP ERROR 500</h2>'), true);
+assert.equal(isMarkupErrorBody('<name> is already registered'), false);
 assert.equal(isMarkupErrorBody('{"error":1}'), false);
 assert.equal(isMarkupErrorBody('Bad parameter'), false);
 
@@ -65,61 +75,68 @@ function readRepoSource(...candidates: string[]) {
 const qdnSource = readRepoSource('../electron/qdn.ts', './qdn.ts').split('\n');
 const platformSource = readRepoSource('../src/platform.ts', './platform.ts').split('\n');
 
-const BUILD_CALL = /postLocalNodeText\($/;
-const TRANSACTION_TYPE_FIELD = /^\s+type: '[A-Z][A-Z_]*',$/;
-const BUILD_BODY_LINES = 25;
+// Scan by transaction-type NAME rather than by proximity to a
+// postLocalNodeText( call. A window-based scan has blind spots a future edit
+// can fall into for free -- a single-line call, or a body long enough to push
+// "type" past the window -- and a guard with blind spots is worse than none,
+// because it reads as coverage. Every name below is a Core TransactionType, so
+// `type: '<name>'` in these files can only ever be a request body.
+const TRANSACTION_TYPES = [
+  'ADD_GROUP_ADMIN', 'AT', 'BUY_ASSET_OWNERSHIP', 'BUY_NAME', 'CANCEL_ASSET_ORDER', 'CANCEL_GROUP_BAN',
+  'CANCEL_GROUP_INVITE', 'CANCEL_SELL_ASSET_OWNERSHIP', 'CANCEL_SELL_NAME', 'CHAT', 'CREATE_ASSET_ORDER',
+  'CREATE_GROUP', 'CREATE_POLL', 'DEPLOY_AT', 'GROUP_APPROVAL', 'GROUP_BAN', 'GROUP_INVITE', 'GROUP_KICK',
+  'ISSUE_ASSET', 'JOIN_GROUP', 'LEAVE_GROUP', 'MESSAGE', 'MULTI_PAYMENT', 'PAYMENT', 'PRESENCE', 'PUBLICIZE',
+  'RATE_ACCOUNT', 'RATE_RESOURCE', 'REGISTER_NAME', 'REMOVE_GROUP_ADMIN', 'REWARD_SHARE', 'SELL_ASSET_OWNERSHIP',
+  'SELL_NAME', 'SET_GROUP', 'TRANSFER_ASSET', 'TRANSFER_PRIVS', 'UPDATE_ASSET', 'UPDATE_GROUP', 'UPDATE_NAME',
+  'UPDATE_POLL', 'VOTE_ON_POLL',
+];
+const TRANSACTION_TYPE_FIELD = new RegExp(`type: '(${TRANSACTION_TYPES.join('|')})'`, 'g');
 
 function findTransactionTypeFields(source: string[]) {
-  const found: string[] = [];
-
-  source.forEach((line, index) => {
-    if (!BUILD_CALL.test(line)) return;
-
-    for (let cursor = index + 1; cursor < Math.min(index + 1 + BUILD_BODY_LINES, source.length); cursor += 1) {
-      if (TRANSACTION_TYPE_FIELD.test(source[cursor])) {
-        found.push(`${cursor + 1}: ${source[cursor].trim()}`);
-      }
-    }
-  });
-
-  return found;
+  return source.flatMap((line, index) =>
+    [...line.matchAll(TRANSACTION_TYPE_FIELD)].map(([match]) => `${index + 1}: ${match}`),
+  );
 }
 
-const offenders = findTransactionTypeFields(qdnSource);
-assert.deepEqual(
-  offenders,
-  [],
-  `electron/qdn.ts transaction build bodies must not send a "type" field (qortium-core#148):\n  ${offenders.join('\n  ')}`,
-);
+for (const [name, source] of [
+  ['electron/qdn.ts', qdnSource],
+  ['src/platform.ts', platformSource],
+] as const) {
+  const found = findTransactionTypeFields(source);
+  assert.deepEqual(
+    found,
+    [],
+    `${name} transaction build bodies must not send a "type" field (qortium-core#148):\n  ${found.join('\n  ')}`,
+  );
+}
 
-const platformOffenders = findTransactionTypeFields(platformSource);
+// The scan is only meaningful if it can fail, so prove it catches both a
+// conventional multi-line body and the single-line form a window-based scan
+// would have missed.
 assert.deepEqual(
-  platformOffenders,
-  [],
-  `src/platform.ts transaction build bodies must not send a "type" field (qortium-core#148):\n  ${platformOffenders.join('\n  ')}`,
+  findTransactionTypeFields(['    JSON.stringify({', "      type: 'UPDATE_NAME',", '    }),']),
+  ["2: type: 'UPDATE_NAME'"],
+  'the build-body scan must detect a planted type field',
 );
-
-// The scan is only meaningful if it can fail, so prove it catches a planted body.
-const plantedOffenders: string[] = [];
-const planted = ['  await postLocalNodeText(', "    '/names/update',", '    JSON.stringify({', "      type: 'UPDATE_NAME',", '    }),'];
-planted.forEach((line, index) => {
-  if (!BUILD_CALL.test(line)) return;
-  for (let cursor = index + 1; cursor < planted.length; cursor += 1) {
-    if (TRANSACTION_TYPE_FIELD.test(planted[cursor])) plantedOffenders.push(planted[cursor].trim());
-  }
-});
-assert.deepEqual(plantedOffenders, ["type: 'UPDATE_NAME',"], 'the build-body scan must detect a planted type field');
+assert.deepEqual(
+  findTransactionTypeFields([`await postLocalNodeText(c, '/names/update', JSON.stringify({ type: 'UPDATE_NAME', name }), k, m);`]),
+  ["1: type: 'UPDATE_NAME'"],
+  'the build-body scan must detect a single-line planted type field',
+);
 
 // A guard nobody calls is decoration. Pin every raw-body path to the helper so
 // a future edit cannot quietly reintroduce `<body> || fallbackMessage`.
-// Matches the pattern this change removes: a node response body thrown as the
+// Matches the pattern this change removes: a node response body used as the
 // error message with the caller's message demoted to an empty-body fallback.
-const RAW_BODY_FALLBACK = /throw new Error\((message|body|responseBody|text|result\.body|result\.text) \|\|/;
+// Deliberately not anchored to `throw new Error(` -- two of these paths throw
+// QdnUploadPostError instead -- and it must tolerate a `.trim()` in between,
+// which is how the original code at both qdn.ts sites was written.
+const RAW_BODY_FALLBACK = /\b(message|body|responseBody|text|result\.body|result\.text)(\.trim\(\))? \|\| (fallbackMessage|`)/;
 const HELPER_CALL = /readableNodeErrorMessage\(/g;
 
 for (const [name, source, expectedCalls] of [
-  ['electron/qdn.ts', qdnSource.join('\n'), 14],
-  ['src/platform.ts', platformSource.join('\n'), 14],
+  ['electron/qdn.ts', qdnSource.join('\n'), 17],
+  ['src/platform.ts', platformSource.join('\n'), 17],
   ['electron/node-settings.ts', readRepoSource('../electron/node-settings.ts', './node-settings.ts'), 2],
   ['src/QdnViewer.tsx', readRepoSource('../src/QdnViewer.tsx', './QdnViewer.tsx'), 1],
 ] as const) {

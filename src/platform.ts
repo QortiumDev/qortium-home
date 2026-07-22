@@ -9386,7 +9386,7 @@ async function fetchSendQortFeeAtomic() {
   const result = await fetchQortalNodeApi('/transactions/unitfee?txType=PAYMENT', 1024);
 
   if (!result.ok) {
-    throw new SendQortValidationError(result.body || `QORT fee lookup failed with HTTP ${result.status}.`);
+    throw new SendQortValidationError(readableNodeErrorMessage(result.body, `QORT fee lookup failed with HTTP ${result.status}.`));
   }
 
   return parseQortalFeeAtomic(result.data ?? result.body);
@@ -9396,7 +9396,7 @@ async function fetchSendQortBalanceAtomic(address: string) {
   const result = await fetchQortalNodeApi(`/addresses/balance/${encodeURIComponent(address)}`, 1024);
 
   if (!result.ok) {
-    throw new SendQortValidationError(result.body || `QORT balance lookup failed with HTTP ${result.status}.`);
+    throw new SendQortValidationError(readableNodeErrorMessage(result.body, `QORT balance lookup failed with HTTP ${result.status}.`));
   }
 
   return parseQortalBalanceAtomic(result.data ?? result.body);
@@ -9889,11 +9889,7 @@ function buildQdnRenderPath(resource: QortiumQdnAuthorizeRequest) {
 }
 
 function getAuthorizationFailureMessage(status: number, responseBody: string) {
-  if (responseBody.startsWith('<')) {
-    return `QDN authorization failed with HTTP ${status}.`;
-  }
-
-  return responseBody || `QDN resource authorization failed with HTTP ${status}.`;
+  return readableNodeErrorMessage(responseBody, `QDN resource authorization failed with HTTP ${status}.`);
 }
 
 async function isPublicRenderAvailable(nodeApiUrl: string, resource: QortiumQdnAuthorizeRequest) {
