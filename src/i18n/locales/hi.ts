@@ -528,6 +528,7 @@ export const hi: Record<TranslationKey, string> = {
   "qdnWrite.action.sendCoin": "कॉइन भेजें",
   "qdnWrite.action.setGroup": "डिफॉल्ट समूह सेट करें",
   "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "मिंटिंग शुरू करें",
   "qdnWrite.action.transferAsset": "एसेट ट्रांसफर करें",

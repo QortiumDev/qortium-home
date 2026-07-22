@@ -527,6 +527,7 @@ export const ar: Record<TranslationKey, string> = {
   "qdnWrite.action.sendCoin": "إرسال عملة",
   "qdnWrite.action.setGroup": "تعيين المجموعة الافتراضية",
   "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "بدء السكّ",
   "qdnWrite.action.transferAsset": "تحويل أصل",

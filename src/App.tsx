@@ -412,6 +412,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.setGroup';
     case 'SET_GROUP_AVATAR':
       return 'qdnWrite.action.setGroupAvatar';
+    case 'SET_ACCOUNT_AVATAR':
+      return 'qdnWrite.action.setAccountAvatar';
     case 'SET_CURRENT_FOREIGN_SERVER':
       return 'qdnWrite.action.setCurrentForeignServer';
     case 'SEND_QORTAL_GROUP_CHAT':

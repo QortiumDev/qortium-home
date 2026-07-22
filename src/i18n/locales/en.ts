@@ -526,6 +526,7 @@ export const en = {
   "qdnWrite.action.sendCoin": "Send Coin",
   "qdnWrite.action.setGroup": "Set Default Group",
   "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Start Minting",
   "qdnWrite.action.transferAsset": "Transfer Asset",

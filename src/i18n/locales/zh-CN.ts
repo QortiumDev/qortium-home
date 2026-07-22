@@ -555,6 +555,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "qdnWrite.action.sendCoin": "发送币",
   "qdnWrite.action.setGroup": "设置默认群组",
   "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "开始铸造",
   "qdnWrite.action.transferAsset": "转移资产",

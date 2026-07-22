@@ -15,7 +15,7 @@ the current start time verbatim, especially after votes exist.
 
 ## Action availability and approvals
 
-Supported read-only actions are `FETCH_NODE_API`, `FETCH_GROUP_AVATAR`, `FETCH_QORTAL_NODE_API`,
+Supported read-only actions are `FETCH_NODE_API`, `FETCH_ACCOUNT_AVATAR`, `FETCH_GROUP_AVATAR`, `FETCH_QORTAL_NODE_API`,
 `SEARCH_QORTAL_TRANSACTIONS`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
 `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,
@@ -39,7 +39,7 @@ separate durable capabilities and revision-checked mutations; see
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
-`UPDATE_GROUP`, `SET_GROUP_AVATAR`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
+`UPDATE_GROUP`, `SET_GROUP_AVATAR`, `SET_ACCOUNT_AVATAR`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
 `CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
@@ -52,18 +52,28 @@ The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 remain available when Home uses a public/network node because they operate on
 Home's local device data rather than Core.
 
-## Group avatars
+## Account and group avatars
 
-`FETCH_GROUP_AVATAR` is a read-only, public-node-safe action. It accepts a
-positive `groupId` (or `txGroupId`) and optional `maxBytes`, and returns the
-Core-authorized avatar as `{ groupId, body, encoding: 'base64', contentType,
-contentLength }`. While Core is downloading QDN data, Home returns
-`{ groupId, status: 'PENDING', retryAfterSeconds }` from Core's HTTP 202 instead
-of treating it as an empty image. Home caps the response at 500 KiB, matching
-Core's `THUMBNAIL` limit, and detects PNG/JPEG (and other supported image magic
-bytes) when Core reports a generic MIME type. Apps should build an in-memory
-Blob from `body`; Home never returns a raw node URL that could bypass the
-group-authorized signature.
+`FETCH_GROUP_AVATAR` accepts a positive `groupId` (or `txGroupId`), while
+`FETCH_ACCOUNT_AVATAR` accepts an `address` (or uses the selected account).
+Both are read-only, public-node-safe actions. They query Core's exact-avatar
+info endpoint before fetching bytes: explicit authorization always wins and
+an invalid/missing authorized resource fails closed. A ready response is
+`{ groupId|address, body, encoding: 'base64', contentType, contentLength,
+source, descriptor }`; `source` is `AUTHORIZED` or `LEGACY`, and `descriptor`
+is Core's `{ signature, service, name, identifier }` tuple when authorized.
+While Core queues QDN data, Home returns `{ groupId|address, status: 'PENDING',
+retryAfterSeconds, source, descriptor }`. Home caps responses at 500 KiB and
+accepts only image MIME types confirmed by image magic bytes when the server
+reports a generic content type. Apps build an in-memory Blob from `body`; Home
+never returns a raw node URL that could bypass authorization.
+
+Only an exact Core-info `404` is eligible for a mutable legacy fallback. Account
+fallback tries `THUMBNAIL/<primaryName>/avatar`, then Qortal Hub's
+`THUMBNAIL/<primaryName>/qortal_avatar`; group fallback uses Hub's
+`THUMBNAIL/<ownerPrimaryName>/qortal_group_avatar_<groupId>`. Legacy results are
+always marked `source: 'LEGACY'`; callers must not treat them as an on-chain
+authorization.
 
 `SET_GROUP_AVATAR` requires a single-request approval and a local/trusted
 node. It accepts `groupId` plus `avatarSignature`, which is either `null` to
@@ -71,6 +81,16 @@ clear the avatar or a base58-encoded 64-byte QDN transaction signature. Home
 looks up the group for approval context, then builds and signs the Core
 `SET_GROUP_AVATAR` transaction. It is intentionally separate from
 `UPDATE_GROUP` so users approve the avatar assignment explicitly.
+
+`SET_ACCOUNT_AVATAR` has the same nullable signature rule and separate
+single-request approval, but always targets the selected account and always
+uses `txGroupId: 0`. Apps cannot supply a service/name/identifier to either SET
+action: Core authorizes only the exact QDN transaction signature.
+
+For publishing before authorization, use the existing `PUBLISH_QDN_RESOURCE`
+with `THUMBNAIL/<primaryName>/avatar` for accounts, or
+`THUMBNAIL/<ownerPrimaryName>/qortium-group-avatar-v1-<groupId>` for groups.
+Publishing and authorization remain deliberately separate actions.
 
 ## Publishing sources
 

@@ -5,9 +5,19 @@ const BASE58_ALPHABET_MAP = new Map<string, number>(
 
 export const GROUP_AVATAR_MAX_BYTES = 500 * 1024;
 
+export type AvatarSource = 'AUTHORIZED' | 'LEGACY';
+export type AvatarDescriptor = {
+  identifier: string;
+  name: string;
+  service: string;
+  signature: string;
+};
+
 export type GroupAvatarPendingResult = {
+  descriptor: AvatarDescriptor | null;
   groupId: number;
   retryAfterSeconds: number | null;
+  source: AvatarSource;
   status: 'PENDING';
 };
 
@@ -15,8 +25,21 @@ export type GroupAvatarFetchResult = GroupAvatarPendingResult | {
   body: string;
   contentLength: number;
   contentType: string;
+  descriptor: AvatarDescriptor | null;
   encoding: 'base64';
   groupId: number;
+  source: AvatarSource;
+};
+
+export type AccountAvatarPendingResult = Omit<GroupAvatarPendingResult, 'groupId'> & { address: string };
+export type AccountAvatarFetchResult = AccountAvatarPendingResult | {
+  address: string;
+  body: string;
+  contentLength: number;
+  contentType: string;
+  descriptor: AvatarDescriptor | null;
+  encoding: 'base64';
+  source: AvatarSource;
 };
 
 function startsWith(bytes: Uint8Array, signature: number[], offset = 0) {
@@ -96,6 +119,37 @@ export function buildGroupAvatarPath(groupId: number) {
   return `/groups/${encodeURIComponent(String(groupId))}/avatar`;
 }
 
+export function buildAccountAvatarPath(address: string) {
+  return `/addresses/${encodeURIComponent(address)}/avatar`;
+}
+
+export function buildAvatarInfoPath(target: 'account' | 'group', value: string | number) {
+  const prefix = target === 'account' ? '/addresses' : '/groups';
+  return `${prefix}/${encodeURIComponent(String(value))}/avatar/info`;
+}
+
+export function buildAccountAvatarPublishResource(name: string) {
+  return { service: 'THUMBNAIL', name, identifier: 'avatar' };
+}
+
+export function buildGroupAvatarPublishResource(ownerName: string, groupId: number) {
+  return { service: 'THUMBNAIL', name: ownerName, identifier: `qortium-group-avatar-v1-${groupId}` };
+}
+
+export function buildLegacyAccountAvatarResource(name: string, kind: 'qortium' | 'qortal-hub') {
+  return { service: 'THUMBNAIL', name, identifier: kind === 'qortium' ? 'avatar' : 'qortal_avatar' };
+}
+
+export function buildLegacyGroupAvatarResource(ownerName: string, groupId: number) {
+  return { service: 'THUMBNAIL', name: ownerName, identifier: `qortal_group_avatar_${groupId}` };
+}
+
+export function buildAvatarResourcePath(resource: { service: string; name: string; identifier: string | null }) {
+  return `/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}${
+    resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : ''
+  }?async=true`;
+}
+
 export function getGroupAvatarMaxBytes(value: unknown) {
   const requested = typeof value === 'number' && Number.isFinite(value)
     ? Math.floor(value)
@@ -110,7 +164,7 @@ export function getGroupAvatarMaxBytes(value: unknown) {
 // rendering. A Core response may conservatively say application/octet-stream,
 // but apps need the actual image MIME to build a Blob safely.
 export function getGroupAvatarContentType(contentType: string | undefined, bytes: Uint8Array) {
-  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47])) return 'image/png';
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
   if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
   if (startsWith(bytes, [0x42, 0x4d])) return 'image/bmp';
@@ -119,6 +173,14 @@ export function getGroupAvatarContentType(contentType: string | undefined, bytes
   }
 
   return contentType?.trim() || 'application/octet-stream';
+}
+
+export function getAvatarImageContentType(contentType: string | undefined, bytes: Uint8Array) {
+  // Avatar bytes must prove their image type. Never accept a server-declared
+  // image/* type alone: legacy resources are mutable and a mislabeled PDF/HTML
+  // must not become an inline avatar.
+  const resolved = getGroupAvatarContentType(undefined, bytes);
+  return resolved.toLowerCase().startsWith('image/') ? resolved : null;
 }
 
 export function getGroupAvatarRetryAfterSeconds(value: string | undefined, now = Date.now()) {
@@ -134,15 +196,54 @@ export function getGroupAvatarRetryAfterSeconds(value: string | undefined, now =
   return Math.max(0, Math.ceil((retryAt - now) / 1000));
 }
 
+export function getAvatarDescriptor(values: {
+  identifier?: string | null;
+  name?: string | null;
+  service?: string | null;
+  signature?: string | null;
+}): AvatarDescriptor | null {
+  const signature = values.signature?.trim();
+  const service = values.service?.trim();
+  const name = values.name?.trim();
+  if (!signature || !service || !name) return null;
+
+  const identifier = values.identifier?.trim();
+  if (!identifier) return null;
+
+  return { signature, service, name, identifier };
+}
+
+export function getAvatarDescriptorFromHeaders(getHeader: (name: string) => string | undefined) {
+  return getAvatarDescriptor({
+    signature: getHeader('x-qortium-avatar-signature'),
+    service: getHeader('x-qortium-avatar-service'),
+    name: getHeader('x-qortium-avatar-name'),
+    identifier: getHeader('x-qortium-avatar-identifier'),
+  });
+}
+
 export function buildGroupAvatarPendingResult(
   groupId: number,
   retryAfter: string | undefined,
+  source: AvatarSource = 'AUTHORIZED',
+  descriptor: AvatarDescriptor | null = null,
 ): GroupAvatarPendingResult {
   return {
     groupId,
     status: 'PENDING',
     retryAfterSeconds: getGroupAvatarRetryAfterSeconds(retryAfter),
+    source,
+    descriptor,
   };
+}
+
+export function buildAccountAvatarPendingResult(
+  address: string,
+  retryAfter: string | undefined,
+  source: AvatarSource = 'AUTHORIZED',
+  descriptor: AvatarDescriptor | null = null,
+): AccountAvatarPendingResult {
+  return { address, status: 'PENDING', retryAfterSeconds: getGroupAvatarRetryAfterSeconds(retryAfter), source, descriptor };
 }
 
 export function buildSetGroupAvatarTransactionBody(input: {
@@ -160,6 +261,22 @@ export function buildSetGroupAvatarTransactionBody(input: {
     fee: input.fee,
     ownerPublicKey: input.ownerPublicKey,
     groupId: input.groupId,
+    avatarSignature: input.avatarSignature,
+  };
+}
+
+export function buildSetAccountAvatarTransactionBody(input: {
+  avatarSignature: string | null;
+  fee: number;
+  ownerPublicKey: string;
+  timestamp: number;
+}) {
+  return {
+    type: 'SET_ACCOUNT_AVATAR' as const,
+    timestamp: input.timestamp,
+    txGroupId: 0,
+    fee: input.fee,
+    ownerPublicKey: input.ownerPublicKey,
     avatarSignature: input.avatarSignature,
   };
 }

@@ -527,6 +527,7 @@ export const et: Record<TranslationKey, string> = {
   "qdnWrite.action.sendCoin": "Saada münte",
   "qdnWrite.action.setGroup": "Määra vaikegrupp",
   "qdnWrite.action.setGroupAvatar": "Set group avatar",
+  "qdnWrite.action.setAccountAvatar": "Set account avatar",
   "qdnWrite.action.setCurrentForeignServer": "Set Foreign Coin Server",
   "qdnWrite.action.startMinting": "Alusta mintimist",
   "qdnWrite.action.transferAsset": "Kanna vara üle",
