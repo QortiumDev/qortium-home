@@ -60,6 +60,7 @@ import {
   normalizeMarketPriceCurrencies,
   type MarketPriceResponse,
 } from './market-prices.js';
+import { isLoopbackHostname } from './node-ca-bootstrap.js';
 import {
   getNodeApiUrl,
   getNodeConnection,
@@ -2673,17 +2674,6 @@ function getNetworkRestrictionMessage() {
 
 function networkRestrictionError() {
   return Object.assign(new Error(getNetworkRestrictionMessage()), { code: 'PUBLIC_NODE_READ_ONLY' });
-}
-
-function isLoopbackHostname(hostname: string) {
-  const normalizedHostname = hostname.toLowerCase();
-
-  return (
-    normalizedHostname === 'localhost' ||
-    normalizedHostname === '::1' ||
-    normalizedHostname === '[::1]' ||
-    /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname)
-  );
 }
 
 function assertLocalWriteConnection(connection: NodeConnection) {
