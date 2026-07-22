@@ -9,11 +9,14 @@ import packageJson from '../package.json';
 import { compareAppVersions } from './appUpdates';
 import { sniffMagicMimeType } from './qdnContentType';
 import {
+  buildGroupAvatarPendingResult,
   buildGroupAvatarPath,
   buildSetGroupAvatarTransactionBody,
+  getGroupAvatarContentType,
   getGroupAvatarGroupId,
   getGroupAvatarMaxBytes,
   getOptionalGroupAvatarSignature,
+  type GroupAvatarFetchResult,
 } from '../electron/qdn-group-avatar-input';
 import {
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
@@ -5183,11 +5186,15 @@ async function updateGroupForApp(request: QdnAppRequest, context: QdnAppRequestC
 // Core resolves the group-authorized, immutable QDN transaction signature before
 // serving these bytes. Home intentionally returns bounded base64 instead of a
 // node URL so apps cannot bypass the on-chain group-avatar authorization state.
-async function fetchGroupAvatarForApp(request: QdnAppRequest) {
+async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvatarFetchResult> {
   const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
   const maxBytes = getGroupAvatarMaxBytes(getRequestValue(request, 'maxBytes'));
   const settings = await readNodeSettings();
   const { response } = await requestConfiguredNode(settings, buildGroupAvatarPath(groupId), 'arraybuffer');
+
+  if (response.status === 202) {
+    return buildGroupAvatarPendingResult(groupId, getHeader(response, 'retry-after'));
+  }
 
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`Group avatar request failed with HTTP ${response.status}.`);
@@ -5196,7 +5203,8 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest) {
     throw new Error('Group avatar response was not binary data.');
   }
 
-  const contentLength = getContentLength(response) ?? base64ToBytes(response.data).byteLength;
+  const bytes = base64ToBytes(response.data);
+  const contentLength = getContentLength(response) ?? bytes.byteLength;
   if (contentLength > maxBytes) {
     throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
   }
@@ -5205,7 +5213,7 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest) {
     groupId,
     body: response.data,
     encoding: 'base64' as const,
-    contentType: getContentType(response),
+    contentType: getGroupAvatarContentType(getContentType(response), bytes),
     contentLength,
   };
 }

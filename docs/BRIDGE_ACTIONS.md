@@ -57,9 +57,13 @@ Home's local device data rather than Core.
 `FETCH_GROUP_AVATAR` is a read-only, public-node-safe action. It accepts a
 positive `groupId` (or `txGroupId`) and optional `maxBytes`, and returns the
 Core-authorized avatar as `{ groupId, body, encoding: 'base64', contentType,
-contentLength }`. Home caps the response at 500 KiB, matching Core's
-`THUMBNAIL` limit. Apps should build an in-memory Blob from `body`; Home never
-returns a raw node URL that could bypass the group-authorized signature.
+contentLength }`. While Core is downloading QDN data, Home returns
+`{ groupId, status: 'PENDING', retryAfterSeconds }` from Core's HTTP 202 instead
+of treating it as an empty image. Home caps the response at 500 KiB, matching
+Core's `THUMBNAIL` limit, and detects PNG/JPEG (and other supported image magic
+bytes) when Core reports a generic MIME type. Apps should build an in-memory
+Blob from `body`; Home never returns a raw node URL that could bypass the
+group-authorized signature.
 
 `SET_GROUP_AVATAR` requires a single-request approval and a local/trusted
 node. It accepts `groupId` plus `avatarSignature`, which is either `null` to

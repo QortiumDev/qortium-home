@@ -69,11 +69,14 @@ import {
 import { nodeFetch } from './node-tls.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import {
+  buildGroupAvatarPendingResult,
   buildGroupAvatarPath,
   buildSetGroupAvatarTransactionBody,
+  getGroupAvatarContentType,
   getGroupAvatarGroupId,
   getGroupAvatarMaxBytes,
   getOptionalGroupAvatarSignature,
+  type GroupAvatarFetchResult,
 } from './qdn-group-avatar-input.js';
 import {
   appendSignatureToTransactionBytes,
@@ -6720,10 +6723,15 @@ async function updateGroupForApp(
 // Core resolves the group-authorized, immutable QDN transaction signature before
 // serving these bytes. Home intentionally returns bounded base64 instead of a
 // node URL so apps cannot bypass the on-chain group-avatar authorization state.
-async function fetchGroupAvatarForApp(request: QdnAppRequest) {
+async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvatarFetchResult> {
   const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
   const maxBytes = getGroupAvatarMaxBytes(getRequestValue(request, 'maxBytes'));
   const { response } = await fetchConfiguredNode(buildGroupAvatarPath(groupId), { method: 'GET' });
+
+  if (response.status === 202) {
+    await response.body?.cancel();
+    return buildGroupAvatarPendingResult(groupId, response.headers.get('retry-after') ?? undefined);
+  }
 
   if (!response.ok) {
     throw new Error(`Group avatar request failed with HTTP ${response.status}.`);
@@ -6744,7 +6752,7 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest) {
     groupId,
     body: Buffer.from(arrayBuffer).toString('base64'),
     encoding: 'base64' as const,
-    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    contentType: getGroupAvatarContentType(response.headers.get('content-type') ?? undefined, new Uint8Array(arrayBuffer)),
     contentLength: contentLength ?? arrayBuffer.byteLength,
   };
 }
