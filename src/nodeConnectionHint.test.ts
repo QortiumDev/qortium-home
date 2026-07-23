@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resolveCustomNodeHintKey } from './nodeConnectionHint';
+import { requiresCertificateConfirmation, resolveCustomNodeHintKey } from './nodeConnectionHint';
 
 // A node on this machine keeps every capability, with or without an API key.
 assert.equal(
@@ -49,5 +49,23 @@ assert.equal(resolveCustomNodeHintKey({ apiKey: 'key', nodeApiUrl: '   ' }), nul
 assert.equal(resolveCustomNodeHintKey({ apiKey: '', nodeApiUrl: 'myvps:24891' }), null);
 assert.equal(resolveCustomNodeHintKey({ apiKey: '', nodeApiUrl: 'https://' }), null);
 assert.equal(resolveCustomNodeHintKey({ apiKey: '', nodeApiUrl: 'ftp://node.example' }), null);
+
+// An encrypted node somewhere else is the only case the user has to confirm a
+// certificate for.
+for (const nodeApiUrl of ['https://node.example:24891', 'https://203.0.113.7:24891', 'https://myvps']) {
+  assert.equal(requiresCertificateConfirmation(nodeApiUrl), true, `${nodeApiUrl} needs a confirmation.`);
+}
+
+// A node on this machine is untouched, and plaintext has no certificate at all.
+for (const nodeApiUrl of [
+  'https://127.0.0.1:24891',
+  'https://localhost:24891',
+  'http://127.0.0.1:24891',
+  'http://node.example:24891',
+  '',
+  'node.example:24891',
+]) {
+  assert.equal(requiresCertificateConfirmation(nodeApiUrl), false, `${nodeApiUrl} needs no confirmation.`);
+}
 
 console.log('Custom node connection hint tests passed.');

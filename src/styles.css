@@ -3571,6 +3571,58 @@ h1 {
   line-height: var(--line-height-small);
 }
 
+/* Out-of-band certificate confirmation for a remote custom node. */
+.node-certificate {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.node-certificate__title {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.node-certificate__state {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.node-certificate__row {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.node-certificate__label {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.node-certificate__command,
+.node-certificate__fingerprint {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+  user-select: text;
+}
+
+.node-certificate__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .release-notes-page {
   display: grid;
   gap: 18px;

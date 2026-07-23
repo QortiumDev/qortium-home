@@ -13,7 +13,12 @@ import {
   readPreviewApiKey,
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
-import { ensureNodeCa, nodeFetch } from './node-tls.js';
+import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
+import {
+  confirmNodeCertificate,
+  forgetNodeCertificate,
+  getNodeCertificateStatus,
+} from './node-cert-confirmation.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
@@ -304,6 +309,28 @@ function getConfiguredNodeApiKey(settings: NodeSettings) {
 
 async function ensureNodeTls(nodeApiUrl: string, apiKey: string | null) {
   await ensureNodeCa(nodeApiUrl, apiKey);
+}
+
+// The API key never leaves this machine for a node whose certificate has not
+// been confirmed. The TLS layer already refuses that connection, so this is the
+// second half of the same rule rather than the only one: the key is not even
+// handed to the code that would send it.
+function getSendableNodeApiKey(settings: NodeSettings, nodeApiUrl: string) {
+  const apiKey = getConfiguredNodeApiKey(settings);
+
+  if (!apiKey) {
+    return '';
+  }
+
+  return resolveNodeTlsTrust(nodeApiUrl).kind === 'unconfirmed' ? '' : apiKey;
+}
+
+function assertNodeCertificateConfirmed(nodeApiUrl: string) {
+  const trust = resolveNodeTlsTrust(nodeApiUrl);
+
+  if (trust.kind === 'unconfirmed') {
+    throw new Error(trust.reason);
+  }
 }
 
 async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings> {
@@ -959,10 +986,11 @@ export async function refreshNodeConnectionApiKey(connection: NodeConnection): P
   }
 
   const refreshedSettings = await refreshLocalApiKey(readNodeSettings());
+  const refreshedNodeApiUrl = await resolveNodeApiUrl(refreshedSettings);
   const refreshedConnection = {
-    apiKey: getConfiguredNodeApiKey(refreshedSettings),
+    apiKey: getSendableNodeApiKey(refreshedSettings, refreshedNodeApiUrl),
     mode: refreshedSettings.mode,
-    nodeApiUrl: await resolveNodeApiUrl(refreshedSettings),
+    nodeApiUrl: refreshedNodeApiUrl,
   };
 
   await ensureNodeTls(refreshedConnection.nodeApiUrl, refreshedConnection.apiKey || null);
@@ -985,6 +1013,9 @@ async function fetchProtectedNodeResponse(
   body?: string,
 ) {
   const nodeApiUrl = await resolveNodeApiUrl(settings);
+
+  assertNodeCertificateConfirmed(nodeApiUrl);
+
   const apiKey = getProtectedNodeApiKey(settings);
   let response: Response;
 
@@ -1194,6 +1225,9 @@ async function testNodeSettings(settings: NodeSettings) {
 
   try {
     nodeApiUrl = await resolveNodeApiUrl(resolvedSettings);
+    // Said plainly here rather than as a TLS failure: the node is reachable, it
+    // is the certificate that has not been confirmed yet.
+    assertNodeCertificateConfirmed(nodeApiUrl);
     await ensureNodeTls(nodeApiUrl, apiKey);
 
     return {
@@ -1358,8 +1392,8 @@ async function setAllowedTransports(transports: unknown) {
 
 export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<NodeConnection> {
   const settings = await resolveLocalApiKey(readNodeSettings());
-  const apiKey = getConfiguredNodeApiKey(settings);
   const nodeApiUrl = await resolveNodeApiUrl(settings, forceDiscoveryRefresh);
+  const apiKey = getSendableNodeApiKey(settings, nodeApiUrl);
 
   await ensureNodeTls(nodeApiUrl, apiKey || null);
 
@@ -1421,5 +1455,20 @@ export function registerNodeSettingsIpcHandlers() {
 
   ipcMain.handle('node:getStatus', () => {
     return testNodeSettings(readNodeSettings());
+  });
+
+  ipcMain.handle('node:getCertificateStatus', (_event, nodeApiUrl: unknown) => {
+    return getNodeCertificateStatus(normalizeNodeApiUrl(getString(nodeApiUrl)));
+  });
+
+  ipcMain.handle(
+    'node:confirmCertificate',
+    (_event, nodeApiUrl: unknown, fingerprint: unknown) => {
+      return confirmNodeCertificate(normalizeNodeApiUrl(getString(nodeApiUrl)), fingerprint);
+    },
+  );
+
+  ipcMain.handle('node:forgetCertificate', (_event, nodeApiUrl: unknown) => {
+    return forgetNodeCertificate(normalizeNodeApiUrl(getString(nodeApiUrl)));
   });
 }

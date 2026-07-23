@@ -9,6 +9,13 @@ import {
   planNodeCaBootstrap,
   type NodeCaBootstrapPlan,
 } from './node-ca-bootstrap.js';
+import { readNodeCertificatePins } from './node-cert-pins.js';
+import {
+  formatCertificateFingerprint,
+  resolveNodeCertificateTrust,
+  verifyPresentedNodeCertificate,
+  type NodeCertificateTrust,
+} from './node-cert-trust.js';
 
 type NodeFetchInit = RequestInit & { duplex?: 'half' };
 
@@ -312,6 +319,46 @@ export function verifyAgainstStoredCa(hostname: string, certificatePem: string):
   return false;
 }
 
+/**
+ * Whether this is the certificate the user confirmed out of band for this host.
+ *
+ * Nothing here is inferred from the certificate itself: it is trusted only
+ * because its fingerprint is one a person checked on the node and said matched.
+ * A certificate that is expired, or whose fingerprint differs by one character,
+ * is not that certificate.
+ */
+export function isConfirmedNodeCertificate(hostname: string, certificatePem: string): boolean {
+  const leaf = parseCertificate(certificatePem);
+
+  if (!leaf || !isCertificateCurrentlyValid(leaf)) {
+    return false;
+  }
+
+  const verdict = verifyPresentedNodeCertificate(
+    hostname,
+    formatCertificateFingerprint(leaf.raw),
+    readNodeCertificatePins(),
+  );
+
+  if (verdict.kind === 'mismatch') {
+    console.warn(
+      `${hostname} presented a certificate that is not the one confirmed for it. Home refused the ` +
+        'connection. Re-check the fingerprint on the node before confirming it again.',
+    );
+  }
+
+  return verdict.kind === 'trusted';
+}
+
+/** What Home may do with the node at this URL, before it is contacted. */
+export function resolveNodeTlsTrust(nodeApiUrl: string): NodeCertificateTrust {
+  try {
+    return resolveNodeCertificateTrust(new URL(nodeApiUrl), readNodeCertificatePins());
+  } catch {
+    return { kind: 'not-applicable' };
+  }
+}
+
 export function installCertificateVerifyProc(targetSession: Session) {
   if (installedVerifyProcSessions.has(targetSession)) {
     return;
@@ -323,11 +370,22 @@ export function installCertificateVerifyProc(targetSession: Session) {
       return;
     }
 
-    if (
-      isEligibleNodeTlsHost(request.hostname) &&
-      request.certificate?.data &&
-      verifyAgainstStoredCa(request.hostname, request.certificate.data)
-    ) {
+    const certificatePem = request.certificate?.data;
+
+    if (!certificatePem) {
+      callback(-3);
+      return;
+    }
+
+    if (isEligibleNodeTlsHost(request.hostname) && verifyAgainstStoredCa(request.hostname, certificatePem)) {
+      callback(0);
+      return;
+    }
+
+    // The out-of-band route: a remote node has no authority Home may fetch, so
+    // the only thing that can make its certificate acceptable is the user having
+    // confirmed this exact fingerprint against the node itself.
+    if (isConfirmedNodeCertificate(request.hostname, certificatePem)) {
       callback(0);
       return;
     }
