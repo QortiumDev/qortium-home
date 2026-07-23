@@ -141,7 +141,6 @@ import {
   assertPositiveQortAmount,
   assertValidQortalAddress,
   atomicLongToBigInt,
-  base58Encode as qortalBase58Encode,
   buildUnsignedPaymentTransactionBytes,
   formatQortAtomic,
   getSignatureFromSignedTransactionBytes,
@@ -3591,7 +3590,7 @@ async function sendQortForApp(
   });
   const signatureBytes = nacl.sign.detached(unsignedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signatureBytes);
-  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signedBytes58 = base58Encode(signedBytes);
   const signature = getSignatureFromSignedTransactionBytes(signedBytes);
 
   try {
@@ -3763,7 +3762,7 @@ async function sendQortalGroupChatForApp(
   const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
-  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signedBytes58 = base58Encode(signedBytes);
   const signature = getSignatureFromSignedTransactionBytes(signedBytes);
 
   try {

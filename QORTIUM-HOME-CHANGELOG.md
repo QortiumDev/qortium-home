@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - refactor(qdn): stop importing the same base58 conversion twice
+
+Tidy-up left over from the earlier base58 consolidation. Both of Home's QDN
+routes were reaching for the shared text-conversion helper twice in the same
+file: once directly, and once through the code that builds Qortal transactions,
+under a second name. It was the same helper both times - confirmed by loading
+both and checking they are literally the same thing - so the second name was
+only ever a leftover that made the four places using it look like they were
+doing something different from the rest of the file.
+
+The second name is gone and those four places now use the direct one. The
+transaction-building code still offers the conversion to anything that asks for
+it, because three other parts of Home still do. Nothing about how Home behaves
+changes; the tests that check signed transactions come out byte for byte as
+expected all pass untouched.
+
 ### 2026-07-23 - refactor(qdn): decide once which QDN services Home will open
 
 Every QDN address names a service: whether you are looking at a website, an
