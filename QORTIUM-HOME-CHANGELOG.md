@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - fix(avatars): follow Core's resource-pointer contract
+
+Aligns Home's new account and group avatar bridge with Core's final on-chain
+format before the feature ships. An avatar assignment now stores a plain QDN
+resource pointer — service, registered name and optional identifier — instead
+of freezing one publication by transaction signature. The pointed resource can
+belong to any registered name, does not need to exist when assigned, and always
+shows its latest revision; Core still checks that served content is a supported
+raster image no larger than 500 KiB. Desktop and Android now send that pointer,
+accept an empty identifier for a default resource, and report `POINTER` rather
+than `AUTHORIZED` provenance to apps. The bridge documentation and tests cover
+the same contract.
+
 ### 2026-07-23 - chore(release): prepare home 1.6.0
 
 Bumps Qortium Home to 1.6.0 with Android versionCode 33 for the next preview
@@ -41,7 +54,7 @@ running on another machine — including from Android — by streaming the file
 bytes to the remote node rather than handing it a local path, with a manual
 certificate confirmation step before a remote node is trusted and a requirement
 that the connection use TLS before any unattested publishing. It also verifies
-managed Java downloads before use, adds a bridge for authorized account and
+managed Java downloads before use, adds a bridge for pointer-based account and
 group avatars to match Core, consolidates the QDN Apps settings (app
 permissions, preferred apps, notification controls and the bookmark manager)
 into one place, shows which tab is playing sound and lets you mute it, and

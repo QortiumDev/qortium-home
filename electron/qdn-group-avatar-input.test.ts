@@ -18,7 +18,7 @@ import {
   getAvatarDescriptor,
   getAvatarDescriptorFromHeaders,
   getAvatarImageContentType,
-  getOptionalGroupAvatarSignature,
+  getOptionalAvatarPointer,
   GROUP_AVATAR_MAX_BYTES,
 } from './qdn-group-avatar-input.js';
 import {
@@ -27,14 +27,18 @@ import {
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
 } from './qdn-app-actions.js';
 
-const signature = '1'.repeat(64);
+const pointer = { service: 'THUMBNAIL', name: 'alice', identifier: 'avatar' };
 
 assert.equal(getGroupAvatarGroupId('42'), 42);
 assert.throws(() => getGroupAvatarGroupId(0), /positive integer/);
-assert.equal(getOptionalGroupAvatarSignature(null), null);
-assert.equal(getOptionalGroupAvatarSignature(signature), signature);
-assert.throws(() => getOptionalGroupAvatarSignature('2'.repeat(64)), /64-byte/);
-assert.throws(() => getOptionalGroupAvatarSignature('0'.repeat(64)), /base58/);
+assert.equal(getOptionalAvatarPointer(null), null);
+assert.deepEqual(getOptionalAvatarPointer(pointer), pointer);
+assert.deepEqual(getOptionalAvatarPointer({ service: 'THUMBNAIL', name: 'alice' }), {
+  service: 'THUMBNAIL', name: 'alice', identifier: '',
+});
+assert.throws(() => getOptionalAvatarPointer('signature'), /object containing service/);
+assert.throws(() => getOptionalAvatarPointer({ service: 'THUMBNAIL', name: '', identifier: 'avatar' }), /non-empty/);
+assert.throws(() => getOptionalAvatarPointer({ service: 'THUMBNAIL', name: 'alice', identifier: 42 }), /object containing service/);
 assert.equal(buildGroupAvatarPath(42), '/groups/42/avatar');
 assert.equal(buildAccountAvatarPath('Qabc'), '/addresses/Qabc/avatar');
 assert.equal(buildAvatarInfoPath('group', 42), '/groups/42/avatar/info');
@@ -50,7 +54,7 @@ assert.deepEqual(buildGroupAvatarPendingResult(42, '5'), {
   groupId: 42,
   status: 'PENDING',
   retryAfterSeconds: 5,
-  source: 'AUTHORIZED',
+  source: 'POINTER',
   descriptor: null,
 });
 assert.equal(getGroupAvatarRetryAfterSeconds('Wed, 22 Jul 2026 16:00:05 GMT', Date.UTC(2026, 6, 22, 16, 0, 0)), 5);
@@ -66,28 +70,34 @@ assert.equal(
   getAvatarImageContentType('application/octet-stream', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
   'image/png',
 );
-assert.deepEqual(getAvatarDescriptor({ signature, service: 'THUMBNAIL', name: 'alice', identifier: 'avatar' }), {
-  signature, service: 'THUMBNAIL', name: 'alice', identifier: 'avatar',
+assert.deepEqual(getAvatarDescriptor({ service: 'THUMBNAIL', name: 'alice', identifier: 'avatar' }), {
+  service: 'THUMBNAIL', name: 'alice', identifier: 'avatar',
 });
-assert.equal(getAvatarDescriptor({ signature, service: '', name: 'alice' }), null);
-assert.equal(getAvatarDescriptor({ signature, service: 'THUMBNAIL', name: 'alice', identifier: ' ' }), null);
+assert.equal(getAvatarDescriptor({ service: '', name: 'alice' }), null);
+assert.deepEqual(getAvatarDescriptor({ service: 'THUMBNAIL', name: 'alice', identifier: ' ' }), {
+  service: 'THUMBNAIL', name: 'alice', identifier: ' ',
+});
 const descriptorHeaders = new Map([
-  ['x-qortium-avatar-signature', signature],
   ['x-qortium-avatar-service', 'THUMBNAIL'],
   ['x-qortium-avatar-name', 'custom-publisher'],
   ['x-qortium-avatar-identifier', 'custom-identifier'],
 ]);
 assert.deepEqual(
   getAvatarDescriptorFromHeaders((header) => descriptorHeaders.get(header)),
-  { signature, service: 'THUMBNAIL', name: 'custom-publisher', identifier: 'custom-identifier' },
+  { service: 'THUMBNAIL', name: 'custom-publisher', identifier: 'custom-identifier' },
+);
+descriptorHeaders.set('x-qortium-avatar-identifier', '');
+assert.deepEqual(
+  getAvatarDescriptorFromHeaders((header) => descriptorHeaders.get(header)),
+  { service: 'THUMBNAIL', name: 'custom-publisher', identifier: '' },
 );
 assert.equal(
   getGroupAvatarContentType('application/octet-stream', new Uint8Array([0xff, 0xd8, 0xff, 0xe0])),
   'image/jpeg',
 );
 assert.deepEqual(
-  buildSetAccountAvatarTransactionBody({ avatarSignature: null, fee: 0, ownerPublicKey: 'owner-public-key', timestamp: 123 }),
-  { type: 'SET_ACCOUNT_AVATAR', timestamp: 123, txGroupId: 0, fee: 0, ownerPublicKey: 'owner-public-key', avatarSignature: null },
+  buildSetAccountAvatarTransactionBody({ avatar: null, fee: 0, ownerPublicKey: 'owner-public-key', timestamp: 123 }),
+  { type: 'SET_ACCOUNT_AVATAR', timestamp: 123, txGroupId: 0, fee: 0, ownerPublicKey: 'owner-public-key', avatar: null },
 );
 assert.equal(
   getGroupAvatarContentType('image/webp', new Uint8Array([0x01, 0x02, 0x03])),
@@ -95,7 +105,7 @@ assert.equal(
 );
 assert.deepEqual(
   buildSetGroupAvatarTransactionBody({
-    avatarSignature: signature,
+    avatar: pointer,
     fee: 0,
     groupId: 42,
     ownerPublicKey: 'owner-public-key',
@@ -109,7 +119,7 @@ assert.deepEqual(
     fee: 0,
     ownerPublicKey: 'owner-public-key',
     groupId: 42,
-    avatarSignature: signature,
+    avatar: pointer,
   },
 );
 

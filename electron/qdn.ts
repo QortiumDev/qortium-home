@@ -130,7 +130,7 @@ import {
   getGroupAvatarContentType,
   getGroupAvatarGroupId,
   getGroupAvatarMaxBytes,
-  getOptionalGroupAvatarSignature,
+  getOptionalAvatarPointer,
   type AccountAvatarFetchResult,
   type GroupAvatarFetchResult,
 } from './qdn-group-avatar-input.js';
@@ -6221,9 +6221,9 @@ async function updateGroupForApp(
   };
 }
 
-// Core resolves the group-authorized, immutable QDN transaction signature before
+// Core resolves the on-chain QDN resource pointer to its latest revision before
 // serving these bytes. Home intentionally returns bounded base64 instead of a
-// node URL so apps cannot bypass the on-chain group-avatar authorization state.
+// node URL so apps cannot bypass the account/group avatar state.
 async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvatarFetchResult> {
   const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
   const maxBytes = getGroupAvatarMaxBytes(getRequestValue(request, 'maxBytes'));
@@ -6252,18 +6252,18 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvat
     }
     throw new Error('Group avatar is not set.');
   }
-  if (!infoResponse.ok) throw new Error(`Group avatar authorization lookup failed with HTTP ${infoResponse.status}.`);
+  if (!infoResponse.ok) throw new Error(`Group avatar pointer lookup failed with HTTP ${infoResponse.status}.`);
   const info = await infoResponse.json() as Record<string, unknown>;
-  const authorizedDescriptor = getAvatarDescriptor({
-    signature: getString(info.signature), service: getString(info.service), name: getString(info.name), identifier: getString(info.identifier) || null,
+  const pointerDescriptor = getAvatarDescriptor({
+    service: getString(info.service), name: getString(info.name), identifier: getString(info.identifier),
   });
-  if (!authorizedDescriptor) throw new Error('Group avatar authorization metadata was invalid.');
+  if (!pointerDescriptor) throw new Error('Group avatar pointer metadata was invalid.');
   const response = await fetchNode(buildGroupAvatarPath(groupId), { method: 'GET' }, connection.nodeApiUrl);
-  const descriptor = getAvatarDescriptorFromHeaders((name) => response.headers.get(name) ?? undefined) ?? authorizedDescriptor;
+  const descriptor = getAvatarDescriptorFromHeaders((name) => response.headers.get(name) ?? undefined) ?? pointerDescriptor;
 
   if (response.status === 202) {
     await response.body?.cancel();
-    return buildGroupAvatarPendingResult(groupId, response.headers.get('retry-after') ?? undefined, 'AUTHORIZED', descriptor);
+    return buildGroupAvatarPendingResult(groupId, response.headers.get('retry-after') ?? undefined, 'POINTER', descriptor);
   }
   if (!response.ok) {
     throw new Error(`Group avatar request failed with HTTP ${response.status}.`);
@@ -6286,7 +6286,7 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvat
     encoding: 'base64' as const,
     contentType: getAvatarImageContentType(response.headers.get('content-type') ?? undefined, new Uint8Array(arrayBuffer)) ?? (() => { throw new Error('Group avatar was not a supported image.'); })(),
     contentLength: contentLength ?? arrayBuffer.byteLength,
-    source: 'AUTHORIZED' as const,
+    source: 'POINTER' as const,
     descriptor,
   };
 }
@@ -6322,18 +6322,18 @@ async function fetchAccountAvatarForApp(
     }
     throw new Error('Account avatar is not set.');
   }
-  if (!infoResponse.ok) throw new Error(`Account avatar authorization lookup failed with HTTP ${infoResponse.status}.`);
+  if (!infoResponse.ok) throw new Error(`Account avatar pointer lookup failed with HTTP ${infoResponse.status}.`);
   const info = await infoResponse.json() as Record<string, unknown>;
-  const authorizedDescriptor = getAvatarDescriptor({
-    signature: getString(info.signature), service: getString(info.service), name: getString(info.name), identifier: getString(info.identifier) || null,
+  const pointerDescriptor = getAvatarDescriptor({
+    service: getString(info.service), name: getString(info.name), identifier: getString(info.identifier),
   });
-  if (!authorizedDescriptor) throw new Error('Account avatar authorization metadata was invalid.');
+  if (!pointerDescriptor) throw new Error('Account avatar pointer metadata was invalid.');
   const response = await fetchNode(buildAccountAvatarPath(address), { method: 'GET' }, connection.nodeApiUrl);
-  const descriptor = getAvatarDescriptorFromHeaders((name) => response.headers.get(name) ?? undefined) ?? authorizedDescriptor;
+  const descriptor = getAvatarDescriptorFromHeaders((name) => response.headers.get(name) ?? undefined) ?? pointerDescriptor;
 
   if (response.status === 202) {
     await response.body?.cancel();
-    return buildAccountAvatarPendingResult(address, response.headers.get('retry-after') ?? undefined, 'AUTHORIZED', descriptor);
+    return buildAccountAvatarPendingResult(address, response.headers.get('retry-after') ?? undefined, 'POINTER', descriptor);
   }
   if (!response.ok) {
     throw new Error(`Account avatar request failed with HTTP ${response.status}.`);
@@ -6356,7 +6356,7 @@ async function fetchAccountAvatarForApp(
     encoding: 'base64' as const,
     contentType: getAvatarImageContentType(response.headers.get('content-type') ?? undefined, new Uint8Array(arrayBuffer)) ?? (() => { throw new Error('Account avatar was not a supported image.'); })(),
     contentLength: contentLength ?? arrayBuffer.byteLength,
-    source: 'AUTHORIZED' as const,
+    source: 'POINTER' as const,
     descriptor,
   };
 }
@@ -6366,7 +6366,7 @@ async function setAccountAvatarForApp(
   context: QdnViewContext | null,
   sender: WebContents,
 ) {
-  const avatarSignature = getOptionalGroupAvatarSignature(getRequestValue(request, 'avatarSignature'));
+  const avatar = getOptionalAvatarPointer(getRequestValue(request, 'avatar'));
   const writeContext = await getQdnChatContext(context);
 
   await requestQdnWriteApproval(context as QdnViewContext, writeContext.profile, {
@@ -6383,7 +6383,7 @@ async function setAccountAvatarForApp(
       timestamp: Date.now(),
       fee: getTransactionFee(request),
       ownerPublicKey: writeContext.publicKey58,
-      avatarSignature,
+      avatar,
     })),
     writeContext.apiKey,
     'Set account avatar transaction build failed.',
@@ -6395,7 +6395,7 @@ async function setAccountAvatarForApp(
     accepted: true,
     action: 'SET_ACCOUNT_AVATAR',
     address: writeContext.profile.address,
-    avatarSignature,
+    avatar,
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
   };
@@ -6407,7 +6407,7 @@ async function setGroupAvatarForApp(
   sender: WebContents,
 ) {
   const groupId = getGroupAvatarGroupId(getRequestValue(request, 'groupId') ?? getRequestValue(request, 'txGroupId'));
-  const avatarSignature = getOptionalGroupAvatarSignature(getRequestValue(request, 'avatarSignature'));
+  const avatar = getOptionalAvatarPointer(getRequestValue(request, 'avatar'));
   const writeContext = await getQdnChatContext(context);
   const groupData = await getGroupDataForChat(writeContext.connection, groupId);
   const groupName = getGroupName(groupData);
@@ -6431,7 +6431,7 @@ async function setGroupAvatarForApp(
         fee: getTransactionFee(request),
         ownerPublicKey: writeContext.publicKey58,
         groupId,
-        avatarSignature,
+        avatar,
       }),
     ),
     writeContext.apiKey,
@@ -6445,7 +6445,7 @@ async function setGroupAvatarForApp(
     action: 'SET_GROUP_AVATAR',
     groupId,
     groupName,
-    avatarSignature,
+    avatar,
     result: processedTransaction.data,
     transactionSignature: processedTransaction.signature,
   };
