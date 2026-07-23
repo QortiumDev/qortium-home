@@ -13,6 +13,7 @@ import {
   readPreviewApiKey,
   readRunningLocalCoreApiKey,
 } from './local-api-key.js';
+import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
 import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
 import {
   confirmNodeCertificate,
@@ -157,37 +158,6 @@ function hasExplicitLocalNodeApiUrl() {
   return !!process.env.QORTIUM_HOME_NODE_API_URL?.trim();
 }
 
-function normalizeNodeApiUrl(value: string) {
-  const trimmedValue = value.trim();
-
-  if (!trimmedValue) {
-    throw new Error('Node URL is required.');
-  }
-
-  const candidate = /^https?:\/\//i.test(trimmedValue) ? trimmedValue : `http://${trimmedValue}`;
-  let url: URL;
-
-  try {
-    url = new URL(candidate);
-  } catch {
-    throw new Error('Enter a valid node URL.');
-  }
-
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Node URL must use HTTP or HTTPS.');
-  }
-
-  if (url.username || url.password) {
-    throw new Error('Node URL cannot include a username or password.');
-  }
-
-  if (!url.hostname) {
-    throw new Error('Node URL must include a host.');
-  }
-
-  return url.origin;
-}
-
 function getDefaultNodeSettings(): NodeSettings {
   return {
     apiKey: '',
@@ -321,7 +291,7 @@ async function ensureNodeTls(nodeApiUrl: string, apiKey: string | null) {
 function getSendableNodeApiKey(settings: NodeSettings, nodeApiUrl: string) {
   const apiKey = getConfiguredNodeApiKey(settings);
 
-  if (!apiKey) {
+  if (!apiKey || !isNodeApiKeyTransportSafe(nodeApiUrl)) {
     return '';
   }
 
@@ -930,8 +900,14 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Unable to reach the configured node.';
 }
 
-function getProtectedNodeApiKey(settings: NodeSettings) {
+function getProtectedNodeApiKey(settings: NodeSettings, nodeApiUrl: string) {
   const apiKey = getConfiguredNodeApiKey(settings);
+
+  if (apiKey && !isNodeApiKeyTransportSafe(nodeApiUrl)) {
+    throw new Error(
+      'Home will not send an API key to a remote node over plaintext HTTP. Use HTTPS and confirm its certificate, or connect through loopback.',
+    );
+  }
 
   if (!apiKey) {
     if (settings.mode === 'local') {
@@ -1019,7 +995,7 @@ async function fetchProtectedNodeResponse(
 
   assertNodeCertificateConfirmed(nodeApiUrl);
 
-  const apiKey = getProtectedNodeApiKey(settings);
+  const apiKey = getProtectedNodeApiKey(settings, nodeApiUrl);
   let response: Response;
 
   await ensureNodeTls(nodeApiUrl, apiKey);

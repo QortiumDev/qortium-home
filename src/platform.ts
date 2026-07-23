@@ -111,6 +111,7 @@ import {
 } from '../electron/home-settings-bridge';
 import { getPlatformVersion } from '../electron/app-versioning';
 import { readableNodeErrorMessage } from '../electron/node-error-body';
+import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from '../electron/node-api-url';
 import {
   getOptionalPollVoteOptionIndexes,
   getPollVoteApprovalName,
@@ -1089,37 +1090,6 @@ async function downloadFallbackReleaseAsset(request: QortiumAppUpdateDownloadReq
 
 function getLocalNodeApiUrl() {
   return isAndroid() ? ANDROID_EMULATOR_LOCAL_NODE_API_URL : DESKTOP_LOCAL_NODE_API_URL;
-}
-
-function normalizeNodeApiUrl(value: string) {
-  const trimmedValue = value.trim();
-
-  if (!trimmedValue) {
-    throw new Error('Node URL is required.');
-  }
-
-  const candidate = /^https?:\/\//i.test(trimmedValue) ? trimmedValue : `http://${trimmedValue}`;
-  let url: URL;
-
-  try {
-    url = new URL(candidate);
-  } catch {
-    throw new Error('Enter a valid node URL.');
-  }
-
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Node URL must use HTTP or HTTPS.');
-  }
-
-  if (url.username || url.password) {
-    throw new Error('Node URL cannot include a username or password.');
-  }
-
-  if (!url.hostname) {
-    throw new Error('Node URL must include a host.');
-  }
-
-  return url.origin;
 }
 
 function getDefaultNodeSettings(): StoredNodeSettings {
@@ -2832,6 +2802,38 @@ function getNodeApiKey(settings: StoredNodeSettings) {
   return settings.apiKey;
 }
 
+function isPlatformNodeApiKeyTransportSafe(nodeApiUrl: string) {
+  if (isNodeApiKeyTransportSafe(nodeApiUrl)) {
+    return true;
+  }
+
+  // Android emulators expose their host machine at 10.0.2.2. Home's built-in
+  // local-node URL uses that explicit address, so it is the one non-loopback
+  // HTTP endpoint that remains local to this app runtime.
+  try {
+    const url = new URL(nodeApiUrl);
+    return isAndroid() && url.protocol === 'http:' && url.hostname === '10.0.2.2';
+  } catch {
+    return false;
+  }
+}
+
+function getSendablePlatformNodeApiKey(settings: StoredNodeSettings, nodeApiUrl: string) {
+  return isPlatformNodeApiKeyTransportSafe(nodeApiUrl) ? settings.apiKey : '';
+}
+
+function getProtectedPlatformNodeApiKey(settings: StoredNodeSettings, nodeApiUrl: string) {
+  const apiKey = getNodeApiKey(settings);
+
+  if (!isPlatformNodeApiKeyTransportSafe(nodeApiUrl)) {
+    throw new Error(
+      'Home will not send an API key to a remote node over plaintext HTTP. Use HTTPS, or connect through the local node.',
+    );
+  }
+
+  return apiKey;
+}
+
 function isLocalWriteHostname(hostname: string) {
   const normalizedHostname = hostname.toLowerCase();
 
@@ -2964,7 +2966,7 @@ async function getKeylessChatContext(context: QdnAppRequestContext | undefined) 
 
   const settings = await readNodeSettings();
   const nodeApiUrl = await resolveNodeApiUrl(settings);
-  const apiKey = settings.apiKey;
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
   const profile = await getAccountProfile(context.accountId);
   const signingKey = await getAccountSecretKey(context.accountId);
 
@@ -2992,7 +2994,7 @@ async function getKeylessQdnWriteContext(
 
   const settings = await readNodeSettings();
   const nodeApiUrl = await resolveNodeApiUrl(settings);
-  const apiKey = settings.apiKey;
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
   const profile = await getAccountProfile(context.accountId);
   const signingKey = await getAccountSecretKey(context.accountId);
 
@@ -3022,8 +3024,14 @@ async function isKeylessWriteContextFresh(
   // tightly, because a node whose API key was removed mid-publish drops route
   // and is now caught. Shared with electron/qdn.ts so the two transports cannot
   // drift apart on it again.
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+
   return isSameQdnWriteRoute(
-    { apiKey: settings.apiKey, mode: settings.mode, nodeApiUrl: await resolveNodeApiUrl(settings) },
+    {
+      apiKey: getSendablePlatformNodeApiKey(settings, nodeApiUrl),
+      mode: settings.mode,
+      nodeApiUrl: nodeApiUrl,
+    },
     { apiKey: keylessContext.apiKey, mode: keylessContext.mode, nodeApiUrl: keylessContext.nodeApiUrl },
   );
 }
@@ -8059,9 +8067,11 @@ async function getProtectedNodeRequestContext() {
     throw networkRestrictionError();
   }
 
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+
   return {
-    apiKey: getNodeApiKey(settings),
-    nodeApiUrl: await resolveNodeApiUrl(settings),
+    apiKey: getProtectedPlatformNodeApiKey(settings, nodeApiUrl),
+    nodeApiUrl,
   };
 }
 
@@ -8121,7 +8131,8 @@ async function requestConfiguredNode(
   method: 'GET' | 'HEAD' = 'GET',
 ) {
   const nodeApiUrl = await resolveNodeApiUrl(settings);
-  const headers = settings.apiKey ? { 'X-API-KEY': settings.apiKey } : undefined;
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const headers = apiKey ? { 'X-API-KEY': apiKey } : undefined;
 
   try {
     return {
@@ -9728,6 +9739,12 @@ async function authorizeConfiguredQdnResource(
   }
 
   const nodeApiUrl = await resolveNodeApiUrl(settings);
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+
+  if (!apiKey) {
+    return;
+  }
+
   let response: HttpResponse;
 
   try {
@@ -9736,7 +9753,7 @@ async function authorizeConfiguredQdnResource(
       method: 'POST',
       headers: {
         Accept: 'application/json',
-        'X-API-KEY': settings.apiKey,
+        'X-API-KEY': apiKey,
       },
       responseType: 'text',
       connectTimeout: REQUEST_TIMEOUT_MS,
