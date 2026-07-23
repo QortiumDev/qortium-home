@@ -33,6 +33,32 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-22 - fix(qdn): only trust a remote node with unverified publishing over an encrypted link
+
+Tightens which remote nodes Home will publish through without a second check on
+what was uploaded.
+
+When Home publishes through a node you configured yourself and gave an API key
+to, it can use that node's full publishing capability — no size ceiling beyond
+what the node itself allows. The trade-off is that this path has no independent
+verification step afterwards: nothing re-checks that the node stored exactly the
+content Home sent it. On an encrypted connection that is a reasonable trade,
+because the only party who could swap the content is the operator of the node you
+already chose to trust with your API key.
+
+On an unencrypted connection it is not, because anyone able to see or alter
+traffic between you and that node could substitute the content instead, and
+nothing afterwards would notice.
+
+So that capability now requires an encrypted (`https`) connection. A remote node
+reached over plain `http` keeps working exactly as before — it simply uses the
+publishing path that independently verifies the uploaded content, which caps
+uploads at the smaller public limit. Nothing stops working; the unverified,
+higher-capacity path is just no longer offered over a link that cannot protect it.
+
+Nodes on your own machine are unaffected, encrypted or not: there is no network
+path between Home and a node on the same computer for anyone to sit in.
+
 ### 2026-07-22 - fix(qdn): let Android publish to a Qortium Core on another machine
 
 The previous entry fixed publishing to a node somewhere other than your own
@@ -55,6 +81,7 @@ Sharing the code is as much the point as the fix is. The desktop and the phone
 had quietly grown two different answers to the same question, which is how this
 was missed for a release. A test now fails if either of them goes back to
 answering it alone.
+
 
 ### 2026-07-22 - fix(qdn): publish to a Qortium Core on another machine
 

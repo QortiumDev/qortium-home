@@ -9,15 +9,41 @@ assert.equal(
   'local',
 );
 
-// A configured remote node with an API key is trusted enough for the
-// authenticated endpoints, and is signed for on this machine.
+// A configured remote node with an API key, reached over TLS, is trusted enough
+// for the authenticated endpoints, and is signed for on this machine.
 assert.equal(
   resolveQdnWriteRoute({ apiKey: 'key', mode: 'custom', nodeApiUrl: 'https://node.example:24891' }),
   'remote-authenticated',
 );
 assert.equal(
-  resolveQdnWriteRoute({ apiKey: '  key  ', mode: 'custom', nodeApiUrl: 'http://203.0.113.7:24891' }),
+  resolveQdnWriteRoute({ apiKey: '  key  ', mode: 'custom', nodeApiUrl: 'https://203.0.113.7:24891' }),
   'remote-authenticated',
+);
+
+// ...but not over plaintext. The authenticated route has no content attestation,
+// so on an unencrypted link anyone on the path could substitute what gets
+// published. Such a node keeps working - it just stays on the attested public
+// route rather than being trusted with the unverified one.
+assert.equal(
+  resolveQdnWriteRoute({ apiKey: 'key', mode: 'custom', nodeApiUrl: 'http://203.0.113.7:24891' }),
+  'public',
+);
+assert.equal(
+  resolveQdnWriteRoute({ apiKey: 'key', mode: 'custom', nodeApiUrl: 'http://node.example:24891' }),
+  'public',
+);
+
+// The scheme is the only difference between these two, and it decides the route.
+assert.notEqual(
+  resolveQdnWriteRoute({ apiKey: 'key', mode: 'custom', nodeApiUrl: 'https://node.example:24891' }),
+  resolveQdnWriteRoute({ apiKey: 'key', mode: 'custom', nodeApiUrl: 'http://node.example:24891' }),
+);
+
+// Loopback is unaffected: there is no network path to intercept, so a local node
+// over plaintext is still the local route.
+assert.equal(
+  resolveQdnWriteRoute({ apiKey: 'key', mode: 'custom', nodeApiUrl: 'http://127.0.0.1:24891' }),
+  'local',
 );
 
 // Without a usable API key there is nothing to authenticate with, and network
@@ -57,10 +83,13 @@ assert.equal(
   ),
   false,
 );
+// Losing the API key mid-publish drops remote-authenticated -> public, which is a
+// route change even though the address is identical. Uses https, because over
+// plaintext both sides are already public and the address alone would match.
 assert.equal(
   isSameQdnWriteRoute(
-    { mode: 'custom', nodeApiUrl: 'http://203.0.113.7:24891' },
-    { apiKey: 'key', mode: 'custom', nodeApiUrl: 'http://203.0.113.7:24891' },
+    { mode: 'custom', nodeApiUrl: 'https://203.0.113.7:24891' },
+    { apiKey: 'key', mode: 'custom', nodeApiUrl: 'https://203.0.113.7:24891' },
   ),
   false,
 );
