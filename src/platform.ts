@@ -73,6 +73,7 @@ import {
   type AccountAvatarFetchResult,
   type GroupAvatarFetchResult,
 } from '../electron/qdn-group-avatar-input';
+import { getLegacyAccountAvatarHint } from '../electron/qdn-identity-avatar';
 import {
   QDN_ACCOUNT_AVATAR_ACTIONS,
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
@@ -2464,24 +2465,19 @@ async function getAccountProfile(accountId: string): Promise<QortiumAccountProfi
   };
 }
 
-// Home's own UI resolves account avatars itself now (see src/accountAvatar.ts), but
-// QDN apps still receive the selected account's avatar URL through the account bridge.
-async function getAccountAvatarUrl(name: string | null) {
-  if (!name) {
-    return null;
-  }
-
+// Compatibility only: pointer-aware apps use FETCH_ACCOUNT_AVATAR. Keeping this
+// URL avoids breaking older apps without making a 500-account identity batch
+// download and base64-encode every avatar.
+async function getAccountAvatarHint(name: string | null) {
   let nodeApiUrl = '';
 
   try {
     nodeApiUrl = await resolveNodeApiUrl(await readNodeSettings());
   } catch {
-    return null;
+    return getLegacyAccountAvatarHint('', name);
   }
 
-  return nodeApiUrl
-    ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
-    : null;
+  return getLegacyAccountAvatarHint(nodeApiUrl, name);
 }
 
 function isAccountUnlocked(accountId: string) {
@@ -2490,9 +2486,9 @@ function isAccountUnlocked(accountId: string) {
 
 const MAX_RESOLVE_IDENTITIES = 500;
 
-// Batch-resolves display identities (registered name + avatar URL) for arbitrary
-// addresses so a QDN app that shows many accounts makes one bridge call instead
-// of several node round-trips per address. Read-only — works on public nodes.
+// Batch-resolves names plus a legacy named-thumbnail compatibility hint. Exact
+// pointer-aware avatar bytes are intentionally separate (FETCH_ACCOUNT_AVATAR)
+// so this bounded identity batch never downloads up to 500 images.
 async function resolveIdentitiesForQdnApp(request: QdnAppRequest) {
   const rawAddresses = request.addresses;
 
@@ -2537,12 +2533,14 @@ async function resolveIdentitiesForQdnApp(request: QdnAppRequest) {
         }
       }
 
-      const avatarSrc =
-        name && nodeApiUrl
-          ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
-          : null;
+      const legacyAvatar = getLegacyAccountAvatarHint(nodeApiUrl, name);
 
-      return { address, name, avatarSrc };
+      return {
+        address,
+        name,
+        avatarSrc: legacyAvatar.url,
+        avatarContract: legacyAvatar.avatarContract,
+      };
     }),
   );
 }
@@ -2557,10 +2555,12 @@ async function getSelectedAccountForQdnApp(context: QdnAppRequestContext | undef
   }
 
   const profile = await getAccountProfile(context.accountId);
+  const legacyAvatar = await getAccountAvatarHint(profile.name);
 
   return {
     address: profile.address,
-    avatarUrl: await getAccountAvatarUrl(profile.name),
+    avatarUrl: legacyAvatar.url,
+    avatarContract: legacyAvatar.avatarContract,
     isUnlocked: isAccountUnlocked(context.accountId),
     name: profile.name,
   };
