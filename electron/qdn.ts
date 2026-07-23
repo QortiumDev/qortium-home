@@ -76,6 +76,12 @@ import {
   QDN_APP_DEFAULT_MAX_BYTES,
   type QdnAppRequest,
 } from './qdn-request-values.js';
+import {
+  base58Decode,
+  base58Encode,
+  BASE58_ALPHABET,
+  getSignedTransactionSignature,
+} from './base58.js';
 import { arbitraryRawToSigningBytes } from './arbitrary-tx.js';
 import { fetchBoundedBytes } from './bounded-response.js';
 import {
@@ -299,7 +305,6 @@ const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
 const QDN_MEDIA_PLAYER_SERVICES = new Set(['AUDIO', 'PODCAST', 'VIDEO', 'VOICE']);
 const QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH = 1024;
 const QDN_DOCUMENT_VIEWER_SERVICES = new Set(['DOCUMENT', 'FILE', 'FILES', 'ATTACHMENT']);
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const PUBLIC_QDN_SERVICE_SET = new Set<string>(PUBLIC_QDN_SERVICES);
 
 // Core marks its encrypted services with a `_PRIVATE` suffix. Home cannot decrypt
@@ -645,9 +650,6 @@ const QDN_PUBLISH_SOURCE_TOKEN_MAX_ENTRIES = 16;
 // expired entries past their TTL indefinitely (a denied/failed publish never
 // releases its token). A slow timer makes the TTL an upper bound too.
 setInterval(() => pruneQdnPublishSourceTokens(), 5 * 60_000).unref();
-const BASE58_ALPHABET_MAP = new Map<string, number>(
-  [...BASE58_ALPHABET].map((character, index) => [character, index]),
-);
 
 function expandHomePath(filePath: string) {
   if (filePath === '~') {
@@ -2006,95 +2008,6 @@ async function setCurrentForeignServerForApp(
   );
 
   return parseResponseData(result.body, result.contentType);
-}
-
-function base58Encode(buffer: Uint8Array) {
-  if (buffer.length === 0) {
-    return '';
-  }
-
-  const digits = [0];
-
-  for (const byte of buffer) {
-    for (let index = 0; index < digits.length; index += 1) {
-      digits[index] <<= 8;
-    }
-
-    digits[0] += byte;
-
-    let carry = 0;
-
-    for (let index = 0; index < digits.length; index += 1) {
-      digits[index] += carry;
-      carry = (digits[index] / 58) | 0;
-      digits[index] %= 58;
-    }
-
-    while (carry) {
-      digits.push(carry % 58);
-      carry = (carry / 58) | 0;
-    }
-  }
-
-  for (let index = 0; buffer[index] === 0 && index < buffer.length - 1; index += 1) {
-    digits.push(0);
-  }
-
-  return digits
-    .reverse()
-    .map((digit) => BASE58_ALPHABET[digit])
-    .join('');
-}
-
-function base58Decode(value: string) {
-  if (value.length === 0) {
-    return new Uint8Array(0);
-  }
-
-  const bytes = [0];
-
-  for (const character of value) {
-    const mappedValue = BASE58_ALPHABET_MAP.get(character);
-
-    if (mappedValue === undefined) {
-      throw new Error(`Base58 value contains an invalid character: ${character}`);
-    }
-
-    for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] *= 58;
-    }
-
-    bytes[0] += mappedValue;
-
-    let carry = 0;
-
-    for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] += carry;
-      carry = bytes[index] >> 8;
-      bytes[index] &= 0xff;
-    }
-
-    while (carry) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-
-  for (let index = 0; value[index] === '1' && index < value.length - 1; index += 1) {
-    bytes.push(0);
-  }
-
-  return new Uint8Array(bytes.reverse());
-}
-
-function getSignedTransactionSignature(signedTransactionBytes58: string) {
-  const signedTransactionBytes = base58Decode(signedTransactionBytes58);
-
-  if (signedTransactionBytes.length < 64) {
-    throw new Error('Signed transaction did not contain a signature.');
-  }
-
-  return base58Encode(signedTransactionBytes.slice(-64));
 }
 
 function encodeChatTextData(message: string) {
