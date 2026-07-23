@@ -392,19 +392,26 @@ account, locked account, missing API key, non-local node, and stale QDN view
 approval cases. To run one case directly, pass
 `--scenario=<name>` to `scripts/smoke-desktop-qdn-write.mjs`.
 
-Check that Home's QDN service whitelists have not drifted from the node's
+Check that Home's QDN service whitelist has not drifted from the node's
 catalogue:
 
 ```sh
 npm run smoke:qdn-services
 ```
 
-This reads Home's curated service lists from `src/qdn.ts` and `electron/qdn.ts`,
-confirms the two copies match, and verifies every listed service still exists in
-`GET /arbitrary/services` and is public — so a service Core renames, removes, or
-makes private cannot silently rot in Home. Public Core services Home does not
+This imports Home's curated service list from the built
+`dist-electron/qdn-public-services.js` and compares it to
+`GET /arbitrary/services`: every listed service must still exist in Core and be
+public, and Home's `_PRIVATE`-suffix rule must agree with Core's authoritative
+`private` flag across the whole catalogue — so a service Core renames, removes,
+or reclassifies cannot silently rot in Home. Public Core services Home does not
 surface (system/chat-internal ones) are reported, not failed. It only needs a
 reachable node; override the URL with `QORTIUM_HOME_NODE_API_URL`.
+
+The offline half of that guard (list shape, duplicates, agreement with Home's
+own private-service rule) runs in `npm test` via `test:qdn-public-services`, and
+the comparison logic itself is covered against fabricated catalogues by
+`test:qdn-services-drift` — neither needs a node.
 
 Release artifacts are written to `dist-release/`. Generated build output should
 not be committed to git. The release checker and publisher default to the public

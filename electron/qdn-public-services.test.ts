@@ -9,6 +9,12 @@
 //
 // So this covers the behaviour of the one gate, and then checks the source of
 // both bridges to make sure neither has grown a private copy again.
+//
+// It also owns the offline half of the old QDN drift check: whether the list is
+// well-formed, free of duplicates, and consistent with Home's own private-service
+// rule. That half used to sit in scripts/smoke-qdn-services.mjs, which needs a
+// live node and so never ran — it was broken for months before anyone looked.
+// Anything that genuinely needs a node stayed in the smoke script.
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import {
@@ -31,6 +37,30 @@ for (const service of PUBLIC_QDN_SERVICES) {
 
 for (const notPublic of ['', 'app', 'APP_PRIVATE', 'AUTO_UPDATE', 'NOPE', 'APP ', ' APP']) {
   assert.equal(isPublicQdnService(notPublic), false, `${notPublic} should not be public.`);
+}
+
+// Every entry must be a Core service name as Core spells them: upper-case, no
+// stray whitespace. A typo here is a service Home silently cannot open.
+for (const service of PUBLIC_QDN_SERVICES) {
+  assert.match(service, /^[A-Z][A-Z0-9_]*$/, `${JSON.stringify(service)} is not a Core service name.`);
+}
+
+// A duplicate is harmless to the Set but shows up twice in every menu built
+// from the array (the explorer list, the address-bar suggestions).
+const duplicates = PUBLIC_QDN_SERVICES.filter(
+  (service, index) => PUBLIC_QDN_SERVICES.indexOf(service) !== index,
+);
+
+assert.deepEqual([...new Set(duplicates)], [], 'the public service list has duplicate entries.');
+
+// The whitelist is the public list, so no entry may be one the private rule
+// claims — the two would contradict each other on the same name.
+for (const service of PUBLIC_QDN_SERVICES) {
+  assert.equal(
+    isPrivateQdnService(service),
+    false,
+    `${service} is on the public list but the private rule claims it.`,
+  );
 }
 
 // 2. The private predicate. Core marks encrypted services with a `_PRIVATE` suffix.

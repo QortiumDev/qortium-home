@@ -1,19 +1,27 @@
 #!/usr/bin/env node
 
-// Drift guard for Home's QDN service whitelists. Home curates a static subset of
-// Core's QDN services in two places (the renderer src/qdn.ts and the desktop bridge
-// electron/qdn.ts). This smoke check reads both lists from source and verifies them
-// against the node's GET /arbitrary/services catalogue (Core v1.1.0+), so a service
-// that Core renames, drops, or reclassifies as private cannot silently rot in Home.
+// Drift guard for Home's QDN service whitelist. Home curates a static subset of
+// Core's QDN services in electron/qdn-public-services.ts. This smoke check reads
+// that list — the real exported value, from the compiled module, not a regex over
+// the source — and verifies it against the node's GET /arbitrary/services
+// catalogue (Core v1.1.0+), so a service that Core renames, drops, or
+// reclassifies as private cannot silently rot in Home.
 //
 // It does NOT require Home to list every Core service: omissions (system/chat-internal
 // services such as AUTO_UPDATE or QCHAT_*) are intentional and only reported, not failed.
 //
+// The comparison itself lives in scripts/qdn-services-drift.mjs and is covered by
+// scripts/test-qdn-services-drift.mjs; the offline half of this check (list shape,
+// duplicates, predicate self-consistency) moved into electron/qdn-public-services.test.ts
+// so it runs in `npm test`. What is left here is only what needs a real node.
+//
 // Needs a reachable Previewnet node. Override the URL with QORTIUM_HOME_NODE_API_URL.
+// Needs dist-electron/ built (`npm run build:electron`).
 
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { findCatalogueDrift } from './qdn-services-drift.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -35,49 +43,34 @@ function assert(condition, message) {
   }
 }
 
-// Extracts the quoted service names from a `PUBLIC_QDN_SERVICES = [ ... ]` /
-// `= new Set([ ... ])` literal in a source file, up to the first closing bracket.
-function extractServiceList(relativePath) {
-  const filePath = path.join(repoRoot, relativePath);
-  const content = readFileSync(filePath, 'utf8');
-  const startIndex = content.indexOf('PUBLIC_QDN_SERVICES');
+// The list is a single exported constant in a module with no imports, so the
+// compiled output can just be imported and asked for its actual value.
+async function loadHomeServices() {
+  const moduleUrl = pathToFileURL(path.join(repoRoot, 'dist-electron', 'qdn-public-services.js'));
 
-  if (startIndex === -1) {
-    fail(`Could not find PUBLIC_QDN_SERVICES in ${relativePath}.`);
+  let module;
+
+  try {
+    module = await import(moduleUrl.href);
+  } catch (error) {
+    fail(
+      `Could not import dist-electron/qdn-public-services.js: ${error.message}. ` +
+        `Run \`npm run build:electron\` first.`,
+    );
   }
 
-  const openIndex = content.indexOf('[', startIndex);
-  const closeIndex = content.indexOf(']', openIndex);
+  const { PUBLIC_QDN_SERVICES, isPrivateQdnService } = module;
 
-  if (openIndex === -1 || closeIndex === -1) {
-    fail(`Could not parse the PUBLIC_QDN_SERVICES literal in ${relativePath}.`);
-  }
+  assert(
+    Array.isArray(PUBLIC_QDN_SERVICES) && PUBLIC_QDN_SERVICES.length > 0,
+    'dist-electron/qdn-public-services.js exported no PUBLIC_QDN_SERVICES list.',
+  );
+  assert(
+    typeof isPrivateQdnService === 'function',
+    'dist-electron/qdn-public-services.js exported no isPrivateQdnService predicate.',
+  );
 
-  const block = content.slice(openIndex, closeIndex);
-  const names = [...block.matchAll(/'([A-Z0-9_]+)'/g)].map((match) => match[1]);
-
-  assert(names.length > 0, `PUBLIC_QDN_SERVICES in ${relativePath} parsed to an empty list.`);
-
-  return names;
-}
-
-function findDuplicates(names) {
-  const seen = new Set();
-  const duplicates = new Set();
-
-  for (const name of names) {
-    if (seen.has(name)) {
-      duplicates.add(name);
-    }
-
-    seen.add(name);
-  }
-
-  return [...duplicates];
-}
-
-function diff(fromNames, toSet) {
-  return fromNames.filter((name) => !toSet.has(name));
+  return { homeServices: [...PUBLIC_QDN_SERVICES], isPrivateQdnService };
 }
 
 async function fetchServiceCatalogue() {
@@ -99,71 +92,34 @@ async function fetchServiceCatalogue() {
 
   assert(response.ok, `GET /arbitrary/services returned HTTP ${response.status}.`);
 
-  const catalogue = await response.json();
-
-  assert(Array.isArray(catalogue) && catalogue.length > 0, 'GET /arbitrary/services did not return a non-empty array.');
-
-  return catalogue;
+  return response.json();
 }
 
 async function main() {
   log(`Node: ${nodeApiUrl}`);
 
-  const rendererServices = extractServiceList('src/qdn.ts');
-  const bridgeServices = extractServiceList('electron/qdn.ts');
+  const { homeServices, isPrivateQdnService } = await loadHomeServices();
 
-  log(`Renderer whitelist: ${rendererServices.length} services. Bridge whitelist: ${bridgeServices.length} services.`);
+  log(`Home whitelist: ${homeServices.length} services (from dist-electron/qdn-public-services.js).`);
 
-  // 1. The two Home copies must stay byte-identical (same names, same order).
-  const rendererDuplicates = findDuplicates(rendererServices);
-  const bridgeDuplicates = findDuplicates(bridgeServices);
-
-  assert(rendererDuplicates.length === 0, `src/qdn.ts lists duplicate services: ${rendererDuplicates.join(', ')}.`);
-  assert(bridgeDuplicates.length === 0, `electron/qdn.ts lists duplicate services: ${bridgeDuplicates.join(', ')}.`);
-
-  assert(
-    rendererServices.length === bridgeServices.length &&
-      rendererServices.every((name, index) => name === bridgeServices[index]),
-    `The renderer (src/qdn.ts) and bridge (electron/qdn.ts) service whitelists differ.\n` +
-      `  Only in renderer: ${diff(rendererServices, new Set(bridgeServices)).join(', ') || '(none)'}\n` +
-      `  Only in bridge:   ${diff(bridgeServices, new Set(rendererServices)).join(', ') || '(none)'}`,
-  );
-
-  log('Renderer and bridge whitelists match.');
-
-  // 2. Compare against Core's live catalogue.
   const catalogue = await fetchServiceCatalogue();
-  const coreById = new Map(catalogue.map((service) => [service.id, service]));
-  const corePublicIds = catalogue.filter((service) => service.private === false).map((service) => service.id);
+  const { failures, notes, coreCount, corePublicCount } = findCatalogueDrift({
+    homeServices,
+    catalogue,
+    isPrivateService: isPrivateQdnService,
+  });
 
-  log(`Core catalogue: ${catalogue.length} services (${corePublicIds.length} public).`);
+  log(`Core catalogue: ${coreCount} services (${corePublicCount} public).`);
 
-  // Every Home-listed service must still exist in Core.
-  const unknownToCore = diff(rendererServices, new Set(coreById.keys()));
-  assert(
-    unknownToCore.length === 0,
-    `Home lists service(s) that Core no longer reports: ${unknownToCore.join(', ')}. ` +
-      `They were renamed or removed in Core; update the whitelists.`,
-  );
-
-  // Home browses public services only — none of its entries may be private in Core.
-  const privateInCore = rendererServices.filter((name) => coreById.get(name)?.private === true);
-  assert(
-    privateInCore.length === 0,
-    `Home lists service(s) that Core reports as private: ${privateInCore.join(', ')}. ` +
-      `Private services need the encrypted-resource flow, not the public whitelist.`,
-  );
-
-  log('All Home services exist in Core and are public.');
-
-  // 3. Informational: public Core services Home does not surface (intentional omissions).
-  const notSurfaced = diff(corePublicIds, new Set(rendererServices));
-
-  if (notSurfaced.length > 0) {
-    log(`Note: ${notSurfaced.length} public Core service(s) are not surfaced by Home (expected for system/chat-internal services): ${notSurfaced.join(', ')}.`);
+  for (const note of notes) {
+    log(`Note: ${note}`);
   }
 
-  log('PASS: QDN service whitelists are consistent with Core.');
+  assert(failures.length === 0, failures.join('\n  '));
+
+  log('All Home services exist in Core and are public.');
+  log("Home's private-service rule agrees with Core's private flag across the catalogue.");
+  log('PASS: QDN service whitelist is consistent with Core.');
 }
 
 main().catch((error) => {
