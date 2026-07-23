@@ -63,6 +63,7 @@
     "test:qdn-poll-options-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-options-input.test.js",
     "test:qdn-poll-vote-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-vote-input.test.js",
     "test:qdn-publish-routing": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-publish-routing.test.js",
+    "test:qdn-write-route": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-write-route.test.js",
     "test:memory-pow": "esbuild src/memoryPow.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/memory-pow.test.js && node dist-electron/memory-pow.test.js",
     "test:arbitrary-tx": "node scripts/test-arbitrary-tx.mjs",
     "test:public-transactions": "node scripts/ensure-electron-build.mjs && node scripts/test-public-transaction-validation.mjs",

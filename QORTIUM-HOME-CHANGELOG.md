@@ -33,6 +33,38 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-22 - fix(qdn): publish to a Qortium Core on another machine
+
+Publishing to QDN only worked when Qortium Core was running on the same machine
+as Home. Pointed at a node somewhere else — over an SSH tunnel or on a server —
+the publish failed, and the node's log complained that it could not find a file
+at a location that only exists on your own computer.
+
+That was exactly what was happening. For most kinds of resource Home was not
+sending the file at all: it was sending the file's *location* and leaving the
+node to go and open it. A node on your own machine can do that, because it is
+looking at the same disk you are. A node anywhere else looks in the same place,
+finds nothing, and gives up. Websites and apps were the exception — those were
+already sent properly — which is why the problem looked so arbitrary.
+
+Home now sends the file itself in every case, for every kind of resource,
+whether you picked a single file or a whole folder. The node is never told
+where anything lives on your computer. Publishing several resources at once
+works the same way; it had never been able to send files at all before this.
+
+Connecting straight to a node by its address failed for a second reason, and
+that is fixed too. Home was treating any node not on this machine as a stranger
+it should assume nothing about, including one you had entered yourself and
+given an API key to — and the safety check it ran just before submitting was
+written for strangers only, so publishing to your own server was refused at the
+last moment with a message about the signing context having changed. Home now
+recognises three kinds of connection rather than two: a node on this machine, a
+node elsewhere that you have given an API key, and an unknown public node. Your
+own remote node gets the same publishing allowances as a local one, including
+the much larger size limit, while the signing still happens on your computer
+and your account key is never sent anywhere. Genuine mid-publish changes — a
+different node, or one that stops being yours — still stop the publish.
+
 ### 2026-07-22 - fix(security): verify the Java download and stop trusting a remote node's certificate on faith
 
 Closes two ways someone sitting between you and the internet could have taken
