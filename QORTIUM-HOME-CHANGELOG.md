@@ -33,6 +33,26 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-22 - feat(settings): say what a custom node address means for publishing
+
+The previous entry changed which node addresses get Home's higher-capacity
+publishing, but the node settings screen still said nothing about it. You could
+type an address, save an API key, and have no way of knowing that publishing had
+quietly moved to the smaller, more carefully checked path — or why.
+
+The custom node URL field now explains itself as you type. A node on your own
+computer says so, and that publishing has no extra limits. An encrypted address
+with an API key saved says publishing can use that node's full size limit. An
+unencrypted address says the connection is not encrypted, that uploads are
+therefore checked independently and limited to a smaller size, and that using an
+`https` address instead unlocks the full limit. An encrypted address with no API
+key yet says what is missing.
+
+An empty or half-typed address says nothing at all, so the field stays quiet
+while you are still working on it. Nothing about how Home publishes changed
+here — this only puts the existing behaviour in front of you, in every language
+Home is translated into.
+
 ### 2026-07-22 - fix(qdn): only trust a remote node with unverified publishing over an encrypted link
 
 Tightens which remote nodes Home will publish through without a second check on
