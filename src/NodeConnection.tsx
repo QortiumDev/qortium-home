@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { t } from './i18n';
+import { resolveCustomNodeHintKey } from './nodeConnectionHint';
 
 // Shared node-connection controls. The mode dropdown auto-applies (test + save)
 // the moment it changes — there is no separate Test/Save button. A failed apply
@@ -93,6 +94,14 @@ export function NodeModeSelect({
 
 function getApiKeyHint(mode: QortiumNodeSettingsMode) {
   return mode === 'custom' ? t('node.apiKeyHintCustom') : t('node.apiKeyHintLocal');
+}
+
+// Tracks the field as it is typed, not the saved node, so the consequence of a
+// URL is visible before it is committed.
+function CustomUrlHint({ apiKey, customUrl }: { apiKey: string; customUrl: string }) {
+  const hintKey = resolveCustomNodeHintKey({ apiKey, nodeApiUrl: customUrl });
+
+  return hintKey ? <span className="field__hint">{t(hintKey)}</span> : null;
 }
 
 // Full controls for the Settings → Qortium Core section. Keeps a local working
@@ -196,6 +205,7 @@ export function NodeConnectionSettings({
               }
             }}
           />
+          <CustomUrlHint apiKey={apiKey} customUrl={customUrl} />
         </label>
       ) : mode === 'network' ? (
         <p className="node-connection__preset">
