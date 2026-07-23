@@ -70,6 +70,15 @@ network in between for anyone to interfere with, so they keep working with no
 extra step — and so are unencrypted connections, which have no certificate to
 check in the first place.
 
+A second security review tightened two things before this shipped. Forgetting
+or replacing a certificate now also clears what the browser engine had cached
+about it and drops the open connections, so the old certificate stops being
+accepted right away instead of lingering until Home restarts. And the
+confirm/forget controls now double-check, inside Home's core process, that the
+request really came from Home's own settings window — the same check Home
+already applies to other sensitive settings — rather than relying only on QDN
+apps having no button for it.
+
 ### 2026-07-23 - fix(qdn): revive the QDN service drift guard against Core's catalogue
 
 Home only opens a fixed list of QDN content types (images, videos, blogs, apps

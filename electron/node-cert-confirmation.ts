@@ -12,6 +12,7 @@ import {
   readNodeCertificatePins,
 } from './node-cert-pins.js';
 import { observeNodeCertificate, type ObservedNodeCertificate } from './node-cert-observe.js';
+import { flushNodeCertificateVerdicts } from './node-tls.js';
 import {
   getFingerprintCheckCommand,
   planNodeCertificateConfirmation,
@@ -101,6 +102,9 @@ export async function confirmNodeCertificate(
   }
 
   confirmNodeCertificatePin(url, plan.fingerprint);
+  // A replaced pin revokes the certificate it superseded, so the network
+  // service must not keep answering handshakes from its cached verdicts.
+  await flushNodeCertificateVerdicts();
 
   return await getNodeCertificateStatus(url.origin);
 }
@@ -108,7 +112,9 @@ export async function confirmNodeCertificate(
 export async function forgetNodeCertificate(nodeApiUrl: string): Promise<NodeCertificateStatus> {
   const url = parseNodeApiUrl(nodeApiUrl);
 
-  forgetNodeCertificatePin(url);
+  if (forgetNodeCertificatePin(url)) {
+    await flushNodeCertificateVerdicts();
+  }
 
   return await getNodeCertificateStatus(url.origin);
 }

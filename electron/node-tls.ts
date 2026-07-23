@@ -388,6 +388,23 @@ export function installCertificateVerifyProc(targetSession: Session) {
   installedVerifyProcSessions.add(targetSession);
 }
 
+/**
+ * Best-effort invalidation after a pin changes.
+ *
+ * The network service caches verify-proc verdicts, so a certificate accepted
+ * under a pin that has since been replaced or forgotten could otherwise keep
+ * passing handshakes until Home restarts. Electron offers no explicit flush,
+ * so re-install the proc and drop the open connections; a cached verdict may
+ * still outlive this briefly, which is a known residual until restart.
+ */
+export async function flushNodeCertificateVerdicts() {
+  const sessions = [...installedVerifyProcSessions];
+
+  installedVerifyProcSessions.clear();
+  sessions.forEach((targetSession) => installCertificateVerifyProc(targetSession));
+  await Promise.all(sessions.map((targetSession) => targetSession.closeAllConnections()));
+}
+
 export function installNodeTlsForDefaultSessions() {
   installCertificateVerifyProc(electronSession.defaultSession);
 }

@@ -297,6 +297,20 @@ assert(
   'Nothing may be pinned before the live certificate has been read back.',
 );
 
+// The network service caches verify-proc verdicts, so replacing or forgetting
+// a pin must reach it - otherwise the certificate the change revoked keeps
+// passing handshakes from the cache until Home restarts. Both pin writes must
+// therefore be followed by a flush.
+assert(
+  (confirmationSource.match(/flushNodeCertificateVerdicts\(\)/g) ?? []).length === 2,
+  'Confirming and forgetting a pin must each flush the cached certificate verdicts.',
+);
+assert(
+  confirmationSource.indexOf('confirmNodeCertificatePin(') <
+    confirmationSource.indexOf('flushNodeCertificateVerdicts()'),
+  'The flush must follow the pin write it invalidates for.',
+);
+
 const settingsSource = readSource('electron/node-settings.ts');
 
 assert(
@@ -309,6 +323,18 @@ assert(
   ),
   'Protected requests must refuse an unconfirmed node before the API key is read.',
 );
+
+// The preload only offers the certificate IPC to the shell, but a compromised
+// renderer is not bound by its preload: the main process must refuse senders
+// that are not a Home window, exactly like the QDN role store does.
+for (const channel of ['node:getCertificateStatus', 'node:confirmCertificate', 'node:forgetCertificate']) {
+  assert(
+    new RegExp(`'${channel}',[\\s\\S]{0,200}?assertShellWindowSender\\(event\\.sender`).test(
+      settingsSource,
+    ),
+    `The ${channel} handler must refuse senders that are not a Home window.`,
+  );
+}
 
 // A pinned fingerprint does not expire on its own - the same certificate keeps
 // the same digest forever - so the validity window is the only thing that stops

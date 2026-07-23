@@ -20,7 +20,10 @@ import {
   getNodeCertificateStatus,
 } from './node-cert-confirmation.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
+import { assertShellWindowSender } from './shell-window-sender.js';
 
+const CERTIFICATE_SENDER_REFUSAL =
+  'Node certificate requests are only accepted from a Home window.';
 const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
 const NODE_SETTINGS_FILE = 'node-settings.json';
@@ -1457,18 +1460,24 @@ export function registerNodeSettingsIpcHandlers() {
     return testNodeSettings(readNodeSettings());
   });
 
-  ipcMain.handle('node:getCertificateStatus', (_event, nodeApiUrl: unknown) => {
+  // Certificate trust is decided in Home's own settings UI: the preload only
+  // exposes these to the shell, but a compromised renderer is not bound by its
+  // preload, so the sender is re-checked here like the QDN role store does.
+  ipcMain.handle('node:getCertificateStatus', (event, nodeApiUrl: unknown) => {
+    assertShellWindowSender(event.sender, CERTIFICATE_SENDER_REFUSAL);
     return getNodeCertificateStatus(normalizeNodeApiUrl(getString(nodeApiUrl)));
   });
 
   ipcMain.handle(
     'node:confirmCertificate',
-    (_event, nodeApiUrl: unknown, fingerprint: unknown) => {
+    (event, nodeApiUrl: unknown, fingerprint: unknown) => {
+      assertShellWindowSender(event.sender, CERTIFICATE_SENDER_REFUSAL);
       return confirmNodeCertificate(normalizeNodeApiUrl(getString(nodeApiUrl)), fingerprint);
     },
   );
 
-  ipcMain.handle('node:forgetCertificate', (_event, nodeApiUrl: unknown) => {
+  ipcMain.handle('node:forgetCertificate', (event, nodeApiUrl: unknown) => {
+    assertShellWindowSender(event.sender, CERTIFICATE_SENDER_REFUSAL);
     return forgetNodeCertificate(normalizeNodeApiUrl(getString(nodeApiUrl)));
   });
 }
