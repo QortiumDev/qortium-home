@@ -57,40 +57,43 @@ Home's local device data rather than Core.
 `FETCH_GROUP_AVATAR` accepts a positive `groupId` (or `txGroupId`), while
 `FETCH_ACCOUNT_AVATAR` accepts an `address` (or uses the selected account).
 Both are read-only, public-node-safe actions. They query Core's exact-avatar
-info endpoint before fetching bytes: explicit authorization always wins and
-an invalid/missing authorized resource fails closed. A ready response is
+info endpoint before fetching bytes: an explicit on-chain pointer always wins
+and an invalid/missing pointer resource fails closed. A ready response is
 `{ groupId|address, body, encoding: 'base64', contentType, contentLength,
-source, descriptor }`; `source` is `AUTHORIZED` or `LEGACY`, and `descriptor`
-is Core's `{ signature, service, name, identifier }` tuple when authorized.
+source, descriptor }`; `source` is `POINTER` or `LEGACY`, and `descriptor`
+is Core's `{ service, name, identifier }` tuple when a pointer is set.
 While Core queues QDN data, Home returns `{ groupId|address, status: 'PENDING',
 retryAfterSeconds, source, descriptor }`. Home caps responses at 500 KiB and
 accepts only image MIME types confirmed by image magic bytes when the server
 reports a generic content type. Apps build an in-memory Blob from `body`; Home
-never returns a raw node URL that could bypass authorization.
+never returns a raw node URL that could bypass the on-chain pointer.
 
 Only an exact Core-info `404` is eligible for a mutable legacy fallback. Account
 fallback tries `THUMBNAIL/<primaryName>/avatar`, then Qortal Hub's
 `THUMBNAIL/<primaryName>/qortal_avatar`; group fallback uses Hub's
 `THUMBNAIL/<ownerPrimaryName>/qortal_group_avatar_<groupId>`. Legacy results are
 always marked `source: 'LEGACY'`; callers must not treat them as an on-chain
-authorization.
+pointer.
 
 `SET_GROUP_AVATAR` requires a single-request approval and a local/trusted
-node. It accepts `groupId` plus `avatarSignature`, which is either `null` to
-clear the avatar or a base58-encoded 64-byte QDN transaction signature. Home
-looks up the group for approval context, then builds and signs the Core
+node. It accepts `groupId` plus `avatar`, which is either `null` to clear the
+avatar or `{ service, name, identifier }`, where `identifier` may be empty for
+the default resource. Home looks up the group for approval context, then builds
+and signs the Core
 `SET_GROUP_AVATAR` transaction. It is intentionally separate from
 `UPDATE_GROUP` so users approve the avatar assignment explicitly.
 
-`SET_ACCOUNT_AVATAR` has the same nullable signature rule and separate
+`SET_ACCOUNT_AVATAR` has the same nullable pointer rule and separate
 single-request approval, but always targets the selected account and always
-uses `txGroupId: 0`. Apps cannot supply a service/name/identifier to either SET
-action: Core authorizes only the exact QDN transaction signature.
+uses `txGroupId: 0`. A pointer may name any public single-file QDN resource,
+including one published under another registered name, and Core serves its
+latest revision. The target need not exist when the pointer transaction is
+created; Core enforces the raster-image type and 500 KiB limit when serving it.
 
-For publishing before authorization, use the existing `PUBLISH_QDN_RESOURCE`
+For publishing before setting the pointer, use the existing `PUBLISH_QDN_RESOURCE`
 with `THUMBNAIL/<primaryName>/avatar` for accounts, or
 `THUMBNAIL/<ownerPrimaryName>/qortium-group-avatar-v1-<groupId>` for groups.
-Publishing and authorization remain deliberately separate actions.
+Publishing and pointer assignment remain deliberately separate actions.
 
 ## Publishing sources
 

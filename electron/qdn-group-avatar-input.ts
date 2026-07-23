@@ -1,13 +1,10 @@
-import { BASE58_ALPHABET_MAP } from './base58.js';
-
 export const GROUP_AVATAR_MAX_BYTES = 500 * 1024;
 
-export type AvatarSource = 'AUTHORIZED' | 'LEGACY';
+export type AvatarSource = 'POINTER' | 'LEGACY';
 export type AvatarDescriptor = {
   identifier: string;
   name: string;
   service: string;
-  signature: string;
 };
 
 export type GroupAvatarPendingResult = {
@@ -54,39 +51,6 @@ function getSafeInteger(value: unknown) {
   return undefined;
 }
 
-function getBase58ByteLength(value: string) {
-  if (!value) return 0;
-
-  const bytes = [0];
-
-  for (const character of value) {
-    const mappedValue = BASE58_ALPHABET_MAP.get(character);
-
-    if (mappedValue === undefined) {
-      throw new Error('Avatar signature must be a base58-encoded transaction signature.');
-    }
-
-    let carry = mappedValue;
-    for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] = bytes[index] * 58 + carry;
-      carry = bytes[index] >> 8;
-      bytes[index] &= 0xff;
-    }
-
-    while (carry) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-
-  let leadingZeroes = 0;
-  while (leadingZeroes < value.length - 1 && value[leadingZeroes] === '1') {
-    leadingZeroes += 1;
-  }
-
-  return bytes.length + leadingZeroes;
-}
-
 export function getGroupAvatarGroupId(value: unknown) {
   const groupId = getSafeInteger(value);
 
@@ -97,19 +61,36 @@ export function getGroupAvatarGroupId(value: unknown) {
   return groupId;
 }
 
-export function getOptionalGroupAvatarSignature(value: unknown): string | null {
+export function getOptionalAvatarPointer(value: unknown): AvatarDescriptor | null {
   if (value === null || typeof value === 'undefined') return null;
 
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error('Avatar signature must be null or a base58-encoded transaction signature.');
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Avatar must be null or an object containing service, name, and optional identifier.');
   }
 
-  const signature = value.trim();
-  if (getBase58ByteLength(signature) !== 64) {
-    throw new Error('Avatar signature must be a base58-encoded 64-byte transaction signature.');
+  const pointer = value as Record<string, unknown>;
+  if (
+    typeof pointer.service !== 'string'
+    || typeof pointer.name !== 'string'
+    || (
+      typeof pointer.identifier !== 'undefined'
+      && pointer.identifier !== null
+      && typeof pointer.identifier !== 'string'
+    )
+  ) {
+    throw new Error('Avatar must be null or an object containing service, name, and optional identifier.');
   }
 
-  return signature;
+  const descriptor = getAvatarDescriptor({
+    service: pointer.service,
+    name: pointer.name,
+    identifier: pointer.identifier as string | null | undefined,
+  });
+  if (!descriptor) {
+    throw new Error('Avatar service and name must be non-empty strings.');
+  }
+
+  return descriptor;
 }
 
 export function buildGroupAvatarPath(groupId: number) {
@@ -197,22 +178,20 @@ export function getAvatarDescriptor(values: {
   identifier?: string | null;
   name?: string | null;
   service?: string | null;
-  signature?: string | null;
 }): AvatarDescriptor | null {
-  const signature = values.signature?.trim();
   const service = values.service?.trim();
   const name = values.name?.trim();
-  if (!signature || !service || !name) return null;
+  if (!service || !name) return null;
 
-  const identifier = values.identifier?.trim();
-  if (!identifier) return null;
+  // Identifier is part of the exact QDN resource key. Empty selects the
+  // default resource, while whitespace can identify a different resource.
+  const identifier = values.identifier ?? '';
 
-  return { signature, service, name, identifier };
+  return { service, name, identifier };
 }
 
 export function getAvatarDescriptorFromHeaders(getHeader: (name: string) => string | undefined) {
   return getAvatarDescriptor({
-    signature: getHeader('x-qortium-avatar-signature'),
     service: getHeader('x-qortium-avatar-service'),
     name: getHeader('x-qortium-avatar-name'),
     identifier: getHeader('x-qortium-avatar-identifier'),
@@ -222,7 +201,7 @@ export function getAvatarDescriptorFromHeaders(getHeader: (name: string) => stri
 export function buildGroupAvatarPendingResult(
   groupId: number,
   retryAfter: string | undefined,
-  source: AvatarSource = 'AUTHORIZED',
+  source: AvatarSource = 'POINTER',
   descriptor: AvatarDescriptor | null = null,
 ): GroupAvatarPendingResult {
   return {
@@ -237,14 +216,14 @@ export function buildGroupAvatarPendingResult(
 export function buildAccountAvatarPendingResult(
   address: string,
   retryAfter: string | undefined,
-  source: AvatarSource = 'AUTHORIZED',
+  source: AvatarSource = 'POINTER',
   descriptor: AvatarDescriptor | null = null,
 ): AccountAvatarPendingResult {
   return { address, status: 'PENDING', retryAfterSeconds: getGroupAvatarRetryAfterSeconds(retryAfter), source, descriptor };
 }
 
 export function buildSetGroupAvatarTransactionBody(input: {
-  avatarSignature: string | null;
+  avatar: AvatarDescriptor | null;
   fee: number;
   groupId: number;
   ownerPublicKey: string;
@@ -258,12 +237,12 @@ export function buildSetGroupAvatarTransactionBody(input: {
     fee: input.fee,
     ownerPublicKey: input.ownerPublicKey,
     groupId: input.groupId,
-    avatarSignature: input.avatarSignature,
+    avatar: input.avatar,
   };
 }
 
 export function buildSetAccountAvatarTransactionBody(input: {
-  avatarSignature: string | null;
+  avatar: AvatarDescriptor | null;
   fee: number;
   ownerPublicKey: string;
   timestamp: number;
@@ -274,6 +253,6 @@ export function buildSetAccountAvatarTransactionBody(input: {
     txGroupId: 0,
     fee: input.fee,
     ownerPublicKey: input.ownerPublicKey,
-    avatarSignature: input.avatarSignature,
+    avatar: input.avatar,
   };
 }
