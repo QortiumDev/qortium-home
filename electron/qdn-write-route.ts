@@ -11,9 +11,10 @@ type QdnWriteRouteConnection = {
  *
  * - `local`: the node is on this machine, so Home may post the private key to
  *   /transactions/sign. Loopback is what makes that safe, and nothing else.
- * - `remote-authenticated`: a node the user configured and gave an API key to.
- *   Home uses the authenticated build endpoints (Core's full publish limit, and
- *   every service) but signs on this machine, so the key stays here.
+ * - `remote-authenticated`: a node the user configured, gave an API key to, and
+ *   reaches over https. Home uses the authenticated build endpoints (Core's full
+ *   publish limit, and every service) but signs on this machine, so the key
+ *   stays here. Requires TLS - see below.
  * - `public`: an untrusted node. Only the keyless /arbitrary/public builders
  *   are used, and what they staged is verified before anything is signed.
  */
@@ -24,21 +25,32 @@ export function resolveQdnWriteRoute(connection: QdnWriteRouteConnection): QdnWr
     return 'public';
   }
 
-  let hostname: string;
+  let url: URL;
 
   try {
-    hostname = new URL(connection.nodeApiUrl).hostname;
+    url = new URL(connection.nodeApiUrl);
   } catch {
     return 'public';
   }
 
-  if (isLoopbackHostname(hostname)) {
+  if (isLoopbackHostname(url.hostname)) {
     return 'local';
   }
 
   // A remote node without a saved API key cannot answer the authenticated
   // endpoints at all, so it is treated as any other untrusted node.
-  return connection.apiKey?.trim() ? 'remote-authenticated' : 'public';
+  if (!connection.apiKey?.trim()) {
+    return 'public';
+  }
+
+  // The authenticated route trades content attestation for Core's full publish
+  // limit: only the /arbitrary/public builders register artifacts, so afterwards
+  // nothing re-verifies that the node staged the bytes we actually sent. Over TLS
+  // the only party who could substitute content is the node operator, who already
+  // holds our API key - the same trust a local node gets. Over plaintext it is
+  // also anyone on the path, which is a different and much weaker proposition, so
+  // a plaintext remote node stays on the attested public route instead.
+  return url.protocol === 'https:' ? 'remote-authenticated' : 'public';
 }
 
 /**
