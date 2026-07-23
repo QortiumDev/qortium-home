@@ -158,6 +158,7 @@ import { getPlatformVersion } from './app-versioning.js';
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { shouldStreamQdnPublishSource, shouldUnpackQdnPublishArchive } from './qdn-publish-routing.js';
+import { isSameQdnWriteRoute, resolveQdnWriteRoute } from './qdn-write-route.js';
 import { getPollOptionsInput } from './qdn-poll-options-input.js';
 import {
   getOptionalPollVoteOptionIndexes,
@@ -2691,15 +2692,7 @@ function assertLocalWriteConnection(connection: NodeConnection) {
 }
 
 function isLocalWriteConnection(connection: NodeConnection) {
-  if (connection.mode === 'network') {
-    return false;
-  }
-
-  try {
-    return isLoopbackHostname(new URL(connection.nodeApiUrl).hostname);
-  } catch {
-    return false;
-  }
+  return resolveQdnWriteRoute(connection) === 'local';
 }
 
 function getNodeApiKey(connection: NodeConnection) {
@@ -5613,7 +5606,7 @@ async function isKeylessWriteContextFresh(
   if (!isAccountUnlocked(keylessContext.accountId)) return false;
   if (getActiveAccountAddress() !== keylessContext.profile.address) return false;
   const connection = await getNodeConnection();
-  return connection.mode === 'network' && connection.nodeApiUrl === keylessContext.connection.nodeApiUrl;
+  return isSameQdnWriteRoute(connection, keylessContext.connection);
 }
 
 async function fetchLocalNodeApiPayload(
@@ -5732,7 +5725,9 @@ async function publishQdnResourceForApp(
 ) {
   const resource = getQdnWriteResourceRequest(request);
   const connection = await getNodeConnection();
-  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeRoute = resolveQdnWriteRoute(connection);
+  const useLocalWrite = writeRoute === 'local';
+  const usePublicRoute = writeRoute === 'public';
   const writeContext = useLocalWrite
     ? await getQdnWriteContext(context, resource)
     : await getKeylessQdnWriteContext(context);
@@ -5746,7 +5741,7 @@ async function publishQdnResourceForApp(
     throw new Error('QDN publish was canceled.');
   }
 
-  if (!useLocalWrite && typeof source.size === 'number') {
+  if (usePublicRoute && typeof source.size === 'number') {
     if (source.path) {
       assertPublicQdnStreamedPublishSize(source.size, 'Selected QDN publish source');
     } else {
@@ -5754,7 +5749,9 @@ async function publishQdnResourceForApp(
     }
   }
 
-  if (useLocalWrite && typeof source.size === 'number') {
+  // An authenticated node applies its own publish limit whether it is on this
+  // machine or not, so both authenticated routes pre-flight against that.
+  if (!usePublicRoute && typeof source.size === 'number') {
     await assertLocalQdnPublishSize(connection, resource.service, source.size, 'Selected QDN publish source');
   }
 
@@ -5772,18 +5769,22 @@ async function publishQdnResourceForApp(
 
   if (!useLocalWrite) {
     const keylessWriteContext = writeContext as QdnKeylessWriteContext;
-    if ((resource.fee ?? 0) !== 0) throw new Error('Public-node QDN writes require a zero fee.');
+    // Both remote routes sign here rather than on the node, and the local
+    // signer only builds the fee-less proof-of-work form of the transaction.
+    if ((resource.fee ?? 0) !== 0) throw new Error('QDN writes signed on this machine require a zero fee.');
     const serviceValue = getStaticQdnServiceId(resource.service);
     const isStillValid = () => isKeylessWriteContextFresh(sender, context as QdnViewContext, keylessWriteContext);
     const { attestationSource, unsignedTransaction } = await buildQdnPublishTransaction({
       apiKey: keylessWriteContext.apiKey,
       connection: keylessWriteContext.connection,
-      publicRoute: true,
+      publicRoute: usePublicRoute,
       resource,
       source,
     });
 
-    if (!attestationSource) throw new Error('QDN publish source could not be prepared for content attestation.');
+    if (usePublicRoute && !attestationSource) {
+      throw new Error('QDN publish source could not be prepared for content attestation.');
+    }
 
     const processedTransaction = await signAndProcessKeylessQdnTransaction(
       keylessWriteContext,
@@ -5797,7 +5798,9 @@ async function publishQdnResourceForApp(
         txGroupId: 0,
       },
       isStillValid,
-      createPublicQdnPublishAttestation(keylessWriteContext.connection, resource, attestationSource),
+      attestationSource
+        ? createPublicQdnPublishAttestation(keylessWriteContext.connection, resource, attestationSource)
+        : undefined,
     );
     releaseQdnPublishSourceToken(request);
 
@@ -5858,7 +5861,9 @@ async function publishMultipleQdnResourcesForApp(
 
   const approvalResource = resources.length === 1 ? resources[0].resource : undefined;
   const connection = await getNodeConnection();
-  const useLocalWrite = isLocalWriteConnection(connection);
+  const writeRoute = resolveQdnWriteRoute(connection);
+  const useLocalWrite = writeRoute === 'local';
+  const usePublicRoute = writeRoute === 'public';
   const writeContext = useLocalWrite
     ? await getQdnWriteContext(context, approvalResource ?? resources[0].resource)
     : await getKeylessQdnWriteContext(context);
@@ -5913,7 +5918,7 @@ async function publishMultipleQdnResourcesForApp(
         throw new Error('PUBLISH_MULTIPLE_QDN_RESOURCES requires base64 data for each resource.');
       }
 
-      if (!useLocalWrite && typeof source.size === 'number') {
+      if (usePublicRoute && typeof source.size === 'number') {
         if (source.path) {
           assertPublicQdnStreamedPublishSize(source.size, 'Selected QDN publish source');
         } else {
@@ -5922,22 +5927,22 @@ async function publishMultipleQdnResourcesForApp(
       }
 
       if (!useLocalWrite && (entry.resource.fee ?? 0) !== 0) {
-        throw new Error('Public-node QDN writes require a zero fee.');
+        throw new Error('QDN writes signed on this machine require a zero fee.');
       }
 
-      if (useLocalWrite && typeof source.size === 'number') {
+      if (!usePublicRoute && typeof source.size === 'number') {
         await assertLocalQdnPublishSize(connection, entry.resource.service, source.size, 'Selected QDN publish source');
       }
 
       const { attestationSource, unsignedTransaction } = await buildQdnPublishTransaction({
         apiKey,
         connection: writeContext.connection,
-        publicRoute: !useLocalWrite,
+        publicRoute: usePublicRoute,
         resource: entry.resource,
         source,
       });
 
-      if (!useLocalWrite && !attestationSource) {
+      if (usePublicRoute && !attestationSource) {
         throw new Error('QDN publish source could not be prepared for content attestation.');
       }
 
@@ -5960,11 +5965,13 @@ async function publishMultipleQdnResourcesForApp(
               txGroupId: 0,
             },
             () => isKeylessWriteContextFresh(sender, context as QdnViewContext, writeContext as QdnKeylessWriteContext),
-            createPublicQdnPublishAttestation(
-              (writeContext as QdnKeylessWriteContext).connection,
-              entry.resource,
-              attestationSource!,
-            ),
+            attestationSource
+              ? createPublicQdnPublishAttestation(
+                  (writeContext as QdnKeylessWriteContext).connection,
+                  entry.resource,
+                  attestationSource,
+                )
+              : undefined,
           );
 
       published.push({
