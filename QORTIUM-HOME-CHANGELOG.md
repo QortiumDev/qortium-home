@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - chore(release): prepare home 1.6.0
+
+Bumps Qortium Home to 1.6.0 with Android versionCode 33 for the next preview
+prerelease. Since 1.5.2 the app gained the ability to publish to a Qortium Core
+running on another machine — including from Android — by streaming the file
+bytes to the remote node rather than handing it a local path, with a manual
+certificate confirmation step before a remote node is trusted and a requirement
+that the connection use TLS before any unattested publishing. It also verifies
+managed Java downloads before use, adds a bridge for authorized account and
+group avatars to match Core, consolidates the QDN Apps settings (app
+permissions, preferred apps, notification controls and the bookmark manager)
+into one place, shows which tab is playing sound and lets you mute it, and
+tidies the QDN service handling behind the scenes (a single loading panel, one
+shared request path, one base58 codec, and a drift guard that keeps Home's
+service list in step with Core's).
+
 ### 2026-07-23 - feat(node): confirm a remote node's certificate by hand before trusting it
 
 Until now there was no safe way to reach a node on another machine over an
