@@ -58,6 +58,27 @@ export type NodeCertificateVerdict =
   | { confirmed: string[]; kind: 'mismatch' }
   | { kind: 'unconfirmed' };
 
+/**
+ * Whether the certificate's own validity window contains `now`.
+ *
+ * A pinned fingerprint says "this is the certificate I confirmed", not "this
+ * certificate is still meant to be in use", so the window is checked
+ * separately: an expired certificate keeps its fingerprint forever, and
+ * accepting one would let a confirmation outlive the key it was made for.
+ * Unparseable dates fail closed rather than being treated as unbounded.
+ *
+ * `now` is injectable so this can be tested without depending on the clock.
+ */
+export function isCertificateCurrentlyValid(
+  certificate: { validFrom: string; validTo: string },
+  now: number = Date.now(),
+): boolean {
+  const validFrom = Date.parse(certificate.validFrom);
+  const validTo = Date.parse(certificate.validTo);
+
+  return Number.isFinite(validFrom) && Number.isFinite(validTo) && validFrom <= now && now <= validTo;
+}
+
 /** SHA-256 of the DER certificate, in the colon-separated form tools print. */
 export function formatCertificateFingerprint(der: Uint8Array): string {
   const digest = createHash('sha256').update(der).digest('hex').toUpperCase();

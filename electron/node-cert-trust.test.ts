@@ -6,6 +6,7 @@ import {
   formatCertificateFingerprint,
   getFingerprintCheckCommand,
   getNodeCertificateHost,
+  isCertificateCurrentlyValid,
   normalizeFingerprint,
   parseNodeCertificatePins,
   planNodeCertificateConfirmation,
@@ -308,5 +309,48 @@ assert(
   ),
   'Protected requests must refuse an unconfirmed node before the API key is read.',
 );
+
+// A pinned fingerprint does not expire on its own - the same certificate keeps
+// the same digest forever - so the validity window is the only thing that stops
+// a confirmation outliving the certificate it was made for. Both trust paths in
+// node-tls depend on this, so it is checked directly rather than through them.
+const NOW = Date.parse('2026-07-23T00:00:00Z');
+const withinWindow = { validFrom: 'Jul 1 00:00:00 2026 GMT', validTo: 'Aug 1 00:00:00 2026 GMT' };
+
+assert(isCertificateCurrentlyValid(withinWindow, NOW), 'A certificate inside its window is valid.');
+assert(
+  !isCertificateCurrentlyValid(
+    { validFrom: 'Jan 1 00:00:00 2026 GMT', validTo: 'Jul 1 00:00:00 2026 GMT' },
+    NOW,
+  ),
+  'An expired certificate must be refused even when its fingerprint is pinned.',
+);
+assert(
+  !isCertificateCurrentlyValid(
+    { validFrom: 'Aug 1 00:00:00 2026 GMT', validTo: 'Sep 1 00:00:00 2026 GMT' },
+    NOW,
+  ),
+  'A not-yet-valid certificate must be refused.',
+);
+assert(
+  !isCertificateCurrentlyValid({ validFrom: 'not a date', validTo: 'Aug 1 00:00:00 2026 GMT' }, NOW),
+  'An unparseable validFrom must fail closed, not read as unbounded.',
+);
+assert(
+  !isCertificateCurrentlyValid({ validFrom: 'Jul 1 00:00:00 2026 GMT', validTo: 'not a date' }, NOW),
+  'An unparseable validTo must fail closed, not read as unbounded.',
+);
+
+// The window is enforced on both callback(0) paths, not just the new one.
+for (const guarded of ['verifyAgainstStoredCa', 'isConfirmedNodeCertificate']) {
+  const body = tlsSource.slice(tlsSource.indexOf(`export function ${guarded}(`));
+
+  assert(
+    /if \(!leaf \|\| !isCertificateCurrentlyValid\(leaf\)\) \{\s*return false;/.test(
+      body.slice(0, body.indexOf('\n}\n')),
+    ),
+    `${guarded} must refuse a certificate that is outside its validity window.`,
+  );
+}
 
 console.log('Node certificate trust tests passed.');

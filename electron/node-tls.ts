@@ -12,6 +12,7 @@ import {
 import { readNodeCertificatePins } from './node-cert-pins.js';
 import {
   formatCertificateFingerprint,
+  isCertificateCurrentlyValid,
   resolveNodeCertificateTrust,
   verifyPresentedNodeCertificate,
   type NodeCertificateTrust,
@@ -287,14 +288,6 @@ function isEligibleNodeTlsHost(hostname: string) {
   const host = normalizeHostname(hostname);
 
   return isPrivateOrLoopbackHost(host) || configuredNodeHosts.has(host);
-}
-
-function isCertificateCurrentlyValid(certificate: X509Certificate) {
-  const now = Date.now();
-  const validFrom = Date.parse(certificate.validFrom);
-  const validTo = Date.parse(certificate.validTo);
-
-  return Number.isFinite(validFrom) && Number.isFinite(validTo) && validFrom <= now && now <= validTo;
 }
 
 export function verifyAgainstStoredCa(hostname: string, certificatePem: string): boolean {
