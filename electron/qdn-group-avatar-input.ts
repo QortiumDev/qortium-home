@@ -1,7 +1,4 @@
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const BASE58_ALPHABET_MAP = new Map<string, number>(
-  [...BASE58_ALPHABET].map((character, index) => [character, index]),
-);
+import { BASE58_ALPHABET_MAP } from './base58.js';
 
 export const GROUP_AVATAR_MAX_BYTES = 500 * 1024;
 

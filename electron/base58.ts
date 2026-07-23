@@ -1,4 +1,4 @@
-// The base58 codec shared by both QDN bridges.
+// The one base58 codec.
 //
 // The desktop bridge (electron/qdn.ts) and the renderer/Android bridge
 // (src/platform.ts) both decode base58 to raw transaction bytes and encode raw
@@ -6,6 +6,11 @@
 // carried its own private copy of the same alphabet, the same lookup map and
 // the same encode/decode pair. A codec on the signing path is the last place
 // two copies should be allowed to drift, so it lives here once.
+//
+// The wallet store (electron/accounts.ts), the Qortal serializer
+// (electron/qortal-payment.ts) and the foreign-wallet derivation
+// (electron/foreign-wallets.ts) carried byte-identical copies of the same pair
+// and now import them from here as well.
 //
 // getSignedTransactionSignature is here too: it is nothing but a decode, a
 // length check and an encode of the trailing 64 bytes, so it has no reason to

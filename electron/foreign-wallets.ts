@@ -1,3 +1,5 @@
+import { base58Encode } from './base58.js';
+
 export type ForeignWalletCoin = 'BTC' | 'LTC' | 'DOGE' | 'DGB' | 'RVN' | 'DASH' | 'NMC' | 'FIRO';
 
 export type ForeignWalletCrypto = {
@@ -22,7 +24,6 @@ type ForeignWalletSpec = {
   xpubVersion: number;
 };
 
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const SECP256K1_FIELD = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
 const SECP256K1_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 const SECP256K1_GX = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
@@ -222,44 +223,6 @@ function hmacSha512(key: Uint8Array, data: Uint8Array, crypto: ForeignWalletCryp
   }
 
   return crypto.sha512(appendBuffer(outerKey, crypto.sha512(appendBuffer(innerKey, data))));
-}
-
-function base58Encode(buffer: Uint8Array) {
-  if (buffer.length === 0) {
-    return '';
-  }
-
-  const digits = [0];
-
-  for (const byte of buffer) {
-    for (let index = 0; index < digits.length; index += 1) {
-      digits[index] <<= 8;
-    }
-
-    digits[0] += byte;
-
-    let carry = 0;
-
-    for (let index = 0; index < digits.length; index += 1) {
-      digits[index] += carry;
-      carry = (digits[index] / 58) | 0;
-      digits[index] %= 58;
-    }
-
-    while (carry) {
-      digits.push(carry % 58);
-      carry = (carry / 58) | 0;
-    }
-  }
-
-  for (let index = 0; buffer[index] === 0 && index < buffer.length - 1; index += 1) {
-    digits.push(0);
-  }
-
-  return digits
-    .reverse()
-    .map((digit) => BASE58_ALPHABET[digit])
-    .join('');
 }
 
 function base58CheckEncode(payload: Uint8Array, crypto: ForeignWalletCrypto) {

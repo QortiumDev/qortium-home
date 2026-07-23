@@ -1,6 +1,7 @@
 import { Sha256 } from 'asmcrypto.js';
 import { unzipSync } from 'fflate';
 
+import { BASE58_ALPHABET } from './base58.js';
 import type { PublicArbitraryTransactionDetails } from './public-transaction-validation.js';
 
 const AES_GCM_NONCE_BYTES = 12;
@@ -10,7 +11,6 @@ const MAX_ATTESTED_BYTES = 100 * 1024 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 10_000;
 const MAX_ZIP_PATH_BYTES = 1_024;
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const BASE58_MAP = new Map([...BASE58_ALPHABET].map((character, index) => [character, index]));
 
 export type QdnPublishAttestationSource = {
