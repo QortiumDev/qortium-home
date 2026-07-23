@@ -4,11 +4,12 @@ import { appendQdnFragment, splitQdnFragment } from './qdn-fragment';
 import { t, type TranslationKey } from './i18n';
 import {
   PUBLIC_QDN_SERVICES,
+  isPrivateQdnService,
   isPublicQdnService,
   type PublicQdnService,
 } from '../electron/qdn-public-services';
 
-export { PUBLIC_QDN_SERVICES } from '../electron/qdn-public-services';
+export { PUBLIC_QDN_SERVICES, isPrivateQdnService } from '../electron/qdn-public-services';
 
 const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
   'common.unit.kb',
@@ -232,14 +233,6 @@ function getNodeApiUrlBase(nodeApiUrl: string) {
 
 export function isQdnService(value: string): value is QdnService {
   return isPublicQdnService(value);
-}
-
-// Core marks its encrypted services with a `_PRIVATE` suffix (APP_PRIVATE,
-// IMAGE_GALLERY_PRIVATE, ...). Home cannot decrypt these yet, so it recognizes
-// them only to show a clear "not supported" message instead of treating the
-// address as an unknown service.
-export function isPrivateQdnService(value: string) {
-  return /^[A-Z0-9_]+_PRIVATE$/.test(value);
 }
 
 export function isQdnRenderableService(value: QdnService): value is QdnRenderableService {
