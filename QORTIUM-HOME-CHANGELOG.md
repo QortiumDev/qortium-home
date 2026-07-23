@@ -33,6 +33,37 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - refactor(electron): finish consolidating the base58 copies
+
+A previous change gave Home a single shared home for the base58 conversion it
+uses whenever raw data has to be written as text, and pointed both of its QDN
+routes at it. Looking further afield, the same conversion turned out to be
+written out three more times: once in the part of Home that stores and unlocks
+your wallet file, once in the code that builds Qortal payment and chat
+transactions, and once in the code that works out your Bitcoin, Litecoin,
+Dogecoin and other foreign-coin addresses.
+
+All three were checked character by character against the shared version first,
+and all three matched it exactly. They have now been deleted, and those parts of
+Home use the shared conversion instead. That is five copies reduced to one, on
+paths where a stray difference would mean a rejected transaction, a wallet file
+that will not unlock, or a foreign address that quietly belongs to nobody.
+
+The code that builds Qortal transactions still offers the conversion to anything
+that asks it for one, so nothing that depended on it had to be changed. Two
+lists of the base58 characters were left where they are: one belongs to the code
+that generates the node's local API key, which has nothing to do with
+transactions and should not be tied to them, and the other sits beside a lookup
+table that is written differently enough that leaving it alone was the safer
+call.
+
+Nothing about how Home behaves changes. The existing tests all pass untouched,
+including the one that checks the conversion against a second, deliberately
+different implementation, and the fixed examples that check the Qortal payment
+and chat transactions come out byte for byte as expected. The foreign-coin
+addresses, which had no test of their own, were generated from the same seed
+before and after the change and came out identical for all eight coins.
+
 ### 2026-07-23 - refactor(qdn): keep one copy of the base58 codec
 
 Qortium writes a lot of things — addresses, public keys, signatures, whole
