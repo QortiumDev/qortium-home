@@ -33,6 +33,31 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - refactor(qdn): read QDN app requests from one shared place
+
+Home talks to QDN apps over two different routes: one on the desktop app, and
+one in the browser/Android build. Both routes have to understand exactly the
+same requests from an app — the same field names, the same "either of these two
+spellings will do" fallbacks, the same rules for what counts as a valid amount,
+group, address, or fee, and the same wording when a request has to be refused.
+
+Until now each route carried its own private copy of all of that. Nothing was
+wrong with either copy, but keeping two of them in step is guesswork: a fix or
+a tightened rule had to be remembered twice, and on three separate occasions the
+two copies had already quietly stopped matching. When that happens, the same app
+sending the same request can be treated differently on desktop than on Android,
+which is the kind of difference nobody notices until it causes a problem.
+
+That shared understanding of a request now lives in one place that both routes
+read from, so the same logic no longer exists in two copies that could drift
+apart. Nothing about how Home behaves changes — the rules are identical to the
+ones already shipping, they are simply no longer written down twice. A few
+pieces stayed where they were on purpose: anything that depends on how one
+particular route holds on to a file you are publishing has to stay with that
+route, and one check that genuinely reads differently on each side was left
+alone rather than quietly merged, so that difference can be looked at on its
+own.
+
 ### 2026-07-22 - feat(settings): say what a custom node address means for publishing
 
 The previous entry changed which node addresses get Home's higher-capacity
