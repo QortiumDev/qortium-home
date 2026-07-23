@@ -33,6 +33,37 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - fix(qdn): revive the QDN service drift guard against Core's catalogue
+
+Home only opens a fixed list of QDN content types (images, videos, blogs, apps
+and so on). A check exists to make sure that list still matches what the node
+actually offers, so a content type the node renames, drops, or turns into an
+encrypted one cannot quietly stop working in Home. That check had been broken
+since an earlier tidy-up moved the list to a new file: it went looking for the
+list where it used to live, found nothing, and gave up before it ever contacted
+a node. Nothing noticed, because the check needs a running node and so is not
+part of the normal test run.
+
+It has been rebuilt in three parts. The half that needs no node at all — is the
+list sensible, does it repeat itself, does it contradict Home's own rule for
+spotting encrypted content types — is now an ordinary test that runs with every
+other test, so it cannot rot unnoticed again. The half that does need a node now
+reads the real list from Home's built code instead of trying to read it out of
+the source text, which is what let it break silently in the first place. And the
+comparison between Home and the node is now separately testable against made-up
+node answers, so it can be proven to catch a problem without waiting for a real
+node to misbehave.
+
+The check also got more useful. It used to compare Home's two copies of the list
+against each other; there is only one copy now, so that comparison could never
+fail and was doing nothing but looking like protection — it has been removed. In
+its place is a real question: the node states outright which content types are
+encrypted, while Home guesses from the name. If those two ever disagree, Home
+could try to display something it cannot read, or refuse to open something
+anybody can. The check now compares the two across everything the node offers
+and names whatever disagrees. Content types Home deliberately does not offer are
+still only listed as a note, not treated as a problem.
+
 ### 2026-07-23 - refactor(qdn): stop importing the same base58 conversion twice
 
 Tidy-up left over from the earlier base58 consolidation. Both of Home's QDN
