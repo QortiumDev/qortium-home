@@ -33,6 +33,30 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - refactor(qdn): keep one copy of the base58 codec
+
+Qortium writes a lot of things — addresses, public keys, signatures, whole
+transactions — as base58 text: a compact way of writing raw data using digits
+and letters, with the easily-confused characters (zero, capital O, capital I,
+lower-case l) deliberately left out. Every time Home signs or sends something,
+it converts back and forth between that text and the raw data underneath.
+
+The two routes Home uses to talk to QDN apps — the desktop one and the
+browser/Android one — each carried their own private copy of that conversion.
+The copies matched, but they sit on the path where transactions are signed, and
+that is the last place two copies should be left to drift: a difference of a
+single character in one of them would produce a signature the network rejects,
+or worse, quietly sign the wrong bytes, and only on one of the two platforms.
+
+The conversion now lives in one shared place that both routes use, along with
+the small helper that takes the signature off the end of a signed transaction.
+Nothing about how Home behaves changes; it is the same code, simply no longer
+written down twice. It also now has a test of its own, which checks the
+conversion against a second, deliberately different implementation across more
+than a thousand cases — including empty input and the leading-zero cases that
+hand-written base58 most often gets wrong — and confirms that anything converted
+one way comes back unchanged the other way.
+
 ### 2026-07-23 - refactor(qdn): read QDN app requests from one shared place
 
 Home talks to QDN apps over two different routes: one on the desktop app, and
