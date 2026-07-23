@@ -33,6 +33,50 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - refactor(qdn): stop importing the same base58 conversion twice
+
+Tidy-up left over from the earlier base58 consolidation. Both of Home's QDN
+routes were reaching for the shared text-conversion helper twice in the same
+file: once directly, and once through the code that builds Qortal transactions,
+under a second name. It was the same helper both times - confirmed by loading
+both and checking they are literally the same thing - so the second name was
+only ever a leftover that made the four places using it look like they were
+doing something different from the rest of the file.
+
+The second name is gone and those four places now use the direct one. The
+transaction-building code still offers the conversion to anything that asks for
+it, because three other parts of Home still do. Nothing about how Home behaves
+changes; the tests that check signed transactions come out byte for byte as
+expected all pass untouched.
+
+### 2026-07-23 - refactor(qdn): decide once which QDN services Home will open
+
+Every QDN address names a service: whether you are looking at a website, an
+image, a video, a blog post, a file. Home only opens the public ones. Some
+services on the network are encrypted, and Home cannot yet read those, so it
+turns them away with a message that says so rather than a confusing "unknown
+service" error.
+
+That decision was being made twice, once for each of the two routes Home uses to
+talk to QDN apps: the desktop one and the browser/Android one. Each route had its
+own list check and its own way of spotting an encrypted service. The two happened
+to agree exactly — they were compared character by character before anything was
+moved — but this was the fourth time these two routes had been found holding
+separate copies of the same rule, and this particular rule is the one that decides
+what Home will and will not open. Two copies of that is one careless edit away
+from the desktop app and the Android app disagreeing about what is safe to show.
+
+There is one copy now, and both routes ask it. The same move also freed up the
+rule that reads a publish request — which service, which name, which description
+— so that is now shared too, instead of being maintained twice.
+
+Nothing about how Home behaves changes: the same services are accepted, the same
+ones are refused, and the wording of both refusal messages is unchanged. A new
+test covers the shared rule directly — every public service is accepted, every
+encrypted one is refused with the encrypted-service message, anything unrecognised
+is refused with the other one — and it also reads both routes to make sure neither
+has quietly grown its own copy again.
+
 ### 2026-07-23 - refactor(electron): finish consolidating the base58 copies
 
 A previous change gave Home a single shared home for the base58 conversion it

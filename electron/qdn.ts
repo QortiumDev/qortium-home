@@ -38,7 +38,7 @@ import {
   getQdnNotificationManagerSummary,
   sanitizeQdnNotificationManagerMutation,
 } from './notification-manager.js';
-import { PUBLIC_QDN_SERVICES } from './qdn-public-services.js';
+import { isPrivateQdnService, isPublicQdnService } from './qdn-public-services.js';
 import {
   assertQortiumAddress,
   getBoolean,
@@ -54,10 +54,9 @@ import {
   getOptionalIntegerRequestValue,
   getOptionalStringRequestValue,
   getQdnAppMaxBytes,
-  getQdnWriteTags,
+  getQdnWriteResourceRequest,
   getReadOnlyMethod,
   getRequestAssetId,
-  getRequestFee,
   getRequestPayload,
   getRequestValue,
   getRequiredAddressRequestString,
@@ -65,6 +64,7 @@ import {
   getRequiredGroupId,
   getRequiredNameRequestString,
   getRequiredRequestString,
+  getService,
   getString,
   getTransactionFee,
   getTransactionGroupId,
@@ -75,6 +75,7 @@ import {
   NATIVE_ASSET_ID,
   QDN_APP_DEFAULT_MAX_BYTES,
   type QdnAppRequest,
+  type QdnWriteResourceRequest,
 } from './qdn-request-values.js';
 import {
   base58Decode,
@@ -138,7 +139,6 @@ import {
   assertPositiveQortAmount,
   assertValidQortalAddress,
   atomicLongToBigInt,
-  base58Encode as qortalBase58Encode,
   buildUnsignedPaymentTransactionBytes,
   formatQortAtomic,
   getSignatureFromSignedTransactionBytes,
@@ -305,14 +305,6 @@ const QDN_OPEN_NEW_TAB_URL_MAX_LENGTH = 2048;
 const QDN_MEDIA_PLAYER_SERVICES = new Set(['AUDIO', 'PODCAST', 'VIDEO', 'VOICE']);
 const QDN_MEDIA_PLAYER_FIELD_MAX_LENGTH = 1024;
 const QDN_DOCUMENT_VIEWER_SERVICES = new Set(['DOCUMENT', 'FILE', 'FILES', 'ATTACHMENT']);
-const PUBLIC_QDN_SERVICE_SET = new Set<string>(PUBLIC_QDN_SERVICES);
-
-// Core marks its encrypted services with a `_PRIVATE` suffix. Home cannot decrypt
-// these yet, so it recognizes them only to return a clearer message than the
-// generic public-service rejection.
-function isPrivateService(service: string) {
-  return /^[A-Z0-9_]+_PRIVATE$/.test(service);
-}
 
 type QdnAuthorizeResourceRequest = {
   identifier?: unknown;
@@ -403,17 +395,6 @@ type QdnWriteApprovalAction =
   | 'NOTIFICATION_MANAGER_REVOKE'
   | 'UPDATE_HOME_SETTINGS';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
-
-type QdnWriteResourceRequest = {
-  category?: string;
-  description?: string;
-  fee?: number;
-  identifier?: string;
-  name: string;
-  service: string;
-  tags: string[];
-  title?: string;
-};
 
 type QdnWriteSourceSelection = {
   dataBase64?: string;
@@ -2099,9 +2080,9 @@ function getAuthorizeRequest(value: QdnAuthorizeResourceRequest) {
   const name = getString(value.name);
   const identifier = getString(value.identifier);
 
-  if (!PUBLIC_QDN_SERVICE_SET.has(service)) {
+  if (!isPublicQdnService(service)) {
     throw new Error(
-      isPrivateService(service)
+      isPrivateQdnService(service)
         ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
         : 'Only public QDN resources can be loaded right now.',
     );
@@ -2116,24 +2097,6 @@ function getAuthorizeRequest(value: QdnAuthorizeResourceRequest) {
     name,
     identifier: identifier || undefined,
   };
-}
-
-function getService(value: unknown) {
-  const service = getString(value).toUpperCase();
-
-  if (!service) {
-    return '';
-  }
-
-  if (!PUBLIC_QDN_SERVICE_SET.has(service)) {
-    throw new Error(
-      isPrivateService(service)
-        ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
-        : 'Only public QDN services can be browsed right now.',
-    );
-  }
-
-  return service;
 }
 
 function getRawResourceRequest(value: QdnRawResourceRequest) {
@@ -2209,34 +2172,6 @@ function getRequestedQdnPublishSourceKind(request: QdnAppRequest, fallback: QdnP
   }
 
   return fallback;
-}
-
-function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
-  const service = getService(getRequestValue(request, 'service'));
-  const name = getString(getRequestValue(request, 'name'));
-  const identifier = getString(getRequestValue(request, 'identifier'));
-  const title = getString(getRequestValue(request, 'title'));
-  const description = getString(getRequestValue(request, 'description'));
-  const category = getString(getRequestValue(request, 'category')).toUpperCase();
-
-  if (!service) {
-    throw new Error('QDN resource service is required.');
-  }
-
-  if (!name) {
-    throw new Error('QDN resource name is required.');
-  }
-
-  return {
-    service,
-    name,
-    identifier: identifier || undefined,
-    title: title || undefined,
-    description: description || undefined,
-    tags: getQdnWriteTags(request),
-    category: category || undefined,
-    fee: getRequestFee(getRequestValue(request, 'fee')),
-  };
 }
 
 function getQdnWriteResourceRequests(request: QdnAppRequest) {
@@ -3653,7 +3588,7 @@ async function sendQortForApp(
   });
   const signatureBytes = nacl.sign.detached(unsignedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signatureBytes);
-  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signedBytes58 = base58Encode(signedBytes);
   const signature = getSignatureFromSignedTransactionBytes(signedBytes);
 
   try {
@@ -3825,7 +3760,7 @@ async function sendQortalGroupChatForApp(
   const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
-  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signedBytes58 = base58Encode(signedBytes);
   const signature = getSignatureFromSignedTransactionBytes(signedBytes);
 
   try {

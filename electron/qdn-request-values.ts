@@ -12,6 +12,8 @@
 // state (staged publish sources, node connections, windows) stays in the bridge
 // that owns it.
 
+import { isPrivateQdnService, isPublicQdnService } from './qdn-public-services.js';
+
 type QdnAppRequest = {
   action?: unknown;
   maxBytes?: unknown;
@@ -19,6 +21,17 @@ type QdnAppRequest = {
   path?: unknown;
   payload?: unknown;
   [key: string]: unknown;
+};
+
+type QdnWriteResourceRequest = {
+  category?: string;
+  description?: string;
+  fee?: number;
+  identifier?: string;
+  name: string;
+  service: string;
+  tags: string[];
+  title?: string;
 };
 
 const NATIVE_ASSET_ID = 0;
@@ -323,6 +336,60 @@ function getExactQdnApprovalValue(value: unknown, maxLength: number) {
   return displayValue;
 }
 
+// The service gate every QDN read and write passes through. Both bridges had
+// their own copy: one asked a Set, the other asked the array, and each carried
+// its own `_PRIVATE` predicate. Two implementations of "may this service be
+// used" is one bad merge away from the two transports disagreeing about what is
+// public, so there is one now.
+//
+// Returns '' for an absent service so callers can decide whether it is optional;
+// anything present but not public throws.
+function getService(value: unknown): string {
+  const service = getString(value).toUpperCase();
+
+  if (!service) {
+    return '';
+  }
+
+  if (!isPublicQdnService(service)) {
+    throw new Error(
+      isPrivateQdnService(service)
+        ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
+        : 'Only public QDN services can be browsed right now.',
+    );
+  }
+
+  return service;
+}
+
+function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
+  const service = getService(getRequestValue(request, 'service'));
+  const name = getString(getRequestValue(request, 'name'));
+  const identifier = getString(getRequestValue(request, 'identifier'));
+  const title = getString(getRequestValue(request, 'title'));
+  const description = getString(getRequestValue(request, 'description'));
+  const category = getString(getRequestValue(request, 'category')).toUpperCase();
+
+  if (!service) {
+    throw new Error('QDN resource service is required.');
+  }
+
+  if (!name) {
+    throw new Error('QDN resource name is required.');
+  }
+
+  return {
+    service,
+    name,
+    identifier: identifier || undefined,
+    title: title || undefined,
+    description: description || undefined,
+    tags: getQdnWriteTags(request),
+    category: category || undefined,
+    fee: getRequestFee(getRequestValue(request, 'fee')),
+  };
+}
+
 function getWritableSettingKeys(metadata: unknown) {
   const keys = new Set<string>();
 
@@ -346,7 +413,7 @@ function getWritableSettingKeys(metadata: unknown) {
   return keys;
 }
 
-export type { QdnAppRequest };
+export type { QdnAppRequest, QdnWriteResourceRequest };
 export { NATIVE_ASSET_ID, QDN_APP_DEFAULT_MAX_BYTES, QDN_APP_MAX_BYTES_LIMIT };
 export {
   getString,
@@ -382,5 +449,7 @@ export {
   getReadOnlyMethod,
   getNodeSettingsPatch,
   getExactQdnApprovalValue,
+  getService,
+  getQdnWriteResourceRequest,
   getWritableSettingKeys,
 };

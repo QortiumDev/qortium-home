@@ -23,10 +23,9 @@ import {
   getOptionalIntegerRequestValue,
   getOptionalStringRequestValue,
   getQdnAppMaxBytes,
-  getQdnWriteTags,
+  getQdnWriteResourceRequest,
   getReadOnlyMethod,
   getRequestAssetId,
-  getRequestFee,
   getRequestPayload,
   getRequestValue,
   getRequiredAddressRequestString,
@@ -34,6 +33,7 @@ import {
   getRequiredGroupId,
   getRequiredNameRequestString,
   getRequiredRequestString,
+  getService,
   getString,
   getTransactionFee,
   getTransactionGroupId,
@@ -44,6 +44,7 @@ import {
   NATIVE_ASSET_ID,
   QDN_APP_DEFAULT_MAX_BYTES,
   type QdnAppRequest,
+  type QdnWriteResourceRequest,
 } from '../electron/qdn-request-values';
 import {
   base58Decode,
@@ -156,7 +157,6 @@ import {
   assertPositiveQortAmount,
   assertValidQortalAddress,
   atomicLongToBigInt,
-  base58Encode as qortalBase58Encode,
   buildUnsignedPaymentTransactionBytes,
   formatQortAtomic,
   getSignatureFromSignedTransactionBytes,
@@ -189,10 +189,8 @@ import { signChatTransaction } from './chatSign';
 import type { CoreTransportStatusSnapshot } from './i2p';
 import { t } from './i18n';
 import {
-  PUBLIC_QDN_SERVICES,
   QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH,
   REMOTE_AUTHORIZATION_BLOCKED_MESSAGE,
-  isPrivateQdnService,
   sanitizeQdnAppTitle,
   type QdnDisplaySettings,
 } from './qdn';
@@ -455,17 +453,6 @@ type QdnWriteApprovalAction =
   | 'NOTIFICATION_MANAGER_REVOKE'
   | 'UPDATE_HOME_SETTINGS';
 type QdnChatPermissionAction = 'SEND_CHAT_MESSAGE' | 'SEND_QORTAL_GROUP_CHAT';
-
-type QdnWriteResourceRequest = {
-  category?: string;
-  description?: string;
-  fee?: number;
-  identifier?: string;
-  name: string;
-  service: string;
-  tags: string[];
-  title?: string;
-};
 
 type QdnPublishSourceResult =
   | {
@@ -2690,34 +2677,6 @@ function getRequestedQdnPublishSourceKind(request: QdnAppRequest, fallback: QdnP
   const kind = getString(getRequestValue(request, 'kind')).toLowerCase();
 
   return kind === 'directory' ? 'directory' : kind === 'file' ? 'file' : fallback;
-}
-
-function getQdnWriteResourceRequest(request: QdnAppRequest): QdnWriteResourceRequest {
-  const service = getService(getRequestValue(request, 'service'));
-  const name = getString(getRequestValue(request, 'name'));
-  const identifier = getString(getRequestValue(request, 'identifier'));
-  const title = getString(getRequestValue(request, 'title'));
-  const description = getString(getRequestValue(request, 'description'));
-  const category = getString(getRequestValue(request, 'category')).toUpperCase();
-
-  if (!service) {
-    throw new Error('QDN resource service is required.');
-  }
-
-  if (!name) {
-    throw new Error('QDN resource name is required.');
-  }
-
-  return {
-    service,
-    name,
-    identifier: identifier || undefined,
-    title: title || undefined,
-    description: description || undefined,
-    tags: getQdnWriteTags(request),
-    category: category || undefined,
-    fee: getRequestFee(getRequestValue(request, 'fee')),
-  };
 }
 
 function getQdnWriteResourceRequests(request: QdnAppRequest) {
@@ -9377,7 +9336,7 @@ async function sendQortForApp(request: QdnAppRequest, context: QdnAppRequestCont
   });
   const signatureBytes = nacl.sign.detached(unsignedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(unsignedBytes, signatureBytes);
-  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signedBytes58 = base58Encode(signedBytes);
   const signature = getSignatureFromSignedTransactionBytes(signedBytes);
 
   try {
@@ -9549,7 +9508,7 @@ async function sendQortalGroupChatForApp(request: QdnAppRequest, context: QdnApp
   const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
-  const signedBytes58 = qortalBase58Encode(signedBytes);
+  const signedBytes58 = base58Encode(signedBytes);
   const signature = getSignatureFromSignedTransactionBytes(signedBytes);
 
   try {
@@ -9691,24 +9650,6 @@ async function getQortalResourceUrl(request: QdnAppRequest) {
   const nodeApiUrl = await resolveQortalNodeApiUrl(cachedQortalNodeApiUrl?.source === 'local');
 
   return { url: `${getNodeApiUrlBase(nodeApiUrl)}${buildQortalResourcePath(resource)}` };
-}
-
-function getService(value: unknown) {
-  const service = getString(value).toUpperCase();
-
-  if (!service) {
-    return '';
-  }
-
-  if (!PUBLIC_QDN_SERVICES.includes(service as (typeof PUBLIC_QDN_SERVICES)[number])) {
-    throw new Error(
-      isPrivateQdnService(service)
-        ? 'Private (encrypted) QDN resources cannot be opened in Home yet.'
-        : 'Only public QDN services can be browsed right now.',
-    );
-  }
-
-  return service;
 }
 
 function normalizeResourceRequest(value: QortiumQdnAuthorizeRequest) {
