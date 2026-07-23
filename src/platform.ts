@@ -73,6 +73,7 @@ import {
   resolvePollVoteOptionInput,
 } from '../electron/qdn-poll-vote-input';
 import { getPollOptionsInput } from '../electron/qdn-poll-options-input';
+import { isSameQdnWriteRoute } from '../electron/qdn-write-route';
 import {
   assertPublicArbitraryTransaction,
   assertPublicChatTransaction,
@@ -473,6 +474,9 @@ type QdnWriteContext = {
 type QdnKeylessWriteContext = {
   accountId: string;
   apiKey: string;
+  // Kept alongside the URL because the write route is what the freshness check
+  // compares, and mode is one of the three fields that decides it.
+  mode: StoredNodeSettings['mode'];
   nodeApiUrl: string;
   profile: QortiumAccountProfile;
   publicKey58: string;
@@ -3224,6 +3228,7 @@ async function getKeylessChatContext(context: QdnAppRequestContext | undefined) 
   return {
     accountId: context.accountId,
     apiKey,
+    mode: settings.mode,
     nodeApiUrl,
     profile,
     publicKey58: signingKey.publicKey58,
@@ -3251,6 +3256,7 @@ async function getKeylessQdnWriteContext(
   return {
     accountId: context.accountId,
     apiKey,
+    mode: settings.mode,
     nodeApiUrl,
     profile,
     publicKey58: signingKey.publicKey58,
@@ -3265,8 +3271,18 @@ async function isKeylessWriteContextFresh(
   if (context.isCurrent && !context.isCurrent()) return false;
   if (context.accountId !== keylessContext.accountId || !isAccountUnlocked(keylessContext.accountId)) return false;
   const settings = await readNodeSettings();
-  if (settings.mode !== 'network') return false;
-  return await resolveNodeApiUrl(settings) === keylessContext.nodeApiUrl;
+  // This used to demand mode === 'network', which no 'custom' connection could
+  // ever satisfy, so every keyless write to a configured remote node failed
+  // after proof-of-work with QDN_POW_CANCELLED. The question it was really
+  // asking is "is this still the node I built against, reached the same way",
+  // which is what the shared route comparison answers - and answers more
+  // tightly, because a node whose API key was removed mid-publish drops route
+  // and is now caught. Shared with electron/qdn.ts so the two transports cannot
+  // drift apart on it again.
+  return isSameQdnWriteRoute(
+    { apiKey: settings.apiKey, mode: settings.mode, nodeApiUrl: await resolveNodeApiUrl(settings) },
+    { apiKey: keylessContext.apiKey, mode: keylessContext.mode, nodeApiUrl: keylessContext.nodeApiUrl },
+  );
 }
 
 async function getQdnWriteContext(context: QdnAppRequestContext | undefined): Promise<QdnWriteContext> {

@@ -33,6 +33,29 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-22 - fix(qdn): let Android publish to a Qortium Core on another machine
+
+The previous entry fixed publishing to a node somewhere other than your own
+machine, but only in the desktop application. On Android the same publish still
+failed, and in the most frustrating way possible: the work happened, the phone
+spent its time on it, and only at the very end did it give up with a message
+about the signing context having changed. Nothing had actually changed. The
+last-moment safety check only recognised the shared public network, so a node
+you had entered by address yourself was never accepted, however settled the
+connection was.
+
+Android now asks the same question the desktop asks, using the same code rather
+than its own copy of it, so publishing from a phone to your own node works. The
+check is also stricter than the one it replaces: it notices if the node is
+swapped for a different one while the phone is working, and it notices if the
+node stops being one you hold an API key for. Either of those still stops the
+publish, as they should.
+
+Sharing the code is as much the point as the fix is. The desktop and the phone
+had quietly grown two different answers to the same question, which is how this
+was missed for a release. A test now fails if either of them goes back to
+answering it alone.
+
 ### 2026-07-22 - fix(qdn): publish to a Qortium Core on another machine
 
 Publishing to QDN only worked when Qortium Core was running on the same machine
