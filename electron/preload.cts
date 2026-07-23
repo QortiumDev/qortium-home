@@ -160,7 +160,12 @@ contextBridge.exposeInMainWorld('qortiumHome', {
   },
   node: {
     checkCoreUpdate: () => ipcRenderer.invoke('node:checkCoreUpdate'),
+    confirmCertificate: (nodeApiUrl: string, fingerprint: string) =>
+      ipcRenderer.invoke('node:confirmCertificate', nodeApiUrl, fingerprint),
     enableApiDocumentation: () => ipcRenderer.invoke('node:enableApiDocumentation'),
+    forgetCertificate: (nodeApiUrl: string) => ipcRenderer.invoke('node:forgetCertificate', nodeApiUrl),
+    getCertificateStatus: (nodeApiUrl: string) =>
+      ipcRenderer.invoke('node:getCertificateStatus', nodeApiUrl),
     hasStoredSettings: () => ipcRenderer.invoke('node:hasStoredSettings'),
     getSettings: () => ipcRenderer.invoke('node:getSettings'),
     getTransportStatus: () => ipcRenderer.invoke('node:getTransportStatus'),

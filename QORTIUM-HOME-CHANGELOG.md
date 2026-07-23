@@ -33,6 +33,52 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - feat(node): confirm a remote node's certificate by hand before trusting it
+
+Until now there was no safe way to reach a node on another machine over an
+encrypted connection. A Qortium node makes its own security certificate, and
+nothing outside that machine vouches for it, so Home had no way to tell the real
+node's certificate apart from one someone on the network had substituted. The
+old shortcut — asking the node over an unencrypted connection which certificate
+to trust — was removed earlier, because whoever answered that question got
+trusted permanently and got the node's API key with it. That left encrypted
+remote nodes simply unreachable.
+
+They are reachable again, on one condition: you check the certificate yourself,
+somewhere the network cannot interfere. Point Home at a custom node whose
+address starts with `https://` and Settings → Node Settings now shows a
+Certificate panel. It shows the fingerprint — a long string of characters unique
+to that one certificate — of whatever the node offered. Below it is a command to
+run on the computer where the node is running, which prints the same fingerprint
+from the node's own side. Compare the two character by character, and press
+"Fingerprints match" only if they are identical. Never accept a fingerprint
+someone sent you in a message; the whole point is that it comes from the node
+itself.
+
+Until you do that, nothing changes: Home refuses the connection and never sends
+the API key, exactly as before. Once you do, Home trusts that one certificate on
+that one node address, and the connection works — including the larger
+publishing limit that needs an API key. If the node ever presents a different
+certificate, Home stops and says so rather than carrying on. That happens
+normally when a node's certificate is renewed, in which case check the new
+fingerprint on the node and confirm it again, but it is also exactly what an
+interception attempt looks like, so it is worth a second look. There is a
+"Forget this certificate" button if you want to start over.
+
+Nodes running on your own computer are completely unaffected — there is no
+network in between for anyone to interfere with, so they keep working with no
+extra step — and so are unencrypted connections, which have no certificate to
+check in the first place.
+
+A second security review tightened two things before this shipped. Forgetting
+or replacing a certificate now also clears what the browser engine had cached
+about it and drops the open connections, so the old certificate stops being
+accepted right away instead of lingering until Home restarts. And the
+confirm/forget controls now double-check, inside Home's core process, that the
+request really came from Home's own settings window — the same check Home
+already applies to other sensitive settings — rather than relying only on QDN
+apps having no button for it.
+
 ### 2026-07-23 - fix(qdn): revive the QDN service drift guard against Core's catalogue
 
 Home only opens a fixed list of QDN content types (images, videos, blogs, apps

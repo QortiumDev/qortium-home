@@ -6,7 +6,6 @@ import {
   createDefaultQdnAppRolesStore,
   getQdnAppRoleForCapability,
   isQdnAppRole,
-  isTrustedQdnAppRolesSender,
   migrateLegacyQdnAppStores,
   sanitizeQdnAppRolesStore,
   sanitizeQdnManagerAppKey,
@@ -15,7 +14,7 @@ import {
   type QdnAppRolesStore,
   type QdnManagerCapability,
 } from './qdn-manager-permissions.js';
-import { getQdnViewContextForWebContents } from './qdn-views.js';
+import { assertShellWindowSender as assertShellSender } from './shell-window-sender.js';
 
 const STORE_FILE = 'qdn-app-roles.json';
 const LEGACY_STORE_FILE = 'qdn-manager-permissions.json';
@@ -143,14 +142,7 @@ function assertQdnAppRole(role: unknown): QdnAppRole {
 // preload topology must not be the only barrier: require the sender to be a
 // Home shell window's webContents and explicitly reject QDN app views.
 function assertShellWindowSender(sender: WebContents) {
-  const trusted = isTrustedQdnAppRolesSender({
-    senderId: sender.id,
-    isQdnView: getQdnViewContextForWebContents(sender) !== null,
-    shellWindowWebContentsIds: BrowserWindow.getAllWindows()
-      .filter((window) => !window.isDestroyed())
-      .map((window) => window.webContents.id),
-  });
-  if (!trusted) throw new Error('QDN app role requests are only accepted from a Home window.');
+  assertShellSender(sender, 'QDN app role requests are only accepted from a Home window.');
 }
 
 export function registerQdnManagerPermissionStoreIpcHandlers() {

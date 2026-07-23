@@ -73,6 +73,23 @@ type QortiumNodeSettingsRequest = {
   mode: QortiumNodeSettingsMode;
 };
 
+type QortiumNodeCertificateStatus = {
+  confirmationRequired: boolean;
+  confirmedFingerprint: string | null;
+  host: string;
+  matchesConfirmed: boolean;
+  nodeApiUrl: string;
+  observeError: string | null;
+  presented: {
+    fingerprint: string;
+    issuer: string;
+    subject: string;
+    validFrom: string;
+    validTo: string;
+  } | null;
+  verifyCommand: string;
+};
+
 type QortiumNodeStatusResult =
   | {
       nodeApiUrl: string;
@@ -838,7 +855,13 @@ interface Window {
     };
     node: {
       checkCoreUpdate: () => Promise<QortiumCoreOnChainUpdateStatus>;
+      confirmCertificate?: (
+        nodeApiUrl: string,
+        fingerprint: string,
+      ) => Promise<QortiumNodeCertificateStatus>;
       enableApiDocumentation: () => Promise<void>;
+      forgetCertificate?: (nodeApiUrl: string) => Promise<QortiumNodeCertificateStatus>;
+      getCertificateStatus?: (nodeApiUrl: string) => Promise<QortiumNodeCertificateStatus>;
       hasStoredSettings?: () => Promise<boolean>;
       getSettings: () => Promise<QortiumNodeSettings>;
       getTransportStatus?: () => Promise<QortiumCoreTransportStatusSnapshot | null>;

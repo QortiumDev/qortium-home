@@ -1,3 +1,4 @@
+import { isLoopbackHostname } from '../electron/node-ca-bootstrap';
 import { resolveQdnWriteRoute } from '../electron/qdn-write-route';
 import type { TranslationKey } from './i18n';
 
@@ -66,4 +67,17 @@ export function resolveCustomNodeHintKey(connection: CustomNodeConnection): Tran
   return route === 'remote-authenticated'
     ? 'node.customUrlHintRemoteHttps'
     : 'node.customUrlHintRemoteHttpsNoKey';
+}
+
+/**
+ * Whether this URL is one the user has to confirm a certificate for.
+ *
+ * Only an encrypted node somewhere else: a node on this machine is reached over
+ * loopback, where there is nobody to impersonate it, and a plaintext node has no
+ * certificate to confirm in the first place.
+ */
+export function requiresCertificateConfirmation(nodeApiUrl: string): boolean {
+  const url = parseCustomNodeUrl(nodeApiUrl);
+
+  return !!url && url.protocol === 'https:' && !isLoopbackHostname(url.hostname);
 }

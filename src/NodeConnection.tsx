@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { t } from './i18n';
-import { resolveCustomNodeHintKey } from './nodeConnectionHint';
+import { NodeCertificateConfirmation } from './NodeCertificateConfirmation';
+import { requiresCertificateConfirmation, resolveCustomNodeHintKey } from './nodeConnectionHint';
 
 // Shared node-connection controls. The mode dropdown auto-applies (test + save)
 // the moment it changes — there is no separate Test/Save button. A failed apply
@@ -240,6 +241,16 @@ export function NodeConnectionSettings({
           />
           <span className="field__hint">{getApiKeyHint(mode)}</span>
         </label>
+      ) : null}
+
+      {/* Only for a saved custom node: the certificate belongs to the node Home
+          is actually pointed at, not to a URL that is still being typed. */}
+      {mode === 'custom' && requiresCertificateConfirmation(nodeSettings.customUrl) ? (
+        <NodeCertificateConfirmation
+          key={nodeSettings.customUrl}
+          nodeApiUrl={nodeSettings.customUrl}
+          onConfirmed={() => void save(mode, customUrl, apiKey)}
+        />
       ) : null}
 
       {error ? <p className="node-connection__message node-connection__message--error">{error}</p> : null}
