@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - fix(node): keep remote API keys off plaintext connections
+
+Prevents desktop and Android Home from sending a configured API key across an
+unencrypted connection to a node on another machine. A custom node address
+entered without a scheme now defaults to HTTPS unless it is a loopback address,
+which continues to default to HTTP. Home also withholds the key when a remote
+HTTP URL was entered explicitly and refuses protected node operations until the
+user chooses HTTPS and confirms the node's certificate. This closes the gap
+where certificate confirmation did not apply to plaintext connections at all.
+
 ### 2026-07-23 - fix(avatars): follow Core's resource-pointer contract
 
 Aligns Home's new account and group avatar bridge with Core's final on-chain
