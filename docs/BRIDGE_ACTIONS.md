@@ -25,7 +25,8 @@ Supported read-only actions are `FETCH_NODE_API`, `FETCH_ACCOUNT_AVATAR`, `FETCH
 `GET_QDN_RESOURCE_METADATA`,
 `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`,
 `GET_QDN_RESOURCE_URL`, `FETCH_QDN_RESOURCE`, `LIST_QDN_RESOURCES`,
-`SEARCH_QDN_RESOURCES`, `GET_RESOURCE_RATING`, `GET_ACCOUNT_RATING`, `GET_SELECTED_ACCOUNT`,
+`SEARCH_QDN_RESOURCES`, `GET_RESOURCE_RATING`, `GET_ACCOUNT_RATING`,
+`GET_SELECTED_ACCOUNT`, `RESOLVE_IDENTITIES`,
 `IS_USING_PUBLIC_NODE`, `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS`,
 `BOOKMARKS_HAS_PERMISSION`, `NOTIFICATION_MANAGER_HAS_PERMISSION`, and the
 permissioned bookmark/notification manager reads.
@@ -53,6 +54,16 @@ remain available when Home uses a public/network node because they operate on
 Home's local device data rather than Core.
 
 ## Account and group avatars
+
+`RESOLVE_IDENTITIES` and `GET_SELECTED_ACCOUNT` predate pointer-based avatars.
+Their `avatarSrc` / `avatarUrl` fields remain legacy named-thumbnail
+compatibility hints and now carry
+`avatarContract: 'LEGACY_NAMED_THUMBNAIL'` (or `null`). They do not prove that
+the resource exists and do not reflect an account's on-chain avatar pointer.
+Pointer-aware apps should use these actions for names/account context, then
+feature-detect and call `FETCH_ACCOUNT_AVATAR` for visible avatar images. This
+keeps the 500-address identity batch from downloading and base64-encoding up to
+500 images while preserving older apps unchanged.
 
 `FETCH_GROUP_AVATAR` accepts a positive `groupId` (or `txGroupId`), while
 `FETCH_ACCOUNT_AVATAR` accepts an `address` (or uses the selected account).

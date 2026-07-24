@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-23 - fix(bridge): distinguish legacy avatar hints from pointer avatars
+
+Clarifies the account-avatar contract for QDN apps before they adopt the new
+pointer-based actions. The older selected-account and batch-identity responses
+continue returning their named-thumbnail URL for compatibility, but now label
+it explicitly as a legacy hint; it does not claim that the resource exists or
+that it is the account's current on-chain avatar. Apps can keep batching names
+without downloading hundreds of images and use the bounded
+`FETCH_ACCOUNT_AVATAR` action for pointer-aware images shown on screen.
+
 ### 2026-07-23 - fix(node): keep remote API keys off plaintext connections
 
 Prevents desktop and Android Home from sending a configured API key across an
@@ -42,7 +52,6 @@ which continues to default to HTTP. Home also withholds the key when a remote
 HTTP URL was entered explicitly and refuses protected node operations until the
 user chooses HTTPS and confirms the node's certificate. This closes the gap
 where certificate confirmation did not apply to plaintext connections at all.
-
 ### 2026-07-23 - fix(avatars): follow Core's resource-pointer contract
 
 Aligns Home's new account and group avatar bridge with Core's final on-chain
