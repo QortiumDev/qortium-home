@@ -399,6 +399,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "docViewer.format.comic": "漫畫",
   "docViewer.dialogLabel": "文件檢視器",
   "docViewer.download": "下載",
+  "docViewer.enterFullscreen": "全螢幕",
+  "docViewer.exitFullscreen": "退出全螢幕",
   "docViewer.error": "無法載入文件。",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

@@ -399,6 +399,8 @@ export const ro: Record<TranslationKey, string> = {
   "docViewer.format.comic": "Comic",
   "docViewer.dialogLabel": "Vizualizator documente",
   "docViewer.download": "Descarcă",
+  "docViewer.enterFullscreen": "Ecran complet",
+  "docViewer.exitFullscreen": "Ieși din ecran complet",
   "docViewer.error": "Nu s-a putut încărca documentul.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

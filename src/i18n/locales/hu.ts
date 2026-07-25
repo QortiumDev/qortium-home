@@ -399,6 +399,8 @@ export const hu: Record<TranslationKey, string> = {
   "docViewer.dialogLabel": "Dokumentumnézegető",
   "docViewer.format.comic": "Képregény",
   "docViewer.download": "Letöltés",
+  "docViewer.enterFullscreen": "Teljes képernyő",
+  "docViewer.exitFullscreen": "Kilépés a teljes képernyőből",
   "docViewer.error": "Nem sikerült betölteni a dokumentumot.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

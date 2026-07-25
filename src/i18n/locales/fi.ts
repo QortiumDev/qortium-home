@@ -399,6 +399,8 @@ export const fi: Record<TranslationKey, string> = {
   "docViewer.dialogLabel": "Asiakirjan katselu",
   "docViewer.format.comic": "Sarjakuva",
   "docViewer.download": "Lataa",
+  "docViewer.enterFullscreen": "Koko näyttö",
+  "docViewer.exitFullscreen": "Poistu koko näytöstä",
   "docViewer.error": "Asiakirjaa ei voitu ladata.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

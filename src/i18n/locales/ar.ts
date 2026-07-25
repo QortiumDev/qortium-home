@@ -399,6 +399,8 @@ export const ar: Record<TranslationKey, string> = {
   "docViewer.format.comic": "كوميكس",
   "docViewer.dialogLabel": "عارض المستند",
   "docViewer.download": "تنزيل",
+  "docViewer.enterFullscreen": "ملء الشاشة",
+  "docViewer.exitFullscreen": "الخروج من ملء الشاشة",
   "docViewer.error": "تعذر تحميل المستند.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

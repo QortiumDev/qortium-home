@@ -3,7 +3,9 @@ import {
   ChevronRight,
   Download,
   List,
+  Maximize2,
   Minus,
+  Minimize2,
   Plus,
   X,
 } from 'lucide-react';
@@ -238,12 +240,33 @@ export function DocumentViewer({
   onDismiss,
   resource,
 }: DocumentViewerProps) {
+  const viewerRef = useRef<HTMLElement>(null);
   const [state, setState] = useState<ViewerState>({ message: t('viewer.loadingResource'), phase: 'loading' });
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [tocOpen, setTocOpen] = useState(false);
   const [epubRendition, setEpubRendition] = useState<EpubRendition | null>(null);
   const [epubChapter, setEpubChapter] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+
+    function updateFullscreenState() {
+      setIsFullscreen(document.fullscreenElement === viewer);
+    }
+
+    document.addEventListener('fullscreenchange', updateFullscreenState);
+    updateFullscreenState();
+
+    return () => {
+      document.removeEventListener('fullscreenchange', updateFullscreenState);
+
+      if (document.fullscreenElement === viewer) {
+        void document.exitFullscreen();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let canceled = false;
@@ -418,11 +441,26 @@ export function DocumentViewer({
 
   const centerLabel = epubChapter || formatLabel;
 
+  function toggleFullscreen() {
+    const viewer = viewerRef.current;
+
+    if (!viewer) {
+      return;
+    }
+
+    if (document.fullscreenElement === viewer) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    void viewer.requestFullscreen();
+  }
+
   return (
     <section
       aria-label={t('docViewer.dialogLabel')}
-      aria-modal="true"
       className="doc-viewer-dialog"
+      ref={viewerRef}
       role="dialog"
     >
       <header className="doc-viewer__toolbar">
@@ -495,6 +533,18 @@ export function DocumentViewer({
               </button>
             </>
           )}
+          <button
+            aria-label={isFullscreen ? t('docViewer.exitFullscreen') : t('docViewer.enterFullscreen')}
+            className="icon-button"
+            type="button"
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? (
+              <Minimize2 aria-hidden="true" size={16} strokeWidth={2} />
+            ) : (
+              <Maximize2 aria-hidden="true" size={16} strokeWidth={2} />
+            )}
+          </button>
           <button
             aria-label={t('docViewer.download')}
             className="icon-button"

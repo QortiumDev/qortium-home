@@ -101,6 +101,7 @@ import {
 } from './startPages';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
 import { ModalDialog } from './components/ModalDialog';
+import { TabScopedDialog } from './components/TabScopedDialog';
 import { setTranslationLanguage, subscribeTranslationChange, t, type TranslationKey } from './i18n';
 import { invalidateDesktopNodeSettingsCache } from './platform';
 import { getNotificationRulesVersion, getNotificationStore, onNotificationStoreChanged } from './notificationStore';
@@ -117,6 +118,13 @@ import {
 import { QdnExplorer } from './QdnExplorer';
 import { QdnPreviewViewer } from './QdnPreview';
 import { DocumentViewer } from './DocumentViewer';
+import {
+  isTabScopedDocumentViewerVisible,
+  shouldClearTabScopedDocumentViewer,
+  shouldDismissDocumentViewerBeforeNavigating,
+  shouldSuspendQdnTabForDocumentViewer,
+  type TabScopedDocumentViewer,
+} from './documentViewerTabState';
 import { QdnViewer, type QdnAppNavigationController } from './QdnViewer';
 import { getLiveQdnDisplayUrl } from './qdn-live-location';
 import {
@@ -804,34 +812,10 @@ function QdnMediaPlayerDialog({ displaySettings, nodeApiUrl, onDismiss, resource
   );
 }
 
-type QdnDocumentViewerDialogProps = {
-  displaySettings: QdnDisplaySettings;
-  knownFilename?: string | null;
-  knownMimeType?: string | null;
-  onDismiss: () => void;
+type QdnDocumentViewerState = TabScopedDocumentViewer<{
+  hint: { filename: string | null; mimeType: string | null };
   resource: QdnResource;
-};
-
-function QdnDocumentViewerDialog({
-  displaySettings,
-  knownFilename,
-  knownMimeType,
-  onDismiss,
-  resource,
-}: QdnDocumentViewerDialogProps) {
-  return (
-    <ModalDialog onDismiss={onDismiss}>
-      <DocumentViewer
-        key={resource.displayUrl}
-        displaySettings={displaySettings}
-        knownFilename={knownFilename}
-        knownMimeType={knownMimeType}
-        onDismiss={onDismiss}
-        resource={resource}
-      />
-    </ModalDialog>
-  );
-}
+}>;
 
 function getTabLabel(tab: BrowserTab) {
   const route = getCurrentRouteForTab(tab);
@@ -933,15 +917,11 @@ export function App() {
   const [qdnUnlockRequests, setQdnUnlockRequests] = useState<QortiumQdnUnlockRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
-  const [qdnDocumentViewerResource, setQdnDocumentViewerResource] = useState<QdnResource | null>(null);
   // Filename/mimeType hint that came with the OPEN_QDN_DOCUMENT_VIEWER request -
   // used only for format detection (epub/pdf/cbz/txt), never for the fetch path,
   // since single-file resources have no `path` for DocumentViewer to derive a
   // filename from.
-  const [qdnDocumentViewerHint, setQdnDocumentViewerHint] = useState<{
-    filename: string | null;
-    mimeType: string | null;
-  }>({ filename: null, mimeType: null });
+  const [qdnDocumentViewer, setQdnDocumentViewer] = useState<QdnDocumentViewerState | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [qdnAppTargetRequest, setQdnAppTargetRequest] = useState<QdnAppTargetRequest | null>(null);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
@@ -1036,16 +1016,24 @@ export function App() {
   const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentDisplayUrl);
   const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentDisplayUrl);
   const canAddCurrentStartPage = currentRoute.kind !== 'welcome' && (isCurrentPageStartPage || startPages.length < MAX_START_PAGES);
-  const canGoBack = routeHistory.index > 0;
+  const hasRouteHistoryBack = routeHistory.index > 0;
   const canGoForward = routeHistory.index < routeHistory.entries.length - 1;
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnUnlockRequest || !!activeQdnWriteRequest;
-  const isQdnViewSuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource || !!qdnDocumentViewerResource;
+  const isQdnViewGloballySuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource;
+  const isDocumentViewerVisible = isTabScopedDocumentViewerVisible(qdnDocumentViewer, activeTab.id);
+  const canGoBack = hasRouteHistoryBack || isDocumentViewerVisible;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
   );
+
+  useEffect(() => {
+    setQdnDocumentViewer((viewer) =>
+      shouldClearTabScopedDocumentViewer(viewer, tabState.tabs.map((tab) => tab.id)) ? null : viewer,
+    );
+  }, [tabState.tabs]);
 
   // t() reads module state, so the active language must be set before children render;
   // the layout effect that applies document-level settings runs too late for that.
@@ -2412,6 +2400,11 @@ export function App() {
   }
 
   function goBack() {
+    if (shouldDismissDocumentViewerBeforeNavigating(qdnDocumentViewer, activeTab.id)) {
+      setQdnDocumentViewer(null);
+      return;
+    }
+
     const targetIndex = routeHistory.index - 1;
 
     if (targetIndex >= 0 && requestActiveQdnHistoryIndex(targetIndex)) {
@@ -2988,7 +2981,10 @@ export function App() {
     setQdnMediaPlayerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
   }
 
-  function openQdnDocumentViewer(request: QortiumQdnDocumentViewerRequest) {
+  function openQdnDocumentViewer(
+    request: QortiumQdnDocumentViewerRequest,
+    sourceTabId = tabState.activeTabId,
+  ) {
     const service = request.service.toUpperCase() as QdnService;
 
     // The Q-App bridge already restricts which services an app may request to the
@@ -3008,8 +3004,13 @@ export function App() {
       service,
     };
 
-    setQdnDocumentViewerHint({ filename: request.filename ?? null, mimeType: request.mimeType ?? null });
-    setQdnDocumentViewerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
+    setQdnDocumentViewer({
+      tabId: sourceTabId,
+      value: {
+        hint: { filename: request.filename ?? null, mimeType: request.mimeType ?? null },
+        resource: { ...resource, displayUrl: buildQdnDisplayUrl(resource) },
+      },
+    });
   }
 
   function selectTab(tabId: string) {
@@ -4205,7 +4206,7 @@ export function App() {
                       qdnNavigationControllersRef.current.delete(tab.id);
                     }
                   }}
-                  onOpenDocumentViewer={openQdnDocumentViewer}
+                  onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
@@ -4215,7 +4216,12 @@ export function App() {
                   onBookmarkManagerMutation={applyQdnBookmarkManagerMutation}
                   resource={tabRenderRoute.resource}
                   requestContextActive={isActiveTab}
-                  suspended={isQdnViewSuspended || !isActiveTab}
+                  suspended={shouldSuspendQdnTabForDocumentViewer({
+                    activeTabId: activeTab.id,
+                    globallySuspended: isQdnViewGloballySuspended,
+                    tabId: tab.id,
+                    viewer: qdnDocumentViewer,
+                  })}
                   tabId={tab.id}
                 />
               ) : tabRoute.kind === 'preview' ? (
@@ -4224,12 +4230,17 @@ export function App() {
                   account={tabAccount}
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
-                  onOpenDocumentViewer={openQdnDocumentViewer}
+                  onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
                   onOpenMediaPlayer={openQdnMediaPlayer}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   preview={tabRoute.preview}
-                  suspended={isQdnViewSuspended || !isActiveTab}
+                  suspended={shouldSuspendQdnTabForDocumentViewer({
+                    activeTabId: activeTab.id,
+                    globallySuspended: isQdnViewGloballySuspended,
+                    tabId: tab.id,
+                    viewer: qdnDocumentViewer,
+                  })}
                   tabId={tab.id}
                 />
               ) : tabRoute.kind === 'settings' ? (
@@ -4348,6 +4359,18 @@ export function App() {
             </div>
           );
         })}
+        {qdnDocumentViewer && isDocumentViewerVisible && !activeQdnWriteRequest && !activeQdnUnlockRequest ? (
+          <TabScopedDialog onDismiss={() => setQdnDocumentViewer(null)}>
+            <DocumentViewer
+              key={qdnDocumentViewer.value.resource.displayUrl}
+              displaySettings={effectiveDisplaySettings}
+              knownFilename={qdnDocumentViewer.value.hint.filename}
+              knownMimeType={qdnDocumentViewer.value.hint.mimeType}
+              onDismiss={() => setQdnDocumentViewer(null)}
+              resource={qdnDocumentViewer.value.resource}
+            />
+          </TabScopedDialog>
+        ) : null}
       </section>
       {activeQdnWriteRequest ? (
         <QdnWriteDialog
@@ -4368,15 +4391,6 @@ export function App() {
           nodeApiUrl={nodeSettings.nodeApiUrl}
           onDismiss={() => setQdnMediaPlayerResource(null)}
           resource={qdnMediaPlayerResource}
-        />
-      ) : null}
-      {qdnDocumentViewerResource && !activeQdnWriteRequest && !activeQdnUnlockRequest ? (
-        <QdnDocumentViewerDialog
-          displaySettings={effectiveDisplaySettings}
-          knownFilename={qdnDocumentViewerHint.filename}
-          knownMimeType={qdnDocumentViewerHint.mimeType}
-          onDismiss={() => setQdnDocumentViewerResource(null)}
-          resource={qdnDocumentViewerResource}
         />
       ) : null}
     </main>

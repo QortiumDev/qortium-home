@@ -758,6 +758,7 @@ h1 {
   min-width: 0;
   overflow: hidden;
   place-items: center;
+  position: relative;
   padding: 32px;
 }
 
@@ -2232,6 +2233,23 @@ h1 {
   position: fixed;
   inset: 0;
   z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-right: calc(24px + env(safe-area-inset-right, 0px));
+  padding-left: calc(24px + env(safe-area-inset-left, 0px));
+  background: var(--color-modal-backdrop);
+  backdrop-filter: blur(16px);
+}
+
+/* The document reader is scoped to the app content area, so Home's browser
+   chrome (including its tab strip) remains usable while it is open. */
+.tab-scoped-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -5827,11 +5845,13 @@ h1 {
   animation: qortium-pop-in 150ms var(--ease-pop);
 }
 
-.modal-backdrop {
+.modal-backdrop,
+.tab-scoped-dialog-backdrop {
   animation: qortium-fade-in 170ms ease;
 }
 
-.modal-backdrop > * {
+.modal-backdrop > *,
+.tab-scoped-dialog-backdrop > * {
   animation: qortium-dialog-in 190ms var(--ease-pop);
 }
 
@@ -5867,6 +5887,8 @@ h1 {
   .top-bar__error,
   .modal-backdrop,
   .modal-backdrop > *,
+  .tab-scoped-dialog-backdrop,
+  .tab-scoped-dialog-backdrop > *,
   .skeleton::after {
     animation: none;
   }
@@ -5999,6 +6021,13 @@ h1 {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-modal);
+}
+
+.doc-viewer-dialog:fullscreen {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
 }
 
 .doc-viewer__toolbar {
