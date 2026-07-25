@@ -399,6 +399,8 @@ export const es: Record<TranslationKey, string> = {
   "docViewer.format.comic": "Comic",
   "docViewer.dialogLabel": "Visor de documentos",
   "docViewer.download": "Descargar",
+  "docViewer.enterFullscreen": "Pantalla completa",
+  "docViewer.exitFullscreen": "Salir de pantalla completa",
   "docViewer.error": "No se puede cargar el documento.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

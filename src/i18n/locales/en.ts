@@ -396,6 +396,8 @@ export const en = {
   "docViewer.close": "Close",
   "docViewer.dialogLabel": "Document viewer",
   "docViewer.download": "Download",
+  "docViewer.enterFullscreen": "Enter fullscreen",
+  "docViewer.exitFullscreen": "Exit fullscreen",
   "docViewer.error": "Unable to load document.",
   "docViewer.format.comic": "Comic",
   "docViewer.format.epub": "EPUB",

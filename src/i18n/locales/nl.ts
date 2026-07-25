@@ -398,6 +398,8 @@ export const nl: Record<TranslationKey, string> = {
   "docViewer.close": "Sluiten",
   "docViewer.format.comic": "Comic",
   "docViewer.download": "Downloaden",
+  "docViewer.enterFullscreen": "Volledig scherm",
+  "docViewer.exitFullscreen": "Volledig scherm verlaten",
   "docViewer.dialogLabel": "Documentviewer",
   "docViewer.error": "Kan het document niet laden.",
   "docViewer.format.epub": "EPUB",

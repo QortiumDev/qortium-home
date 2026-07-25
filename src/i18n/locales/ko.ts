@@ -399,6 +399,8 @@ export const ko: Record<TranslationKey, string> = {
   "docViewer.dialogLabel": "문서 뷰어",
   "docViewer.format.comic": "만화",
   "docViewer.download": "다운로드",
+  "docViewer.enterFullscreen": "전체 화면",
+  "docViewer.exitFullscreen": "전체 화면 종료",
   "docViewer.error": "문서를 불러올 수 없습니다.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

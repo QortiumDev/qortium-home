@@ -381,6 +381,8 @@ export const hi: Record<TranslationKey, string> = {
   "docViewer.format.comic": "कॉमिक",
   "docViewer.dialogLabel": "दस्तावेज़ व्यूअर",
   "docViewer.download": "डाउनलोड करें",
+  "docViewer.enterFullscreen": "पूर्ण स्क्रीन",
+  "docViewer.exitFullscreen": "पूर्ण स्क्रीन से बाहर निकलें",
   "docViewer.error": "दस्तावेज़ लोड नहीं हो सका।",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

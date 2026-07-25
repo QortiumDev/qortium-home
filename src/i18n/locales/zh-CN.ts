@@ -399,6 +399,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "docViewer.format.comic": "漫画",
   "docViewer.dialogLabel": "文档查看器",
   "docViewer.download": "下载",
+  "docViewer.enterFullscreen": "全屏",
+  "docViewer.exitFullscreen": "退出全屏",
   "docViewer.error": "无法加载文档。",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

@@ -381,6 +381,8 @@ export const el: Record<TranslationKey, string> = {
   "docViewer.dialogLabel": "Προβολή εγγράφων",
   "docViewer.format.comic": "Κόμικ",
   "docViewer.download": "Λήψη",
+  "docViewer.enterFullscreen": "Πλήρης οθόνη",
+  "docViewer.exitFullscreen": "Έξοδος από πλήρη οθόνη",
   "docViewer.error": "Δεν ήταν δυνατή η φόρτωση του εγγράφου.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

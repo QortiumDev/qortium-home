@@ -341,6 +341,8 @@ export const nb: Record<TranslationKey, string> = {
   "docViewer.format.comic": "Tegneserie",
   "docViewer.dialogLabel": "Dokumentvisning",
   "docViewer.download": "Last ned",
+  "docViewer.enterFullscreen": "Fullskjerm",
+  "docViewer.exitFullscreen": "Avslutt fullskjerm",
   "docViewer.error": "Kan ikke laste inn dokumentet.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

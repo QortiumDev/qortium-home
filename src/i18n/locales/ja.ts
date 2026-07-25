@@ -399,6 +399,8 @@ export const ja: Record<TranslationKey, string> = {
   "docViewer.format.comic": "コミック",
   "docViewer.dialogLabel": "ドキュメントビューア",
   "docViewer.download": "ダウンロード",
+  "docViewer.enterFullscreen": "全画面表示",
+  "docViewer.exitFullscreen": "全画面表示を終了",
   "docViewer.error": "ドキュメントを読み込めません。",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",

@@ -399,6 +399,8 @@ export const sv: Record<TranslationKey, string> = {
   "docViewer.dialogLabel": "Dokumentvisare",
   "docViewer.format.comic": "Seriebok",
   "docViewer.download": "Ladda ner",
+  "docViewer.enterFullscreen": "Helskärm",
+  "docViewer.exitFullscreen": "Avsluta helskärm",
   "docViewer.error": "Det gick inte att ladda dokumentet.",
   "docViewer.format.epub": "EPUB",
   "docViewer.format.pdf": "PDF",
