@@ -117,6 +117,34 @@ picker on Android. `SELECT_QDN_PUBLISH_SOURCE` can return a `sourceToken` and
 for each resource. `SELECT_QDN_PUBLISH_SOURCE` accepts optional `kind` (`file`
 or `directory`) and returns `{ canceled: true }` or a source result with
 `fileName`, `kind`, `size`, and `sourceToken`.
+
+Apps can show the selected source in Home before publishing it with
+`PREVIEW_QDN_PUBLISH_SOURCE`. First request a source from Home, then pass back
+only the opaque `sourceToken`:
+
+```js
+const selected = await qdnRequest({
+  action: 'SELECT_QDN_PUBLISH_SOURCE',
+  kind: 'file', // or 'directory' where the app supports it
+});
+
+if (!selected.canceled) {
+  await qdnRequest({
+    action: 'PREVIEW_QDN_PUBLISH_SOURCE',
+    sourceToken: selected.sourceToken,
+  });
+}
+```
+
+Preview returns `true` once Home opens its own display-only preview. The app
+never receives the selected path, source bytes, or Core render URL. Tokens are
+opaque, bound to the originating app tab, expire after inactivity, and preview
+does not consume them, so a later `PUBLISH_QDN_RESOURCE` may reuse the same
+token. Preview requires Home and its local Core preview flow; standalone-browser
+fallbacks must present it as unavailable rather than attempting a local file
+upload. Apps must not send a path, raw bytes, or any field other than the token
+to `PREVIEW_QDN_PUBLISH_SOURCE`.
+
 Publish/delete, group, and name write requests require
 per-request approval before Home signs and processes the transaction with the
 selected tab account. Chat sends and private closed-group reads use a
