@@ -37,6 +37,17 @@ with its own clear scope.
 
 The Dashboard's Browse QDN button and the four partial QDN addresses used for browsing now open the published Explore app instead of Home's built-in resource browser. This includes old saved, duplicated, and restored tabs, so an existing `qdn://`, service, wildcard-name, or name/service listing follows the same route automatically. Exact QDN resources still stay in Home's viewer, which continues to host apps and provide the shared document and media readers that Explore asks for. Local unpublished-content Preview also remains available from the Dashboard as a small Home tool while its eventual Publish integration is designed.
 
+### 2026-07-26 - feat(bookmarks): route Home manager links through QDN
+
+Moves the full bookmark-manager entry point out of Home without moving anyone's
+saved data. Choosing "Manage bookmarks" now opens the Bookmarks Manager app
+selected in Settings, and old `home://bookmarks` links follow that same choice
+instead of stranding people on Home's built-in manager. The familiar bookmark
+star, toolbar links, Dashboard pins and start pages still belong to Home and
+continue to work exactly as before. The old page remains inside the build as a
+careful recovery fallback for a damaged local preference; removing it is a
+later, separate compatibility step.
+
 ### 2026-07-26 - feat(bridge): add consented QDN contract messages
 
 Lets a QDN app ask Home to send a plain `MESSAGE` transaction to a Qortium AT,

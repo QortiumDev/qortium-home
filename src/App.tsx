@@ -77,6 +77,7 @@ import {
   sanitizeQdnManagerAppKey,
   type QdnAppRolesStore,
 } from '../electron/qdn-manager-permissions';
+import { replaceLegacyBookmarksRoutes, resolveBookmarksManagerRoute } from './bookmarksManagerRoute';
 import { getQdnAppRolesStore, onQdnManagerPermissionsChanged } from './qdnManagerPermissions';
 import {
   createDashboardPin,
@@ -1033,6 +1034,32 @@ export function App() {
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
   );
+  const bookmarksManagerRoute = useMemo(
+    () => resolveBookmarksManagerRoute(qdnAppRoles.roles.bookmarksManager.url),
+    [qdnAppRoles.roles.bookmarksManager.url],
+  );
+
+  // Keep old home://bookmarks links working while moving their full-manager UI
+  // to the user's selected QDN app. The native page remains as the deliberate
+  // recovery fallback for malformed persisted preferences until its later
+  // removal patch.
+  useEffect(() => {
+    if (!bookmarksManagerRoute) return;
+
+    setTabState((currentTabState) => {
+      const tabs = currentTabState.tabs.map((tab) => {
+        const entries = replaceLegacyBookmarksRoutes(tab.history.entries, bookmarksManagerRoute);
+
+        return entries === tab.history.entries
+          ? tab
+          : { ...tab, history: { ...tab.history, entries }, qdnHistorySession: undefined };
+      });
+
+      return tabs.some((tab, index) => tab !== currentTabState.tabs[index])
+        ? { ...currentTabState, tabs }
+        : currentTabState;
+    });
+  }, [bookmarksManagerRoute]);
 
   // Old QDN listing tabs can be restored from saved windows, duplicated, or
   // moved between windows. Convert those durable history entries once so every
@@ -2328,6 +2355,10 @@ export function App() {
   }
 
   function navigateToRoute(route: AppRoute, options?: { accountId?: string | null; replace?: boolean }) {
+    if (route.kind === 'bookmarks' && bookmarksManagerRoute) {
+      route = bookmarksManagerRoute;
+    }
+
     const exploreRoute = resolveExploreAppRoute(route);
 
     if (exploreRoute) {
@@ -4321,7 +4352,11 @@ export function App() {
                   state={welcomeState}
                 /> : null
               ) : tabRoute.kind === 'bookmarks' ? (
-                <BookmarksPage
+                bookmarksManagerRoute ? (
+                  <div className="home-content" aria-live="polite">
+                    <p>{t('common.loading')}</p>
+                  </div>
+                ) : <BookmarksPage
                   bookmarksState={bookmarksState}
                   dashboardPins={dashboardPins}
                   nodeApiUrl={nodeSettings.nodeApiUrl}

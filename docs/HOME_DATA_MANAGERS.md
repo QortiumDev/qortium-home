@@ -35,6 +35,11 @@ approval dialog below. Home does not expose a Settings control that clears or
 revokes a role. Apps cannot read or change role assignments through the
 settings bridge; the only app-facing write path is the approval dialog below.
 
+Home's "Manage bookmarks" control and the legacy `home://bookmarks` address
+open the selected Bookmarks Manager app. The native page remains only as a
+recovery fallback while the compatibility migration is in progress; bookmark
+data and lightweight Home controls remain local to Home.
+
 The non-prompting checks are:
 
 ```js
