@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-27 - refactor(qdn): remove retired Home managers
+
+Home no longer carries its old full-page Bookmarks manager or its built-in QDN
+resource-listing Explorer. `home://bookmarks`, even if an old local preference
+is damaged, now safely opens the official Bookmarks app; the bookmark star,
+toolbar links, Dashboard pins, start pages, and the existing consented
+Bookmarks bridge remain in Home. QDN list addresses and restored list tabs
+continue to open Explore, while the small Home-owned local-content Preview tool
+is now a separate native launcher. Its Android smoke test follows
+`home://preview`, the route people actually use, rather than the retired list
+page.
+
 ### 2026-07-27 - feat(qdn): run browser-deliverable GAME archives
 
 QDN GAME resources with a normal web-game entry page can now open in the same carefully isolated browser view as apps and websites on desktop and Android. This is a browser-only path: it does not launch native game files, and it does not give games any special manager access. Home can also publish a zipped web-game archive in the same unpacked form the QDN renderer expects; an archive without a usable web entry page still fails safely instead of gaining a native-launch path.
