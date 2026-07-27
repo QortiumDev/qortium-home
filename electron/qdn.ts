@@ -113,6 +113,7 @@ import {
 } from './node-settings.js';
 import { nodeFetch } from './node-tls.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
 import { getLegacyAccountAvatarHint } from './qdn-identity-avatar.js';
 import {
   buildAccountAvatarPath,
@@ -267,7 +268,6 @@ const QORTAL_PUBLIC_READ_PROBE_PATH =
 const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
 const NATIVE_ASSET_LABEL = 'Native Asset';
-const ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 // Must match the Core renderer's index file list and case-sensitive matching.
 const QDN_PREVIEW_INDEX_FILES = new Set([
   'index.html',
@@ -5293,7 +5293,7 @@ async function publishQdnResourceForApp(
   const writeContext = useLocalWrite
     ? await getQdnWriteContext(context, resource)
     : await getKeylessQdnWriteContext(context);
-  const publishSourceKind = ARCHIVE_RENDER_SERVICES.has(resource.service) ? 'any' : 'file';
+  const publishSourceKind = isQdnBrowserArchiveService(resource.service) ? 'any' : 'file';
   const source =
     getInlinePublishSource(request) ??
     getQdnPublishSourceFromToken(request, context as QdnViewContext) ??
@@ -9993,8 +9993,8 @@ export function registerQdnIpcHandlers() {
   ipcMain.handle('qdn:prepareArchiveRender', async (_event, request: QdnRawResourceRequest) => {
     const resource = getRawResourceRequest(request);
 
-    if (!ARCHIVE_RENDER_SERVICES.has(resource.service)) {
-      throw new Error('Only QDN APP and WEBSITE archives can be rendered inline.');
+    if (!isQdnBrowserArchiveService(resource.service)) {
+      throw new Error('Only QDN APP, WEBSITE, and browser-deliverable GAME archives can be rendered inline.');
     }
 
     const response = await fetchConfiguredRawResource(resource);

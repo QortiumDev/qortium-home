@@ -37,6 +37,7 @@ import { appendQdnFragment } from './qdn-fragment';
 import { normalizeQdnBridgeNavigationSnapshot } from './qdn-navigation-bridge';
 import { marked } from 'marked';
 import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-versioning';
+import { isQdnBrowserArchiveService } from '../electron/qdn-browser-archive-services';
 import { readableNodeErrorMessage } from '../electron/node-error-body';
 import {
   fetchNativeHttpBlobUrl,
@@ -524,7 +525,7 @@ function shouldUseArchiveRenderUrl(
     !isNativePlatform() &&
     viewerKind === 'iframe' &&
     isArchiveResourceProperties(properties) &&
-    (resource.service === 'APP' || resource.service === 'WEBSITE')
+    isQdnBrowserArchiveService(resource.service)
   );
 }
 

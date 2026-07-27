@@ -1,3 +1,5 @@
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
+
 type QdnPublishRouteResource = {
   service: string;
 };
@@ -6,8 +8,6 @@ type QdnPublishRouteSource = {
   isZip?: boolean;
   path?: string;
 };
-
-const QDN_ARCHIVE_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 
 /**
  * Core resolves a posted filesystem path against its OWN filesystem, so a node
@@ -20,7 +20,7 @@ export function shouldStreamQdnPublishSource(source: QdnPublishRouteSource) {
 }
 
 /**
- * Only the archive-rendering services expect Core to unpack the upload before
+ * Only browser-archive services expect Core to unpack the upload before
  * publishing it. For every other service a ZIP is the resource itself, so it
  * has to be stored exactly as it was selected.
  */
@@ -28,5 +28,5 @@ export function shouldUnpackQdnPublishArchive(
   resource: QdnPublishRouteResource,
   source: QdnPublishRouteSource,
 ) {
-  return source.isZip === true && QDN_ARCHIVE_RENDER_SERVICES.has(resource.service);
+  return source.isZip === true && isQdnBrowserArchiveService(resource.service);
 }

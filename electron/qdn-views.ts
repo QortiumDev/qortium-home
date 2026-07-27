@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
+import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
 import {
   QDN_MANAGER_EVENT_KINDS,
   QDN_MANAGER_EVENT_NAMES,
@@ -22,7 +23,6 @@ import {
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 
-const ALLOWED_RENDER_SERVICES = new Set(['APP', 'WEBSITE']);
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME_VALUES = new Set(['dark', 'light']);
@@ -403,7 +403,7 @@ function isAllowedRenderUrlForOrigin(rawUrl: string, nodeOrigin: string) {
     return true;
   }
 
-  return ALLOWED_RENDER_SERVICES.has(getRenderService(url));
+  return isQdnBrowserArchiveService(getRenderService(url));
 }
 
 function sanitizeRenderUrl(value: unknown, nodeOrigin: string) {
@@ -414,7 +414,7 @@ function sanitizeRenderUrl(value: unknown, nodeOrigin: string) {
   const url = getHttpUrl(value, 'QDN render URL');
 
   if (!isAllowedRenderUrlForOrigin(url.toString(), nodeOrigin)) {
-    throw new Error('QDN render URL is outside the allowed APP/WEBSITE render scope.');
+    throw new Error('QDN render URL is outside the allowed browser archive render scope.');
   }
 
   return url.toString();

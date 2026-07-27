@@ -8,6 +8,7 @@ import {
   isPublicQdnService,
   type PublicQdnService,
 } from '../electron/qdn-public-services';
+import { QDN_BROWSER_ARCHIVE_SERVICES } from '../electron/qdn-browser-archive-services';
 
 export { PUBLIC_QDN_SERVICES, isPrivateQdnService } from '../electron/qdn-public-services';
 
@@ -21,7 +22,7 @@ const BYTE_UNIT_KEYS: readonly TranslationKey[] = [
 export const REMOTE_AUTHORIZATION_BLOCKED_MESSAGE =
   'This node does not allow remote app authorization. Switch to public network access or use a local node.';
 
-const IFRAME_QDN_SERVICES = ['APP', 'WEBSITE'] as const;
+const IFRAME_QDN_SERVICES = QDN_BROWSER_ARCHIVE_SERVICES;
 const IMAGE_QDN_SERVICES = ['IMAGE', 'THUMBNAIL', 'QCHAT_IMAGE'] as const;
 const AUDIO_QDN_SERVICES = ['AUDIO', 'VOICE', 'PODCAST'] as const;
 const VIDEO_QDN_SERVICES = ['VIDEO'] as const;
