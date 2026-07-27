@@ -33,6 +33,11 @@ export type BookmarksRoute = {
   kind: 'bookmarks';
 };
 
+export type QdnPreviewLauncherRoute = {
+  displayUrl: 'home://preview';
+  kind: 'preview-launcher';
+};
+
 export type ReleaseNotesRoute = {
   displayUrl: string;
   kind: 'release-notes';
@@ -55,6 +60,11 @@ export const BOOKMARKS_ROUTE: BookmarksRoute = {
   displayUrl: 'home://bookmarks',
 };
 
+export const QDN_PREVIEW_ROUTE: QdnPreviewLauncherRoute = {
+  kind: 'preview-launcher',
+  displayUrl: 'home://preview',
+};
+
 export const SETTINGS_ROUTE: SettingsRoute = {
   kind: 'settings',
   displayUrl: 'home://settings',
@@ -70,6 +80,7 @@ export type AppRoute =
   | CoreApiDocsRoute
   | DashboardRoute
   | NodeApiRoute
+  | QdnPreviewLauncherRoute
   | QdnRoute
   | ReleaseNotesRoute
   | SettingsRoute
@@ -183,6 +194,13 @@ function parseHomeAddress(input: string): RouteParseResult | undefined {
     return {
       success: true,
       route: BOOKMARKS_ROUTE,
+    };
+  }
+
+  if (normalizedPathname === 'preview') {
+    return {
+      success: true,
+      route: QDN_PREVIEW_ROUTE,
     };
   }
 
