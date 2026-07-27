@@ -133,7 +133,7 @@
     "extract-zip": "^2.0.1",
     "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",
-    "isomorphic-git": "^1.38.9",
+    "isomorphic-git": "^1.40.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.25.0",
     "marked": "^14.1.4",
