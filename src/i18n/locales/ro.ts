@@ -542,6 +542,7 @@ export const ro: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Rezolvă cererile de cheie pentru chatul de grup privat",
   "qdnWrite.action.sellName": "Vinde nume",
   "qdnWrite.action.sendChatMessage": "Trimite mesaj de chat",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Afișare notificări",
   "qdnWrite.action.sendCoin": "Trimite monedă",
   "qdnWrite.action.setGroup": "Setează grupul implicit",

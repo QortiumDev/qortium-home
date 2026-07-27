@@ -41,7 +41,7 @@ APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
 `UPDATE_GROUP`, `SET_GROUP_AVATAR`, `SET_ACCOUNT_AVATAR`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
-`CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`,
+`CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`, `SEND_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
@@ -123,6 +123,35 @@ selected tab account. Chat sends and private closed-group reads use a
 session-scoped approval for the current tab and selected account; direct private
 chat sends and reads use Core-managed direct-message helpers so QDN apps never
 receive wallet private keys or generic signing capability.
+
+## `SEND_MESSAGE` (AT contracts only)
+
+`SEND_MESSAGE` is the narrowly scoped contract-message action. It is **not** a
+generic transaction builder or signing capability: it accepts only a non-empty
+UTF-8 `message` (up to 4,000 bytes) and an AT `recipient` (or
+`recipientAddress`). Home verifies the recipient's Qortium AT address version
+and checksum, then fixes all other transaction fields: transaction group `0`,
+no payment or asset, plaintext text, and fee `0`. Account addresses, encrypted
+messages, payments, transaction-group selection, raw transaction bytes, and
+app-supplied private keys are all outside this action's contract.
+
+```js
+const result = await qdnRequest({
+  action: 'SEND_MESSAGE',
+  recipient: 'A...', // a checksummed Qortium AT address
+  message: 'claim',
+});
+```
+
+Every request displays a single-request approval showing the exact recipient,
+message, zero-fee MESSAGE transaction, and local proof-of-work cost. MESSAGE
+does not use Core's generic mempow endpoint: its own nonce is computed locally
+with the 8 MiB MemoryPoW buffer at Previewnet's confirmable-message difficulty
+(`12` for an AT recipient). Home signs locally and sends only the final signed
+bytes to `/transactions/process`; the app never receives a private key and a
+public/network node never receives one. Because the bridge has this keyless
+local-sign path, `SHOW_ACTIONS` advertises `SEND_MESSAGE` in local, custom, and
+public/network modes.
 
 ## `FETCH_NODE_API` limits
 

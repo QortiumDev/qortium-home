@@ -542,6 +542,7 @@ export const he: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "טיפול בבקשות למפתח צ'אט קבוצתי פרטי",
   "qdnWrite.action.sellName": "מכירת שם",
   "qdnWrite.action.sendChatMessage": "שליחת הודעת צ'אט",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "הצגת התראות",
   "qdnWrite.action.sendCoin": "שליחת מטבע",
   "qdnWrite.action.setGroup": "קביעת קבוצת ברירת מחדל",

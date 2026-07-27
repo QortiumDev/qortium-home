@@ -542,6 +542,7 @@ export const ko: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "비공개 그룹 채팅 키 요청 처리",
   "qdnWrite.action.sellName": "이름 판매",
   "qdnWrite.action.sendChatMessage": "채팅 메시지 보내기",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "알림 표시",
   "qdnWrite.action.sendCoin": "코인 전송",
   "qdnWrite.action.setGroup": "기본 그룹 설정",

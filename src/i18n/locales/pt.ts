@@ -542,6 +542,7 @@ export const pt: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Resolver pedidos de chave de chat de grupo privado",
   "qdnWrite.action.sellName": "Vender nome",
   "qdnWrite.action.sendChatMessage": "Enviar mensagem de chat",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Mostrar notificações",
   "qdnWrite.action.sendCoin": "Enviar moeda",
   "qdnWrite.action.setGroup": "Definir grupo padrão",

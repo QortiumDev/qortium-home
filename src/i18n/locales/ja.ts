@@ -542,6 +542,7 @@ export const ja: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "プライベートグループチャットキーのリクエストを処理",
   "qdnWrite.action.sellName": "名前を売却",
   "qdnWrite.action.sendChatMessage": "チャットメッセージを送信",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "通知を表示",
   "qdnWrite.action.sendCoin": "コインを送信",
   "qdnWrite.action.setGroup": "デフォルトグループを設定",

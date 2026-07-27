@@ -541,6 +541,7 @@ export const en = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Resolve Private Group Chat Key Requests",
   "qdnWrite.action.sellName": "Sell Name",
   "qdnWrite.action.sendChatMessage": "Send Chat Message",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Show Notifications",
   "qdnWrite.action.sendCoin": "Send Coin",
   "qdnWrite.action.setGroup": "Set Default Group",

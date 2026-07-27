@@ -543,6 +543,7 @@ export const hi: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "निजी समूह चैट कुंजी अनुरोधों का समाधान करें",
   "qdnWrite.action.sellName": "नाम बेचें",
   "qdnWrite.action.sendChatMessage": "चैट संदेश भेजें",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "सूचनाएँ दिखाएँ",
   "qdnWrite.action.sendCoin": "कॉइन भेजें",
   "qdnWrite.action.setGroup": "डिफॉल्ट समूह सेट करें",

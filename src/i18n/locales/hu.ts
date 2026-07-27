@@ -542,6 +542,7 @@ export const hu: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Privát csoportcsevegési kulcskérelmek feldolgozása",
   "qdnWrite.action.sellName": "Név eladása",
   "qdnWrite.action.sendChatMessage": "Csevegőüzenet küldése",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Értesítések megjelenítése",
   "qdnWrite.action.sendCoin": "Érme küldése",
   "qdnWrite.action.setGroup": "Alapértelmezett csoport beállítása",

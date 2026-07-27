@@ -570,6 +570,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "处理私密群聊密钥请求",
   "qdnWrite.action.sellName": "出售名称",
   "qdnWrite.action.sendChatMessage": "发送聊天消息",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "显示通知",
   "qdnWrite.action.sendCoin": "发送币",
   "qdnWrite.action.setGroup": "设置默认群组",

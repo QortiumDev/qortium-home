@@ -543,6 +543,7 @@ export const el: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Επίλυση αιτημάτων κλειδιών ιδιωτικής ομαδικής συνομιλίας",
   "qdnWrite.action.sellName": "Πώληση ονόματος",
   "qdnWrite.action.sendChatMessage": "Αποστολή μηνύματος συνομιλίας",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Εμφάνιση ειδοποιήσεων",
   "qdnWrite.action.sendCoin": "Αποστολή νομίσματος",
   "qdnWrite.action.setGroup": "Ορισμός προεπιλεγμένης ομάδας",
