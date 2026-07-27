@@ -5,8 +5,11 @@ import path from 'node:path';
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const packagePath = path.join(projectRoot, 'node_modules', 'isomorphic-git', 'package.json');
 const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
+const SUPPORTED_ISOMORPHIC_GIT_VERSIONS = new Set(['1.38.9', '1.40.0']);
 
-if (packageJson.version !== '1.38.9') {
+// This patch reaches into bundled upstream files, so each release stays
+// explicitly allowlisted until its inflation and delta-expansion anchors pass review.
+if (!SUPPORTED_ISOMORPHIC_GIT_VERSIONS.has(packageJson.version)) {
   throw new Error(
     `Unsupported isomorphic-git version ${packageJson.version}; review the bounded-inflate patch before installing.`,
   );
