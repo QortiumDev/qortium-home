@@ -455,6 +455,8 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateName';
     case 'SEND_CHAT_MESSAGE':
       return 'qdnWrite.action.sendChatMessage';
+    case 'SEND_MESSAGE':
+      return 'qdnWrite.action.sendContractMessage';
     case 'SHOW_NOTIFICATION':
       return 'qdnWrite.action.showNotification';
     case 'NOTIFICATION_ADD':

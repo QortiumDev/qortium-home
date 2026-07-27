@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-26 - feat(bridge): add consented QDN contract messages
+
+Lets a QDN app ask Home to send a plain `MESSAGE` transaction to a Qortium AT,
+which is the transaction type used to wake a contract such as the SMPL faucet.
+It is deliberately narrow rather than a general signing tool: Home accepts only
+a checksummed AT address and a short text message, fixes the transaction to no
+payment and zero fee, shows the recipient and message in a one-time approval,
+then performs the required MemoryPoW and signing locally. The app never sees a
+wallet key, and Home never sends one to a node; it broadcasts only the signed
+transaction after approval. The same contract is available on desktop and
+Android, including through a public Previewnet node because signing remains
+local.
+
 ### 2026-07-23 - fix(bridge): distinguish legacy avatar hints from pointer avatars
 
 Clarifies the account-avatar contract for QDN apps before they adopt the new

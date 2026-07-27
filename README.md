@@ -79,7 +79,9 @@ reachable node that can answer public QDN resource searches. Home does not send
 the local API key while using Previewnet network mode.
 
 Qortium Home does not yet expose a first-party direct chat UI or generic
-transaction signing workflows.
+transaction signing workflows. Its `SEND_MESSAGE` bridge action is deliberately
+not an exception: it only permits a fee-zero plaintext message to a validated
+Qortium AT, after a transaction-specific approval and local MemoryPoW/signing.
 
 ## QDN App Bridge
 

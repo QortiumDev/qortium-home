@@ -542,6 +542,7 @@ export const et: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Lahenda privaatse grupivestluse võtme taotlused",
   "qdnWrite.action.sellName": "Müü nimi",
   "qdnWrite.action.sendChatMessage": "Saada vestlussõnum",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Kuva teavitusi",
   "qdnWrite.action.sendCoin": "Saada münte",
   "qdnWrite.action.setGroup": "Määra vaikegrupp",

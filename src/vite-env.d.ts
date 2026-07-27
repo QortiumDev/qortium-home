@@ -719,6 +719,7 @@ type QortiumQdnWriteApprovalRequest = {
     | 'SELL_NAME'
     | 'UPDATE_NAME'
     | 'SEND_CHAT_MESSAGE'
+    | 'SEND_MESSAGE'
     | 'SHOW_NOTIFICATION'
     | 'NOTIFICATION_ADD'
     | 'BOOKMARKS_GET'

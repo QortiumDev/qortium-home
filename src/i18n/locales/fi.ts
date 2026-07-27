@@ -542,6 +542,7 @@ export const fi: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Käsittele yksityisen ryhmächatin avainpyynnöt",
   "qdnWrite.action.sellName": "Myy nimi",
   "qdnWrite.action.sendChatMessage": "Lähetä chat-viesti",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Näytä ilmoituksia",
   "qdnWrite.action.sendCoin": "Lähetä kolikoita",
   "qdnWrite.action.setGroup": "Aseta oletusryhmä",

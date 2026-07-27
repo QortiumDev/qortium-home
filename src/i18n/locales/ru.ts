@@ -570,6 +570,7 @@ export const ru: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Обработать запросы ключа приватного группового чата",
   "qdnWrite.action.sellName": "Продать имя",
   "qdnWrite.action.sendChatMessage": "Отправить сообщение в чат",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Показ уведомлений",
   "qdnWrite.action.sendCoin": "Отправить монеты",
   "qdnWrite.action.setGroup": "Задать группу по умолчанию",

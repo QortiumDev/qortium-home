@@ -57,6 +57,9 @@ export const QDN_RATING_READ_ACTIONS = ['GET_RESOURCE_RATING', 'GET_ACCOUNT_RATI
 export const QDN_LIST_WRITE_ACTIONS = ['ADD_TO_LIST', 'REMOVE_FROM_LIST'] as const;
 export const QDN_LIST_ACTIONS = ['GET_ALL_LISTS', 'GET_LIST', ...QDN_LIST_WRITE_ACTIONS] as const;
 export const QDN_CHAT_ACTIONS = ['SEND_CHAT_MESSAGE'] as const;
+// A deliberately narrow MESSAGE path for contracts. It is kept apart from
+// chat: only AT recipients, plaintext text, no payment, and fee=0 are allowed.
+export const QDN_AT_MESSAGE_ACTIONS = ['SEND_MESSAGE'] as const;
 export const QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS = [
   'GET_PRIVATE_GROUP_ACTIVE_CHATS',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
@@ -146,6 +149,7 @@ export const QDN_APP_BRIDGE_ACTIONS = [
   'SELECT_QDN_PUBLISH_SOURCE',
   'SEND_QORT',
   'SEND_QORTAL_GROUP_CHAT',
+  ...QDN_AT_MESSAGE_ACTIONS,
   ...QDN_WRITE_ACTIONS,
   ...QDN_ACCOUNT_AVATAR_ACTIONS,
   ...QDN_GROUP_ACTIONS,
@@ -183,8 +187,9 @@ export const QDN_MINTING_ACTIONS = ['START_MINTING', 'REMOVE_MINTING_ACCOUNT'] a
 // Actions that require a local/trusted node or protected local context, so they
 // cannot succeed on a public/network node and are filtered out of
 // SHOW_ACTIONS there — apps that gate UI off SHOW_ACTIONS then hide controls that
-// would otherwise throw. SEND_CHAT_MESSAGE and QDN write actions are intentionally
-// NOT here: their keyless paths sign locally and work against public nodes.
+// would otherwise throw. SEND_CHAT_MESSAGE, SEND_MESSAGE, and QDN write actions
+// are intentionally NOT here: their keyless paths sign locally and work against
+// public nodes without handing a private key to the node.
 const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
   ...QDN_NODE_SETTINGS_ACTIONS,
   ...QDN_ACCOUNT_AVATAR_ACTIONS,

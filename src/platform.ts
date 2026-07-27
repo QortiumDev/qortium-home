@@ -75,8 +75,14 @@ import {
 } from '../electron/qdn-group-avatar-input';
 import { getLegacyAccountAvatarHint } from '../electron/qdn-identity-avatar';
 import {
+  buildUnsignedQortiumAtMessageTransactionBytes,
+  getQortiumAtMessageRequest,
+  QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
+} from '../electron/qdn-at-message';
+import {
   QDN_ACCOUNT_AVATAR_ACTIONS,
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
+  QDN_AT_MESSAGE_ACTIONS,
   QDN_APP_BRIDGE_ACTIONS,
   QDN_BOOKMARK_MANAGER_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
@@ -423,6 +429,7 @@ type QdnForeignServerAction = (typeof QDN_FOREIGN_SERVER_ACTIONS)[number];
 type QdnPollAction = (typeof QDN_POLL_ACTIONS)[number];
 type QdnTrustAction = (typeof QDN_TRUST_ACTIONS)[number];
 type QdnChatAction = (typeof QDN_CHAT_ACTIONS)[number];
+type QdnAtMessageAction = (typeof QDN_AT_MESSAGE_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnAccountFreeWriteAction = (typeof QDN_ACCOUNT_FREE_WRITE_ACTIONS)[number];
 type QdnHomeSettingsAction = (typeof QDN_HOME_SETTINGS_ACTIONS)[number];
@@ -438,6 +445,7 @@ type QdnWriteApprovalAction =
   | QdnPollAction
   | QdnTrustAction
   | QdnChatAction
+  | QdnAtMessageAction
   | QdnPrivateGroupChatWriteAction
   | QdnAccountFreeWriteAction
   | 'SEND_QORT'
@@ -3960,6 +3968,7 @@ async function signAndProcessKeylessStandardTransaction(
   difficulty: number,
   validate: (bytes: Uint8Array) => void,
   isStillValid?: () => boolean | Promise<boolean>,
+  apiKey = keylessContext.apiKey,
 ) {
   const unsignedBytes = base58Decode(rawUnsignedBytes58);
   validate(unsignedBytes);
@@ -3975,7 +3984,7 @@ async function signAndProcessKeylessStandardTransaction(
     keylessContext.nodeApiUrl,
     '/transactions/process?apiVersion=2',
     signedTransactionBytes,
-    keylessContext.apiKey,
+    apiKey,
     'Transaction processing failed.',
   );
   return {
@@ -6895,6 +6904,85 @@ async function sendChatMessageForApp(request: QdnAppRequest, context: QdnAppRequ
     groupId,
     groupName,
     result,
+  };
+}
+
+// Submit one deliberately constrained chain MESSAGE to an AT. Unlike chat,
+// MESSAGE has no public Core builder endpoint and cannot use /transactions/
+// mempow/compute: its nonce lives in the transaction bytes. The bytes are
+// constructed locally, MemoryPoW is computed locally, and the wallet secret is
+// used only for local signing before the final signed bytes are broadcast.
+async function sendMessageForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  if (!context) {
+    throw new Error('SEND_MESSAGE is only available from a QDN app frame.');
+  }
+
+  let messageRequest: ReturnType<typeof getQortiumAtMessageRequest>;
+
+  try {
+    messageRequest = getQortiumAtMessageRequest(request);
+  } catch (error) {
+    return {
+      accepted: false,
+      error: error instanceof Error ? error.message : String(error),
+      errorType: 'VALIDATION_FAILED',
+    };
+  }
+
+  // This intentionally permits a public/network node: Home computes the
+  // nonce and signature locally, and an AT MESSAGE has no private payload.
+  const keylessContext = await getKeylessChatContext(context);
+
+  try {
+    await requestQdnWriteApproval(context, keylessContext.profile, {
+      action: 'SEND_MESSAGE',
+      chatMessagePreview: messageRequest.message,
+      details: [
+        { label: 'Transaction', value: 'MESSAGE to an AT (no payment)' },
+        { label: 'Fee', value: `0 (local 8 MiB MemoryPoW, difficulty ${QORTIUM_AT_MESSAGE_POW_DIFFICULTY})` },
+        { label: 'Network', value: 'Qortium Previewnet' },
+      ],
+      permissionScope: 'single-request',
+      recipientAddress: messageRequest.recipient,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'QDN write request was denied.') {
+      return { accepted: false, canceled: true, reason: 'USER_CANCELLED' };
+    }
+
+    throw error;
+  }
+
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('QDN write request is stale because the app view changed before approval.');
+  }
+
+  const unsignedBytes = buildUnsignedQortiumAtMessageTransactionBytes({
+    ...messageRequest,
+    senderPublicKey: keylessContext.publicKey58,
+    timestamp: Date.now(),
+  });
+  const result = await signAndProcessKeylessStandardTransaction(
+    keylessContext,
+    base58Encode(unsignedBytes),
+    QORTIUM_AT_MESSAGE_POW_DIFFICULTY,
+    // The bridge never accepts raw transaction bytes from a QDN app. This
+    // assertion is intentionally a no-op because the bytes above come only
+    // from the fixed-field serializer, not from request data.
+    () => undefined,
+    () => isKeylessWriteContextFresh(context, keylessContext),
+    // /transactions/process is public; do not disclose a custom-node API key
+    // for a transaction that needs no protected Core endpoint.
+    '',
+  );
+
+  return {
+    accepted: true,
+    action: 'SEND_MESSAGE' as const,
+    fee: '0',
+    recipient: messageRequest.recipient,
+    result: result.data,
+    signature: result.signature,
   };
 }
 
@@ -10985,6 +11073,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'SEND_CHAT_MESSAGE':
       return sendChatMessageForApp(request, context);
+
+    case 'SEND_MESSAGE':
+      return sendMessageForApp(request, context);
 
     case 'IS_USING_PUBLIC_NODE': {
       const settings = await readNodeSettings();

@@ -542,6 +542,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "處理私密群組聊天金鑰請求",
   "qdnWrite.action.sellName": "出售名稱",
   "qdnWrite.action.sendChatMessage": "傳送聊天訊息",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "顯示通知",
   "qdnWrite.action.sendCoin": "傳送幣",
   "qdnWrite.action.setGroup": "設定預設群組",

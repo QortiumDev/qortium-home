@@ -542,6 +542,7 @@ export const ar: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "تلبية طلبات مفتاح دردشة المجموعة الخاصة",
   "qdnWrite.action.sellName": "بيع اسم",
   "qdnWrite.action.sendChatMessage": "إرسال رسالة دردشة",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "عرض الإشعارات",
   "qdnWrite.action.sendCoin": "إرسال عملة",
   "qdnWrite.action.setGroup": "تعيين المجموعة الافتراضية",

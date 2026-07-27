@@ -542,6 +542,7 @@ export const nl: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Verzoeken om privé-groepschatsleutel afhandelen",
   "qdnWrite.action.sellName": "Naam verkopen",
   "qdnWrite.action.sendChatMessage": "Chatbericht verzenden",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Meldingen tonen",
   "qdnWrite.action.sendCoin": "Munt verzenden",
   "qdnWrite.action.setGroup": "Standaardgroep instellen",

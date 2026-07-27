@@ -543,6 +543,7 @@ export const nb: Record<TranslationKey, string> = {
   "qdnWrite.action.resolvePrivateGroupChatKeyRequests": "Løs forespørsler om private gruppechatnøkler",
   "qdnWrite.action.sellName": "Selg navn",
   "qdnWrite.action.sendChatMessage": "Send chatmelding",
+  "qdnWrite.action.sendContractMessage": "Send Contract Message",
   "qdnWrite.action.showNotification": "Vis varsler",
   "qdnWrite.action.sendCoin": "Send mynt",
   "qdnWrite.action.setGroup": "Angi standardgruppe",
