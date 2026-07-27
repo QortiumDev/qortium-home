@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-27 - feat(qdn): run browser-deliverable GAME archives
+
+QDN GAME resources with a normal web-game entry page can now open in the same carefully isolated browser view as apps and websites on desktop and Android. This is a browser-only path: it does not launch native game files, and it does not give games any special manager access. Home can also publish a zipped web-game archive in the same unpacked form the QDN renderer expects; an archive without a usable web entry page still fails safely instead of gaining a native-launch path.
+
 ### 2026-07-26 - feat(qdn): move QDN browsing into Explore
 
 The Dashboard's Browse QDN button and the four partial QDN addresses used for browsing now open the published Explore app instead of Home's built-in resource browser. This includes old saved, duplicated, and restored tabs, so an existing `qdn://`, service, wildcard-name, or name/service listing follows the same route automatically. Exact QDN resources still stay in Home's viewer, which continues to host apps and provide the shared document and media readers that Explore asks for. Local unpublished-content Preview also remains available from the Dashboard as a small Home tool while its eventual Publish integration is designed.

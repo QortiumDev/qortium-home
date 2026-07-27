@@ -11,13 +11,16 @@ assert.equal(shouldStreamQdnPublishSource({ path: '/tmp/project' }), true);
 assert.equal(shouldStreamQdnPublishSource({ isZip: true }), false);
 assert.equal(shouldStreamQdnPublishSource({ path: '' }), false);
 
-// Unpacking stays a rendering concern, so it remains limited to APP/WEBSITE: a
-// ZIP published as any other service is the resource itself.
+// Unpacking stays a browser-rendering concern, so APP, WEBSITE, and GAME can
+// publish HTML archives while a ZIP for any other service remains the resource
+// itself.
 assert.equal(shouldUnpackQdnPublishArchive({ service: 'WEBSITE' }, { path: '/tmp/site.zip', isZip: true }), true);
 assert.equal(shouldUnpackQdnPublishArchive({ service: 'APP' }, { path: '/tmp/app.zip', isZip: true }), true);
+assert.equal(shouldUnpackQdnPublishArchive({ service: 'GAME' }, { path: '/tmp/game.zip', isZip: true }), true);
 assert.equal(shouldUnpackQdnPublishArchive({ service: 'WEBSITE' }, { path: '/tmp/index.html', isZip: false }), false);
 assert.equal(shouldUnpackQdnPublishArchive({ service: 'FILE' }, { path: '/tmp/archive.zip', isZip: true }), false);
 assert.equal(shouldUnpackQdnPublishArchive({ service: 'DOCUMENT' }, { path: '/tmp/dist.zip', isZip: true }), false);
 assert.equal(shouldUnpackQdnPublishArchive({ service: 'WEBSITE' }, { isZip: true }), true);
+assert.equal(shouldUnpackQdnPublishArchive({ service: 'GAME_PRIVATE' }, { path: '/tmp/game.zip', isZip: true }), false);
 
 console.log('QDN publish routing tests passed.');
