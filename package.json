@@ -119,7 +119,7 @@
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
     "@capacitor/android": "^8.4.2",
-    "@capacitor/app": "^8.1.0",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.4.2",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/local-notifications": "^8.2.0",
