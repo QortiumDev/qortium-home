@@ -149,6 +149,7 @@ type QdnViewerProps = {
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onBookmarksOpen?: (address: string, accountId: string | null) => void;
@@ -302,6 +303,7 @@ export type QdnBridgeFrameContentProps = {
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onBookmarksOpen?: (address: string, accountId: string | null) => void;
@@ -3715,6 +3717,7 @@ export function QdnBridgeFrameContent({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
   onBookmarksOpen,
@@ -3733,6 +3736,7 @@ export function QdnBridgeFrameContent({
   const onBookmarksOpenRef = useRef(onBookmarksOpen);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
+  const onOpenPublishSourcePreviewRef = useRef(onOpenPublishSourcePreview);
   const onAppNavigationChangeRef = useRef(onAppNavigationChange);
   const onAppTitleChangeRef = useRef(onAppTitleChange);
   const getHomeSettingsRef = useRef(getHomeSettings);
@@ -3747,6 +3751,7 @@ export function QdnBridgeFrameContent({
   onBookmarksOpenRef.current = onBookmarksOpen;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
+  onOpenPublishSourcePreviewRef.current = onOpenPublishSourcePreview;
   onAppNavigationChangeRef.current = onAppNavigationChange;
   onAppTitleChangeRef.current = onAppTitleChange;
   getHomeSettingsRef.current = getHomeSettings;
@@ -3922,6 +3927,9 @@ export function QdnBridgeFrameContent({
           onOpenMediaPlayer: (mediaRequest: QortiumQdnMediaPlayerRequest) => {
             onOpenMediaPlayerRef.current?.(mediaRequest);
           },
+          onOpenPublishSourcePreview: (previewRequest: QortiumQdnPublishSourcePreviewRequest) => {
+            onOpenPublishSourcePreviewRef.current?.(previewRequest);
+          },
           onOpenNewTab: (address: string) => {
             onOpenNewTabRef.current?.(address);
           },
@@ -4016,6 +4024,7 @@ function QdnIframeContent({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
   onBookmarksOpen,
@@ -4038,6 +4047,7 @@ function QdnIframeContent({
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onBookmarksOpen?: (address: string, accountId: string | null) => void;
@@ -4063,6 +4073,7 @@ function QdnIframeContent({
       onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
       onOpenMediaPlayer={onOpenMediaPlayer}
+      onOpenPublishSourcePreview={onOpenPublishSourcePreview}
       onOpenNewTab={onOpenNewTab}
       onOpenInCurrentTab={onOpenInCurrentTab}
       onBookmarksOpen={onBookmarksOpen}
@@ -4093,6 +4104,7 @@ function QdnReadyContent({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
   onBookmarksOpen,
@@ -4119,6 +4131,7 @@ function QdnReadyContent({
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onBookmarksOpen?: (address: string, accountId: string | null) => void;
@@ -4168,6 +4181,7 @@ function QdnReadyContent({
         onAppTitleChange={onAppTitleChange}
         onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
+        onOpenPublishSourcePreview={onOpenPublishSourcePreview}
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
         onBookmarksOpen={onBookmarksOpen}
@@ -4349,6 +4363,7 @@ export function QdnViewer({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
   onBookmarksOpen,
@@ -4480,6 +4495,7 @@ export function QdnViewer({
           onAppTitleChange={onAppTitleChange}
           onOpenDocumentViewer={onOpenDocumentViewer}
           onOpenMediaPlayer={onOpenMediaPlayer}
+          onOpenPublishSourcePreview={onOpenPublishSourcePreview}
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}
           onBookmarksOpen={onBookmarksOpen}

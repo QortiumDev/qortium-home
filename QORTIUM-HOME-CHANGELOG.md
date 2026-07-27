@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-27 - feat(bridge): preview a Home-selected QDN publish source
+
+QDN publishing apps can now ask Home to preview the exact file or folder the
+person previously selected through Home's own picker. The app receives only a
+success signal: Home keeps the temporary Core render URL and local path private,
+opens the preview in its own display-only overlay, and does not give that
+preview a QDN bridge. The opaque source token remains tied to the same app tab,
+expires automatically, works only with a local Core, and remains available for
+the later consented Publish request on both desktop and Android.
+
 ### 2026-07-27 - refactor(qdn): remove retired Home managers
 
 Home no longer carries its old full-page Bookmarks manager or its built-in QDN

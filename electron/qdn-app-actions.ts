@@ -56,6 +56,9 @@ export const QDN_TRUST_ACTIONS = ['RATE_ACCOUNT', 'RATE_RESOURCE'] as const;
 export const QDN_RATING_READ_ACTIONS = ['GET_RESOURCE_RATING', 'GET_ACCOUNT_RATING'] as const;
 export const QDN_LIST_WRITE_ACTIONS = ['ADD_TO_LIST', 'REMOVE_FROM_LIST'] as const;
 export const QDN_LIST_ACTIONS = ['GET_ALL_LISTS', 'GET_LIST', ...QDN_LIST_WRITE_ACTIONS] as const;
+// Preview only accepts a source previously selected by Home. It never accepts
+// a QDN app path or new app-provided bytes.
+export const QDN_PREVIEW_ACTIONS = ['PREVIEW_QDN_PUBLISH_SOURCE'] as const;
 export const QDN_CHAT_ACTIONS = ['SEND_CHAT_MESSAGE'] as const;
 // A deliberately narrow MESSAGE path for contracts. It is kept apart from
 // chat: only AT recipients, plaintext text, no payment, and fee=0 are allowed.
@@ -147,6 +150,7 @@ export const QDN_APP_BRIDGE_ACTIONS = [
   'RESOLVE_IDENTITIES',
   'SAVE_QDN_RESOURCE',
   'SELECT_QDN_PUBLISH_SOURCE',
+  ...QDN_PREVIEW_ACTIONS,
   'SEND_QORT',
   'SEND_QORTAL_GROUP_CHAT',
   ...QDN_AT_MESSAGE_ACTIONS,
@@ -202,6 +206,7 @@ const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
   ...QDN_POLL_ACTIONS,
   ...QDN_TRUST_ACTIONS,
   ...QDN_LIST_ACTIONS,
+  ...QDN_PREVIEW_ACTIONS,
   ...QDN_MINTING_ACTIONS,
 ]);
 

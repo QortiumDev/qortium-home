@@ -110,7 +110,7 @@ import {
   type QdnService,
 } from './qdn';
 import { QdnPreviewLauncher } from './QdnPreviewLauncher';
-import { QdnPreviewViewer } from './QdnPreview';
+import { QdnPreviewViewer, QdnPublishSourcePreview } from './QdnPreview';
 import { DocumentViewer } from './DocumentViewer';
 import {
   isTabScopedDocumentViewerVisible,
@@ -814,6 +814,8 @@ type QdnDocumentViewerState = TabScopedDocumentViewer<{
   resource: QdnResource;
 }>;
 
+type QdnPublishSourcePreviewState = TabScopedDocumentViewer<QortiumQdnPublishSourcePreviewRequest>;
+
 function getTabLabel(tab: BrowserTab) {
   const route = getCurrentRouteForTab(tab);
 
@@ -919,6 +921,7 @@ export function App() {
   // since single-file resources have no `path` for DocumentViewer to derive a
   // filename from.
   const [qdnDocumentViewer, setQdnDocumentViewer] = useState<QdnDocumentViewerState | null>(null);
+  const [qdnPublishSourcePreview, setQdnPublishSourcePreview] = useState<QdnPublishSourcePreviewState | null>(null);
   const [tabState, setTabState] = useState<BrowserTabState>(createInitialTabState);
   const [qdnAppTargetRequest, setQdnAppTargetRequest] = useState<QdnAppTargetRequest | null>(null);
   const [dashboardPins, setDashboardPins] = useState<DashboardPin[]>([]);
@@ -972,6 +975,9 @@ export function App() {
     update: (nextAppZoom: number) => void;
   } | null>(null);
   const openQdnDocumentViewerRef = useRef<((request: QortiumQdnDocumentViewerRequest) => void) | null>(null);
+  const openQdnPublishSourcePreviewRef = useRef<
+    ((request: QortiumQdnPublishSourcePreviewRequest, sourceTabId?: string) => void) | null
+  >(null);
   const navigationSwipeRef = useRef<NavigationSwipeState | null>(null);
   const didRunInitialRouteRefreshRef = useRef(false);
   const lastRouteRefreshKeyRef = useRef<string | null>(null);
@@ -1019,9 +1025,11 @@ export function App() {
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnUnlockRequest || !!activeQdnWriteRequest;
-  const isQdnViewGloballySuspended = isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource;
+  const isQdnViewGloballySuspended =
+    isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource || !!qdnPublishSourcePreview;
   const isDocumentViewerVisible = isTabScopedDocumentViewerVisible(qdnDocumentViewer, activeTab.id);
-  const canGoBack = hasRouteHistoryBack || isDocumentViewerVisible;
+  const isPublishSourcePreviewVisible = isTabScopedDocumentViewerVisible(qdnPublishSourcePreview, activeTab.id);
+  const canGoBack = hasRouteHistoryBack || isDocumentViewerVisible || isPublishSourcePreviewVisible;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
@@ -1072,6 +1080,9 @@ export function App() {
   useEffect(() => {
     setQdnDocumentViewer((viewer) =>
       shouldClearTabScopedDocumentViewer(viewer, tabState.tabs.map((tab) => tab.id)) ? null : viewer,
+    );
+    setQdnPublishSourcePreview((preview) =>
+      shouldClearTabScopedDocumentViewer(preview, tabState.tabs.map((tab) => tab.id)) ? null : preview,
     );
   }, [tabState.tabs]);
 
@@ -2438,6 +2449,11 @@ export function App() {
   }
 
   function goBack() {
+    if (isPublishSourcePreviewVisible) {
+      setQdnPublishSourcePreview(null);
+      return;
+    }
+
     if (shouldDismissDocumentViewerBeforeNavigating(qdnDocumentViewer, activeTab.id)) {
       setQdnDocumentViewer(null);
       return;
@@ -3026,6 +3042,13 @@ export function App() {
     });
   }
 
+  function openQdnPublishSourcePreview(
+    request: QortiumQdnPublishSourcePreviewRequest,
+    sourceTabId = tabState.activeTabId,
+  ) {
+    setQdnPublishSourcePreview({ tabId: sourceTabId, value: request });
+  }
+
   function selectTab(tabId: string) {
     setTabState((currentTabState) => {
       if (!currentTabState.tabs.some((tab) => tab.id === tabId)) {
@@ -3361,6 +3384,7 @@ export function App() {
     update: updateAppZoom,
   };
   openQdnDocumentViewerRef.current = openQdnDocumentViewer;
+  openQdnPublishSourcePreviewRef.current = openQdnPublishSourcePreview;
 
   useEffect(() => {
     return window.qortiumHome.menu?.onCommand((command) => {
@@ -3561,6 +3585,18 @@ export function App() {
 
     return qdnEvents.onOpenDocumentViewer((event) => {
       openQdnDocumentViewerRef.current?.(event);
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onOpenPublishSourcePreview) {
+      return undefined;
+    }
+
+    return qdnEvents.onOpenPublishSourcePreview((event) => {
+      openQdnPublishSourcePreviewRef.current?.(event, event.sourceTabId ?? undefined);
     });
   }, []);
 
@@ -4221,6 +4257,7 @@ export function App() {
                   }}
                   onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
                   onOpenMediaPlayer={openQdnMediaPlayer}
+                  onOpenPublishSourcePreview={(request) => openQdnPublishSourcePreview(request, tab.id)}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
@@ -4357,6 +4394,11 @@ export function App() {
               onDismiss={() => setQdnDocumentViewer(null)}
               resource={qdnDocumentViewer.value.resource}
             />
+          </TabScopedDialog>
+        ) : null}
+        {qdnPublishSourcePreview && isPublishSourcePreviewVisible && !activeQdnWriteRequest && !activeQdnUnlockRequest ? (
+          <TabScopedDialog onDismiss={() => setQdnPublishSourcePreview(null)}>
+            <QdnPublishSourcePreview preview={qdnPublishSourcePreview.value} />
           </TabScopedDialog>
         ) : null}
       </section>

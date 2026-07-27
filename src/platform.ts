@@ -413,6 +413,7 @@ type QdnAppRequestContext = {
   isViewFocused?: () => boolean;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   onBookmarksOpen?: (address: string, accountId: string | null) => void;
@@ -3253,6 +3254,50 @@ async function selectQdnPublishSourceForApp(request: QdnAppRequest, context: Qdn
     size: source.size,
     sourceToken: cacheQdnPublishSourceToken(context, source),
   };
+}
+
+async function previewQdnPublishSourceForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  const source = getQdnPublishSourceFromToken(request, context);
+
+  if (!source) {
+    throw new Error('Select a QDN publish source before previewing it.');
+  }
+
+  if (!context?.onOpenPublishSourcePreview) {
+    throw new Error('Selected source preview is not available in this context.');
+  }
+
+  const { archive, service } = source.kind === 'directory'
+    ? { archive: true, service: 'WEBSITE' }
+    : resolvePreviewServiceForFile(source.fileName);
+  const settings = await readNodeSettings();
+  const nodeApiUrl = await resolveNodeApiUrl(settings);
+  assertLocalWriteConnection(settings, nodeApiUrl);
+  const apiKey = getNodeApiKey(settings);
+  const query = `archive=${archive ? 'true' : 'false'}&filename=${encodeURIComponent(source.fileName)}`;
+  const result = await postLocalNodeText(
+    nodeApiUrl,
+    `/arbitrary/preview/${service}/upload?${query}`,
+    source.dataBase64,
+    apiKey,
+    'Generating the preview failed.',
+  );
+  const renderPath = result.body.trim();
+
+  if (!renderPath.startsWith('/render/')) {
+    throw new Error('The node returned an unexpected preview URL.');
+  }
+
+  // Keep the local Core render URL inside Home. Returning it to the QDN app
+  // would let app JavaScript fetch selected bytes before publish approval.
+  context.onOpenPublishSourcePreview({
+    renderUrl: `${getNodeApiUrlBase(nodeApiUrl)}${renderPath}`,
+    service,
+    sourceKind: archive ? 'directory' as const : 'file' as const,
+    sourceName: source.fileName,
+  });
+
+  return true;
 }
 
 async function selectNativePreviewDirectorySource(): Promise<Omit<NativePreviewCacheEntry, 'createdAt' | 'lastUsedAt'> | null> {
@@ -10956,6 +11001,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'SELECT_QDN_PUBLISH_SOURCE':
       return selectQdnPublishSourceForApp(request, context);
+
+    case 'PREVIEW_QDN_PUBLISH_SOURCE':
+      return previewQdnPublishSourceForApp(request, context);
 
     case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
       return publishMultipleQdnResourcesForApp(request, context);

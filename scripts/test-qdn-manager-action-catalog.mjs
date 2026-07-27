@@ -29,6 +29,7 @@ const expectedNotificationActions = [
 const managerActions = [...expectedBookmarkActions, ...expectedNotificationActions];
 const promptActions = managerActions.filter((action) => !action.endsWith('_HAS_PERMISSION'));
 const nonPromptActions = managerActions.filter((action) => action.endsWith('_HAS_PERMISSION'));
+const localPreviewActions = ['PREVIEW_QDN_PUBLISH_SOURCE'];
 
 assert.deepEqual([...QDN_BOOKMARK_MANAGER_ACTIONS], expectedBookmarkActions);
 assert.deepEqual([...QDN_NOTIFICATION_MANAGER_ACTIONS], expectedNotificationActions);
@@ -46,11 +47,26 @@ for (const action of managerActions) {
   );
 }
 
+for (const action of localPreviewActions) {
+  assert.equal(
+    QDN_APP_BRIDGE_ACTIONS.filter((candidate) => candidate === action).length,
+    1,
+    `${action} must appear exactly once in QDN_APP_BRIDGE_ACTIONS.`,
+  );
+  assert.equal(
+    QDN_PUBLIC_NODE_BRIDGE_ACTIONS.includes(action),
+    false,
+    `${action} must not be advertised for public/network nodes.`,
+  );
+}
+
 const androidBridgePath = path.join(
   repoRoot,
   'android/app/src/main/java/org/qortium/home/QdnBridgeWebViewClient.java',
 );
 const androidBridge = readFileSync(androidBridgePath, 'utf8');
+const desktopBridge = readFileSync(path.join(repoRoot, 'electron/qdn.ts'), 'utf8');
+const androidPlatformBridge = readFileSync(path.join(repoRoot, 'src/platform.ts'), 'utf8');
 const longActionsBody = /var longActions=\{([^}]*)\}/.exec(androidBridge)?.[1];
 assert(longActionsBody, 'Android QDN bridge longActions catalogue was not found.');
 
@@ -64,6 +80,60 @@ for (const action of nonPromptActions) {
   assert(
     !longActionsBody.includes(`${action}:1`),
     `${action} must stay on Android's normal timeout because it never prompts.`,
+  );
+}
+for (const action of localPreviewActions) {
+  assert(
+    longActionsBody.includes(`${action}:1`),
+    `${action} must use Android's long request timeout while Core stages the selected source.`,
+  );
+}
+
+for (const [label, source, required] of [
+  [
+    'desktop',
+    desktopBridge,
+    [
+      "case 'PREVIEW_QDN_PUBLISH_SOURCE':",
+      'getQdnPublishSourceFromToken(request, context)',
+      'assertLocalWriteConnection(connection)',
+      "hostWindow.webContents.send('qdn-app:open-publish-source-preview'",
+      'return true;',
+    ],
+  ],
+  [
+    'Android',
+    androidPlatformBridge,
+    [
+      "case 'PREVIEW_QDN_PUBLISH_SOURCE':",
+      'getQdnPublishSourceFromToken(request, context)',
+      'assertLocalWriteConnection(settings, nodeApiUrl)',
+      'context.onOpenPublishSourcePreview({',
+      'return true;',
+    ],
+  ],
+]) {
+  for (const snippet of required) {
+    assert(source.includes(snippet), `${label} selected-source preview bridge must include ${snippet}.`);
+  }
+}
+
+function readFunction(source, name) {
+  const start = source.indexOf(`async function ${name}(`);
+  assert.notEqual(start, -1, `${name} must exist.`);
+  const end = source.indexOf('\n}\n', start);
+  assert.notEqual(end, -1, `${name} must have a closing brace.`);
+  return source.slice(start, end);
+}
+
+for (const [label, source] of [
+  ['desktop', desktopBridge],
+  ['Android', androidPlatformBridge],
+]) {
+  const previewAction = readFunction(source, 'previewQdnPublishSourceForApp');
+  assert(
+    !/return\s*\{\s*renderUrl:/.test(previewAction),
+    `${label} selected-source preview must not return the Core render URL to app JavaScript.`,
   );
 }
 

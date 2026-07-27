@@ -932,6 +932,30 @@ async function runScenarioActions({
         fail(`Picker token source selection returned invalid size: ${String(size)}.`);
       }
 
+      const previewResult = await runQdnRequest(qdnClient, {
+        action: 'PREVIEW_QDN_PUBLISH_SOURCE',
+        sourceToken,
+      });
+
+      if (!previewResult?.ok || previewResult.result !== true) {
+        fail(`Selected source preview unexpectedly failed: ${JSON.stringify(previewResult)}`);
+      }
+
+      await waitUntil(
+        'selected source preview overlay',
+        appTimeoutMs,
+        async () => (await evaluate(mainClient, "document.querySelector('.qdn-preview') !== null")) === true,
+      );
+      await evaluate(
+        mainClient,
+        "document.querySelector('.tab-scoped-dialog-backdrop')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))",
+      );
+      await waitUntil(
+        'selected source preview dismissal',
+        appTimeoutMs,
+        async () => (await evaluate(mainClient, "document.querySelector('.qdn-preview') === null")) === true,
+      );
+
       const tokenPublishRequest = {
         ...publishRequest,
         sourceToken,
@@ -1146,7 +1170,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
   const usesSmokeSigner = !['no-account', 'locked-account'].includes(scenario);
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), `qortium-home-desktop-qdn-${scenario}-`));
   const userDataDir = path.join(tempRoot, 'user-data');
-  const publishSourcePath = path.join(tempRoot, 'qdn-write-smoke.json');
+  const publishSourcePath = path.join(tempRoot, 'qdn-write-smoke.html');
   const appApiKeyPath = writeAppApiKeyFile(tempRoot);
   const notificationSmokeLogPath = path.join(tempRoot, 'notification-smoke.jsonl');
   const service = 'JSON';
@@ -1162,17 +1186,13 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
 
   writeFileSync(
     publishSourcePath,
-    `${JSON.stringify(
-      {
-        fixture: 'desktop-qdn-write-smoke',
-        identifier,
-        name: publishName,
-        service,
-        timestamp: new Date().toISOString(),
-      },
-      null,
-      2,
-    )}\n`,
+    `<!doctype html><title>QDN write smoke</title><p>${JSON.stringify({
+      fixture: 'desktop-qdn-write-smoke',
+      identifier,
+      name: publishName,
+      service,
+      timestamp: new Date().toISOString(),
+    })}</p>\n`,
     'utf8',
   );
 
@@ -1255,6 +1275,7 @@ async function runScenario({ account, electronBin, publishName, scenario, viteBi
         for (const action of [
           'PUBLISH_MULTIPLE_QDN_RESOURCES',
           'PUBLISH_QDN_RESOURCE',
+          'PREVIEW_QDN_PUBLISH_SOURCE',
           'DELETE_QDN_RESOURCE',
           'APPROVE_GROUP_JOIN_REQUEST',
           'INVITE_TO_GROUP',
@@ -1381,9 +1402,10 @@ async function main() {
   log('Desktop QDN permission smoke test passed.');
 }
 
-main().catch(() => {
+main().catch((error) => {
   console.error(
     '[desktop-qdn-write-smoke] Smoke test failed. Review the preceding scenario logs, or rerun with QORTIUM_HOME_SMOKE_DEBUG=1 for controlled Electron output.',
   );
+  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
   process.exitCode = 1;
 });

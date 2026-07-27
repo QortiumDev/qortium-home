@@ -4531,6 +4531,41 @@ function getQdnPreviewErrorMessage(body: string, status: number) {
   return `Qortium node preview request failed with HTTP ${status}.`;
 }
 
+async function renderQdnPreviewSource(sourcePath: string) {
+  const connection = await getNodeConnection();
+
+  assertLocalWriteConnection(connection);
+  const apiKey = getNodeApiKey(connection);
+  const { previewPath, service, sourceKind } = await stageQdnPreviewSource(sourcePath);
+  const response = await fetchNode(
+    `/arbitrary/preview/${service}`,
+    {
+      body: previewPath,
+      headers: {
+        'Content-Type': 'text/plain',
+        'X-API-KEY': apiKey,
+      },
+      method: 'POST',
+    },
+    connection.nodeApiUrl,
+  );
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(getQdnPreviewErrorMessage(text, response.status));
+  }
+
+  if (!text.startsWith('/render/')) {
+    throw new Error('Qortium node returned an unexpected preview URL.');
+  }
+
+  return {
+    renderUrl: `${connection.nodeApiUrl.replace(/\/+$/, '')}${text}`,
+    service,
+    sourceKind,
+  };
+}
+
 function isSameQdnWriteContext(
   currentContext: QdnViewContext | null,
   originalContext: QdnViewContext,
@@ -4642,6 +4677,33 @@ async function selectQdnPublishSourceForApp(request: QdnAppRequest, context: Qdn
     size: source.size,
     sourceToken: cacheQdnPublishSourceToken(context, source),
   };
+}
+
+async function previewQdnPublishSourceForApp(request: QdnAppRequest, context: QdnViewContext) {
+  const source = getQdnPublishSourceFromToken(request, context);
+
+  if (!source?.path) {
+    throw new Error('Select a QDN publish source before previewing it.');
+  }
+
+  const hostWindow = getQdnViewHostWindow(context);
+
+  if (!hostWindow) {
+    throw new Error('QDN preview request does not belong to an active window.');
+  }
+
+  const preview = await renderQdnPreviewSource(source.path);
+
+  // Do not return the render URL to the app: a local Core render endpoint can
+  // expose the selected bytes before the user chooses to publish. Home opens
+  // the display-only preview itself instead.
+  hostWindow.webContents.send('qdn-app:open-publish-source-preview', {
+    ...preview,
+    sourceName: source.filename ?? source.displayName,
+    sourceTabId: context.tabId,
+  });
+
+  return true;
 }
 
 function assertPublicQdnPublishSize(size: number, label: string) {
@@ -9395,6 +9457,9 @@ async function handleQdnAppRequest(
     case 'SELECT_QDN_PUBLISH_SOURCE':
       return selectQdnPublishSourceForApp(request, context as QdnViewContext);
 
+    case 'PREVIEW_QDN_PUBLISH_SOURCE':
+      return previewQdnPublishSourceForApp(request, context as QdnViewContext);
+
     case 'PUBLISH_MULTIPLE_QDN_RESOURCES':
       return publishMultipleQdnResourcesForApp(request, context, sender);
 
@@ -10028,38 +10093,11 @@ export function registerQdnIpcHandlers() {
       sourcePath = result.filePaths[0];
     }
 
-    const connection = await getNodeConnection();
-
-    assertLocalWriteConnection(connection);
-    const apiKey = getNodeApiKey(connection);
-    const { previewPath, service, sourceKind } = await stageQdnPreviewSource(sourcePath);
-    const response = await fetchNode(
-      `/arbitrary/preview/${service}`,
-      {
-        body: previewPath,
-        headers: {
-          'Content-Type': 'text/plain',
-          'X-API-KEY': apiKey,
-        },
-        method: 'POST',
-      },
-      connection.nodeApiUrl,
-    );
-    const text = await response.text();
-
-    if (!response.ok) {
-      throw new Error(getQdnPreviewErrorMessage(text, response.status));
-    }
-
-    if (!text.startsWith('/render/')) {
-      throw new Error('Qortium node returned an unexpected preview URL.');
-    }
+    const preview = await renderQdnPreviewSource(sourcePath);
 
     return {
       canceled: false,
-      renderUrl: `${connection.nodeApiUrl.replace(/\/+$/, '')}${text}`,
-      service,
-      sourceKind,
+      ...preview,
       sourceName: path.basename(sourcePath),
       sourcePath,
     };
