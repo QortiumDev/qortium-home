@@ -10,8 +10,8 @@ const customManager = resolveBookmarksManagerRoute('qdn://WEBSITE/Example/Manage
 assert.equal(customManager?.kind, 'resource');
 assert.equal(customManager?.displayUrl, 'qdn://WEBSITE/Example/Manager/?tab=bookmarks');
 
-assert.equal(resolveBookmarksManagerRoute('qdn://APP/Bookmarks'), null);
-assert.equal(resolveBookmarksManagerRoute('https://example.invalid/bookmarks'), null);
+assert.equal(resolveBookmarksManagerRoute('qdn://APP/Bookmarks').displayUrl, defaultManager.displayUrl);
+assert.equal(resolveBookmarksManagerRoute('https://example.invalid/bookmarks').displayUrl, defaultManager.displayUrl);
 
 assert.ok(defaultManager);
 assert.deepEqual(

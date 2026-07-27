@@ -22,7 +22,6 @@ import { getSavedAccountContext } from './accountContext';
 import { useAppUpdates } from './appUpdateState';
 import {
   addBookmark,
-  addBookmarkFolder,
   DEFAULT_BOOKMARKS_STATE,
   findBookmarkItem,
   flattenBookmarkItems,
@@ -32,17 +31,13 @@ import {
   removeBookmark,
   saveBookmarksState,
   setBookmarkToolbarVisibility,
-  updateBookmark,
-  updateBookmarkFolder,
   type BookmarkFolderId,
-  type BookmarkFolderRequest,
   type BookmarkMoveRequest,
   type BookmarkRootId,
   type BookmarkRootMoveRequest,
   type BookmarkUpdateRequest,
   type BookmarksState,
 } from './bookmarks';
-import { BookmarksPage } from './BookmarksPage';
 import {
   applyBookmarkManagerMutation,
   createBookmarkManagerSnapshot,
@@ -73,7 +68,6 @@ import {
 import { getWritableHomeSettings, validateHomeSettingsPatch, type HomeSettings } from '../electron/home-settings-bridge';
 import {
   createDefaultQdnAppRolesStore,
-  DEFAULT_BOOKMARKS_MANAGER_URL,
   sanitizeQdnManagerAppKey,
   type QdnAppRolesStore,
 } from '../electron/qdn-manager-permissions';
@@ -86,7 +80,6 @@ import {
   reorderDashboardPins,
   saveDashboardPins,
   setDashboardPinLabel,
-  updateDashboardPin,
   upsertDashboardPin,
   type DashboardPin,
   type DashboardPinDropPosition,
@@ -97,7 +90,6 @@ import {
   MAX_START_PAGES,
   removeStartPage,
   saveStartPages,
-  updateStartPage,
   type StartPage,
 } from './startPages';
 import { useOnChainCoreUpdate } from './onChainCoreUpdateState';
@@ -117,7 +109,7 @@ import {
   type QdnResource,
   type QdnService,
 } from './qdn';
-import { QdnExplorer } from './QdnExplorer';
+import { QdnPreviewLauncher } from './QdnPreviewLauncher';
 import { QdnPreviewViewer } from './QdnPreview';
 import { DocumentViewer } from './DocumentViewer';
 import {
@@ -1039,13 +1031,10 @@ export function App() {
     [qdnAppRoles.roles.bookmarksManager.url],
   );
 
-  // Keep old home://bookmarks links working while moving their full-manager UI
-  // to the user's selected QDN app. The native page remains as the deliberate
-  // recovery fallback for malformed persisted preferences until its later
-  // removal patch.
+  // Keep old home://bookmarks links working by moving them to the selected QDN
+  // manager. Invalid persisted values fall back to the official manager rather
+  // than restoring Home's retired native page.
   useEffect(() => {
-    if (!bookmarksManagerRoute) return;
-
     setTabState((currentTabState) => {
       const tabs = currentTabState.tabs.map((tab) => {
         const entries = replaceLegacyBookmarksRoutes(tab.history.entries, bookmarksManagerRoute);
@@ -2091,18 +2080,6 @@ export function App() {
     return updateBookmarksState((current) => addBookmark(current, folderId, request, parentFolderId));
   }
 
-  function addBookmarkFolderToFolder(folderId: BookmarkFolderId, request: BookmarkFolderRequest, parentFolderId?: string | null) {
-    return updateBookmarksState((current) => addBookmarkFolder(current, folderId, request, parentFolderId));
-  }
-
-  function updateBookmarkInFolder(folderId: BookmarkFolderId, bookmarkId: string, request: BookmarkUpdateRequest) {
-    return updateBookmarksState((current) => updateBookmark(current, folderId, bookmarkId, request));
-  }
-
-  function updateBookmarkFolderInFolder(folderId: BookmarkFolderId, bookmarkFolderId: string, request: BookmarkFolderRequest) {
-    return updateBookmarksState((current) => updateBookmarkFolder(current, folderId, bookmarkFolderId, request));
-  }
-
   function removeBookmarkFromFolder(folderId: BookmarkFolderId, bookmarkId: string) {
     updateBookmarksState((current) => removeBookmark(current, folderId, bookmarkId));
   }
@@ -2662,7 +2639,7 @@ export function App() {
 
   function openBookmarksManager() {
     openAppLinkInNewTab(
-      qdnAppRoles.roles.bookmarksManager.url ?? DEFAULT_BOOKMARKS_MANAGER_URL,
+      bookmarksManagerRoute.displayUrl,
       tabState.activeTabId,
     );
   }
@@ -2701,14 +2678,6 @@ export function App() {
     updateDashboardPins((currentPins) => setDashboardPinLabel(currentPins, pinId, customLabel));
   }
 
-  function updateDashboardPinFromBookmarks(pinId: string, request: BookmarkUpdateRequest) {
-    const currentPins = dashboardPinsRef.current;
-    const nextPins = updateDashboardPin(currentPins, pinId, request);
-    const didUpdate = !isSameSavedItems(nextPins, currentPins);
-    if (didUpdate) updateDashboardPins(() => nextPins);
-    return didUpdate;
-  }
-
   function reorderDashboardPin(
     draggedPinId: string,
     targetPinId: string,
@@ -2741,27 +2710,6 @@ export function App() {
     bumpBookmarkManagerRevision();
     persistCurrentBookmarkManagerState();
     return didAdd;
-  }
-
-  function addStartPageFromBookmarks(request: BookmarkUpdateRequest) {
-    return addStartPageFromBookmark(
-      request.displayUrl,
-      getSavedPageAccountId(request.displayUrl, request.accountId ?? activeTab.accountId),
-      request.title,
-    );
-  }
-
-  function updateStartPageFromBookmarks(displayUrl: string, request: BookmarkUpdateRequest) {
-    if (!isBookmarkManagerReady()) return false;
-    const current = startPagesRef.current;
-    const next = updateStartPage(current, displayUrl, request);
-    const didUpdate = !isSameSavedItems(next, current);
-    if (!didUpdate) return false;
-    startPagesRef.current = next;
-    setStartPages(next);
-    bumpBookmarkManagerRevision();
-    persistCurrentBookmarkManagerState();
-    return didUpdate;
   }
 
   function reorderStartPageToTarget(displayUrl: string, targetDisplayUrl: string, dropPosition: DashboardPinDropPosition) {
@@ -4352,34 +4300,9 @@ export function App() {
                   state={welcomeState}
                 /> : null
               ) : tabRoute.kind === 'bookmarks' ? (
-                bookmarksManagerRoute ? (
-                  <div className="home-content" aria-live="polite">
-                    <p>{t('common.loading')}</p>
-                  </div>
-                ) : <BookmarksPage
-                  bookmarksState={bookmarksState}
-                  dashboardPins={dashboardPins}
-                  nodeApiUrl={nodeSettings.nodeApiUrl}
-                  nodeEpoch={nodeEpoch}
-                  accountsState={accountsState}
-                  startPages={startPages}
-                  onAddBookmark={addBookmarkToFolder}
-                  onAddBookmarkFolder={addBookmarkFolderToFolder}
-                  onAddDashboardPin={(request) =>
-                    addDashboardPinFromBookmark(request.displayUrl, request.title, request.accountId ?? activeTab.accountId)
-                  }
-                  onAddStartPage={addStartPageFromBookmarks}
-                  onMoveBookmarkItem={moveBookmarkRootItem}
-                  onOpenAddress={openBookmark}
-                  onRemoveBookmark={removeBookmarkFromFolder}
-                  onRemoveDashboardPin={unpinDashboardLink}
-                  onRemoveStartPage={handleStartPageRemove}
-                  onToolbarVisibilityChange={updateBookmarkToolbarVisibility}
-                  onUpdateBookmark={updateBookmarkInFolder}
-                  onUpdateBookmarkFolder={updateBookmarkFolderInFolder}
-                  onUpdateDashboardPin={updateDashboardPinFromBookmarks}
-                  onUpdateStartPage={updateStartPageFromBookmarks}
-                />
+                <div className="home-content" aria-live="polite">
+                  <p>{t('common.loading')}</p>
+                </div>
               ) : tabRoute.kind === 'release-notes' ? (
                 <ReleaseNotesPage key={tabRenderKey} route={tabRoute} onOpenReleaseNotes={openReleaseNotes} />
               ) : tabRoute.kind === 'dashboard' ? (
@@ -4415,28 +4338,11 @@ export function App() {
                 tabRoute.kind === 'service' ||
                 tabRoute.kind === 'name' ||
                 tabRoute.kind === 'name-services' ? (
-                <QdnExplorer
-                  key={tabRenderKey}
-                  coreManager={coreManager}
-                  displaySettings={effectiveDisplaySettings}
-                  nodeApiUrl={nodeSettings.nodeApiUrl}
-                  nodeEpoch={nodeEpoch}
-                  nodeMode={nodeSettings.mode}
-                  route={tabRoute}
-                  onNavigate={navigateToRoute}
-                />
+                <div className="home-content" aria-live="polite">
+                  <p>{t('common.loading')}</p>
+                </div>
               ) : tabRoute.kind === 'preview-launcher' ? (
-                <QdnExplorer
-                  key={tabRenderKey}
-                  coreManager={coreManager}
-                  displaySettings={effectiveDisplaySettings}
-                  nodeApiUrl={nodeSettings.nodeApiUrl}
-                  nodeEpoch={nodeEpoch}
-                  nodeMode={nodeSettings.mode}
-                  previewOnly
-                  route={{ kind: 'services', displayUrl: 'qdn://' }}
-                  onNavigate={navigateToRoute}
-                />
+                <QdnPreviewLauncher key={tabRenderKey} onNavigate={navigateToRoute} />
               ) : null}
             </div>
           );

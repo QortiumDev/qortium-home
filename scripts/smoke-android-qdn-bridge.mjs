@@ -1770,13 +1770,13 @@ async function installPreviewContentMock(client, renderUrl) {
   }
 }
 
-async function openExplorerPreview(client) {
-  await waitUntil('QDN Explorer preview button', appTimeoutMs, async () => {
+async function openHomePreview(client) {
+  await waitUntil('Home preview button', appTimeoutMs, async () => {
     const result = await evaluateInMain(
       client,
       `
         (() => {
-          const button = document.querySelector('.qdn-explorer__preview');
+          const button = document.querySelector('.qdn-preview-launcher__preview');
           if (!button) return null;
           button.click();
           return { ok: true };
@@ -1787,7 +1787,7 @@ async function openExplorerPreview(client) {
     return result?.ok ? true : null;
   });
 
-  await waitUntil('QDN Explorer preview file choice', appTimeoutMs, async () => {
+  await waitUntil('Home preview file choice', appTimeoutMs, async () => {
     const result = await evaluateInMain(
       client,
       `
@@ -1824,15 +1824,15 @@ async function assertPreviewContentMockCalled(client) {
 async function runPreviewRouteBridgeAssertions(client, apiKey) {
   const previewRenderUrl = await createPreviewHashRenderUrl(apiKey);
 
-  await navigateToFixture(client, 'qdn://');
-  await waitUntil('QDN Explorer route', appTimeoutMs, async () => {
-    const result = await evaluateInMain(client, "!!document.querySelector('.qdn-explorer')");
+  await navigateToFixture(client, 'home://preview');
+  await waitUntil('Home preview route', appTimeoutMs, async () => {
+    const result = await evaluateInMain(client, "!!document.querySelector('.qdn-preview-launcher')");
 
     return result === true;
   });
 
   await installPreviewContentMock(client, previewRenderUrl);
-  await openExplorerPreview(client);
+  await openHomePreview(client);
   await assertPreviewContentMockCalled(client);
 
   const { contextId, frame } = await getPreviewHashFrameContext(client, previewRenderUrl);

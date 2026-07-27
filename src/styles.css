@@ -1958,11 +1958,6 @@ h1 {
   height: 0.85em;
 }
 
-.qdn-explorer__row-icon {
-  width: 1.4em;
-  height: 1.4em;
-}
-
 .button:disabled {
   color: var(--color-text-secondary);
   background: var(--color-control-bg);
@@ -5140,12 +5135,6 @@ h1 {
   gap: 12px;
 }
 
-/* QdnExplorer shows load errors inline above its lists rather than in the
-   centered qdn-viewer empty state, so give the notice its own spacing there. */
-.qdn-explorer__core-offline {
-  padding: 16px 0;
-}
-
 .core-api-docs__details {
   justify-items: center;
   text-align: center;
@@ -5217,11 +5206,10 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-/* The explorer scrolls at the .app-main--explorer level (like the settings and
-   dashboard pages), so it lays out at its natural height here and lets that
-   ancestor own the scrollbar. Keeping overflow visible also lets the column
-   header (.qdn-explorer__head) stick to the scroll viewport. */
-.qdn-explorer {
+/* Local content preview is a Home-owned launcher until apps have a narrow,
+   consented preview bridge. It is deliberately separate from Explore's QDN
+   resource browsing UI. */
+.qdn-preview-launcher {
   display: grid;
   align-content: start;
   gap: 16px;
@@ -5232,7 +5220,7 @@ h1 {
   background: var(--color-frame-bg);
 }
 
-.qdn-explorer__header {
+.qdn-preview-launcher__header {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -5241,13 +5229,13 @@ h1 {
   min-width: 0;
 }
 
-.qdn-explorer__heading {
+.qdn-preview-launcher__heading {
   display: grid;
   gap: 4px;
   min-width: 0;
 }
 
-.qdn-explorer__heading h2 {
+.qdn-preview-launcher__heading h2 {
   margin: 0;
   color: var(--color-text);
   font-size: var(--font-size-heading);
@@ -5255,23 +5243,13 @@ h1 {
   line-height: var(--line-height-tight);
 }
 
-.qdn-explorer__heading p {
+.qdn-preview-launcher__heading p {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--color-text-subtle);
   font-size: var(--font-size-small);
   line-height: var(--line-height-small);
-}
-
-.qdn-explorer__header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.qdn-explorer__refresh {
-  min-width: 120px;
 }
 
 .preview-dialog {
@@ -5340,196 +5318,7 @@ h1 {
   border-bottom: 1px solid var(--color-control-selected);
 }
 
-.qdn-explorer__message {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-ui);
-}
-
-.qdn-explorer__message--error {
-  color: var(--color-danger);
-}
-
-.qdn-explorer__list {
-  --qdn-explorer-columns: 2em minmax(0, 1fr) minmax(8em, auto);
-
-  display: grid;
-  min-width: 0;
-  /* No overflow clipping here: it would trap the sticky header in this box.
-     Corner rounding is handled on the header and last row instead. */
-  border: 1px solid var(--color-control-selected);
-  border-radius: var(--radius-md);
-}
-
-.qdn-explorer__list--folders {
-  --qdn-explorer-columns: 2em minmax(0, 1fr) minmax(4em, auto) minmax(9em, auto);
-}
-
-.qdn-explorer__list--resources {
-  --qdn-explorer-columns: 56px minmax(0, 1fr) minmax(5.5em, auto) minmax(4.5em, auto) minmax(9em, auto);
-}
-
-.qdn-explorer__head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: var(--qdn-explorer-columns);
-  gap: 12px;
-  align-items: center;
-  min-width: 0;
-  padding: 8px 14px;
-  background: var(--color-control-bg);
-  border-bottom: 1px solid var(--color-control-selected);
-  border-top-left-radius: var(--radius-md);
-  border-top-right-radius: var(--radius-md);
-}
-
-.qdn-explorer__column {
-  transition: color 170ms ease;
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  min-width: 0;
-  padding: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  font-weight: 650;
-  line-height: var(--line-height-small);
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-.qdn-explorer__column--meta {
-  justify-content: flex-end;
-  text-align: end;
-}
-
-.qdn-explorer__column:hover,
-.qdn-explorer__column:focus-visible {
-  color: var(--color-text);
-  outline: none;
-}
-
-.qdn-explorer__column--active {
-  color: var(--color-text);
-}
-
-.qdn-explorer__row {
-  transition: background-color 170ms ease;
-  display: grid;
-  grid-template-columns: var(--qdn-explorer-columns);
-  gap: 12px;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  min-height: 58px;
-  padding: 10px 14px;
-  color: var(--color-text);
-  text-align: start;
-  background: var(--color-frame-surface);
-  border: 0;
-  border-bottom: 1px solid var(--color-control-selected);
-  cursor: pointer;
-}
-
-.qdn-explorer__row--preview {
-  min-height: 74px;
-}
-
-.qdn-explorer__row:last-child {
-  border-bottom: 0;
-  border-bottom-left-radius: var(--radius-md);
-  border-bottom-right-radius: var(--radius-md);
-}
-
-.qdn-explorer__row:hover,
-.qdn-explorer__row:focus-visible {
-  background: var(--color-surface-raised);
-  outline: none;
-}
-
-.qdn-explorer__row--static {
-  cursor: default;
-}
-
-.qdn-explorer__row--static:hover {
-  background: var(--color-frame-surface);
-}
-
-.qdn-explorer__row-icon {
-  color: var(--color-text-secondary);
-}
-
-.qdn-explorer__row-preview {
-  display: grid;
-  width: 56px;
-  height: 44px;
-  min-width: 0;
-  place-items: center;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  background: var(--color-control-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-}
-
-.qdn-explorer__row-preview-image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.qdn-explorer__row-preview--fallback {
-  color: var(--color-text-secondary);
-}
-
-.qdn-explorer__row-main {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.qdn-explorer__row-title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-weight: 650;
-  line-height: var(--line-height-tight);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.qdn-explorer__row-subtitle {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-small);
-  line-height: var(--line-height-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.qdn-explorer__row-meta {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  line-height: var(--line-height-small);
-  text-align: end;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 @media (max-width: 600px) {
-  /* The QDN explorer Preview/Refresh actions are tight on phones, so drop their
-     text and show icon-only (the title/aria-label keep them accessible). */
-  .qdn-explorer__header-actions .button__label {
-    display: none;
-  }
-
   .popover-panel {
     min-width: min(280px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
@@ -5761,26 +5550,8 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .qdn-explorer {
+  .qdn-preview-launcher {
     padding: 16px 12px;
-  }
-
-  .qdn-explorer__row {
-    grid-template-columns: 1.75em minmax(0, 1fr);
-  }
-
-  .qdn-explorer__row--preview {
-    grid-template-columns: 56px minmax(0, 1fr);
-  }
-
-  .qdn-explorer__row-preview {
-    width: 48px;
-    height: 38px;
-  }
-
-  .qdn-explorer__row-meta {
-    grid-column: 2;
-    text-align: start;
   }
 }
 
@@ -5870,7 +5641,6 @@ h1 {
   .top-bar__history-menu-item,
   .top-bar__address-suggestion,
   .top-bar__address-control,
-  .qdn-explorer__row,
   .settings-section__toggle,
   .account-chip,
   .node-status__button {
@@ -5960,28 +5730,6 @@ h1 {
   width: 62%;
 }
 
-.qdn-explorer__skeleton {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.qdn-explorer__skeleton-row {
-  display: grid;
-  grid-template-columns: 2em minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  min-height: 58px;
-  padding: 10px 14px;
-  background: var(--color-frame-surface);
-  border: 1px solid var(--color-control-selected);
-  border-radius: var(--radius-md);
-}
-
-.qdn-explorer__skeleton-row .skeleton:last-child {
-  width: min(70%, 22em);
-}
-
 .empty-state {
   display: grid;
   gap: var(--space-3);
@@ -6000,7 +5748,6 @@ h1 {
 }
 
 .detail-list__value,
-.qdn-explorer__row-meta,
 .core-manager__progress-text,
 .app-updates__progress-text,
 .qdn-viewer__progress-text,
@@ -6686,7 +6433,7 @@ h1 {
   width: min(100%, 45em);
 }
 
-:root[data-ui="modern"] .qdn-explorer {
+:root[data-ui="modern"] .qdn-preview-launcher {
   justify-self: center;
   width: min(100%, 56em);
 }
