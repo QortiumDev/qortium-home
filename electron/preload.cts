@@ -435,6 +435,34 @@ contextBridge.exposeInMainWorld('qortiumHome', {
         ipcRenderer.removeListener('qdn-app:open-document-viewer', listener);
       };
     },
+    onOpenPublishSourcePreview: (
+      callback: (event: {
+        renderUrl: string;
+        service: string;
+        sourceKind: 'directory' | 'file';
+        sourceName: string;
+        sourceTabId: string | null;
+      }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: {
+          renderUrl: string;
+          service: string;
+          sourceKind: 'directory' | 'file';
+          sourceName: string;
+          sourceTabId: string | null;
+        },
+      ) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on('qdn-app:open-publish-source-preview', listener);
+
+      return () => {
+        ipcRenderer.removeListener('qdn-app:open-publish-source-preview', listener);
+      };
+    },
     onOpenCurrentTab: (callback: (event: { address: string; sourceTabId: string | null }) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,

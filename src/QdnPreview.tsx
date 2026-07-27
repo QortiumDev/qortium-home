@@ -1,7 +1,7 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { t } from './i18n';
-import type { QdnDisplaySettings, QdnPreview } from './qdn';
+import type { QdnDisplaySettings, QdnPreview, QdnService } from './qdn';
 import { getQdnViewerKind } from './qdn';
 import {
   canUseIsolatedQdnViews,
@@ -195,6 +195,61 @@ export function QdnPreviewViewer({
           onError={(message) => setError({ message })}
           onReady={() => setError(null)}
         />
+      ) : null}
+    </section>
+  );
+}
+
+// This preview is intentionally display-only. Unlike a regular QDN resource
+// frame, it does not install the QDN bridge for the selected local source.
+// That keeps a preview request from becoming a way for an app to read the
+// selected bytes or make further bridge calls as the previewed content.
+export function QdnPublishSourcePreview({
+  preview,
+}: {
+  preview: QortiumQdnPublishSourcePreviewRequest;
+}) {
+  const viewerKind = getQdnViewerKind(preview.service as QdnService);
+
+  return (
+    <section className="qdn-viewer qdn-preview" aria-label="Selected source preview">
+      <div className="qdn-preview__head">
+        <div className="qdn-viewer__status qdn-preview__toolbar">
+          <div className="qdn-viewer__status-text">
+            <span className="qdn-viewer__status-label">Previewing as {preview.service}</span>
+            <span className="qdn-viewer__resource" title={preview.sourceName}>
+              {preview.sourceName}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {viewerKind === 'iframe' ? (
+        <iframe
+          className="qdn-viewer__frame"
+          referrerPolicy="no-referrer"
+          sandbox="allow-scripts"
+          src={preview.renderUrl}
+          title={`Preview: ${preview.sourceName}`}
+        />
+      ) : null}
+
+      {viewerKind === 'image' ? (
+        <div className="qdn-viewer__image-stage">
+          <img className="qdn-viewer__image" alt={preview.sourceName} src={preview.renderUrl} />
+        </div>
+      ) : null}
+
+      {viewerKind === 'audio' || viewerKind === 'video' ? (
+        <div className={`qdn-viewer__media qdn-viewer__media--${viewerKind}`}>
+          <div className="qdn-viewer__media-stage">
+            {viewerKind === 'video' ? (
+              <video className="qdn-viewer__media-player qdn-viewer__media-player--video" controls src={preview.renderUrl} />
+            ) : (
+              <audio className="qdn-viewer__media-player qdn-viewer__media-player--audio" controls src={preview.renderUrl} />
+            )}
+          </div>
+        </div>
       ) : null}
     </section>
   );

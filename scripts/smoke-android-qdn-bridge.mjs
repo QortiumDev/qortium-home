@@ -1963,6 +1963,7 @@ async function runBridgeAssertions(client, contextId) {
     'REMOVE_FROM_LIST',
     'PUBLISH_MULTIPLE_QDN_RESOURCES',
     'PUBLISH_QDN_RESOURCE',
+    'PREVIEW_QDN_PUBLISH_SOURCE',
     'DELETE_QDN_RESOURCE',
     'APPROVE_GROUP_JOIN_REQUEST',
     'INVITE_TO_GROUP',
@@ -2297,15 +2298,11 @@ async function runAndroidWriteAssertions(client, wallet, apiKey) {
   const publishSource = {
     canceled: false,
     dataBase64: Buffer.from(
-      JSON.stringify({
-        fixture: 'android-qdn-write-smoke',
-        identifier: successIdentifier,
-        resource: `qdn://${service}/${wallet.name}/${successIdentifier}`,
-      }),
+      `<!doctype html><title>Android QDN write smoke</title><p>${successIdentifier}</p>`,
       'utf8',
     ).toString('base64'),
-    fileName: 'android-qdn-write-smoke.json',
-    mimeType: 'application/json',
+    fileName: 'android-qdn-write-smoke.html',
+    mimeType: 'text/html',
     size: 128,
     uri: 'smoke://android-qdn-write-source',
   };
@@ -2329,8 +2326,33 @@ async function runAndroidWriteAssertions(client, wallet, apiKey) {
       service,
     });
 
+    const selectedSource = await runQdnRequest(client, contextId, { action: 'SELECT_QDN_PUBLISH_SOURCE' });
+    assert(
+      typeof selectedSource?.sourceToken === 'string' && selectedSource.sourceToken.length > 0,
+      `SELECT_QDN_PUBLISH_SOURCE returned an invalid token: ${JSON.stringify(selectedSource)}.`,
+    );
+    const previewResult = await runQdnRequest(client, contextId, {
+      action: 'PREVIEW_QDN_PUBLISH_SOURCE',
+      sourceToken: selectedSource.sourceToken,
+    });
+    assert(previewResult === true, `Selected Android source preview returned ${JSON.stringify(previewResult)} instead of true.`);
+    await waitUntil('selected source preview overlay', appTimeoutMs, async () => {
+      const preview = await evaluateInMain(
+        client,
+        "document.querySelector('.qdn-preview')?.textContent?.includes('android-qdn-write-smoke.html') === true",
+      );
+      return preview === true;
+    });
+    await evaluateInMain(
+      client,
+      "document.querySelector('.tab-scoped-dialog-backdrop')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))",
+    );
+    await waitUntil('selected source preview dismissal', appTimeoutMs, async () =>
+      (await evaluateInMain(client, "document.querySelector('.qdn-preview') === null")) === true,
+    );
+
     log('Publishing Android smoke QDN resource.');
-    await runQdnRequestWithWriteDialog(client, contextId, publishRequest);
+    await runQdnRequestWithWriteDialog(client, contextId, { ...publishRequest, sourceToken: selectedSource.sourceToken });
     await waitForResourceStatus(service, wallet.name, successIdentifier, 'READY', { build: true });
 
     log('Deleting Android smoke QDN resource.');
