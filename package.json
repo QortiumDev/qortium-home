@@ -81,6 +81,7 @@
     "test:app-update-assets": "esbuild src/app-update-assets.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/app-update-assets.test.js && node dist-electron/app-update-assets.test.js",
     "test:bookmark-manager-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/bookmark-manager-contract.test.js",
     "test:bookmark-manager": "esbuild src/bookmarkManager.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/bookmark-manager.test.js && node dist-electron/bookmark-manager.test.js",
+    "test:explore-app-route": "esbuild src/exploreAppRoute.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/explore-app-route.test.js && node dist-electron/explore-app-route.test.js",
     "test:document-viewer-epub": "esbuild src/documentViewerEpub.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/document-viewer-epub.test.js && node dist-electron/document-viewer-epub.test.js",
     "test:document-viewer-tab-state": "esbuild src/documentViewerTabState.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/document-viewer-tab-state.test.js && node dist-electron/document-viewer-tab-state.test.js",
     "test:qdn-app-target": "esbuild src/qdn-app-target.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-app-target.test.js && node dist-electron/qdn-app-target.test.js",

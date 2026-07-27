@@ -33,6 +33,10 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-26 - feat(qdn): move QDN browsing into Explore
+
+The Dashboard's Browse QDN button and the four partial QDN addresses used for browsing now open the published Explore app instead of Home's built-in resource browser. This includes old saved, duplicated, and restored tabs, so an existing `qdn://`, service, wildcard-name, or name/service listing follows the same route automatically. Exact QDN resources still stay in Home's viewer, which continues to host apps and provide the shared document and media readers that Explore asks for. Local unpublished-content Preview also remains available from the Dashboard as a small Home tool while its eventual Publish integration is designed.
+
 ### 2026-07-26 - feat(bridge): add consented QDN contract messages
 
 Lets a QDN app ask Home to send a plain `MESSAGE` transaction to a Qortium AT,

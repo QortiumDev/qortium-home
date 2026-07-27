@@ -107,6 +107,7 @@ import { invalidateDesktopNodeSettingsCache } from './platform';
 import { getNotificationRulesVersion, getNotificationStore, onNotificationStoreChanged } from './notificationStore';
 import { startForegroundNotificationWatcher } from './notificationWatcher';
 import { getQdnAppTargetQuery, isSameQdnAppRoute, type QdnAppTargetQuery } from './qdn-app-target';
+import { replaceLegacyQdnExplorerRoutes, resolveExploreAppRoute } from './exploreAppRoute';
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
@@ -140,6 +141,7 @@ import { TopBar } from './TopBar';
 import { WelcomePage } from './WelcomePage';
 import {
   DASHBOARD_ROUTE,
+  QDN_PREVIEW_ROUTE,
   SETTINGS_ROUTE,
   WELCOME_ROUTE,
   buildReleaseNotesRoute,
@@ -1006,6 +1008,7 @@ export function App() {
   const isWelcomeRoute = currentRoute.kind === 'welcome';
   const isBookmarksRoute = currentRoute.kind === 'bookmarks';
   const isReleaseNotesRoute = currentRoute.kind === 'release-notes';
+  const isPreviewLauncherRoute = currentRoute.kind === 'preview-launcher';
   const routeRefreshKey = isDashboardRoute || isSettingsRoute || isBookmarksRoute || isReleaseNotesRoute
     ? `${tabState.activeTabId}:${routeHistory.index}:${currentRoute.kind}`
     : null;
@@ -1014,7 +1017,7 @@ export function App() {
     currentRoute.kind === 'service' ||
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
-  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isWelcomeRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isExplorerRoute;
+  const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isWelcomeRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isPreviewLauncherRoute && !isExplorerRoute;
   const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentDisplayUrl);
   const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentDisplayUrl);
   const canAddCurrentStartPage = currentRoute.kind !== 'welcome' && (isCurrentPageStartPage || startPages.length < MAX_START_PAGES);
@@ -1030,6 +1033,25 @@ export function App() {
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
   );
+
+  // Old QDN listing tabs can be restored from saved windows, duplicated, or
+  // moved between windows. Convert those durable history entries once so every
+  // ordinary browse route now opens Explore, while home://preview stays local.
+  useEffect(() => {
+    setTabState((currentTabState) => {
+      const tabs = currentTabState.tabs.map((tab) => {
+        const entries = replaceLegacyQdnExplorerRoutes(tab.history.entries);
+
+        return entries === tab.history.entries
+          ? tab
+          : { ...tab, history: { ...tab.history, entries }, qdnHistorySession: undefined };
+      });
+
+      return tabs.some((tab, index) => tab !== currentTabState.tabs[index])
+        ? { ...currentTabState, tabs }
+        : currentTabState;
+    });
+  }, []);
 
   useEffect(() => {
     setQdnDocumentViewer((viewer) =>
@@ -2306,6 +2328,12 @@ export function App() {
   }
 
   function navigateToRoute(route: AppRoute, options?: { accountId?: string | null; replace?: boolean }) {
+    const exploreRoute = resolveExploreAppRoute(route);
+
+    if (exploreRoute) {
+      route = exploreRoute;
+    }
+
     if (route.kind === 'settings' && focusOpenSettingsTab()) {
       return;
     }
@@ -2534,6 +2562,10 @@ export function App() {
     if (parsedUrl.success) {
       navigateToRoute(parsedUrl.route);
     }
+  }
+
+  function openQdnPreview() {
+    navigateToRoute(QDN_PREVIEW_ROUTE);
   }
 
   function openCoreApiDocs() {
@@ -4331,6 +4363,7 @@ export function App() {
                   onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
                   onSaveNodeSettings={saveNodeSettings}
                   onBrowseQdn={browseQdn}
+                  onPreviewQdn={openQdnPreview}
                   onOpenDashboardPin={openDashboardPin}
                   onOpenCoreApiDocs={openCoreApiDocs}
                   onOpenReleaseNotes={openReleaseNotes}
@@ -4355,6 +4388,18 @@ export function App() {
                   nodeEpoch={nodeEpoch}
                   nodeMode={nodeSettings.mode}
                   route={tabRoute}
+                  onNavigate={navigateToRoute}
+                />
+              ) : tabRoute.kind === 'preview-launcher' ? (
+                <QdnExplorer
+                  key={tabRenderKey}
+                  coreManager={coreManager}
+                  displaySettings={effectiveDisplaySettings}
+                  nodeApiUrl={nodeSettings.nodeApiUrl}
+                  nodeEpoch={nodeEpoch}
+                  nodeMode={nodeSettings.mode}
+                  previewOnly
+                  route={{ kind: 'services', displayUrl: 'qdn://' }}
                   onNavigate={navigateToRoute}
                 />
               ) : null}

@@ -1,4 +1,4 @@
-import { ArrowRight, Braces, Download, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
+import { ArrowRight, Braces, Download, Eye, FolderOpen, Globe2, Pencil, Play, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AccountsPanel } from './AccountsPanel';
@@ -59,6 +59,7 @@ type DashboardPageProps = {
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onBrowseQdn: () => void;
+  onPreviewQdn: () => void;
   onOpenDashboardPin: (pin: DashboardPin) => void;
   onOpenCoreApiDocs: () => void;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
@@ -1435,6 +1436,7 @@ export function DashboardPage({
   onResolvedNodeApiUrl,
   onSaveNodeSettings,
   onBrowseQdn,
+  onPreviewQdn,
   onOpenDashboardPin,
   onOpenCoreApiDocs,
   onOpenReleaseNotes,
@@ -1481,6 +1483,10 @@ export function DashboardPage({
         <button className="button button--primary" type="button" onClick={onBrowseQdn}>
           <Globe2 aria-hidden="true" size={18} strokeWidth={2} />
           {t('explorer.browseQdn')}
+        </button>
+        <button className="button" type="button" onClick={onPreviewQdn}>
+          <Eye aria-hidden="true" size={18} strokeWidth={2} />
+          {t('explorer.previewButton')}
         </button>
         <button className="button" type="button" onClick={onOpenCoreApiDocs}>
           <Braces aria-hidden="true" size={18} strokeWidth={2} />

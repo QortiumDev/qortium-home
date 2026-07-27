@@ -27,6 +27,7 @@ type QdnExplorerProps = {
   nodeEpoch: number;
   nodeMode: QortiumNodeSettingsMode;
   onNavigate: (route: QdnRoute, options?: { replace?: boolean }) => void;
+  previewOnly?: boolean;
   route: QdnExplorerRoute;
 };
 
@@ -405,7 +406,7 @@ function QdnPreviewDialog({
   );
 }
 
-export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoch, nodeMode, onNavigate, route }: QdnExplorerProps) {
+export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoch, nodeMode, onNavigate, previewOnly = false, route }: QdnExplorerProps) {
   const [state, setState] = useState<QdnExplorerState>({
     phase: 'idle',
     resources: [],
@@ -522,6 +523,7 @@ export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoc
   }, [route]);
 
   useEffect(() => {
+    if (previewOnly) return;
     let isDisposed = false;
 
     async function loadResources() {
@@ -568,7 +570,39 @@ export function QdnExplorer({ coreManager, displaySettings, nodeApiUrl, nodeEpoc
     return () => {
       isDisposed = true;
     };
-  }, [route, retryToken]);
+  }, [previewOnly, route, retryToken]);
+
+  if (previewOnly) {
+    return (
+      <section className="qdn-explorer" aria-label={t('preview.ariaLabel')}>
+        <header className="qdn-explorer__header">
+          <div className="qdn-explorer__heading">
+            <h2>{t('preview.dialogTitle')}</h2>
+            <p>{t('preview.dialogIntro')}</p>
+          </div>
+          <div className="qdn-explorer__header-actions">
+            <button
+              className="button button--secondary qdn-explorer__preview"
+              type="button"
+              onClick={() => setPreviewDialog({ isWorking: false })}
+            >
+              <Eye aria-hidden="true" size={18} strokeWidth={2} />
+              <span className="button__label">{t('explorer.previewButton')}</span>
+            </button>
+          </div>
+        </header>
+
+        {previewDialog ? (
+          <QdnPreviewDialog
+            errorMessage={previewDialog.error}
+            isWorking={previewDialog.isWorking}
+            onDismiss={() => setPreviewDialog(null)}
+            onPick={(kind) => void handlePreviewPick(kind)}
+          />
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section className="qdn-explorer" aria-label={t('explorer.ariaLabel')}>
