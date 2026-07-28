@@ -13,6 +13,13 @@ for (const [legacyRoute, expectedUrl] of cases) {
   assert.equal(resolveExploreAppRoute(legacyRoute)?.displayUrl, expectedUrl);
 }
 
+// A user-selected default fragment is used for direct launches, but controlled
+// legacy-route delegation replaces (never concatenates) that fragment.
+assert.equal(
+  resolveExploreAppRoute({ kind: 'service', service: 'APP', displayUrl: 'qdn://APP' }, 'qdn://APP/Explore/Explore#/service/VIDEO')?.displayUrl,
+  'qdn://APP/Explore/Explore#/service/APP',
+);
+
 assert.equal(resolveExploreAppRoute(QDN_PREVIEW_ROUTE), null, 'the temporary Home preview launcher must remain native');
 const previewAddress = parseAppAddress('home://preview');
 assert.equal(previewAddress.success, true);

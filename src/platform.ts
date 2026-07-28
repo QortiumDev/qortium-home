@@ -83,6 +83,7 @@ import {
   QDN_ACCOUNT_AVATAR_ACTIONS,
   QDN_ACCOUNT_FREE_WRITE_ACTIONS,
   QDN_AT_MESSAGE_ACTIONS,
+  QDN_APP_ASSIGNMENT_ACTIONS,
   QDN_APP_BRIDGE_ACTIONS,
   QDN_BOOKMARK_MANAGER_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
@@ -179,10 +180,20 @@ import {
 } from './notificationStore';
 import {
   getQdnAppRolesStore,
+  grantQdnAppCapabilityPermission,
+  hasQdnAppCapability,
   grantQdnManagerPermission,
   hasQdnManagerPermission,
+  setQdnAppAssignmentValue,
 } from './qdnManagerPermissions';
-import { getQdnAppRoleReplacedHolder, sanitizeQdnManagerAppKey } from '../electron/qdn-manager-permissions';
+import {
+  getQdnAppAssignment,
+  sanitizeQdnAppAssignmentDescription,
+  sanitizeQdnAppAssignmentLabel,
+  sanitizeQdnAppAssignmentRole,
+  sanitizeQdnAppAssignmentUrl,
+  sanitizeQdnManagerAppKey,
+} from '../electron/qdn-manager-permissions';
 import {
   assertOpenQortalGroupMetadata,
   assertPositiveQortalGroupId,
@@ -434,6 +445,7 @@ type QdnAtMessageAction = (typeof QDN_AT_MESSAGE_ACTIONS)[number];
 type QdnPrivateGroupChatWriteAction = (typeof QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS)[number];
 type QdnAccountFreeWriteAction = (typeof QDN_ACCOUNT_FREE_WRITE_ACTIONS)[number];
 type QdnHomeSettingsAction = (typeof QDN_HOME_SETTINGS_ACTIONS)[number];
+type QdnAppAssignmentAction = (typeof QDN_APP_ASSIGNMENT_ACTIONS)[number];
 type QdnBookmarkManagerAction = (typeof QDN_BOOKMARK_MANAGER_ACTIONS)[number];
 type QdnNotificationManagerAction = (typeof QDN_NOTIFICATION_MANAGER_ACTIONS)[number];
 type QdnWriteApprovalAction =
@@ -449,6 +461,7 @@ type QdnWriteApprovalAction =
   | QdnAtMessageAction
   | QdnPrivateGroupChatWriteAction
   | QdnAccountFreeWriteAction
+  | QdnAppAssignmentAction
   | 'SEND_QORT'
   | 'SEND_QORTAL_GROUP_CHAT'
   | 'START_MINTING'
@@ -8072,6 +8085,64 @@ async function handleQdnHomeSettingsAction(
   return context.applyHomeSettingsPatch(patch);
 }
 
+function getQdnAssignmentRequest(request: QdnAppRequest) {
+  const payload = isRecord(request.payload) ? request.payload : {};
+  const role = sanitizeQdnAppAssignmentRole(getRequestValue(request, 'role') ?? payload.role);
+  const url = sanitizeQdnAppAssignmentUrl(
+    getRequestValue(request, 'targetUrl') ?? getRequestValue(request, 'url') ?? payload.targetUrl ?? payload.url,
+  );
+  const label = sanitizeQdnAppAssignmentLabel(getRequestValue(request, 'label') ?? payload.label, role);
+  const description = sanitizeQdnAppAssignmentDescription(getRequestValue(request, 'description') ?? payload.description);
+  return { description, label, role, url };
+}
+
+async function requireQdnAssignmentsReadPermission(context: QdnAppRequestContext) {
+  const appKey = sanitizeQdnManagerAppKey(context.resourceUrl);
+  if (await hasQdnAppCapability(appKey, 'assignments.read')) return;
+  await requestQdnWriteApproval(context, null, {
+    action: 'GET_APP_ASSIGNMENTS',
+    details: [{ label: 'Capability', value: 'Read app assignments' }],
+    permissionScope: 'always',
+  }, 'App assignment read permission was denied.');
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('App assignment request is stale because the app view changed before approval.');
+  }
+  await grantQdnAppCapabilityPermission(appKey, 'assignments.read');
+}
+
+async function handleQdnAppAssignmentAction(
+  action: QdnAppAssignmentAction,
+  request: QdnAppRequest,
+  context?: QdnAppRequestContext,
+) {
+  if (!context) throw new Error('App assignment request does not belong to an active app view.');
+  if (action === 'GET_APP_ASSIGNMENTS') {
+    await requireQdnAssignmentsReadPermission(context);
+    const store = await getQdnAppRolesStore();
+    return { assignments: store.assignments, revision: store.revision, version: store.version };
+  }
+  const input = getQdnAssignmentRequest(request);
+  const currentStore = await getQdnAppRolesStore();
+  const current = getQdnAppAssignment(currentStore, input.role);
+  await requestQdnWriteApproval(context, null, {
+    action,
+    details: [
+      { label: 'Role', value: input.role },
+      { label: 'Current target', value: current?.url ?? 'Unassigned' },
+      { label: 'Proposed target', value: input.url },
+    ],
+    permissionScope: 'single-request',
+  }, 'App assignment request was denied.');
+  if (context.isCurrent && !context.isCurrent()) {
+    throw new Error('App assignment request is stale because the app view changed before approval.');
+  }
+  if ((await getQdnAppRolesStore()).revision !== currentStore.revision) {
+    throw new Error('App assignments changed while approval was open. Refresh and try again.');
+  }
+  const store = await setQdnAppAssignmentValue(input);
+  return { assignments: store.assignments, revision: store.revision, version: store.version };
+}
+
 async function requireQdnManagerPermission(
   context: QdnAppRequestContext,
   capability: 'bookmarks.manage' | 'notifications.manage',
@@ -8079,12 +8150,9 @@ async function requireQdnManagerPermission(
 ) {
   const appKey = context.resourceUrl;
   if (await hasQdnManagerPermission(appKey, capability)) return appKey;
-  // A role is held by at most one app, so approving this prompt replaces any
-  // current holder; surface that in the approval dialog.
-  const replacedHolder = getQdnAppRoleReplacedHolder(await getQdnAppRolesStore(), appKey, capability);
   await requestQdnWriteApproval(context, null, {
     action,
-    details: replacedHolder ? [{ label: 'Replaces current manager', value: replacedHolder }] : [],
+    details: [{ label: 'Capability', value: capability }],
     permissionScope: 'always',
   }, 'Home data manager permission was denied.');
   if (context.isCurrent && !context.isCurrent()) {
@@ -10743,6 +10811,10 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
   if ((QDN_HOME_SETTINGS_ACTIONS as readonly string[]).includes(action)) {
     return handleQdnHomeSettingsAction(action as QdnHomeSettingsAction, request, context);
+  }
+
+  if ((QDN_APP_ASSIGNMENT_ACTIONS as readonly string[]).includes(action)) {
+    return handleQdnAppAssignmentAction(action as QdnAppAssignmentAction, request, context);
   }
 
   if ((QDN_BOOKMARK_MANAGER_ACTIONS as readonly string[]).includes(action)) {

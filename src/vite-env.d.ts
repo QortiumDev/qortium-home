@@ -736,6 +736,8 @@ type QortiumQdnWriteApprovalRequest = {
     | 'NOTIFICATION_MANAGER_SET_MUTED'
     | 'NOTIFICATION_MANAGER_REMOVE_RULES'
     | 'NOTIFICATION_MANAGER_REVOKE'
+    | 'GET_APP_ASSIGNMENTS'
+    | 'REQUEST_APP_ASSIGNMENT'
     | 'UPDATE_NODE_SETTINGS'
     | 'UPDATE_HOME_SETTINGS'
     | 'RESTART_NODE'
@@ -922,15 +924,17 @@ interface Window {
       revokeAppNotifications?: (
         appKey: string,
       ) => Promise<import('../electron/notification-rules').QdnNotificationStore>;
-      getAppRolesStore?: () => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
-      onAppRolesChanged?: (callback: () => void) => () => void;
-      setAppRoleUrl?: (
-        role: import('../electron/qdn-manager-permissions').QdnAppRole,
-        url: string,
-      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
+      getAppAssignmentsStore?: () => Promise<import('../electron/qdn-manager-permissions').QdnAppAssignmentsStore>;
+      onAppAssignmentsChanged?: (callback: () => void) => () => void;
+      setAppAssignment?: (input: {
+        description?: unknown;
+        label?: unknown;
+        role: unknown;
+        url: unknown;
+      }) => Promise<import('../electron/qdn-manager-permissions').QdnAppAssignmentsStore>;
       migrateLegacyPreferredApps?: (
         legacyPreferredApps: unknown,
-      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppRolesStore>;
+      ) => Promise<import('../electron/qdn-manager-permissions').QdnAppAssignmentsStore>;
     };
     qdnViews?: {
       broadcastHomeSettingsChanged: (detail: QortiumQdnHomeSettingsChangedDetail) => Promise<void>;

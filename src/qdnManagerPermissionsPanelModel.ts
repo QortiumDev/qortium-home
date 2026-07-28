@@ -1,45 +1,44 @@
 import {
-  QDN_APP_ROLES,
-  sanitizeQdnManagerAppKey,
-  type QdnAppRole,
-  type QdnAppRolesStore,
+  QDN_DEFAULT_APP_ASSIGNMENTS,
+  sanitizeQdnAppAssignmentRole,
+  sanitizeQdnAppAssignmentUrl,
+  type QdnAppAssignmentsStore,
 } from '../electron/qdn-manager-permissions';
 
-export type QdnAppRoleRow = {
-  role: QdnAppRole;
+export type QdnAppAssignmentRow = {
+  description: string | null;
+  defaultUrl: string | null;
+  label: string;
+  role: string;
   url: string | null;
-  grantedAt: string | null;
 };
 
-/** One row per role, in the fixed role order — unassigned roles still get a row. */
-export function getQdnAppRoleRows(store: QdnAppRolesStore | null): QdnAppRoleRow[] {
+/** Lists Home defaults first, then user/app-created roles in stable order. */
+export function getQdnAppAssignmentRows(store: QdnAppAssignmentsStore | null): QdnAppAssignmentRow[] {
   if (!store) return [];
-  return QDN_APP_ROLES.map((role) => ({
-    role,
-    url: store.roles[role].url,
-    grantedAt: store.roles[role].grantedAt,
-  }));
+  return Object.entries(store.assignments)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([role, assignment]) => ({
+      ...assignment,
+      defaultUrl: QDN_DEFAULT_APP_ASSIGNMENTS[role as keyof typeof QDN_DEFAULT_APP_ASSIGNMENTS]?.url ?? null,
+      role,
+    }));
 }
 
-export function getQdnManagerPermissionAppName(appKey: string) {
-  const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(appKey);
-  if (!match) return appKey;
-  try { return decodeURIComponent(match[1]); } catch { return match[1]; }
-}
-
-export function getQdnAppRoleSaveState(value: string, currentUrl: string | null) {
+export function getQdnAppAssignmentSaveState(value: string, currentUrl: string | null) {
   const trimmed = value.trim();
   if (!trimmed) return { changed: false, normalized: null, valid: false };
   try {
-    const normalized = sanitizeQdnManagerAppKey(trimmed);
+    const normalized = sanitizeQdnAppAssignmentUrl(trimmed);
     return { changed: normalized !== currentUrl, normalized, valid: true };
   } catch {
     return { changed: true, normalized: null, valid: false };
   }
 }
 
-export function formatQdnManagerPermissionTime(value: string, locales?: Intl.LocalesArgument) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locales, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+export function getQdnAppAssignmentRoleSaveState(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return { normalized: null, valid: false };
+  try { return { normalized: sanitizeQdnAppAssignmentRole(trimmed), valid: true }; }
+  catch { return { normalized: null, valid: false }; }
 }

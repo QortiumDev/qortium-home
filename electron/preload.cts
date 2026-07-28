@@ -196,16 +196,15 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       ipcRenderer.invoke('qdn:setAppNotificationMuted', appKey, muted),
     revokeAppNotifications: (appKey: string) =>
       ipcRenderer.invoke('qdn:revokeAppNotifications', appKey),
-    getAppRolesStore: () => ipcRenderer.invoke('qdn:getAppRolesStore'),
-    onAppRolesChanged: (callback: () => void) => {
+    getAppAssignmentsStore: () => ipcRenderer.invoke('qdn:getAppAssignmentsStore'),
+    onAppAssignmentsChanged: (callback: () => void) => {
       const listener = () => callback();
-      ipcRenderer.on('qdn:app-roles-changed', listener);
+      ipcRenderer.on('qdn:app-assignments-changed', listener);
       return () => {
-        ipcRenderer.removeListener('qdn:app-roles-changed', listener);
+        ipcRenderer.removeListener('qdn:app-assignments-changed', listener);
       };
     },
-    setAppRoleUrl: (role: string, url: string) =>
-      ipcRenderer.invoke('qdn:setAppRoleUrl', role, url),
+    setAppAssignment: (input: unknown) => ipcRenderer.invoke('qdn:setAppAssignment', input),
     migrateLegacyPreferredApps: (legacyPreferredApps: unknown) =>
       ipcRenderer.invoke('qdn:migrateLegacyPreferredApps', legacyPreferredApps),
     listResources: (request: {

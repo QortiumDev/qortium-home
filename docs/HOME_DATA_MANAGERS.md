@@ -15,25 +15,15 @@ Home's data.
 Manager permissions are separate from account permissions and from an app's
 permission to send notifications. They are keyed by the calling app's stable
 `qdn://SERVICE/name/identifier` resource base (not its current deep-link path,
-query, or fragment) and persist until the role is replaced by a new approval
-or Settings assignment.
+query, or fragment) and persist as app-scoped capabilities until the user
+revokes them.
 
-Each capability is a Home **role** held by at most one app at a time:
-`bookmarks.manage` belongs to the Bookmarks Manager role and
-`notifications.manage` belongs to the Notifications Manager role. Home stores
-one `{ url, grantedAt }` pair per role, so a second holder is unrepresentable —
-granting a capability to a new app replaces the previous holder, and the
-approval dialog names the app being replaced. The Bookmarks Manager role URL
-also drives Home's bookmarks menu routing, so it always has a value (the
-official Bookmarks app by default). New profiles select the official Notify app
-for Notifications Manager, but that selection grants no access on its own.
-
-Users manage both roles in the Settings "QDN Apps" section: they can replace a
-role's app or reset it to the default app. Assignment is not a permission
-grant; the assigned app must request the matching capability through the
-approval dialog below. Home does not expose a Settings control that clears or
-revokes a role. Apps cannot read or change role assignments through the
-settings bridge; the only app-facing write path is the approval dialog below.
+The `bookmarks` and `notifications` app assignments are ordinary Home launch
+preferences. They do not hold, transfer, or revoke capabilities. Users can
+change those targets, create other assignments, or let an assignment-manager
+app request changes through the generic bridge documented in
+[Home app assignments](HOME_APP_ASSIGNMENTS.md). An assigned app must still
+request the matching capability below; an unassigned app may request it too.
 
 Home's "Manage bookmarks" control and the legacy `home://bookmarks` address
 open the selected Bookmarks Manager app. The native page remains only as a
@@ -53,8 +43,8 @@ await qdnRequest({ action: 'NOTIFICATION_MANAGER_HAS_PERMISSION' });
 The first `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, or
 notification-manager read or mutation opens a durable permission dialog. A
 denial rejects the request and does not create a grant. The grant is
-device-local, does not depend on the selected account, and makes the calling
-app the role's sole holder.
+device-local, does not depend on the selected account, and belongs only to the
+calling app.
 
 If the app view changes while the permission dialog is open, Home rejects the
 stale request instead of granting or using the capability for the replacement
