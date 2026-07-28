@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-28 - chore(release): prepare home 1.6.1
+
+Bumps Qortium Home to 1.6.1 with Android versionCode 34 for the next preview
+prerelease. Since 1.6.0, Home gained local signing and approval for plain
+messages to Qortium contracts; user-selected QDN apps can now fill generic
+Home roles; browser-deliverable GAME archives run in the same isolated view as
+apps and websites; and published games load their bundled images, sound and
+video correctly on Android. QDN browsing, bookmark management and Git
+repository browsing now hand off to their dedicated QDN apps while exact
+resources, previews and shared document/media viewing remain in Home. The
+document viewer keeps each reader with its own tab and starts every new page or
+chapter at the top. The release also adds consented previewing of a selected
+publish source, expands real desktop/phone acceptance coverage, keeps remote
+API keys off plaintext connections, and removes the retired native managers
+and Git parsing dependency.
+
 ### 2026-07-28 - feat: hand Git repository browsing to Explore
 
 Home no longer contains its own Git repository viewer. The published Explore
