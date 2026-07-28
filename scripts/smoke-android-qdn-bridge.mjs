@@ -33,6 +33,10 @@ const assignmentsOnly = process.env.QORTIUM_HOME_ANDROID_ASSIGNMENTS_ONLY === '1
 const jsonIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_JSON_IDENTIFIER ?? 'home-json';
 const fixtureAddress =
   process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
+// This is the real-device acceptance path for the Android default: it must use
+// Previewnet discovery with no trusted node or wallet state. Keep the existing
+// assignments-only mode below for the local Core development loop.
+const publicAssignmentsOnly = process.env.QORTIUM_HOME_ANDROID_PUBLIC_ASSIGNMENTS_ONLY === '1';
 const accountRole = process.env.QORTIUM_HOME_SMOKE_ACCOUNT_ROLE ?? 'local';
 const previewAccountsPath = expandHomePath(
   process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH ??
@@ -899,6 +903,18 @@ async function configureSmokeNode(client, apiKey = getApiKey()) {
   if (!value?.ok) {
     fail(value?.message || `Unable to point Android smoke test at ${androidNodeApiUrl}.`);
   }
+}
+
+async function configurePublicNetwork(client) {
+  const settings = await saveAndroidNodeSettings(client, {
+    apiKey: '',
+    customUrl: '',
+    mode: 'network',
+  });
+
+  assert(settings?.mode === 'network', `Expected Android Previewnet network mode, found ${JSON.stringify(settings?.mode)}.`);
+  assert(!settings?.apiKey, 'Android public-network smoke unexpectedly retained a node API key.');
+  assert(!settings?.customUrl, 'Android public-network smoke unexpectedly retained a custom node URL.');
 }
 
 async function waitForCapacitorPreferences(client) {
@@ -2234,6 +2250,38 @@ async function runAppAssignmentBridgeAssertions(client, contextId) {
   assert(readBack?.assignments?.[role]?.url === targetUrl, 'GET_APP_ASSIGNMENTS did not return the saved target.');
 }
 
+async function runPublicNetworkBridgeAssertions(client, contextId) {
+  await waitForQdnRequestBridge(client, contextId);
+
+  activeSmokeStage = 'public UI identity';
+  const whichUi = await runQdnRequest(client, contextId, { action: 'WHICH_UI' });
+  assert(whichUi === 'QORTIUM_HOME_ANDROID', `Expected QORTIUM_HOME_ANDROID, found ${JSON.stringify(whichUi)}.`);
+
+  activeSmokeStage = 'public action catalogue';
+  const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
+  const requiredActions = ['GET_APP_ASSIGNMENTS', 'REQUEST_APP_ASSIGNMENT', 'IS_USING_PUBLIC_NODE', 'SHOW_ACTIONS'];
+  const missingActions = requiredActions.filter((action) => !Array.isArray(actions) || !actions.includes(action));
+  assert(missingActions.length === 0, `Public node action catalogue omitted: ${missingActions.join(', ')}.`);
+  assert(
+    !actions.includes('GET_NODE_SETTINGS_METADATA') && !actions.includes('UPDATE_NODE_SETTINGS'),
+    'Public node action catalogue exposed local-node-only actions.',
+  );
+
+  const isUsingPublicNode = await runQdnRequest(client, contextId, { action: 'IS_USING_PUBLIC_NODE' });
+  assert(isUsingPublicNode === true, 'IS_USING_PUBLIC_NODE should be true for the Android public-network smoke.');
+
+  activeSmokeStage = 'public no-account boundary';
+  await expectQdnRequestRejected(
+    client,
+    contextId,
+    { action: 'GET_SELECTED_ACCOUNT' },
+    'No account is selected',
+  );
+
+  activeSmokeStage = 'public app assignments';
+  await runAppAssignmentBridgeAssertions(client, contextId);
+}
+
 async function runSelectedAccountAssertions(client, contextId, account, ownedNames) {
   const selectedAccountRequest = { action: 'GET_SELECTED_ACCOUNT' };
   const approved = await runQdnRequestWithAccountDialog(
@@ -2330,7 +2378,7 @@ function getDeleteRequest({ identifier, name, service }) {
   };
 }
 
-async function saveAndroidNodeSettings(client, { apiKey, customUrl = androidNodeApiUrl, mode = 'custom' }) {
+async function saveAndroidNodeSettings(client, { apiKey = '', customUrl = androidNodeApiUrl, mode = 'custom' }) {
   const result = await client.send('Runtime.evaluate', {
     awaitPromise: true,
     expression: `
@@ -2498,14 +2546,20 @@ async function runAndroidWriteAssertions(client, wallet, apiKey) {
 
 async function main() {
   assertTool(adbPath, 'adb');
+  let apiKey;
+  let account;
+  let androidWriteWallet;
+  let ownedNames;
 
-  await assertLocalCoreReady();
-  await assertFixtureReady();
-  const apiKey = getApiKey();
-  const account = getPreviewAccount();
-  const androidWriteWallet = await createAndroidWriteWallet(account);
-  await ensureNameRegistered(androidWriteWallet.name, androidWriteWallet.account, apiKey);
-  const ownedNames = await getOwnedNames(account.accountAddress);
+  if (!publicAssignmentsOnly) {
+    await assertLocalCoreReady();
+    await assertFixtureReady();
+    apiKey = getApiKey();
+    account = getPreviewAccount();
+    androidWriteWallet = await createAndroidWriteWallet(account);
+    await ensureNameRegistered(androidWriteWallet.name, androidWriteWallet.account, apiKey);
+    ownedNames = await getOwnedNames(account.accountAddress);
+  }
 
   const apkPath = getDebugApkPath();
   const { serial, startedEmulator } = await launchEmulatorIfNeeded();
@@ -2527,6 +2581,21 @@ async function main() {
         await client.send('Runtime.enable');
         activeSmokeStage = 'skip Welcome setup';
         await skipWelcomeSetup(client);
+        if (publicAssignmentsOnly) {
+          activeSmokeStage = 'clear Android account';
+          await clearAndroidAccount(client);
+          activeSmokeStage = 'select Previewnet network';
+          await configurePublicNetwork(client);
+          activeSmokeStage = 'navigate to public QDN fixture';
+          await navigateToFixture(client);
+          const { contextId } = await getFixtureFrameContext(client);
+
+          log('Running public-network bridge assertions in fixture frame.');
+          activeSmokeStage = 'public-network bridge';
+          await runPublicNetworkBridgeAssertions(client, contextId);
+          log('Android public-network QDN app-assignment smoke test passed.');
+          return;
+        }
         activeSmokeStage = 'wallet backup API';
         await runWalletBackupAssertions(client);
         activeSmokeStage = 'configure local Core';
