@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-28 - fix(android): keep the QDN bridge working through the secure proxy
+
+Restores communication between published QDN apps and Home on Android after
+the secure in-app address for QDN pages was introduced. Home now sends messages
+to, and accepts messages from, the secure address actually loaded in the phone's
+viewer instead of the public node address behind it. This covers app requests
+and responses as well as account, display, manager, navigation and app-target
+events, so public-network apps keep their normal Home bridge while their own
+images, sound and video continue to load securely.
+
 ### 2026-07-28 - chore(release): prepare home 1.6.1
 
 Bumps Qortium Home to 1.6.1 with Android versionCode 34 for the next preview

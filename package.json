@@ -91,6 +91,7 @@
     "test:qdn-app-target": "esbuild src/qdn-app-target.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-app-target.test.js && node dist-electron/qdn-app-target.test.js",
     "test:qdn-gallery-navigation": "esbuild src/qdnGalleryNavigation.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-gallery-navigation.test.js && node dist-electron/qdn-gallery-navigation.test.js",
     "test:qdn-gallery-images": "esbuild src/qdnGalleryImage.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-gallery-image.test.js && node dist-electron/qdn-gallery-image.test.js",
+    "test:qdn-frame-messaging": "esbuild src/qdnFrameMessaging.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-frame-messaging.test.js && node dist-electron/qdn-frame-messaging.test.js",
     "test:qdn-request-context": "esbuild src/qdnRequestContext.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-request-context.test.js && node dist-electron/qdn-request-context.test.js",
     "test:node-connection-hint": "esbuild src/nodeConnectionHint.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/node-connection-hint.test.js && node dist-electron/node-connection-hint.test.js",
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
