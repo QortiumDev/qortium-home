@@ -106,13 +106,16 @@ limited to 160 and 240 characters. `link` may be a `qdn://`, `home://`, or
 
 The four subscription actions above remain scoped to their calling app. Home
 also exposes a separate, durable `notifications.manage` capability for a QDN
-notification-manager app to inspect sanitized summaries across apps, mute or
-unmute an app, remove selected rules, or revoke an app's notification grant.
-The manager cannot create or replace another app's subscriptions. The
-capability is Home's Notifications Manager role and is held by at most one app
-at a time: granting it to a new app replaces the previous holder. Users can
-select a replacement or the default Notify app in Settings "QDN Apps"; that
-selection alone does not grant the manager capability.
+notification-management app to inspect sanitized summaries across apps, mute
+or unmute an app, remove selected rules, or revoke an app's notification
+grant. The manager cannot create or replace another app's subscriptions. This
+is an app-scoped capability: users approve it for the calling app, and another
+app may request its own approval independently.
+
+The `notifications` app assignment in Settings "QDN Apps" is only a
+user-owned launch preference. Users may select the default Notify app, another
+app, or a custom assignment-manager-created target; that selection never
+grants, transfers, or revokes `notifications.manage`.
 
 Manager summaries omit stored account bindings and mask wallet xpubs and
 signatures. Address-like filters (`address`, `involving`, `recipient`,

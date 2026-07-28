@@ -29,6 +29,7 @@ const androidNodeApiUrl = (
 ).replace(/\/+$/, '');
 const fixtureName = process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE_NAME ?? 'QortiumHomeTest';
 const appIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_APP_IDENTIFIER ?? 'home-test';
+const assignmentsOnly = process.env.QORTIUM_HOME_ANDROID_ASSIGNMENTS_ONLY === '1';
 const jsonIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_JSON_IDENTIFIER ?? 'home-json';
 const fixtureAddress =
   process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
@@ -41,6 +42,7 @@ const apiKeyPath = expandHomePath(
   process.env.QORTIUM_HOME_NODE_API_KEY_PATH ?? '~/git/qortium/preview/apikey.txt',
 );
 const walletStoreKey = 'qortium-home-wallet-store';
+const welcomeStateStorageKey = 'qortium-home-welcome-state';
 const commandTimeoutMs = 30_000;
 const bootTimeoutMs = 180_000;
 const appTimeoutMs = 90_000;
@@ -54,6 +56,7 @@ const qortiumWalletVersion = 2;
 const qortiumAddressVersion = 58;
 const staticSalt = '4ghkVQExoneGqZqHTMMhhFfxXsVg2A75QeS1HCM5KAih';
 const staticBcryptSalt = '$2a$11$IxVE941tXVUD4cW0TNVm.O';
+let activeSmokeStage = 'startup';
 
 function log(message) {
   console.log(`[android-qdn-smoke] ${message}`);
@@ -942,20 +945,58 @@ async function seedAndroidAccount(client, account) {
   await waitUntil('seeded Android account', appTimeoutMs, async () => {
     const probe = await client.send('Runtime.evaluate', {
       expression: `
-        (() => {
-          const select = document.querySelector('#selected-wallet');
-          const address = document.querySelector('.account-selector__address')?.textContent?.trim() || '';
-          return {
-            address,
-            ok: select?.value === ${JSON.stringify(walletId)} && address === ${JSON.stringify(account.accountAddress)},
-            selectValue: select?.value || ''
-          };
-        })()
+        window.qortiumHome.accounts.list().then((state) => ({
+          ok: state.activeAccountId === ${JSON.stringify(walletId)} &&
+            state.accounts.some((item) => item.id === ${JSON.stringify(walletId)} && item.address === ${JSON.stringify(account.accountAddress)})
+        }))
       `,
+      awaitPromise: true,
       returnByValue: true,
     });
 
     return probe.result?.value?.ok === true;
+  });
+}
+
+async function skipWelcomeSetup(client) {
+  await waitForCapacitorPreferences(client);
+
+  const result = await client.send('Runtime.evaluate', {
+    awaitPromise: true,
+    expression: `
+      window.Capacitor.Plugins.Preferences.set({
+        key: ${JSON.stringify(welcomeStateStorageKey)},
+        value: JSON.stringify({
+          currentStep: 'finish',
+          status: 'skipped',
+          updatedAt: new Date().toISOString(),
+          version: 1
+        })
+      }).then(() => ({ ok: true }), (error) => ({
+        ok: false,
+        message: String(error && error.message || error)
+      }))
+    `,
+    returnByValue: true,
+  });
+  const value = result.result?.value;
+
+  if (!value?.ok) {
+    fail(value?.message || 'Unable to skip Welcome for Android smoke setup.');
+  }
+
+  await client.send('Runtime.evaluate', {
+    expression: 'window.location.reload()',
+    returnByValue: true,
+  });
+
+  await waitUntil('skipped Welcome setup', appTimeoutMs, async () => {
+    const probe = await client.send('Runtime.evaluate', {
+      expression: "document.querySelector('#browser-address')?.value !== 'home://welcome'",
+      returnByValue: true,
+    });
+
+    return probe.result?.value === true;
   });
 }
 
@@ -1060,17 +1101,13 @@ async function clearAndroidAccount(client) {
 
   await waitUntil('cleared Android account', appTimeoutMs, async () => {
     const probe = await client.send('Runtime.evaluate', {
-      expression: `
-        (() => ({
-          hasAddressBar: !!document.querySelector('#browser-address'),
-          hasWalletSelector: !!document.querySelector('#selected-wallet')
-        }))()
-      `,
+      expression: "window.qortiumHome.accounts.list().then((state) => ({ ok: state.activeAccountId === null && state.accounts.length === 0 }))",
+      awaitPromise: true,
       returnByValue: true,
     });
     const value = probe.result?.value;
 
-    return value?.hasAddressBar === true && value?.hasWalletSelector === false;
+    return value?.ok === true;
   });
 }
 
@@ -1207,10 +1244,15 @@ async function getFixtureFrameContext(client) {
     const frameTree = await client.send('Page.getFrameTree');
     const frames = flattenFrames(frameTree.frameTree);
     const frame = frames.find(
-      (candidate) =>
-        candidate.url.includes(`/render/APP/${fixtureName}`) &&
-        candidate.url.includes(`identifier=${appIdentifier}`) &&
-        candidate.url.includes('qdnHomeBridge='),
+      (candidate) => {
+        const url = new URL(candidate.url);
+        const resourcePath = `/render/APP/${encodeURIComponent(fixtureName)}/${encodeURIComponent(appIdentifier)}`;
+
+        return url.searchParams.has('qdnHomeBridge') &&
+          (url.pathname === resourcePath ||
+            (url.pathname === `/render/APP/${encodeURIComponent(fixtureName)}` &&
+              url.searchParams.get('identifier') === appIdentifier));
+      },
     );
 
     if (!frame) {
@@ -1913,7 +1955,7 @@ async function runBridgeAssertions(client, contextId) {
   assert(whichUi === 'QORTIUM_HOME_ANDROID', `Expected QORTIUM_HOME_ANDROID, found ${JSON.stringify(whichUi)}.`);
 
   const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
-  for (const action of [
+  const expectedActions = [
     'FETCH_NODE_API',
     'GET_NODE_INFO',
     'GET_NODE_SETTINGS_METADATA',
@@ -1947,6 +1989,8 @@ async function runBridgeAssertions(client, contextId) {
     'NOTIFICATION_MANAGER_SET_MUTED',
     'NOTIFICATION_MANAGER_REMOVE_RULES',
     'NOTIFICATION_MANAGER_REVOKE',
+    'GET_APP_ASSIGNMENTS',
+    'REQUEST_APP_ASSIGNMENT',
     'GET_SELECTED_ACCOUNT',
     'GET_QDN_RESOURCE_METADATA',
     'GET_QDN_RESOURCE_PROPERTIES',
@@ -1989,9 +2033,9 @@ async function runBridgeAssertions(client, contextId) {
     'IS_USING_PUBLIC_NODE',
     'WHICH_UI',
     'SHOW_ACTIONS',
-  ]) {
-    assert(Array.isArray(actions) && actions.includes(action), `SHOW_ACTIONS did not include ${action}.`);
-  }
+  ];
+  const missingActions = expectedActions.filter((action) => !Array.isArray(actions) || !actions.includes(action));
+  assert(missingActions.length === 0, `SHOW_ACTIONS did not include: ${missingActions.join(', ')}.`);
 
   const statusResult = await runQdnRequest(client, contextId, {
     action: 'FETCH_NODE_API',
@@ -2165,6 +2209,29 @@ async function runBridgeAssertions(client, contextId) {
     { action: 'FETCH_NODE_API', maxBytes: 1, path: '/admin/status' },
     'byte limit',
   );
+}
+
+async function runAppAssignmentBridgeAssertions(client, contextId) {
+  const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
+  const expectedActions = ['GET_APP_ASSIGNMENTS', 'REQUEST_APP_ASSIGNMENT'];
+  const missingActions = expectedActions.filter((action) => !Array.isArray(actions) || !actions.includes(action));
+  assert(missingActions.length === 0, `Assignment actions were not advertised: ${missingActions.join(', ')}.`);
+
+  const initial = await runQdnRequestWithWriteDialog(client, contextId, { action: 'GET_APP_ASSIGNMENTS' });
+  assert(initial.result?.assignments?.explore?.url === 'qdn://APP/Explore/Explore', 'GET_APP_ASSIGNMENTS returned an invalid default Explore assignment.');
+
+  const role = 'smoke.video-player';
+  const targetUrl = 'qdn://APP/Explore/Explore#/service/VIDEO';
+  const update = await runQdnRequestWithWriteDialog(client, contextId, {
+    action: 'REQUEST_APP_ASSIGNMENT',
+    label: 'Smoke video player',
+    role,
+    targetUrl,
+  });
+  assert(update.result?.assignments?.[role]?.url === targetUrl, 'REQUEST_APP_ASSIGNMENT did not save the requested target.');
+
+  const readBack = await runQdnRequest(client, contextId, { action: 'GET_APP_ASSIGNMENTS' });
+  assert(readBack?.assignments?.[role]?.url === targetUrl, 'GET_APP_ASSIGNMENTS did not return the saved target.');
 }
 
 async function runSelectedAccountAssertions(client, contextId, account, ownedNames) {
@@ -2458,23 +2525,43 @@ async function main() {
       try {
         await client.send('Page.enable');
         await client.send('Runtime.enable');
+        activeSmokeStage = 'skip Welcome setup';
+        await skipWelcomeSetup(client);
+        activeSmokeStage = 'wallet backup API';
         await runWalletBackupAssertions(client);
+        activeSmokeStage = 'configure local Core';
         await configureSmokeNode(client, apiKey);
+        activeSmokeStage = 'seed Android account';
         await seedAndroidAccount(client, account);
+        activeSmokeStage = 'navigate to QDN fixture';
         await navigateToFixture(client);
         let { contextId, frame } = await getFixtureFrameContext(client);
 
         log('Running bridge assertions in fixture frame.');
+        activeSmokeStage = 'bridge containment';
         await runBridgeContainmentAssertions(client, frame);
+        activeSmokeStage = 'app assignment bridge';
+        await runAppAssignmentBridgeAssertions(client, contextId);
+        if (assignmentsOnly) {
+          log('Android QDN app-assignment smoke test passed.');
+          return;
+        }
+        activeSmokeStage = 'bridge action catalogue';
         await runBridgeAssertions(client, contextId);
+        activeSmokeStage = 'selected-account approvals';
         await runSelectedAccountAssertions(client, contextId, account, ownedNames);
+        activeSmokeStage = 'selected-account denial';
         await runSelectedAccountDenyAssertion(client, account);
+        activeSmokeStage = 'selected-account no-account';
         await runSelectedAccountNoAccountAssertion(client);
+        activeSmokeStage = 'Android write flow';
         await runAndroidWriteAssertions(client, androidWriteWallet, apiKey);
         ({ contextId, frame } = await getFixtureFrameContext(client));
         log('Running preview hash bridge assertions in fixture frame.');
+        activeSmokeStage = 'preview hash bridge';
         await runPreviewHashBridgeAssertions(client, frame, apiKey);
         log('Running preview route bridge assertions.');
+        activeSmokeStage = 'preview route bridge';
         await runPreviewRouteBridgeAssertions(client, apiKey);
       } finally {
         client.close();
@@ -2495,6 +2582,7 @@ async function main() {
 
 main().catch(() => {
   console.error('[android-qdn-smoke] Smoke test failed.');
+  console.error(`[android-qdn-smoke] Failed during ${activeSmokeStage}.`);
   console.error('[android-qdn-smoke] Error details are suppressed to avoid logging API keys or environment-derived values.');
   process.exitCode = 1;
 });
