@@ -46,6 +46,7 @@
     "smoke:desktop:browser-chrome": "node scripts/smoke-desktop-browser-chrome.mjs",
     "smoke:desktop:core-runtime": "node scripts/smoke-desktop-core-runtime.mjs",
     "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",
+    "smoke:desktop:qdn-game": "node scripts/smoke-desktop-qdn-game.mjs",
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
     "smoke:desktop:qdn-media-seek": "node scripts/smoke-desktop-qdn-media-seek.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
@@ -155,7 +156,8 @@
     "electron-builder": "^26.15.3",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
-    "wait-on": "^9.1.0"
+    "wait-on": "^9.1.0",
+    "ws": "^8.21.1"
   },
   "overrides": {
     "epubjs": {

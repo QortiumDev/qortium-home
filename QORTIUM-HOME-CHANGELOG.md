@@ -33,6 +33,20 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-28 - test(desktop): accept a real GAME archive in the running app
+
+Adds a desktop acceptance run for the GAME service. Home already treats a
+browser-deliverable GAME archive like an app, but until now only its internal
+logic was checked; nothing confirmed that a real published game loads and plays
+inside the running application. The new run opens a published game from the
+network, waits for it to start, confirms every picture bundled with the game
+appears, and then presses one of the game's own buttons and requires the game to
+respond. A game that loaded but did nothing, or one whose artwork failed to
+appear, now fails the run instead of passing quietly.
+
+When the run cannot find the game, it now reports what the application was
+showing instead, so a problem names its cause rather than only timing out.
+
 ### 2026-07-27 - test(android): cover generic QDN app assignments
 
 Clarifies that choosing a Notifications app is only a local launch preference;
