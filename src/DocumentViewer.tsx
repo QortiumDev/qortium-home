@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { openArchive } from './archive';
 import { openEpubBook, type EpubBookLike } from './documentViewerEpub';
 import { t } from './i18n';
@@ -108,9 +108,17 @@ type EpubRendition = {
 
 // ----- Sub-components -----
 
-function TxtViewer({ content, zoom }: { content: string; zoom: number }) {
+function TxtViewer({
+  content,
+  scrollRef,
+  zoom,
+}: {
+  content: string;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  zoom: number;
+}) {
   return (
-    <div className="doc-viewer__content">
+    <div className="doc-viewer__content" ref={scrollRef}>
       <pre className="doc-viewer__txt-body" style={{ fontSize: `${zoom}%` }}>
         {content}
       </pre>
@@ -118,7 +126,17 @@ function TxtViewer({ content, zoom }: { content: string; zoom: number }) {
   );
 }
 
-function PdfViewer({ doc, page, zoom }: { doc: PdfDoc; page: number; zoom: number }) {
+function PdfViewer({
+  doc,
+  page,
+  scrollRef,
+  zoom,
+}: {
+  doc: PdfDoc;
+  page: number;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  zoom: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -145,7 +163,7 @@ function PdfViewer({ doc, page, zoom }: { doc: PdfDoc; page: number; zoom: numbe
   }, [doc, page, zoom]);
 
   return (
-    <div className="doc-viewer__content">
+    <div className="doc-viewer__content" ref={scrollRef}>
       <div className="doc-viewer__pdf-canvas-wrap">
         <canvas ref={canvasRef} />
       </div>
@@ -156,9 +174,11 @@ function PdfViewer({ doc, page, zoom }: { doc: PdfDoc; page: number; zoom: numbe
 function EpubViewer({
   book,
   onRenditionReady,
+  scrollRef,
 }: {
   book: EpubBook;
   onRenditionReady: (rendition: EpubRendition) => void;
+  scrollRef: RefObject<HTMLDivElement | null>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onReadyRef = useRef(onRenditionReady);
@@ -172,17 +192,27 @@ function EpubViewer({
   }, [book]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="doc-viewer__content">
+    <div className="doc-viewer__content" ref={scrollRef}>
       <div ref={containerRef} className="doc-viewer__epub-frame" />
     </div>
   );
 }
 
-function CbzViewer({ page, pages, zoom }: { page: number; pages: string[]; zoom: number }) {
+function CbzViewer({
+  page,
+  pages,
+  scrollRef,
+  zoom,
+}: {
+  page: number;
+  pages: string[];
+  scrollRef: RefObject<HTMLDivElement | null>;
+  zoom: number;
+}) {
   const src = pages[page - 1];
   if (!src) return null;
   return (
-    <div className="doc-viewer__content">
+    <div className="doc-viewer__content" ref={scrollRef}>
       <div className="doc-viewer__cbz-stage">
         <img
           alt={t('docViewer.page', { current: String(page), total: String(pages.length) })}
@@ -248,6 +278,7 @@ export function DocumentViewer({
   const [epubRendition, setEpubRendition] = useState<EpubRendition | null>(null);
   const [epubChapter, setEpubChapter] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -267,6 +298,13 @@ export function DocumentViewer({
       }
     };
   }, []);
+
+  // Each page/chapter turn swaps content in place inside the same scrollable
+  // container, so without this the next page opens wherever the previous one
+  // left the scroll position instead of at the top.
+  useEffect(() => {
+    contentScrollRef.current?.scrollTo({ top: 0 });
+  }, [page, epubChapter]);
 
   useEffect(() => {
     let canceled = false;
@@ -597,19 +635,19 @@ export function DocumentViewer({
       )}
 
       {state.phase === 'ready' && state.format === 'txt' && (
-        <TxtViewer content={state.content} zoom={zoom} />
+        <TxtViewer content={state.content} scrollRef={contentScrollRef} zoom={zoom} />
       )}
 
       {state.phase === 'ready' && state.format === 'pdf' && (
-        <PdfViewer doc={state.doc} page={page} zoom={zoom} />
+        <PdfViewer doc={state.doc} page={page} scrollRef={contentScrollRef} zoom={zoom} />
       )}
 
       {state.phase === 'ready' && state.format === 'epub' && (
-        <EpubViewer book={state.book} onRenditionReady={setEpubRendition} />
+        <EpubViewer book={state.book} scrollRef={contentScrollRef} onRenditionReady={setEpubRendition} />
       )}
 
       {state.phase === 'ready' && state.format === 'cbz' && (
-        <CbzViewer page={page} pages={state.pages} zoom={zoom} />
+        <CbzViewer page={page} pages={state.pages} scrollRef={contentScrollRef} zoom={zoom} />
       )}
 
       {state.phase === 'ready' && state.format === 'unsupported' && (
