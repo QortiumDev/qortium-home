@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-28 - feat: hand Git repository browsing to Explore
+
+Home no longer contains its own Git repository viewer. The published Explore
+app now offers the same repository browsing — branch selection, commit
+history, and per-commit file trees with previews — so Home's built-in copy
+was removed along with the Git parsing library it bundled and the install-time
+hardening patch that library needed. Opening a published Git repository in
+Home now shows the plain published-file view, and Explore is the place to
+browse it as a repository. This removes around seven hundred lines and a
+dependency from Home without changing any other viewer behaviour.
+
 ### 2026-07-28 - fix: reset document viewer scroll position on page turn
 
 Turning a page in a PDF, comic book, text document, or EPUB now starts the

@@ -91,7 +91,6 @@
     "test:qdn-app-target": "esbuild src/qdn-app-target.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-app-target.test.js && node dist-electron/qdn-app-target.test.js",
     "test:qdn-gallery-navigation": "esbuild src/qdnGalleryNavigation.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-gallery-navigation.test.js && node dist-electron/qdn-gallery-navigation.test.js",
     "test:qdn-gallery-images": "esbuild src/qdnGalleryImage.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-gallery-image.test.js && node dist-electron/qdn-gallery-image.test.js",
-    "test:qdn-git-repository": "esbuild src/qdnGitRepository.test.ts --bundle --platform=node --format=esm --external:isomorphic-git --outfile=dist-electron/qdn-git-repository.test.js && node dist-electron/qdn-git-repository.test.js",
     "test:qdn-request-context": "esbuild src/qdnRequestContext.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-request-context.test.js && node dist-electron/qdn-request-context.test.js",
     "test:node-connection-hint": "esbuild src/nodeConnectionHint.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/node-connection-hint.test.js && node dist-electron/node-connection-hint.test.js",
     "test:epub-xml": "node scripts/test-epub-xml-override.mjs",
@@ -116,7 +115,7 @@
     "qdn:bootstrap-git-test-data": "node scripts/bootstrap-qdn-test-data.mjs --git-only",
     "qdn:bootstrap-media-test-data": "node scripts/bootstrap-qdn-test-data.mjs --media-only",
     "preview": "vite preview",
-    "postinstall": "node scripts/patch-local-notifications-receiver.mjs && node scripts/patch-isomorphic-git.mjs"
+    "postinstall": "node scripts/patch-local-notifications-receiver.mjs"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
@@ -130,12 +129,10 @@
     "@fontsource/fredoka": "^5.3.0",
     "asmcrypto.js": "2.3.2",
     "bcryptjs": "2.4.3",
-    "buffer": "^6.0.3",
     "epubjs": "^0.3.93",
     "extract-zip": "^2.0.1",
     "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",
-    "isomorphic-git": "^1.40.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.25.0",
     "marked": "^14.1.4",
