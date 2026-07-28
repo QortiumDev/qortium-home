@@ -396,6 +396,11 @@ type QdnPublishSourcePlugin = {
   selectDirectory: (request: { maxBytes: number }) => Promise<QdnPublishSourceResult>;
 };
 
+type QdnRenderProxyPlugin = {
+  authorize: (request: { origin: string }) => Promise<{ proxyOrigin: string }>;
+  release: (request: { origin: string }) => Promise<void>;
+};
+
 type QdnPublishSourcePickKind = 'directory' | 'file';
 
 type NativeHttpBlobUrlRequest = {
@@ -624,6 +629,7 @@ const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller')
 const QdnFileSaver = registerPlugin<QdnFileSaverPlugin>('QdnFileSaver');
 const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
 const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource');
+const QdnRenderProxy = registerPlugin<QdnRenderProxyPlugin>('QdnRenderProxy');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
 const pendingLoadedWallets = new Map<string, PendingLoadedWallet>();
 const qdnUnlockListeners = new Set<(request: QortiumQdnUnlockRequest) => void>();
@@ -662,6 +668,29 @@ window.addEventListener('pagehide', () => {
 
 function isAndroid() {
   return Capacitor.getPlatform() === 'android';
+}
+
+/**
+ * Resolves the URL an Android QDN iframe should load, authorizing its node origin
+ * for the in-app https proxy.
+ *
+ * Android serves Home from https://localhost, so a QDN page loaded straight from
+ * the node over http is mixed content: Chromium autoupgrades its images, audio
+ * and video to https, the node has no TLS on its API port, and every one of those
+ * requests is blocked — the page renders with no pictures and no sound. The proxy
+ * origin removes that, while staying separate from Home's own origin so the page
+ * cannot reach the app shell, and stable per node so an app keeps its storage.
+ */
+export async function authorizeQdnRenderProxyUrl(renderUrl: string, bridgeToken: string) {
+  const url = new URL(renderUrl);
+  const { proxyOrigin } = await QdnRenderProxy.authorize({ origin: url.origin });
+  const proxied = new URL(`${proxyOrigin}${url.pathname}`);
+
+  proxied.search = url.search;
+  proxied.searchParams.set('qdnHomeBridge', bridgeToken);
+  proxied.hash = url.hash;
+
+  return proxied.toString();
 }
 
 export function isNativePlatform() {

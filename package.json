@@ -39,6 +39,7 @@
     "android:collect-release:aab": "node scripts/collect-android-release-artifacts.mjs --aab",
     "smoke:android:app-update-state": "node scripts/smoke-android-app-update-state.mjs",
     "smoke:android:qdn-bridge": "node scripts/smoke-android-qdn-bridge.mjs",
+    "smoke:android:qdn-game": "QORTIUM_HOME_ANDROID_GAME_ONLY=1 node scripts/smoke-android-qdn-bridge.mjs",
     "smoke:android:qdn-download": "node scripts/smoke-android-qdn-download.mjs",
     "smoke:android:qdn-media": "node scripts/smoke-android-qdn-media.mjs",
     "smoke:android:update-install": "node scripts/smoke-android-update-install.mjs",

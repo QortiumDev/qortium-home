@@ -37,6 +37,13 @@ const fixtureAddress =
 // Previewnet discovery with no trusted node or wallet state. Keep the existing
 // assignments-only mode below for the local Core development loop.
 const publicAssignmentsOnly = process.env.QORTIUM_HOME_ANDROID_PUBLIC_ASSIGNMENTS_ONLY === '1';
+// Public-network GAME acceptance: prove a published browser-deliverable GAME
+// archive loads and runs on a real device, with no account, key or custom node.
+const gameOnly = process.env.QORTIUM_HOME_ANDROID_GAME_ONLY === '1';
+const gameFixtureName = process.env.QORTIUM_HOME_ANDROID_GAME_FIXTURE_NAME ?? 'QortiumHomeTest';
+const gameIdentifier = process.env.QORTIUM_HOME_ANDROID_GAME_IDENTIFIER ?? 'shell-game';
+const gameAddress = `qdn://GAME/${gameFixtureName}/${gameIdentifier}`;
+const gameInteractionTimeoutMs = 20_000;
 const accountRole = process.env.QORTIUM_HOME_SMOKE_ACCOUNT_ROLE ?? 'local';
 const previewAccountsPath = expandHomePath(
   process.env.QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH ??
@@ -1279,6 +1286,164 @@ async function getFixtureFrameContext(client) {
 
     return contextId ? { contextId, frame } : null;
   });
+}
+
+// Android renders QDN content in an iframe inside the WebView rather than a
+// separate CDP target, so the GAME is found in the frame tree. Matching on the
+// path alone keeps this working whichever public node Home discovered.
+async function getGameFrameContext(client) {
+  return waitUntil('QDN GAME iframe', cdpTimeoutMs, async () => {
+    const frameTree = await client.send('Page.getFrameTree');
+    const frames = flattenFrames(frameTree.frameTree);
+    const resourcePath = `/render/GAME/${encodeURIComponent(gameFixtureName)}/${encodeURIComponent(gameIdentifier)}`;
+    // Home serves the archive through its native proxy origin, which prefixes the
+    // view's token, so match the tail rather than the whole path.
+    const frame = frames.find((candidate) => {
+      try {
+        return new URL(candidate.url).pathname.endsWith(resourcePath);
+      } catch {
+        return false;
+      }
+    });
+
+    if (!frame) {
+      return null;
+    }
+
+    const contextId = client.contextsByFrame.get(frame.id);
+
+    return contextId ? { contextId, frame } : null;
+  });
+}
+
+async function runGameAssertions(client, contextId) {
+  const booted = await waitUntil('GAME archive to boot', appTimeoutMs, async () => {
+    const state = await evaluateInFrame(
+      client,
+      contextId,
+      `
+        (() => {
+          const text = (id) => {
+            const element = document.getElementById(id);
+            return element ? element.textContent.trim() : null;
+          };
+          return {
+            hasShell: !!document.getElementById('game-shell'),
+            cash: text('cash'),
+            inventory: text('inventory'),
+            shore: text('resource-value'),
+            hasCollect: !!document.getElementById('collect-button'),
+            images: Array.from(document.images).length,
+            brokenImages: Array.from(document.images)
+              .filter((image) => image.complete && image.naturalWidth === 0)
+              .map((image) => image.currentSrc || image.src),
+            documentBase: document.baseURI,
+          };
+        })()
+      `,
+    );
+
+    return state?.hasShell && state.cash && state.hasCollect ? state : null;
+  });
+
+  log(`GAME booted on device: cash ${booted.cash}, stock ${booted.inventory}.`);
+  assert(booted.images > 0, 'The GAME archive rendered no images, so its bundled art did not load.');
+  if (booted.brokenImages.length > 0) {
+    // Distinguish "the asset request failed" from "the page cannot use it":
+    // fetch() and <img> take different paths through the WebView, and on Android
+    // a QDN page served over http inside the https Capacitor host hits
+    // Chromium's mixed-content autoupgrade, which blocks images and media while
+    // fetch still succeeds. Reporting both makes that visible immediately.
+    const probe = await evaluateInFrame(
+      client,
+      contextId,
+      `
+        (async () => {
+          const target = new URL(${JSON.stringify(booted.brokenImages[0])}, document.baseURI).toString();
+          try {
+            const response = await fetch(target);
+            const blob = await response.blob();
+            return { target, status: response.status, type: blob.type, bytes: blob.size };
+          } catch (error) {
+            return { target, error: String(error && error.message ? error.message : error) };
+          }
+        })()
+      `,
+    );
+
+    log(`Document base: ${booted.documentBase}`);
+    log(`Failed assets: ${booted.brokenImages.slice(0, 3).join(', ')}`);
+    log(`Direct fetch of the first: ${JSON.stringify(probe)}`);
+    log('If fetch succeeds while the images fail, check logcat for "Mixed Content".');
+
+    fail(`${booted.brokenImages.length} of ${booted.images} image(s) in the GAME archive failed to load.`);
+  }
+
+  log(`All ${booted.images} bundled image(s) loaded.`);
+
+  // A rendered but dead first frame would satisfy everything above, so drive the
+  // game's own control and require its state to move.
+  const before = { cash: booted.cash, inventory: booted.inventory, shore: booted.shore };
+
+  const tap = await evaluateInFrame(
+    client,
+    contextId,
+    `
+      (() => {
+        const button = document.getElementById('collect-button');
+        const before = {
+          disabled: button.disabled,
+          hidden: button.hidden,
+          label: button.textContent.trim(),
+          message: (document.getElementById('market-message') || {}).textContent || null,
+        };
+        button.click();
+        return before;
+      })()
+    `,
+  );
+
+  const after = await waitUntil('the GAME to react to a collect tap', gameInteractionTimeoutMs, async () => {
+    const state = await evaluateInFrame(
+      client,
+      contextId,
+      `
+        (() => {
+          const text = (id) => {
+            const element = document.getElementById(id);
+            return element ? element.textContent.trim() : '';
+          };
+          return { cash: text('cash'), inventory: text('inventory'), shore: text('resource-value') };
+        })()
+      `,
+    );
+
+    const moved =
+      state &&
+      (state.inventory !== before.inventory || state.cash !== before.cash || state.shore !== before.shore);
+
+    return moved ? state : null;
+  }).catch(async (error) => {
+    const state = await evaluateInFrame(
+      client,
+      contextId,
+      `
+        (() => ({
+          inventory: (document.getElementById('inventory') || {}).textContent || null,
+          message: (document.getElementById('market-message') || {}).textContent || null,
+          collectHint: (document.getElementById('collect-hint') || {}).textContent || null,
+          disabled: !!(document.getElementById('collect-button') || {}).disabled,
+        }))()
+      `,
+    ).catch(() => null);
+
+    log(`Before the tap: ${JSON.stringify(tap)}`);
+    log(`After the tap: ${JSON.stringify(state)}`);
+
+    fail('The GAME did not react to a collect tap.');
+  });
+
+  log(`GAME responded to input: ${JSON.stringify(before)} -> ${JSON.stringify(after)} (button "${tap.label}").`);
 }
 
 function getUntaggedAppRenderUrl() {
@@ -2551,7 +2716,7 @@ async function main() {
   let androidWriteWallet;
   let ownedNames;
 
-  if (!publicAssignmentsOnly) {
+  if (!publicAssignmentsOnly && !gameOnly) {
     await assertLocalCoreReady();
     await assertFixtureReady();
     apiKey = getApiKey();
@@ -2581,6 +2746,21 @@ async function main() {
         await client.send('Runtime.enable');
         activeSmokeStage = 'skip Welcome setup';
         await skipWelcomeSetup(client);
+        if (gameOnly) {
+          activeSmokeStage = 'clear Android account';
+          await clearAndroidAccount(client);
+          activeSmokeStage = 'select Previewnet network';
+          await configurePublicNetwork(client);
+          activeSmokeStage = 'navigate to public GAME fixture';
+          await navigateToFixture(client, gameAddress);
+          const { contextId } = await getGameFrameContext(client);
+
+          log('Running public-network GAME assertions in the archive frame.');
+          activeSmokeStage = 'public-network GAME';
+          await runGameAssertions(client, contextId);
+          log('Android public-network GAME smoke test passed.');
+          return;
+        }
         if (publicAssignmentsOnly) {
           activeSmokeStage = 'clear Android account';
           await clearAndroidAccount(client);

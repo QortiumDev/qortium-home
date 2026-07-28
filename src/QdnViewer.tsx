@@ -40,6 +40,7 @@ import { compareAppPlatformVersions, getPlatformVersion } from '../electron/app-
 import { isQdnBrowserArchiveService } from '../electron/qdn-browser-archive-services';
 import { readableNodeErrorMessage } from '../electron/node-error-body';
 import {
+  authorizeQdnRenderProxyUrl,
   fetchNativeHttpBlobUrl,
   getQortiumHomeHostInfo,
   handleQdnAppRequest,
@@ -284,6 +285,22 @@ function buildAndroidQdnBridgeUrl(renderUrl: string, bridgeToken: string) {
   url.searchParams.set('qdnHomeBridge', bridgeToken);
 
   return url.toString();
+}
+
+/**
+ * Resolves the URL an Android QDN iframe should load.
+ *
+ * The proxied https origin is what keeps a page's own images, audio and video
+ * from being blocked as mixed content under Home's https host page. If the
+ * native proxy is unavailable — an older shell — fall back to the direct node
+ * URL, which still renders the page itself.
+ */
+async function resolveAndroidQdnFrameSrc(renderUrl: string, bridgeToken: string) {
+  try {
+    return await authorizeQdnRenderProxyUrl(renderUrl, bridgeToken);
+  } catch {
+    return buildAndroidQdnBridgeUrl(renderUrl, bridgeToken);
+  }
 }
 
 export type QdnBridgeFrameContentProps = {
@@ -3768,13 +3785,32 @@ export function QdnBridgeFrameContent({
   );
   const accountId = account?.id ?? null;
   const isAccountUnlocked = account?.isUnlocked ?? false;
-  const frameSrc = useMemo(
-    () =>
-      isNativeFrame && bridgeToken
-        ? buildAndroidQdnBridgeUrl(renderUrl, bridgeToken)
-        : renderUrl,
-    [bridgeToken, isNativeFrame, renderUrl],
-  );
+  // Authorizing the proxy is asynchronous, so the native frame stays unmounted
+  // until its URL is known rather than loading the direct node URL first and
+  // navigating away from it.
+  const [nativeFrameSrc, setNativeFrameSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isNativeFrame || !bridgeToken) {
+      setNativeFrameSrc(null);
+
+      return undefined;
+    }
+
+    let active = true;
+
+    void resolveAndroidQdnFrameSrc(renderUrl, bridgeToken).then((src) => {
+      if (active) {
+        setNativeFrameSrc(src);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [bridgeToken, isNativeFrame, renderUrl]);
+
+  const frameSrc = isNativeFrame ? nativeFrameSrc : renderUrl;
   const appZoom = typeof displaySettings.appZoom === 'number' && Number.isFinite(displaySettings.appZoom)
     ? displaySettings.appZoom
     : 100;
@@ -3980,6 +4016,12 @@ export function QdnBridgeFrameContent({
       window.removeEventListener('message', handleMessage);
     };
   }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
+
+  // The native frame has no URL until its proxy authorization resolves. Render
+  // the loading panel rather than an iframe pointed at nothing.
+  if (!frameSrc) {
+    return <QdnLoadingPanel message={t('viewer.loadingResource')} />;
+  }
 
   const frame = (
     <iframe
