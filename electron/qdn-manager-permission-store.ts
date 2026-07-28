@@ -4,14 +4,15 @@ import path from 'node:path';
 import {
   applyLegacyPreferredBookmarksUrl,
   createDefaultQdnAppRolesStore,
-  getQdnAppRoleForCapability,
-  isQdnAppRole,
+  grantQdnAppCapability,
+  isQdnAppCapability,
   migrateLegacyQdnAppStores,
   sanitizeQdnAppRolesStore,
-  sanitizeQdnManagerAppKey,
+  setQdnAppAssignment,
+  storeHoldsQdnAppCapability,
   storeHoldsQdnManagerPermission,
-  type QdnAppRole,
   type QdnAppRolesStore,
+  type QdnAppCapability,
   type QdnManagerCapability,
 } from './qdn-manager-permissions.js';
 import { assertShellWindowSender as assertShellSender } from './shell-window-sender.js';
@@ -42,7 +43,7 @@ function writeStore(store: QdnAppRolesStore) {
   mkdirSync(path.dirname(storePath), { recursive: true });
   writeFileSync(storePath, `${JSON.stringify(cachedStore, null, 2)}\n`, 'utf8');
   BrowserWindow.getAllWindows().forEach((window) => {
-    if (!window.isDestroyed()) window.webContents.send('qdn:app-roles-changed');
+    if (!window.isDestroyed()) window.webContents.send('qdn:app-assignments-changed');
   });
   return cachedStore;
 }
@@ -54,13 +55,10 @@ export function readQdnAppRolesStore() {
     return (cachedStore = sanitizeQdnAppRolesStore(readJsonFile(storePath)));
   }
 
-  // First load on this profile: migrate the legacy permission store, assuming
-  // the default bookmarks URL for now. The legacy file is kept on disk and the
-  // store stays marked legacyMigrated: false until the renderer reports its
-  // legacy Preferred apps store (which lives in the renderer on desktop) via
-  // migrateLegacyPreferredApps, so the joint migration can still preserve a
-  // matching legacy bookmarks grant. With no legacy file there is nothing to
-  // import and migration starts (and durably stays) completed.
+// First load on this profile imports the legacy assignment target. The legacy
+// file remains until the renderer reports its former Preferred-apps value, so
+// that value can still replace the default bookmarks target. Old role-bound
+// grants intentionally are not widened into independent v2 capabilities.
   const legacyStorePath = getLegacyStorePath();
   if (!existsSync(legacyStorePath)) return (cachedStore = createDefaultQdnAppRolesStore());
   const migrated = migrateLegacyQdnAppStores(readJsonFile(legacyStorePath), null);
@@ -76,11 +74,10 @@ function removeLegacyStoreFile(legacyStorePath: string) {
 /**
  * Completes the migration with the renderer-held legacy Preferred apps value.
  * Once the store carries legacyMigrated: true this is a durable no-op, so the
- * endpoint cannot be replayed later to move role URLs or drop grants. While
- * still pending, the legacy permission file is removed once the joint result
- * is known; if the role store changed between the first read and this call,
- * the overlay only moves the bookmarks routing URL and drops the grant — it
- * never adds one, failing toward fewer permissions.
+ * endpoint cannot be replayed later to move assignment URLs. While still
+ * pending, the legacy permission file is removed once the joint result is
+ * known; if the store changed between the first read and this call, the
+ * overlay only moves the bookmarks target and never creates a capability.
  */
 export function migrateLegacyPreferredApps(legacyPreferredApps: unknown) {
   const store = readQdnAppRolesStore();
@@ -107,38 +104,32 @@ export function hasQdnManagerPermission(appKey: string, capability: QdnManagerCa
   return storeHoldsQdnManagerPermission(readQdnAppRolesStore(), appKey, capability);
 }
 
+export function hasQdnAppCapability(appKey: string, capability: QdnAppCapability) {
+  return storeHoldsQdnAppCapability(readQdnAppRolesStore(), appKey, capability);
+}
+
 /**
- * Records user consent for `appKey` to hold the capability's role. By
- * construction this also makes it the role's app, replacing any previous
- * holder — a role is held by at most one app.
+ * Records user consent for `appKey` to hold one independent capability.
  */
 export function grantQdnManagerPermission(appKey: string, capability: QdnManagerCapability) {
-  const normalizedAppKey = sanitizeQdnManagerAppKey(appKey);
-  const store = readQdnAppRolesStore();
-  store.roles[getQdnAppRoleForCapability(capability)] = {
-    url: normalizedAppKey,
-    grantedAt: new Date().toISOString(),
-  };
-  return writeStore(store);
+  return writeStore(grantQdnAppCapability(readQdnAppRolesStore(), appKey, capability));
+}
+
+export function grantQdnAppCapabilityPermission(appKey: string, capability: QdnAppCapability) {
+  if (!isQdnAppCapability(capability)) throw new Error('QDN app capability is invalid.');
+  return writeStore(grantQdnAppCapability(readQdnAppRolesStore(), appKey, capability));
 }
 
 /**
  * Settings only selects the app for a role. The selected app must still use
  * the normal approval dialog before it receives the matching capability.
  */
-export function setQdnAppRoleUrl(role: QdnAppRole, url: string) {
-  const store = readQdnAppRolesStore();
-  store.roles[role] = { url: sanitizeQdnManagerAppKey(url), grantedAt: null };
-  return writeStore(store);
+export function setQdnAppAssignmentValue(input: { description?: unknown; label?: unknown; role: unknown; url: unknown }) {
+  return writeStore(setQdnAppAssignment(readQdnAppRolesStore(), input));
 }
 
-function assertQdnAppRole(role: unknown): QdnAppRole {
-  if (!isQdnAppRole(role)) throw new Error('QDN app role is invalid.');
-  return role;
-}
-
-// The whole role-store surface (read included — it names granted apps) is for
-// Home's own settings/shell UI. setAppRoleUrl changes a device-local role, so
+// The whole assignment-store surface is for Home's own settings/shell UI.
+// Assignment changes a device-local preference, so
 // preload topology must not be the only barrier: require the sender to be a
 // Home shell window's webContents and explicitly reject QDN app views.
 function assertShellWindowSender(sender: WebContents) {
@@ -146,14 +137,14 @@ function assertShellWindowSender(sender: WebContents) {
 }
 
 export function registerQdnManagerPermissionStoreIpcHandlers() {
-  ipcMain.handle('qdn:getAppRolesStore', (event) => {
+  ipcMain.handle('qdn:getAppAssignmentsStore', (event) => {
     assertShellWindowSender(event.sender);
     return readQdnAppRolesStore();
   });
-  ipcMain.handle('qdn:setAppRoleUrl', (event, role: unknown, url: unknown) => {
+  ipcMain.handle('qdn:setAppAssignment', (event, input: unknown) => {
     assertShellWindowSender(event.sender);
-    if (typeof url !== 'string') throw new Error('QDN app role URL is invalid.');
-    return setQdnAppRoleUrl(assertQdnAppRole(role), url);
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('QDN app assignment is invalid.');
+    return setQdnAppAssignmentValue(input as { description?: unknown; label?: unknown; role: unknown; url: unknown });
   });
   ipcMain.handle('qdn:migrateLegacyPreferredApps', (event, legacyPreferredApps: unknown) => {
     assertShellWindowSender(event.sender);

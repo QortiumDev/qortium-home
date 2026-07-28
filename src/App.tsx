@@ -460,6 +460,9 @@ function getQdnWriteActionKey(action: QortiumQdnWriteApprovalRequest['action']):
       return 'qdnWrite.action.updateNodeSettings';
     case 'UPDATE_HOME_SETTINGS':
       return 'qdnWrite.action.updateHomeSettings';
+    case 'GET_APP_ASSIGNMENTS':
+    case 'REQUEST_APP_ASSIGNMENT':
+      return 'qdnWrite.action.updateHomeSettings';
     case 'BOOKMARKS_GET':
     case 'BOOKMARKS_APPLY':
     case 'BOOKMARKS_OPEN':
@@ -1035,9 +1038,10 @@ export function App() {
     [displaySettings, systemLanguage, systemTheme],
   );
   const bookmarksManagerRoute = useMemo(
-    () => resolveBookmarksManagerRoute(qdnAppRoles.roles.bookmarksManager.url),
-    [qdnAppRoles.roles.bookmarksManager.url],
+    () => resolveBookmarksManagerRoute(qdnAppRoles.assignments.bookmarks?.url),
+    [qdnAppRoles.assignments.bookmarks?.url],
   );
+  const exploreAppUrl = qdnAppRoles.assignments.explore?.url ?? undefined;
 
   // Keep old home://bookmarks links working by moving them to the selected QDN
   // manager. Invalid persisted values fall back to the official manager rather
@@ -1064,7 +1068,7 @@ export function App() {
   useEffect(() => {
     setTabState((currentTabState) => {
       const tabs = currentTabState.tabs.map((tab) => {
-        const entries = replaceLegacyQdnExplorerRoutes(tab.history.entries);
+        const entries = replaceLegacyQdnExplorerRoutes(tab.history.entries, exploreAppUrl);
 
         return entries === tab.history.entries
           ? tab
@@ -1075,7 +1079,7 @@ export function App() {
         ? { ...currentTabState, tabs }
         : currentTabState;
     });
-  }, []);
+  }, [exploreAppUrl]);
 
   useEffect(() => {
     setQdnDocumentViewer((viewer) =>
@@ -2347,7 +2351,7 @@ export function App() {
       route = bookmarksManagerRoute;
     }
 
-    const exploreRoute = resolveExploreAppRoute(route);
+    const exploreRoute = resolveExploreAppRoute(route, exploreAppUrl);
 
     if (exploreRoute) {
       route = exploreRoute;

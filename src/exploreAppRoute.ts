@@ -1,11 +1,6 @@
 import { buildQdnDisplayUrl, type QdnExplorerRoute, type QdnResource } from './qdn';
-import type { AppRoute } from './routes';
-
-export const EXPLORE_APP = {
-  identifier: 'Explore',
-  name: 'Explore',
-  service: 'APP',
-} as const;
+import { parseAppAddress, type AppRoute } from './routes';
+import { DEFAULT_EXPLORE_APP_URL } from '../electron/qdn-manager-permissions';
 
 export type ExploreAppRoute = Extract<AppRoute, { kind: 'resource' }>;
 
@@ -30,14 +25,18 @@ function getExploreFragment(route: QdnExplorerRoute) {
  * Moves only Home's four legacy QDN listing routes into the published Explore
  * app. Direct resources deliberately remain native Home viewer routes.
  */
-export function resolveExploreAppRoute(route: AppRoute): ExploreAppRoute | null {
+export function resolveExploreAppRoute(route: AppRoute, targetUrl = DEFAULT_EXPLORE_APP_URL): ExploreAppRoute | null {
   if (!isLegacyQdnExplorerRoute(route)) {
     return null;
   }
 
+  const target = parseAppAddress(targetUrl);
+  if (!target.success || target.route.kind !== 'resource') {
+    return resolveExploreAppRoute(route, DEFAULT_EXPLORE_APP_URL);
+  }
   const fragment = getExploreFragment(route);
   const resource = {
-    ...EXPLORE_APP,
+    ...target.route.resource,
     fragment,
     path: '',
   } satisfies Omit<QdnResource, 'displayUrl'>;
@@ -53,10 +52,10 @@ export function resolveExploreAppRoute(route: AppRoute): ExploreAppRoute | null 
   };
 }
 
-export function replaceLegacyQdnExplorerRoutes(entries: AppRoute[]): AppRoute[] {
+export function replaceLegacyQdnExplorerRoutes(entries: AppRoute[], targetUrl = DEFAULT_EXPLORE_APP_URL): AppRoute[] {
   let changed = false;
   const nextEntries = entries.map((entry) => {
-    const exploreRoute = resolveExploreAppRoute(entry);
+    const exploreRoute = resolveExploreAppRoute(entry, targetUrl);
 
     if (!exploreRoute) return entry;
     changed = true;

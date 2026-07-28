@@ -1,22 +1,22 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import {
-  getQdnAppRoleForCapability,
   createDefaultQdnAppRolesStore,
+  grantQdnAppCapability,
   migrateLegacyQdnAppStores,
   sanitizeQdnAppRolesStore,
-  sanitizeQdnManagerAppKey,
-  storeHoldsQdnManagerPermission,
-  type QdnAppRole,
-  type QdnAppRolesStore,
+  setQdnAppAssignment,
+  storeHoldsQdnAppCapability,
+  type QdnAppAssignmentsStore,
+  type QdnAppCapability,
   type QdnManagerCapability,
 } from '../electron/qdn-manager-permissions';
 
 const STORE_KEY = 'qortium-home-qdn-apps';
 const LEGACY_PERMISSIONS_KEY = 'qortium-home-qdn-manager-permissions';
 const LEGACY_PREFERRED_APPS_KEY = 'qortium-home-preferred-apps';
-const listeners = new Set<(store: QdnAppRolesStore) => void>();
-let cachedStore: QdnAppRolesStore | null = null;
+const listeners = new Set<(store: QdnAppAssignmentsStore) => void>();
+let cachedStore: QdnAppAssignmentsStore | null = null;
 let removeDesktopListener: (() => void) | null = null;
 let desktopMigration: Promise<void> | null = null;
 
@@ -26,16 +26,13 @@ function parseJson(raw: string | null): unknown {
 }
 
 function ensureDesktopListener() {
-  const subscribe = window.qortiumHome.qdn?.onAppRolesChanged;
+  const subscribe = window.qortiumHome.qdn?.onAppAssignmentsChanged;
   if (!subscribe || removeDesktopListener) return;
   removeDesktopListener = subscribe(() => {
     void getQdnAppRolesStore().then((store) => listeners.forEach((listener) => listener(store)));
   });
 }
 
-// On desktop the unified store lives in the main process, but the legacy
-// Preferred apps store lived in this renderer's localStorage. Report it once so
-// the main-process migration can finish, then drop the legacy keys.
 function ensureDesktopMigration() {
   const migrate = window.qortiumHome.qdn?.migrateLegacyPreferredApps;
   if (!migrate || desktopMigration) return desktopMigration ?? Promise.resolve();
@@ -57,9 +54,6 @@ async function readLegacyLocalValue(key: string) {
     : window.localStorage.getItem(key);
 }
 
-// Best-effort, idempotent: a failed delete must never fail the store load, and
-// is retried on later loads so stale legacy grants cannot linger and be
-// re-imported if the unified key were ever lost.
 async function removeLegacyLocalValues() {
   for (const key of [LEGACY_PERMISSIONS_KEY, LEGACY_PREFERRED_APPS_KEY]) {
     try {
@@ -78,81 +72,63 @@ async function readLocalStore() {
     : window.localStorage.getItem(STORE_KEY);
   if (raw) {
     cachedStore = sanitizeQdnAppRolesStore(parseJson(raw));
-    // Retry the legacy cleanup in case an earlier removal attempt failed.
     await removeLegacyLocalValues();
     return cachedStore;
   }
-
-  // First load: migrate both legacy stores into the unified role store, then
-  // remove the legacy keys.
   const legacyPermissionsRaw = await readLegacyLocalValue(LEGACY_PERMISSIONS_KEY);
   const legacyPreferredAppsRaw = await readLegacyLocalValue(LEGACY_PREFERRED_APPS_KEY);
-  const legacyPermissions = parseJson(legacyPermissionsRaw);
-  const legacyPreferredApps = parseJson(legacyPreferredAppsRaw);
-  // With no legacy keys this is a new profile, so select the current defaults.
-  // Any legacy key means this is an upgrade and must preserve an intentionally
-  // unassigned Notifications Manager role.
   const initialStore = legacyPermissionsRaw === null && legacyPreferredAppsRaw === null
     ? createDefaultQdnAppRolesStore()
-    : migrateLegacyQdnAppStores(legacyPermissions, legacyPreferredApps);
+    : migrateLegacyQdnAppStores(parseJson(legacyPermissionsRaw), parseJson(legacyPreferredAppsRaw));
   const migrated = await writeLocalStore(initialStore);
   await removeLegacyLocalValues();
   return migrated;
 }
 
-async function writeLocalStore(store: QdnAppRolesStore) {
+async function writeLocalStore(store: QdnAppAssignmentsStore) {
   cachedStore = sanitizeQdnAppRolesStore(store);
   const value = JSON.stringify(cachedStore);
   if (Capacitor.isNativePlatform()) await Preferences.set({ key: STORE_KEY, value });
   else window.localStorage.setItem(STORE_KEY, value);
-  listeners.forEach((listener) => listener(cachedStore as QdnAppRolesStore));
+  listeners.forEach((listener) => listener(cachedStore as QdnAppAssignmentsStore));
   return cachedStore;
 }
 
-export async function getQdnAppRolesStore(): Promise<QdnAppRolesStore> {
+export async function getQdnAppRolesStore(): Promise<QdnAppAssignmentsStore> {
   ensureDesktopListener();
-  if (window.qortiumHome.qdn?.getAppRolesStore) {
+  if (window.qortiumHome.qdn?.getAppAssignmentsStore) {
     await ensureDesktopMigration();
-    return window.qortiumHome.qdn.getAppRolesStore();
+    return window.qortiumHome.qdn.getAppAssignmentsStore();
   }
   return readLocalStore();
 }
 
 export async function hasQdnManagerPermission(appKey: string, capability: QdnManagerCapability) {
-  return storeHoldsQdnManagerPermission(await getQdnAppRolesStore(), appKey, capability);
+  return storeHoldsQdnAppCapability(await getQdnAppRolesStore(), appKey, capability);
 }
 
-/**
- * Records user consent for `appKey` to hold the capability's role, replacing
- * any previous holder. Local (web/native) storage path only: on desktop the
- * grant prompt flow writes through the main process instead.
- */
+export async function hasQdnAppCapability(appKey: string, capability: QdnAppCapability) {
+  return storeHoldsQdnAppCapability(await getQdnAppRolesStore(), appKey, capability);
+}
+
 export async function grantQdnManagerPermission(appKey: string, capability: QdnManagerCapability) {
-  appKey = sanitizeQdnManagerAppKey(appKey);
-  const store = await readLocalStore();
-  store.roles[getQdnAppRoleForCapability(capability)] = {
-    url: appKey,
-    grantedAt: new Date().toISOString(),
-  };
-  return writeLocalStore(store);
+  return grantQdnAppCapabilityPermission(appKey, capability);
 }
 
-/**
- * Settings only selects the app for a role. The selected app must still use
- * the normal approval dialog before it receives the matching capability.
- */
-export async function setQdnAppRoleUrl(role: QdnAppRole, url: string) {
-  const normalizedUrl = sanitizeQdnManagerAppKey(url);
-  if (window.qortiumHome.qdn?.setAppRoleUrl) {
+export async function grantQdnAppCapabilityPermission(appKey: string, capability: QdnAppCapability) {
+  const store = await readLocalStore();
+  return writeLocalStore(grantQdnAppCapability(store, appKey, capability));
+}
+
+export async function setQdnAppAssignmentValue(input: { description?: unknown; label?: unknown; role: unknown; url: unknown }) {
+  if (window.qortiumHome.qdn?.setAppAssignment) {
     await ensureDesktopMigration();
-    return window.qortiumHome.qdn.setAppRoleUrl(role, normalizedUrl);
+    return window.qortiumHome.qdn.setAppAssignment(input);
   }
-  const store = await readLocalStore();
-  store.roles[role] = { url: normalizedUrl, grantedAt: null };
-  return writeLocalStore(store);
+  return writeLocalStore(setQdnAppAssignment(await readLocalStore(), input));
 }
 
-export function onQdnManagerPermissionsChanged(listener: (store: QdnAppRolesStore) => void) {
+export function onQdnManagerPermissionsChanged(listener: (store: QdnAppAssignmentsStore) => void) {
   ensureDesktopListener();
   listeners.add(listener);
   return () => listeners.delete(listener);

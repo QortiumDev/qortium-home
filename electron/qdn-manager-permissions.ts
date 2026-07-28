@@ -1,267 +1,294 @@
+/**
+ * User-owned QDN app assignments and durable, app-scoped capabilities.
+ *
+ * An assignment is only a launch/routing preference. It never grants an app
+ * access to Home data. Capabilities are granted separately to the stable QDN
+ * resource identity that requested them.
+ */
 export const QDN_MANAGER_CAPABILITIES = ['bookmarks.manage', 'notifications.manage'] as const;
+export const QDN_APP_ASSIGNMENT_CAPABILITIES = ['assignments.read'] as const;
+export const QDN_APP_CAPABILITIES = [...QDN_MANAGER_CAPABILITIES, ...QDN_APP_ASSIGNMENT_CAPABILITIES] as const;
 
 export type QdnManagerCapability = (typeof QDN_MANAGER_CAPABILITIES)[number];
-
-export const QDN_APP_ROLES = ['bookmarksManager', 'notificationsManager'] as const;
-
-export type QdnAppRole = (typeof QDN_APP_ROLES)[number];
-
-// A role and its capability are one concept: the app holding a role is the only
-// app that can be granted the matching manager capability.
-export const QDN_APP_ROLE_CAPABILITIES = {
-  bookmarksManager: 'bookmarks.manage',
-  notificationsManager: 'notifications.manage',
-} as const satisfies Record<QdnAppRole, QdnManagerCapability>;
+export type QdnAppCapability = (typeof QDN_APP_CAPABILITIES)[number];
 
 export const DEFAULT_BOOKMARKS_MANAGER_URL = 'qdn://APP/Bookmarks/Bookmarks';
 export const DEFAULT_NOTIFICATIONS_MANAGER_URL = 'qdn://APP/Notify/Notify';
+export const DEFAULT_EXPLORE_APP_URL = 'qdn://APP/Explore/Explore';
 
-export type QdnAppRoleState = {
-  // Canonical qdn://APP|WEBSITE/name/identifier app key, or null when the role
-  // is unassigned. bookmarksManager is never null after sanitizing because it
-  // also drives Home's bookmarks menu routing.
+export const QDN_DEFAULT_APP_ASSIGNMENTS = {
+  bookmarks: { description: 'App used when Home opens bookmarks.', label: 'Bookmarks', url: DEFAULT_BOOKMARKS_MANAGER_URL },
+  notifications: { description: 'App used to manage Home notifications.', label: 'Notifications', url: DEFAULT_NOTIFICATIONS_MANAGER_URL },
+  explore: { description: 'App used when Home opens QDN Explore.', label: 'Explore', url: DEFAULT_EXPLORE_APP_URL },
+} as const;
+
+export type QdnAppAssignment = {
+  description: string | null;
+  label: string;
+  // The full QDN URL is preserved, including a path, query, and fragment.
   url: string | null;
-  // Set when the role holder has been granted the role's capability. null means
-  // the app at `url` is only a routing preference and must still prompt.
-  grantedAt: string | null;
 };
 
-export type QdnAppRolesStore = {
-  // True once the one-time import of the legacy permission + preferred-apps
-  // stores has fully completed (or was never needed). While false, the store
-  // still accepts the legacy preferred-apps overlay; afterwards that endpoint
-  // is a durable no-op so it cannot be replayed to move role URLs.
+export type QdnAppAssignmentsStore = {
+  assignments: Record<string, QdnAppAssignment>;
+  capabilityGrants: Record<string, Partial<Record<QdnAppCapability, { grantedAt: string }>>>;
+  // Kept for the one-time import from the pre-assignments stores.
   legacyMigrated: boolean;
-  roles: Record<QdnAppRole, QdnAppRoleState>;
-  version: 1;
+  revision: number;
+  version: 2;
 };
+
+// Kept as a type alias while renderer/desktop migration call sites move to the
+// generic name. It intentionally no longer has a fixed `roles` record.
+export type QdnAppRolesStore = QdnAppAssignmentsStore;
 
 const APP_KEY_MAX_LENGTH = 2_048;
+const ROLE_ID_MAX_LENGTH = 120;
+const ROLE_LABEL_MAX_LENGTH = 80;
+const ROLE_DESCRIPTION_MAX_LENGTH = 280;
+const QDN_TARGET_PATTERN = /^qdn:\/\/(APP|WEBSITE)\/([^/?#]+)(?:\/([^/?#]+))?((?:\/[^?#]*)?(?:\?[^#]*)?(?:#.*)?)$/i;
+const ROLE_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._:/-][a-z0-9]+)*$/;
+const MAX_ASSIGNMENTS = 100;
+const UNSAFE_RECORD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sanitizeText(value: unknown, maxLength: number, field: string): string {
+  if (typeof value !== 'string') throw new Error(`${field} is required.`);
+  const text = value.trim();
+  if (!text || text.length > maxLength || /[\u0000-\u001f\u007f]/.test(text)) {
+    throw new Error(`${field} is invalid.`);
+  }
+  return text;
+}
+
+export function sanitizeQdnAppAssignmentRole(value: unknown): string {
+  const role = sanitizeText(value, ROLE_ID_MAX_LENGTH, 'Assignment role').toLowerCase();
+  if (!ROLE_ID_PATTERN.test(role) || UNSAFE_RECORD_KEYS.has(role)) {
+    throw new Error('Assignment role must be a stable lowercase identifier.');
+  }
+  return role;
+}
+
+export function sanitizeQdnAppAssignmentLabel(value: unknown, role: string): string {
+  if (typeof value === 'undefined' || value === null || value === '') return role;
+  return sanitizeText(value, ROLE_LABEL_MAX_LENGTH, 'Assignment label');
+}
+
+export function sanitizeQdnAppAssignmentDescription(value: unknown): string | null {
+  if (typeof value === 'undefined' || value === null || value === '') return null;
+  return sanitizeText(value, ROLE_DESCRIPTION_MAX_LENGTH, 'Assignment description');
+}
+
+/** Validates a complete APP/WEBSITE URL without discarding its app route. */
+export function sanitizeQdnAppAssignmentUrl(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('Assignment URL is required.');
+  const url = value.trim();
+  const match = QDN_TARGET_PATTERN.exec(url);
+  if (!url || url.length > APP_KEY_MAX_LENGTH || /[\u0000-\u001f\u007f\s]/.test(url) || !match) {
+    throw new Error('Assignment URL must be a valid QDN APP or WEBSITE resource URL.');
+  }
+  return `qdn://${match[1].toUpperCase()}/${match[2]}${match[3] ? `/${match[3]}` : ''}${match[4]}`;
+}
+
+/** Stable app identity for capability grants; intentionally omits app routing. */
+export function sanitizeQdnManagerAppKey(value: unknown): string {
+  const target = sanitizeQdnAppAssignmentUrl(value);
+  const match = QDN_TARGET_PATTERN.exec(target);
+  if (!match) throw new Error('App key must be a valid QDN APP or WEBSITE resource URL.');
+  return `qdn://${match[1].toUpperCase()}/${match[2]}${match[3] ? `/${match[3]}` : ''}`;
+}
+
+export function isQdnAppCapability(value: unknown): value is QdnAppCapability {
+  return typeof value === 'string' && (QDN_APP_CAPABILITIES as readonly string[]).includes(value);
 }
 
 export function isQdnManagerCapability(value: unknown): value is QdnManagerCapability {
   return typeof value === 'string' && (QDN_MANAGER_CAPABILITIES as readonly string[]).includes(value);
 }
 
-export function isQdnAppRole(value: unknown): value is QdnAppRole {
-  return typeof value === 'string' && (QDN_APP_ROLES as readonly string[]).includes(value);
+function defaultAssignments(): Record<string, QdnAppAssignment> {
+  return Object.fromEntries(Object.entries(QDN_DEFAULT_APP_ASSIGNMENTS).map(([role, assignment]) => [role, {
+    description: assignment.description,
+    label: assignment.label,
+    url: assignment.url,
+  }]));
 }
 
-export function getQdnAppRoleForCapability(capability: QdnManagerCapability): QdnAppRole {
-  return capability === 'bookmarks.manage' ? 'bookmarksManager' : 'notificationsManager';
-}
-
-export function sanitizeQdnManagerAppKey(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('App key is required.');
-  const appKey = value.trim();
-  const match = /^qdn:\/\/(APP|WEBSITE)\/([^/?#]+)\/([^/?#]+)(?:[/?#]|$)/i.exec(appKey);
-  if (!appKey || appKey.length > APP_KEY_MAX_LENGTH || !match) {
-    throw new Error('App key must be a valid QDN APP or WEBSITE resource URL.');
-  }
-  return `qdn://${match[1].toUpperCase()}/${match[2]}/${match[3]}`;
-}
-
-export function createDefaultQdnAppRolesStore(): QdnAppRolesStore {
-  // Fresh installs have nothing to import, so migration starts completed.
+export function createDefaultQdnAppRolesStore(): QdnAppAssignmentsStore {
   return {
-    version: 1,
+    assignments: defaultAssignments(),
+    capabilityGrants: {},
     legacyMigrated: true,
-    roles: {
-      bookmarksManager: { url: DEFAULT_BOOKMARKS_MANAGER_URL, grantedAt: null },
-      // The official manager is selected for new profiles, but it still has
-      // to request notifications.manage through Home's approval dialog.
-      notificationsManager: { url: DEFAULT_NOTIFICATIONS_MANAGER_URL, grantedAt: null },
-    },
+    revision: 0,
+    version: 2,
   };
 }
 
-// A grant timestamp must parse to a finite instant; corrupt values clear the
-// grant (fail toward fewer permissions) instead of counting as "granted".
 function sanitizeGrantedAt(value: unknown): string | null {
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
-/**
- * Reads an untrusted persisted value into a valid role store. The shape itself
- * enforces at most one app per role, so stale or hand-edited data can never
- * resurrect a second capability holder; anything unreadable fails toward fewer
- * permissions (grantedAt: null) and toward the default bookmarks routing URL.
- */
-export function sanitizeQdnAppRolesStore(value: unknown): QdnAppRolesStore {
-  const store = createDefaultQdnAppRolesStore();
-  if (!isRecord(value) || value.version !== 1 || !isRecord(value.roles)) return store;
-
-  // Only an explicit false keeps the one-time migration window open; anything
-  // else — including a store persisted before the marker existed — counts as
-  // completed, so the legacy overlay endpoint fails closed.
-  store.legacyMigrated = value.legacyMigrated !== false;
-
-  for (const role of QDN_APP_ROLES) {
-    const rawRole = value.roles[role];
-    if (!isRecord(rawRole)) continue;
-    // Home 1.5.2 persisted an explicitly unassigned Notifications Manager.
-    // Keep that deliberate legacy state during sanitizing instead of treating
-    // it as a missing/corrupt role and silently selecting the new default.
-    // An unassigned role can never retain a capability grant.
-    if (role === 'notificationsManager' && rawRole.url === null) {
-      store.roles[role] = { url: null, grantedAt: null };
-      continue;
-    }
-    let url: string | null = null;
-    try { url = sanitizeQdnManagerAppKey(rawRole.url); } catch { url = null; }
-    if (url === null) {
-      // Invalid URLs keep the default routing URL; a grant never survives
-      // without a valid holder URL.
-      continue;
-    }
-    store.roles[role] = { url, grantedAt: sanitizeGrantedAt(rawRole.grantedAt) };
+function sanitizeAssignment(role: string, value: unknown, fallback?: QdnAppAssignment): QdnAppAssignment | null {
+  if (!isRecord(value)) return fallback ?? null;
+  const label = sanitizeQdnAppAssignmentLabel(value.label, role);
+  const description = sanitizeQdnAppAssignmentDescription(value.description);
+  if (value.url === null) return { description, label, url: null };
+  try {
+    return { description, label, url: sanitizeQdnAppAssignmentUrl(value.url) };
+  } catch {
+    return fallback ?? null;
   }
-  return store;
 }
 
-/** An app holds a capability iff it is the granted holder of the matching role. */
-export function storeHoldsQdnManagerPermission(
-  store: QdnAppRolesStore,
-  appKey: string,
-  capability: QdnManagerCapability,
-) {
-  let normalizedAppKey: string;
-  try { normalizedAppKey = sanitizeQdnManagerAppKey(appKey); } catch { return false; }
-  const role = store.roles[getQdnAppRoleForCapability(capability)];
-  return role.url === normalizedAppKey && role.grantedAt !== null;
-}
-
-/**
- * Returns the app the prompting app would replace as the granted role holder,
- * or null when the role is unheld or already held by the prompting app.
- */
-export function getQdnAppRoleReplacedHolder(
-  store: QdnAppRolesStore,
-  appKey: string,
-  capability: QdnManagerCapability,
-): string | null {
-  const role = store.roles[getQdnAppRoleForCapability(capability)];
-  if (role.grantedAt === null || role.url === null) return null;
-  let normalizedAppKey: string;
-  try { normalizedAppKey = sanitizeQdnManagerAppKey(appKey); } catch { return role.url; }
-  return role.url === normalizedAppKey ? null : role.url;
-}
-
-type LegacyGrant = { appKey: string; grantedAt: string };
-
-// Legacy store shapes replaced by the unified role store in 2026-07 ("QDN Apps"
-// settings consolidation). Kept only to migrate persisted data forward.
-function readLegacyManagerGrants(value: unknown): Record<QdnManagerCapability, LegacyGrant[]> {
-  const grants: Record<QdnManagerCapability, LegacyGrant[]> = {
-    'bookmarks.manage': [],
-    'notifications.manage': [],
-  };
-  if (!isRecord(value) || value.version !== 1 || !isRecord(value.grants)) return grants;
-  for (const [rawAppKey, rawCapabilities] of Object.entries(value.grants)) {
+function sanitizeCapabilityGrants(value: unknown) {
+  const grants: QdnAppAssignmentsStore['capabilityGrants'] = {};
+  if (!isRecord(value)) return grants;
+  for (const [rawAppKey, rawCapabilities] of Object.entries(value)) {
     let appKey: string;
     try { appKey = sanitizeQdnManagerAppKey(rawAppKey); } catch { continue; }
     if (!isRecord(rawCapabilities)) continue;
-    for (const capability of QDN_MANAGER_CAPABILITIES) {
+    const safeCapabilities: Partial<Record<QdnAppCapability, { grantedAt: string }>> = {};
+    for (const capability of QDN_APP_CAPABILITIES) {
       const rawGrant = rawCapabilities[capability];
-      if (!isRecord(rawGrant)) continue;
-      const grantedAt = sanitizeGrantedAt(rawGrant.grantedAt);
-      if (grantedAt) grants[capability].push({ appKey, grantedAt });
+      const grantedAt = isRecord(rawGrant) ? sanitizeGrantedAt(rawGrant.grantedAt) : null;
+      if (grantedAt) safeCapabilities[capability] = { grantedAt };
     }
+    if (Object.keys(safeCapabilities).length) grants[appKey] = safeCapabilities;
   }
   return grants;
 }
 
-function readLegacyPreferredBookmarksUrl(value: unknown): string | null {
-  if (!isRecord(value) || value.version !== 1) return null;
-  try { return sanitizeQdnManagerAppKey(value.bookmarksManager); } catch { return null; }
-}
-
-function toGrantTime(grantedAt: string) {
-  const time = Date.parse(grantedAt);
-  return Number.isFinite(time) ? time : 0;
-}
-
-/**
- * One-time migration from the two legacy stores (the QDN manager permission
- * grants and the Preferred apps store) into the unified role store.
- *
- * - bookmarksManager.url comes from the legacy preferred bookmarks manager
- *   (default when absent/invalid); its grant survives only when the legacy
- *   bookmarks.manage holder is that same app — other holders are dropped, so
- *   migration always fails toward fewer permissions.
- * - notificationsManager keeps the most recently granted legacy
- *   notifications.manage holder; other holders are dropped.
- */
-export function migrateLegacyQdnAppStores(
-  legacyPermissions: unknown,
-  legacyPreferredApps: unknown,
-): QdnAppRolesStore {
+function migrateVersionOneStore(value: Record<string, unknown>): QdnAppAssignmentsStore {
   const store = createDefaultQdnAppRolesStore();
-  // A pre-default profile may have deliberately left this role unassigned.
-  // Preserve that state during the one-time migration; never select Notify or
-  // grant it access just because Home was upgraded.
-  store.roles.notificationsManager = { url: null, grantedAt: null };
-  const grants = readLegacyManagerGrants(legacyPermissions);
-
-  const bookmarksUrl = readLegacyPreferredBookmarksUrl(legacyPreferredApps) ?? DEFAULT_BOOKMARKS_MANAGER_URL;
-  const bookmarksGrant = grants['bookmarks.manage'].find((grant) => grant.appKey === bookmarksUrl);
-  store.roles.bookmarksManager = { url: bookmarksUrl, grantedAt: bookmarksGrant?.grantedAt ?? null };
-
-  const notificationsGrant = grants['notifications.manage']
-    .slice()
-    .sort((left, right) => toGrantTime(right.grantedAt) - toGrantTime(left.grantedAt)
-      || left.appKey.localeCompare(right.appKey))[0];
-  if (notificationsGrant) {
-    store.roles.notificationsManager = {
-      url: notificationsGrant.appKey,
-      grantedAt: notificationsGrant.grantedAt,
-    };
+  store.legacyMigrated = value.legacyMigrated !== false;
+  if (!isRecord(value.roles)) return store;
+  const legacyRoles: Array<[string, QdnManagerCapability, string]> = [
+    ['bookmarksManager', 'bookmarks.manage', 'bookmarks'],
+    ['notificationsManager', 'notifications.manage', 'notifications'],
+  ];
+  for (const [legacyRole, capability, role] of legacyRoles) {
+    const rawRole = value.roles[legacyRole];
+    if (!isRecord(rawRole)) continue;
+    if (rawRole.url === null) {
+      const existing = store.assignments[role];
+      store.assignments[role] = { ...existing, url: null };
+      continue;
+    }
+    let url: string;
+    try { url = sanitizeQdnAppAssignmentUrl(rawRole.url); } catch { continue; }
+    const existing = store.assignments[role];
+    store.assignments[role] = { ...existing, url };
+    // v1 tied a grant to being the current role holder. That guarantee no
+    // longer exists in v2, so do not silently widen an old appointment into a
+    // durable independent capability. The app can ask the user again.
+    void capability;
   }
   return store;
 }
 
-/**
- * Desktop keeps the legacy Preferred apps store in the renderer while the
- * permission store lives in the main process, so the joint migration can run
- * before the renderer has reported its legacy preferred bookmarks URL. This
- * reconciles afterwards: it only ever moves the bookmarks routing URL off the
- * default and drops the grant (never adds one), failing toward fewer
- * permissions if a grant raced in between. Once the store is marked
- * legacyMigrated the overlay is a no-op, so it cannot be replayed later to
- * move the routing URL.
- */
-export function applyLegacyPreferredBookmarksUrl(
-  store: QdnAppRolesStore,
-  legacyPreferredApps: unknown,
-): QdnAppRolesStore {
-  const legacyUrl = readLegacyPreferredBookmarksUrl(legacyPreferredApps);
-  if (
-    store.legacyMigrated
-    || legacyUrl === null
-    || legacyUrl === DEFAULT_BOOKMARKS_MANAGER_URL
-    || store.roles.bookmarksManager.url !== DEFAULT_BOOKMARKS_MANAGER_URL
-  ) {
-    return store;
+/** Reads untrusted persisted data, including the old fixed-manager v1 store. */
+export function sanitizeQdnAppRolesStore(value: unknown): QdnAppAssignmentsStore {
+  if (!isRecord(value)) return createDefaultQdnAppRolesStore();
+  if (value.version === 1) return migrateVersionOneStore(value);
+  if (value.version !== 2 || !isRecord(value.assignments)) return createDefaultQdnAppRolesStore();
+
+  const store = createDefaultQdnAppRolesStore();
+  store.legacyMigrated = value.legacyMigrated !== false;
+  store.revision = Number.isSafeInteger(value.revision) && (value.revision as number) >= 0 ? value.revision as number : 0;
+  for (const [rawRole, rawAssignment] of Object.entries(value.assignments).slice(0, MAX_ASSIGNMENTS)) {
+    let role: string;
+    try { role = sanitizeQdnAppAssignmentRole(rawRole); } catch { continue; }
+    const assignment = sanitizeAssignment(role, rawAssignment, store.assignments[role]);
+    if (assignment) store.assignments[role] = assignment;
   }
-  return {
-    ...store,
-    roles: {
-      ...store.roles,
-      bookmarksManager: { url: legacyUrl, grantedAt: null },
-    },
-  };
+  store.capabilityGrants = sanitizeCapabilityGrants(value.capabilityGrants);
+  return store;
 }
 
-/**
- * Decides whether an IPC sender may use the role-store surface (read, assign,
- * revoke, migrate). Only the Home shell window's own webContents qualifies:
- * QDN app views are rejected explicitly (their only path to a role is the
- * grant prompt) and so is any unknown sender, regardless of preload topology.
- * Pure so the policy is unit-testable outside Electron.
- */
+export function getQdnAppAssignment(store: QdnAppAssignmentsStore, role: string): QdnAppAssignment | null {
+  try { return store.assignments[sanitizeQdnAppAssignmentRole(role)] ?? null; } catch { return null; }
+}
+
+export function setQdnAppAssignment(
+  store: QdnAppAssignmentsStore,
+  input: { description?: unknown; label?: unknown; role: unknown; url: unknown },
+) {
+  const role = sanitizeQdnAppAssignmentRole(input.role);
+  const current = store.assignments[role];
+  if (!current && Object.keys(store.assignments).length >= MAX_ASSIGNMENTS) {
+    throw new Error(`Home supports at most ${MAX_ASSIGNMENTS} app assignments.`);
+  }
+  const next: QdnAppAssignment = {
+    description: sanitizeQdnAppAssignmentDescription(input.description ?? current?.description),
+    label: sanitizeQdnAppAssignmentLabel(input.label ?? current?.label, role),
+    url: sanitizeQdnAppAssignmentUrl(input.url),
+  };
+  if (JSON.stringify(current) === JSON.stringify(next)) return store;
+  return {
+    ...store,
+    assignments: { ...store.assignments, [role]: next },
+    revision: store.revision + 1,
+  } satisfies QdnAppAssignmentsStore;
+}
+
+export function clearQdnAppAssignment(store: QdnAppAssignmentsStore, roleValue: unknown) {
+  const role = sanitizeQdnAppAssignmentRole(roleValue);
+  const current = store.assignments[role];
+  if (!current || current.url === null) return store;
+  return {
+    ...store,
+    assignments: { ...store.assignments, [role]: { ...current, url: null } },
+    revision: store.revision + 1,
+  } satisfies QdnAppAssignmentsStore;
+}
+
+export function storeHoldsQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue: unknown, capability: QdnAppCapability) {
+  let appKey: string;
+  try { appKey = sanitizeQdnManagerAppKey(appKeyValue); } catch { return false; }
+  return !!store.capabilityGrants[appKey]?.[capability];
+}
+
+export function storeHoldsQdnManagerPermission(store: QdnAppAssignmentsStore, appKey: string, capability: QdnManagerCapability) {
+  return storeHoldsQdnAppCapability(store, appKey, capability);
+}
+
+export function grantQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue: unknown, capability: QdnAppCapability) {
+  const appKey = sanitizeQdnManagerAppKey(appKeyValue);
+  if (storeHoldsQdnAppCapability(store, appKey, capability)) return store;
+  return {
+    ...store,
+    capabilityGrants: {
+      ...store.capabilityGrants,
+      [appKey]: { ...(store.capabilityGrants[appKey] ?? {}), [capability]: { grantedAt: new Date().toISOString() } },
+    },
+    revision: store.revision + 1,
+  } satisfies QdnAppAssignmentsStore;
+}
+
+// Legacy stores predate the generic v2 schema. Preserve the chosen bookmarks
+// target, but intentionally do not carry over manager grants: v1 grants were
+// appointments tied to one role, whereas v2 capabilities are independent.
+export function migrateLegacyQdnAppStores(legacyPermissions: unknown, legacyPreferredApps: unknown): QdnAppAssignmentsStore {
+  let next = createDefaultQdnAppRolesStore();
+  const preferred = isRecord(legacyPreferredApps) ? legacyPreferredApps.bookmarksManager : undefined;
+  if (typeof preferred === 'string') {
+    try { next = setQdnAppAssignment(next, { role: 'bookmarks', url: preferred }); } catch { /* default */ }
+  }
+  void legacyPermissions;
+  return next;
+}
+
+// The former renderer-side preferred-bookmarks migration remains a harmless
+// compatibility seam; it now changes only the bookmarks assignment.
+export function applyLegacyPreferredBookmarksUrl(store: QdnAppAssignmentsStore, legacyPreferredApps: unknown) {
+  if (store.legacyMigrated || !isRecord(legacyPreferredApps)) return store;
+  try { return setQdnAppAssignment(store, { role: 'bookmarks', url: legacyPreferredApps.bookmarksManager }); }
+  catch { return store; }
+}
+
 export function isTrustedQdnAppRolesSender(input: {
   senderId: number;
   isQdnView: boolean;

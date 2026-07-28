@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   QDN_APP_BRIDGE_ACTIONS,
+  QDN_APP_ASSIGNMENT_ACTIONS,
   QDN_BOOKMARK_MANAGER_ACTIONS,
   QDN_NOTIFICATION_MANAGER_ACTIONS,
   QDN_PUBLIC_NODE_BRIDGE_ACTIONS,
@@ -30,9 +31,11 @@ const managerActions = [...expectedBookmarkActions, ...expectedNotificationActio
 const promptActions = managerActions.filter((action) => !action.endsWith('_HAS_PERMISSION'));
 const nonPromptActions = managerActions.filter((action) => action.endsWith('_HAS_PERMISSION'));
 const localPreviewActions = ['PREVIEW_QDN_PUBLISH_SOURCE'];
+const assignmentActions = ['GET_APP_ASSIGNMENTS', 'REQUEST_APP_ASSIGNMENT'];
 
 assert.deepEqual([...QDN_BOOKMARK_MANAGER_ACTIONS], expectedBookmarkActions);
 assert.deepEqual([...QDN_NOTIFICATION_MANAGER_ACTIONS], expectedNotificationActions);
+assert.deepEqual([...QDN_APP_ASSIGNMENT_ACTIONS], assignmentActions);
 
 for (const action of managerActions) {
   assert.equal(
@@ -58,6 +61,10 @@ for (const action of localPreviewActions) {
     false,
     `${action} must not be advertised for public/network nodes.`,
   );
+}
+for (const action of assignmentActions) {
+  assert.equal(QDN_APP_BRIDGE_ACTIONS.filter((candidate) => candidate === action).length, 1, `${action} must appear exactly once in QDN_APP_BRIDGE_ACTIONS.`);
+  assert.equal(QDN_PUBLIC_NODE_BRIDGE_ACTIONS.includes(action), true, `${action} must remain available on public/network nodes.`);
 }
 
 const androidBridgePath = path.join(
@@ -87,6 +94,26 @@ for (const action of localPreviewActions) {
     longActionsBody.includes(`${action}:1`),
     `${action} must use Android's long request timeout while Core stages the selected source.`,
   );
+}
+for (const action of assignmentActions) {
+  assert(longActionsBody.includes(`${action}:1`), `${action} must use Android's long timeout because it can show a Home approval dialog.`);
+}
+
+for (const [label, source, freshness] of [
+  ['desktop', desktopBridge, 'assertFreshQdnWriteContext(sender, context)'],
+  ['Android', androidPlatformBridge, 'context.isCurrent && !context.isCurrent()'],
+]) {
+  const handler = readFunction(source, 'handleQdnAppAssignmentAction');
+  for (const required of [
+    "action === 'GET_APP_ASSIGNMENTS'",
+    'action,',
+    "permissionScope: 'single-request'",
+    "label: 'Current target'",
+    "label: 'Proposed target'",
+    freshness,
+  ]) {
+    assert(handler.includes(required), `${label} assignment bridge must include ${required}.`);
+  }
 }
 
 for (const [label, source, required] of [

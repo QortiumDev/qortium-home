@@ -30,8 +30,9 @@ Supported read-only actions are `FETCH_NODE_API`, `FETCH_ACCOUNT_AVATAR`, `FETCH
 `IS_USING_PUBLIC_NODE`, `GET_HOME_SETTINGS_METADATA`, `GET_HOME_SETTINGS`,
 `BOOKMARKS_HAS_PERMISSION`, `NOTIFICATION_MANAGER_HAS_PERMISSION`, and the
 permissioned bookmark/notification manager reads.
-`UPDATE_HOME_SETTINGS` is available in every node mode but requires a
-single-request approval before changing Home's display settings. See
+`GET_APP_ASSIGNMENTS` asks once for an app-scoped assignment-read approval.
+`UPDATE_HOME_SETTINGS` and `REQUEST_APP_ASSIGNMENT` are available in every node mode but require a
+single-request approval before changing Home preferences. See
 [Home settings QDN bridge](HOME_SETTINGS_BRIDGE.md) for request shapes and
 the live settings-change event. Bookmark and notification management use
 separate durable capabilities and revision-checked mutations; see
@@ -52,6 +53,9 @@ The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `NOTIFICATION_MANAGER_REMOVE_RULES`, and `NOTIFICATION_MANAGER_REVOKE`. They
 remain available when Home uses a public/network node because they operate on
 Home's local device data rather than Core.
+
+`GET_APP_ASSIGNMENTS` and `REQUEST_APP_ASSIGNMENT` provide the generic,
+consented app-target mechanism; see [Home app assignments](HOME_APP_ASSIGNMENTS.md).
 
 ## Account and group avatars
 
