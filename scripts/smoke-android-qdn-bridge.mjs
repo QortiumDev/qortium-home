@@ -1371,13 +1371,12 @@ async function runGameAssertions(client, contextId) {
       `,
     );
 
-    fail(
-      `${booted.brokenImages.length} of ${booted.images} image(s) in the GAME archive failed to load.\n` +
-        `Document base: ${booted.documentBase}\n` +
-        `First failures:\n  ${booted.brokenImages.slice(0, 3).join('\n  ')}\n` +
-        `Direct fetch of the first: ${JSON.stringify(probe)}\n` +
-        `If fetch succeeds while the images fail, check logcat for "Mixed Content".`,
-    );
+    log(`Document base: ${booted.documentBase}`);
+    log(`Failed assets: ${booted.brokenImages.slice(0, 3).join(', ')}`);
+    log(`Direct fetch of the first: ${JSON.stringify(probe)}`);
+    log('If fetch succeeds while the images fail, check logcat for "Mixed Content".');
+
+    fail(`${booted.brokenImages.length} of ${booted.images} image(s) in the GAME archive failed to load.`);
   }
 
   log(`All ${booted.images} bundled image(s) loaded.`);
@@ -1438,7 +1437,10 @@ async function runGameAssertions(client, contextId) {
       `,
     ).catch(() => null);
 
-    fail(`${error.message}\nBefore the tap: ${JSON.stringify(tap)}\nAfter the tap: ${JSON.stringify(state)}`);
+    log(`Before the tap: ${JSON.stringify(tap)}`);
+    log(`After the tap: ${JSON.stringify(state)}`);
+
+    fail('The GAME did not react to a collect tap.');
   });
 
   log(`GAME responded to input: ${JSON.stringify(before)} -> ${JSON.stringify(after)} (button "${tap.label}").`);
@@ -2827,17 +2829,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(() => {
   console.error('[android-qdn-smoke] Smoke test failed.');
   console.error(`[android-qdn-smoke] Failed during ${activeSmokeStage}.`);
-
-  if (gameOnly) {
-    // The GAME lane runs with no account, key or custom node, and its assertions
-    // only ever describe the published fixture, so its messages are safe to print.
-    console.error(`[android-qdn-smoke] ${error?.message ?? error}`);
-  } else {
-    console.error('[android-qdn-smoke] Error details are suppressed to avoid logging API keys or environment-derived values.');
-  }
-
+  console.error('[android-qdn-smoke] Error details are suppressed to avoid logging API keys or environment-derived values.');
   process.exitCode = 1;
 });
