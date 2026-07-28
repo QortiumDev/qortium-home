@@ -30,6 +30,12 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     @Override
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        // Proxied QDN requests are checked first: they use a host Capacitor does not
+        // know, and its fallback would answer them with the app shell.
+        if (request != null && QdnRenderProxy.isProxyUrl(request.getUrl())) {
+            return serveProxiedQdnRequest(request);
+        }
+
         WebResourceResponse capacitorResponse = super.shouldInterceptRequest(view, request);
 
         if (capacitorResponse != null) {
@@ -47,6 +53,45 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         }
     }
 
+    /**
+     * Serves a request made against the QDN proxy origin from the node the view's
+     * token was authorized for. An unauthorized token is refused rather than
+     * passed through, so the proxy can never reach an origin Home did not choose.
+     */
+    private WebResourceResponse serveProxiedQdnRequest(WebResourceRequest request) {
+        String upstreamUrl = QdnRenderProxy.resolveUpstreamUrl(request.getUrl());
+
+        if (upstreamUrl == null) {
+            return forbiddenResponse();
+        }
+
+        try {
+            // The bridge token still travels in the query, exactly as it does for a
+            // direct render request; only the origin the page loads from changed.
+            String bridgeToken = request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM);
+
+            return fetchUpstream(request, upstreamUrl, bridgeToken);
+        } catch (IOException ignored) {
+            return null;
+        }
+    }
+
+    private WebResourceResponse forbiddenResponse() {
+        byte[] body = "QDN render proxy request was not authorized.".getBytes(StandardCharsets.UTF_8);
+        Map<String, String> headers = new HashMap<>();
+
+        headers.put("Cache-Control", "no-store");
+
+        return new WebResourceResponse(
+            "text/plain",
+            StandardCharsets.UTF_8.name(),
+            403,
+            "Forbidden",
+            headers,
+            new ByteArrayInputStream(body)
+        );
+    }
+
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         if (request == null || request.isForMainFrame()) {
@@ -54,6 +99,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         }
 
         Uri url = request.getUrl();
+
+        if (QdnRenderProxy.isProxyUrl(url)) {
+            return false;
+        }
 
         if (!isHttpScheme(url.getScheme())) {
             return true;
@@ -79,8 +128,12 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     }
 
     private WebResourceResponse fetchAndInjectQdnBridge(WebResourceRequest request) throws IOException {
-        String bridgeToken = request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM);
-        HttpURLConnection connection = (HttpURLConnection) new URL(request.getUrl().toString()).openConnection();
+        return fetchUpstream(request, request.getUrl().toString(), request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM));
+    }
+
+    private WebResourceResponse fetchUpstream(WebResourceRequest request, String upstreamUrl, String bridgeToken)
+        throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(upstreamUrl).openConnection();
 
         connection.setConnectTimeout(REQUEST_TIMEOUT_MS);
         connection.setReadTimeout(REQUEST_TIMEOUT_MS);

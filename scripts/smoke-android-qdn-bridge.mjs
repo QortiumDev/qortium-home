@@ -1296,9 +1296,11 @@ async function getGameFrameContext(client) {
     const frameTree = await client.send('Page.getFrameTree');
     const frames = flattenFrames(frameTree.frameTree);
     const resourcePath = `/render/GAME/${encodeURIComponent(gameFixtureName)}/${encodeURIComponent(gameIdentifier)}`;
+    // Home serves the archive through its native proxy origin, which prefixes the
+    // view's token, so match the tail rather than the whole path.
     const frame = frames.find((candidate) => {
       try {
-        return new URL(candidate.url).pathname === resourcePath;
+        return new URL(candidate.url).pathname.endsWith(resourcePath);
       } catch {
         return false;
       }
@@ -1329,6 +1331,7 @@ async function runGameAssertions(client, contextId) {
             hasShell: !!document.getElementById('game-shell'),
             cash: text('cash'),
             inventory: text('inventory'),
+            shore: text('resource-value'),
             hasCollect: !!document.getElementById('collect-button'),
             images: Array.from(document.images).length,
             brokenImages: Array.from(document.images)
@@ -1377,23 +1380,68 @@ async function runGameAssertions(client, contextId) {
     );
   }
 
+  log(`All ${booted.images} bundled image(s) loaded.`);
+
   // A rendered but dead first frame would satisfy everything above, so drive the
   // game's own control and require its state to move.
-  const before = booted.inventory;
+  const before = { cash: booted.cash, inventory: booted.inventory, shore: booted.shore };
 
-  await evaluateInFrame(client, contextId, "document.getElementById('collect-button').click(); true");
+  const tap = await evaluateInFrame(
+    client,
+    contextId,
+    `
+      (() => {
+        const button = document.getElementById('collect-button');
+        const before = {
+          disabled: button.disabled,
+          hidden: button.hidden,
+          label: button.textContent.trim(),
+          message: (document.getElementById('market-message') || {}).textContent || null,
+        };
+        button.click();
+        return before;
+      })()
+    `,
+  );
 
   const after = await waitUntil('the GAME to react to a collect tap', gameInteractionTimeoutMs, async () => {
-    const inventory = await evaluateInFrame(
+    const state = await evaluateInFrame(
       client,
       contextId,
-      "document.getElementById('inventory') ? document.getElementById('inventory').textContent.trim() : null",
+      `
+        (() => {
+          const text = (id) => {
+            const element = document.getElementById(id);
+            return element ? element.textContent.trim() : '';
+          };
+          return { cash: text('cash'), inventory: text('inventory'), shore: text('resource-value') };
+        })()
+      `,
     );
 
-    return inventory && inventory !== before ? inventory : null;
+    const moved =
+      state &&
+      (state.inventory !== before.inventory || state.cash !== before.cash || state.shore !== before.shore);
+
+    return moved ? state : null;
+  }).catch(async (error) => {
+    const state = await evaluateInFrame(
+      client,
+      contextId,
+      `
+        (() => ({
+          inventory: (document.getElementById('inventory') || {}).textContent || null,
+          message: (document.getElementById('market-message') || {}).textContent || null,
+          collectHint: (document.getElementById('collect-hint') || {}).textContent || null,
+          disabled: !!(document.getElementById('collect-button') || {}).disabled,
+        }))()
+      `,
+    ).catch(() => null);
+
+    fail(`${error.message}\nBefore the tap: ${JSON.stringify(tap)}\nAfter the tap: ${JSON.stringify(state)}`);
   });
 
-  log(`GAME responded to input: stock ${before} -> ${after}.`);
+  log(`GAME responded to input: ${JSON.stringify(before)} -> ${JSON.stringify(after)} (button "${tap.label}").`);
 }
 
 function getUntaggedAppRenderUrl() {

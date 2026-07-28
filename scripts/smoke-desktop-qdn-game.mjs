@@ -345,12 +345,52 @@ async function getPageTarget(cdpPort, predicate, label) {
   }
 }
 
+/**
+ * A fresh profile can open on Welcome, and the address bar exists behind it, so
+ * navigating without this races the setup flow and lands nowhere.
+ */
+async function skipWelcomeSetup(client) {
+  const address = await evaluate(client, "document.querySelector('#browser-address')?.value ?? ''");
+
+  if (address !== 'home://welcome') {
+    return;
+  }
+
+  log('Welcome setup is showing; skipping it.');
+
+  const skipped = await evaluate(
+    client,
+    `
+      (() => {
+        const button = Array.from(document.querySelectorAll('button')).find(
+          (candidate) => candidate.textContent.trim().toLowerCase() === 'skip setup',
+        );
+        if (!button) return false;
+        button.click();
+        return true;
+      })()
+    `,
+  );
+
+  if (!skipped) {
+    fail('Welcome setup is showing but its Skip setup control was not found.');
+  }
+
+  await waitUntil('Welcome setup to be skipped', appTimeoutMs, async () => {
+    const current = await evaluate(client, "document.querySelector('#browser-address')?.value ?? ''");
+
+    return current !== 'home://welcome';
+  });
+}
+
 async function navigateToFixture(client) {
   await waitUntil('Qortium Home address bar', appTimeoutMs, async () => {
     const found = await evaluate(client, "!!document.querySelector('#browser-address')");
 
     return found === true;
   });
+
+  await skipWelcomeSetup(client);
 
   const result = await evaluate(
     client,
