@@ -765,8 +765,6 @@ export const en = {
   "qdnApps.notificationControlsTitle": "App notification controls",
   "qdnApps.notGranted": "Not granted — the app will ask before managing this data.",
   "qdnApps.openNotificationsManager": "Open Notifications Manager",
-  "qdnApps.role.bookmarksManager": "Bookmarks Manager",
-  "qdnApps.role.notificationsManager": "Notifications Manager",
   "qdnApps.sectionTitle": "QDN Apps",
   "qdnApps.useDefault": "Use default",
 } as const;

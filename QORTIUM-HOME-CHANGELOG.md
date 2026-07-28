@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-27 - test(android): cover generic QDN app assignments
+
+Clarifies that choosing a Notifications app is only a local launch preference;
+each app still needs its own user-approved notification-management access. The
+retired manager-role translation labels are gone. The Android bridge smoke now
+starts cleanly after Welcome, recognizes current QDN render URLs, and proves on
+a real phone that a QDN app can receive approval to read assignments, set a
+custom assignment to an Explore video route, and read that saved target back.
+
 ### 2026-07-27 - feat(bridge): preview a Home-selected QDN publish source
 
 QDN publishing apps can now ask Home to preview the exact file or folder the
