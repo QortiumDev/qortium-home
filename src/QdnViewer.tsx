@@ -64,9 +64,7 @@ import { CoreOfflineNotice, isNodeUnavailableMessage } from './CoreOfflineNotice
 import type { CoreManagerState } from './coreManagerState';
 import { DocumentViewer, detectDocumentFormat } from './DocumentViewer';
 import { FileTree, type FileTreeEntry } from './FileTree';
-import { QdnGitRepositoryViewer } from './QdnGitRepositoryViewer';
 import { QdnLoadingPanel } from './QdnLoadingPanel';
-import { detectGitRepositoryLayout } from './qdnGitRepository';
 import { detectContentKind, sniffMagicBytes } from './qdnContentType';
 import {
   getAdjacentGalleryFile,
@@ -2960,7 +2958,6 @@ function QdnRepositoryContent({
 }) {
   const [state, setState] = useState<RepositoryState>({ phase: 'loading' });
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [gitFallbackMessage, setGitFallbackMessage] = useState<string | null>(null);
 
   // The open file is driven by the resource path (the bit after the identifier in
   // the qdn:// URL), so file selection is reflected in the address bar and any
@@ -3034,15 +3031,6 @@ function QdnRepositoryContent({
     () => (state.phase === 'ready' ? state.files.map((path) => ({ path, dir: false })) : []),
     [state],
   );
-  const gitLayout = useMemo(
-    () => (state.phase === 'ready' ? detectGitRepositoryLayout(state.files) : null),
-    [state],
-  );
-
-  useEffect(() => {
-    setGitFallbackMessage(null);
-  }, [repoIdentityKey]);
-
   // At the file tree, the top-bar download targets the whole repository (a zip).
   // When a file is open its own viewer owns the action context (copy text, etc.);
   // we deliberately avoid a clearing cleanup here so we don't race that child's
@@ -3106,19 +3094,6 @@ function QdnRepositoryContent({
     );
   }
 
-  if (gitLayout && !gitFallbackMessage) {
-    return (
-      <QdnGitRepositoryViewer
-        displaySettings={displaySettings}
-        files={state.files}
-        onActionContextChange={onActionContextChange}
-        onCloseRoutedFile={closeFile}
-        onFallback={setGitFallbackMessage}
-        resource={resource}
-      />
-    );
-  }
-
   if (selectedPath && selectedSub) {
     const back = closeFile;
     const sub = selectedSub;
@@ -3167,11 +3142,6 @@ function QdnRepositoryContent({
           <span className="qdn-archive__count">{t('archive.fileCount', { count: String(state.files.length) })}</span>
         )}
       </div>
-      {gitFallbackMessage ? (
-        <p className="qdn-git__fallback" title={gitFallbackMessage}>
-          {t('repository.gitLoadFailed')}
-        </p>
-      ) : null}
       {state.files.length === 0 ? (
         <div className="qdn-viewer__empty qdn-viewer__empty--ready">
           <p className="qdn-viewer__message">{t('repository.empty')}</p>
