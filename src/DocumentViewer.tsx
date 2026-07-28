@@ -304,7 +304,7 @@ export function DocumentViewer({
   // left the scroll position instead of at the top.
   useEffect(() => {
     contentScrollRef.current?.scrollTo({ top: 0 });
-  }, [page]);
+  }, [page, epubChapter]);
 
   useEffect(() => {
     let canceled = false;

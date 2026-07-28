@@ -33,6 +33,13 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-28 - fix: reset document viewer scroll position on page turn
+
+Turning a page in a PDF, comic book, text document, or EPUB now starts the
+new page at the top. This also applies when choosing an EPUB chapter from its
+contents list, so the reader does not carry a previous page's scroll position
+into the new one.
+
 ### 2026-07-28 - test(android): accept a real GAME archive on a phone
 
 Adds a phone acceptance run for the GAME service, matching the desktop one. It
