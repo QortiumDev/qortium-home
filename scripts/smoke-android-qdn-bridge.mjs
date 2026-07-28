@@ -1291,7 +1291,7 @@ async function getFixtureFrameContext(client) {
 // Android renders QDN content in an iframe inside the WebView rather than a
 // separate CDP target, so the GAME is found in the frame tree. Matching on the
 // path alone keeps this working whichever public node Home discovered.
-async function getGameFrameContext(client) {
+async function getGameFrameContext(client, previousContextId = null) {
   return waitUntil('QDN GAME iframe', cdpTimeoutMs, async () => {
     const frameTree = await client.send('Page.getFrameTree');
     const frames = flattenFrames(frameTree.frameTree);
@@ -1312,8 +1312,22 @@ async function getGameFrameContext(client) {
 
     const contextId = client.contextsByFrame.get(frame.id);
 
-    return contextId ? { contextId, frame } : null;
+    return contextId && contextId !== previousContextId ? { contextId, frame } : null;
   });
+}
+
+async function resetGameFixtureState(client, contextId) {
+  await evaluateInFrame(
+    client,
+    contextId,
+    `
+      (() => {
+        localStorage.removeItem('shell-game-v3');
+        location.reload();
+        return true;
+      })()
+    `,
+  );
 }
 
 async function runGameAssertions(client, contextId) {
@@ -2753,7 +2767,10 @@ async function main() {
           await configurePublicNetwork(client);
           activeSmokeStage = 'navigate to public GAME fixture';
           await navigateToFixture(client, gameAddress);
-          const { contextId } = await getGameFrameContext(client);
+          const initialGameFrame = await getGameFrameContext(client);
+          activeSmokeStage = 'reset public GAME fixture state';
+          await resetGameFixtureState(client, initialGameFrame.contextId);
+          const { contextId } = await getGameFrameContext(client, initialGameFrame.contextId);
 
           log('Running public-network GAME assertions in the archive frame.');
           activeSmokeStage = 'public-network GAME';

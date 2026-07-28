@@ -76,6 +76,10 @@ import {
   isQdnRequestContextCurrent,
   resolveQdnRequestContextActive,
 } from './qdnRequestContext';
+import {
+  getQdnFrameMessageOrigin,
+  resolveQdnFrameMessageUrl,
+} from './qdnFrameMessaging';
 import { useQdnImageResource } from './useQdnImageResource';
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
@@ -367,22 +371,12 @@ function getQdnSelectedAccountChangedMessage() {
   };
 }
 
-function getPostMessageTargetOrigin(url: string) {
-  try {
-    const origin = new URL(url).origin;
-
-    return origin === 'null' ? '*' : origin;
-  } catch {
-    return '*';
-  }
-}
-
 function postQdnSelectedAccountChanged(frameWindow: Window | null | undefined, renderUrl: string) {
   if (!frameWindow) {
     return;
   }
 
-  frameWindow.postMessage(getQdnSelectedAccountChangedMessage(), getPostMessageTargetOrigin(renderUrl));
+  frameWindow.postMessage(getQdnSelectedAccountChangedMessage(), getQdnFrameMessageOrigin(renderUrl));
 }
 
 function postQdnDisplaySettings(
@@ -394,7 +388,7 @@ function postQdnDisplaySettings(
     return;
   }
 
-  const targetOrigin = getPostMessageTargetOrigin(renderUrl);
+  const targetOrigin = getQdnFrameMessageOrigin(renderUrl);
 
   for (const message of getQdnDisplaySettingMessages(displaySettings)) {
     frameWindow.postMessage(message, targetOrigin);
@@ -416,7 +410,7 @@ function postQdnHomeSettingsChanged(
       lang: displaySettings.language,
       uiStyle: displaySettings.ui,
     },
-  }, getPostMessageTargetOrigin(renderUrl));
+  }, getQdnFrameMessageOrigin(renderUrl));
 }
 
 function postQdnManagerRevisionChanged(
@@ -425,7 +419,7 @@ function postQdnManagerRevisionChanged(
   managerRevisions: QdnManagerRevisions | undefined,
 ) {
   if (!frameWindow || !managerRevisions) return;
-  const targetOrigin = getPostMessageTargetOrigin(renderUrl);
+  const targetOrigin = getQdnFrameMessageOrigin(renderUrl);
 
   for (const kind of QDN_MANAGER_EVENT_KINDS) {
     frameWindow.postMessage({
@@ -3781,6 +3775,7 @@ export function QdnBridgeFrameContent({
   }, [bridgeToken, isNativeFrame, renderUrl]);
 
   const frameSrc = isNativeFrame ? nativeFrameSrc : renderUrl;
+  const frameMessageUrl = resolveQdnFrameMessageUrl(frameSrc, renderUrl);
   const appZoom = typeof displaySettings.appZoom === 'number' && Number.isFinite(displaySettings.appZoom)
     ? displaySettings.appZoom
     : 100;
@@ -3812,27 +3807,27 @@ export function QdnBridgeFrameContent({
           type: 'qortium:qdn-navigation-command',
           bridgeToken,
           index,
-        }, getPostMessageTargetOrigin(renderUrl));
+        }, getQdnFrameMessageOrigin(frameMessageUrl));
         return true;
       },
     };
 
     onAppNavigationControllerChange(controller);
     return () => onAppNavigationControllerChange(null);
-  }, [bridgeToken, isNativeFrame, onAppNavigationControllerChange, renderUrl]);
+  }, [bridgeToken, frameMessageUrl, isNativeFrame, onAppNavigationControllerChange]);
 
   useEffect(() => {
-    postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
-    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, renderUrl, displaySettings);
-  }, [displaySettings, renderUrl]);
+    postQdnDisplaySettings(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
+    postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
+  }, [displaySettings, frameMessageUrl]);
 
   useEffect(() => {
-    postQdnManagerRevisionChanged(frameRef.current?.contentWindow, renderUrl, managerRevisions);
-  }, [managerRevisions?.bookmarkManager, managerRevisions?.notificationManager, renderUrl]);
+    postQdnManagerRevisionChanged(frameRef.current?.contentWindow, frameMessageUrl, managerRevisions);
+  }, [frameMessageUrl, managerRevisions?.bookmarkManager, managerRevisions?.notificationManager]);
 
   useEffect(() => {
-    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
-  }, [accountId, isAccountUnlocked, renderUrl]);
+    postQdnSelectedAccountChanged(frameRef.current?.contentWindow, frameMessageUrl);
+  }, [accountId, frameMessageUrl, isAccountUnlocked]);
 
   function deliverAppTarget() {
     const target = appTargetRef.current;
@@ -3845,7 +3840,7 @@ export function QdnBridgeFrameContent({
 
     if (frameWindow) {
       deliveredAppTargetRef.current = target;
-      frameWindow.postMessage(getOpenAppTargetMessage(target), getPostMessageTargetOrigin(renderUrl));
+      frameWindow.postMessage(getOpenAppTargetMessage(target), getQdnFrameMessageOrigin(frameMessageUrl));
       onAppTargetDelivered?.(target);
     }
   }
@@ -3857,14 +3852,14 @@ export function QdnBridgeFrameContent({
 
   useEffect(() => {
     deliverAppTarget();
-  }, [appTarget, renderUrl]);
+  }, [appTarget, frameMessageUrl]);
 
   useEffect(() => {
     if (!isNativeFrame) {
       return undefined;
     }
 
-    const allowedOrigin = new URL(renderUrl).origin;
+    const allowedOrigin = getQdnFrameMessageOrigin(frameMessageUrl);
 
     let active = true;
 
@@ -3985,7 +3980,7 @@ export function QdnBridgeFrameContent({
       active = false;
       window.removeEventListener('message', handleMessage);
     };
-  }, [accountId, bridgeToken, displaySettings, isNativeFrame, renderUrl, resourceUrl]);
+  }, [accountId, bridgeToken, displaySettings, frameMessageUrl, isNativeFrame, resourceUrl]);
 
   // The native frame has no URL until its proxy authorization resolves. Render
   // the loading panel rather than an iframe pointed at nothing.
@@ -4006,10 +4001,10 @@ export function QdnBridgeFrameContent({
       allow="fullscreen; clipboard-read; clipboard-write; screen-wake-lock"
       onLoad={() => {
         frameLoadedRef.current = true;
-        postQdnDisplaySettings(frameRef.current?.contentWindow, renderUrl, displaySettings);
-        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, renderUrl, displaySettings);
-        postQdnManagerRevisionChanged(frameRef.current?.contentWindow, renderUrl, managerRevisions);
-        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, renderUrl);
+        postQdnDisplaySettings(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
+        postQdnHomeSettingsChanged(frameRef.current?.contentWindow, frameMessageUrl, displaySettings);
+        postQdnManagerRevisionChanged(frameRef.current?.contentWindow, frameMessageUrl, managerRevisions);
+        postQdnSelectedAccountChanged(frameRef.current?.contentWindow, frameMessageUrl);
         deliverAppTarget();
       }}
     />
