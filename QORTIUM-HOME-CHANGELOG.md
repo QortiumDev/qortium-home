@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-28 - test(android): accept a real GAME archive on a phone
+
+Adds a phone acceptance run for the GAME service, matching the desktop one. It
+uses the public Previewnet network option with no account, no key and no custom
+node, opens a published game, and requires the game to start, show its bundled
+pictures, and respond when one of its own buttons is pressed.
+
+Running it on a real phone found a problem worth knowing about: the game starts
+and plays, but none of its pictures appear. Anything a published page loads from
+the network over an insecure address is blocked inside the phone app, because the
+app itself is served securely. Sound files are blocked the same way. Only pages
+that fetch their pictures through Home's own bridge — which every first-party app
+does — are unaffected, which is why this had never shown up before. The run
+reports this clearly rather than failing silently, and the fix is tracked
+separately.
+
 ### 2026-07-28 - test(desktop): accept a real GAME archive in the running app
 
 Adds a desktop acceptance run for the GAME service. Home already treats a
