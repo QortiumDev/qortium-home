@@ -33,6 +33,21 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - fix: measured avatar sizes, mobile chrome reclaim, host platform signal
+
+Applies the four Home-side fixes from the 2026-07-29 Qortium Chat delta audit.
+Avatar requests from apps now report the exact size of the image bytes
+actually delivered instead of trusting a network header that can go stale when
+a connection compresses the transfer — previously that mismatch could make
+apps silently discard valid avatars; fixed identically in both the desktop and
+Android bridges. On Android, the app view now resizes when the keyboard opens
+so typing areas stay visible instead of being covered. On phones, the browser
+bar folds into a slim strip while a QDN app or website is open — a tap brings
+back the tabs, address and account controls — and the small app version badge
+now fits inside the slim status strip instead of doubling its height; desktop
+layout is unchanged. Finally, apps can now ask Home whether they are running
+on desktop, Android or iOS so they can adapt their layout to the device.
+
 ### 2026-07-28 - fix(android): keep the QDN bridge working through the secure proxy
 
 Restores communication between published QDN apps and Home on Android after

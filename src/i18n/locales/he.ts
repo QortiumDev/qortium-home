@@ -611,6 +611,7 @@ export const he: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "הצמד ללוח הבקרה",
   "tabs.reloadTab": "טעינה מחדש של הכרטיסייה",
   "tabs.reopenClosedTab": "פתיחה מחדש של כרטיסייה שנסגרה",
+  "tabs.showTopBar": "הצגת סרגל הדפדפן",
   "updates.assetLabel": "נכס",
   "updates.available": "{tag} זמין עבור {platform}.",
   "updates.channelLabel": "ערוץ",

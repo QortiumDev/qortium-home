@@ -611,6 +611,7 @@ export const ro: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Fixează pe tabloul de bord",
   "tabs.reloadTab": "Reîncarcă fila",
   "tabs.reopenClosedTab": "Redeschide fila închisă",
+  "tabs.showTopBar": "Afișează bara browserului",
   "updates.assetLabel": "Pachet",
   "updates.available": "{tag} este disponibil pentru {platform}.",
   "updates.channelLabel": "Canal",

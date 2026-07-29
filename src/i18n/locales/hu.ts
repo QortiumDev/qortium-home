@@ -611,6 +611,7 @@ export const hu: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Kitűzés az irányítópultra",
   "tabs.reloadTab": "Lap újratöltése",
   "tabs.reopenClosedTab": "Bezárt lap újranyitása",
+  "tabs.showTopBar": "Böngészősáv megjelenítése",
   "updates.assetLabel": "Csomag",
   "updates.available": "{tag} elérhető a(z) {platform} platformhoz.",
   "updates.channelLabel": "Csatorna",

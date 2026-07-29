@@ -6425,7 +6425,9 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvat
     body: Buffer.from(arrayBuffer).toString('base64'),
     encoding: 'base64' as const,
     contentType: getAvatarImageContentType(response.headers.get('content-type') ?? undefined, new Uint8Array(arrayBuffer)) ?? (() => { throw new Error('Group avatar was not a supported image.'); })(),
-    contentLength: contentLength ?? arrayBuffer.byteLength,
+    // Always report measured bytes: the Content-Length header is only an
+    // oversize preflight and can go stale when a transport decompresses.
+    contentLength: arrayBuffer.byteLength,
     source: 'POINTER' as const,
     descriptor,
   };
@@ -6495,7 +6497,9 @@ async function fetchAccountAvatarForApp(
     body: Buffer.from(arrayBuffer).toString('base64'),
     encoding: 'base64' as const,
     contentType: getAvatarImageContentType(response.headers.get('content-type') ?? undefined, new Uint8Array(arrayBuffer)) ?? (() => { throw new Error('Account avatar was not a supported image.'); })(),
-    contentLength: contentLength ?? arrayBuffer.byteLength,
+    // Always report measured bytes: the Content-Length header is only an
+    // oversize preflight and can go stale when a transport decompresses.
+    contentLength: arrayBuffer.byteLength,
     source: 'POINTER' as const,
     descriptor,
   };
@@ -9313,6 +9317,8 @@ async function handleQdnAppRequest(
         hostName: 'qortium-home',
         hostVersion,
         platformVersion: getPlatformVersion(hostVersion) ?? hostVersion,
+        // Additive: lets apps adapt density/layout to the host form factor.
+        platform: 'desktop' as const,
       };
     }
 

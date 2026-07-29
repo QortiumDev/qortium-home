@@ -611,6 +611,7 @@ export const sv: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Fäst på översikten",
   "tabs.reloadTab": "Ladda om flik",
   "tabs.reopenClosedTab": "Öppna stängd flik igen",
+  "tabs.showTopBar": "Visa webbläsarfältet",
   "updates.assetLabel": "Fil",
   "updates.available": "{tag} är tillgänglig för {platform}.",
   "updates.channelLabel": "Kanal",

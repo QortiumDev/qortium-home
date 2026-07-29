@@ -590,6 +590,7 @@ export const it: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Fissa alla dashboard",
   "tabs.reloadTab": "Ricarica scheda",
   "tabs.reopenClosedTab": "Riapri scheda chiusa",
+  "tabs.showTopBar": "Mostra la barra del browser",
   "updates.assetLabel": "Asset",
   "updates.available": "{tag} è disponibile per {platform}.",
   "updates.channelLabel": "Canale",

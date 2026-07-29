@@ -611,6 +611,7 @@ export const pl: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Przypnij do pulpitu",
   "tabs.reloadTab": "Wczytaj kartę ponownie",
   "tabs.reopenClosedTab": "Otwórz ponownie zamkniętą kartę",
+  "tabs.showTopBar": "Pokaż pasek przeglądarki",
   "updates.assetLabel": "Plik wydania",
   "updates.available": "Dostępna jest wersja {tag} dla platformy {platform}.",
   "updates.channelLabel": "Kanał",

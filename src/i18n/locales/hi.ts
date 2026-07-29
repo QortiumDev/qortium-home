@@ -612,6 +612,7 @@ export const hi: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "डैशबोर्ड पर पिन करें",
   "tabs.reloadTab": "टैब फिर से लोड करें",
   "tabs.reopenClosedTab": "बंद टैब फिर से खोलें",
+  "tabs.showTopBar": "ब्राउज़र बार दिखाएं",
   "updates.assetLabel": "एसेट",
   "updates.available": "{platform} के लिए {tag} उपलब्ध है।",
   "updates.channelLabel": "चैनल",

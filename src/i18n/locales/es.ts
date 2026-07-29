@@ -590,6 +590,7 @@ export const es: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Fijar al panel",
   "tabs.reloadTab": "Recargar pestaña",
   "tabs.reopenClosedTab": "Reabrir pestaña cerrada",
+  "tabs.showTopBar": "Mostrar la barra del navegador",
   "releaseNotes.ariaLabel": "{product} release notes",
   "releaseNotes.empty": "No release notes were published for this tag.",
   "releaseNotes.loadFailed": "Unable to load release notes.",

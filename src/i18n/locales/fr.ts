@@ -590,6 +590,7 @@ export const fr: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Épingler au tableau",
   "tabs.reloadTab": "Recharger l'onglet",
   "tabs.reopenClosedTab": "Rouvrir l'onglet fermé",
+  "tabs.showTopBar": "Afficher la barre du navigateur",
   "updates.assetLabel": "Fichier",
   "updates.available": "{tag} est disponible pour {platform}.",
   "updates.channelLabel": "Canal",

@@ -1021,6 +1021,19 @@ export function App() {
     currentRoute.kind === 'name' ||
     currentRoute.kind === 'name-services';
   const isViewerRoute = !isDashboardRoute && !isSettingsRoute && !isWelcomeRoute && !isBookmarksRoute && !isReleaseNotesRoute && !isPreviewLauncherRoute && !isExplorerRoute;
+  // Same condition that renders the QdnViewer for the active tab.
+  const isQdnAppViewActive = currentRoute.kind === 'resource';
+  const [isTopBarCollapsed, setIsTopBarCollapsed] = useState(false);
+
+  // Mobile chrome reclaim: while the active tab shows a QDN app/site the top
+  // bar auto-collapses to a slim reveal strip (mirroring QdnViewer's
+  // statusHidden pattern). Expanding via the strip lasts until the user
+  // navigates or switches back to an app view, which re-collapses it. The
+  // collapsed state only has an effect under the mobile CSS breakpoints —
+  // desktop layout ignores it entirely.
+  useEffect(() => {
+    setIsTopBarCollapsed(isQdnAppViewActive);
+  }, [isQdnAppViewActive, tabState.activeTabId, currentDisplayUrl]);
   const isCurrentPageStartPage = startPages.some((page) => page.displayUrl === currentDisplayUrl);
   const isCurrentPageBookmarked = hasBookmarkedUrl(bookmarksState, currentDisplayUrl);
   const canAddCurrentStartPage = currentRoute.kind !== 'welcome' && (isCurrentPageStartPage || startPages.length < MAX_START_PAGES);
@@ -4130,6 +4143,7 @@ export function App() {
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         canReopenClosedTab={tabState.closedTabs.length > 0}
+        collapsed={isTopBarCollapsed}
         currentRoute={currentRoute}
         historyEntries={routeHistory.entries}
         historyIndex={routeHistory.index}
@@ -4150,6 +4164,7 @@ export function App() {
         onCloseOtherTabs={closeOtherTabs}
         onCloseTabsToRight={closeTabsToRight}
         onDuplicateTab={duplicateTab}
+        onExpand={() => setIsTopBarCollapsed(false)}
         onToggleTabAudioMuted={toggleTabAudioMuted}
         onGoBack={goBack}
         onGoForward={goForward}

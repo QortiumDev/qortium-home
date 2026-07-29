@@ -609,6 +609,86 @@ async function runHistoryShortcutAssertions(client) {
   await expectAddressValue(client, 'home://dashboard');
 }
 
+async function runMobileCollapsedChromeAssertions(client) {
+  log('Checking collapsed browser chrome at a mobile viewport.');
+  await client.send('Emulation.setDeviceMetricsOverride', {
+    deviceScaleFactor: 1,
+    height: 844,
+    mobile: false,
+    width: 390,
+  });
+
+  try {
+    // The collapsed state follows the parsed route, so this assertion does not
+    // depend on the fixture being downloaded or the configured node being live.
+    await submitAddress(client, 'qdn://APP/Chat/Chat');
+
+    const collapsed = await waitUntil('collapsed mobile browser chrome', appTimeoutMs, async () => {
+      const state = await evaluate(
+        client,
+        `(() => {
+          const topBar = document.querySelector('.top-bar');
+          const handle = document.querySelector('.top-bar__expand-handle');
+          const tabs = document.querySelector('.top-bar__tabs');
+          const address = document.querySelector('.top-bar__address-form');
+          const account = document.querySelector('.account-menu');
+          const node = document.querySelector('.node-status');
+          if (!topBar || !handle || !tabs || !address || !account || !node) return null;
+          return {
+            addressDisplay: getComputedStyle(address).display,
+            accountDisplay: getComputedStyle(account).display,
+            collapsed: topBar.classList.contains('top-bar--collapsed'),
+            handleDisplay: getComputedStyle(handle).display,
+            handleHeight: handle.getBoundingClientRect().height,
+            nodeDisplay: getComputedStyle(node).display,
+            tabsDisplay: getComputedStyle(tabs).display,
+            topBarHeight: topBar.getBoundingClientRect().height,
+          };
+        })()`,
+      );
+
+      return state?.collapsed ? state : null;
+    });
+
+    assert(collapsed.handleDisplay === 'flex', 'Collapsed mobile chrome did not expose its reveal handle.');
+    assert(collapsed.tabsDisplay === 'none', 'Collapsed mobile chrome did not hide the tab strip.');
+    assert(collapsed.addressDisplay === 'none', 'Collapsed mobile chrome did not hide the address row.');
+    assert(collapsed.accountDisplay === 'none', 'Collapsed mobile chrome did not hide the account control.');
+    assert(collapsed.nodeDisplay === 'none', 'Collapsed mobile chrome did not hide the node control.');
+    assert(
+      collapsed.handleHeight >= 18 && collapsed.handleHeight <= 24,
+      `Collapsed reveal handle height was ${collapsed.handleHeight}px instead of the expected slim strip.`,
+    );
+    assert(
+      collapsed.topBarHeight <= 26,
+      `Collapsed top bar height was ${collapsed.topBarHeight}px instead of the expected slim strip.`,
+    );
+
+    await clickWithNativePointer(client, '.top-bar__expand-handle');
+    await waitUntil('expanded mobile browser chrome', appTimeoutMs, async () => {
+      const state = await evaluate(
+        client,
+        `(() => {
+          const topBar = document.querySelector('.top-bar');
+          const address = document.querySelector('.top-bar__address-form');
+          if (!topBar || !address) return null;
+          return {
+            addressDisplay: getComputedStyle(address).display,
+            collapsed: topBar.classList.contains('top-bar--collapsed'),
+          };
+        })()`,
+      );
+
+      return state && !state.collapsed && state.addressDisplay !== 'none' ? state : null;
+    });
+
+    await submitAddress(client, 'home://dashboard');
+    await expectAddressValue(client, 'home://dashboard');
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride');
+  }
+}
+
 async function getTabAudioState(client) {
   return evaluate(
     client,
@@ -727,6 +807,7 @@ async function runSmoke({ electronBin, viteBin }) {
       await runAddressSuggestionAssertions(mainClient);
       await runShortcutAssertions(mainClient);
       await runHistoryShortcutAssertions(mainClient);
+      await runMobileCollapsedChromeAssertions(mainClient);
 
       if (skipTabAudioCheck) {
         log('Skipping the tab audio indicator check.');

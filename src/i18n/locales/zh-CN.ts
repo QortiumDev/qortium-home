@@ -611,6 +611,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "固定到仪表盘",
   "tabs.reloadTab": "重新加载标签页",
   "tabs.reopenClosedTab": "重新打开已关闭的标签页",
+  "tabs.showTopBar": "显示浏览器栏",
   "updates.assetLabel": "资产",
   "updates.available": "适用于 {platform} 的 {tag} 已可用。",
   "updates.channelLabel": "渠道",
