@@ -104,6 +104,7 @@ import { replaceLegacyQdnExplorerRoutes, resolveExploreAppRoute } from './explor
 import {
   buildQdnDisplayUrl,
   getQdnViewerKind,
+  isQdnService,
   sanitizeQdnAppTitle,
   type QdnDisplaySettings,
   type QdnResource,
@@ -809,7 +810,57 @@ function QdnMediaPlayerDialog({ displaySettings, nodeApiUrl, onDismiss, resource
   );
 }
 
+type QdnResourceViewerDialogProps = QdnMediaPlayerDialogProps & {
+  onOpenDocumentViewer: (request: QortiumQdnDocumentViewerRequest) => void;
+  propertiesHint: { filename?: string; mimeType?: string };
+};
+
+function QdnResourceViewerDialog({
+  displaySettings,
+  nodeApiUrl,
+  onDismiss,
+  onOpenDocumentViewer,
+  propertiesHint,
+  resource,
+}: QdnResourceViewerDialogProps) {
+  return (
+    <section
+      aria-label={t('viewer.ariaLabel')}
+      className="media-player-dialog qdn-resource-viewer-dialog"
+      role="dialog"
+    >
+      <header className="media-player-dialog__header">
+        <span className="media-player-dialog__url">{resource.displayUrl}</span>
+        <button
+          aria-label={t('mediaPlayer.close')}
+          className="icon-button media-player-dialog__close"
+          type="button"
+          onClick={onDismiss}
+        >
+          <X aria-hidden="true" size={18} strokeWidth={2} />
+        </button>
+      </header>
+      <div className="media-player-dialog__body">
+        <QdnViewer
+          key={resource.displayUrl}
+          account={null}
+          displaySettings={displaySettings}
+          nodeApiUrl={nodeApiUrl}
+          onOpenDocumentViewer={onOpenDocumentViewer}
+          propertiesHint={propertiesHint}
+          resource={resource}
+          tabId={`resource-viewer:${resource.displayUrl}`}
+        />
+      </div>
+    </section>
+  );
+}
+
 type QdnMediaPlayerState = TabScopedDocumentViewer<QdnResource>;
+type QdnResourceViewerState = TabScopedDocumentViewer<{
+  hint: { filename?: string; mimeType?: string };
+  resource: QdnResource;
+}>;
 
 type QdnDocumentViewerState = TabScopedDocumentViewer<{
   hint: { filename: string | null; mimeType: string | null };
@@ -918,6 +969,7 @@ export function App() {
   const [qdnUnlockRequests, setQdnUnlockRequests] = useState<QortiumQdnUnlockRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
   const [qdnMediaPlayer, setQdnMediaPlayer] = useState<QdnMediaPlayerState | null>(null);
+  const [qdnResourceViewer, setQdnResourceViewer] = useState<QdnResourceViewerState | null>(null);
   // Filename/mimeType hint that came with the OPEN_QDN_DOCUMENT_VIEWER request -
   // used only for format detection (epub/pdf/cbz/txt), never for the fetch path,
   // since single-file resources have no `path` for DocumentViewer to derive a
@@ -969,6 +1021,9 @@ export function App() {
   >(null);
   const openQdnMediaPlayerRef = useRef<
     ((request: QortiumQdnMediaPlayerRequest, sourceTabId?: string) => void) | null
+  >(null);
+  const openQdnResourceViewerRef = useRef<
+    ((request: QortiumQdnResourceViewerRequest, sourceTabId?: string) => void) | null
   >(null);
   const textSizeControlRef = useRef<{
     current: DisplaySettings['textSize'];
@@ -1043,12 +1098,21 @@ export function App() {
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnUnlockRequest || !!activeQdnWriteRequest;
   const isMediaPlayerVisible = isTabScopedDocumentViewerVisible(qdnMediaPlayer, activeTab.id);
+  const isResourceViewerVisible = isTabScopedDocumentViewerVisible(qdnResourceViewer, activeTab.id);
   const isDocumentViewerVisible = isTabScopedDocumentViewerVisible(qdnDocumentViewer, activeTab.id);
   const isPublishSourcePreviewVisible = isTabScopedDocumentViewerVisible(qdnPublishSourcePreview, activeTab.id);
   const isQdnViewGloballySuspended =
-    isQdnPermissionDialogActive || isTopBarOverlayOpen || isMediaPlayerVisible || isPublishSourcePreviewVisible;
+    isQdnPermissionDialogActive ||
+    isTopBarOverlayOpen ||
+    isMediaPlayerVisible ||
+    isResourceViewerVisible ||
+    isPublishSourcePreviewVisible;
   const canGoBack =
-    hasRouteHistoryBack || isMediaPlayerVisible || isDocumentViewerVisible || isPublishSourcePreviewVisible;
+    hasRouteHistoryBack ||
+    isMediaPlayerVisible ||
+    isResourceViewerVisible ||
+    isDocumentViewerVisible ||
+    isPublishSourcePreviewVisible;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
@@ -1100,6 +1164,9 @@ export function App() {
   useEffect(() => {
     setQdnMediaPlayer((player) =>
       shouldClearTabScopedDocumentViewer(player, tabState.tabs.map((tab) => tab.id)) ? null : player,
+    );
+    setQdnResourceViewer((viewer) =>
+      shouldClearTabScopedDocumentViewer(viewer, tabState.tabs.map((tab) => tab.id)) ? null : viewer,
     );
     setQdnDocumentViewer((viewer) =>
       shouldClearTabScopedDocumentViewer(viewer, tabState.tabs.map((tab) => tab.id)) ? null : viewer,
@@ -2482,6 +2549,11 @@ export function App() {
       return;
     }
 
+    if (isResourceViewerVisible) {
+      setQdnResourceViewer(null);
+      return;
+    }
+
     if (shouldDismissDocumentViewerBeforeNavigating(qdnDocumentViewer, activeTab.id)) {
       setQdnDocumentViewer(null);
       return;
@@ -3042,6 +3114,39 @@ export function App() {
       tabId: sourceTabId,
       value: { ...resource, displayUrl: buildQdnDisplayUrl(resource) },
     });
+    setQdnResourceViewer(null);
+  }
+
+  function openQdnResourceViewer(
+    request: QortiumQdnResourceViewerRequest,
+    sourceTabId = tabState.activeTabId,
+  ) {
+    const service = request.service.toUpperCase();
+
+    if (!isQdnService(service) || getQdnViewerKind(service) === 'iframe' || !request.name) {
+      console.warn('Ignoring QDN app resource viewer request for an unsupported resource.', request);
+      return;
+    }
+
+    const resource: Omit<QdnResource, 'displayUrl'> = {
+      ...(request.identifier ? { identifier: request.identifier } : {}),
+      name: request.name,
+      path: request.path ?? '',
+      service,
+    };
+
+    setQdnResourceViewer({
+      tabId: sourceTabId,
+      value: {
+        hint: {
+          ...(request.filename ? { filename: request.filename } : {}),
+          ...(request.mimeType ? { mimeType: request.mimeType } : {}),
+        },
+        resource: { ...resource, displayUrl: buildQdnDisplayUrl(resource) },
+      },
+    });
+    setQdnDocumentViewer(null);
+    setQdnMediaPlayer(null);
   }
 
   function openQdnDocumentViewer(
@@ -3074,6 +3179,7 @@ export function App() {
         resource: { ...resource, displayUrl: buildQdnDisplayUrl(resource) },
       },
     });
+    setQdnResourceViewer(null);
   }
 
   function openQdnPublishSourcePreview(
@@ -3409,6 +3515,7 @@ export function App() {
   openInCurrentTabRef.current = openInCurrentTab;
   openBookmarksManagerLinkRef.current = openBookmarksManagerLink;
   openQdnMediaPlayerRef.current = openQdnMediaPlayer;
+  openQdnResourceViewerRef.current = openQdnResourceViewer;
   textSizeControlRef.current = {
     current: effectiveDisplaySettings.textSize,
     update: updateTextSize,
@@ -3494,6 +3601,18 @@ export function App() {
       if (command === 'go-forward' && actions.canGoForward) {
         actions.goForward();
       }
+    });
+  }, []);
+
+  useEffect(() => {
+    const qdnEvents = window.qortiumHome.qdnEvents;
+
+    if (!qdnEvents?.onOpenResourceViewer) {
+      return undefined;
+    }
+
+    return qdnEvents.onOpenResourceViewer((event) => {
+      openQdnResourceViewerRef.current?.(event, event.sourceTabId ?? undefined);
     });
   }, []);
 
@@ -4293,6 +4412,7 @@ export function App() {
                   }}
                   onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
                   onOpenMediaPlayer={(request) => openQdnMediaPlayer(request, tab.id)}
+                  onOpenResourceViewer={(request) => openQdnResourceViewer(request, tab.id)}
                   onOpenPublishSourcePreview={(request) => openQdnPublishSourcePreview(request, tab.id)}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
@@ -4318,6 +4438,7 @@ export function App() {
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
                   onOpenMediaPlayer={(request) => openQdnMediaPlayer(request, tab.id)}
+                  onOpenResourceViewer={(request) => openQdnResourceViewer(request, tab.id)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   preview={tabRoute.preview}
@@ -4435,6 +4556,22 @@ export function App() {
         {qdnPublishSourcePreview && isPublishSourcePreviewVisible && !activeQdnWriteRequest && !activeQdnUnlockRequest ? (
           <TabScopedDialog onDismiss={() => setQdnPublishSourcePreview(null)}>
             <QdnPublishSourcePreview preview={qdnPublishSourcePreview.value} />
+          </TabScopedDialog>
+        ) : null}
+        {qdnResourceViewer && isResourceViewerVisible && !activeQdnWriteRequest && !activeQdnUnlockRequest && nodeSettings ? (
+          <TabScopedDialog onDismiss={() => setQdnResourceViewer(null)}>
+            <QdnResourceViewerDialog
+              displaySettings={effectiveDisplaySettings}
+              nodeApiUrl={nodeSettings.nodeApiUrl}
+              onDismiss={() => setQdnResourceViewer(null)}
+              onOpenDocumentViewer={(request) => {
+                const sourceTabId = qdnResourceViewer.tabId;
+                setQdnResourceViewer(null);
+                openQdnDocumentViewer(request, sourceTabId);
+              }}
+              propertiesHint={qdnResourceViewer.value.hint}
+              resource={qdnResourceViewer.value.resource}
+            />
           </TabScopedDialog>
         ) : null}
         {qdnMediaPlayer && isMediaPlayerVisible && !activeQdnWriteRequest && !activeQdnUnlockRequest && nodeSettings ? (

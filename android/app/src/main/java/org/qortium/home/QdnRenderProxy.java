@@ -4,8 +4,11 @@ import android.net.Uri;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -37,6 +40,27 @@ final class QdnRenderProxy {
     static final String PROXY_HOST_SUFFIX = ".qdn.androidplatform.net";
 
     private static final Map<String, String> AUTHORIZED_ORIGINS = new ConcurrentHashMap<>();
+    private static final Set<String> ALLOWED_RENDER_SERVICES = new HashSet<>(Arrays.asList(
+        // Browser archives keep their existing isolated-host path.
+        "APP",
+        "WEBSITE",
+        "GAME",
+        "HASH",
+        // Native <img>, <audio>, and <video> sources requested through
+        // GET_QDN_RESOURCE_STREAM_URL. Generic file services are included
+        // because publishers commonly place media under ATTACHMENT or FILE.
+        "IMAGE",
+        "THUMBNAIL",
+        "QCHAT_IMAGE",
+        "AUDIO",
+        "VOICE",
+        "PODCAST",
+        "VIDEO",
+        "DOCUMENT",
+        "FILE",
+        "FILES",
+        "ATTACHMENT"
+    ));
 
     private QdnRenderProxy() {}
 
@@ -100,7 +124,7 @@ final class QdnRenderProxy {
 
         String service = segments.get(1).toUpperCase(Locale.ROOT);
 
-        if (!"APP".equals(service) && !"WEBSITE".equals(service) && !"GAME".equals(service) && !"HASH".equals(service)) {
+        if (!ALLOWED_RENDER_SERVICES.contains(service)) {
             return null;
         }
 

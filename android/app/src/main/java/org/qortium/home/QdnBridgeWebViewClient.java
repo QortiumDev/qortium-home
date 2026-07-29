@@ -8,6 +8,7 @@ import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -160,20 +161,37 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         int statusCode = connection.getResponseCode();
         String reasonPhrase = connection.getResponseMessage();
         String contentType = connection.getContentType();
-        byte[] responseBytes = readAllBytes(getResponseStream(connection, statusCode));
         Map<String, String> responseHeaders = getResponseHeaders(connection);
+        InputStream responseStream = getResponseStream(connection, statusCode);
 
-        if (isHtmlContentType(contentType)) {
+        if (isHtmlContentType(contentType) && bridgeToken != null && !bridgeToken.isEmpty()) {
             Charset charset = getCharset(contentType);
+            byte[] responseBytes;
+
+            try {
+                responseBytes = readAllBytes(responseStream);
+            } finally {
+                connection.disconnect();
+            }
+
             String html = new String(responseBytes, charset);
 
-            responseBytes = injectQdnBridge(html, bridgeToken == null ? "" : bridgeToken).getBytes(charset);
+            responseBytes = injectQdnBridge(html, bridgeToken).getBytes(charset);
             removeHeader(responseHeaders, "Content-Length");
             removeHeader(responseHeaders, "Content-Encoding");
             removeHeader(responseHeaders, "Transfer-Encoding");
             removeHeader(responseHeaders, "Content-Security-Policy");
             removeHeader(responseHeaders, "X-Content-Security-Policy");
             responseHeaders.put("Referrer-Policy", "no-referrer");
+
+            return new WebResourceResponse(
+                getMimeType(contentType),
+                charset.name(),
+                statusCode,
+                reasonPhrase == null ? getReasonPhrase(statusCode) : reasonPhrase,
+                responseHeaders,
+                new ByteArrayInputStream(responseBytes)
+            );
         }
 
         return new WebResourceResponse(
@@ -182,8 +200,61 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             statusCode,
             reasonPhrase == null ? getReasonPhrase(statusCode) : reasonPhrase,
             responseHeaders,
-            new ByteArrayInputStream(responseBytes)
+            new DisconnectingInputStream(responseStream, connection)
         );
+    }
+
+    /**
+     * WebView consumes a WebResourceResponse after shouldInterceptRequest returns,
+     * so a non-HTML response must keep its HttpURLConnection alive. Closing at
+     * EOF (or when WebView abandons the request) releases the socket without
+     * buffering an entire audio/video resource in the Java heap.
+     */
+    private static final class DisconnectingInputStream extends FilterInputStream {
+        private final HttpURLConnection connection;
+        private boolean closed;
+
+        DisconnectingInputStream(InputStream stream, HttpURLConnection connection) {
+            super(stream);
+            this.connection = connection;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = super.read();
+
+            if (value == -1) {
+                close();
+            }
+
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int read = super.read(buffer, offset, length);
+
+            if (read == -1) {
+                close();
+            }
+
+            return read;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed) {
+                return;
+            }
+
+            closed = true;
+
+            try {
+                super.close();
+            } finally {
+                connection.disconnect();
+            }
+        }
     }
 
     private String getRequestHeader(WebResourceRequest request, String expectedName) {

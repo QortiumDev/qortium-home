@@ -617,6 +617,15 @@ type QortiumQdnDocumentViewerRequest = {
   mimeType?: string | null;
 };
 
+type QortiumQdnResourceViewerRequest = {
+  identifier: string | null;
+  name: string;
+  path: string | null;
+  service: string;
+  filename?: string | null;
+  mimeType?: string | null;
+};
+
 type QortiumQdnPublishSourcePreviewRequest = {
   renderUrl: string;
   service: string;
@@ -990,6 +999,9 @@ interface Window {
       ) => () => void;
       onOpenDocumentViewer: (
         callback: (event: QortiumQdnDocumentViewerRequest) => void,
+      ) => () => void;
+      onOpenResourceViewer: (
+        callback: (event: QortiumQdnResourceViewerRequest & { sourceTabId: string | null }) => void,
       ) => () => void;
       onOpenPublishSourcePreview: (
         callback: (event: QortiumQdnPublishSourcePreviewRequest & { sourceTabId: string | null }) => void,

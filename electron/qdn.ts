@@ -114,6 +114,10 @@ import {
 import { nodeFetch } from './node-tls.js';
 import { prepareQdnArchiveRender } from './qdn-archive-render.js';
 import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
+import {
+  getQdnResourceStreamRequest,
+  getQdnResourceViewerRequest,
+} from './qdn-resource-viewer-contract.js';
 import { getLegacyAccountAvatarHint } from './qdn-identity-avatar.js';
 import {
   buildAccountAvatarPath,
@@ -9199,6 +9203,12 @@ async function getQdnResourceUrl(request: QdnAppRequest, context: QdnViewContext
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
+async function getQdnResourceStreamUrl(request: QdnAppRequest, context: QdnViewContext | null) {
+  getQdnResourceStreamRequest(request);
+
+  return getQdnResourceUrl(request, context);
+}
+
 function getRequiredListName(request: QdnAppRequest) {
   const listName = getRequiredRequestString(request, 'listName', 'List name');
 
@@ -9479,6 +9489,9 @@ async function handleQdnAppRequest(
 
     case 'GET_QDN_RESOURCE_STATUS':
       return fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
+
+    case 'GET_QDN_RESOURCE_STREAM_URL':
+      return getQdnResourceStreamUrl(request, context);
 
     case 'GET_QDN_RESOURCE_URL':
       return getQdnResourceUrl(request, context);
@@ -9803,6 +9816,22 @@ async function handleQdnAppRequest(
         service,
         filename: filename || null,
         mimeType: mimeType || null,
+      });
+
+      return true;
+    }
+
+    case 'OPEN_QDN_RESOURCE_VIEWER': {
+      const resource = getQdnResourceViewerRequest(request);
+      const hostWindow = context ? getQdnViewHostWindow(context) : null;
+
+      if (!context || !hostWindow) {
+        throw new Error('QDN resource viewer request does not belong to an active window.');
+      }
+
+      hostWindow.webContents.send('qdn-app:open-resource-viewer', {
+        ...resource,
+        sourceTabId: context.tabId,
       });
 
       return true;
