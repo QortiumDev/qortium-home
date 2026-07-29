@@ -611,6 +611,7 @@ export const nl: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Vastzetten op dashboard",
   "tabs.reloadTab": "Tabblad opnieuw laden",
   "tabs.reopenClosedTab": "Gesloten tabblad opnieuw openen",
+  "tabs.showTopBar": "Browserbalk tonen",
   "updates.assetLabel": "Asset",
   "updates.available": "{tag} is beschikbaar voor {platform}.",
   "updates.channelLabel": "Kanaal",

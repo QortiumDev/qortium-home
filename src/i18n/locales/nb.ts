@@ -612,6 +612,7 @@ export const nb: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Fest til kontrollpanel",
   "tabs.reloadTab": "Last inn fane på nytt",
   "tabs.reopenClosedTab": "Åpne lukket fane på nytt",
+  "tabs.showTopBar": "Vis nettleserlinje",
   "updates.assetLabel": "Ressurs",
   "updates.available": "{tag} er tilgjengelig for {platform}.",
   "updates.channelLabel": "Kanal",

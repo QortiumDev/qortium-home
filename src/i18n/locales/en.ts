@@ -589,6 +589,7 @@ export const en = {
   "tabs.pinToDashboard": "Pin to Dashboard",
   "tabs.reloadTab": "Reload Tab",
   "tabs.reopenClosedTab": "Reopen Closed Tab",
+  "tabs.showTopBar": "Show browser bar",
   "updates.assetLabel": "Asset",
   "updates.available": "{tag} is available for {platform}.",
   "updates.channelLabel": "Channel",

@@ -611,6 +611,7 @@ export const zhTW: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "固定到儀表板",
   "tabs.reloadTab": "重新載入分頁",
   "tabs.reopenClosedTab": "重新開啟已關閉的分頁",
+  "tabs.showTopBar": "顯示瀏覽器列",
   "updates.assetLabel": "資產",
   "updates.available": "{tag} 已可用於 {platform}。",
   "updates.channelLabel": "頻道",

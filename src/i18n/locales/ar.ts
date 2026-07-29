@@ -611,6 +611,7 @@ export const ar: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "تثبيت في لوحة التحكم",
   "tabs.reloadTab": "إعادة تحميل علامة التبويب",
   "tabs.reopenClosedTab": "إعادة فتح علامة التبويب المغلقة",
+  "tabs.showTopBar": "إظهار شريط المتصفح",
   "updates.assetLabel": "الأصل",
   "updates.available": "يتوفر {tag} للمنصة {platform}.",
   "updates.channelLabel": "القناة",

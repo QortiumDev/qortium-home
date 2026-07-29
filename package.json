@@ -68,6 +68,7 @@
     "test:qdn-browser-archive-services": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-browser-archive-services.test.js",
     "test:qdn-services-drift": "node scripts/ensure-electron-build.mjs && node scripts/test-qdn-services-drift.mjs",
     "test:qdn-group-avatar-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-group-avatar-input.test.js",
+    "test:qdn-host-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-host-contract.test.js",
     "test:qdn-identity-avatar": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-identity-avatar.test.js",
     "test:qdn-poll-options-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-options-input.test.js",
     "test:qdn-poll-vote-input": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-poll-vote-input.test.js",

@@ -611,6 +611,7 @@ export const fi: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Kiinnitä kojelaudalle",
   "tabs.reloadTab": "Lataa välilehti uudelleen",
   "tabs.reopenClosedTab": "Avaa suljettu välilehti uudelleen",
+  "tabs.showTopBar": "Näytä selainpalkki",
   "updates.assetLabel": "Paketti",
   "updates.available": "{tag} on saatavilla alustalle {platform}.",
   "updates.channelLabel": "Kanava",

@@ -41,6 +41,7 @@ type TopBarProps = {
   canGoBack: boolean;
   canGoForward: boolean;
   canReopenClosedTab: boolean;
+  collapsed: boolean;
   currentRoute: AppRoute;
   historyEntries: AppRoute[];
   historyIndex: number;
@@ -55,6 +56,7 @@ type TopBarProps = {
   onCloseOtherTabs: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
   onDuplicateTab: (tabId: string) => void;
+  onExpand: () => void;
   onToggleTabAudioMuted: (tabId: string) => void;
   onGoBack: () => void;
   onGoForward: () => void;
@@ -2167,6 +2169,7 @@ export function TopBar({
   canGoBack,
   canGoForward,
   canReopenClosedTab,
+  collapsed,
   currentRoute,
   historyEntries,
   historyIndex,
@@ -2181,6 +2184,7 @@ export function TopBar({
   onCloseOtherTabs,
   onCloseTabsToRight,
   onDuplicateTab,
+  onExpand,
   onToggleTabAudioMuted,
   onGoBack,
   onGoForward,
@@ -2437,7 +2441,23 @@ export function TopBar({
   }
 
   return (
-    <header className="top-bar">
+    <header className={`top-bar${collapsed ? ' top-bar--collapsed' : ''}`}>
+      {/* Mobile-only reveal strip: while a QDN app/site is open the bar
+          auto-collapses (mirroring the viewer's status-handle pattern) and this
+          slim full-width button is the only visible chrome. Desktop CSS keeps it
+          display:none, so the collapsed state never changes desktop layout. */}
+      {collapsed ? (
+        <button
+          className="top-bar__expand-handle"
+          type="button"
+          aria-expanded={false}
+          title={t('tabs.showTopBar')}
+          aria-label={t('tabs.showTopBar')}
+          onClick={onExpand}
+        >
+          <ChevronDown aria-hidden="true" size={16} strokeWidth={2} />
+        </button>
+      ) : null}
       <BrowserTabs
         activeTabId={activeTabId}
         canReopenClosedTab={canReopenClosedTab}

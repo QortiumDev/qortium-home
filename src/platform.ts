@@ -264,6 +264,12 @@ const QDN_APP_QORTAL_DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const QDN_APP_QORTAL_MAX_BYTES_LIMIT = 64 * 1024 * 1024;
 const NATIVE_ASSET_LABEL = 'Native Asset';
 
+function getHostInfoPlatform(): 'android' | 'ios' | 'desktop' {
+  const platform = Capacitor.getPlatform();
+  if (platform === 'android' || platform === 'ios') return platform;
+  return 'desktop';
+}
+
 export function getQortiumHomeHostInfo() {
   const hostVersion = packageJson.version;
 
@@ -271,6 +277,8 @@ export function getQortiumHomeHostInfo() {
     hostName: 'qortium-home',
     hostVersion,
     platformVersion: getPlatformVersion(hostVersion) ?? hostVersion,
+    // Additive: lets apps adapt density/layout to the host form factor.
+    platform: getHostInfoPlatform(),
   };
 }
 const QDN_WRITE_APPROVAL_TIMEOUT_MS = 120_000;
@@ -5109,9 +5117,12 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvat
     throw new Error('Group avatar response was not binary data.');
   }
 
+  const declaredLength = getContentLength(response);
+  if (typeof declaredLength === 'number' && declaredLength > maxBytes) {
+    throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
   const bytes = base64ToBytes(response.data);
-  const contentLength = getContentLength(response) ?? bytes.byteLength;
-  if (contentLength > maxBytes) {
+  if (bytes.byteLength > maxBytes) {
     throw new Error(`Group avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
   }
 
@@ -5120,7 +5131,9 @@ async function fetchGroupAvatarForApp(request: QdnAppRequest): Promise<GroupAvat
     body: response.data,
     encoding: 'base64' as const,
     contentType: getAvatarImageContentType(getContentType(response), bytes) ?? (() => { throw new Error('Group avatar was not a supported image.'); })(),
-    contentLength,
+    // Always report measured bytes: the Content-Length header is only an
+    // oversize preflight and can go stale when a transport decompresses.
+    contentLength: bytes.byteLength,
     source: 'POINTER' as const,
     descriptor,
   };
@@ -5172,9 +5185,12 @@ async function fetchAccountAvatarForApp(
     throw new Error('Account avatar response was not binary data.');
   }
 
+  const declaredLength = getContentLength(response);
+  if (typeof declaredLength === 'number' && declaredLength > maxBytes) {
+    throw new Error(`Account avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
   const bytes = base64ToBytes(response.data);
-  const contentLength = getContentLength(response) ?? bytes.byteLength;
-  if (contentLength > maxBytes) {
+  if (bytes.byteLength > maxBytes) {
     throw new Error(`Account avatar exceeded the ${maxBytes.toLocaleString()} byte limit.`);
   }
 
@@ -5183,7 +5199,9 @@ async function fetchAccountAvatarForApp(
     body: response.data,
     encoding: 'base64' as const,
     contentType: getAvatarImageContentType(getContentType(response), bytes) ?? (() => { throw new Error('Account avatar was not a supported image.'); })(),
-    contentLength,
+    // Always report measured bytes: the Content-Length header is only an
+    // oversize preflight and can go stale when a transport decompresses.
+    contentLength: bytes.byteLength,
     source: 'POINTER' as const,
     descriptor,
   };

@@ -611,6 +611,7 @@ export const et: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Kinnita töölauale",
   "tabs.reloadTab": "Laadi vahekaart uuesti",
   "tabs.reopenClosedTab": "Ava suletud vahekaart uuesti",
+  "tabs.showTopBar": "Näita brauseririba",
   "updates.assetLabel": "Fail",
   "updates.available": "{tag} on saadaval platvormile {platform}.",
   "updates.channelLabel": "Kanal",

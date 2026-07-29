@@ -591,6 +591,7 @@ export const el: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Καρφίτσωμα στον Πίνακα ελέγχου",
   "tabs.reloadTab": "Επαναφόρτωση καρτέλας",
   "tabs.reopenClosedTab": "Άνοιγμα ξανά κλειστής καρτέλας",
+  "tabs.showTopBar": "Εμφάνιση γραμμής περιήγησης",
   "updates.assetLabel": "Στοιχείο",
   "updates.available": "Το {tag} είναι διαθέσιμο για {platform}.",
   "updates.channelLabel": "Κανάλι",

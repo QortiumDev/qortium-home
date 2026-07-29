@@ -611,6 +611,7 @@ export const ja: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "ダッシュボードにピン留め",
   "tabs.reloadTab": "タブを再読み込み",
   "tabs.reopenClosedTab": "閉じたタブを再度開く",
+  "tabs.showTopBar": "ブラウザーバーを表示",
   "updates.assetLabel": "アセット",
   "updates.available": "{platform}向けに{tag}が利用可能です。",
   "updates.channelLabel": "チャンネル",

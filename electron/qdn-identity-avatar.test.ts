@@ -31,6 +31,33 @@ for (const relativePath of ['electron/qdn.ts', 'src/platform.ts']) {
     source.includes('avatarContract: legacyAvatar.avatarContract'),
     `${relativePath} must expose the legacy contract marker.`,
   );
+
+  // The POINTER avatar path must report the measured decoded byte length as
+  // contentLength — never the HTTP Content-Length header, which goes stale
+  // when a transport decompresses or re-frames the body. qortium-chat's
+  // parseAccountAvatar requires contentLength to equal the decoded byte length
+  // exactly, so a surviving stale header would silently drop every pointer
+  // avatar. The header may only feed the pre-download oversize preflight.
+  const avatarStart = source.indexOf('async function fetchGroupAvatarForApp');
+  const avatarEnd = source.indexOf('async function setAccountAvatarForApp');
+  assert(
+    avatarStart >= 0 && avatarEnd > avatarStart,
+    `${relativePath} avatar function markers moved; update this test.`,
+  );
+  const avatarSource = source.slice(avatarStart, avatarEnd);
+  const measuredContentLength = {
+    'electron/qdn.ts': 'contentLength: arrayBuffer.byteLength',
+    'src/platform.ts': 'contentLength: bytes.byteLength',
+  }[relativePath] as string;
+  assert(
+    avatarSource.includes(measuredContentLength),
+    `${relativePath} must return the measured byte length as contentLength on the pointer avatar path.`,
+  );
+  assert(
+    !avatarSource.includes('contentLength: contentLength ??') &&
+      !avatarSource.includes('?? bytes.byteLength'),
+    `${relativePath} must not fall back to the HTTP Content-Length header for the avatar contentLength.`,
+  );
 }
 
 console.log('QDN identity avatar compatibility tests passed.');

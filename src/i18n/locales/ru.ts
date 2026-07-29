@@ -611,6 +611,7 @@ export const ru: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "Закрепить на панели",
   "tabs.reloadTab": "Перезагрузить вкладку",
   "tabs.reopenClosedTab": "Восстановить закрытую вкладку",
+  "tabs.showTopBar": "Показать панель браузера",
   "updates.assetLabel": "Артефакт",
   "updates.available": "{tag} доступен для {platform}.",
   "updates.channelLabel": "Канал",

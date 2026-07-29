@@ -611,6 +611,7 @@ export const ko: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "대시보드에 고정",
   "tabs.reloadTab": "탭 새로고침",
   "tabs.reopenClosedTab": "닫은 탭 다시 열기",
+  "tabs.showTopBar": "브라우저 표시줄 표시",
   "updates.assetLabel": "에셋",
   "updates.available": "{platform}용 {tag}을(를) 사용할 수 있습니다.",
   "updates.channelLabel": "채널",

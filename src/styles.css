@@ -2451,6 +2451,13 @@ h1 {
   box-shadow: var(--shadow-bar);
 }
 
+/* Mobile-only reveal strip for the collapsed top bar. Hidden by default so the
+   collapsed state never changes desktop layout; the mobile/coarse-pointer
+   media block below makes it the only visible top-bar chrome. */
+.top-bar__expand-handle {
+  display: none;
+}
+
 .top-bar__tabs {
   display: flex;
   grid-column: 1 / -1;
@@ -4457,10 +4464,19 @@ h1 {
   box-shadow: inset 0 0 0 2px var(--color-accent-ring);
 }
 
+/* The version/compatibility badge renders inline inside the slim handle:
+   shrink the badge instead of growing the handle, so every real app (which
+   always has a manifest version) keeps the collapsed handle at ~18px. */
 .qdn-viewer__status-handle--with-badge {
   gap: 8px;
-  min-height: 34px;
-  padding: 4px 12px;
+  padding: 1px 12px;
+}
+
+.qdn-viewer__status-handle .qdn-viewer__app-version-badge {
+  min-height: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 14px;
 }
 
 .qdn-viewer__status-text {
@@ -5600,6 +5616,52 @@ h1 {
     width: 42px;
     min-width: 42px;
     height: 42px;
+  }
+}
+
+/* Reclaim mobile chrome while a QDN app/site is open: the collapsed top bar
+   hides every control row and shrinks to a slim reveal strip. Scoped to the
+   existing mobile/coarse-pointer breakpoints so desktop keeps the full bar
+   even when the collapsed modifier is present. */
+@media (max-width: 600px), (pointer: coarse) {
+  .top-bar--collapsed {
+    gap: 0;
+    padding: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .top-bar--collapsed .top-bar__tabs,
+  .top-bar--collapsed .top-bar__address-form,
+  .top-bar--collapsed .account-menu,
+  .top-bar--collapsed .node-status,
+  .top-bar--collapsed .top-bar__bookmark-toolbar {
+    display: none;
+  }
+
+  .top-bar--collapsed .top-bar__expand-handle {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 18px;
+    padding: 1px 0;
+    color: var(--color-text-subtle);
+    background: var(--color-frame-surface);
+    border: none;
+    cursor: pointer;
+    transition: var(--transition-control);
+  }
+
+  .top-bar--collapsed .top-bar__expand-handle:hover,
+  .top-bar--collapsed .top-bar__expand-handle:focus-visible {
+    color: var(--color-text);
+    background: var(--color-control-hover);
+    outline: none;
+  }
+
+  .top-bar--collapsed .top-bar__expand-handle:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--color-accent-ring);
   }
 }
 

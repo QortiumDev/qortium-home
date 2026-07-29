@@ -611,6 +611,7 @@ export const de: Record<TranslationKey, string> = {
   "tabs.pinToDashboard": "An Dashboard anheften",
   "tabs.reloadTab": "Tab neu laden",
   "tabs.reopenClosedTab": "Geschlossenen Tab wieder öffnen",
+  "tabs.showTopBar": "Browserleiste einblenden",
   "updates.assetLabel": "Asset",
   "updates.available": "{tag} ist für {platform} verfügbar.",
   "updates.channelLabel": "Kanal",
