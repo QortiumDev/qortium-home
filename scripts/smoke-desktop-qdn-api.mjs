@@ -522,6 +522,57 @@ async function runMediaPlayerOverlayAssertions(mainClient, qdnClient) {
   );
 }
 
+async function runResourceViewerOverlayAssertions(mainClient, qdnClient) {
+  log('Checking that the generic QDN resource viewer stays inside the requesting tab.');
+  await runQdnRequest(qdnClient, {
+    action: 'OPEN_QDN_RESOURCE_VIEWER',
+    service: 'JSON',
+    name: fixtureName,
+    identifier: jsonIdentifier,
+    filename: 'fixture.json',
+    mimeType: 'application/json',
+  });
+
+  const state = await waitUntil('tab-scoped resource viewer', appTimeoutMs, async () => {
+    const value = await evaluate(
+      mainClient,
+      `(() => {
+        const dialog = document.querySelector('.qdn-resource-viewer-dialog');
+        const backdrop = dialog?.closest('.tab-scoped-dialog-backdrop');
+        const topBar = document.querySelector('.top-bar');
+        if (!dialog || !backdrop || !topBar) return null;
+        const backdropRect = backdrop.getBoundingClientRect();
+        const topBarRect = topBar.getBoundingClientRect();
+        return {
+          insideWindowModal: !!dialog.closest('.modal-backdrop'),
+          tabScoped: true,
+          topBarBottom: topBarRect.bottom,
+          overlayTop: backdropRect.top,
+        };
+      })()`,
+    );
+
+    return value?.tabScoped ? value : null;
+  });
+
+  assert(!state.insideWindowModal, 'The generic QDN resource viewer opened in a window-level modal.');
+  assert(
+    state.overlayTop >= state.topBarBottom - 1,
+    `The resource overlay covered Home's browser chrome (overlay top ${state.overlayTop}, top bar bottom ${state.topBarBottom}).`,
+  );
+
+  await evaluate(
+    mainClient,
+    `(() => {
+      document.querySelector('.qdn-resource-viewer-dialog .media-player-dialog__close')?.click();
+      return true;
+    })()`,
+  );
+  await waitUntil('resource viewer dismissal', appTimeoutMs, async () =>
+    await evaluate(mainClient, "!document.querySelector('.qdn-resource-viewer-dialog')") ? true : null,
+  );
+}
+
 async function expectQdnRequestRejected(qdnClient, request, expectedMessage) {
   const result = await evaluate(
     qdnClient,
@@ -655,6 +706,7 @@ async function runBridgeAssertions(qdnClient) {
     'GET_QDN_RESOURCE_METADATA',
     'GET_QDN_RESOURCE_PROPERTIES',
     'GET_QDN_RESOURCE_STATUS',
+    'GET_QDN_RESOURCE_STREAM_URL',
     'GET_QDN_RESOURCE_URL',
     'GET_SELECTED_ACCOUNT',
     'GET_CROSSCHAIN_BLOCKCHAINS',
@@ -671,6 +723,7 @@ async function runBridgeAssertions(qdnClient) {
     'FETCH_QDN_RESOURCE',
     'LIST_GROUPS',
     'LIST_QDN_RESOURCES',
+    'OPEN_QDN_RESOURCE_VIEWER',
     'GET_ALL_LISTS',
     'GET_LIST',
     'ADD_TO_LIST',
@@ -777,6 +830,20 @@ async function runBridgeAssertions(qdnClient) {
     typeof appUrl === 'string' &&
       appUrl.includes(`/render/APP/${encodeURIComponent(fixtureName)}/${encodeURIComponent(appIdentifier)}`),
     `GET_QDN_RESOURCE_URL returned an unexpected APP render URL: ${appUrl}`,
+  );
+
+  const audioStreamUrl = await runQdnRequest(qdnClient, {
+    action: 'GET_QDN_RESOURCE_STREAM_URL',
+    identifier: audioIdentifier,
+    name: fixtureName,
+    service: 'AUDIO',
+  });
+  assert(
+    typeof audioStreamUrl === 'string' &&
+      audioStreamUrl.includes(
+        `/render/AUDIO/${encodeURIComponent(fixtureName)}/${encodeURIComponent(audioIdentifier)}`,
+      ),
+    `GET_QDN_RESOURCE_STREAM_URL returned an unexpected AUDIO render URL: ${audioStreamUrl}`,
   );
 
   const jsonResource = await runQdnRequest(qdnClient, {
@@ -966,6 +1033,7 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
         log(`Running bridge API assertions in ${qdnTarget.url}.`);
         await runBridgeAssertions(qdnClient);
         await runMediaPlayerOverlayAssertions(mainClient, qdnClient);
+        await runResourceViewerOverlayAssertions(mainClient, qdnClient);
       } finally {
         qdnClient.close();
       }

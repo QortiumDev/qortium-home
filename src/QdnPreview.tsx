@@ -16,6 +16,7 @@ type QdnPreviewViewerProps = {
   nodeApiUrl: string;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenResourceViewer?: (request: QortiumQdnResourceViewerRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
   preview: QdnPreview;
@@ -82,6 +83,7 @@ export function QdnPreviewViewer({
   nodeApiUrl,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenResourceViewer,
   onOpenNewTab,
   onOpenInCurrentTab,
   preview,
@@ -168,6 +170,7 @@ export function QdnPreviewViewer({
             displaySettings={displaySettings}
             onOpenDocumentViewer={onOpenDocumentViewer}
             onOpenMediaPlayer={onOpenMediaPlayer}
+            onOpenResourceViewer={onOpenResourceViewer}
             onOpenNewTab={onOpenNewTab}
             onOpenInCurrentTab={onOpenInCurrentTab}
             renderUrl={renderUrl}

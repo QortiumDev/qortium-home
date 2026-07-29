@@ -100,6 +100,10 @@ import {
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
 import {
+  getQdnResourceStreamRequest,
+  getQdnResourceViewerRequest,
+} from '../electron/qdn-resource-viewer-contract';
+import {
   validateBookmarkManagerMutationRequest,
   validateBookmarksOpenRequest,
   type BookmarkManagerMutationRequest,
@@ -441,6 +445,7 @@ type QdnAppRequestContext = {
   isViewFocused?: () => boolean;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
+  onOpenResourceViewer?: (request: QortiumQdnResourceViewerRequest) => void;
   onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -700,6 +705,17 @@ export async function authorizeQdnRenderProxyUrl(renderUrl: string, bridgeToken:
 
   proxied.search = url.search;
   proxied.searchParams.set('qdnHomeBridge', bridgeToken);
+  proxied.hash = url.hash;
+
+  return proxied.toString();
+}
+
+export async function authorizeQdnResourceStreamUrl(renderUrl: string) {
+  const url = new URL(renderUrl);
+  const { proxyOrigin } = await QdnRenderProxy.authorize({ origin: url.origin });
+  const proxied = new URL(`${proxyOrigin}${url.pathname}`);
+
+  proxied.search = url.search;
   proxied.hash = url.hash;
 
   return proxied.toString();
@@ -10767,6 +10783,13 @@ async function getQdnResourceUrl(request: QdnAppRequest, context: QdnAppRequestC
   }${renderQueryString ? `?${renderQueryString}` : ''}`;
 }
 
+async function getQdnResourceStreamUrl(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
+  getQdnResourceStreamRequest(request);
+  const renderUrl = await getQdnResourceUrl(request, context);
+
+  return isAndroid() ? authorizeQdnResourceStreamUrl(renderUrl) : renderUrl;
+}
+
 function getRequiredListName(request: QdnAppRequest) {
   const listName = getRequiredRequestString(request, 'listName', 'List name');
 
@@ -11071,6 +11094,9 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'GET_QDN_RESOURCE_STATUS':
       return fetchNodeApiPayload(buildQdnResourceStatusPath(request), request);
+
+    case 'GET_QDN_RESOURCE_STREAM_URL':
+      return getQdnResourceStreamUrl(request, context);
 
     case 'GET_QDN_RESOURCE_URL':
       return getQdnResourceUrl(request, context);
@@ -11388,6 +11414,18 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
         filename: filename || null,
         mimeType: mimeType || null,
       });
+
+      return true;
+    }
+
+    case 'OPEN_QDN_RESOURCE_VIEWER': {
+      const resource = getQdnResourceViewerRequest(request);
+
+      if (!context?.onOpenResourceViewer) {
+        throw new Error('The QDN resource viewer is not available in this context.');
+      }
+
+      context.onOpenResourceViewer(resource);
 
       return true;
     }

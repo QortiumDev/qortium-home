@@ -152,6 +152,7 @@ type QdnViewerProps = {
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenResourceViewer?: (request: QortiumQdnResourceViewerRequest) => void;
   onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -163,6 +164,7 @@ type QdnViewerProps = {
     request: BookmarkManagerMutationRequest,
   ) => Promise<BookmarkManagerMutationResult> | BookmarkManagerMutationResult;
   onHomeSettingsPatch?: (patch: Partial<HomeSettings>) => Promise<HomeSettings> | HomeSettings;
+  propertiesHint?: QdnResourceProperties;
   resource: QdnResource;
   requestContextActive?: boolean;
   suspended?: boolean;
@@ -322,6 +324,7 @@ export type QdnBridgeFrameContentProps = {
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenResourceViewer?: (request: QortiumQdnResourceViewerRequest) => void;
   onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -1020,6 +1023,7 @@ function useQdnResourceLoader(
   nodeApiUrl: string,
   retryToken: number,
   displaySettings: QdnDisplaySettings,
+  propertiesHint?: QdnResourceProperties,
 ) {
   const [state, setState] = useState<QdnViewerState>({
     phase: 'loading',
@@ -1077,7 +1081,14 @@ function useQdnResourceLoader(
 
     async function setReadyState(status: QdnResourceStatus) {
       let activeResource = resource;
-      let properties = await loadResourceProperties(activeResource, abortController.signal);
+      const loadedProperties = await loadResourceProperties(activeResource, abortController.signal);
+      let properties =
+        loadedProperties || propertiesHint
+          ? {
+              ...propertiesHint,
+              ...loadedProperties,
+            }
+          : undefined;
       let viewerKind = getLoadedViewerKind(activeResource, properties);
       let directRenderUrl = buildQdnRenderUrl(activeResource, nodeApiUrl, displaySettings);
 
@@ -1246,7 +1257,7 @@ function useQdnResourceLoader(
     // is captured per load; runtime qdnRequest/API calls already re-resolve the
     // node per request in the main process, and a reload/retry (retryToken,
     // reloadKey, or the tab reload remount) picks up the latest node.
-  }, [reloadKey, retryToken]);
+  }, [reloadKey, retryToken, propertiesHint?.filename, propertiesHint?.mimeType, propertiesHint?.size]);
 
   return state;
 }
@@ -3698,6 +3709,7 @@ export function QdnBridgeFrameContent({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenResourceViewer,
   onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -3717,6 +3729,7 @@ export function QdnBridgeFrameContent({
   const onBookmarksOpenRef = useRef(onBookmarksOpen);
   const onOpenMediaPlayerRef = useRef(onOpenMediaPlayer);
   const onOpenDocumentViewerRef = useRef(onOpenDocumentViewer);
+  const onOpenResourceViewerRef = useRef(onOpenResourceViewer);
   const onOpenPublishSourcePreviewRef = useRef(onOpenPublishSourcePreview);
   const onAppNavigationChangeRef = useRef(onAppNavigationChange);
   const onAppTitleChangeRef = useRef(onAppTitleChange);
@@ -3732,6 +3745,7 @@ export function QdnBridgeFrameContent({
   onBookmarksOpenRef.current = onBookmarksOpen;
   onOpenMediaPlayerRef.current = onOpenMediaPlayer;
   onOpenDocumentViewerRef.current = onOpenDocumentViewer;
+  onOpenResourceViewerRef.current = onOpenResourceViewer;
   onOpenPublishSourcePreviewRef.current = onOpenPublishSourcePreview;
   onAppNavigationChangeRef.current = onAppNavigationChange;
   onAppTitleChangeRef.current = onAppTitleChange;
@@ -3928,6 +3942,9 @@ export function QdnBridgeFrameContent({
           onOpenMediaPlayer: (mediaRequest: QortiumQdnMediaPlayerRequest) => {
             onOpenMediaPlayerRef.current?.(mediaRequest);
           },
+          onOpenResourceViewer: (viewerRequest: QortiumQdnResourceViewerRequest) => {
+            onOpenResourceViewerRef.current?.(viewerRequest);
+          },
           onOpenPublishSourcePreview: (previewRequest: QortiumQdnPublishSourcePreviewRequest) => {
             onOpenPublishSourcePreviewRef.current?.(previewRequest);
           },
@@ -4031,6 +4048,7 @@ function QdnIframeContent({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenResourceViewer,
   onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -4054,6 +4072,7 @@ function QdnIframeContent({
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenResourceViewer?: (request: QortiumQdnResourceViewerRequest) => void;
   onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -4080,6 +4099,7 @@ function QdnIframeContent({
       onAppTitleChange={onAppTitleChange}
       onOpenDocumentViewer={onOpenDocumentViewer}
       onOpenMediaPlayer={onOpenMediaPlayer}
+      onOpenResourceViewer={onOpenResourceViewer}
       onOpenPublishSourcePreview={onOpenPublishSourcePreview}
       onOpenNewTab={onOpenNewTab}
       onOpenInCurrentTab={onOpenInCurrentTab}
@@ -4111,6 +4131,7 @@ function QdnReadyContent({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenResourceViewer,
   onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -4138,6 +4159,7 @@ function QdnReadyContent({
   onAppTitleChange?: (title: string | null) => void;
   onOpenDocumentViewer?: (request: QortiumQdnDocumentViewerRequest) => void;
   onOpenMediaPlayer?: (request: QortiumQdnMediaPlayerRequest) => void;
+  onOpenResourceViewer?: (request: QortiumQdnResourceViewerRequest) => void;
   onOpenPublishSourcePreview?: (request: QortiumQdnPublishSourcePreviewRequest) => void;
   onOpenNewTab?: (address: string) => void;
   onOpenInCurrentTab?: (address: string) => void;
@@ -4188,6 +4210,7 @@ function QdnReadyContent({
         onAppTitleChange={onAppTitleChange}
         onOpenDocumentViewer={onOpenDocumentViewer}
         onOpenMediaPlayer={onOpenMediaPlayer}
+        onOpenResourceViewer={onOpenResourceViewer}
         onOpenPublishSourcePreview={onOpenPublishSourcePreview}
         onOpenNewTab={onOpenNewTab}
         onOpenInCurrentTab={onOpenInCurrentTab}
@@ -4370,6 +4393,7 @@ export function QdnViewer({
   onAppTitleChange,
   onOpenDocumentViewer,
   onOpenMediaPlayer,
+  onOpenResourceViewer,
   onOpenPublishSourcePreview,
   onOpenNewTab,
   onOpenInCurrentTab,
@@ -4379,6 +4403,7 @@ export function QdnViewer({
   managerRevisions,
   onBookmarkManagerMutation,
   onHomeSettingsPatch,
+  propertiesHint,
   resource,
   requestContextActive,
   suspended = false,
@@ -4389,7 +4414,7 @@ export function QdnViewer({
   const [statusHidden, setStatusHidden] = useState(false);
   const [actionContext, setActionContext] = useState<ViewerActionContext>({});
   const statusRegionId = useId();
-  const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings);
+  const state = useQdnResourceLoader(resource, nodeApiUrl, retryToken, displaySettings, propertiesHint);
   const appVersion = useQdnAppManifestVersion(resource, state.phase === 'ready');
   const progress = state.phase === 'ready' ? 100 : getStatusProgress(state.status);
   const progressText = getProgressText(state.status);
@@ -4502,6 +4527,7 @@ export function QdnViewer({
           onAppTitleChange={onAppTitleChange}
           onOpenDocumentViewer={onOpenDocumentViewer}
           onOpenMediaPlayer={onOpenMediaPlayer}
+          onOpenResourceViewer={onOpenResourceViewer}
           onOpenPublishSourcePreview={onOpenPublishSourcePreview}
           onOpenNewTab={onOpenNewTab}
           onOpenInCurrentTab={onOpenInCurrentTab}
