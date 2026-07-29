@@ -7875,11 +7875,13 @@ async function requestCoreOnChainUpdate(method: 'GET' | 'POST'): Promise<Qortium
   const responseBody = stringifyResponseData(response.data).trim();
 
   if (response.status < 200 || response.status >= 300) {
+    const fallbackMessage =
+      method === 'POST'
+        ? 'Core on-chain update install request failed.'
+        : 'Core on-chain update check failed.';
+
     throw new Error(
-      responseBody ||
-        (method === 'POST'
-          ? 'Core on-chain update install request failed.'
-          : 'Core on-chain update check failed.'),
+      readableNodeErrorMessage(responseBody, fallbackMessage),
     );
   }
 

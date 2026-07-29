@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - fix(core): retry Windows install moves and sanitize update errors
+
+Home now gives Windows a short, bounded retry window when a recently stopped
+managed Core still has its install directory busy, instead of abandoning an
+otherwise valid update on the first `EPERM`, `EBUSY`, or `EACCES` rename
+failure. Cross-drive moves keep their existing safe copy-and-remove fallback,
+and non-Windows filesystem errors still fail immediately. Core's update
+endpoint can also return a server or proxy HTML error page when something
+unexpected fails; desktop and mobile update checks now replace that markup
+with their existing concise update-failure message rather than exposing raw
+HTML to the user.
+
 ### 2026-07-29 - fix: measured avatar sizes, mobile chrome reclaim, host platform signal
 
 Applies the four Home-side fixes from the 2026-07-29 Qortium Chat delta audit.

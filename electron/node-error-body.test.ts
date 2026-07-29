@@ -134,16 +134,24 @@ assert.deepEqual(
 const RAW_BODY_FALLBACK = /\b(message|body|responseBody|text|result\.body|result\.text)(\.trim\(\))? \|\| (fallbackMessage|`)/;
 const HELPER_CALL = /readableNodeErrorMessage\(/g;
 
-for (const [name, source, expectedCalls] of [
-  ['electron/qdn.ts', qdnSource.join('\n'), 17],
-  ['src/platform.ts', platformSource.join('\n'), 17],
-  ['electron/node-settings.ts', readRepoSource('../electron/node-settings.ts', './node-settings.ts'), 2],
-  ['src/QdnViewer.tsx', readRepoSource('../src/QdnViewer.tsx', './QdnViewer.tsx'), 1],
+for (const [name, source, expectedCalls, enforceRawBodyGuard] of [
+  ['electron/qdn.ts', qdnSource.join('\n'), 17, true],
+  ['src/platform.ts', platformSource.join('\n'), 18, true],
+  // core-manager also fetches GitHub archives and sends the local stop request.
+  // Those non-update paths retain their own bounded/plain-text behavior, so
+  // pin the two /admin/update helper calls without applying the Q-App-wide raw
+  // body scan to the entire manager.
+  ['electron/core-manager.ts', readRepoSource('../electron/core-manager.ts', './core-manager.ts'), 2, false],
+  ['electron/node-settings.ts', readRepoSource('../electron/node-settings.ts', './node-settings.ts'), 2, true],
+  ['src/QdnViewer.tsx', readRepoSource('../src/QdnViewer.tsx', './QdnViewer.tsx'), 1, true],
 ] as const) {
-  assert.ok(
-    !RAW_BODY_FALLBACK.test(source),
-    `${name} must route every failed node response through readableNodeErrorMessage, not a raw body`,
-  );
+  if (enforceRawBodyGuard) {
+    assert.ok(
+      !RAW_BODY_FALLBACK.test(source),
+      `${name} must route every failed node response through readableNodeErrorMessage, not a raw body`,
+    );
+  }
+
   assert.equal(
     (source.match(HELPER_CALL) ?? []).length,
     expectedCalls,
