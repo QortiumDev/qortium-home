@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { handleQdnAppRequest } from './platform';
 import { isTerminalQdnStatus } from './qdn';
-import type { QdnResourceStatus } from './qdn';
+import type { QdnResourceListItem, QdnResourceStatus } from './qdn';
+import { QdnImageMissingRevisionCache } from './qdnImageMissingRevisionCache';
 
 export type QdnImageResolutionState = 'pending' | 'ready' | 'unavailable';
 
@@ -10,6 +11,7 @@ export type QdnImageResource = {
   identifier?: string;
   maxBytes: number;
   name: string;
+  optional?: boolean;
   path?: string;
   service: string;
 };
@@ -36,11 +38,13 @@ const POLL_INTERVAL_MS = 5_000;
 const MAX_POLL_ATTEMPTS = 12;
 const SOFT_RETRY_COOLDOWN_MS = 5 * 60_000;
 const MAX_CACHED_IMAGES = 200;
+const MAX_CACHED_MISSING_REVISIONS = 500;
 const PENDING: QdnImageResolution = { state: 'pending', url: null };
 const UNAVAILABLE: QdnImageResolution = { state: 'unavailable', url: null };
 
 const entries = new Map<string, ImageEntry>();
 const readyImageCache = new Map<string, string>();
+const missingRevisionCache = new QdnImageMissingRevisionCache(MAX_CACHED_MISSING_REVISIONS);
 
 function getEntryKey(resource: QdnImageResource, nodeApiUrl: string, nodeEpoch: number) {
   return `${nodeEpoch}:${nodeApiUrl}:${resource.cacheKey}`;
@@ -114,14 +118,49 @@ async function fetchResourceStatus(resource: QdnImageResource, build: boolean) {
 async function fetchResourceObjectUrl(resource: QdnImageResource) {
   const result = await window.qortiumHome.qdn.fetchResourceData({
     ...getBridgeResource(resource),
+    allowMissing: resource.optional === true,
     maxBytes: resource.maxBytes,
   });
+
+  if (result.missing) {
+    return { kind: 'missing' as const };
+  }
 
   if (result.tooLarge || !result.data) {
     throw new Error('QDN image is unavailable.');
   }
 
-  return base64ToObjectUrl(result.data, result.contentType);
+  return {
+    kind: 'ready' as const,
+    url: base64ToObjectUrl(result.data, result.contentType),
+  };
+}
+
+async function fetchResourceRevision(resource: QdnImageResource): Promise<string | null> {
+  const result = await handleQdnAppRequest({
+    action: 'SEARCH_QDN_RESOURCES',
+    exactMatchNames: true,
+    identifier: resource.identifier ?? 'default',
+    includeMetadata: false,
+    includeStatus: false,
+    limit: 1,
+    name: resource.name,
+    service: resource.service,
+  });
+
+  if (!Array.isArray(result)) {
+    return null;
+  }
+
+  const expectedIdentifier = resource.identifier ?? 'default';
+  const match = (result as QdnResourceListItem[]).find(
+    (item) =>
+      item.name === resource.name &&
+      item.service === resource.service &&
+      (item.identifier ?? 'default') === expectedIdentifier,
+  );
+
+  return match?.latestSignature?.trim() || null;
 }
 
 function emit(entry: ImageEntry, resolution: QdnImageResolution) {
@@ -177,17 +216,57 @@ async function poll(entry: ImageEntry, key: string, build: boolean) {
 
   if (status?.status === 'READY') {
     let objectUrl: string | null = null;
+    let revision: string | null = null;
 
     try {
-      objectUrl = await fetchResourceObjectUrl(entry.resource);
+      if (entry.resource.optional) {
+        try {
+          revision = await fetchResourceRevision(entry.resource);
+        } catch {
+          // Revision lookup is an optimization; the raw fetch remains authoritative.
+        }
+
+        if (entries.get(key) !== entry || entry.subscribers.size === 0) {
+          entry.isPolling = false;
+          return;
+        }
+
+        if (revision && missingRevisionCache.has(entry.resource.cacheKey, revision)) {
+          entry.isPolling = false;
+          clearReadyImage(entry.resource);
+          emit(entry, UNAVAILABLE);
+          return;
+        }
+      }
+
+      const result = await fetchResourceObjectUrl(entry.resource);
 
       if (entries.get(key) !== entry || entry.subscribers.size === 0) {
         entry.isPolling = false;
-        URL.revokeObjectURL(objectUrl);
+
+        if (result.kind === 'ready') {
+          URL.revokeObjectURL(result.url);
+        }
+
         return;
       }
 
+      if (result.kind === 'missing') {
+        entry.isPolling = false;
+        clearReadyImage(entry.resource);
+
+        if (revision) {
+          missingRevisionCache.remember(entry.resource.cacheKey, revision);
+        }
+
+        emit(entry, UNAVAILABLE);
+        return;
+      }
+
+      objectUrl = result.url;
+
       entry.isPolling = false;
+      missingRevisionCache.forget(entry.resource.cacheKey);
       cacheReadyImage(entry.resource, objectUrl);
       emit(entry, { state: 'ready', url: objectUrl });
       return;

@@ -118,6 +118,10 @@ import {
   type HomeSettings,
 } from '../electron/home-settings-bridge';
 import { getPlatformVersion } from '../electron/app-versioning';
+import {
+  isQdnFileNotFoundResponse,
+  QdnFileNotFoundError,
+} from '../electron/qdn-file-not-found';
 import { readableNodeErrorMessage } from '../electron/node-error-body';
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from '../electron/node-api-url';
 import {
@@ -10155,6 +10159,20 @@ async function fetchConfiguredRawResourceBase64(request: QortiumQdnRawResourceRe
       throw networkRestrictionError();
     }
 
+    let errorBody = response.data;
+
+    if (typeof errorBody === 'string' && !isQdnFileNotFoundResponse(response.status, errorBody)) {
+      try {
+        errorBody = new TextDecoder().decode(base64ToBytes(errorBody));
+      } catch {
+        // Capacitor can return either parsed JSON or base64 for an arraybuffer error body.
+      }
+    }
+
+    if (isQdnFileNotFoundResponse(response.status, errorBody)) {
+      throw new QdnFileNotFoundError(`QDN raw resource request failed with HTTP ${response.status}.`);
+    }
+
     throw new Error(`QDN raw resource request failed with HTTP ${response.status}.`);
   }
 
@@ -11769,7 +11787,23 @@ function createFallbackApi(): PlatformApi {
       },
       async fetchResourceData(request) {
         const maxBytes = Math.max(0, Math.floor(getNumber(request.maxBytes) ?? 0));
-        const result = await fetchConfiguredRawResourceBase64(request);
+        let result: Awaited<ReturnType<typeof fetchConfiguredRawResourceBase64>>;
+
+        try {
+          result = await fetchConfiguredRawResourceBase64(request);
+        } catch (error) {
+          if (getBoolean(request.allowMissing) === true && error instanceof QdnFileNotFoundError) {
+            return {
+              data: '',
+              contentType: '',
+              contentLength: 0,
+              missing: true,
+              tooLarge: false,
+            };
+          }
+
+          throw error;
+        }
 
         if (maxBytes > 0 && result.contentLength > maxBytes) {
           return {
