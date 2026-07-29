@@ -779,38 +779,37 @@ type QdnMediaPlayerDialogProps = {
 
 function QdnMediaPlayerDialog({ displaySettings, nodeApiUrl, onDismiss, resource }: QdnMediaPlayerDialogProps) {
   return (
-    <ModalDialog onDismiss={onDismiss}>
-      <section
-        aria-label={t('mediaPlayer.dialogLabel')}
-        aria-modal="true"
-        className="media-player-dialog"
-        role="dialog"
-      >
-        <header className="media-player-dialog__header">
-          <span className="media-player-dialog__url">{resource.displayUrl}</span>
-          <button
-            aria-label={t('mediaPlayer.close')}
-            className="icon-button media-player-dialog__close"
-            type="button"
-            onClick={onDismiss}
-          >
-            <X aria-hidden="true" size={18} strokeWidth={2} />
-          </button>
-        </header>
-        <div className="media-player-dialog__body">
-          <QdnViewer
-            key={resource.displayUrl}
-            account={null}
-            displaySettings={displaySettings}
-            nodeApiUrl={nodeApiUrl}
-            resource={resource}
-            tabId={`media-player:${resource.displayUrl}`}
-          />
-        </div>
-      </section>
-    </ModalDialog>
+    <section
+      aria-label={t('mediaPlayer.dialogLabel')}
+      className="media-player-dialog"
+      role="dialog"
+    >
+      <header className="media-player-dialog__header">
+        <span className="media-player-dialog__url">{resource.displayUrl}</span>
+        <button
+          aria-label={t('mediaPlayer.close')}
+          className="icon-button media-player-dialog__close"
+          type="button"
+          onClick={onDismiss}
+        >
+          <X aria-hidden="true" size={18} strokeWidth={2} />
+        </button>
+      </header>
+      <div className="media-player-dialog__body">
+        <QdnViewer
+          key={resource.displayUrl}
+          account={null}
+          displaySettings={displaySettings}
+          nodeApiUrl={nodeApiUrl}
+          resource={resource}
+          tabId={`media-player:${resource.displayUrl}`}
+        />
+      </div>
+    </section>
   );
 }
+
+type QdnMediaPlayerState = TabScopedDocumentViewer<QdnResource>;
 
 type QdnDocumentViewerState = TabScopedDocumentViewer<{
   hint: { filename: string | null; mimeType: string | null };
@@ -918,7 +917,7 @@ export function App() {
   const [connectionRefreshEpoch, setConnectionRefreshEpoch] = useState(0);
   const [qdnUnlockRequests, setQdnUnlockRequests] = useState<QortiumQdnUnlockRequest[]>([]);
   const [qdnWriteRequests, setQdnWriteRequests] = useState<QortiumQdnWriteApprovalRequest[]>([]);
-  const [qdnMediaPlayerResource, setQdnMediaPlayerResource] = useState<QdnResource | null>(null);
+  const [qdnMediaPlayer, setQdnMediaPlayer] = useState<QdnMediaPlayerState | null>(null);
   // Filename/mimeType hint that came with the OPEN_QDN_DOCUMENT_VIEWER request -
   // used only for format detection (epub/pdf/cbz/txt), never for the fetch path,
   // since single-file resources have no `path` for DocumentViewer to derive a
@@ -968,7 +967,9 @@ export function App() {
   const openBookmarksManagerLinkRef = useRef<
     ((address: string, accountId: string | null, sourceTabId: string | null) => void) | null
   >(null);
-  const openQdnMediaPlayerRef = useRef<((request: QortiumQdnMediaPlayerRequest) => void) | null>(null);
+  const openQdnMediaPlayerRef = useRef<
+    ((request: QortiumQdnMediaPlayerRequest, sourceTabId?: string) => void) | null
+  >(null);
   const textSizeControlRef = useRef<{
     current: DisplaySettings['textSize'];
     update: (nextTextSize: DisplaySettings['textSize']) => void;
@@ -1028,11 +1029,13 @@ export function App() {
   const activeQdnUnlockRequest = qdnUnlockRequests[0] ?? null;
   const activeQdnWriteRequest = qdnWriteRequests[0] ?? null;
   const isQdnPermissionDialogActive = !!activeQdnUnlockRequest || !!activeQdnWriteRequest;
-  const isQdnViewGloballySuspended =
-    isQdnPermissionDialogActive || isTopBarOverlayOpen || !!qdnMediaPlayerResource || !!qdnPublishSourcePreview;
+  const isMediaPlayerVisible = isTabScopedDocumentViewerVisible(qdnMediaPlayer, activeTab.id);
   const isDocumentViewerVisible = isTabScopedDocumentViewerVisible(qdnDocumentViewer, activeTab.id);
   const isPublishSourcePreviewVisible = isTabScopedDocumentViewerVisible(qdnPublishSourcePreview, activeTab.id);
-  const canGoBack = hasRouteHistoryBack || isDocumentViewerVisible || isPublishSourcePreviewVisible;
+  const isQdnViewGloballySuspended =
+    isQdnPermissionDialogActive || isTopBarOverlayOpen || isMediaPlayerVisible || isPublishSourcePreviewVisible;
+  const canGoBack =
+    hasRouteHistoryBack || isMediaPlayerVisible || isDocumentViewerVisible || isPublishSourcePreviewVisible;
   const effectiveDisplaySettings = useMemo(
     () => resolveDisplaySettings(displaySettings, systemTheme, systemLanguage),
     [displaySettings, systemLanguage, systemTheme],
@@ -1082,6 +1085,9 @@ export function App() {
   }, [exploreAppUrl]);
 
   useEffect(() => {
+    setQdnMediaPlayer((player) =>
+      shouldClearTabScopedDocumentViewer(player, tabState.tabs.map((tab) => tab.id)) ? null : player,
+    );
     setQdnDocumentViewer((viewer) =>
       shouldClearTabScopedDocumentViewer(viewer, tabState.tabs.map((tab) => tab.id)) ? null : viewer,
     );
@@ -2458,6 +2464,11 @@ export function App() {
       return;
     }
 
+    if (isMediaPlayerVisible) {
+      setQdnMediaPlayer(null);
+      return;
+    }
+
     if (shouldDismissDocumentViewerBeforeNavigating(qdnDocumentViewer, activeTab.id)) {
       setQdnDocumentViewer(null);
       return;
@@ -2996,7 +3007,10 @@ export function App() {
     }));
   }
 
-  function openQdnMediaPlayer(request: QortiumQdnMediaPlayerRequest) {
+  function openQdnMediaPlayer(
+    request: QortiumQdnMediaPlayerRequest,
+    sourceTabId = tabState.activeTabId,
+  ) {
     const service = request.service.toUpperCase() as QdnService;
 
     if (!QDN_MEDIA_PLAYER_SERVICES.includes(service) || !request.name) {
@@ -3011,7 +3025,10 @@ export function App() {
       service,
     };
 
-    setQdnMediaPlayerResource({ ...resource, displayUrl: buildQdnDisplayUrl(resource) });
+    setQdnMediaPlayer({
+      tabId: sourceTabId,
+      value: { ...resource, displayUrl: buildQdnDisplayUrl(resource) },
+    });
   }
 
   function openQdnDocumentViewer(
@@ -4260,7 +4277,7 @@ export function App() {
                     }
                   }}
                   onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
-                  onOpenMediaPlayer={openQdnMediaPlayer}
+                  onOpenMediaPlayer={(request) => openQdnMediaPlayer(request, tab.id)}
                   onOpenPublishSourcePreview={(request) => openQdnPublishSourcePreview(request, tab.id)}
                   onAppTitleChange={(title) => updateQdnAppTitle(tab.id, title)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
@@ -4285,7 +4302,7 @@ export function App() {
                   displaySettings={effectiveDisplaySettings}
                   nodeApiUrl={nodeSettings.nodeApiUrl}
                   onOpenDocumentViewer={(request) => openQdnDocumentViewer(request, tab.id)}
-                  onOpenMediaPlayer={openQdnMediaPlayer}
+                  onOpenMediaPlayer={(request) => openQdnMediaPlayer(request, tab.id)}
                   onOpenNewTab={(address) => openAppLinkInNewTab(address, tab.id)}
                   onOpenInCurrentTab={(address) => openInCurrentTab(address, tab.id)}
                   preview={tabRoute.preview}
@@ -4405,6 +4422,16 @@ export function App() {
             <QdnPublishSourcePreview preview={qdnPublishSourcePreview.value} />
           </TabScopedDialog>
         ) : null}
+        {qdnMediaPlayer && isMediaPlayerVisible && !activeQdnWriteRequest && !activeQdnUnlockRequest && nodeSettings ? (
+          <TabScopedDialog onDismiss={() => setQdnMediaPlayer(null)}>
+            <QdnMediaPlayerDialog
+              displaySettings={effectiveDisplaySettings}
+              nodeApiUrl={nodeSettings.nodeApiUrl}
+              onDismiss={() => setQdnMediaPlayer(null)}
+              resource={qdnMediaPlayer.value}
+            />
+          </TabScopedDialog>
+        ) : null}
       </section>
       {activeQdnWriteRequest ? (
         <QdnWriteDialog
@@ -4417,14 +4444,6 @@ export function App() {
           request={activeQdnUnlockRequest}
           onAccountsStateChange={handleAccountsStateChange}
           onResolve={resolveQdnUnlockRequest}
-        />
-      ) : null}
-      {qdnMediaPlayerResource && !activeQdnWriteRequest && !activeQdnUnlockRequest && nodeSettings ? (
-        <QdnMediaPlayerDialog
-          displaySettings={effectiveDisplaySettings}
-          nodeApiUrl={nodeSettings.nodeApiUrl}
-          onDismiss={() => setQdnMediaPlayerResource(null)}
-          resource={qdnMediaPlayerResource}
         />
       ) : null}
     </main>
