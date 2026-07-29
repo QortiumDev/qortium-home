@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -34,8 +34,10 @@ import {
   type CoreUpdatePolicy,
   type CoreUpdateSettings,
 } from './core-update-settings.js';
+import { movePath } from './filesystem-move.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { selectManagedJavaBinary } from './managed-java-asset.js';
+import { readableNodeErrorMessage } from './node-error-body.js';
 import { userMessage } from './user-message.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
@@ -527,21 +529,6 @@ function getRuntimeEntryConflictPath(entryName: string) {
     sanitizePathSegment(new Date().toISOString()),
     entryName,
   );
-}
-
-async function movePath(sourcePath: string, destinationPath: string) {
-  await mkdir(path.dirname(destinationPath), { recursive: true });
-
-  try {
-    await rename(sourcePath, destinationPath);
-  } catch (error) {
-    if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EXDEV') {
-      throw error;
-    }
-
-    await cp(sourcePath, destinationPath, { recursive: true });
-    await rm(sourcePath, { recursive: true, force: true });
-  }
 }
 
 async function movePathReplacingDestination(sourcePath: string, destinationPath: string) {
@@ -2284,7 +2271,10 @@ async function requestManagedCoreUpdate(installedCore: InstalledCore, method: 'G
 
     if (!response.ok) {
       throw new Error(
-        text || userMessage('core.error.onChainHttp', { status: response.status }),
+        readableNodeErrorMessage(
+          text,
+          userMessage('core.error.onChainHttp', { status: response.status }),
+        ),
       );
     }
 
@@ -3228,7 +3218,12 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
       const text = await response.text();
 
       if (!response.ok) {
-        throw new Error(text || userMessage('core.error.onChainHttp', { status: response.status }));
+        throw new Error(
+          readableNodeErrorMessage(
+            text,
+            userMessage('core.error.onChainHttp', { status: response.status }),
+          ),
+        );
       }
 
       const status: unknown = text ? JSON.parse(text) : null;
@@ -3377,7 +3372,7 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       await rm(backupPath, { recursive: true, force: true });
 
       if (existsSync(installPath)) {
-        await movePath(installPath, backupPath);
+        await movePath(installPath, backupPath, { retryWindowsBusy: true });
         backupInUse = true;
       }
     } else if (existingCore) {
