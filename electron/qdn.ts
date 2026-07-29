@@ -215,6 +215,10 @@ import {
 } from './home-settings-bridge.js';
 import { getPlatformVersion } from './app-versioning.js';
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js';
+import {
+  isQdnFileNotFoundResponse,
+  QdnFileNotFoundError,
+} from './qdn-file-not-found.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { shouldStreamQdnPublishSource, shouldUnpackQdnPublishArchive } from './qdn-publish-routing.js';
 import { isSameQdnWriteRoute, resolveQdnWriteRoute } from './qdn-write-route.js';
@@ -328,6 +332,7 @@ type QdnAuthorizeResourceRequest = {
 };
 
 type QdnRawResourceRequest = QdnAuthorizeResourceRequest & {
+  allowMissing?: unknown;
   maxBytes?: unknown;
   multiFile?: unknown;
   path?: unknown;
@@ -2462,7 +2467,16 @@ async function fetchRawResource(
       throw networkRestrictionError();
     }
 
-    throw new Error(readableNodeErrorMessage(message, `QDN raw resource request failed with HTTP ${response.status}.`));
+    const readableMessage = readableNodeErrorMessage(
+      message,
+      `QDN raw resource request failed with HTTP ${response.status}.`,
+    );
+
+    if (isQdnFileNotFoundResponse(response.status, message)) {
+      throw new QdnFileNotFoundError(readableMessage);
+    }
+
+    throw new Error(readableMessage);
   }
 
   return response;
@@ -10100,7 +10114,24 @@ export function registerQdnIpcHandlers() {
   ipcMain.handle('qdn:fetchResourceData', async (_event, request: QdnRawResourceRequest) => {
     const resource = getRawResourceRequest(request);
     const maxBytes = Math.max(0, Math.floor(getNumber(request.maxBytes) ?? 0));
-    const response = await fetchConfiguredRawResource(resource);
+    let response: Response;
+
+    try {
+      response = await fetchConfiguredRawResource(resource);
+    } catch (error) {
+      if (getBoolean(request.allowMissing) === true && error instanceof QdnFileNotFoundError) {
+        return {
+          data: '',
+          contentLength: 0,
+          contentType: '',
+          missing: true,
+          tooLarge: false,
+        };
+      }
+
+      throw error;
+    }
+
     const contentLength = getContentLength(response);
     const contentType = response.headers.get('content-type') ?? '';
 

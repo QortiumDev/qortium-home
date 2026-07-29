@@ -58,6 +58,7 @@ export function getAppIconResolution(
       identifier,
       maxBytes: 256 * 1024,
       name: resource.name,
+      optional: true,
       path: 'favicon.ico',
       service: resource.service,
     },

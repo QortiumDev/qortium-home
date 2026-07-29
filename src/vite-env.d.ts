@@ -424,6 +424,7 @@ type QortiumQdnAuthorizeResult = {
 };
 
 type QortiumQdnRawResourceRequest = QortiumQdnAuthorizeRequest & {
+  allowMissing?: boolean;
   maxBytes?: number;
   mimeType?: string;
   multiFile?: boolean;
@@ -464,6 +465,7 @@ type QortiumQdnResourceDataResult = {
   data: string;
   contentType: string;
   contentLength: number;
+  missing?: boolean;
   tooLarge?: boolean;
 };
 

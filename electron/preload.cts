@@ -228,6 +228,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       service: string;
     }) => ipcRenderer.invoke('qdn:fetchResourceText', request),
     fetchResourceData: (request: {
+      allowMissing?: boolean;
       identifier?: string;
       maxBytes?: number;
       name: string;

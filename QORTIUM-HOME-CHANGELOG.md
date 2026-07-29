@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - fix(qdn): quiet missing app favicon fallbacks
+
+Home now treats a missing `favicon.ico` inside an otherwise ready QDN app as
+the expected optional-file result it is, so Electron no longer repeats noisy
+bridge errors or retries the same absent icon for a full minute. The miss is
+remembered only for that exact QDN publication revision, so a newly published
+favicon is discovered normally. Apps still fall back in the same order from
+their own favicon to the publisher's avatar and then a name-based monogram,
+while oversized files and every unexpected QDN failure remain visible.
+
 ### 2026-07-29 - fix(core): retry Windows install moves and sanitize update errors
 
 Home now gives Windows a short, bounded retry window when a recently stopped
