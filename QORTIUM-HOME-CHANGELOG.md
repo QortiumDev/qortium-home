@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - feat(qdn): add app-neutral resource viewing
+
+QDN apps can now ask Home to open any public, non-app resource in Home's
+shared viewer, so images, sound, video, documents, text, structured data,
+galleries, archives, and repositories no longer need app-specific handoff
+contracts. Apps can also request a host-safe URL for inline image, audio, or
+video playback; on Android, Home keeps that traffic on its authorized secure
+QDN proxy and streams large responses without loading the whole file into
+memory, while preserving byte ranges for seeking. Apps and websites continue
+to open as browser content, the older media and document actions remain
+available, and both new actions work in public-node mode without exposing an
+API key.
+
 ### 2026-07-29 - fix(qdn): quiet missing app favicon fallbacks
 
 Home now treats a missing `favicon.ico` inside an otherwise ready QDN app as
