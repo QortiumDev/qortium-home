@@ -10,13 +10,20 @@ import { createManagedProcess as createManagedProcessBase } from './lib/managed-
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
+function expandHome(value) {
+  return value.startsWith('~') ? path.join(os.homedir(), value.slice(1)) : value;
+}
 const nodeApiUrl = (process.env.QORTIUM_HOME_NODE_API_URL ?? 'http://127.0.0.1:24891').replace(
   /\/+$/,
   '',
 );
+const nodeApiKeyPath = expandHome(
+  process.env.QORTIUM_HOME_NODE_API_KEY_PATH ?? '~/.config/qortium-core/runtime/apikey.txt',
+);
 const fixtureName = process.env.QORTIUM_HOME_QDN_API_FIXTURE_NAME ?? 'QortiumHomeTest';
 const appIdentifier = process.env.QORTIUM_HOME_QDN_API_APP_IDENTIFIER ?? 'home-test';
 const jsonIdentifier = process.env.QORTIUM_HOME_QDN_API_JSON_IDENTIFIER ?? 'home-json';
+const audioIdentifier = process.env.QORTIUM_HOME_QDN_API_AUDIO_IDENTIFIER ?? 'home-audio';
 const fixtureAddress =
   process.env.QORTIUM_HOME_QDN_API_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
 const commandTimeoutMs = 120_000;
@@ -408,6 +415,55 @@ async function runQdnRequest(qdnClient, request) {
   return result.result;
 }
 
+async function runMediaPlayerOverlayAssertions(mainClient, qdnClient) {
+  log('Checking that the QDN media player stays inside the active tab.');
+  await runQdnRequest(qdnClient, {
+    action: 'OPEN_QDN_MEDIA_PLAYER',
+    service: 'AUDIO',
+    name: fixtureName,
+    identifier: audioIdentifier,
+  });
+
+  const state = await waitUntil('tab-scoped media player', appTimeoutMs, async () => {
+    const value = await evaluate(
+      mainClient,
+      `(() => {
+        const dialog = document.querySelector('.media-player-dialog');
+        const backdrop = dialog?.closest('.tab-scoped-dialog-backdrop');
+        const topBar = document.querySelector('.top-bar');
+        if (!dialog || !backdrop || !topBar) return null;
+        const backdropRect = backdrop.getBoundingClientRect();
+        const topBarRect = topBar.getBoundingClientRect();
+        return {
+          insideWindowModal: !!dialog.closest('.modal-backdrop'),
+          tabScoped: true,
+          topBarBottom: topBarRect.bottom,
+          overlayTop: backdropRect.top,
+        };
+      })()`,
+    );
+
+    return value?.tabScoped ? value : null;
+  });
+
+  assert(!state.insideWindowModal, 'The QDN media player still opened in a window-level modal.');
+  assert(
+    state.overlayTop >= state.topBarBottom - 1,
+    `The media overlay covered Home's browser chrome (overlay top ${state.overlayTop}, top bar bottom ${state.topBarBottom}).`,
+  );
+
+  await evaluate(
+    mainClient,
+    `(() => {
+      document.querySelector('.media-player-dialog__close')?.click();
+      return true;
+    })()`,
+  );
+  await waitUntil('media player dismissal', appTimeoutMs, async () =>
+    await evaluate(mainClient, "!document.querySelector('.media-player-dialog')") ? true : null,
+  );
+}
+
 async function expectQdnRequestRejected(qdnClient, request, expectedMessage) {
   const result = await evaluate(
     qdnClient,
@@ -772,6 +828,7 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
   const cdpPort = await getFreePort();
   const smokeEnv = {
     ...process.env,
+    QORTIUM_HOME_NODE_API_KEY_PATH: nodeApiKeyPath,
     QORTIUM_HOME_NODE_API_URL: nodeApiUrl,
     QORTIUM_HOME_USER_DATA_DIR: userDataDir,
     XDG_CONFIG_HOME: path.join(tempRoot, 'config'),
@@ -843,6 +900,7 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
         await qdnClient.send('Runtime.enable');
         log(`Running bridge API assertions in ${qdnTarget.url}.`);
         await runBridgeAssertions(qdnClient);
+        await runMediaPlayerOverlayAssertions(mainClient, qdnClient);
       } finally {
         qdnClient.close();
       }
@@ -889,6 +947,7 @@ async function main() {
   } else if (process.platform !== 'linux') {
     fail('Packaged desktop QDN API smoke currently supports Linux AppImage builds only.');
   }
+  assertTool(nodeApiKeyPath, 'local node API key (set QORTIUM_HOME_NODE_API_KEY_PATH)');
 
   await assertLocalCoreReady();
   await assertFixtureReady();

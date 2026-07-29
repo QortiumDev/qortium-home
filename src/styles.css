@@ -4956,6 +4956,7 @@ h1 {
   padding: clamp(12px, 4%, 32px);
   overflow: hidden;
   background: var(--color-page-bg);
+  container-type: inline-size;
 }
 
 .qdn-loading__field {
@@ -4979,13 +4980,23 @@ h1 {
   min-width: 0;
   padding: clamp(20px, 6%, 32px) clamp(16px, 5%, 28px);
   text-align: center;
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 84%, transparent);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   animation: qdn-loading-rise 0.5s var(--ease-pop, ease-out);
+}
+
+/* In a full viewer pane, keep the field's centre visible instead of placing
+   the status card directly over the point where every line begins. Narrow
+   preview columns retain the centred layout. */
+@container (min-width: 720px) {
+  .qdn-loading__panel {
+    width: min(46cqw, 30em);
+    justify-self: end;
+  }
 }
 
 @keyframes qdn-loading-rise {
