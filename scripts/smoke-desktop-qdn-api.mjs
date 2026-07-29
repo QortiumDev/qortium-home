@@ -398,6 +398,64 @@ async function navigateToFixture(client) {
   }
 }
 
+async function assertWideLoadingLayout(client) {
+  const state = await evaluate(
+    client,
+    `(() => {
+      const loading = document.createElement('div');
+      const field = document.createElement('canvas');
+      const panel = document.createElement('div');
+      loading.className = 'qdn-loading';
+      loading.style.cssText =
+        'position: fixed; top: 0; left: 0; width: 1100px; height: 545px; visibility: hidden; pointer-events: none;';
+      field.className = 'qdn-loading__field';
+      panel.className = 'qdn-loading__panel';
+      panel.textContent = 'Loading QDN resource…';
+      loading.append(field, panel);
+      document.body.append(loading);
+      try {
+        const outer = loading.getBoundingClientRect();
+        const card = panel.getBoundingClientRect();
+        return {
+          fieldMounted: field.isConnected,
+          loadingHeight: outer.height,
+          loadingLeft: outer.left,
+          loadingTop: outer.top,
+          loadingWidth: outer.width,
+          panelBottom: card.bottom,
+          panelLeft: card.left,
+          panelWidth: card.width,
+        };
+      } finally {
+        loading.remove();
+      }
+    })()`,
+  );
+
+  const loadingCenterX = state.loadingLeft + state.loadingWidth / 2;
+  const panelCenterX = state.panelLeft + state.panelWidth / 2;
+  const loadingCenterY = state.loadingTop + state.loadingHeight / 2;
+
+  assert(state.fieldMounted, 'Wide QDN loading layout did not mount its particle canvas.');
+  assert(
+    Math.abs(panelCenterX - loadingCenterX) <= 2,
+    `Wide QDN loading card was not horizontally centred (card ${panelCenterX}, pane ${loadingCenterX}).`,
+  );
+  assert(
+    state.panelWidth <= state.loadingWidth / 2,
+    `Wide QDN loading card was too wide (${state.panelWidth}px in a ${state.loadingWidth}px pane).`,
+  );
+  assert(
+    state.panelBottom < loadingCenterY,
+    `Wide QDN loading card still covered the particle origin (card bottom ${state.panelBottom}, pane centre ${loadingCenterY}).`,
+  );
+  log(
+    `Wide QDN loading card is top-centred (${Math.round(state.panelWidth)}px card in ${Math.round(
+      state.loadingWidth,
+    )}x${Math.round(state.loadingHeight)} pane) with the particle origin clear.`,
+  );
+}
+
 async function runQdnRequest(qdnClient, request) {
   const result = await evaluate(
     qdnClient,
@@ -887,6 +945,13 @@ async function runSmoke({ appImagePath, electronBin, mode, viteBin }) {
 
     try {
       await mainClient.send('Runtime.enable');
+      await waitUntil('Qortium Home styles', appTimeoutMs, async () =>
+        evaluate(
+          mainClient,
+          "!!document.querySelector('#browser-address') && getComputedStyle(document.body).fontFamily.length > 0",
+        ),
+      );
+      await assertWideLoadingLayout(mainClient);
       await navigateToFixture(mainClient);
 
       const qdnTarget = await getPageTarget(
