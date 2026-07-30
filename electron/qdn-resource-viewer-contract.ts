@@ -41,6 +41,34 @@ export type QdnResourceViewerRequest = {
 
 const QDN_STREAMABLE_SERVICE_SET = new Set<string>(QDN_STREAMABLE_SERVICES);
 const QDN_RESOURCE_VIEWER_FIELD_MAX_LENGTH = 1024;
+const QDN_SAFE_RASTER_IMAGE_MIME_TYPES = new Set([
+  'image/avif',
+  'image/bmp',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+const QDN_STREAM_MIME_TYPES_BY_EXTENSION = new Map([
+  ['.aac', 'audio/aac'],
+  ['.avif', 'image/avif'],
+  ['.bmp', 'image/bmp'],
+  ['.flac', 'audio/flac'],
+  ['.gif', 'image/gif'],
+  ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'],
+  ['.m4a', 'audio/mp4'],
+  ['.mp3', 'audio/mpeg'],
+  ['.mp4', 'video/mp4'],
+  ['.oga', 'audio/ogg'],
+  ['.ogg', 'audio/ogg'],
+  ['.ogv', 'video/ogg'],
+  ['.opus', 'audio/ogg'],
+  ['.png', 'image/png'],
+  ['.wav', 'audio/wav'],
+  ['.webm', 'video/webm'],
+  ['.webp', 'image/webp'],
+]);
 
 export function isQdnStreamableService(service: string): service is QdnStreamableService {
   return QDN_STREAMABLE_SERVICE_SET.has(service);
@@ -99,4 +127,39 @@ export function getQdnResourceStreamRequest(request: QdnAppRequest): QdnResource
   }
 
   return resource;
+}
+
+/**
+ * Returns a non-scriptable MIME hint for Android's secure QDN stream proxy.
+ *
+ * Core's render endpoint does not always send Content-Type for binary resources.
+ * Android WebView then treats the intercepted response as HTML and its media
+ * pipeline stalls. Keep the hint narrow: a QDN app must not be able to label a
+ * generic FILE as HTML or SVG and execute it in the stable proxy origin.
+ */
+export function getQdnResourceStreamProxyMimeType(resource: QdnResourceViewerRequest): string | null {
+  const service = resource.service.toUpperCase();
+  const requestedMimeType = resource.mimeType?.split(';', 1)[0].trim().toLowerCase() || '';
+  const filename = resource.filename || resource.path || '';
+  const filenameLower = filename.toLowerCase();
+  const extensionMimeType = [...QDN_STREAM_MIME_TYPES_BY_EXTENSION.entries()]
+    .find(([extension]) => filenameLower.endsWith(extension))?.[1] || '';
+  const mimeType = requestedMimeType || extensionMimeType;
+  const isAudio = mimeType.startsWith('audio/');
+  const isVideo = mimeType.startsWith('video/');
+  const isRasterImage = QDN_SAFE_RASTER_IMAGE_MIME_TYPES.has(mimeType);
+
+  if (['AUDIO', 'VOICE', 'PODCAST'].includes(service)) {
+    return isAudio ? mimeType : null;
+  }
+
+  if (service === 'VIDEO') {
+    return isVideo ? mimeType : null;
+  }
+
+  if (['IMAGE', 'THUMBNAIL', 'QCHAT_IMAGE'].includes(service)) {
+    return isRasterImage ? mimeType : null;
+  }
+
+  return isAudio || isVideo || isRasterImage ? mimeType : null;
 }

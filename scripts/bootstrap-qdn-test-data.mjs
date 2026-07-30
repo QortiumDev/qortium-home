@@ -9,12 +9,13 @@ const APP_IDENTIFIER = 'home-test';
 const IMAGE_IDENTIFIER = 'home-image';
 const AUDIO_IDENTIFIER = 'home-audio';
 const VIDEO_IDENTIFIER = 'home-video';
-// Seekable, mobile-friendly media. The Vorbis/VP8 fixtures above are only 2-3 seconds
-// long, which is far too short to drag a position slider, and not every container that
-// plays on desktop Chromium decodes in Android WebView (.mkv does not). These are a
-// minute each of MP3 and H.264/AAC MP4 so scrubbing can be tested for real on a phone.
+// Seekable, mobile-friendly media. The fixtures above are only 2-3 seconds long,
+// which is far too short to drag a position slider. Keep both long video codecs:
+// H.264/AAC exercises common desktop/hardware playback, while video-only VP8 WebM
+// gives the Android emulator and lower-end WebViews a software-decodable seek fixture.
 const AUDIO_LONG_IDENTIFIER = 'home-audio-mp3';
 const VIDEO_LONG_IDENTIFIER = 'home-video-mp4';
+const VIDEO_LONG_WEBM_IDENTIFIER = 'home-video-webm';
 const LONG_MEDIA_DURATION_SECONDS = 60;
 const JSON_IDENTIFIER = 'home-json';
 const FILE_IDENTIFIER = 'home-file';
@@ -39,6 +40,7 @@ const gitOnly = process.argv.includes('--git-only');
 // exact branch/commit shape the Git viewer acceptance testing depends on. This publishes
 // only the long seekable media.
 const mediaOnly = process.argv.includes('--media-only');
+const videoWebmOnly = process.argv.includes('--video-webm-only');
 
 function expandHomePath(filePath) {
   if (filePath === '~') {
@@ -412,6 +414,52 @@ function createGitFixtureFiles() {
   return { fixtureRoot, gitDirectory: createGitFixture(fixtureRoot) };
 }
 
+function generateLongWebmFixture(videoLongWebmPath) {
+  execFileSync(
+    'ffmpeg',
+    [
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      `testsrc2=size=320x180:rate=12:duration=${LONG_MEDIA_DURATION_SECONDS}`,
+      '-c:v',
+      'libvpx',
+      '-deadline',
+      'good',
+      '-cpu-used',
+      '4',
+      '-b:v',
+      '250k',
+      '-g',
+      '24',
+      '-pix_fmt',
+      'yuv420p',
+      '-an',
+      videoLongWebmPath,
+    ],
+    { stdio: 'pipe' },
+  );
+}
+
+function createLongWebmFixtureFiles() {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'qortium-home-qdn-video-webm-'));
+  const videoLongWebmPath = path.join(fixtureRoot, 'qortium-home-test-video-long.webm');
+
+  try {
+    generateLongWebmFixture(videoLongWebmPath);
+  } catch (error) {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+    throw new Error(
+      `Unable to generate the long VP8/WebM fixture with ffmpeg. Install ffmpeg and retry. ${
+        error instanceof Error ? error.message : ''
+      }`.trim(),
+    );
+  }
+
+  return { fixtureRoot, videoLongWebmPath };
+}
+
 function createFixtureFiles() {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'qortium-home-qdn-'));
   const appDirectory = path.join(fixtureRoot, 'app');
@@ -421,6 +469,7 @@ function createFixtureFiles() {
   const videoPath = path.join(fixtureRoot, 'qortium-home-test-video.webm');
   const audioLongPath = path.join(fixtureRoot, 'qortium-home-test-audio-long.mp3');
   const videoLongPath = path.join(fixtureRoot, 'qortium-home-test-video-long.mp4');
+  const videoLongWebmPath = path.join(fixtureRoot, 'qortium-home-test-video-long.webm');
   const jsonPath = path.join(fixtureRoot, 'qortium-home-test.json');
   const filePath = path.join(fixtureRoot, 'qortium-home-test-file.txt');
   const gitDirectory = createGitFixture(fixtureRoot);
@@ -674,6 +723,8 @@ function createFixtureFiles() {
       ],
       { stdio: 'pipe' },
     );
+
+    generateLongWebmFixture(videoLongWebmPath);
   } catch (error) {
     throw new Error(
       `Unable to generate AUDIO and VIDEO fixtures with ffmpeg. Install ffmpeg and retry. ${
@@ -692,6 +743,7 @@ function createFixtureFiles() {
     imagePath,
     jsonPath,
     videoLongPath,
+    videoLongWebmPath,
     videoPath,
     websiteDirectory,
   };
@@ -785,6 +837,24 @@ if (gitOnly) {
   } finally {
     rmSync(gitFixtures.fixtureRoot, { recursive: true, force: true });
   }
+} else if (videoWebmOnly) {
+  const fixtures = createLongWebmFixtureFiles();
+
+  try {
+    await ensureNameRegistered(testName, account);
+    await publishResource({
+      service: 'VIDEO',
+      identifier: VIDEO_LONG_WEBM_IDENTIFIER,
+      path: fixtures.videoLongWebmPath,
+      title: 'Qortium Home long VIDEO Test (VP8 WebM)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s low-bandwidth VP8 WebM for Android video scrubbing tests`,
+    });
+    await waitForResourceReady('VIDEO', VIDEO_LONG_WEBM_IDENTIFIER);
+    console.log('QDN long VP8/WebM fixture bootstrap complete.');
+    console.log(`VIDEO (long VP8 WebM): qdn://VIDEO/${testName}/${VIDEO_LONG_WEBM_IDENTIFIER}`);
+  } finally {
+    rmSync(fixtures.fixtureRoot, { recursive: true, force: true });
+  }
 } else if (mediaOnly) {
   const fixtures = createFixtureFiles();
 
@@ -804,11 +874,20 @@ if (gitOnly) {
       title: 'Qortium Home long VIDEO Test (MP4)',
       description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s H.264/AAC MP4 for video scrubbing tests on desktop and Android`,
     });
+    await publishResource({
+      service: 'VIDEO',
+      identifier: VIDEO_LONG_WEBM_IDENTIFIER,
+      path: fixtures.videoLongWebmPath,
+      title: 'Qortium Home long VIDEO Test (VP8 WebM)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s low-bandwidth VP8 WebM for Android video scrubbing tests`,
+    });
     await waitForResourceReady('AUDIO', AUDIO_LONG_IDENTIFIER);
     await waitForResourceReady('VIDEO', VIDEO_LONG_IDENTIFIER);
+    await waitForResourceReady('VIDEO', VIDEO_LONG_WEBM_IDENTIFIER);
     console.log('QDN long media fixture bootstrap complete.');
     console.log(`AUDIO (long MP3): qdn://AUDIO/${testName}/${AUDIO_LONG_IDENTIFIER}`);
     console.log(`VIDEO (long MP4): qdn://VIDEO/${testName}/${VIDEO_LONG_IDENTIFIER}`);
+    console.log(`VIDEO (long VP8 WebM): qdn://VIDEO/${testName}/${VIDEO_LONG_WEBM_IDENTIFIER}`);
   } finally {
     rmSync(fixtures.fixtureRoot, { recursive: true, force: true });
   }
@@ -867,6 +946,13 @@ if (gitOnly) {
       description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s H.264/AAC MP4 for video scrubbing tests on desktop and Android`,
     });
     await publishResource({
+      service: 'VIDEO',
+      identifier: VIDEO_LONG_WEBM_IDENTIFIER,
+      path: fixtures.videoLongWebmPath,
+      title: 'Qortium Home long VIDEO Test (VP8 WebM)',
+      description: `Seekable ${LONG_MEDIA_DURATION_SECONDS}s low-bandwidth VP8 WebM for Android video scrubbing tests`,
+    });
+    await publishResource({
       service: 'JSON',
       identifier: JSON_IDENTIFIER,
       path: fixtures.jsonPath,
@@ -895,6 +981,7 @@ if (gitOnly) {
     await waitForResourceReady('VIDEO', VIDEO_IDENTIFIER);
     await waitForResourceReady('AUDIO', AUDIO_LONG_IDENTIFIER);
     await waitForResourceReady('VIDEO', VIDEO_LONG_IDENTIFIER);
+    await waitForResourceReady('VIDEO', VIDEO_LONG_WEBM_IDENTIFIER);
     await waitForResourceReady('JSON', JSON_IDENTIFIER);
     await waitForResourceReady('FILE', FILE_IDENTIFIER);
     await waitForResourceReady('GIT_REPOSITORY', GIT_IDENTIFIER);
@@ -907,6 +994,7 @@ if (gitOnly) {
     console.log(`VIDEO: qdn://VIDEO/${testName}/${VIDEO_IDENTIFIER}`);
     console.log(`AUDIO (long MP3): qdn://AUDIO/${testName}/${AUDIO_LONG_IDENTIFIER}`);
     console.log(`VIDEO (long MP4): qdn://VIDEO/${testName}/${VIDEO_LONG_IDENTIFIER}`);
+    console.log(`VIDEO (long VP8 WebM): qdn://VIDEO/${testName}/${VIDEO_LONG_WEBM_IDENTIFIER}`);
     console.log(`JSON: qdn://JSON/${testName}/${JSON_IDENTIFIER}`);
     console.log(`FILE: qdn://FILE/${testName}/${FILE_IDENTIFIER}`);
     console.log(`GIT_REPOSITORY: qdn://GIT_REPOSITORY/${testName}/${GIT_IDENTIFIER}`);

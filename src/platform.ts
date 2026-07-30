@@ -100,6 +100,7 @@ import {
   QDN_WRITE_ACTIONS,
 } from '../electron/qdn-app-actions';
 import {
+  getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
   getQdnResourceViewerRequest,
 } from '../electron/qdn-resource-viewer-contract';
@@ -710,12 +711,17 @@ export async function authorizeQdnRenderProxyUrl(renderUrl: string, bridgeToken:
   return proxied.toString();
 }
 
-export async function authorizeQdnResourceStreamUrl(renderUrl: string) {
+export async function authorizeQdnResourceStreamUrl(renderUrl: string, mimeType?: string | null) {
   const url = new URL(renderUrl);
   const { proxyOrigin } = await QdnRenderProxy.authorize({ origin: url.origin });
   const proxied = new URL(`${proxyOrigin}${url.pathname}`);
 
   proxied.search = url.search;
+
+  if (mimeType) {
+    proxied.searchParams.set('qdnHomeMime', mimeType);
+  }
+
   proxied.hash = url.hash;
 
   return proxied.toString();
@@ -10784,10 +10790,11 @@ async function getQdnResourceUrl(request: QdnAppRequest, context: QdnAppRequestC
 }
 
 async function getQdnResourceStreamUrl(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
-  getQdnResourceStreamRequest(request);
+  const resource = getQdnResourceStreamRequest(request);
   const renderUrl = await getQdnResourceUrl(request, context);
+  const mimeType = getQdnResourceStreamProxyMimeType(resource);
 
-  return isAndroid() ? authorizeQdnResourceStreamUrl(renderUrl) : renderUrl;
+  return isAndroid() ? authorizeQdnResourceStreamUrl(renderUrl, mimeType) : renderUrl;
 }
 
 function getRequiredListName(request: QdnAppRequest) {
