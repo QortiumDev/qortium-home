@@ -22,6 +22,7 @@ import {
   isOnChainCoreInstallActive,
   withCoreInstallLock,
 } from './core-install-lock.js';
+import { runCoreInstallTransaction } from './core-install-transaction.js';
 import {
   compareCoreVersions,
   coreCommitsMatch,
@@ -3331,7 +3332,6 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   // success. If anything fails we restore it, so a failed update never destroys
   // a working install.
   const backupPath = path.join(getCoreBasePath(), sanitizePathSegment(`_install-backup-${Date.now()}`));
-  let backupInUse = false;
 
   await mkdir(getCoreDownloadsPath(), { recursive: true });
   await rm(stagingPath, { recursive: true, force: true });
@@ -3355,7 +3355,7 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
 
     const installPath = getCoreInstallPath();
 
-    if (restartAfterInstall) {
+    if (restartAfterInstall && existingCore) {
       await stopCore({ quiet: true });
 
       // Wait for the process to actually exit (not just the API to go quiet) so
@@ -3367,78 +3367,77 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       await new Promise((resolve) => setTimeout(resolve, FILE_RELEASE_SETTLE_MS));
 
       await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
-
-      // Move the working install aside instead of deleting it up front.
-      await rm(backupPath, { recursive: true, force: true });
-
-      if (existsSync(installPath)) {
-        await movePath(installPath, backupPath, { retryWindowsBusy: true });
-        backupInUse = true;
-      }
     } else if (existingCore) {
       await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
     }
 
-    await movePathReplacingDestination(extractedCorePaths.installPath, installPath);
-    await ensureBootstrapPeers(installPath);
-    const previewPath = path.join(
-      installPath,
-      path.relative(extractedCorePaths.installPath, extractedCorePaths.previewPath),
-    );
-    const jarPath = path.join(
-      installPath,
-      path.relative(extractedCorePaths.installPath, extractedCorePaths.jarPath),
-    );
-    const jarIdentity = await readCoreJarIdentity(jarPath);
+    const activateCandidate = async () => {
+      await ensureBootstrapPeers(installPath);
+      const previewPath = path.join(
+        installPath,
+        path.relative(extractedCorePaths.installPath, extractedCorePaths.previewPath),
+      );
+      const jarPath = path.join(
+        installPath,
+        path.relative(extractedCorePaths.installPath, extractedCorePaths.jarPath),
+      );
+      const jarIdentity = await readCoreJarIdentity(jarPath);
 
-    await chmodPreviewScripts(previewPath);
+      await chmodPreviewScripts(previewPath);
 
-    const installedCore: InstalledCore = {
-      assetName: release.asset.name,
-      assetSize: release.asset.size,
-      channel: release.channel,
-      digest: release.asset.digest,
-      downloadUrl: release.asset.downloadUrl,
-      helpersRefreshedFor: release.tagName,
-      htmlUrl: release.htmlUrl,
-      installPath,
-      installedAt: new Date().toISOString(),
-      ...getJarIdentityFields(jarIdentity),
-      jarPath,
-      logPaths: getCoreLogPaths(getCoreRuntimePath()),
-      name: release.name,
-      originJarBuildVersion: jarIdentity?.buildVersion,
-      originJarCommit: jarIdentity?.commit || undefined,
-      previewPath,
-      runtimePath: getCoreRuntimePath(),
-      tagName: release.tagName,
+      const installedCore: InstalledCore = {
+        assetName: release.asset.name,
+        assetSize: release.asset.size,
+        channel: release.channel,
+        digest: release.asset.digest,
+        downloadUrl: release.asset.downloadUrl,
+        helpersRefreshedFor: release.tagName,
+        htmlUrl: release.htmlUrl,
+        installPath,
+        installedAt: new Date().toISOString(),
+        ...getJarIdentityFields(jarIdentity),
+        jarPath,
+        logPaths: getCoreLogPaths(getCoreRuntimePath()),
+        name: release.name,
+        originJarBuildVersion: jarIdentity?.buildVersion,
+        originJarCommit: jarIdentity?.commit || undefined,
+        previewPath,
+        runtimePath: getCoreRuntimePath(),
+        tagName: release.tagName,
+      };
+
+      await writeInstalledCore(installedCore);
+      await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, runtimeIdentity, {
+        recordIfMissing: true,
+      });
+
+      if (restartAfterInstall) {
+        await startCore({ quiet: true });
+      }
     };
 
-    await writeInstalledCore(installedCore);
-    await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, runtimeIdentity, {
-      recordIfMissing: true,
-    });
-
-    if (restartAfterInstall) {
-      await startCore({ quiet: true });
+    if (restartAfterInstall && existingCore) {
+      await runCoreInstallTransaction({
+        activateCandidate,
+        backupPath,
+        candidatePath: extractedCorePaths.installPath,
+        installPath,
+        restorePrevious: async () => {
+          await writeInstalledCore(existingCore);
+          await ensureBootstrapPeers(installPath);
+        },
+      });
+    } else {
+      await movePathReplacingDestination(extractedCorePaths.installPath, installPath);
+      await activateCandidate();
     }
   } catch (error) {
     await rm(stagingPath, { recursive: true, force: true });
 
-    // Restore the previous install we moved aside, so the core has a valid
-    // version to fall back to (and to restart).
-    if (backupInUse && existsSync(backupPath)) {
-      try {
-        await movePathReplacingDestination(backupPath, getCoreInstallPath());
-        await ensureBootstrapPeers(getCoreInstallPath());
-        backupInUse = false;
-      } catch {
-        // leave the backup in place for manual recovery
-      }
-    }
-
     if (restartAfterInstall) {
-      // Best effort: bring the previous (now restored) version back up.
+      // The install transaction restores both the previous files and metadata
+      // before this best-effort restart. If restore itself failed, it preserves
+      // the backup for manual recovery instead of deleting it.
       try {
         await startCore({ quiet: true });
       } catch {
@@ -3450,11 +3449,6 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   } finally {
     await rm(downloadPath, { force: true });
     await rm(stagingPath, { recursive: true, force: true });
-    // On success the backup holds the old version and can be discarded; on a
-    // restored failure it was already moved back (backupInUse=false here).
-    if (backupInUse) {
-      await rm(backupPath, { recursive: true, force: true });
-    }
   }
 
   publishProgress({

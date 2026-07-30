@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - fix(core): preserve managed installs when update rollback fails
+
+Managed Core updates now treat replacing the stopped installation as one
+rollback-aware transaction. If the new Core cannot be activated, Home restores
+both the previous files and their matching installation record before trying
+to restart it. If Windows prevents that restore, Home retains the known-good
+backup for manual recovery instead of deleting it during cleanup. GitHub now
+also runs the production transaction on Windows with genuine temporary and
+persistent exclusive file locks, covering automatic retry, bounded failure,
+metadata restoration, and backup preservation.
+
 ### 2026-07-29 - fix(android): keep streamed QDN responses open through EOF
 
 Android's secure QDN proxy now leaves an image, sound, or video response open
