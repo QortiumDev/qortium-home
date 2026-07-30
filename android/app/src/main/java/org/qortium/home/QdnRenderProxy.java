@@ -38,6 +38,7 @@ final class QdnRenderProxy {
 
     /** Reserved for in-app content; it never resolves through DNS. */
     static final String PROXY_HOST_SUFFIX = ".qdn.androidplatform.net";
+    static final String PROXY_MIME_QUERY_PARAM = "qdnHomeMime";
 
     private static final Map<String, String> AUTHORIZED_ORIGINS = new ConcurrentHashMap<>();
     private static final Set<String> ALLOWED_RENDER_SERVICES = new HashSet<>(Arrays.asList(
@@ -140,13 +141,77 @@ final class QdnRenderProxy {
             upstream.append('/');
         }
 
-        String query = url.getEncodedQuery();
+        String query = getUpstreamEncodedQuery(url.getEncodedQuery());
 
         if (query != null && !query.isEmpty()) {
             upstream.append('?').append(query);
         }
 
         return upstream.toString();
+    }
+
+    /**
+     * Core can omit Content-Type for rendered binary resources. Home adds this
+     * restricted hint when an app asks for a stream URL so WebView does not
+     * default an audio or video response to HTML.
+     */
+    static String resolveResponseMimeType(Uri url) {
+        if (!isProxyUrl(url)) {
+            return null;
+        }
+
+        return sanitizeResponseMimeType(url.getQueryParameter(PROXY_MIME_QUERY_PARAM));
+    }
+
+    static String sanitizeResponseMimeType(String mimeType) {
+        if (mimeType == null) {
+            return null;
+        }
+
+        String normalized = mimeType.trim().toLowerCase(Locale.ROOT);
+
+        if (normalized.matches("^(audio|video)/[a-z0-9][a-z0-9.+-]*$")) {
+            return normalized;
+        }
+
+        if (
+            "image/avif".equals(normalized) ||
+            "image/bmp".equals(normalized) ||
+            "image/gif".equals(normalized) ||
+            "image/jpeg".equals(normalized) ||
+            "image/png".equals(normalized) ||
+            "image/webp".equals(normalized)
+        ) {
+            return normalized;
+        }
+
+        return null;
+    }
+
+    static String getUpstreamEncodedQuery(String encodedQuery) {
+        if (encodedQuery == null || encodedQuery.isEmpty()) {
+            return null;
+        }
+
+        String encodedProxyMimePrefix = PROXY_MIME_QUERY_PARAM + "=";
+        StringBuilder upstreamQuery = new StringBuilder();
+
+        for (String parameter : encodedQuery.split("&")) {
+            if (
+                parameter.equals(PROXY_MIME_QUERY_PARAM) ||
+                parameter.startsWith(encodedProxyMimePrefix)
+            ) {
+                continue;
+            }
+
+            if (upstreamQuery.length() > 0) {
+                upstreamQuery.append('&');
+            }
+
+            upstreamQuery.append(parameter);
+        }
+
+        return upstreamQuery.length() == 0 ? null : upstreamQuery.toString();
     }
 
     /** A stable, opaque host label: same node origin, same label, same storage. */

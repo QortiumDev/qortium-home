@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import {
+  getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
   getQdnResourceViewerRequest,
   isQdnStreamableService,
@@ -84,6 +85,51 @@ for (const service of ['JSON', 'CODE', 'GIT_REPOSITORY', 'IMAGE_GALLERY']) {
     /only supports image, audio, video, document, file, and attachment services/,
   );
 }
+
+assert.equal(
+  getQdnResourceStreamProxyMimeType(
+    getQdnResourceStreamRequest({
+      action: 'GET_QDN_RESOURCE_STREAM_URL',
+      service: 'VIDEO',
+      name: 'Example',
+      mimeType: ' Video/WebM; codecs=vp8 ',
+    }),
+  ),
+  'video/webm',
+);
+assert.equal(
+  getQdnResourceStreamProxyMimeType(
+    getQdnResourceStreamRequest({
+      action: 'GET_QDN_RESOURCE_STREAM_URL',
+      service: 'ATTACHMENT',
+      name: 'Example',
+      filename: 'clip.MP4',
+    }),
+  ),
+  'video/mp4',
+);
+assert.equal(
+  getQdnResourceStreamProxyMimeType(
+    getQdnResourceStreamRequest({
+      action: 'GET_QDN_RESOURCE_STREAM_URL',
+      service: 'VIDEO',
+      name: 'Example',
+      mimeType: 'text/html',
+    }),
+  ),
+  null,
+);
+assert.equal(
+  getQdnResourceStreamProxyMimeType(
+    getQdnResourceStreamRequest({
+      action: 'GET_QDN_RESOURCE_STREAM_URL',
+      service: 'IMAGE',
+      name: 'Example',
+      mimeType: 'image/svg+xml',
+    }),
+  ),
+  null,
+);
 
 for (const action of QDN_RESOURCE_VIEWER_ACTIONS) {
   assert.equal(QDN_APP_BRIDGE_ACTIONS.filter((candidate) => candidate === action).length, 1);

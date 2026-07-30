@@ -33,6 +33,21 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - fix(android): make embedded QDN media playback seekable
+
+Android QDN apps can now play and seek embedded audio and video through Home's
+secure render proxy. Home supplies a restricted, non-scriptable media MIME hint
+when Core omits `Content-Type`, leaves binary responses without a character
+encoding, and maps Core's partial-response offset into WebView's own range seek
+so the native loader does not seek the same byte offset twice. Stream completion
+also remains stable when `HttpURLConnection` closes its fixed-length body on
+the final byte.
+
+Acceptance uses a one-minute, low-bandwidth VP8 WebM fixture with explicit CDP
+timeouts so an emulator failure cannot end the run as a false pass. The fixture
+generator can publish it independently under the established QortiumHomeTest
+test name.
+
 ### 2026-07-29 - fix(core): preserve managed installs when update rollback fails
 
 Managed Core updates now treat replacing the stopped installation as one

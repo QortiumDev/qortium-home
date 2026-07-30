@@ -55,7 +55,7 @@
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",
     "test:wiring": "node scripts/check-test-wiring.mjs",
-    "android:test:qdn-stream-lifecycle": "cd android && ./gradlew testDebugUnitTest --tests org.qortium.home.QdnBridgeWebViewClientTest",
+    "android:test:qdn-stream-lifecycle": "cd android && ./gradlew testDebugUnitTest --tests org.qortium.home.QdnBridgeWebViewClientTest --tests org.qortium.home.QdnRenderProxyTest",
     "test:app-versioning": "node scripts/ensure-electron-build.mjs && node dist-electron/app-versioning.test.js",
     "test:notification-target": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-target.test.js",
     "test:qdn-bridge-error": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-bridge-error.test.js",
@@ -122,6 +122,7 @@
     "qdn:bootstrap-test-data": "node scripts/bootstrap-qdn-test-data.mjs",
     "qdn:bootstrap-git-test-data": "node scripts/bootstrap-qdn-test-data.mjs --git-only",
     "qdn:bootstrap-media-test-data": "node scripts/bootstrap-qdn-test-data.mjs --media-only",
+    "qdn:bootstrap-video-webm-test-data": "node scripts/bootstrap-qdn-test-data.mjs --video-webm-only",
     "preview": "vite preview",
     "postinstall": "node scripts/patch-local-notifications-receiver.mjs"
   },

@@ -43,24 +43,14 @@ const mediaFixtures = [
     selector: 'audio.qdn-viewer__media-player--audio',
   },
   {
-    // Stays on the short VP8 fixture. The emulator dies decoding the H.264 MP4: the run
-    // vanishes right after "Opening ... home-video-mp4" with no error and the emulator's
-    // own log ending at Created/Destroyed VkInstance, taking node down with it (which is
-    // why the run could even exit 0). It is the decode, not the seek — it happens with
-    // seeking disabled, during the probe's element.load(). Software rendering is already
-    // in use, so no flag avoids it. Point this at home-video-mp4 with
-    // QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER on hardware that can decode it; video
-    // scrubbing is otherwise covered by real-device testing.
-    address: `qdn://VIDEO/${fixtureName}/${process.env.QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER ?? 'home-video'}`,
-    identifier: process.env.QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER ?? 'home-video',
+    // The prior long H.264/AAC fixture can tear down the software-rendered emulator
+    // during decode, and one physical Android WebView rejects its AAC track. This
+    // low-bandwidth, video-only VP8 fixture isolates the video seek from the separate
+    // AUDIO case and keeps software decode within the emulator's limits.
+    address: `qdn://VIDEO/${fixtureName}/${process.env.QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER ?? 'home-video-webm'}`,
+    identifier: process.env.QORTIUM_HOME_QDN_MEDIA_VIDEO_IDENTIFIER ?? 'home-video-webm',
     label: 'VIDEO',
-    // Off by default: seeking forces the emulator to software-decode H.264, which tears
-    // down its graphics stack and kills the whole emulator mid-run (observed as the
-    // process vanishing right after "Opening ... home-video-mp4", with the emulator log
-    // ending at Created/Destroyed VkInstance). Software rendering is already in use, so
-    // there is no flag that avoids it. Video scrubbing is covered on real hardware
-    // instead; set QORTIUM_HOME_QDN_MEDIA_SEEK_VIDEO=1 to attempt it anyway.
-    seekable: process.env.QORTIUM_HOME_QDN_MEDIA_SEEK_VIDEO === '1',
+    seekable: true,
     service: 'VIDEO',
     selector: 'video.qdn-viewer__media-player--video',
   },
@@ -71,6 +61,7 @@ const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
 const mediaTimeoutMs = 90_000;
 const seekTimeoutMs = 20_000;
+const cdpCommandTimeoutMs = 15_000;
 // The old AUDIO/VIDEO fixtures were 2 and 3 seconds long, which is far too short to
 // assert a position change. Fail loudly rather than silently "passing" a seek that
 // never had room to move if this is ever pointed back at them.
@@ -319,17 +310,26 @@ async function assertLocalCoreReady() {
 
 async function getResourceStatus(service, name, identifier) {
   return fetchJson(
-    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}/${encodeURIComponent(identifier)}`,
+    `${nodeApiUrl}/arbitrary/resource/status/${service}/${encodeURIComponent(name)}/${encodeURIComponent(identifier)}?build=true`,
   );
 }
 
 async function assertFixturesReady() {
   for (const fixture of mediaFixtures) {
-    const status = await getResourceStatus(fixture.service, fixtureName, fixture.identifier);
+    await waitUntil(`${fixture.label} fixture build`, mediaTimeoutMs, async () => {
+      const status = await getResourceStatus(fixture.service, fixtureName, fixture.identifier);
 
-    if (status?.status !== 'READY') {
-      fail(`${fixture.label} fixture is not READY at ${fixture.address}. Run npm run qdn:bootstrap-test-data first.`);
-    }
+      if (status?.status === 'BLOCKED' || status?.status === 'BUILD_FAILED' || status?.status === 'UNSUPPORTED') {
+        fail(`${fixture.label} fixture is ${status.status} at ${fixture.address}.`);
+      }
+
+      return status?.status === 'READY' ? status : null;
+    }).catch((error) => {
+      throw new Error(
+        `${fixture.label} fixture is not READY at ${fixture.address}. ` +
+          `Run npm run qdn:bootstrap-test-data first. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 }
 
@@ -377,6 +377,7 @@ class CdpClient {
     }
 
     this.pending.delete(message.id);
+    clearTimeout(pending.timeoutId);
 
     if (message.error) {
       pending.reject(new Error(message.error.message || 'CDP command failed.'));
@@ -387,6 +388,7 @@ class CdpClient {
 
   rejectPending(message) {
     for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeoutId);
       pending.reject(new Error(message));
     }
 
@@ -398,7 +400,12 @@ class CdpClient {
     const id = this.nextId++;
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { reject, resolve });
+      const timeoutId = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP command ${method} timed out after ${cdpCommandTimeoutMs} ms.`));
+      }, cdpCommandTimeoutMs);
+
+      this.pending.set(id, { reject, resolve, timeoutId });
       this.webSocket.send(JSON.stringify({ id, method, params }));
     });
   }

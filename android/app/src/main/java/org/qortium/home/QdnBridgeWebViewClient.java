@@ -19,11 +19,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     private static final int REQUEST_TIMEOUT_MS = 30000;
     private static final String QDN_BRIDGE_QUERY_PARAM = "qdnHomeBridge";
+    private static final Pattern CONTENT_RANGE_PATTERN =
+        Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)$", Pattern.CASE_INSENSITIVE);
 
     public QdnBridgeWebViewClient(Bridge bridge) {
         super(bridge);
@@ -161,8 +165,21 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         int statusCode = connection.getResponseCode();
         String reasonPhrase = connection.getResponseMessage();
         String contentType = connection.getContentType();
+        boolean inferredContentType = contentType == null || contentType.trim().isEmpty();
+
+        if (inferredContentType) {
+            contentType = QdnRenderProxy.resolveResponseMimeType(request.getUrl());
+        }
+
         Map<String, String> responseHeaders = getResponseHeaders(connection);
+
+        if (inferredContentType && contentType != null) {
+            responseHeaders.put("Content-Type", contentType);
+        }
+
         InputStream responseStream = getResponseStream(connection, statusCode);
+        long responseContentLength = connection.getContentLengthLong();
+        long virtualRangePrefixLength = getContentRangeStart(responseHeaders);
 
         if (isHtmlContentType(contentType) && bridgeToken != null && !bridgeToken.isEmpty()) {
             Charset charset = getCharset(contentType);
@@ -196,27 +213,140 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         return new WebResourceResponse(
             getMimeType(contentType),
-            getCharset(contentType).name(),
+            getResponseEncoding(contentType),
             statusCode,
             reasonPhrase == null ? getReasonPhrase(statusCode) : reasonPhrase,
             responseHeaders,
-            new DisconnectingInputStream(responseStream, connection)
+            new DisconnectingInputStream(
+                responseStream,
+                connection,
+                responseContentLength,
+                virtualRangePrefixLength
+            )
         );
     }
 
     /**
      * WebView consumes a WebResourceResponse after shouldInterceptRequest returns,
-     * so a non-HTML response must keep its HttpURLConnection alive. WebView can
-     * probe the stream after reaching EOF, so it owns the close that releases
-     * the socket when consumption finishes or the request is abandoned.
+     * so a non-HTML response must keep its HttpURLConnection alive. Android's
+     * loader applies the browser's Range header by seeking the supplied stream,
+     * even though Core already returned that range. The virtual prefix lets the
+     * seek consume Core's Content-Range offset without discarding the real body.
+     * WebView can also probe after EOF, so it owns the close that releases the
+     * socket when consumption finishes or the request is abandoned.
      */
     static final class DisconnectingInputStream extends FilterInputStream {
         private final HttpURLConnection connection;
+        private final long expectedLength;
         private boolean closed;
+        private boolean endOfStream;
+        private long bytesRead;
+        private long virtualPrefixRemaining;
 
-        DisconnectingInputStream(InputStream stream, HttpURLConnection connection) {
+        DisconnectingInputStream(
+            InputStream stream,
+            HttpURLConnection connection,
+            long expectedLength,
+            long virtualPrefixLength
+        ) {
             super(stream);
             this.connection = connection;
+            this.expectedLength = expectedLength;
+            this.virtualPrefixRemaining = virtualPrefixLength;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (endOfStream) {
+                return -1;
+            }
+
+            int value = super.read();
+
+            if (value == -1) {
+                endOfStream = true;
+            } else {
+                recordBytesRead(1);
+            }
+
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer) throws IOException {
+            return read(buffer, 0, buffer.length);
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            if (length == 0) {
+                return 0;
+            }
+
+            if (endOfStream) {
+                return -1;
+            }
+
+            int read = super.read(buffer, offset, length);
+
+            if (read == -1) {
+                endOfStream = true;
+            } else {
+                recordBytesRead(read);
+            }
+
+            return read;
+        }
+
+        private void recordBytesRead(long read) {
+            bytesRead += read;
+
+            // HttpURLConnection's fixed-length response stream closes itself as
+            // soon as the declared final byte is consumed. Chromium can call
+            // available() before attempting another read(), so latch completion
+            // from Content-Length instead of touching an already-closed upstream.
+            if (expectedLength >= 0 && bytesRead >= expectedLength) {
+                endOfStream = true;
+            }
+        }
+
+        @Override
+        public int available() throws IOException {
+            if (endOfStream) {
+                return 0;
+            }
+
+            if (expectedLength >= 0) {
+                return (int) Math.min(
+                    Integer.MAX_VALUE,
+                    virtualPrefixRemaining + Math.max(0, expectedLength - bytesRead)
+                );
+            }
+
+            return (int) Math.min(Integer.MAX_VALUE, virtualPrefixRemaining + super.available());
+        }
+
+        @Override
+        public long skip(long count) throws IOException {
+            if (endOfStream || count <= 0) {
+                return 0;
+            }
+
+            long virtualSkipped = Math.min(count, virtualPrefixRemaining);
+
+            virtualPrefixRemaining -= virtualSkipped;
+
+            if (virtualSkipped == count) {
+                return virtualSkipped;
+            }
+
+            long skipped = super.skip(count - virtualSkipped);
+
+            if (skipped > 0) {
+                recordBytesRead(skipped);
+            }
+
+            return virtualSkipped + skipped;
         }
 
         @Override
@@ -243,6 +373,32 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         }
 
         return "";
+    }
+
+    static long getContentRangeStart(Map<String, String> headers) {
+        if (headers == null) {
+            return 0;
+        }
+
+        for (Map.Entry<String, String> header : headers.entrySet()) {
+            if (!"Content-Range".equalsIgnoreCase(header.getKey()) || header.getValue() == null) {
+                continue;
+            }
+
+            Matcher match = CONTENT_RANGE_PATTERN.matcher(header.getValue().trim());
+
+            if (!match.matches()) {
+                return 0;
+            }
+
+            try {
+                return Long.parseLong(match.group(1));
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
+        }
+
+        return 0;
     }
 
     private InputStream getResponseStream(HttpURLConnection connection, int statusCode) throws IOException {
@@ -343,7 +499,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         return contentType != null && contentType.toLowerCase(Locale.ROOT).contains("text/html");
     }
 
-    private String getMimeType(String contentType) {
+    private static String getMimeType(String contentType) {
         if (contentType == null || contentType.trim().isEmpty()) {
             return "text/html";
         }
@@ -351,7 +507,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         return contentType.split(";", 2)[0].trim();
     }
 
-    private Charset getCharset(String contentType) {
+    private static Charset getCharset(String contentType) {
         if (contentType == null) {
             return StandardCharsets.UTF_8;
         }
@@ -371,6 +527,29 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         }
 
         return StandardCharsets.UTF_8;
+    }
+
+    static String getResponseEncoding(String contentType) {
+        if (contentType == null) {
+            return null;
+        }
+
+        String mimeType = getMimeType(contentType).toLowerCase(Locale.ROOT);
+
+        if (
+            mimeType.startsWith("text/") ||
+            mimeType.contains("javascript") ||
+            mimeType.contains("json") ||
+            mimeType.contains("xml")
+        ) {
+            return getCharset(contentType).name();
+        }
+
+        // WebResourceResponse's encoding describes character encoding, not
+        // transport encoding. Supplying UTF-8 for audio/video/image bytes makes
+        // Chromium's media loader repeatedly probe the same range without
+        // accepting it.
+        return null;
     }
 
     private String getQdnBridgeTag(String bridgeToken) {
