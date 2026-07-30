@@ -33,6 +33,23 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-30 - chore(release): prepare home 1.6.2
+
+Marks the version for the next preview release. Since 1.6.1, QDN apps can ask
+Home to open any public resource in the shared viewer and request host-safe
+inline media URLs, with Android streaming that traffic through the authorized
+secure proxy — embedded audio and video are now seekable on Android, and
+streamed responses stay open through end-of-file so previews and playback no
+longer stall. Apps receive the measured size of delivered avatar bytes on both
+desktop and Android, can ask which platform they are running on, and a missing
+app favicon falls back quietly instead of retrying for a minute. On phones the
+browser chrome folds into a slim strip while an app is open and the keyboard
+no longer covers typing areas. Managed Core updates treat replacing the
+stopped installation as a rollback-aware transaction that preserves the
+known-good backup, give Windows a bounded retry window while the old install
+directory is still busy, and show a concise message instead of raw HTML when
+an update check fails.
+
 ### 2026-07-29 - fix(android): make embedded QDN media playback seekable
 
 Android QDN apps can now play and seek embedded audio and video through Home's
