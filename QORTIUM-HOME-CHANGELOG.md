@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-07-29 - fix(android): keep streamed QDN responses open through EOF
+
+Android's secure QDN proxy now leaves an image, sound, or video response open
+after the reader first reaches the end of the file. Android WebView can inspect
+the response again before closing it; closing at the first end-of-file signal
+made that valid follow-up fail and could surface as a broken inline preview or
+stalled playback. WebView still closes and disconnects the upstream response
+when it is finished, and focused tests cover both single-byte and buffered
+reads through end of file.
+
 ### 2026-07-29 - feat(qdn): add app-neutral resource viewing
 
 QDN apps can now ask Home to open any public, non-app resource in Home's

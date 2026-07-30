@@ -206,39 +206,17 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     /**
      * WebView consumes a WebResourceResponse after shouldInterceptRequest returns,
-     * so a non-HTML response must keep its HttpURLConnection alive. Closing at
-     * EOF (or when WebView abandons the request) releases the socket without
-     * buffering an entire audio/video resource in the Java heap.
+     * so a non-HTML response must keep its HttpURLConnection alive. WebView can
+     * probe the stream after reaching EOF, so it owns the close that releases
+     * the socket when consumption finishes or the request is abandoned.
      */
-    private static final class DisconnectingInputStream extends FilterInputStream {
+    static final class DisconnectingInputStream extends FilterInputStream {
         private final HttpURLConnection connection;
         private boolean closed;
 
         DisconnectingInputStream(InputStream stream, HttpURLConnection connection) {
             super(stream);
             this.connection = connection;
-        }
-
-        @Override
-        public int read() throws IOException {
-            int value = super.read();
-
-            if (value == -1) {
-                close();
-            }
-
-            return value;
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int length) throws IOException {
-            int read = super.read(buffer, offset, length);
-
-            if (read == -1) {
-                close();
-            }
-
-            return read;
         }
 
         @Override

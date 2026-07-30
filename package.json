@@ -55,6 +55,7 @@
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",
     "test:wiring": "node scripts/check-test-wiring.mjs",
+    "test:android-qdn-stream-lifecycle": "cd android && ./gradlew testDebugUnitTest --tests org.qortium.home.QdnBridgeWebViewClientTest",
     "test:app-versioning": "node scripts/ensure-electron-build.mjs && node dist-electron/app-versioning.test.js",
     "test:notification-target": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-target.test.js",
     "test:qdn-bridge-error": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-bridge-error.test.js",
