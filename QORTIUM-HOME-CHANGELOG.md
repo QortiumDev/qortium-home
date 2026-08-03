@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-03 - fix: stop calling the combined transport mode an I2P "fallback"
+
+The transport mode picker (on the Dashboard, in Settings, and on the Welcome
+page) called its default option "Direct + I2P fallback". Since Core 1.6.3 the
+combined mode is no longer a fallback: the node actively keeps connections
+over both direct IP and I2P at the same time, always reserving a couple of
+outbound slots for the second transport. The option is now called
+"Direct + I2P" in every language, and the "Direct only" warning text was
+updated to match. No behaviour changed — this is wording only.
+
 ### 2026-08-03 - fix: stop advertising private chat actions on public nodes
 
 When Home is connected to a public read-only network node, apps that ask Home
