@@ -214,6 +214,12 @@ const QDN_LOCAL_WRITE_ONLY_ACTIONS = new Set<string>([
   ...QDN_LIST_ACTIONS,
   ...QDN_PREVIEW_ACTIONS,
   ...QDN_MINTING_ACTIONS,
+  // Private chat lookups POST the account private key to the node
+  // (/chat/private/...), so they are local/trusted-node only on both platforms
+  // (getQdnChatContext / getQdnWriteContext assert a local write connection).
+  ...QDN_PRIVATE_DIRECT_CHAT_READ_ACTIONS,
+  ...QDN_PRIVATE_GROUP_CHAT_READ_ACTIONS,
+  ...QDN_PRIVATE_GROUP_CHAT_WRITE_ACTIONS,
 ]);
 
 // The actions SHOW_ACTIONS reports on a public/network node (everything that can

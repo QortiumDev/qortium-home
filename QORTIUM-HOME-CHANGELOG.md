@@ -33,6 +33,17 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-03 - fix: stop advertising private chat actions on public nodes
+
+When Home is connected to a public read-only network node, apps that ask Home
+which actions are available (SHOW_ACTIONS) were still told the private
+direct-chat and private group-chat actions work. Those actions need to send
+the account's private key to a local trusted node, so using them on a public
+node always failed with a "public read-only" error — for example, opening a
+direct message in the Chat app. Home now leaves those actions out of the list
+on public nodes, so apps like Chat show their clean read-only state instead
+of offering controls that cannot work.
+
 ### 2026-07-30 - chore(release): prepare home 1.6.2
 
 Marks the version for the next preview release. Since 1.6.1, QDN apps can ask
