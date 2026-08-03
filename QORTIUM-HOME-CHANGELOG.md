@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-03 - chore(release): prepare home 1.6.3
+
+Marks the version for the next preview release. Since 1.6.2, public-node
+users get a clean read-only Chat experience instead of private-chat
+controls that could never work there; the transport mode picker stopped
+calling the combined mode an I2P "fallback" now that Core 1.6.3 keeps
+both transports active; every move and delete in a managed Core update
+tolerates transient Windows file locks, so an antivirus scan can no
+longer break an update or its rollback; and the welcome setup guide is
+restartable from Settings > Qortium Home or home://welcome. Bumped
+package metadata to 1.6.3 and Android metadata to versionCode 36 /
+versionName 1.6.3.
+
 ### 2026-08-03 - test: stop timing the Windows install-lock tests so tightly
 
 The Windows file-lock tests proved their point with strict stopwatch
