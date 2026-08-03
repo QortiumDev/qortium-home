@@ -746,6 +746,8 @@ export const sv: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Välj hur Qortium Home ansluter. Du kan ändra detta senare i Inställningar.",
   "welcome.node.title": "Välj en nod",
   "welcome.node.transportTitle": "Välj transport",
+  "welcome.restart": "Starta om installationen",
+  "welcome.restartDescription": "Kör välkomstguiden igen för att gå igenom stegen för nod, anslutning och konto.",
   "welcome.skip": "Hoppa över konfigureringen",
   "welcome.step.account": "Konto",
   "welcome.step.finish": "Slutför",

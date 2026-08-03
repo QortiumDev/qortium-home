@@ -746,6 +746,8 @@ export const ro: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Alege cum se conectează Qortium Home. Poți modifica aceasta mai târziu în Setări.",
   "welcome.node.title": "Alege un nod",
   "welcome.node.transportTitle": "Alege un transport",
+  "welcome.restart": "Repornește configurarea",
+  "welcome.restartDescription": "Rulează din nou ghidul de configurare de bun venit pentru a revedea pașii pentru nod, conexiune și cont.",
   "welcome.skip": "Omite configurarea",
   "welcome.step.account": "Cont",
   "welcome.step.finish": "Finalizează",

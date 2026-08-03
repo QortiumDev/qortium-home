@@ -746,6 +746,8 @@ export const hu: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Válaszd ki, hogyan csatlakozzon a Qortium Home. Ezt később a Beállításokban módosíthatod.",
   "welcome.node.title": "Csomópont kiválasztása",
   "welcome.node.transportTitle": "Átvitel kiválasztása",
+  "welcome.restart": "Beállítás újraindítása",
+  "welcome.restartDescription": "Futtasd újra az üdvözlő beállítási útmutatót a csomópont, kapcsolat és fiók lépések átnézéséhez.",
   "welcome.skip": "Beállítás kihagyása",
   "welcome.step.account": "Fiók",
   "welcome.step.finish": "Befejezés",

@@ -4459,6 +4459,7 @@ export function App() {
                   onChainCoreUpdate={onChainCoreUpdate}
                   onOpenReleaseNotes={openReleaseNotes}
                   onOpenNotificationsManager={(url) => openAppLinkInNewTab(url, tab.id)}
+                  onRestartWelcome={() => navigateToRoute(WELCOME_ROUTE)}
                   onResolvedNodeApiUrl={updateResolvedNodeApiUrl}
                   onLanguageChange={updateLanguage}
                   onSectionExpansionChange={updateSettingsSectionExpansion}

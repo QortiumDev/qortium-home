@@ -746,6 +746,8 @@ export const ar: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "اختر طريقة اتصال Qortium Home. يمكنك تغييرها لاحقًا في الإعدادات.",
   "welcome.node.title": "اختر عقدة",
   "welcome.node.transportTitle": "اختر وسيلة النقل",
+  "welcome.restart": "إعادة تشغيل الإعداد",
+  "welcome.restartDescription": "شغّل دليل الإعداد الترحيبي مرة أخرى لمراجعة خطوات العقدة والاتصال والحساب.",
   "welcome.skip": "تخطي الإعداد",
   "welcome.step.account": "الحساب",
   "welcome.step.finish": "إنهاء",

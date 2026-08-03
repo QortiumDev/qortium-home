@@ -81,6 +81,14 @@ export function normalizeWelcomeState(value: unknown): WelcomeState | null {
   };
 }
 
+export function getInitialWelcomeStep(state: WelcomeState): WelcomeStep {
+  // Reopening a finished (completed or skipped) wizard via home://welcome
+  // restarts it from the first step; an in-progress one resumes where it
+  // left off. Merely viewing never rewrites the stored state - status only
+  // returns to in-progress once the user actually advances a step.
+  return state.status === 'in-progress' ? state.currentStep : 'node';
+}
+
 export function hasExistingProfileFootprint({
   hasAccounts,
   hasDesktopNodeSettings = false,

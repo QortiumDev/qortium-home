@@ -746,6 +746,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "选择 Qortium Home 的连接方式。稍后可在设置中更改。",
   "welcome.node.title": "选择节点",
   "welcome.node.transportTitle": "选择传输方式",
+  "welcome.restart": "重新开始设置",
+  "welcome.restartDescription": "重新运行欢迎设置向导，以重新完成节点、连接和账户步骤。",
   "welcome.skip": "跳过设置",
   "welcome.step.account": "账户",
   "welcome.step.finish": "完成",

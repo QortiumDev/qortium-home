@@ -50,6 +50,13 @@ assert.equal(welcome.normalizeWelcomeState({ ...valid, version: 2 }), null);
 assert.equal(welcome.normalizeWelcomeState({ ...valid, currentStep: 'unknown' }), null);
 assert.equal(welcome.normalizeWelcomeState({ ...valid, updatedAt: 'not-a-date' }), null);
 
+// Reopening a finished wizard restarts it from the first step; an
+// in-progress one resumes where it left off.
+assert.equal(welcome.getInitialWelcomeStep(welcome.createWelcomeState('in-progress', 'account')), 'account');
+assert.equal(welcome.getInitialWelcomeStep(welcome.createWelcomeState('in-progress', 'finish')), 'finish');
+assert.equal(welcome.getInitialWelcomeStep(welcome.createWelcomeState('completed', 'finish')), 'node');
+assert.equal(welcome.getInitialWelcomeStep(welcome.createWelcomeState('skipped', 'finish')), 'node');
+
 assert.equal(welcome.hasExistingProfileFootprint({ hasAccounts: true, storedValues: {} }), true);
 assert.equal(welcome.hasExistingProfileFootprint({
   hasAccounts: false,

@@ -38,6 +38,7 @@ type SettingsPageProps = {
   onResolvedNodeApiUrl: (nodeApiUrl: string) => void;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   onOpenNotificationsManager: (url: string) => void;
+  onRestartWelcome: () => void;
   onSaveNodeSettings: (request: QortiumNodeSettingsRequest) => Promise<QortiumNodeSettings>;
   onThemeChange: (theme: ThemeSetting) => void;
   onTextSizeChange: (textSize: TextSizeSetting) => void;
@@ -56,6 +57,7 @@ export function SettingsPage({
   onAppZoomChange,
   onOpenReleaseNotes,
   onOpenNotificationsManager,
+  onRestartWelcome,
   onResolvedNodeApiUrl,
   onSectionExpansionChange,
   onSaveNodeSettings,
@@ -128,6 +130,7 @@ export function SettingsPage({
           updates={appUpdates}
           onExpandedChange={(isExpanded) => onSectionExpansionChange('home', isExpanded)}
           onOpenReleaseNotes={onOpenReleaseNotes}
+          onRestartWelcome={onRestartWelcome}
         />
       </div>
     </div>

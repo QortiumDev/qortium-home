@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-03 - feat: make the welcome setup guide restartable
+
+Once the welcome guide was completed or skipped, opening home://welcome
+again landed permanently on its final step, with no way back to the node,
+connection, or account steps. Reopening a finished guide now starts it
+over from the first step (a guide that is genuinely mid-way still resumes
+where it left off), the final step gained a back button, and just looking
+at the reopened guide changes nothing — it only records progress again
+once a step is actually advanced. A "Restart setup" button in
+Settings > Qortium Home now makes the guide easy to find without typing
+the address.
+
 ### 2026-08-03 - fix: retry every Windows-locked move in the Core install path
 
 A Windows user's automatic Core update failed with "EPERM: operation not

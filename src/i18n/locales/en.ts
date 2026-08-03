@@ -745,6 +745,8 @@ export const en = {
   "welcome.node.subtitle": "Choose how Qortium Home connects. You can change this later in Settings.",
   "welcome.node.title": "Choose a node",
   "welcome.node.transportTitle": "Choose a transport",
+  "welcome.restart": "Restart setup",
+  "welcome.restartDescription": "Run the welcome setup guide again to revisit the node, connection, and account steps.",
   "welcome.skip": "Skip setup",
   "welcome.step.account": "Account",
   "welcome.step.finish": "Finish",

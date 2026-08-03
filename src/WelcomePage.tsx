@@ -18,7 +18,7 @@ import { useI2pdManager } from './i2pdManagerState';
 import { NodeConnectionSettings } from './NodeConnection';
 import type { OnChainCoreUpdateController } from './onChainCoreUpdateState';
 import { I2pRouterButton, TransportModeSelect } from './TransportControls';
-import type { WelcomeState, WelcomeStep } from './welcomeState';
+import { getInitialWelcomeStep, type WelcomeState, type WelcomeStep } from './welcomeState';
 
 type WelcomePageProps = {
   accountsError: string;
@@ -74,7 +74,7 @@ export function WelcomePage({
   state,
 }: WelcomePageProps) {
   const isNativePlatform = Capacitor.isNativePlatform();
-  const [step, setStep] = useState<WelcomeStep>(state.currentStep);
+  const [step, setStep] = useState<WelcomeStep>(getInitialWelcomeStep(state));
   const [nodeChoice, setNodeChoice] = useState<NodeChoice>(
     isNativePlatform && nodeSettings.mode === 'local' ? 'network' : nodeSettings.mode,
   );
@@ -89,8 +89,13 @@ export function WelcomePage({
   const i2pdManager = useI2pdManager(isManagedNode);
 
   useEffect(() => {
-    setStep(state.currentStep);
-  }, [state.currentStep]);
+    // Only an in-progress wizard follows the stored step; a finished one is
+    // being re-run locally from the first step (getInitialWelcomeStep) and
+    // must not snap back to the stored 'finish'.
+    if (state.status === 'in-progress') {
+      setStep(state.currentStep);
+    }
+  }, [state.status, state.currentStep]);
 
   async function changeStep(nextStep: WelcomeStep) {
     setError('');
@@ -342,20 +347,20 @@ export function WelcomePage({
 
         {error ? <p className="welcome-page__error" role="alert">{error}</p> : null}
 
-        {step !== 'finish' ? (
-          <footer className="welcome-page__footer">
-            {step === 'account' ? (
-              <button className="button button--secondary" disabled={isSavingWelcome} type="button" onClick={() => void changeStep('node')}>
-                <ChevronLeft aria-hidden="true" size={18} />
-                {t('welcome.back')}
-              </button>
-            ) : <span />}
+        <footer className="welcome-page__footer">
+          {step !== 'node' ? (
+            <button className="button button--secondary" disabled={isSavingWelcome} type="button" onClick={() => void changeStep(step === 'finish' ? 'account' : 'node')}>
+              <ChevronLeft aria-hidden="true" size={18} />
+              {t('welcome.back')}
+            </button>
+          ) : <span />}
+          {step !== 'finish' ? (
             <button className="button button--primary" disabled={isSavingWelcome || isSavingNodeChoice} type="button" onClick={() => void changeStep(step === 'node' ? 'account' : 'finish')}>
               {t('welcome.next')}
               <ChevronRight aria-hidden="true" size={18} />
             </button>
-          </footer>
-        ) : null}
+          ) : null}
+        </footer>
       </section>
     </div>
   );

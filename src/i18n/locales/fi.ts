@@ -746,6 +746,8 @@ export const fi: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Valitse, miten Qortium Home muodostaa yhteyden. Voit muuttaa tätä myöhemmin Asetuksissa.",
   "welcome.node.title": "Valitse solmu",
   "welcome.node.transportTitle": "Valitse siirtotapa",
+  "welcome.restart": "Käynnistä asennus uudelleen",
+  "welcome.restartDescription": "Suorita tervetuloasennus uudelleen käydäksesi solmu-, yhteys- ja tilivaiheet läpi.",
   "welcome.skip": "Ohita käyttöönotto",
   "welcome.step.account": "Tili",
   "welcome.step.finish": "Valmis",

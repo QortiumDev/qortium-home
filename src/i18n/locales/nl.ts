@@ -746,6 +746,8 @@ export const nl: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Kies hoe Qortium Home verbinding maakt. Je kunt dit later wijzigen in Instellingen.",
   "welcome.node.title": "Een node kiezen",
   "welcome.node.transportTitle": "Een transport kiezen",
+  "welcome.restart": "Start de installatie opnieuw",
+  "welcome.restartDescription": "Doorloop de welkomstinstallatie opnieuw om de stappen voor node, verbinding en account nog eens te bekijken.",
   "welcome.skip": "Installatie overslaan",
   "welcome.step.account": "Account",
   "welcome.step.finish": "Voltooien",
