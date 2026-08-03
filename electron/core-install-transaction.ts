@@ -25,7 +25,8 @@ const DEFAULT_OPERATIONS: CoreInstallTransactionOperations = {
   exists: existsSync,
   move: movePath,
   remove: async (targetPath) => {
-    await rm(targetPath, { recursive: true, force: true });
+    // maxRetries makes rm itself tolerate transient Windows EBUSY/EPERM locks
+    await rm(targetPath, { force: true, maxRetries: 10, recursive: true, retryDelay: 100 });
   },
 };
 
@@ -37,9 +38,14 @@ export async function runCoreInstallTransaction(options: CoreInstallTransactionO
   let backupInUse = false;
   let transactionSucceeded = false;
 
+  // Both the candidate activation move and the backup restore move must
+  // tolerate transient Windows locks (antivirus/indexer scans of freshly
+  // written files), same as the install -> backup move below. An unretried
+  // EPERM on the restore move is the worst case: it strands the machine
+  // without any install.
   const moveReplacingDestination = async (sourcePath: string, destinationPath: string) => {
     await operations.remove(destinationPath);
-    await operations.move(sourcePath, destinationPath);
+    await operations.move(sourcePath, destinationPath, { retryWindowsBusy: true });
   };
 
   await operations.remove(options.backupPath);

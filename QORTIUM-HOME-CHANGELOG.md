@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-03 - fix: retry every Windows-locked move in the Core install path
+
+A Windows user's automatic Core update failed with "EPERM: operation not
+permitted" while the updater was setting the old install aside (issue
+qortium-core#183). Home 1.6.2 already retries that first move when Windows
+briefly locks files (typically an antivirus or search-indexer scan), but the
+two later moves in the same update — putting the new Core into place, and
+putting the old Core back if the update fails — did not retry, and neither
+did the folder deletions. The restore move was the riskiest gap: one badly
+timed lock there could leave the machine with no Core install at all. All of
+these steps now wait out short-lived locks the same way, so a passing
+antivirus scan can no longer break a Core update or its rollback.
+
 ### 2026-08-03 - fix: stop calling the combined transport mode an I2P "fallback"
 
 The transport mode picker (on the Dashboard, in Settings, and on the Welcome
