@@ -149,7 +149,7 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^19.2.7",
     "react-dom": "^19.2.8",
-    "tar": "^7.5.20",
+    "tar": "^7.5.22",
     "tweetnacl": "1.0.3"
   },
   "devDependencies": {
