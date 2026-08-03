@@ -242,7 +242,11 @@ if (process.platform === 'win32') {
 
     const elapsedMs = Date.now() - startedAt;
     await lock.exited;
-    assert(elapsedMs >= 3_000 && elapsedMs < 7_000, `Temporary lock recovered after ${elapsedMs} ms.`);
+    // Lower bound proves the retry ladder actually waited out the 2.5 s lock.
+    // The upper bound only guards against a runaway hang: on slow shared CI
+    // runners the successful recovery has been observed at ~7.8 s, so it must
+    // stay far above the nominal ~3.75 s recovery time.
+    assert(elapsedMs >= 3_000 && elapsedMs < 15_000, `Temporary lock recovered after ${elapsedMs} ms.`);
     assert.equal(readMarker(paths.install), 'candidate');
     assert.equal(existsSync(paths.backup), false);
   });
@@ -280,7 +284,9 @@ if (process.platform === 'win32') {
     }
 
     const elapsedMs = Date.now() - startedAt;
-    assert(elapsedMs >= 7_000 && elapsedMs < 12_000, `Persistent lock failed after ${elapsedMs} ms.`);
+    // Lower bound proves the full 7.75 s retry ladder ran before giving up;
+    // the generous upper bound only catches a hang, tolerating slow runners.
+    assert(elapsedMs >= 7_000 && elapsedMs < 30_000, `Persistent lock failed after ${elapsedMs} ms.`);
     assert.equal(readMarker(paths.install), 'previous');
     assert.equal(readMarker(paths.candidate), 'candidate');
     assert.equal(existsSync(paths.backup), false);
