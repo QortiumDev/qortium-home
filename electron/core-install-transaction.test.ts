@@ -130,6 +130,45 @@ await withTransactionPaths('core-install-restore-failure', async (paths) => {
   assert.equal(readMarker(paths.backup), 'previous');
 });
 
+await withTransactionPaths('core-install-move-retry-options', async (paths) => {
+  writeMarker(paths.install, 'previous');
+  writeMarker(paths.candidate, 'candidate');
+  const activationError = new Error('candidate failed to start');
+  const moveCalls: Array<{ destination: string; retryWindowsBusy: boolean; source: string }> = [];
+
+  await assert.rejects(
+    runCoreInstallTransaction({
+      activateCandidate: async () => {
+        throw activationError;
+      },
+      backupPath: paths.backup,
+      candidatePath: paths.candidate,
+      installPath: paths.install,
+      operations: {
+        move: async (sourcePath, destinationPath, options) => {
+          moveCalls.push({
+            destination: destinationPath,
+            retryWindowsBusy: options?.retryWindowsBusy === true,
+            source: sourcePath,
+          });
+          await movePath(sourcePath, destinationPath, options);
+        },
+      },
+      restorePrevious: async () => {},
+    }),
+    (error) => error === activationError,
+  );
+
+  // Every move in the transaction must tolerate transient Windows locks:
+  // install -> backup, candidate -> install, and the backup -> install restore.
+  assert.deepEqual(moveCalls, [
+    { destination: paths.backup, retryWindowsBusy: true, source: paths.install },
+    { destination: paths.install, retryWindowsBusy: true, source: paths.candidate },
+    { destination: paths.install, retryWindowsBusy: true, source: paths.backup },
+  ]);
+  assert.equal(readMarker(paths.install), 'previous');
+});
+
 type WindowsLock = {
   child: ChildProcess;
   exited: Promise<void>;

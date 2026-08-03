@@ -26,7 +26,7 @@ const DEFAULT_OPERATIONS: MovePathOperations = {
     await mkdir(path.dirname(destinationPath), { recursive: true });
   },
   remove: async (sourcePath) => {
-    await rm(sourcePath, { recursive: true, force: true });
+    await rm(sourcePath, { force: true, maxRetries: 10, recursive: true, retryDelay: 100 });
   },
   rename,
   wait: async (delayMs) => {

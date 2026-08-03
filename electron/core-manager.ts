@@ -533,8 +533,8 @@ function getRuntimeEntryConflictPath(entryName: string) {
 }
 
 async function movePathReplacingDestination(sourcePath: string, destinationPath: string) {
-  await rm(destinationPath, { recursive: true, force: true });
-  await movePath(sourcePath, destinationPath);
+  await rm(destinationPath, { force: true, maxRetries: 10, recursive: true, retryDelay: 100 });
+  await movePath(sourcePath, destinationPath, { retryWindowsBusy: true });
 }
 
 async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
