@@ -746,6 +746,8 @@ export const zhTW: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "選擇 Qortium Home 的連線方式。您之後可在設定中變更此選項。",
   "welcome.node.title": "選擇節點",
   "welcome.node.transportTitle": "選擇傳輸方式",
+  "welcome.restart": "重新開始設定",
+  "welcome.restartDescription": "重新執行歡迎設定精靈，以重新完成節點、連線和帳戶步驟。",
   "welcome.skip": "略過設定",
   "welcome.step.account": "帳戶",
   "welcome.step.finish": "完成",

@@ -746,6 +746,8 @@ export const ko: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Qortium Home의 연결 방식을 선택하세요. 나중에 설정에서 변경할 수 있습니다.",
   "welcome.node.title": "노드 선택",
   "welcome.node.transportTitle": "전송 방식 선택",
+  "welcome.restart": "설정 다시 시작",
+  "welcome.restartDescription": "환영 설정 가이드를 다시 실행하여 노드, 연결, 계정 단계를 다시 진행할 수 있습니다.",
   "welcome.skip": "설정 건너뛰기",
   "welcome.step.account": "계정",
   "welcome.step.finish": "마침",

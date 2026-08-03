@@ -746,6 +746,8 @@ export const ja: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Qortium Homeの接続方法を選択してください。後で設定から変更できます。",
   "welcome.node.title": "ノードを選択",
   "welcome.node.transportTitle": "トランスポートを選択",
+  "welcome.restart": "セットアップをやり直す",
+  "welcome.restartDescription": "ようこそセットアップガイドをもう一度実行して、ノード・接続・アカウントの手順を見直せます。",
   "welcome.skip": "セットアップをスキップ",
   "welcome.step.account": "アカウント",
   "welcome.step.finish": "完了",

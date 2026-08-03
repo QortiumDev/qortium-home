@@ -746,6 +746,8 @@ export const et: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Vali, kuidas Qortium Home ühenduse loob. Seda saab hiljem seadetes muuta.",
   "welcome.node.title": "Vali sõlm",
   "welcome.node.transportTitle": "Vali transport",
+  "welcome.restart": "Alusta seadistust uuesti",
+  "welcome.restartDescription": "Käivita tervitusseadistuse juhend uuesti, et vaadata üle sõlme, ühenduse ja konto sammud.",
   "welcome.skip": "Jäta seadistamine vahele",
   "welcome.step.account": "Konto",
   "welcome.step.finish": "Lõpeta",

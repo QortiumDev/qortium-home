@@ -29,6 +29,7 @@ type AppUpdatePanelProps = {
   nodeApiUrl: string;
   onExpandedChange: (isExpanded: boolean) => void;
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
+  onRestartWelcome: () => void;
   updates: AppUpdatesState;
 };
 
@@ -113,6 +114,7 @@ export function AppUpdatePanel({
   nodeApiUrl,
   onExpandedChange,
   onOpenReleaseNotes,
+  onRestartWelcome,
   updates,
 }: AppUpdatePanelProps) {
   const connections = useI2pConnections(nodeApiUrl, connectionRefreshEpoch);
@@ -211,6 +213,13 @@ export function AppUpdatePanel({
             {updates.message.text}
           </p>
         ) : null}
+
+        <p className="app-updates__message">{t('welcome.restartDescription')}</p>
+        <div className="app-updates__actions">
+          <button className="button" type="button" onClick={onRestartWelcome}>
+            {t('welcome.restart')}
+          </button>
+        </div>
       </div>
     </SettingsSection>
   );

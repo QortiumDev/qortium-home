@@ -747,6 +747,8 @@ export const hi: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "चुनें कि Qortium Home कैसे कनेक्ट करे। आप इसे बाद में सेटिंग्स में बदल सकते हैं।",
   "welcome.node.title": "नोड चुनें",
   "welcome.node.transportTitle": "परिवहन चुनें",
+  "welcome.restart": "सेटअप फिर से शुरू करें",
+  "welcome.restartDescription": "नोड, कनेक्शन और खाता चरणों को फिर से देखने के लिए स्वागत सेटअप गाइड फिर से चलाएँ।",
   "welcome.skip": "सेटअप छोड़ें",
   "welcome.step.account": "खाता",
   "welcome.step.finish": "पूरा करें",

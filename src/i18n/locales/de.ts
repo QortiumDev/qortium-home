@@ -746,6 +746,8 @@ export const de: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Wähle, wie Qortium Home sich verbindet. Das kannst du später in den Einstellungen ändern.",
   "welcome.node.title": "Node wählen",
   "welcome.node.transportTitle": "Transport wählen",
+  "welcome.restart": "Einrichtung neu starten",
+  "welcome.restartDescription": "Führe die Willkommens-Einrichtung erneut aus, um die Schritte zu Knoten, Verbindung und Konto noch einmal durchzugehen.",
   "welcome.skip": "Einrichtung überspringen",
   "welcome.step.account": "Konto",
   "welcome.step.finish": "Fertigstellen",

@@ -746,6 +746,8 @@ export const he: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "בחרו כיצד Qortium Home יתחבר. תוכלו לשנות זאת מאוחר יותר בהגדרות.",
   "welcome.node.title": "בחירת צומת",
   "welcome.node.transportTitle": "בחירת תעבורה",
+  "welcome.restart": "הפעלה מחדש של ההגדרה",
+  "welcome.restartDescription": "הפעל שוב את מדריך ההגדרה כדי לעבור שוב על שלבי הצומת, החיבור והחשבון.",
   "welcome.skip": "דילוג על ההגדרה",
   "welcome.step.account": "חשבון",
   "welcome.step.finish": "סיום",

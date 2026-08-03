@@ -747,6 +747,8 @@ export const el: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Επιλέξτε πώς συνδέεται το Qortium Home. Μπορείτε να το αλλάξετε αργότερα στις Ρυθμίσεις.",
   "welcome.node.title": "Επιλέξτε κόμβο",
   "welcome.node.transportTitle": "Επιλέξτε μεταφορά",
+  "welcome.restart": "Επανεκκίνηση ρύθμισης",
+  "welcome.restartDescription": "Εκτελέστε ξανά τον οδηγό ρύθμισης για να επανεξετάσετε τα βήματα κόμβου, σύνδεσης και λογαριασμού.",
   "welcome.skip": "Παράλειψη ρύθμισης",
   "welcome.step.account": "Λογαριασμός",
   "welcome.step.finish": "Τέλος",

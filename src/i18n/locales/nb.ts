@@ -747,6 +747,8 @@ export const nb: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Velg hvordan Qortium Home kobler til. Du kan endre dette senere i Innstillinger.",
   "welcome.node.title": "Velg en node",
   "welcome.node.transportTitle": "Velg en transport",
+  "welcome.restart": "Start oppsettet på nytt",
+  "welcome.restartDescription": "Kjør velkomstoppsettet på nytt for å gå gjennom trinnene for node, tilkobling og konto.",
   "welcome.skip": "Hopp over oppsettet",
   "welcome.step.account": "Konto",
   "welcome.step.finish": "Fullfør",

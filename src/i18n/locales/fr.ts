@@ -746,6 +746,8 @@ export const fr: Record<TranslationKey, string> = {
   "welcome.node.subtitle": "Choisissez comment Qortium Home se connecte. Vous pourrez modifier ce choix plus tard dans les Paramètres.",
   "welcome.node.title": "Choisir un nœud",
   "welcome.node.transportTitle": "Choisir un transport",
+  "welcome.restart": "Recommencer la configuration",
+  "welcome.restartDescription": "Relancez le guide de configuration de bienvenue pour revoir les étapes du nœud, de la connexion et du compte.",
   "welcome.skip": "Ignorer la configuration",
   "welcome.step.account": "Compte",
   "welcome.step.finish": "Terminer",
