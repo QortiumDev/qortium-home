@@ -33,6 +33,15 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-03 - test: stop timing the Windows install-lock tests so tightly
+
+The Windows file-lock tests proved their point with strict stopwatch
+windows, and a slow shared CI runner failed one of them even though the
+install update recovered exactly as designed (it took 7.8 seconds where
+the test allowed at most 7). The lower bounds - which prove the retry
+waiting actually happened - are unchanged; the upper bounds are now
+generous and only catch a genuine hang.
+
 ### 2026-08-03 - feat: make the welcome setup guide restartable
 
 Once the welcome guide was completed or skipped, opening home://welcome
