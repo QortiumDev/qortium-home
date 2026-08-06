@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-05 - test: pin foreign wallet derivation vectors
+
+Home's eight current foreign wallets now have fixed public test vectors for
+their first receive address, root public key, and root private key. The vectors
+match the separately preserved archived implementation, while independent
+checksum, version-byte, and secp256k1 key-correspondence checks protect against
+a shared serialization mistake. Extra Bitcoin vectors pin legacy wallet-version
+and nonzero account-index behavior, and the test is part of the full suite. No
+production key, network request, or send is involved.
+
 ### 2026-08-05 - feat: expose asset-aware Home wallet capabilities
 
 QDN apps can now pass an optional `assetId` to `GET_BALANCE`, so the same
