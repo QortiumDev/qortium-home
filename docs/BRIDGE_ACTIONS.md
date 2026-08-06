@@ -132,6 +132,28 @@ fees, or server availability. Apps must handle those operation-time failures.
 See [Coin support matrix](COIN_SUPPORT_MATRIX.md) for the tracked implementation
 and acceptance status.
 
+The current Bitcoin-family read actions accept `coin` (or the compatibility
+alias `blockchain`) for BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO:
+
+- `GET_USER_WALLET` returns the locally derived first receive address plus the
+  root extended public key as both `publicKey` and legacy `publickey`.
+- `GET_WALLET_BALANCE` sends the extended public key as `text/plain` to
+  `/crosschain/{coin}/walletbalance`.
+- `GET_USER_WALLET_INFO` sends JSON `{ "xpub58": "..." }` to
+  `/crosschain/{coin}/addressinfos`.
+- `GET_USER_WALLET_TRANSACTIONS` sends the extended public key as `text/plain`
+  to `/crosschain/{coin}/wallettransactions`.
+
+These actions require an unlocked account and a trusted local Core connection.
+Home never sends the extended private key in a read request or returns it to the
+app. If Core reports API error `1201` because it cannot connect to a
+wallet-capable server, `qdnRequest` rejects with an `Error` whose `code` is
+`FOREIGN_WALLET_BACKEND_UNAVAILABLE` and whose message names the requested
+coin. This is a runtime availability result: `homeWallet.read: true` still
+correctly reports that Home implements the read flow. For example, DGB is
+currently implemented but returns this explicit unavailable error on the local
+Previewnet Core while its configured servers reject wallet requests.
+
 ## Account and group avatars
 
 `RESOLVE_IDENTITIES` and `GET_SELECTED_ACCOUNT` predate pointer-based avatars.

@@ -98,8 +98,12 @@ import {
 import {
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
-  type ForeignWalletRuntime,
 } from './foreign-wallets.js';
+import {
+  executeForeignWalletRead,
+  getForeignWalletPublicResponse,
+  type ForeignWalletReadEndpoint,
+} from './foreign-wallet-read-contract.js';
 import {
   buildCoinGeckoSimplePricePath,
   buildMarketPriceResponse,
@@ -1874,15 +1878,6 @@ function deriveForeignWalletForContext(
   });
 }
 
-function getForeignWalletResponse(wallet: ForeignWalletRuntime) {
-  return {
-    address: wallet.address,
-    coin: wallet.coin,
-    publicKey: wallet.publicKey,
-    publickey: wallet.publicKey,
-  };
-}
-
 async function getUserForeignWalletForApp(request: QdnAppRequest, context: QdnViewContext | null) {
   if (isNativeAssetRequest(request, true)) {
     const profile = await getAccountProfile(getQdnWriteAccountId(context));
@@ -1898,27 +1893,28 @@ async function getUserForeignWalletForApp(request: QdnAppRequest, context: QdnVi
   const connection = await getNodeConnection();
   const wallet = deriveForeignWalletForContext(request, context, connection);
 
-  return getForeignWalletResponse(wallet);
+  return getForeignWalletPublicResponse(wallet);
 }
 
 async function postForeignWalletReadForApp(
   request: QdnAppRequest,
   context: QdnViewContext | null,
-  endpoint: 'addressinfos' | 'walletbalance' | 'wallettransactions',
+  endpoint: ForeignWalletReadEndpoint,
 ) {
   const connection = await getNodeConnection();
   const wallet = deriveForeignWalletForContext(request, context, connection);
   const apiKey = getNodeApiKey(connection);
-  const body = endpoint === 'addressinfos'
-    ? JSON.stringify({ xpub58: wallet.xpub58 })
-    : wallet.xpub58;
-  const result = await postLocalNodeText(
-    connection,
-    `/crosschain/${wallet.coin.toLowerCase()}/${endpoint}`,
-    body,
-    apiKey,
-    `Foreign wallet ${endpoint} request failed.`,
-    endpoint === 'addressinfos' ? 'application/json' : 'text/plain',
+  const result = await executeForeignWalletRead(
+    wallet,
+    endpoint,
+    ({ body, contentType, pathname }) => postLocalNodeText(
+      connection,
+      pathname,
+      body,
+      apiKey,
+      `Foreign wallet ${endpoint} request failed.`,
+      contentType,
+    ),
   );
 
   return parseResponseData(result.body, result.contentType);

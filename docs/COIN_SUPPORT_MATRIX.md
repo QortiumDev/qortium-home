@@ -1,6 +1,6 @@
 # Qortium Home coin and asset support matrix
 
-_Current implementation snapshot: 2026-08-05. Scope: Qortium Core and Qortium
+_Current implementation snapshot: 2026-08-06. Scope: Qortium Core and Qortium
 Home; the standalone Wallet app is intentionally excluded._
 
 This matrix distinguishes code presence from live acceptance. Core enablement
@@ -11,8 +11,9 @@ local synced Previewnet Core at height 81,718; apps must use
 | Rail | Core implementation | Previewnet enabled | Home wallet | Balance | Receive | Send | Core trade engine | Live acceptance | Main restriction |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | QORT | Qortal, not Qortium Core | n/a | yes | yes | yes | yes | no Home trade path | pending | Home signs locally; public Qortal node receives signed bytes only |
-| BTC, LTC | yes | yes | yes | yes | yes | yes | local-asset and foreign/foreign | deterministic pass; live pending | Home send requires unlocked account and trusted Core |
-| DOGE, DGB, RVN, DASH, NMC, FIRO | yes | yes | yes | yes | yes | yes | local-asset | deterministic pass; live pending | Home send requires unlocked account and trusted Core |
+| BTC, LTC | yes | yes | yes | yes | yes | yes | local-asset and foreign/foreign | read pass; send pending | Home send requires unlocked account and trusted Core |
+| DOGE, RVN, DASH, NMC, FIRO | yes | yes | yes | yes | yes | yes | local-asset | read pass; send pending | Some server pools are degraded; Home send requires unlocked account and trusted Core |
+| DGB | yes | yes | yes | yes | yes | yes | local-asset | read backend blocked; send pending | No configured server currently accepts DGB wallet requests; Home returns an explicit unavailable error |
 | BCH, PPC, KMD, VRSC, ZEC, LBC, XVG | yes | no | no | no | no | no | local-asset | not started | Core adapter exists; Home derivation and wallet actions do not |
 | ARRR | yes, separate JNI path | no | no | no | no | no | local-asset | not production-ready | Native runtime, ownership model, lifecycle, fees, and restore/send acceptance remain |
 | Qortium asset `0` | generic asset support | absent by design | contract yes | yes when present | selected Qortium address | yes when present | arbitrary local asset | synthetic-chain only | Previewnet has no asset `0`; explicit reads correctly return invalid asset ID |
@@ -43,6 +44,17 @@ separately preserved archived implementation. Independent Base58Check,
 version-byte, and Node-secp256k1 key-correspondence checks pass, along with
 legacy wallet-version and nonzero account-index vectors. This proves derivation
 compatibility but is not live server or send acceptance.
+
+On 2026-08-06 the merged Core returned HTTP 200 with balance `0` and empty
+history for BTC, LTC, DOGE, RVN, DASH, NMC, and FIRO using the synthetic Home
+wallet vectors. The shared Home contract also returned BTC balance, address
+information, and history successfully against that running Core. DGB truthfully
+returned Core error `1201` for balance, history, and height because none of its
+two configured servers accepted wallet connections; the live Home contract
+mapped the DGB balance failure to
+`FOREIGN_WALLET_BACKEND_UNAVAILABLE`; it does not turn it into a false zero or
+empty history. Receive material remains locally derivable. No prepare, send,
+sign, or broadcast request was made.
 
 On 2026-08-05 the local synced Previewnet Core reported 15 Bitcoiny rows plus
 ARRR. BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO had
