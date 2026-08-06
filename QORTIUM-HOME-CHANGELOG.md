@@ -33,6 +33,18 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-06 - fix: make foreign wallet read failures actionable
+
+Home's desktop and Android bridges now share one exact contract for the eight
+current Bitcoin-family wallet read actions. Receive details expose only public
+wallet material, while balance, information, and transaction-history requests
+send only the wallet's extended public key to trusted Core. When Core cannot
+reach a wallet-capable server, apps now receive the stable
+`FOREIGN_WALLET_BACKEND_UNAVAILABLE` code with a useful coin-specific message
+instead of Core's raw numeric JSON error. Mocked transport, private-key
+exclusion, bridge-error, and dual-transport parity tests cover the behavior. No
+send, prepare, signing, or broadcast behavior changed.
+
 ### 2026-08-05 - test: pin foreign wallet derivation vectors
 
 Home's eight current foreign wallets now have fixed public test vectors for

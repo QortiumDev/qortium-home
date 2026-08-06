@@ -164,8 +164,12 @@ import {
 import {
   deriveForeignWalletRuntime,
   normalizeForeignWalletCoin,
-  type ForeignWalletRuntime,
 } from '../electron/foreign-wallets';
+import {
+  executeForeignWalletRead,
+  getForeignWalletPublicResponse,
+  type ForeignWalletReadEndpoint,
+} from '../electron/foreign-wallet-read-contract';
 import {
   buildCoinGeckoSimplePricePath,
   buildMarketPriceResponse,
@@ -8703,15 +8707,6 @@ async function deriveForeignWalletForContext(
   });
 }
 
-function getForeignWalletResponse(wallet: ForeignWalletRuntime) {
-  return {
-    address: wallet.address,
-    coin: wallet.coin,
-    publicKey: wallet.publicKey,
-    publickey: wallet.publicKey,
-  };
-}
-
 async function getUserForeignWalletForApp(request: QdnAppRequest, context: QdnAppRequestContext | undefined) {
   if (isNativeAssetRequest(request, true)) {
     if (!context?.accountId) {
@@ -8732,27 +8727,28 @@ async function getUserForeignWalletForApp(request: QdnAppRequest, context: QdnAp
   const nodeApiUrl = await resolveNodeApiUrl(settings);
   const wallet = await deriveForeignWalletForContext(request, context, settings, nodeApiUrl);
 
-  return getForeignWalletResponse(wallet);
+  return getForeignWalletPublicResponse(wallet);
 }
 
 async function postForeignWalletReadForApp(
   request: QdnAppRequest,
   context: QdnAppRequestContext | undefined,
-  endpoint: 'addressinfos' | 'walletbalance' | 'wallettransactions',
+  endpoint: ForeignWalletReadEndpoint,
 ) {
   const settings = await readNodeSettings();
   const nodeApiUrl = await resolveNodeApiUrl(settings);
   const wallet = await deriveForeignWalletForContext(request, context, settings, nodeApiUrl);
-  const body = endpoint === 'addressinfos'
-    ? JSON.stringify({ xpub58: wallet.xpub58 })
-    : wallet.xpub58;
-  const result = await postLocalNodeText(
-    nodeApiUrl,
-    `/crosschain/${wallet.coin.toLowerCase()}/${endpoint}`,
-    body,
-    getNodeApiKey(settings),
-    `Foreign wallet ${endpoint} request failed.`,
-    endpoint === 'addressinfos' ? 'application/json' : 'text/plain',
+  const result = await executeForeignWalletRead(
+    wallet,
+    endpoint,
+    ({ body, contentType, pathname }) => postLocalNodeText(
+      nodeApiUrl,
+      pathname,
+      body,
+      getNodeApiKey(settings),
+      `Foreign wallet ${endpoint} request failed.`,
+      contentType,
+    ),
   );
 
   return parseResponseData(result.body, result.contentType);

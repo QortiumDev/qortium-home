@@ -70,6 +70,7 @@
     "test:filesystem-move": "node scripts/ensure-electron-build.mjs && node dist-electron/filesystem-move.test.js",
     "test:base58": "node scripts/ensure-electron-build.mjs && node dist-electron/base58.test.js",
     "test:foreign-wallets": "node scripts/ensure-electron-build.mjs && node dist-electron/foreign-wallets.test.js",
+    "test:foreign-wallet-read-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/foreign-wallet-read-contract.test.js",
     "test:qdn-public-services": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-public-services.test.js",
     "test:qdn-resource-viewer-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-resource-viewer-contract.test.js",
     "test:qdn-browser-archive-services": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-browser-archive-services.test.js",
