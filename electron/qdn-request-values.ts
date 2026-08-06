@@ -128,6 +128,33 @@ function getRequestAssetId(request: QdnAppRequest) {
   return typeof value === 'undefined' || value === null || getString(value) === '' ? undefined : getInteger(value);
 }
 
+function getOptionalNonNegativeAssetId(request: QdnAppRequest) {
+  const value = getRequestValue(request, 'assetId');
+
+  if (
+    typeof value === 'undefined' ||
+    value === null ||
+    (typeof value === 'string' && getString(value) === '')
+  ) {
+    return undefined;
+  }
+
+  const assetId = getInteger(value);
+
+  if (typeof assetId === 'undefined' || assetId < 0) {
+    throw new Error('Asset id must be a non-negative safe integer.');
+  }
+
+  return assetId;
+}
+
+function getAccountBalancePath(address: string, request: QdnAppRequest) {
+  const assetId = getOptionalNonNegativeAssetId(request);
+  const assetQuery = typeof assetId === 'number' ? `?assetId=${assetId}` : '';
+
+  return `/addresses/balance/${encodeURIComponent(address)}${assetQuery}`;
+}
+
 function isNativeAssetRequest(request: QdnAppRequest, defaultToNative = false) {
   const assetId = getRequestAssetId(request);
 
@@ -429,6 +456,8 @@ export {
   getOptionalBase58RequestString,
   isNativeAssetAlias,
   getRequestAssetId,
+  getOptionalNonNegativeAssetId,
+  getAccountBalancePath,
   isNativeAssetRequest,
   assertQortiumAddress,
   getRequiredAddressRequestString,

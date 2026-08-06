@@ -66,6 +66,72 @@ Home's local device data rather than Core.
 `GET_APP_ASSIGNMENTS` and `REQUEST_APP_ASSIGNMENT` provide the generic,
 consented app-target mechanism; see [Home app assignments](HOME_APP_ASSIGNMENTS.md).
 
+## Balances and wallet capability discovery
+
+`GET_BALANCE` reads a Qortium-chain asset balance. `address` is optional and
+defaults to the selected account. `assetId` is also optional and accepts a
+non-negative safe integer or integer string at either the top level or inside
+`payload`:
+
+```js
+const nativeDefault = await qdnRequest({ action: 'GET_BALANCE' });
+const explicitNative = await qdnRequest({ action: 'GET_BALANCE', assetId: 0 });
+const assetBalance = await qdnRequest({
+  action: 'GET_BALANCE',
+  address: 'Q...',
+  assetId: 2,
+});
+```
+
+When `assetId` is omitted or blank, Home preserves the legacy Core request
+`/addresses/balance/{address}`. An explicit value, including `0`, is forwarded
+as `?assetId={id}`. Core's response is returned unchanged. Negative,
+fractional, unsafe, array, object, and otherwise malformed values are rejected
+before a Core request is made. An explicit asset ID that does not exist is a
+Core error; in particular, Previewnet currently has no asset `0`, so the
+explicit-native example is a contract example rather than a claim that the
+asset exists there.
+
+`GET_QORT_BALANCE` is separate: it reads QORT from the Qortal chain through
+Home's configured public-node path. It does not accept a Qortal asset ID.
+Qortal assets other than QORT are not supported by Home.
+
+`GET_CROSSCHAIN_BLOCKCHAINS` preserves every field and row returned by the
+connected Qortium Core, prepends Home's QORT row, and adds this feature-detectable
+projection to each row:
+
+```json
+{
+  "homeWallet": {
+    "implemented": true,
+    "read": true,
+    "receive": true,
+    "send": true,
+    "requiresUnlockedAccount": true,
+    "sendMode": "TRUSTED_CORE"
+  }
+}
+```
+
+Core's `supportsWallet` says the chain adapter implements a wallet, while
+`walletEnabled` reports the connected Core's current configuration. Neither
+field proves that this Home build can derive the wallet. `homeWallet` describes
+Home itself:
+
+- QORT uses `HOME_SIGNED_PUBLIC_NODE`: Home signs locally and submits only
+  signed bytes to a Qortal public node.
+- BTC, LTC, DOGE, DGB, RVN, DASH, NMC, and FIRO use `TRUSTED_CORE`: Home
+  implements balance, receive, and send, but a send still requires a trusted
+  Core connection and an unlocked account.
+- Other and unknown currency codes fail closed with all operation flags false
+  and `sendMode: "NONE"`.
+
+Static `send: true` means the Home build implements that flow. It does not
+override runtime node-mode checks, wallet lock state, Core enablement, funds,
+fees, or server availability. Apps must handle those operation-time failures.
+See [Coin support matrix](COIN_SUPPORT_MATRIX.md) for the tracked implementation
+and acceptance status.
+
 ## Account and group avatars
 
 `RESOLVE_IDENTITIES` and `GET_SELECTED_ACCOUNT` predate pointer-based avatars.

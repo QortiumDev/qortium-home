@@ -33,6 +33,21 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-05 - feat: expose asset-aware Home wallet capabilities
+
+QDN apps can now pass an optional `assetId` to `GET_BALANCE`, so the same
+desktop and Android contract reads any existing Qortium asset rather than
+silently dropping the requested ID. Invalid IDs are rejected before Core is
+called, omitted IDs retain the existing native-default behavior, and explicit
+asset `0` remains available on chains that actually create it. Blockchain
+discovery now preserves Core's own support and enablement fields while adding
+a separate fail-closed `homeWallet` view: QORT uses Home-signed public-node
+transactions, the current eight Bitcoiny wallets require trusted Core for
+sends, and Core-only or unknown chains are not presented as Home wallets.
+Focused unit tests, desktop and Android read-only smokes, bridge documentation,
+and a tracked coin-support matrix protect and explain the boundary. No funds
+were moved and no send behavior changed.
+
 ### 2026-08-03 - chore(release): prepare home 1.6.3
 
 Marks the version for the next preview release. Since 1.6.2, public-node
