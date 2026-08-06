@@ -11,6 +11,7 @@ import { sniffMagicMimeType } from './qdnContentType';
 import {
   assertQortiumAddress,
   getBoolean,
+  getAccountBalancePath,
   getExactQdnApprovalValue,
   getInlinePublishData,
   getInteger,
@@ -46,6 +47,10 @@ import {
   type QdnAppRequest,
   type QdnWriteResourceRequest,
 } from '../electron/qdn-request-values';
+import {
+  buildHomeBlockchainDiscovery,
+  type HomeWalletCapability,
+} from '../electron/qdn-wallet-capabilities';
 import {
   base58Decode,
   base58Encode,
@@ -616,6 +621,7 @@ type SupportedBlockchainInfo = {
   currencyCode: string;
   decimalPlaces: number;
   displayName: string;
+  homeWallet?: HomeWalletCapability;
   name: string;
   slip44CoinType: number | null;
   supportsForeignForeignTrades: boolean;
@@ -9113,19 +9119,8 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
 async function getCrosschainBlockchainsForApp(request: QdnAppRequest) {
   const blockchains = await fetchNodeApiPayload('/crosschain/blockchains', request);
   // Core reports foreign-chain wallet stacks. Home also exposes QORT through
-  // public Qortal nodes, so include Qortal for app capability discovery.
-  if (Array.isArray(blockchains)) {
-    return [QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO, ...blockchains];
-  }
-
-  if (isRecord(blockchains) && Array.isArray(blockchains.data)) {
-    return {
-      ...blockchains,
-      data: [QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO, ...blockchains.data],
-    };
-  }
-
-  return blockchains;
+  // public Qortal nodes, and explicitly project which rows Home can operate.
+  return buildHomeBlockchainDiscovery(blockchains, QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO);
 }
 
 // --- Read-only cross-chain reads from Qortal nodes ---
@@ -10978,7 +10973,7 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
 
     case 'GET_BALANCE':
       return fetchNodeApiPayload(
-        `/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`,
+        getAccountBalancePath(await getAddressForQdnRequest(request, context, 'Address'), request),
         request,
       );
 

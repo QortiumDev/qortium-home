@@ -18,6 +18,7 @@ const adbPath = process.env.ADB || path.join(androidSdkRoot, 'platform-tools', '
 const emulatorPath = process.env.ANDROID_EMULATOR || path.join(androidSdkRoot, 'emulator', 'emulator');
 const avdHome = process.env.ANDROID_AVD_HOME || path.join(os.homedir(), '.config', '.android', 'avd');
 const avdName = process.env.QORTIUM_HOME_ANDROID_AVD || 'qortium_home_api36';
+const requestedDeviceSerial = process.env.QORTIUM_HOME_ANDROID_SERIAL?.trim() || '';
 const packageName = 'org.qortium.home';
 const activityName = `${packageName}/.MainActivity`;
 const nodeApiUrl = (process.env.QORTIUM_HOME_NODE_API_URL ?? 'http://127.0.0.1:24891').replace(
@@ -30,6 +31,7 @@ const androidNodeApiUrl = (
 const fixtureName = process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE_NAME ?? 'QortiumHomeTest';
 const appIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_APP_IDENTIFIER ?? 'home-test';
 const assignmentsOnly = process.env.QORTIUM_HOME_ANDROID_ASSIGNMENTS_ONLY === '1';
+const walletReadOnly = process.env.QORTIUM_HOME_ANDROID_WALLET_READ_ONLY === '1';
 const jsonIdentifier = process.env.QORTIUM_HOME_QDN_BRIDGE_JSON_IDENTIFIER ?? 'home-json';
 const fixtureAddress =
   process.env.QORTIUM_HOME_QDN_BRIDGE_FIXTURE ?? `qdn://APP/${fixtureName}/${appIdentifier}`;
@@ -419,6 +421,10 @@ async function getAttachedDevice() {
     .map((line) => line.trim().split(/\s+/))
     .filter(([serial, state]) => serial && state === 'device')
     .map(([serial]) => serial);
+
+  if (requestedDeviceSerial) {
+    return devices.includes(requestedDeviceSerial) ? requestedDeviceSerial : null;
+  }
 
   return devices[0] ?? null;
 }
@@ -2142,13 +2148,58 @@ async function clearPublishSourceMock(client) {
   });
 }
 
+async function assertWalletBridgeContract(client, contextId) {
+  const blockchains = await runQdnRequest(client, contextId, { action: 'GET_CROSSCHAIN_BLOCKCHAINS' });
+  const homeForeignCoins = new Set(['BTC', 'LTC', 'DOGE', 'DGB', 'RVN', 'DASH', 'NMC', 'FIRO']);
+
+  assert(Array.isArray(blockchains), 'GET_CROSSCHAIN_BLOCKCHAINS did not return an array.');
+  const qort = blockchains.find((row) => row?.currencyCode === 'QORT');
+  assert(
+    qort?.homeWallet?.implemented === true && qort.homeWallet.sendMode === 'HOME_SIGNED_PUBLIC_NODE',
+    'QORT discovery did not advertise Home-signed public-node wallet support.',
+  );
+
+  for (const row of blockchains.filter((entry) => entry?.currencyCode !== 'QORT')) {
+    const expectedImplemented = homeForeignCoins.has(row?.currencyCode);
+    assert(
+      row?.homeWallet?.implemented === expectedImplemented,
+      `GET_CROSSCHAIN_BLOCKCHAINS returned an incorrect Home capability for ${row?.currencyCode}.`,
+    );
+    assert(
+      row?.homeWallet?.sendMode === (expectedImplemented ? 'TRUSTED_CORE' : 'NONE'),
+      `GET_CROSSCHAIN_BLOCKCHAINS returned an incorrect send mode for ${row?.currencyCode}.`,
+    );
+  }
+
+  const assetsResponse = await runQdnRequest(client, contextId, {
+    action: 'FETCH_NODE_API',
+    path: '/assets?limit=1&reverse=true',
+  });
+  const asset = Array.isArray(assetsResponse?.data) ? assetsResponse.data[0] : null;
+  assert(Number.isSafeInteger(asset?.assetId) && asset.assetId >= 0, 'Core did not return an extant asset for GET_BALANCE smoke coverage.');
+  assert(typeof asset?.owner === 'string' && asset.owner.startsWith('Q'), 'Extant asset did not include a Qortium owner.');
+
+  const balance = await runQdnRequest(client, contextId, {
+    action: 'GET_BALANCE',
+    address: asset.owner,
+    assetId: asset.assetId,
+  });
+  const direct = await runQdnRequest(client, contextId, {
+    action: 'FETCH_NODE_API',
+    path: `/addresses/balance/${encodeURIComponent(asset.owner)}?assetId=${asset.assetId}`,
+  });
+  assert(balance === direct?.data, 'GET_BALANCE did not match the explicit Core asset-balance endpoint.');
+}
+
 async function runBridgeAssertions(client, contextId) {
   await waitForQdnRequestBridge(client, contextId);
 
+  activeSmokeStage = 'bridge UI identity';
   const whichUi = await runQdnRequest(client, contextId, { action: 'WHICH_UI' });
 
   assert(whichUi === 'QORTIUM_HOME_ANDROID', `Expected QORTIUM_HOME_ANDROID, found ${JSON.stringify(whichUi)}.`);
 
+  activeSmokeStage = 'bridge action availability';
   const actions = await runQdnRequest(client, contextId, { action: 'SHOW_ACTIONS' });
   const expectedActions = [
     'FETCH_NODE_API',
@@ -2234,6 +2285,7 @@ async function runBridgeAssertions(client, contextId) {
   const missingActions = expectedActions.filter((action) => !Array.isArray(actions) || !actions.includes(action));
   assert(missingActions.length === 0, `SHOW_ACTIONS did not include: ${missingActions.join(', ')}.`);
 
+  activeSmokeStage = 'bridge Core reads';
   const statusResult = await runQdnRequest(client, contextId, {
     action: 'FETCH_NODE_API',
     path: '/admin/status',
@@ -2255,6 +2307,7 @@ async function runBridgeAssertions(client, contextId) {
     'FETCH_NODE_API HEAD /admin/status did not return an empty HTTP 200 response.',
   );
 
+  activeSmokeStage = 'bridge peer reads';
   await assertFetchNodeApiPeerEndpoints(client, contextId);
 
   const nodeStatus = await runQdnRequest(client, contextId, { action: 'GET_NODE_STATUS' });
@@ -2267,7 +2320,13 @@ async function runBridgeAssertions(client, contextId) {
   assert(typeof nodeInfo?.buildVersion === 'string', 'GET_NODE_INFO returned an unexpected payload.');
 
   assertNodeSettingsMetadata(await runQdnRequest(client, contextId, { action: 'GET_NODE_SETTINGS_METADATA' }));
+  activeSmokeStage = 'bridge wallet reads';
+  await assertWalletBridgeContract(client, contextId);
+  if (walletReadOnly) {
+    return;
+  }
 
+  activeSmokeStage = 'bridge QDN reads';
   const appStatus = await runQdnRequest(client, contextId, {
     action: 'GET_QDN_RESOURCE_STATUS',
     identifier: appIdentifier,
@@ -2465,6 +2524,7 @@ async function runPublicNetworkBridgeAssertions(client, contextId) {
 
 async function runSelectedAccountAssertions(client, contextId, account, ownedNames) {
   const selectedAccountRequest = { action: 'GET_SELECTED_ACCOUNT' };
+  activeSmokeStage = 'selected-account approval dialog';
   const approved = await runQdnRequestWithAccountDialog(
     client,
     contextId,
@@ -2472,6 +2532,7 @@ async function runSelectedAccountAssertions(client, contextId, account, ownedNam
     'Allow',
   );
 
+  activeSmokeStage = 'selected-account approved identity';
   assert(
     approved?.result?.address === account.accountAddress,
     `GET_SELECTED_ACCOUNT returned ${JSON.stringify(approved?.result?.address)} instead of the seeded account.`,
@@ -2490,6 +2551,7 @@ async function runSelectedAccountAssertions(client, contextId, account, ownedNam
     assert(approved.result.name === null, 'GET_SELECTED_ACCOUNT returned a name for an account with no names.');
   }
 
+  activeSmokeStage = 'selected-account cached identity';
   const cached = await runQdnRequest(client, contextId, selectedAccountRequest);
 
   assert(
@@ -2500,6 +2562,14 @@ async function runSelectedAccountAssertions(client, contextId, account, ownedNam
     (await isAccountReadDialogVisible(client)) === false,
     'GET_SELECTED_ACCOUNT cached approval opened another account dialog.',
   );
+
+  activeSmokeStage = 'selected-account balance fallback';
+  const selectedBalance = await runQdnRequest(client, contextId, { action: 'GET_BALANCE' });
+  const directBalance = await runQdnRequest(client, contextId, {
+    action: 'FETCH_NODE_API',
+    path: `/addresses/balance/${encodeURIComponent(account.accountAddress)}`,
+  });
+  assert(selectedBalance === directBalance?.data, 'GET_BALANCE did not preserve selected-account native fallback behavior.');
 }
 
 async function runSelectedAccountDenyAssertion(client, account) {
@@ -2737,8 +2807,10 @@ async function main() {
     await assertFixtureReady();
     apiKey = getApiKey();
     account = getPreviewAccount();
-    androidWriteWallet = await createAndroidWriteWallet(account);
-    await ensureNameRegistered(androidWriteWallet.name, androidWriteWallet.account, apiKey);
+    if (!walletReadOnly) {
+      androidWriteWallet = await createAndroidWriteWallet(account);
+      await ensureNameRegistered(androidWriteWallet.name, androidWriteWallet.account, apiKey);
+    }
     ownedNames = await getOwnedNames(account.accountAddress);
   }
 
@@ -2806,16 +2878,22 @@ async function main() {
         let { contextId, frame } = await getFixtureFrameContext(client);
 
         log('Running bridge assertions in fixture frame.');
-        activeSmokeStage = 'bridge containment';
-        await runBridgeContainmentAssertions(client, frame);
-        activeSmokeStage = 'app assignment bridge';
-        await runAppAssignmentBridgeAssertions(client, contextId);
-        if (assignmentsOnly) {
-          log('Android QDN app-assignment smoke test passed.');
-          return;
+        if (!walletReadOnly) {
+          activeSmokeStage = 'bridge containment';
+          await runBridgeContainmentAssertions(client, frame);
+          activeSmokeStage = 'app assignment bridge';
+          await runAppAssignmentBridgeAssertions(client, contextId);
+          if (assignmentsOnly) {
+            log('Android QDN app-assignment smoke test passed.');
+            return;
+          }
         }
         activeSmokeStage = 'bridge action catalogue';
         await runBridgeAssertions(client, contextId);
+        if (walletReadOnly) {
+          log('Android read-only QDN wallet smoke test passed.');
+          return;
+        }
         activeSmokeStage = 'selected-account approvals';
         await runSelectedAccountAssertions(client, contextId, account, ownedNames);
         activeSmokeStage = 'selected-account denial';

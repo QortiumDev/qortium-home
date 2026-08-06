@@ -42,6 +42,7 @@ import { isPrivateQdnService, isPublicQdnService } from './qdn-public-services.j
 import {
   assertQortiumAddress,
   getBoolean,
+  getAccountBalancePath,
   getExactQdnApprovalValue,
   getInlinePublishData,
   getInteger,
@@ -77,6 +78,10 @@ import {
   type QdnAppRequest,
   type QdnWriteResourceRequest,
 } from './qdn-request-values.js';
+import {
+  buildHomeBlockchainDiscovery,
+  type HomeWalletCapability,
+} from './qdn-wallet-capabilities.js';
 import {
   base58Decode,
   base58Encode,
@@ -602,6 +607,7 @@ type SupportedBlockchainInfo = {
   currencyCode: string;
   decimalPlaces: number;
   displayName: string;
+  homeWallet?: HomeWalletCapability;
   name: string;
   slip44CoinType: number | null;
   supportsForeignForeignTrades: boolean;
@@ -3067,19 +3073,8 @@ async function fetchNodeApiPayload(apiPath: string, request: QdnAppRequest) {
 async function getCrosschainBlockchainsForApp(request: QdnAppRequest) {
   const blockchains = await fetchNodeApiPayload('/crosschain/blockchains', request);
   // Core reports foreign-chain wallet stacks. Home also exposes QORT through
-  // public Qortal nodes, so include Qortal for app capability discovery.
-  if (Array.isArray(blockchains)) {
-    return [QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO, ...blockchains];
-  }
-
-  if (isRecord(blockchains) && Array.isArray(blockchains.data)) {
-    return {
-      ...blockchains,
-      data: [QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO, ...blockchains.data],
-    };
-  }
-
-  return blockchains;
+  // public Qortal nodes, and explicitly project which rows Home can operate.
+  return buildHomeBlockchainDiscovery(blockchains, QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO);
 }
 
 // --- Read-only cross-chain reads from Qortal nodes ---
@@ -9374,7 +9369,10 @@ async function handleQdnAppRequest(
       return unlockSelectedAccountForQdnApp(context);
 
     case 'GET_BALANCE':
-      return fetchNodeApiPayload(`/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);
+      return fetchNodeApiPayload(
+        getAccountBalancePath(await getAddressForQdnRequest(request, context, 'Address'), request),
+        request,
+      );
 
     case 'GET_QORT_BALANCE':
       return fetchQortalNodeApiPayload(`/addresses/balance/${encodeURIComponent(await getAddressForQdnRequest(request, context, 'Address'))}`, request);

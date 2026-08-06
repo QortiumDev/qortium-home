@@ -670,6 +670,49 @@ function assertNodeSettingsMetadata(metadata) {
   }
 }
 
+async function assertWalletBridgeContract(qdnClient) {
+  const blockchains = await runQdnRequest(qdnClient, { action: 'GET_CROSSCHAIN_BLOCKCHAINS' });
+  const homeForeignCoins = new Set(['BTC', 'LTC', 'DOGE', 'DGB', 'RVN', 'DASH', 'NMC', 'FIRO']);
+
+  assert(Array.isArray(blockchains), 'GET_CROSSCHAIN_BLOCKCHAINS did not return an array.');
+  const qort = blockchains.find((row) => row?.currencyCode === 'QORT');
+  assert(
+    qort?.homeWallet?.implemented === true && qort.homeWallet.sendMode === 'HOME_SIGNED_PUBLIC_NODE',
+    'QORT discovery did not advertise Home-signed public-node wallet support.',
+  );
+
+  for (const row of blockchains.filter((entry) => entry?.currencyCode !== 'QORT')) {
+    const expectedImplemented = homeForeignCoins.has(row?.currencyCode);
+    assert(
+      row?.homeWallet?.implemented === expectedImplemented,
+      `GET_CROSSCHAIN_BLOCKCHAINS returned an incorrect Home capability for ${row?.currencyCode}.`,
+    );
+    assert(
+      row?.homeWallet?.sendMode === (expectedImplemented ? 'TRUSTED_CORE' : 'NONE'),
+      `GET_CROSSCHAIN_BLOCKCHAINS returned an incorrect send mode for ${row?.currencyCode}.`,
+    );
+  }
+
+  const assetsResponse = await runQdnRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path: '/assets?limit=1&reverse=true',
+  });
+  const asset = Array.isArray(assetsResponse?.data) ? assetsResponse.data[0] : null;
+  assert(Number.isSafeInteger(asset?.assetId) && asset.assetId >= 0, 'Core did not return an extant asset for GET_BALANCE smoke coverage.');
+  assert(typeof asset?.owner === 'string' && asset.owner.startsWith('Q'), 'Extant asset did not include a Qortium owner.');
+
+  const balance = await runQdnRequest(qdnClient, {
+    action: 'GET_BALANCE',
+    address: asset.owner,
+    assetId: asset.assetId,
+  });
+  const direct = await runQdnRequest(qdnClient, {
+    action: 'FETCH_NODE_API',
+    path: `/addresses/balance/${encodeURIComponent(asset.owner)}?assetId=${asset.assetId}`,
+  });
+  assert(balance === direct?.data, 'GET_BALANCE did not match the explicit Core asset-balance endpoint.');
+}
+
 async function runBridgeAssertions(qdnClient) {
   const bridgeState = await evaluate(qdnClient, 'typeof window.qdnRequest');
   assert(bridgeState === 'function', `Expected qdnRequest to be injected, found ${bridgeState}.`);
@@ -794,6 +837,7 @@ async function runBridgeAssertions(qdnClient) {
   assert(typeof nodeInfo?.buildVersion === 'string', 'GET_NODE_INFO returned an unexpected payload.');
 
   assertNodeSettingsMetadata(await runQdnRequest(qdnClient, { action: 'GET_NODE_SETTINGS_METADATA' }));
+  await assertWalletBridgeContract(qdnClient);
 
   const appStatus = await runQdnRequest(qdnClient, {
     action: 'GET_QDN_RESOURCE_STATUS',
