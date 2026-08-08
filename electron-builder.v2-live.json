@@ -1,0 +1,49 @@
+{
+  "appId": "org.qortium.home.v2live",
+  "productName": "Qortium Home 2 Live Preview",
+  "artifactName": "Qortium-Home-2-Live-Preview-${version}-${arch}.${ext}",
+  "asar": true,
+  "npmRebuild": false,
+  "extraMetadata": {
+    "main": "dist-electron/v2-live-main.js",
+    "desktopName": "Qortium Home 2 Live Preview"
+  },
+  "directories": {
+    "output": "dist-release-v2-live",
+    "buildResources": "build"
+  },
+  "files": [
+    {
+      "from": "dist-v2-live",
+      "to": "dist",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "dist-electron",
+      "to": "dist-electron",
+      "filter": ["**/*"]
+    },
+    "package.json",
+    "!**/node_modules/@napi-rs/**"
+  ],
+  "extraResources": [
+    {
+      "from": "build/icon.png",
+      "to": "icon.png"
+    }
+  ],
+  "electronFuses": {
+    "runAsNode": false,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableNodeCliInspectArguments": false,
+    "onlyLoadAppFromAsar": true,
+    "grantFileProtocolExtraPrivileges": true
+  },
+  "linux": {
+    "icon": "build/icons",
+    "target": [{ "target": "AppImage" }],
+    "category": "Network",
+    "executableName": "qortium-home-2-live-preview",
+    "syncDesktopName": true
+  }
+}

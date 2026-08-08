@@ -24,6 +24,10 @@ import {
 } from './mock-bridge-adapters'
 import { executeWithNetworkPolicy, HomeV2PolicyError } from './policy'
 import {
+  buildAppResourceLocation,
+  parseAppResourceLocation,
+} from './resource-location'
+import {
   createProductState,
   ProductModelError,
   reduceProductState,
@@ -41,6 +45,7 @@ import {
   fixtureApp,
   fixtureIds,
   fixtureOperationContext,
+  fixtureTabContext,
   homeV2Fixture,
   homeV2ProductFixture,
   mockQdnPublishRequest,
@@ -169,54 +174,52 @@ function testWrongNetworkStopsBeforeAdapter(): void {
   assert.equal(adapterCalls, 1)
 }
 
-function testProductModelKeepsNetworkQualifiedTabs(): void {
+function testProductModelKeepsSourceQualifiedTabs(): void {
   const empty = createProductState()
   const chat = fixtureApp(fixtureIds.chatApp)
-  const qortalContext = fixtureOperationContext(
-    chat.id,
-    'qortal',
-    fixtureIds.qortalChatTab,
-  )
-  const qortiumContext = fixtureOperationContext(
-    chat.id,
-    'qortium',
-    fixtureIds.qortiumChatTab,
+  const chatContext = fixtureTabContext(chat, fixtureIds.chatTab)
+  const qortalApp = fixtureApp(fixtureIds.qortalCompatApp)
+  const qortalContext = fixtureTabContext(
+    qortalApp,
+    fixtureIds.qortalCompatTab,
   )
 
-  const withQortal = reduceProductState(empty, {
+  const withChat = reduceProductState(empty, {
     type: 'open-app',
     app: chat,
-    context: qortalContext,
-    tabId: fixtureIds.qortalChatTab,
+    context: chatContext,
+    tabId: fixtureIds.chatTab,
   })
-  const withBoth = reduceProductState(withQortal, {
+  const reopenedChat = reduceProductState(withChat, {
     type: 'open-app',
     app: chat,
-    context: qortiumContext,
-    tabId: fixtureIds.qortiumChatTab,
+    context: {
+      ...chatContext,
+      tabId: fixtureIds.tab,
+    },
+    tabId: fixtureIds.tab,
+  })
+  const withBothSources = reduceProductState(reopenedChat, {
+    type: 'open-app',
+    app: qortalApp,
+    context: qortalContext,
+    tabId: fixtureIds.qortalCompatTab,
   })
 
   assert.equal(empty.tabs.length, 0)
-  assert.equal(withQortal.tabs.length, 1)
-  assert.equal(withBoth.tabs.length, 2)
+  assert.equal(withChat.tabs.length, 1)
+  assert.equal(reopenedChat.tabs.length, 1)
+  assert.equal(reopenedChat.activeTabId, fixtureIds.chatTab)
+  assert.equal(withBothSources.tabs.length, 2)
   assert.deepEqual(
-    withBoth.tabs.map((tab) => tab.context.targetNetwork),
-    ['qortal', 'qortium'],
+    withBothSources.tabs.map((tab) => tab.context.sourceNetwork),
+    ['qortium', 'qortal'],
   )
-  assert.equal(Object.isFrozen(withBoth), true)
-  assert.equal(Object.isFrozen(withBoth.tabs), true)
-  assert.equal(Object.isFrozen(withBoth.tabs[0].context), true)
+  assert.equal(Object.isFrozen(withBothSources), true)
+  assert.equal(Object.isFrozen(withBothSources.tabs), true)
+  assert.equal(Object.isFrozen(withBothSources.tabs[0].context), true)
 
-  const reopenedQortal = reduceProductState(withBoth, {
-    type: 'open-app',
-    app: chat,
-    context: qortalContext,
-    tabId: fixtureIds.qortalChatTab,
-  })
-  assert.equal(reopenedQortal.tabs.length, 2)
-  assert.equal(reopenedQortal.activeTabId, fixtureIds.qortalChatTab)
-
-  const dashboard = reduceProductState(reopenedQortal, {
+  const dashboard = reduceProductState(withBothSources, {
     type: 'navigate',
     destination: 'dashboard',
   })
@@ -227,12 +230,12 @@ function testProductModelKeepsNetworkQualifiedTabs(): void {
   const afterClose = reduceProductState(
     reduceProductState(dashboard, {
       type: 'activate-tab',
-      tabId: fixtureIds.qortalChatTab,
+      tabId: fixtureIds.chatTab,
     }),
-    { type: 'close-tab', tabId: fixtureIds.qortalChatTab },
+    { type: 'close-tab', tabId: fixtureIds.chatTab },
   )
   assert.equal(afterClose.tabs.length, 1)
-  assert.equal(afterClose.activeTabId, fixtureIds.qortiumChatTab)
+  assert.equal(afterClose.activeTabId, fixtureIds.qortalCompatTab)
 
   assert.throws(
     () =>
@@ -252,7 +255,7 @@ function testProductModelKeepsNetworkQualifiedTabs(): void {
       reduceProductState(empty, {
         type: 'open-app',
         app: chat,
-        context: qortalContext,
+        context: chatContext,
         tabId: fixtureIds.tab,
       }),
     (error) => {
@@ -261,6 +264,29 @@ function testProductModelKeepsNetworkQualifiedTabs(): void {
       return true
     },
   )
+}
+
+function testAppResourceSchemesStaySourceQualified(): void {
+  const qdn = buildAppResourceLocation('qortium', {
+    service: 'APP',
+    name: 'Chat',
+    identifier: 'Chat',
+  })
+  const qortal = buildAppResourceLocation('qortal', {
+    service: 'APP',
+    name: 'Qortal App',
+    identifier: null,
+  })
+  assert.equal(qdn, 'qdn://APP/Chat/Chat')
+  assert.equal(qortal, 'qortal://APP/Qortal%20App/default')
+  assert.deepEqual(parseAppResourceLocation(qdn), {
+    identity: { service: 'APP', name: 'Chat', identifier: 'Chat' },
+    location: qdn,
+    sourceNetwork: 'qortium',
+  })
+  assert.equal(parseAppResourceLocation(qortal).sourceNetwork, 'qortal')
+  assert.throws(() => parseAppResourceLocation('qdn://qortal/APP/Chat'))
+  assert.throws(() => parseAppResourceLocation('https://example.invalid/app'))
 }
 
 function testBridgeProtocolsStaySeparate(): void {
@@ -308,7 +334,7 @@ function testBridgeProtocolsStaySeparate(): void {
         fixtureOperationContext(
           fixtureIds.chatApp,
           'qortal',
-          fixtureIds.qortalChatTab,
+          fixtureIds.chatTab,
         ),
       ),
     (error) => {
@@ -474,8 +500,8 @@ function testDesktopAndPhoneContracts(): void {
     assert.doesNotMatch(html, /home-v2-node-modes/)
     assert.doesNotMatch(html, /Previewnet/)
     assert.match(html, /role="tablist"/)
-    assert.match(html, /fixture:tab:chat:qortal/)
-    assert.match(html, /fixture:tab:chat:qortium/)
+    assert.match(html, /fixture:tab:chat/)
+    assert.match(html, /fixture:tab:qortal-compat/)
     assert.doesNotMatch(html, /role="dialog"/)
   }
 }
@@ -875,10 +901,63 @@ function testFixtureHtmlHasVisibleBootFallback(): void {
   assert.doesNotMatch(html, /src="\.\/assets\//)
 }
 
+function testLiveNodeEntryIsCapabilityScoped(): void {
+  const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
+  const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
+  const bootstrap = readFileSync('electron/v2-live-main.ts', 'utf8')
+  const main = readFileSync('electron/main.ts', 'utf8')
+  const html = readFileSync('v2-live.html', 'utf8')
+  const config = JSON.parse(
+    readFileSync('electron-builder.v2-live.json', 'utf8'),
+  ) as {
+    appId: string
+    directories: { output: string }
+    extraMetadata: { main: string }
+  }
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    scripts: Readonly<Record<string, string>>
+  }
+
+  assert.equal(config.appId, 'org.qortium.home.v2live')
+  assert.equal(config.directories.output, 'dist-release-v2-live')
+  assert.equal(config.extraMetadata.main, 'dist-electron/v2-live-main.js')
+  assert.match(packageJson.scripts['dist:linux:x64:v2-live'], /--publish never/)
+  assert.match(preload, /exposeInMainWorld\('homeV2Nodes'/)
+  assert.match(preload, /home-v2-nodes:getSnapshot/)
+  assert.match(preload, /home-v2-nodes:setMode/)
+  assert.doesNotMatch(preload, /qortiumHome|accounts:|qdn:|core:|sign|wallet/i)
+  assert.equal((preload.match(/require\(/g) ?? []).length, 1)
+  assert.doesNotMatch(bridge, /apiKey|privateKey|password|seedPhrase|sourceFilename/)
+  assert.match(bridge, /authorizedSenderIds/)
+  assert.match(bridge, /assertAuthorized\(event\.sender\)/)
+  assert.match(bootstrap, /qortium-home-v2-live/)
+  assert.match(main, /home-v2-live-preload\.cjs/)
+  assert.match(main, /authorizeHomeV2NodeBridge/)
+  assert.match(html, /connect-src 'none'/)
+  assert.match(html, /src="\/src\/home-v2-live\/main\.tsx"/)
+
+  const liveSources = collectV2SourceFiles('src/home-v2-live')
+  for (const path of liveSources) {
+    const source = readFileSync(path, 'utf8')
+    for (const forbidden of [
+      'window.qortiumHome',
+      'fetch(',
+      'XMLHttpRequest',
+      'WebSocket',
+      '../platform',
+      'privateKey',
+      'seedPhrase',
+    ]) {
+      assert.equal(source.includes(forbidden), false, `${path} must not contain ${forbidden}`)
+    }
+  }
+}
+
 await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
-testProductModelKeepsNetworkQualifiedTabs()
+testProductModelKeepsSourceQualifiedTabs()
+testAppResourceSchemesStaySourceQualified()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()
@@ -889,6 +968,7 @@ testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()
 testFixtureElectronEntryIsIsolated()
 testFixtureHtmlHasVisibleBootFallback()
+testLiveNodeEntryIsCapabilityScoped()
 testRendererSourceHasNoRuntimeEscapeHatches()
 
 console.log('home v2 foundation contract tests passed')

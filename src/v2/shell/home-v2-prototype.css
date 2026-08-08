@@ -567,12 +567,34 @@
 }
 
 .home-v2-node-detail {
+  display: grid;
   min-block-size: 24px;
   overflow: hidden;
   margin: 0;
+  gap: 3px;
   font-size: 13px;
+}
+
+.home-v2-node-detail span,
+.home-v2-node-detail small {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.home-v2-node-detail small {
+  color: var(--v2-muted);
+  font-size: 11px;
+}
+
+.home-v2-surface-notice {
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--v2-muted);
+  background: var(--v2-surface-soft);
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .home-v2-network {
@@ -764,6 +786,14 @@
   grid-column: 1 / -1;
   flex-wrap: wrap;
   gap: 7px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-v2-app-card__networks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .home-v2-app-card__actions button {

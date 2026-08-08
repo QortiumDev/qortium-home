@@ -81,6 +81,7 @@ export function AppearanceSettingsPage({
           <select
             aria-label="Theme"
             value={appearance.theme}
+            disabled={!onSetTheme}
             onChange={(event) =>
               onSetTheme?.(event.target.value as HomeV2ThemePreference)
             }
@@ -109,6 +110,7 @@ export function AppearanceSettingsPage({
             <select
               aria-label="Accent"
               value={appearance.accent}
+              disabled={!onSetAccent}
               onChange={(event) =>
                 onSetAccent?.(event.target.value as HomeV2Accent)
               }
@@ -129,6 +131,7 @@ export function AppearanceSettingsPage({
           <select
             aria-label="Text size"
             value={appearance.textSize}
+            disabled={!onSetTextSize}
             onChange={(event) =>
               onSetTextSize?.(event.target.value as HomeV2TextSize)
             }
@@ -149,7 +152,7 @@ export function AppearanceSettingsPage({
             <button
               type="button"
               aria-label="Zoom out"
-              disabled={appearance.appZoom <= 50}
+              disabled={!onSetAppZoom || appearance.appZoom <= 50}
               onClick={() =>
                 onSetAppZoom?.(Math.max(50, appearance.appZoom - 10))
               }
@@ -160,7 +163,7 @@ export function AppearanceSettingsPage({
             <button
               type="button"
               aria-label="Zoom in"
-              disabled={appearance.appZoom >= 200}
+              disabled={!onSetAppZoom || appearance.appZoom >= 200}
               onClick={() =>
                 onSetAppZoom?.(Math.min(200, appearance.appZoom + 10))
               }
@@ -170,7 +173,7 @@ export function AppearanceSettingsPage({
             <button
               type="button"
               className="home-v2-zoom-reset"
-              disabled={appearance.appZoom === 100}
+              disabled={!onSetAppZoom || appearance.appZoom === 100}
               onClick={() => onSetAppZoom?.(100)}
             >
               Reset
@@ -185,6 +188,7 @@ export function AppearanceSettingsPage({
           <select
             aria-label="Language"
             value={appearance.language}
+            disabled={!onSetLanguage}
             onChange={(event) =>
               onSetLanguage?.(event.target.value as HomeV2Language)
             }

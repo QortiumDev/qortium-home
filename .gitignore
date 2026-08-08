@@ -3,7 +3,9 @@ dist/
 dist-electron/
 dist-release/
 dist-release-v2-fixture/
+dist-release-v2-live/
 dist-v2-fixture/
+dist-v2-live/
 dist-electron-v2/
 .v2-fixture-package/
 .vite/

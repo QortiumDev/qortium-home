@@ -38,7 +38,7 @@ export class BridgeContractError extends Error {
 }
 
 function getAppIdentityKey(app: AppDescriptor): string {
-  const { service, name, identifier } = app.qdnIdentity
+  const { service, name, identifier } = app.resourceIdentity
   return [app.sourceNetwork, service, name, identifier ?? ''].join(':')
 }
 

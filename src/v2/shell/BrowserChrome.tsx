@@ -25,7 +25,7 @@ function browserAddress(productState: ProductState): string {
     (tab) => tab.id === productState.activeTabId,
   )
   if (activeTab) {
-    return `qdn://${activeTab.context.targetNetwork}/APP/${activeTab.title}`
+    return activeTab.context.resourceLocation
   }
   const destination =
     productState.destination === 'tab' ? 'dashboard' : productState.destination

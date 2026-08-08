@@ -66,12 +66,12 @@ export function TabStrip({
               onClick={() => onActivateTab?.(tab.id)}
             >
               <span>{tab.title}</span>
-              <NetworkBadge network={tab.context.targetNetwork} />
+              <NetworkBadge network={tab.context.sourceNetwork} />
             </button>
             <button
               type="button"
               className="home-v2-tab__close"
-              aria-label={`Close ${tab.title} on ${networkLabels[tab.context.targetNetwork]}`}
+              aria-label={`Close ${tab.title} from ${networkLabels[tab.context.sourceNetwork]}`}
               onClick={() => onCloseTab?.(tab.id)}
             >
               ×

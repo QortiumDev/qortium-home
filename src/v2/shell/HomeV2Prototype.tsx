@@ -33,7 +33,8 @@ export interface HomeV2PrototypeProps {
   readonly productState: ProductState
   readonly permissionState: PermissionState
   readonly layout: HomeV2Layout
-  readonly onOpenApp?: (app: AppDescriptor, targetNetwork: NetworkId) => void
+  readonly surfaceNotice?: string
+  readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onNavigate?: (
@@ -47,6 +48,7 @@ export interface HomeV2PrototypeProps {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => void
+  readonly onRefreshNode?: (network: NetworkId) => void
   readonly onUnlockAccount?: () => void
   readonly onLockAccount?: () => void
   readonly onSelectAccount?: (
@@ -96,10 +98,12 @@ function NodeCard({
   snapshot,
   network,
   onSetNodeMode,
+  onRefreshNode,
 }: {
   readonly snapshot: HomeV2Snapshot
   readonly network: NetworkId
   readonly onSetNodeMode?: HomeV2PrototypeProps['onSetNodeMode']
+  readonly onRefreshNode?: HomeV2PrototypeProps['onRefreshNode']
 }) {
   const node = snapshot.nodes[network]
   return (
@@ -124,20 +128,48 @@ function NodeCard({
           }
         >
           {(Object.keys(nodeModeLabels) as NodeConnectionMode[]).map((mode) => (
-            <option key={mode} value={mode}>
+            <option
+              key={mode}
+              value={mode}
+              disabled={mode === 'custom' && !node.customConfigured}
+            >
               {nodeModeLabels[mode]}
+              {mode === 'custom' && !node.customConfigured
+                ? ' (not configured)'
+                : ''}
             </option>
           ))}
         </select>
       </label>
-      <p className="home-v2-node-detail">
-        {node.mode === 'disabled'
-          ? 'No connection'
-          : `${nodeModeLabels[node.mode]} · ${node.label}`}
-      </p>
-      <button type="button" className="home-v2-link-button">
-        Details
-      </button>
+      <div className="home-v2-node-detail">
+        <span>
+          {node.mode === 'disabled'
+            ? 'No connection'
+            : `${nodeModeLabels[node.mode]} · ${node.label}`}
+        </span>
+        <small>
+          {node.error ??
+            ([
+              node.height === null
+                ? null
+                : `Height ${node.height.toLocaleString()}`,
+              node.peerCount === null ? null : `${node.peerCount} peers`,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'Waiting for node status')}
+        </small>
+      </div>
+      {onRefreshNode ? (
+        <button
+          type="button"
+          className="home-v2-link-button"
+          onClick={() => onRefreshNode(network)}
+        >
+          Refresh
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
     </article>
   )
 }
@@ -189,6 +221,7 @@ function AccountCard({
           <select
             aria-label="Selected account"
             value={hasAccount ? 'current' : 'none'}
+            disabled={!onSelectAccount && !onCreateAccount && !onImportAccount}
             onChange={(event) =>
               handleSelection(event.target.value as HomeV2AccountSelection)
             }
@@ -206,6 +239,13 @@ function AccountCard({
         <button
           type="button"
           className="home-v2-primary-button"
+          disabled={
+            !hasAccount
+              ? !onCreateAccount
+              : isLocked
+                ? !onUnlockAccount
+                : !onLockAccount
+          }
           onClick={
             !hasAccount
               ? onCreateAccount
@@ -256,18 +296,20 @@ function AppCard({
       </div>
       <div
         className="home-v2-app-card__actions"
-        aria-label={`${app.title} networks`}
+        aria-label={`${app.title} availability`}
       >
-        {app.targetNetworks.map((network) => (
-          <button
-            key={network}
-            type="button"
-            onClick={() => onOpenApp?.(app, network)}
-          >
-            <NetworkBadge network={network} />
-            Open
-          </button>
-        ))}
+        <div className="home-v2-app-card__networks">
+          {app.targetNetworks.map((network) => (
+            <NetworkBadge key={network} network={network} />
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={!onOpenApp}
+          onClick={() => onOpenApp?.(app)}
+        >
+          Open
+        </button>
       </div>
     </article>
   )
@@ -296,12 +338,15 @@ function InternalPage({
 }
 
 function Dashboard(props: HomeV2PrototypeProps) {
-  const { snapshot, onOpenApp, onSetNodeMode } = props
+  const { snapshot, onOpenApp, onSetNodeMode, onRefreshNode } = props
   const pinnedApps = snapshot.apps.filter((app) => app.placement === 'pinned')
   return (
     <div className="home-v2-dashboard">
       <header className="home-v2-dashboard-intro">
         <h1>Dashboard</h1>
+        {props.surfaceNotice ? (
+          <span className="home-v2-surface-notice">{props.surfaceNotice}</span>
+        ) : null}
       </header>
 
       <section
@@ -318,11 +363,13 @@ function Dashboard(props: HomeV2PrototypeProps) {
             snapshot={snapshot}
             network="qortal"
             onSetNodeMode={onSetNodeMode}
+            onRefreshNode={onRefreshNode}
           />
           <NodeCard
             snapshot={snapshot}
             network="qortium"
             onSetNodeMode={onSetNodeMode}
+            onRefreshNode={onRefreshNode}
           />
         </div>
       </section>

@@ -2,6 +2,7 @@ import { defaultHomeV2Appearance } from '../appearance'
 import type {
   AppDescriptor,
   AppId,
+  AppTabContext,
   HomeV2Snapshot,
   IdentityId,
   NetworkAddress,
@@ -11,6 +12,7 @@ import type {
   TabId,
   WalletRef,
 } from '../contracts'
+import { buildAppResourceLocation } from '../resource-location'
 import {
   createPermissionState,
   queuePermissionPrompt,
@@ -60,8 +62,7 @@ export const fixtureIds = {
   qortiumOnlyApp: fixtureBrand<AppId>('fixture:app:qortium-only'),
   qortalCompatApp: fixtureBrand<AppId>('fixture:app:qortal-compat'),
   tab: fixtureBrand<TabId>('fixture:tab:primary'),
-  qortalChatTab: fixtureBrand<TabId>('fixture:tab:chat:qortal'),
-  qortiumChatTab: fixtureBrand<TabId>('fixture:tab:chat:qortium'),
+  chatTab: fixtureBrand<TabId>('fixture:tab:chat'),
   qortalCompatTab: fixtureBrand<TabId>('fixture:tab:qortal-compat'),
   qdnPermissionRequest: fixtureBrand<PermissionRequestId>(
     'fixture:permission:qdn-publish',
@@ -78,7 +79,7 @@ const apps: readonly AppDescriptor[] = [
     description: 'Chat across Qortal and Qortium.',
     category: 'communication',
     sourceNetwork: 'qortium',
-    qdnIdentity: {
+    resourceIdentity: {
       service: 'APP',
       name: 'fixture-chat',
       identifier: null,
@@ -92,7 +93,7 @@ const apps: readonly AppDescriptor[] = [
     description: 'Balances and activity by network.',
     category: 'finance',
     sourceNetwork: 'qortium',
-    qdnIdentity: {
+    resourceIdentity: {
       service: 'APP',
       name: 'fixture-wallets',
       identifier: null,
@@ -106,7 +107,7 @@ const apps: readonly AppDescriptor[] = [
     description: 'Look up reputation without losing account context.',
     category: 'community',
     sourceNetwork: 'qortium',
-    qdnIdentity: {
+    resourceIdentity: {
       service: 'APP',
       name: 'fixture-trust',
       identifier: null,
@@ -120,7 +121,7 @@ const apps: readonly AppDescriptor[] = [
     description: 'A fixture used to prove wrong-network rejection.',
     category: 'utility',
     sourceNetwork: 'qortium',
-    qdnIdentity: {
+    resourceIdentity: {
       service: 'APP',
       name: 'fixture-qortium-lab',
       identifier: null,
@@ -134,7 +135,7 @@ const apps: readonly AppDescriptor[] = [
     description: 'A fixture for exact qortalRequest compatibility.',
     category: 'utility',
     sourceNetwork: 'qortal',
-    qdnIdentity: {
+    resourceIdentity: {
       service: 'APP',
       name: 'fixture-qortal-app',
       identifier: null,
@@ -196,6 +197,15 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
       state: 'syncing',
       statusText: 'Syncing 96%',
       isTrusted: true,
+      customConfigured: true,
+      nodeApiUrl: 'http://127.0.0.1:12391',
+      height: 2_100_000,
+      peerCount: 18,
+      syncPercent: 96,
+      syncPhase: 'SYNCING',
+      lastCheckedAt: 1_775_000_000_000,
+      error: null,
+      capabilities: { admin: false, read: true, write: false },
     },
     qortium: {
       ref: fixtureIds.qortiumNode,
@@ -205,6 +215,15 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
       state: 'online',
       statusText: 'Online',
       isTrusted: true,
+      customConfigured: true,
+      nodeApiUrl: 'http://127.0.0.1:24891',
+      height: 125_000,
+      peerCount: 12,
+      syncPercent: 100,
+      syncPhase: 'SYNCED',
+      lastCheckedAt: 1_775_000_000_000,
+      error: null,
+      capabilities: { admin: true, read: true, write: true },
     },
   },
   apps,
@@ -249,6 +268,23 @@ export function fixtureOperationContext(
   }
 }
 
+export function fixtureTabContext(
+  app: AppDescriptor,
+  tabId: TabId = fixtureIds.tab,
+): AppTabContext {
+  return {
+    identityId: fixtureIds.identity,
+    walletRef: fixtureIds.wallet,
+    appId: app.id,
+    tabId,
+    sourceNetwork: app.sourceNetwork,
+    resourceLocation: buildAppResourceLocation(
+      app.sourceNetwork,
+      app.resourceIdentity,
+    ),
+  }
+}
+
 export function fixtureApp(appId: AppId): AppDescriptor {
   const app = apps.find((candidate) => candidate.id === appId)
   if (!app) {
@@ -264,31 +300,13 @@ function createFixtureProductState(): ProductState {
   state = reduceProductState(state, {
     type: 'open-app',
     app: chat,
-    context: fixtureOperationContext(
-      chat.id,
-      'qortal',
-      fixtureIds.qortalChatTab,
-    ),
-    tabId: fixtureIds.qortalChatTab,
-  })
-  state = reduceProductState(state, {
-    type: 'open-app',
-    app: chat,
-    context: fixtureOperationContext(
-      chat.id,
-      'qortium',
-      fixtureIds.qortiumChatTab,
-    ),
-    tabId: fixtureIds.qortiumChatTab,
+    context: fixtureTabContext(chat, fixtureIds.chatTab),
+    tabId: fixtureIds.chatTab,
   })
   state = reduceProductState(state, {
     type: 'open-app',
     app: qortalApp,
-    context: fixtureOperationContext(
-      qortalApp.id,
-      'qortal',
-      fixtureIds.qortalCompatTab,
-    ),
+    context: fixtureTabContext(qortalApp, fixtureIds.qortalCompatTab),
     tabId: fixtureIds.qortalCompatTab,
   })
   return reduceProductState(state, {
@@ -320,7 +338,7 @@ export const qdnPermissionPromptFixture = prepareMockQdnPermission(
   fixtureOperationContext(
     fixtureIds.chatApp,
     'qortium',
-    fixtureIds.qortiumChatTab,
+    fixtureIds.chatTab,
   ),
 )
 

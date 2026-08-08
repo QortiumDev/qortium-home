@@ -42,8 +42,9 @@ or dependencies. Packaging explicitly disables publication.
   Qortium. The fixture makes no connection in any mode.
 - Qortal and Qortium names, addresses, nodes, and app contexts remaining clearly
   labelled while representing one person.
-- Opening the same Chat fixture on both networks and returning to Dashboard
-  without losing tabs.
+- Opening one Qortium-hosted Chat app with both Qortium and Qortal target
+  capabilities, then returning to Dashboard without losing the tab. Its source
+  address is `qdn://`; target networks do not create duplicate app identities.
 - Closing tabs and using Dashboard, Apps, Activity, and Settings navigation.
 - `qdnRequest` publish consent allowing only one request.
 - `qortalRequest` account consent offering once, tab-session, and durable app

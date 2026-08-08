@@ -43,7 +43,7 @@ const DISCOVERY_CACHED_PEER_SOURCE_LIMIT = 8;
 const DISCOVERY_MAX_CANDIDATE_URLS = 96;
 const MANAGED_CORE_SETTINGS_FILE = 'settings-preview-local.json';
 
-type NodeSettingsMode = 'custom' | 'local' | 'network';
+export type NodeSettingsMode = 'custom' | 'disabled' | 'local' | 'network';
 
 type NodeSettings = {
   apiKey: string;
@@ -113,6 +113,12 @@ export type NodeConnection = {
   mode: NodeSettingsMode;
   nodeApiUrl: string;
 };
+
+function nodeDisabledError() {
+  return Object.assign(new Error('Qortium access is disabled.'), {
+    code: 'NODE_DISABLED',
+  });
+}
 
 function getNetworkRestrictionMessage() {
   return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
@@ -202,6 +208,14 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
     };
   }
 
+  if (rawMode === 'disabled') {
+    return {
+      apiKey: '',
+      customUrl,
+      mode: 'disabled',
+    };
+  }
+
   if (rawMode === 'local' || rawMode === 'previewnet') {
     return {
       apiKey: rawMode === 'local' ? apiKey : '',
@@ -273,7 +287,7 @@ function getNodeApiKeyOverride() {
 }
 
 function getConfiguredNodeApiKey(settings: NodeSettings) {
-  if (settings.mode === 'network') {
+  if (settings.mode === 'network' || settings.mode === 'disabled') {
     return '';
   }
 
@@ -390,13 +404,18 @@ function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings 
     throw new Error('Node settings are required.');
   }
 
-  if (value.mode !== 'local' && value.mode !== 'network' && value.mode !== 'custom') {
-    throw new Error('Choose the local node, Previewnet network, or a custom node.');
+  if (
+    value.mode !== 'disabled' &&
+    value.mode !== 'local' &&
+    value.mode !== 'network' &&
+    value.mode !== 'custom'
+  ) {
+    throw new Error('Choose Disabled, Local, Public, or Custom.');
   }
 
   const rawCustomUrl = getString(value.customUrl);
   const customUrl = rawCustomUrl ? normalizeNodeApiUrl(rawCustomUrl) : '';
-  const apiKey = value.mode === 'network' ? '' : getString(value.apiKey);
+  const apiKey = value.mode === 'network' || value.mode === 'disabled' ? '' : getString(value.apiKey);
 
   if (value.mode === 'custom' && !customUrl) {
     throw new Error('Custom node URL is required.');
@@ -410,6 +429,9 @@ function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings 
 }
 
 function getFallbackNodeApiUrl(settings: NodeSettings) {
+  if (settings.mode === 'disabled') {
+    return '';
+  }
   if (settings.mode === 'custom' && settings.customUrl) {
     return settings.customUrl;
   }
@@ -863,6 +885,9 @@ async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCa
 }
 
 async function resolveNodeApiUrl(settings: NodeSettings, forceDiscoveryRefresh = false) {
+  if (settings.mode === 'disabled') {
+    throw nodeDisabledError();
+  }
   if (settings.mode === 'custom' && settings.customUrl) {
     return settings.customUrl;
   }
@@ -876,6 +901,16 @@ async function resolveNodeApiUrl(settings: NodeSettings, forceDiscoveryRefresh =
 
 async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
   settings = await resolveLocalApiKey(settings);
+
+  if (settings.mode === 'disabled') {
+    return {
+      ...settings,
+      localUrl: getLocalNodeApiUrl(),
+      networkModeAvailable: true,
+      networkSeedUrls: PREVIEWNET_SEED_NODE_API_URLS,
+      nodeApiUrl: '',
+    };
+  }
 
   let nodeApiUrl = getFallbackNodeApiUrl(settings);
 
@@ -1198,6 +1233,14 @@ async function getTransportStatus(): Promise<CoreTransportStatusSnapshot | null>
 }
 
 async function testNodeSettings(settings: NodeSettings) {
+  if (settings.mode === 'disabled') {
+    return {
+      disabled: true,
+      ok: false,
+      nodeApiUrl: '',
+      message: 'Qortium access is disabled.',
+    };
+  }
   const resolvedSettings = await resolveLocalApiKey(settings);
   const apiKey = getConfiguredNodeApiKey(resolvedSettings) || null;
   let nodeApiUrl = getFallbackNodeApiUrl(resolvedSettings);
@@ -1385,6 +1428,28 @@ export async function getNodeConnection(forceDiscoveryRefresh = false): Promise<
 
 export async function getNodeApiUrl(forceDiscoveryRefresh = false) {
   return (await getNodeConnection(forceDiscoveryRefresh)).nodeApiUrl;
+}
+
+export async function getNodeSettingsForHomeV2() {
+  return getNodeSettingsSnapshot();
+}
+
+export async function getNodeStatusForHomeV2() {
+  return testNodeSettings(readNodeSettings());
+}
+
+export async function saveNodeModeForHomeV2(
+  mode: 'custom' | 'disabled' | 'local' | 'public',
+) {
+  const current = readNodeSettings();
+  const settings = normalizeNodeSettingsRequest({
+    apiKey: current.apiKey,
+    customUrl: current.customUrl,
+    mode: mode === 'public' ? 'network' : mode,
+  });
+  writeNodeSettings(settings);
+  nodeSettingsChangeListeners.forEach((listener) => listener());
+  return getNodeSettingsSnapshot(settings);
 }
 
 export function onNodeSettingsChanged(listener: () => void) {

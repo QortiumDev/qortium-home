@@ -1,10 +1,10 @@
 import type {
   AppDescriptor,
   AppId,
-  OperationContext,
+  AppTabContext,
   TabId,
 } from './contracts'
-import { assertAppMayTargetNetwork } from './policy'
+import { buildAppResourceLocation } from './resource-location'
 
 export type ShellDestination =
   | 'activity'
@@ -17,7 +17,7 @@ export interface AppTab {
   readonly id: TabId
   readonly appId: AppId
   readonly title: string
-  readonly context: OperationContext
+  readonly context: AppTabContext
 }
 
 export interface ProductState {
@@ -31,7 +31,7 @@ export type ProductAction =
   | {
       readonly type: 'open-app'
       readonly app: AppDescriptor
-      readonly context: OperationContext
+      readonly context: AppTabContext
       readonly tabId: TabId
     }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
@@ -78,15 +78,15 @@ export function createProductState(): ProductState {
 }
 
 function contextsIdentifySameTab(
-  left: OperationContext,
-  right: OperationContext,
+  left: AppTabContext,
+  right: AppTabContext,
 ): boolean {
   return (
     left.appId === right.appId &&
     left.identityId === right.identityId &&
     left.walletRef === right.walletRef &&
-    left.targetNetwork === right.targetNetwork &&
-    left.nodeProfileRef === right.nodeProfileRef
+    left.sourceNetwork === right.sourceNetwork &&
+    left.resourceLocation === right.resourceLocation
   )
 }
 
@@ -103,7 +103,19 @@ function openApp(
       'The app or tab does not match the immutable operation context.',
     )
   }
-  assertAppMayTargetNetwork(action.app, action.context)
+  const expectedLocation = buildAppResourceLocation(
+    action.app.sourceNetwork,
+    action.app.resourceIdentity,
+  )
+  if (
+    action.context.sourceNetwork !== action.app.sourceNetwork ||
+    action.context.resourceLocation !== expectedLocation
+  ) {
+    throw new ProductModelError(
+      'APP_CONTEXT_MISMATCH',
+      'The app resource location does not match its immutable source chain.',
+    )
+  }
 
   const existing = state.tabs.find((tab) =>
     contextsIdentifySameTab(tab.context, action.context),

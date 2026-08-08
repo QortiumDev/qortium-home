@@ -9,6 +9,7 @@ export type IdentityId = Brand<string, 'IdentityId'>
 export type WalletRef = Brand<string, 'WalletRef'>
 export type AppId = Brand<string, 'AppId'>
 export type TabId = Brand<string, 'TabId'>
+export type AppResourceLocation = Brand<string, 'AppResourceLocation'>
 export type NodeProfileRef = Brand<string, 'NodeProfileRef'>
 export type NetworkAddress<Network extends NetworkId = NetworkId> = Brand<
   string,
@@ -61,9 +62,22 @@ export interface NodeSummary {
   readonly state: NodeState
   readonly statusText: string
   readonly isTrusted: boolean
+  readonly customConfigured: boolean
+  readonly nodeApiUrl: string | null
+  readonly height: number | null
+  readonly peerCount: number | null
+  readonly syncPercent: number | null
+  readonly syncPhase: string | null
+  readonly lastCheckedAt: number | null
+  readonly error: string | null
+  readonly capabilities: {
+    readonly admin: boolean
+    readonly read: boolean
+    readonly write: boolean
+  }
 }
 
-export interface QdnAppIdentity {
+export interface AppResourceIdentity {
   readonly service: 'APP'
   readonly name: string
   readonly identifier: string | null
@@ -75,7 +89,7 @@ export interface AppDescriptor {
   readonly description: string
   readonly category: 'communication' | 'finance' | 'community' | 'utility'
   readonly sourceNetwork: NetworkId
-  readonly qdnIdentity: QdnAppIdentity
+  readonly resourceIdentity: AppResourceIdentity
   readonly targetNetworks: readonly NetworkId[]
   readonly placement: 'pinned' | 'recommended'
 }
@@ -111,6 +125,15 @@ export interface OperationContext {
   readonly nodeProfileRef: NodeProfileRef
   readonly appId: AppId
   readonly tabId: TabId
+}
+
+export interface AppTabContext {
+  readonly identityId: IdentityId
+  readonly walletRef: WalletRef | null
+  readonly appId: AppId
+  readonly tabId: TabId
+  readonly sourceNetwork: NetworkId
+  readonly resourceLocation: AppResourceLocation
 }
 
 export interface NetworkRequest {

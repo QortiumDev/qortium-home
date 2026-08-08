@@ -16,10 +16,11 @@ export function AppTabStage({
       <div className="home-v2-app-stage__icon" aria-hidden="true">
         {tab.title.slice(0, 1)}
       </div>
-      <NetworkBadge network={tab.context.targetNetwork} />
+      <NetworkBadge network={tab.context.sourceNetwork} />
       <h2>{tab.title}</h2>
       <p>App content is unavailable in this offline preview.</p>
       <code>{tab.context.appId}</code>
+      <code>{tab.context.resourceLocation}</code>
     </section>
   )
 }

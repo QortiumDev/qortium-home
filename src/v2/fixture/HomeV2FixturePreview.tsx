@@ -40,6 +40,7 @@ import {
 import {
   fixtureIds,
   fixtureOperationContext,
+  fixtureTabContext,
   homeV2Fixture,
   qdnPermissionPromptFixture,
   qortalPermissionPromptFixture,
@@ -74,6 +75,14 @@ function nodeForMode(
       state: 'offline',
       statusText: 'Disabled',
       label: 'No connection',
+      isTrusted: false,
+      nodeApiUrl: null,
+      height: null,
+      peerCount: null,
+      syncPercent: null,
+      syncPhase: null,
+      error: null,
+      capabilities: { admin: false, read: false, write: false },
     }
   }
   if (mode === 'public') {
@@ -83,6 +92,12 @@ function nodeForMode(
       state: 'online',
       statusText: 'Ready',
       label: 'Public node',
+      isTrusted: false,
+      nodeApiUrl: `https://public.${node.network}.fixture.invalid`,
+      syncPercent: 100,
+      syncPhase: 'SYNCED',
+      error: null,
+      capabilities: { admin: false, read: true, write: false },
     }
   }
   if (mode === 'custom') {
@@ -92,15 +107,15 @@ function nodeForMode(
       state: 'online',
       statusText: 'Ready',
       label: 'Custom node',
+      isTrusted: false,
+      nodeApiUrl: `https://custom.${node.network}.fixture.invalid`,
+      syncPercent: 100,
+      syncPhase: 'SYNCED',
+      error: null,
+      capabilities: { admin: false, read: true, write: false },
     }
   }
-  return {
-    ...node,
-    mode,
-    state: node.network === 'qortal' ? 'syncing' : 'online',
-    statusText: node.network === 'qortal' ? 'Syncing 96%' : 'Ready',
-    label: `Local ${node.network === 'qortal' ? 'Qortal Core' : 'Qortium Core'}`,
-  }
+  return homeV2Fixture.nodes[node.network]
 }
 
 function nextRequest(
@@ -166,16 +181,16 @@ export function HomeV2FixturePreview() {
     [platform, snapshot],
   )
 
-  const openApp = (app: AppDescriptor, targetNetwork: NetworkId) => {
+  const openApp = (app: AppDescriptor) => {
     sequence.current += 1
     const tabId = `fixture:preview:${sequence.current}` as TabId
     dispatchProduct({
       type: 'open-app',
       app,
-      context: fixtureOperationContext(app.id, targetNetwork, tabId),
+      context: fixtureTabContext(app, tabId),
       tabId,
     })
-    setStatus(`${app.title} opened in a synthetic ${targetNetwork} tab.`)
+    setStatus(`${app.title} opened from its ${app.sourceNetwork} resource.`)
   }
 
   const closeTab = (tabId: TabId) => {

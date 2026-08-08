@@ -2,8 +2,9 @@
 
 Last updated: 2026-08-08
 
-Status: accepted product direction with the fixture-only Phase 1 foundation
-implemented. No live v2 host adapter or migration has started.
+Status: accepted product direction with Phase 1 complete and the first desktop
+Phase 2 live-node slice implemented. Account, QDN app, and Android live adapters
+have not started.
 
 This is the canonical product and architecture plan for Qortium Home. When an
 older issue, note, or implementation assumption conflicts with this document,
@@ -35,6 +36,7 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 | Startup | No login wall. Restore the last selected account; Dashboard also works with no account or a locked account. |
 | Unlock persistence | Optional secure-device unlock only; `Lock on exit` defaults on, manual lock persists, and plaintext password storage is forbidden. |
 | Connections | Qortal and Qortium independently use Disabled, Local, Public, or Custom modes. Public access is not called Previewnet. |
+| Content addressing | `qdn://` addresses Qortium QDN resources and `qortal://` addresses Qortal QDN resources. An app's source network is distinct from the network targeted by an operation. |
 | Visual language | Soft linen/warm-gray light mode and graphite dark mode with a subtle chocolate undertone. Clay is the neutral default accent, not the dominant surface color. |
 | Product marks | Use the established Home mark for shell/application identity and the established Qortal/Qortium marks beside network text. Network marks retain fixed blue/green color and never substitute for app favicons or health state. |
 | Appearance settings | Retain theme, accent, text size, page zoom, and language. Migrate legacy UI styles to one standard professional presentation. |
@@ -552,8 +554,9 @@ QDN apps as peer tabs, exercises no-account/locked/unlocked startup states,
 independent four-mode Qortal/Qortium connection controls, and warm neutral light
 and dark themes at desktop and phone widths. The Appearance fixture preserves
 theme, accent, six text sizes, page zoom, and supported-language contracts while
-mapping legacy UI styles to one standard v2 presentation. No live host adapter
-is authorized yet.
+mapping legacy UI styles to one standard v2 presentation. Phase 1 ended without
+authorizing a live host adapter; the separately reviewed Phase 2 slice below is
+the first exception.
 
 ### Phase 2: retained host adapters and read-only slice
 
@@ -564,6 +567,16 @@ is authorized yet.
   avatars.
 - Connect read-only bridge families and capability reporting.
 - Preserve app isolation and immutable operation context.
+
+Status on 2026-08-08: the first desktop slice is implemented as a separate live
+preview artifact and profile. Its renderer can obtain only a normalized node
+snapshot and change Qortal or Qortium connection mode through a scoped preload.
+Both networks support exact Disabled, Local, Public, and preconfigured Custom
+modes without cross-mode fallback; public candidates must pass synchronization
+and read-capability checks. The Dashboard displays live node status while
+accounts, QDN resource loading, signing, writes, Core control, Reticulum, and
+the production Home profile remain inaccessible. The Android adapter and the
+Qortal browser fallback still require an equivalent exact-mode implementation.
 
 ### Phase 3: app-first default experiences
 
@@ -689,7 +702,7 @@ fixture shell and contracts as a separate checkpoint.
 
 Status on 2026-08-08: this tranche and the remaining Phase 1 tab, mock bridge,
 permission, Electron-host-fake, Android-host-fake, and isolated preview-package
-work are implemented on the dedicated `codex/home-v2` branch. The next code
-tranche is Phase 2's retained-host-adapter and read-only slice. It requires a
-separate review before any current profile, node, wallet, bridge, or QDN app is
-connected.
+work are implemented on the dedicated `codex/home-v2` branch. The separately
+reviewed first Phase 2 desktop node adapter is now implemented. The next slice
+is Android node parity, followed by read-only account and cross-network identity
+resolution; wallet secrets, signing, and QDN app execution remain later gates.
