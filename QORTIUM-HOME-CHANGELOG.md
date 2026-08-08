@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: model Home v2 tabs and bridge permissions
+
+Extends the disconnected Home 2.0 fixture with an immutable tab and navigation
+model, including separately labelled Qortal and Qortium instances of the same
+app. Adds independent mock `qdnRequest` and `qortalRequest` adapters rather than
+aliasing their overlapping actions. Their permission prompts bind the exact
+protocol, action, app, identity, wallet, network, node, and tab; QDN publishing
+is one-request-only, while Qortal account sharing clearly identifies the
+address/public-key disclosure and grants no hidden extra permissions. Session
+and durable grants have explicit invalidation behavior, and responsive fixture
+dialogs exercise both bridge protocols without connecting either bridge, a
+wallet, node, QDN resource, or native service.
+
 ### 2026-08-08 - feat: scaffold fixture-only Home v2 foundation
 
 Creates the first additive Home 2.0 implementation without changing the

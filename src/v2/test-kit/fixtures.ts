@@ -10,6 +10,22 @@ import type {
   TabId,
   WalletRef,
 } from '../contracts'
+import {
+  createPermissionState,
+  queuePermissionPrompt,
+  type PermissionRequestId,
+} from '../bridge-permissions'
+import {
+  prepareMockQdnPermission,
+  prepareMockQortalPermission,
+  type MockQdnPublishRequest,
+  type MockQortalAccountRequest,
+} from '../mock-bridge-adapters'
+import {
+  createProductState,
+  reduceProductState,
+  type ProductState,
+} from '../product-model'
 
 function fixtureBrand<Type extends string>(value: string): Type {
   return value as Type
@@ -41,7 +57,17 @@ export const fixtureIds = {
   walletsApp: fixtureBrand<AppId>('fixture:app:wallets'),
   trustApp: fixtureBrand<AppId>('fixture:app:trust'),
   qortiumOnlyApp: fixtureBrand<AppId>('fixture:app:qortium-only'),
+  qortalCompatApp: fixtureBrand<AppId>('fixture:app:qortal-compat'),
   tab: fixtureBrand<TabId>('fixture:tab:primary'),
+  qortalChatTab: fixtureBrand<TabId>('fixture:tab:chat:qortal'),
+  qortiumChatTab: fixtureBrand<TabId>('fixture:tab:chat:qortium'),
+  qortalCompatTab: fixtureBrand<TabId>('fixture:tab:qortal-compat'),
+  qdnPermissionRequest: fixtureBrand<PermissionRequestId>(
+    'fixture:permission:qdn-publish',
+  ),
+  qortalPermissionRequest: fixtureBrand<PermissionRequestId>(
+    'fixture:permission:qortal-account',
+  ),
 } as const
 
 const apps: readonly AppDescriptor[] = [
@@ -99,6 +125,20 @@ const apps: readonly AppDescriptor[] = [
       identifier: null,
     },
     targetNetworks: ['qortium'],
+    placement: 'recommended',
+  },
+  {
+    id: fixtureIds.qortalCompatApp,
+    title: 'Qortal App',
+    description: 'A fixture for exact qortalRequest compatibility.',
+    category: 'utility',
+    sourceNetwork: 'qortal',
+    qdnIdentity: {
+      service: 'APP',
+      name: 'fixture-qortal-app',
+      identifier: null,
+    },
+    targetNetworks: ['qortal'],
     placement: 'recommended',
   },
 ]
@@ -182,6 +222,7 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
 export function fixtureOperationContext(
   appId: AppId,
   targetNetwork: NetworkId,
+  tabId: TabId = fixtureIds.tab,
 ): OperationContext {
   return {
     identityId: fixtureIds.identity,
@@ -192,7 +233,7 @@ export function fixtureOperationContext(
         ? fixtureIds.qortalNode
         : fixtureIds.qortiumNode,
     appId,
-    tabId: fixtureIds.tab,
+    tabId,
   }
 }
 
@@ -203,3 +244,91 @@ export function fixtureApp(appId: AppId): AppDescriptor {
   }
   return app
 }
+
+function createFixtureProductState(): ProductState {
+  let state = createProductState()
+  const chat = fixtureApp(fixtureIds.chatApp)
+  const qortalApp = fixtureApp(fixtureIds.qortalCompatApp)
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: chat,
+    context: fixtureOperationContext(
+      chat.id,
+      'qortal',
+      fixtureIds.qortalChatTab,
+    ),
+    tabId: fixtureIds.qortalChatTab,
+  })
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: chat,
+    context: fixtureOperationContext(
+      chat.id,
+      'qortium',
+      fixtureIds.qortiumChatTab,
+    ),
+    tabId: fixtureIds.qortiumChatTab,
+  })
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: qortalApp,
+    context: fixtureOperationContext(
+      qortalApp.id,
+      'qortal',
+      fixtureIds.qortalCompatTab,
+    ),
+    tabId: fixtureIds.qortalCompatTab,
+  })
+  return reduceProductState(state, {
+    type: 'navigate',
+    destination: 'dashboard',
+  })
+}
+
+export const homeV2ProductFixture = createFixtureProductState()
+
+export const mockQdnPublishRequest: MockQdnPublishRequest = deepFreeze({
+  protocol: 'qdnRequest',
+  action: 'PUBLISH_QDN_RESOURCE',
+  service: 'APP',
+  name: 'fixture-chat',
+  identifier: 'fixture-preview',
+  data64: 'RklYVFVSRQ==',
+})
+
+export const mockQortalAccountRequest: MockQortalAccountRequest = deepFreeze({
+  protocol: 'qortalRequest',
+  action: 'GET_USER_ACCOUNT',
+})
+
+export const qdnPermissionPromptFixture = prepareMockQdnPermission(
+  fixtureIds.qdnPermissionRequest,
+  mockQdnPublishRequest,
+  fixtureApp(fixtureIds.chatApp),
+  fixtureOperationContext(
+    fixtureIds.chatApp,
+    'qortium',
+    fixtureIds.qortiumChatTab,
+  ),
+)
+
+export const qortalPermissionPromptFixture = prepareMockQortalPermission(
+  fixtureIds.qortalPermissionRequest,
+  mockQortalAccountRequest,
+  fixtureApp(fixtureIds.qortalCompatApp),
+  fixtureOperationContext(
+    fixtureIds.qortalCompatApp,
+    'qortal',
+    fixtureIds.qortalCompatTab,
+  ),
+)
+
+export const qdnPermissionStateFixture = queuePermissionPrompt(
+  createPermissionState(),
+  qdnPermissionPromptFixture,
+)
+
+export const qortalPermissionStateFixture = queuePermissionPrompt(
+  createPermissionState(),
+  qortalPermissionPromptFixture,
+)

@@ -495,6 +495,15 @@ This is an engineering provenance policy, not legal advice.
 No real wallet, address, API key, Core, network, or QDN resource is reachable in
 this phase.
 
+Status on 2026-08-08: the runtime-free product model now preserves app tabs
+across Dashboard navigation and keeps separate, visibly labelled Qortal and
+Qortium contexts. Fixture-only `qdnRequest/PUBLISH_QDN_RESOURCE` and
+`qortalRequest/GET_USER_ACCOUNT` adapters feed an account-, app-, network-,
+node-, and tab-scoped permission broker and responsive dialogs. The Qortal
+account fixture deliberately grants no implicit extra capabilities. Phase 1
+remains open until the same fixture scenarios run through explicit Electron and
+Android host fakes; no live host adapter is authorized yet.
+
 ### Phase 2: retained host adapters and read-only slice
 
 - Wrap existing Electron and Android host APIs behind the new contracts.

@@ -1,25 +1,33 @@
 import type { AppDescriptor, HomeV2Snapshot, NetworkId } from '../contracts'
+import type {
+  PermissionDecision,
+  PermissionRequestId,
+  PermissionState,
+} from '../bridge-permissions'
+import type { ProductState, ShellDestination } from '../product-model'
+import { AppTabStage } from './AppTabStage'
+import { NetworkBadge, networkLabels } from './NetworkBadge'
+import { PermissionDialog } from './PermissionDialog'
+import { TabStrip } from './TabStrip'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
 
 export interface HomeV2PrototypeProps {
   readonly snapshot: HomeV2Snapshot
+  readonly productState: ProductState
+  readonly permissionState: PermissionState
   readonly layout: HomeV2Layout
   readonly onOpenApp?: (app: AppDescriptor, targetNetwork: NetworkId) => void
-}
-
-const networkLabels: Readonly<Record<NetworkId, string>> = {
-  qortal: 'Qortal',
-  qortium: 'Qortium',
-}
-
-function NetworkBadge({ network }: { readonly network: NetworkId }) {
-  return (
-    <span className={`home-v2-network home-v2-network--${network}`}>
-      {networkLabels[network]}
-    </span>
-  )
+  readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
+  readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
+  readonly onNavigate?: (
+    destination: Exclude<ShellDestination, 'tab'>,
+  ) => void
+  readonly onResolvePermission?: (
+    requestId: PermissionRequestId,
+    decision: PermissionDecision,
+  ) => void
 }
 
 function BrandMark() {
@@ -116,12 +124,21 @@ function AppCard({
 
 export function HomeV2Prototype({
   snapshot,
+  productState,
+  permissionState,
   layout,
   onOpenApp,
+  onActivateTab,
+  onCloseTab,
+  onNavigate,
+  onResolvePermission,
 }: HomeV2PrototypeProps) {
   const pinnedApps = snapshot.apps.filter((app) => app.placement === 'pinned')
   const recommendedApps = snapshot.apps.filter(
     (app) => app.placement === 'recommended',
+  )
+  const activeTab = productState.tabs.find(
+    (tab) => tab.id === productState.activeTabId,
   )
 
   return (
@@ -135,19 +152,39 @@ export function HomeV2Prototype({
           </span>
         </div>
         <nav>
-          <button type="button" className="is-active" data-nav-label="Dashboard">
+          <button
+            type="button"
+            className={productState.destination === 'dashboard' ? 'is-active' : ''}
+            data-nav-label="Dashboard"
+            onClick={() => onNavigate?.('dashboard')}
+          >
             <span aria-hidden="true">◫</span>
             Dashboard
           </button>
-          <button type="button" data-nav-label="Apps">
+          <button
+            type="button"
+            className={productState.destination === 'apps' ? 'is-active' : ''}
+            data-nav-label="Apps"
+            onClick={() => onNavigate?.('apps')}
+          >
             <span aria-hidden="true">◇</span>
             Apps
           </button>
-          <button type="button" data-nav-label="Activity">
+          <button
+            type="button"
+            className={productState.destination === 'activity' ? 'is-active' : ''}
+            data-nav-label="Activity"
+            onClick={() => onNavigate?.('activity')}
+          >
             <span aria-hidden="true">↺</span>
             Activity
           </button>
-          <button type="button" data-nav-label="Settings">
+          <button
+            type="button"
+            className={productState.destination === 'settings' ? 'is-active' : ''}
+            data-nav-label="Settings"
+            onClick={() => onNavigate?.('settings')}
+          >
             <span aria-hidden="true">⚙</span>
             Settings
           </button>
@@ -161,8 +198,14 @@ export function HomeV2Prototype({
       <main className="home-v2-main">
         <header className="home-v2-topbar">
           <div>
-            <span className="home-v2-eyebrow">Dashboard</span>
-            <h1>Good to see you, {snapshot.identity.displayLabel}.</h1>
+            <span className="home-v2-eyebrow">
+              {activeTab ? networkLabels[activeTab.context.targetNetwork] : 'Dashboard'}
+            </span>
+            <h1>
+              {activeTab
+                ? activeTab.title
+                : `Good to see you, ${snapshot.identity.displayLabel}.`}
+            </h1>
           </div>
           <button type="button" className="home-v2-identity-button">
             <span aria-hidden="true">{snapshot.identity.displayLabel.slice(0, 1)}</span>
@@ -170,6 +213,18 @@ export function HomeV2Prototype({
             <small>Both networks</small>
           </button>
         </header>
+
+        <TabStrip
+          productState={productState}
+          onActivateTab={onActivateTab}
+          onCloseTab={onCloseTab}
+          onNavigate={onNavigate}
+        />
+
+        {activeTab ? (
+          <AppTabStage productState={productState} />
+        ) : (
+          <>
 
         <div className="home-v2-dashboard-grid">
           <section className="home-v2-panel home-v2-identity-panel">
@@ -261,22 +316,49 @@ export function HomeV2Prototype({
             </div>
           </section>
         </div>
+          </>
+        )}
       </main>
 
+      <PermissionDialog
+        permissionState={permissionState}
+        onResolvePermission={onResolvePermission}
+      />
+
       <nav className="home-v2-mobile-nav" aria-label="Primary navigation">
-        <button type="button" className="is-active" data-nav-label="Dashboard">
+        <button
+          type="button"
+          className={productState.destination === 'dashboard' ? 'is-active' : ''}
+          data-nav-label="Dashboard"
+          onClick={() => onNavigate?.('dashboard')}
+        >
           <span aria-hidden="true">◫</span>
           Dashboard
         </button>
-        <button type="button" data-nav-label="Apps">
+        <button
+          type="button"
+          className={productState.destination === 'apps' ? 'is-active' : ''}
+          data-nav-label="Apps"
+          onClick={() => onNavigate?.('apps')}
+        >
           <span aria-hidden="true">◇</span>
           Apps
         </button>
-        <button type="button" data-nav-label="Activity">
+        <button
+          type="button"
+          className={productState.destination === 'activity' ? 'is-active' : ''}
+          data-nav-label="Activity"
+          onClick={() => onNavigate?.('activity')}
+        >
           <span aria-hidden="true">↺</span>
           Activity
         </button>
-        <button type="button" data-nav-label="Settings">
+        <button
+          type="button"
+          className={productState.destination === 'settings' ? 'is-active' : ''}
+          data-nav-label="Settings"
+          onClick={() => onNavigate?.('settings')}
+        >
           <span aria-hidden="true">⚙</span>
           Settings
         </button>
