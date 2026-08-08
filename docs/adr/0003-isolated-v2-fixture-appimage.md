@@ -40,6 +40,14 @@ away from the fixture entry. HTTP, HTTPS, WebSocket, and secure-WebSocket
 requests are also cancelled. The renderer Content Security Policy sets
 `connect-src`, `media-src`, and `worker-src` to `none`.
 
+Because this fixture deliberately loads its trusted bundled JavaScript and CSS
+from the packaged `file://` page, Electron's file-protocol asset privilege must
+remain enabled. Disabling it leaves the HTML reachable but blocks sibling
+assets and produces a blank renderer. The fixture contains no renderer network
+primitive, dynamic external content, or production module, and the independent
+offline/session/CSP boundaries remain mandatory. A visible static boot message
+stays in the HTML root until React successfully replaces it.
+
 The preview toolbar can switch between desktop/phone layouts and
 Electron/Android fail-closed host fakes. Its bridge buttons only exercise local
 permission-state transitions. They cannot call either public bridge.

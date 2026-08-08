@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { extractFile, listPackage } from '@electron/asar';
+import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { access, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,11 +23,28 @@ const asarPath = path.join(
   'resources',
   'app.asar',
 );
+const executablePath = path.join(
+  repoRoot,
+  'dist-release-v2-fixture',
+  'linux-unpacked',
+  'qortium-home-2-preview',
+);
 
 await access(artifactPath);
 const artifactStat = await stat(artifactPath);
 if ((artifactStat.mode & 0o111) === 0) {
   throw new Error('Home v2 fixture AppImage is not executable.');
+}
+
+const fuseWire = await getCurrentFuseWire(executablePath);
+if (fuseWire[FuseV1Options.RunAsNode] !== 48) {
+  throw new Error('Fixture binary unexpectedly permits ELECTRON_RUN_AS_NODE.');
+}
+if (fuseWire[FuseV1Options.OnlyLoadAppFromAsar] !== 49) {
+  throw new Error('Fixture binary is not restricted to app.asar.');
+}
+if (fuseWire[FuseV1Options.GrantFileProtocolExtraPrivileges] !== 49) {
+  throw new Error('Fixture binary cannot load its packaged file assets.');
 }
 
 const entries = listPackage(asarPath);
@@ -74,6 +92,9 @@ if (packagedManifest.main !== 'dist-electron/v2-fixture-main.js') {
 const fixtureHtml = extractFile(asarPath, 'dist/v2-fixture.html').toString('utf8');
 if (!fixtureHtml.includes("connect-src 'none'")) {
   throw new Error('Fixture renderer does not deny outbound connections in CSP.');
+}
+if (!fixtureHtml.includes('renderer loading failure')) {
+  throw new Error('Fixture renderer boot fallback is missing.');
 }
 const rendererScriptEntry = entries.find((entry) =>
   /^\/dist\/assets\/v2-fixture-[A-Za-z0-9_-]+\.js$/.test(entry),

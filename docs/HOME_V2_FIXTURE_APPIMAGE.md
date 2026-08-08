@@ -46,3 +46,8 @@ cannot load a wallet, read a profile, call a node, access a file, sign, publish,
 start Core or Reticulum, reach QDN, or make external network requests. The
 Electron and Android selectors choose throwing host fakes; they do not emulate
 or start those platforms.
+
+The preview uses Electron's packaged `file://` asset support for its own bundled
+JavaScript and CSS. External connections remain disabled independently through
+the renderer CSP, offline in-memory session, request cancellation, and absence
+of network primitives in the packaged bundle.

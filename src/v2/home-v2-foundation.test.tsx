@@ -529,7 +529,7 @@ function testFixtureElectronEntryIsIsolated(): void {
   ])
   assert.equal(config.electronFuses.runAsNode, false)
   assert.equal(config.electronFuses.onlyLoadAppFromAsar, true)
-  assert.equal(config.electronFuses.grantFileProtocolExtraPrivileges, false)
+  assert.equal(config.electronFuses.grantFileProtocolExtraPrivileges, true)
   assert.match(
     packageJson.scripts['dist:linux:x64:v2-fixture'],
     /--projectDir \.v2-fixture-package --config electron-builder\.json/,
@@ -602,6 +602,15 @@ function testRendererSourceHasNoRuntimeEscapeHatches(): void {
   }
 }
 
+function testFixtureHtmlHasVisibleBootFallback(): void {
+  const html = readFileSync('v2-fixture.html', 'utf8')
+  assert.match(html, /role="alert"/)
+  assert.match(html, /could not start/)
+  assert.match(html, /renderer loading failure/)
+  assert.match(html, /src="\/src\/v2\/fixture-main\.tsx"/)
+  assert.doesNotMatch(html, /src="\.\/assets\//)
+}
+
 await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
@@ -612,6 +621,7 @@ testDesktopAndPhoneContracts()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()
 testFixtureElectronEntryIsIsolated()
+testFixtureHtmlHasVisibleBootFallback()
 testRendererSourceHasNoRuntimeEscapeHatches()
 
 console.log('home v2 foundation contract tests passed')

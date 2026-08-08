@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - fix: load packaged Home v2 fixture assets
+
+Fixes the Home 2.0 preview AppImage opening to a plain white window. The first
+package disabled Electron's file-protocol asset privileges even though its
+trusted, static renderer loads bundled JavaScript and CSS through `file://`.
+The preview now enables that required packaged-asset behavior while retaining
+its offline session, external-request denial, strict Content Security Policy,
+minimal dependency-free archive, and fail-closed host fakes. The initial HTML
+also contains a visible boot-error message so another renderer-load failure is
+diagnosable instead of appearing as an empty application.
+
 ### 2026-08-08 - feat: package isolated Home v2 fixture preview
 
 Makes the Home 2.0 foundation available as a stateful Linux AppImage checkpoint

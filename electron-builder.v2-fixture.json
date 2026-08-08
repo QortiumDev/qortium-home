@@ -19,7 +19,7 @@
     "enableNodeOptionsEnvironmentVariable": false,
     "enableNodeCliInspectArguments": false,
     "onlyLoadAppFromAsar": true,
-    "grantFileProtocolExtraPrivileges": false
+    "grantFileProtocolExtraPrivileges": true
   },
   "linux": {
     "target": [{ "target": "AppImage" }],
