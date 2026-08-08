@@ -1,6 +1,7 @@
 import type { TabId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
+import { HomeMark } from './ProductMarks'
 
 export interface TabStripProps {
   readonly productState: ProductState
@@ -45,7 +46,7 @@ export function TabStrip({
           className={productState.destination !== 'tab' ? 'is-active' : ''}
           onClick={() => onNavigate?.(internalDestination)}
         >
-          <span className="home-v2-tab__favicon" aria-hidden="true">Q</span>
+          <HomeMark className="home-v2-tab__favicon" />
           {internalLabel}
         </button>
       </div>

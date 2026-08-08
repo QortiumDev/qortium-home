@@ -110,7 +110,7 @@ function NodeCard({
           <h3>{networkLabels[network]} connection</h3>
         </div>
         <span className="home-v2-node-state" data-node-state={node.state}>
-          <span aria-hidden="true" />
+          <span className="home-v2-status-dot" aria-hidden="true" />
           {node.statusText}
         </span>
       </header>

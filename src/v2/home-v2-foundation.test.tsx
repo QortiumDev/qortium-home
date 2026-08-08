@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
@@ -445,6 +446,10 @@ function testDesktopAndPhoneContracts(): void {
   assert.match(phone, /data-layout="phone"/)
   for (const html of [desktop, phone]) {
     assert.match(html, /class="home-v2-browser-chrome"/)
+    assert.match(html, /home-v2-home-mark/)
+    assert.match(html, /data-network-mark="qortal"/)
+    assert.match(html, /data-network-mark="qortium"/)
+    assert.match(html, /home-v2-status-dot/)
     assert.match(html, /aria-label="Browser tabs"/)
     assert.match(html, /value="home:\/\/dashboard"/)
     assert.ok(
@@ -473,6 +478,43 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, /fixture:tab:chat:qortium/)
     assert.doesNotMatch(html, /role="dialog"/)
   }
+}
+
+function sha256(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function testProductMarkAssetsAndColorOwnership(): void {
+  assert.equal(
+    sha256('src/assets/icons/qortium-home-protoicon-thick-interior.png'),
+    'e2ec41f775c54e11b9692e869eb8d4bb13f73655533daf5829440011c86e91ce',
+  )
+  assert.equal(
+    sha256('src/v2/assets/marks/qortium-protoicon-black-transparent.webp'),
+    'd2e6355b6418e557c608ac9ee8616c3d5aaf5f8b46cee0d09fcfcbbeb31c47ef',
+  )
+  assert.equal(
+    sha256('src/v2/assets/marks/qortal-from-qortium-spokes-removed.svg'),
+    '8d588988c17cf62e2cce6dee54428b90ffcca9ac2e5e7071b06e03f0f337fe21',
+  )
+
+  const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
+  const qortalRule =
+    /\.home-v2-network-mark\[data-network-mark='qortal'\]\s*\{([^}]*)\}/.exec(
+      css,
+    )
+  const qortiumRule =
+    /\.home-v2-network-mark\[data-network-mark='qortium'\]\s*\{([^}]*)\}/.exec(
+      css,
+    )
+  assert.ok(qortalRule)
+  assert.ok(qortiumRule)
+  assert.match(qortalRule[1], /var\(--v2-qortal\)/)
+  assert.match(qortiumRule[1], /var\(--v2-qortium\)/)
+  assert.doesNotMatch(qortalRule[1], /accent/)
+  assert.doesNotMatch(qortiumRule[1], /accent/)
+  assert.match(css, /\.home-v2-status-dot/)
+  assert.match(css, /data-theme='dark'[\s\S]*?\.home-v2-home-mark img/)
 }
 
 function testStartupStatesAndAppearance(): void {
@@ -840,6 +882,7 @@ testProductModelKeepsNetworkQualifiedTabs()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()
+testProductMarkAssetsAndColorOwnership()
 testStartupStatesAndAppearance()
 testAppearanceSettingsAndLegacyMigration()
 testPermissionDialogsOnDesktopAndPhone()

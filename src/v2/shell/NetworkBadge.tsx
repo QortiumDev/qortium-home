@@ -1,4 +1,5 @@
 import type { NetworkId } from '../contracts'
+import { NetworkMark } from './ProductMarks'
 
 export const networkLabels: Readonly<Record<NetworkId, string>> = {
   qortal: 'Qortal',
@@ -12,7 +13,8 @@ export function NetworkBadge({
 }) {
   return (
     <span className={`home-v2-network home-v2-network--${network}`}>
-      {networkLabels[network]}
+      <NetworkMark network={network} />
+      <span>{networkLabels[network]}</span>
     </span>
   )
 }

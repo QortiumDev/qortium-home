@@ -173,17 +173,30 @@
   font-size: 12px;
 }
 
-.home-v2-window-brand > span,
-.home-v2-tab__favicon {
+.home-v2-home-mark {
   display: inline-grid;
   width: 22px;
   height: 22px;
+  flex: 0 0 22px;
   place-items: center;
-  border: 1px solid var(--v2-line-strong);
-  border-radius: 7px;
-  color: var(--v2-accent-ink);
-  background: var(--v2-accent);
-  font-weight: 800;
+}
+
+.home-v2-home-mark img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  transform: scale(1.22);
+}
+
+.home-v2-shell[data-theme='dark'] .home-v2-home-mark img {
+  filter: invert(1);
+}
+
+.home-v2-window-brand__mark {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
 }
 
 .home-v2-tabs {
@@ -237,9 +250,6 @@
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
-  border: 0;
-  border-radius: 5px;
-  font-size: 10px;
 }
 
 .home-v2-tab__close,
@@ -343,8 +353,7 @@
   font-size: 12px;
 }
 
-.home-v2-node-pill > span,
-.home-v2-node-state > span {
+.home-v2-status-dot {
   width: 8px;
   height: 8px;
   flex: 0 0 8px;
@@ -353,20 +362,31 @@
   background: currentColor;
 }
 
-.home-v2-node-pill[data-node-tone='offline'],
-.home-v2-node-pill[data-node-tone='disabled'],
+.home-v2-node-pill[data-node-tone='offline'] .home-v2-status-dot,
+.home-v2-node-pill[data-node-tone='disabled'] .home-v2-status-dot,
 .home-v2-node-state[data-node-state='offline'] {
   color: var(--v2-muted);
 }
 
-.home-v2-node-pill[data-node-tone='syncing'],
+.home-v2-node-pill[data-node-tone='syncing'] .home-v2-status-dot,
 .home-v2-node-state[data-node-state='syncing'] {
   color: var(--v2-status-syncing);
 }
 
-.home-v2-node-pill[data-node-tone='online'],
+.home-v2-node-pill[data-node-tone='online'] .home-v2-status-dot,
 .home-v2-node-state[data-node-state='online'] {
   color: var(--v2-status-online);
+}
+
+.home-v2-node-pill > .home-v2-network-mark {
+  width: 17px;
+  height: 17px;
+}
+
+.home-v2-node-pill > .home-v2-status-dot {
+  width: 7px;
+  height: 7px;
+  flex-basis: 7px;
 }
 
 .home-v2-account-button > span {
@@ -559,13 +579,32 @@
   display: inline-flex;
   width: max-content;
   align-items: center;
+  gap: 5px;
   border: 1px solid currentColor;
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 2px 7px 2px 5px;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.035em;
   line-height: 1.3;
+}
+
+.home-v2-network-mark {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  background: currentColor;
+  mask: var(--v2-network-mark-image) center / contain no-repeat;
+  -webkit-mask: var(--v2-network-mark-image) center / contain no-repeat;
+}
+
+.home-v2-network-mark[data-network-mark='qortal'] {
+  color: var(--v2-qortal);
+}
+
+.home-v2-network-mark[data-network-mark='qortium'] {
+  color: var(--v2-qortium);
 }
 
 .home-v2-network--qortal {

@@ -36,6 +36,7 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 | Unlock persistence | Optional secure-device unlock only; `Lock on exit` defaults on, manual lock persists, and plaintext password storage is forbidden. |
 | Connections | Qortal and Qortium independently use Disabled, Local, Public, or Custom modes. Public access is not called Previewnet. |
 | Visual language | Soft linen/warm-gray light mode and graphite dark mode with a subtle chocolate undertone. Clay is the neutral default accent, not the dominant surface color. |
+| Product marks | Use the established Home mark for shell/application identity and the established Qortal/Qortium marks beside network text. Network marks retain fixed blue/green color and never substitute for app favicons or health state. |
 | Appearance settings | Retain theme, accent, text size, page zoom, and language. Migrate legacy UI styles to one standard professional presentation. |
 | Feature ownership | Chat, Wallets, Groups, Explorer, publishing, markets, and similar full experiences are QDN apps. |
 | Account | Present one account with separately labelled Qortal and Qortium network presences; do not model the chains as separate user identities. |
@@ -79,6 +80,8 @@ The shell should be calm, app-focused, and immediately familiar as a browser:
   QDN apps open as top-level peer tabs.
 - One compact context surface showing the active account, address/destination,
   and both Qortal/Qortium node capabilities.
+- Established Home, Qortal, and Qortium marks with normalized optical sizing;
+  network marks remain labelled and health uses a separate status indicator.
 - Browser-like tabs with independent history, reliable back/forward behavior,
   desktop context menus and shortcuts, and clear mobile equivalents.
 - User-organized apps, folders/sections, search, bookmarks, downloads, and

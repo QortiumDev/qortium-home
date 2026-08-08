@@ -1,6 +1,7 @@
 import type { HomeV2Snapshot, NetworkId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
 import { networkLabels } from './NetworkBadge'
+import { HomeMark, NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
 
 export interface BrowserChromeProps {
@@ -50,7 +51,7 @@ export function BrowserChrome({
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">
         <div className="home-v2-window-brand" aria-label="Qortium Home 2.0">
-          <span aria-hidden="true">Q</span>
+          <HomeMark className="home-v2-window-brand__mark" />
           <strong>Qortium Home</strong>
         </div>
         <TabStrip
@@ -100,7 +101,8 @@ export function BrowserChrome({
               title={`${networkLabels[network]}: ${snapshot.nodes[network].statusText}`}
               onClick={() => onNavigate?.('dashboard')}
             >
-              <span aria-hidden="true" />
+              <NetworkMark network={network} />
+              <span className="home-v2-status-dot" aria-hidden="true" />
               {networkLabels[network]}
             </button>
           ))}

@@ -48,7 +48,7 @@ if (fuseWire[FuseV1Options.GrantFileProtocolExtraPrivileges] !== 49) {
 }
 
 const entries = listPackage(asarPath);
-const allowedEntry = /^\/(?:LICENSE|package\.json|dist|dist\/v2-fixture\.html|dist\/assets|dist\/assets\/v2-fixture-[A-Za-z0-9_-]+\.(?:css|js)|dist-electron|dist-electron\/v2-fixture-main\.js)$/;
+const allowedEntry = /^\/(?:LICENSE|package\.json|dist|dist\/v2-fixture\.html|dist\/assets|dist\/assets\/(?:v2-fixture-[A-Za-z0-9_-]+\.(?:css|js)|qortium-home-protoicon-thick-interior-[A-Za-z0-9_-]+\.png|qortium-protoicon-color-mask-[A-Za-z0-9_-]+\.webp)|dist-electron|dist-electron\/v2-fixture-main\.js)$/;
 const unexpectedEntry = entries.find((entry) => !allowedEntry.test(entry));
 if (unexpectedEntry) {
   throw new Error(`Fixture archive contains unexpected content: ${unexpectedEntry}`);
@@ -73,6 +73,21 @@ const requiredEntries = [
 for (const requiredEntry of requiredEntries) {
   if (!entries.includes(requiredEntry)) {
     throw new Error(`Fixture archive is missing ${requiredEntry}.`);
+  }
+}
+
+for (const [label, pattern] of [
+  [
+    'Home product mark',
+    /^\/dist\/assets\/qortium-home-protoicon-thick-interior-[A-Za-z0-9_-]+\.png$/,
+  ],
+  [
+    'Qortium network mark mask',
+    /^\/dist\/assets\/qortium-protoicon-color-mask-[A-Za-z0-9_-]+\.webp$/,
+  ],
+]) {
+  if (!entries.some((entry) => pattern.test(entry))) {
+    throw new Error(`Fixture archive is missing ${label}.`);
   }
 }
 

@@ -82,6 +82,13 @@ always identified with blue and Qortium with green; neither network identity
 color follows the user accent. Health and synchronization use separate semantic
 status colors. Network color is always accompanied by network text.
 
+The established Home mark identifies the trusted shell and its Dashboard tab.
+The established Qortal and Qortium marks appear beside network labels in
+connection, routing, and target contexts. QDN apps retain their own favicons;
+product and network marks are not generic app placeholders. Network marks and
+health dots remain separate visual elements so offline/syncing state never
+changes chain identity.
+
 Home retains system/light/dark theme, accent, six text sizes, 50–200% page zoom,
 and system/supported-language controls. Existing valid v1 values migrate into
 the v2 settings model. New profiles use clay as the neutral default accent.
@@ -125,4 +132,7 @@ not a deferred or reduced product.
 - Network identity colors remain fixed blue/green across every accent, and
   no-account, locked, unlocked, or node-mode changes preserve card geometry at
   each responsive layout.
+- Browser chrome and Dashboard use the Home mark instead of a letter
+  placeholder; every network mark retains visible Qortal/Qortium text and a
+  separate health indicator where status is shown.
 - The fixture remains disconnected and fail-closed.
