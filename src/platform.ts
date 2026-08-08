@@ -5934,6 +5934,13 @@ async function transferAssetForApp(request: QdnAppRequest, context: QdnAppReques
   );
   const amount = getRequiredAmountValue(request, 'amount', 'Amount');
   const assetId = getRequiredIntegerRequestValue(request, 0, 'Asset id', 'assetId');
+
+  const assetInfo = (await fetchNodeApiPayload(`/assets/info?assetId=${assetId}`, request)) as { isDivisible?: boolean } | null;
+
+  if (assetInfo && assetInfo.isDivisible === false && !/^\d+$/.test(String(amount))) {
+    throw new Error('This asset is not divisible - amount must be a whole number.');
+  }
+
   const writeContext = await getQdnWriteContext(context);
 
   await requestQdnWriteApproval(context as QdnAppRequestContext, writeContext.profile, {
