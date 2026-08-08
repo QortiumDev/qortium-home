@@ -16,6 +16,11 @@ import {
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
 import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
 import {
+  isUsableQortiumPublicNode as isUsableDiscoveryCandidate,
+  QORTIUM_PUBLIC_NODE_API_URLS,
+  rankQortiumPublicNodes as rankDiscoveryCandidates,
+} from './qortium-public-node-policy.js';
+import {
   confirmNodeCertificate,
   forgetNodeCertificate,
   getNodeCertificateStatus,
@@ -29,18 +34,11 @@ const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
 const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
 const NODE_SETTINGS_FILE = 'node-settings.json';
 const nodeSettingsChangeListeners = new Set<() => void>();
-const PREVIEWNET_API_PORT = '24891';
-const PREVIEWNET_SEED_NODE_API_URLS = [
-  'http://146.103.42.59:24891',
-  'http://185.207.104.78:24891',
-];
 const PUBLIC_READ_PROBE_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false';
 const DISCOVERY_TIMEOUT_MS = 5_000;
 const DISCOVERY_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const DISCOVERY_CACHE_MAX_ENTRIES = 24;
-const DISCOVERY_CACHED_PEER_SOURCE_LIMIT = 8;
-const DISCOVERY_MAX_CANDIDATE_URLS = 96;
 const MANAGED_CORE_SETTINGS_FILE = 'settings-preview-local.json';
 
 export type NodeSettingsMode = 'custom' | 'disabled' | 'local' | 'network';
@@ -62,6 +60,7 @@ type DiscoveryCandidate = {
   isSeed: boolean;
   isSynced: boolean;
   isSynchronizing: boolean;
+  latencyMs: number;
   nodeApiUrl: string;
   peerCount: number;
   status: unknown;
@@ -108,6 +107,8 @@ type CoreTransportStatusSnapshot = {
   source: 'live-node' | 'managed-runtime';
 };
 
+let selectedPublicNodeApiUrl: string | null = null;
+
 export type NodeConnection = {
   apiKey?: string;
   mode: NodeSettingsMode;
@@ -121,7 +122,7 @@ function nodeDisabledError() {
 }
 
 function getNetworkRestrictionMessage() {
-  return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
+  return 'The selected Qortium Public node is read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
 }
 
 function networkRestrictionError() {
@@ -246,6 +247,7 @@ function writeNodeSettings(settings: NodeSettings) {
 
   mkdirSync(path.dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  selectedPublicNodeApiUrl = null;
 }
 
 function expandHomePath(value: string) {
@@ -437,40 +439,26 @@ function getFallbackNodeApiUrl(settings: NodeSettings) {
   }
 
   if (settings.mode === 'network') {
-    return PREVIEWNET_SEED_NODE_API_URLS[0];
+    return QORTIUM_PUBLIC_NODE_API_URLS[0];
   }
 
   return getLocalNodeApiUrl();
 }
 
 function normalizeCandidateNodeApiUrl(value: string) {
-  const normalizedUrl = new URL(normalizeNodeApiUrl(value));
-
-  normalizedUrl.port = PREVIEWNET_API_PORT;
-
-  return normalizedUrl.origin;
+  return new URL(normalizeNodeApiUrl(value)).origin;
 }
 
-function isPreviewnetSeedNodeApiUrl(nodeApiUrl: string) {
+function isQortiumPublicNodeApiUrl(nodeApiUrl: string) {
   try {
     const normalizedNodeApiUrl = normalizeCandidateNodeApiUrl(nodeApiUrl);
 
-    return PREVIEWNET_SEED_NODE_API_URLS.map(normalizeCandidateNodeApiUrl).includes(
+    return QORTIUM_PUBLIC_NODE_API_URLS.map(normalizeCandidateNodeApiUrl).includes(
       normalizedNodeApiUrl,
     );
   } catch {
     return false;
   }
-}
-
-function addDiscoveryCandidateUrl(candidateUrls: Set<string>, nodeApiUrl: string) {
-  if (candidateUrls.size >= DISCOVERY_MAX_CANDIDATE_URLS) {
-    return false;
-  }
-
-  candidateUrls.add(normalizeCandidateNodeApiUrl(nodeApiUrl));
-
-  return true;
 }
 
 function createDiscoveryCacheEntry(candidate: DiscoveryCandidate, existing?: DiscoveryCacheEntry): DiscoveryCacheEntry {
@@ -538,7 +526,7 @@ function parseDiscoveryCache(value: unknown): DiscoveryCache {
             failureCount: 0,
             firstGoodAt: Date.now(),
             height: 0,
-            isSeed: isPreviewnetSeedNodeApiUrl(cache.nodeApiUrl),
+            isSeed: isQortiumPublicNodeApiUrl(cache.nodeApiUrl),
             lastFailedAt: null,
             lastGoodAt: Date.now(),
             nodeApiUrl: normalizeCandidateNodeApiUrl(cache.nodeApiUrl),
@@ -560,7 +548,11 @@ function readDiscoveryCache() {
     const cutoff = Date.now() - DISCOVERY_CACHE_MAX_AGE_MS;
 
     return parseDiscoveryCache(parsedCache).entries
-      .filter((entry) => entry.lastGoodAt >= cutoff)
+      .filter(
+        (entry) =>
+          entry.lastGoodAt >= cutoff &&
+          isQortiumPublicNodeApiUrl(entry.nodeApiUrl),
+      )
       .sort((first, second) => second.lastGoodAt - first.lastGoodAt);
   } catch {
     return [];
@@ -598,43 +590,6 @@ function writeDiscoveryCache(probeResults: DiscoveryProbeResult[]) {
   const cachePath = getNodeDiscoveryCachePath();
   mkdirSync(path.dirname(cachePath), { recursive: true });
   writeFileSync(cachePath, `${JSON.stringify({ entries }, null, 2)}\n`, 'utf8');
-}
-
-function peerAddressToNodeApiUrl(value: unknown) {
-  const address = getString(value);
-
-  if (!address) {
-    return null;
-  }
-
-  try {
-    const candidate = /^https?:\/\//i.test(address) ? address : `http://${address}`;
-    const url = new URL(candidate);
-
-    if (!url.hostname) {
-      return null;
-    }
-
-    url.protocol = 'http:';
-    url.username = '';
-    url.password = '';
-    url.port = PREVIEWNET_API_PORT;
-    url.pathname = '';
-    url.search = '';
-    url.hash = '';
-
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
-function getKnownPeerAddress(value: unknown) {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  return getString((value as { address?: unknown }).address);
 }
 
 function getStatusHeight(status: unknown) {
@@ -716,10 +671,6 @@ function isSyncedStatus(status: unknown) {
   );
 }
 
-function isUsableDiscoveryCandidate(candidate: DiscoveryCandidate) {
-  return candidate.supportsPublicReads && candidate.isSynced;
-}
-
 async function fetchWithTimeout(url: string) {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), DISCOVERY_TIMEOUT_MS);
@@ -730,29 +681,6 @@ async function fetchWithTimeout(url: string) {
     });
   } finally {
     clearTimeout(timeout);
-  }
-}
-
-async function fetchKnownPeerNodeApiUrls(seedNodeApiUrl: string) {
-  try {
-    const response = await fetchWithTimeout(`${seedNodeApiUrl}/peers/known`);
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const data: unknown = await response.json();
-
-    if (!Array.isArray(data)) {
-      return [];
-    }
-
-    return data
-      .map(getKnownPeerAddress)
-      .map(peerAddressToNodeApiUrl)
-      .filter((nodeApiUrl): nodeApiUrl is string => !!nodeApiUrl);
-  } catch {
-    return [];
   }
 }
 
@@ -767,6 +695,8 @@ async function probePublicReadAccess(nodeApiUrl: string) {
 }
 
 async function probeNodeCandidate(nodeApiUrl: string): Promise<DiscoveryCandidate | null> {
+  const startedAt = Date.now();
+
   try {
     const response = await fetchWithTimeout(`${nodeApiUrl}/admin/status`);
 
@@ -780,9 +710,10 @@ async function probeNodeCandidate(nodeApiUrl: string): Promise<DiscoveryCandidat
       nodeApiUrl,
       status,
       height: getStatusHeight(status),
-      isSeed: isPreviewnetSeedNodeApiUrl(nodeApiUrl),
+      isSeed: isQortiumPublicNodeApiUrl(nodeApiUrl),
       isSynced: isSyncedStatus(status),
       isSynchronizing: getStatusIsSynchronizing(status),
+      latencyMs: Date.now() - startedAt,
       peerCount: getStatusPeerCount(status),
       syncBlocksRemaining: getStatusSyncBlocksRemaining(status),
       syncPercent: getStatusSyncPercent(status),
@@ -794,77 +725,26 @@ async function probeNodeCandidate(nodeApiUrl: string): Promise<DiscoveryCandidat
   }
 }
 
-function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]) {
-  return [...candidates].sort((first, second) => {
-    if (first.supportsPublicReads !== second.supportsPublicReads) {
-      return first.supportsPublicReads ? -1 : 1;
+async function discoverQortiumPublicNode(forceRefresh = false): Promise<DiscoveryCandidate> {
+  if (!forceRefresh && selectedPublicNodeApiUrl) {
+    const selectedCandidate = await probeNodeCandidate(selectedPublicNodeApiUrl);
+    const selectedProbeResult = {
+      nodeApiUrl: selectedPublicNodeApiUrl,
+      candidate: selectedCandidate,
+    };
+
+    writeDiscoveryCache([selectedProbeResult]);
+
+    if (selectedCandidate && isUsableDiscoveryCandidate(selectedCandidate)) {
+      return selectedCandidate;
     }
 
-    if (first.isSynced !== second.isSynced) {
-      return first.isSynced ? -1 : 1;
-    }
-
-    if (first.height !== second.height) {
-      return second.height - first.height;
-    }
-
-    if (first.isSeed !== second.isSeed) {
-      return first.isSeed ? 1 : -1;
-    }
-
-    return second.peerCount - first.peerCount;
-  });
-}
-
-async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCandidate> {
-  const cachedEntries = readDiscoveryCache();
-  const cachedNodeApiUrls = cachedEntries.map((entry) => entry.nodeApiUrl);
-
-  if (!forceRefresh && cachedNodeApiUrls.length > 0) {
-    const cachedProbeResults = await Promise.all(
-      cachedNodeApiUrls.map(async (nodeApiUrl) => ({
-        nodeApiUrl,
-        candidate: await probeNodeCandidate(nodeApiUrl),
-      })),
-    );
-    const selectedCachedCandidate = rankDiscoveryCandidates(
-      cachedProbeResults
-        .map((result) => result.candidate)
-        .filter((candidate): candidate is DiscoveryCandidate => !!candidate && isUsableDiscoveryCandidate(candidate)),
-    )[0];
-
-    writeDiscoveryCache(cachedProbeResults);
-
-    if (selectedCachedCandidate) {
-      return selectedCachedCandidate;
-    }
+    selectedPublicNodeApiUrl = null;
   }
 
-  const candidateUrls = new Set(PREVIEWNET_SEED_NODE_API_URLS.map(normalizeCandidateNodeApiUrl));
-  for (const cachedNodeApiUrl of cachedNodeApiUrls) {
-    addDiscoveryCandidateUrl(candidateUrls, cachedNodeApiUrl);
-  }
-
-  const peerDiscoveryUrls = [
-    ...new Set([
-      ...PREVIEWNET_SEED_NODE_API_URLS.map(normalizeCandidateNodeApiUrl),
-      ...cachedNodeApiUrls.slice(0, DISCOVERY_CACHED_PEER_SOURCE_LIMIT),
-    ]),
-  ];
-  const knownPeerResults = await Promise.all(
-    peerDiscoveryUrls.map(fetchKnownPeerNodeApiUrls),
-  );
-
-  for (const peerNodeApiUrls of knownPeerResults) {
-    for (const peerNodeApiUrl of peerNodeApiUrls) {
-      if (!addDiscoveryCandidateUrl(candidateUrls, peerNodeApiUrl)) {
-        break;
-      }
-    }
-  }
-
+  const candidateUrls = QORTIUM_PUBLIC_NODE_API_URLS.map(normalizeCandidateNodeApiUrl);
   const probeResults = await Promise.all(
-    [...candidateUrls].map(async (nodeApiUrl) => ({
+    candidateUrls.map(async (nodeApiUrl) => ({
       nodeApiUrl,
       candidate: await probeNodeCandidate(nodeApiUrl),
     })),
@@ -876,9 +756,10 @@ async function discoverPreviewnetNode(forceRefresh = false): Promise<DiscoveryCa
 
   if (!selectedCandidate) {
     writeDiscoveryCache(probeResults);
-    throw new Error('No reachable synced Previewnet node was found.');
+    throw new Error('No reachable synchronized Qortium Public node was found.');
   }
 
+  selectedPublicNodeApiUrl = selectedCandidate.nodeApiUrl;
   writeDiscoveryCache(probeResults);
 
   return selectedCandidate;
@@ -893,7 +774,7 @@ async function resolveNodeApiUrl(settings: NodeSettings, forceDiscoveryRefresh =
   }
 
   if (settings.mode === 'network') {
-    return (await discoverPreviewnetNode(forceDiscoveryRefresh)).nodeApiUrl;
+    return (await discoverQortiumPublicNode(forceDiscoveryRefresh)).nodeApiUrl;
   }
 
   return getLocalNodeApiUrl();
@@ -907,7 +788,7 @@ async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
       ...settings,
       localUrl: getLocalNodeApiUrl(),
       networkModeAvailable: true,
-      networkSeedUrls: PREVIEWNET_SEED_NODE_API_URLS,
+      networkSeedUrls: QORTIUM_PUBLIC_NODE_API_URLS,
       nodeApiUrl: '',
     };
   }
@@ -926,7 +807,7 @@ async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
     ...settings,
     localUrl: getLocalNodeApiUrl(),
     networkModeAvailable: true,
-    networkSeedUrls: PREVIEWNET_SEED_NODE_API_URLS,
+    networkSeedUrls: QORTIUM_PUBLIC_NODE_API_URLS,
     nodeApiUrl,
   };
 }

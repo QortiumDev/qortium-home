@@ -76,6 +76,7 @@
     "test:qdn-file-not-found": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-file-not-found.test.js",
     "test:node-error-body": "node scripts/ensure-electron-build.mjs && node dist-electron/node-error-body.test.js",
     "test:node-api-url": "node scripts/ensure-electron-build.mjs && node dist-electron/node-api-url.test.js",
+    "test:qortium-public-node-settings": "node scripts/ensure-electron-build.mjs && node dist-electron/qortium-public-node-policy.test.js",
     "test:qortal-node-settings": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-node-settings.test.js",
     "test:node-ca-bootstrap": "node scripts/ensure-electron-build.mjs && node dist-electron/node-ca-bootstrap.test.js",
     "test:node-cert-trust": "node scripts/ensure-electron-build.mjs && node dist-electron/node-cert-trust.test.js",

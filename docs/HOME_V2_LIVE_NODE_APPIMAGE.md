@@ -30,6 +30,11 @@ do not modify the current Qortium Home profile.
   isolated settings; otherwise the option is visibly unavailable.
 - Public-node selection only after a positive-height, fully synchronized status
   and a successful public-read check.
+- Qortium Public selection is limited to `https://node1.qortium.app` and
+  `https://node2.qortium.app`. The current healthy selection stays active until
+  it fails; initial or recovery selection prefers lower observed HTTPS request
+  latency.
+- The Dashboard shows the selected public-node hostname.
 - Refresh on launch, every 15 seconds while visible, and on manual request.
 - One source-qualified app model: `qdn://` for Qortium resources and
   `qortal://` for Qortal resources, independent of target-network capabilities.

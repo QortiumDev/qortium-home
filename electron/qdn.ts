@@ -2367,7 +2367,7 @@ function getNodeUnavailableMessage(nodeApiUrl: string) {
 }
 
 function getNetworkRestrictionMessage() {
-  return 'The selected Previewnet network node is public read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
+  return 'The selected Qortium Public node is read-only and does not expose that endpoint. Use a local Core or trusted custom node for write, admin, or private API workflows.';
 }
 
 function networkRestrictionError() {

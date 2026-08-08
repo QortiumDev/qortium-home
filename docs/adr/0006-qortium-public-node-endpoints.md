@@ -2,7 +2,7 @@
 
 Date: 2026-08-08
 
-Status: accepted for Home v2
+Status: accepted and implemented for the Home v2 node policy
 
 ## Context
 
@@ -44,5 +44,12 @@ Each VPS has an independent DNS and certificate lifecycle. Home, rather than
 DNS round-robin behavior, owns health-aware selection and failover. Users see a
 single Qortium Public mode while still being able to identify the active node.
 
-The DNS records, VPS TLS configuration, trusted-proxy boundary, and Home
-endpoint changes remain separate implementation and deployment steps.
+The DNS records, VPS TLS termination, proxy path restrictions, and Home
+endpoint policy were deployed on 2026-08-08. Home's desktop and mobile/browser
+paths share the same two-candidate policy. Direct public Core port `24891`
+remains available for older clients during migration.
+
+Core still sees HTTPS-proxied clients as the proxy address, so its per-client
+rate-limit buckets are shared on this route. Add explicitly bounded
+trusted-proxy client-address support before treating Core's current per-client
+rate limits as distinct through Caddy.

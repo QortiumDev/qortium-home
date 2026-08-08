@@ -930,6 +930,8 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.doesNotMatch(bridge, /apiKey|privateKey|password|seedPhrase|sourceFilename/)
   assert.match(bridge, /authorizedSenderIds/)
   assert.match(bridge, /assertAuthorized\(event\.sender\)/)
+  assert.match(bridge, /function endpointHost/)
+  assert.match(bridge, /mode === 'public' && nodeApiUrl/)
   assert.match(bootstrap, /qortium-home-v2-live/)
   assert.match(main, /home-v2-live-preload\.cjs/)
   assert.match(main, /authorizeHomeV2NodeBridge/)

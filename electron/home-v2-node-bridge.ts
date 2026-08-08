@@ -78,6 +78,14 @@ function modeLabel(mode: NodeMode) {
   return mode[0].toUpperCase() + mode.slice(1)
 }
 
+function endpointHost(nodeApiUrl: string) {
+  try {
+    return new URL(nodeApiUrl).host
+  } catch {
+    return nodeApiUrl
+  }
+}
+
 function normalizeNodeSummary(
   network: NetworkId,
   rawSettings: unknown,
@@ -124,7 +132,10 @@ function normalizeNodeSummary(
   return {
     ref: `home-v2:node:${network}`,
     network,
-    label: nodeApiUrl ?? `${modeLabel(mode)} node`,
+    label:
+      mode === 'public' && nodeApiUrl
+        ? endpointHost(nodeApiUrl)
+        : nodeApiUrl ?? `${modeLabel(mode)} node`,
     mode,
     state,
     statusText,
