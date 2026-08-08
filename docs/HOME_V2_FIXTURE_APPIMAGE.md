@@ -27,7 +27,13 @@ or dependencies. Packaging explicitly disables publication.
 - Whether the global tab strip, toolbar, address field, and Dashboard start page
   feel like one familiar web browser rather than a dashboard containing apps.
 - Dashboard clarity at normal desktop width and the phone-layout toggle.
-- Warm tan/parchment light mode and chocolate-gray dark mode.
+- Soft linen/warm-gray light mode and graphite dark mode with a restrained warm
+  undertone.
+- Open Settings from the browser toolbar or account control. Verify System,
+  Light, and Dark themes; all accent swatches; six text sizes; 50–200% page
+  zoom; and the supported language list.
+- Confirm that changing accents does not recolor the main surfaces and that
+  changing text size or zoom has a distinct effect.
 - No-account, locked, and unlocked startup states. All retain both connection
   controls and public app browsing; there is no login wall.
 - The remembered-unlock and default-on lock-on-exit controls. They only change
@@ -50,7 +56,8 @@ address/search, connection-details, account-switch, and new-tab behavior is
 visual scaffolding where no explicit fixture transition is described.
 
 Apps, Activity, and Settings are navigation-state placeholders in this visual
-checkpoint. App content is also deliberately disconnected.
+checkpoint except for the functional Appearance settings fixture. App content
+is deliberately disconnected.
 
 ## Safety boundary
 

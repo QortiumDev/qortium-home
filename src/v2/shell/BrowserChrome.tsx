@@ -115,6 +115,15 @@ export function BrowserChrome({
           </button>
           <button
             type="button"
+            className="home-v2-toolbar-button"
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => onNavigate?.('settings')}
+          >
+            ⚙
+          </button>
+          <button
+            type="button"
             className="home-v2-account-button"
             data-account-state={snapshot.account.state}
             onClick={() => onNavigate?.('settings')}

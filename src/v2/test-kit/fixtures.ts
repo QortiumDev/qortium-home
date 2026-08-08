@@ -1,3 +1,4 @@
+import { defaultHomeV2Appearance } from '../appearance'
 import type {
   AppDescriptor,
   AppId,
@@ -74,7 +75,7 @@ const apps: readonly AppDescriptor[] = [
   {
     id: fixtureIds.chatApp,
     title: 'Chat',
-    description: 'Conversations across Qortal and Qortium.',
+    description: 'Chat across Qortal and Qortium.',
     category: 'communication',
     sourceNetwork: 'qortium',
     qdnIdentity: {
@@ -88,7 +89,7 @@ const apps: readonly AppDescriptor[] = [
   {
     id: fixtureIds.walletsApp,
     title: 'Wallets',
-    description: 'Network-labelled balances and activity.',
+    description: 'Balances and activity by network.',
     category: 'finance',
     sourceNetwork: 'qortium',
     qdnIdentity: {
@@ -152,6 +153,7 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
     manuallyLocked: false,
     secureStorageAvailable: true,
   },
+  appearance: defaultHomeV2Appearance,
   identity: {
     id: fixtureIds.identity,
     displayLabel: 'Alice',

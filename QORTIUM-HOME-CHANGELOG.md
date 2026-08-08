@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: refine Home v2 appearance settings
+
+Softens the offline Home 2.0 preview from strongly brown surfaces to linen and
+warm gray in light mode and graphite in dark mode, leaving clay as a restrained
+default accent. Dashboard and account copy is shorter, literal, and more
+professional. Settings now contains functional synthetic controls for system,
+light, and dark themes; ten accents; six text sizes; 50–200% page zoom; and the
+full current language list. A pure migration contract preserves valid Home 1.x
+display values while mapping the old classic, modern, and fun modes to one
+standard v2 presentation. No profile, preference store, QDN app, node, wallet,
+or live service is connected.
+
 ### 2026-08-08 - feat: reshape Home v2 as a warm browser shell
 
 Reworks the disconnected Home 2.0 preview around a familiar, global browser

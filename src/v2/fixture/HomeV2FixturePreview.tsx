@@ -1,4 +1,14 @@
 import { useMemo, useReducer, useRef, useState } from 'react'
+import {
+  clampHomeV2AppZoom,
+  resolveHomeV2SystemLanguage,
+  type HomeV2Accent,
+  type HomeV2AppearanceSettings,
+  type HomeV2Language,
+  type HomeV2ResolvedTheme,
+  type HomeV2TextSize,
+  type HomeV2ThemePreference,
+} from '../appearance'
 import type {
   AccountSessionState,
   AppDescriptor,
@@ -21,7 +31,6 @@ import { createProductState, reduceProductState } from '../product-model'
 import {
   HomeV2Prototype,
   type HomeV2Layout,
-  type HomeV2Theme,
 } from '../shell/HomeV2Prototype'
 import {
   createAndroidFixtureHost,
@@ -38,6 +47,21 @@ import {
 import './fixture-preview.css'
 
 type PreviewPlatform = Exclude<FixturePlatform, 'generic'>
+
+function systemTheme(): HomeV2ResolvedTheme {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'light'
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
+}
+
+function systemLanguage() {
+  return resolveHomeV2SystemLanguage(
+    typeof navigator === 'undefined' ? null : navigator.language,
+  )
+}
 
 function nodeForMode(
   node: NodeSummary,
@@ -97,7 +121,11 @@ export function HomeV2FixturePreview() {
   )
   const [permissionState, setPermissionState] = useState(createPermissionState)
   const [layout, setLayout] = useState<HomeV2Layout>('desktop')
-  const [theme, setTheme] = useState<HomeV2Theme>('light')
+  const [appearance, setAppearance] = useState<HomeV2AppearanceSettings>({
+    ...homeV2Fixture.appearance,
+    resolvedTheme: systemTheme(),
+    resolvedLanguage: systemLanguage(),
+  })
   const [accountState, setAccountState] =
     useState<AccountSessionState>('unlocked')
   const [rememberUnlock, setRememberUnlock] = useState(true)
@@ -113,6 +141,7 @@ export function HomeV2FixturePreview() {
   const snapshot = useMemo<HomeV2Snapshot>(
     () => ({
       ...homeV2Fixture,
+      appearance,
       account: {
         ...homeV2Fixture.account,
         state: accountState,
@@ -127,7 +156,7 @@ export function HomeV2FixturePreview() {
         qortium: nodeForMode(homeV2Fixture.nodes.qortium, nodeModes.qortium),
       },
     }),
-    [accountState, lockOnExit, nodeModes, rememberUnlock],
+    [accountState, appearance, lockOnExit, nodeModes, rememberUnlock],
   )
   const host = useMemo(
     () =>
@@ -209,12 +238,46 @@ export function HomeV2FixturePreview() {
     )
   }
 
+  const setTheme = (theme: HomeV2ThemePreference) => {
+    setAppearance((current) => ({
+      ...current,
+      theme,
+      resolvedTheme: theme === 'system' ? systemTheme() : theme,
+    }))
+    setStatus(`Theme set to ${theme}.`)
+  }
+
+  const setAccent = (accent: HomeV2Accent) => {
+    setAppearance((current) => ({ ...current, accent }))
+    setStatus(`Accent set to ${accent}.`)
+  }
+
+  const setTextSize = (textSize: HomeV2TextSize) => {
+    setAppearance((current) => ({ ...current, textSize }))
+    setStatus(`Text size set to ${textSize}.`)
+  }
+
+  const setAppZoom = (appZoom: number) => {
+    const nextZoom = clampHomeV2AppZoom(appZoom)
+    setAppearance((current) => ({ ...current, appZoom: nextZoom }))
+    setStatus(`Page zoom set to ${nextZoom}%.`)
+  }
+
+  const setLanguage = (language: HomeV2Language) => {
+    setAppearance((current) => ({
+      ...current,
+      language,
+      resolvedLanguage: language === 'system' ? systemLanguage() : language,
+    }))
+    setStatus(`Language set to ${language}. Fixture copy remains English.`)
+  }
+
   return (
     <div className={`home-v2-fixture-preview home-v2-fixture-preview--${layout}`}>
       <header className="home-v2-fixture-toolbar">
         <div>
-          <strong>Home 2.0 interactive fixture</strong>
-          <span>No network, wallet, node, signing, Core, or Reticulum access</span>
+          <strong>Home 2.0 offline preview</strong>
+          <span>No live services</span>
         </div>
         <div className="home-v2-fixture-toolbar__controls">
           <fieldset>
@@ -226,20 +289,6 @@ export function HomeV2FixturePreview() {
                 className={layout === candidate ? 'is-active' : ''}
                 aria-pressed={layout === candidate}
                 onClick={() => setLayout(candidate)}
-              >
-                {candidate}
-              </button>
-            ))}
-          </fieldset>
-          <fieldset>
-            <legend>Theme</legend>
-            {(['light', 'dark'] as const).map((candidate) => (
-              <button
-                key={candidate}
-                type="button"
-                className={theme === candidate ? 'is-active' : ''}
-                aria-pressed={theme === candidate}
-                onClick={() => setTheme(candidate)}
               >
                 {candidate}
               </button>
@@ -283,13 +332,13 @@ export function HomeV2FixturePreview() {
             type="button"
             onClick={() => queuePrompt(qdnPermissionPromptFixture)}
           >
-            Try qdnRequest
+            qdnRequest permission
           </button>
           <button
             type="button"
             onClick={() => queuePrompt(qortalPermissionPromptFixture)}
           >
-            Try qortalRequest
+            qortalRequest permission
           </button>
           <button type="button" onClick={resetSecurityState}>
             Lock fixture
@@ -307,7 +356,6 @@ export function HomeV2FixturePreview() {
           productState={productState}
           permissionState={permissionState}
           layout={layout}
-          theme={theme}
           onOpenApp={openApp}
           onActivateTab={(tabId) => {
             dispatchProduct({ type: 'activate-tab', tabId })
@@ -330,6 +378,11 @@ export function HomeV2FixturePreview() {
             setRememberUnlock((current) => !current)
           }
           onToggleLockOnExit={() => setLockOnExit((current) => !current)}
+          onSetTheme={setTheme}
+          onSetAccent={setAccent}
+          onSetTextSize={setTextSize}
+          onSetAppZoom={setAppZoom}
+          onSetLanguage={setLanguage}
         />
       </div>
     </div>

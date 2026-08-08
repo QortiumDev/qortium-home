@@ -1,3 +1,5 @@
+import type { HomeV2AppearanceSettings } from './appearance'
+
 export type Brand<Value, Name extends string> = Value & {
   readonly __brand: Name
 }
@@ -94,6 +96,7 @@ export interface ReticulumSummary {
 
 export interface HomeV2Snapshot {
   readonly account: AccountSessionSummary
+  readonly appearance: HomeV2AppearanceSettings
   readonly identity: IdentityRecord
   readonly nodes: Readonly<Record<NetworkId, NodeSummary>>
   readonly apps: readonly AppDescriptor[]

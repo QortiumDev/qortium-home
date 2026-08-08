@@ -35,7 +35,8 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 | Startup | No login wall. Restore the last selected account; Dashboard also works with no account or a locked account. |
 | Unlock persistence | Optional secure-device unlock only; `Lock on exit` defaults on, manual lock persists, and plaintext password storage is forbidden. |
 | Connections | Qortal and Qortium independently use Disabled, Local, Public, or Custom modes. Public access is not called Previewnet. |
-| Visual language | Warm neutral tan/parchment light mode and chocolate-gray dark mode, with restrained clay/copper accents rather than green- or blue-led themes. |
+| Visual language | Soft linen/warm-gray light mode and graphite dark mode with a subtle chocolate undertone. Clay is the neutral default accent, not the dominant surface color. |
+| Appearance settings | Retain theme, accent, text size, page zoom, and language. Migrate legacy UI styles to one standard professional presentation. |
 | Feature ownership | Chat, Wallets, Groups, Explorer, publishing, markets, and similar full experiences are QDN apps. |
 | Identity | Present one user-facing identity with separately labelled Qortal and Qortium network presences. |
 | Bridges | Preserve `qdnRequest` and `qortalRequest` as separate public protocols over shared typed services where semantics match exactly. |
@@ -83,6 +84,8 @@ The shell should be calm, app-focused, and immediately familiar as a browser:
 - Light/dark themes, scalable text, keyboard access, reduced-motion support,
   screen-reader semantics, localization, and RTL considered from the component
   foundation rather than added after feature work.
+- Concise, literal interface copy. Warmth comes from composition and materials,
+  not greetings, jokes, metaphors, or repeated guidance.
 
 ### Dashboard
 
@@ -531,8 +534,10 @@ process and isolated staging tree, with no production Home dependencies or live
 host reachability. Its global browser chrome starts with Dashboard only, opens
 QDN apps as peer tabs, exercises no-account/locked/unlocked startup states,
 independent four-mode Qortal/Qortium connection controls, and warm neutral light
-and dark themes at desktop and phone widths. No live host adapter is authorized
-yet.
+and dark themes at desktop and phone widths. The Appearance fixture preserves
+theme, accent, six text sizes, page zoom, and supported-language contracts while
+mapping legacy UI styles to one standard v2 presentation. No live host adapter
+is authorized yet.
 
 ### Phase 2: retained host adapters and read-only slice
 

@@ -75,10 +75,22 @@ only status signal.
 ### Visual system
 
 The foundation palette is warm and neutral rather than green- or blue-led.
-Light mode uses tan, parchment, and walnut surfaces; dark mode uses chocolate
-gray and warm charcoal surfaces. A restrained clay/copper accent supports
-actions. Qortal and Qortium may use muted plum and umber labels respectively,
-always accompanied by network text.
+Light mode uses linen, warm gray, and restrained tan surfaces; dark mode uses
+graphite and charcoal with a subtle chocolate undertone. Brown is not the main
+surface color. A restrained clay accent supports actions by default. Qortal and
+Qortium may use muted plum and umber labels respectively, always accompanied by
+network text.
+
+Home retains system/light/dark theme, accent, six text sizes, 50–200% page zoom,
+and system/supported-language controls. Existing valid v1 values migrate into
+the v2 settings model. New profiles use clay as the neutral default accent.
+Legacy `classic`, `modern`, and `fun` values all map to the single standard v2
+presentation; Home does not maintain three structural renderer styles.
+
+Product copy uses literal page, section, state, and action names. Greetings,
+metaphors, promotional language, and repeated explanations do not carry the
+visual warmth. Longer copy is reserved for security, errors, unusual states,
+and consequential actions.
 
 Desktop and Android share tokens, component states, semantics, and responsive
 acceptance. Mobile rearranges the same browser model for limited width; it is
@@ -101,6 +113,8 @@ not a deferred or reduced product.
 - The first rendered browser tab is Dashboard and no QDN app tab is pre-opened.
 - Desktop and phone layouts expose global browser chrome.
 - Light and dark warm-neutral themes are selectable.
+- Theme, accent, text size, page zoom, and language controls are available in
+  the Settings tab and update synthetic fixture state.
 - No-account, locked, and unlocked startup states are selectable.
 - Qortal and Qortium modes can each switch among Disabled, Local, Public, and
   Custom without making a live request.

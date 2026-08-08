@@ -18,7 +18,7 @@ export function AppTabStage({
       </div>
       <NetworkBadge network={tab.context.targetNetwork} />
       <h2>{tab.title}</h2>
-      <p>App content is intentionally disconnected in this fixture.</p>
+      <p>App content is unavailable in this offline preview.</p>
       <code>{tab.context.appId}</code>
     </section>
   )

@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
+  defaultHomeV2Appearance,
+  homeV2AccentOptions,
+  homeV2LanguageOptions,
+  migrateLegacyAppearance,
+  resolveHomeV2SystemLanguage,
+} from './appearance'
+import {
   createPermissionState,
   hasPermissionGrant,
   invalidatePermissionState,
@@ -59,6 +66,7 @@ async function testMockHostFailsClosed(): Promise<void> {
   const host = new MockHost(homeV2Fixture)
   assert.equal(await host.getSnapshot(), homeV2Fixture)
   assert.equal(Object.isFrozen(homeV2Fixture), true)
+  assert.equal(Object.isFrozen(homeV2Fixture.appearance), true)
   assert.equal(Object.isFrozen(homeV2Fixture.identity.presences), true)
   assert.equal(Object.isFrozen(homeV2Fixture.apps), true)
 
@@ -464,19 +472,18 @@ function testDesktopAndPhoneContracts(): void {
   }
 }
 
-function testStartupStatesAndWarmThemes(): void {
+function testStartupStatesAndAppearance(): void {
   const productState = createProductState()
   const render = (
     account: typeof homeV2Fixture.account,
-    theme: 'dark' | 'light',
+    appearance = homeV2Fixture.appearance,
   ) =>
     renderToStaticMarkup(
       <HomeV2Prototype
-        snapshot={{ ...homeV2Fixture, account }}
+        snapshot={{ ...homeV2Fixture, account, appearance }}
         productState={productState}
         permissionState={createPermissionState()}
         layout="desktop"
-        theme={theme}
       />,
     )
 
@@ -488,11 +495,11 @@ function testStartupStatesAndWarmThemes(): void {
       rememberUnlock: false,
       manuallyLocked: false,
     },
-    'light',
   )
   assert.match(noAccount, /data-account-state="none"/)
-  assert.match(noAccount, /Browse first\. Add an account when you need one\./)
+  assert.match(noAccount, />No account selected</)
   assert.match(noAccount, />Add or import account</)
+  assert.doesNotMatch(noAccount, /Browse first|Your start page/)
 
   const locked = render(
     {
@@ -500,22 +507,124 @@ function testStartupStatesAndWarmThemes(): void {
       state: 'locked',
       manuallyLocked: true,
     },
-    'dark',
+    {
+      ...homeV2Fixture.appearance,
+      theme: 'dark',
+      resolvedTheme: 'dark',
+    },
   )
   assert.match(locked, /data-theme="dark"/)
   assert.match(locked, /data-account-state="locked"/)
   assert.match(locked, />Unlock account</)
   assert.match(locked, />Lock on exit</)
 
-  const unlocked = render(homeV2Fixture.account, 'light')
+  const unlocked = render(homeV2Fixture.account)
   assert.match(unlocked, /data-account-state="unlocked"/)
   assert.match(unlocked, />Lock account</)
+  assert.doesNotMatch(unlocked, /Good to see you|Welcome back|Your browser/)
 
   const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
-  assert.match(css, /--v2-bg: #e6dac8/)
-  assert.match(css, /--v2-bg: #211e1c/)
+  assert.match(css, /--v2-bg: #edece8/)
+  assert.match(css, /--v2-bg: #242423/)
+  assert.doesNotMatch(css, /--v2-bg: #e6dac8/)
+  assert.doesNotMatch(css, /--v2-bg: #211e1c/)
   assert.doesNotMatch(css, /#225b44/i)
-  assert.doesNotMatch(css, /\b(?:green|blue)\b/i)
+}
+
+function testAppearanceSettingsAndLegacyMigration(): void {
+  const settingsState = reduceProductState(createProductState(), {
+    type: 'navigate',
+    destination: 'settings',
+  })
+  const html = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+    />,
+  )
+
+  assert.match(html, /data-theme-preference="system"/)
+  assert.match(html, /data-accent="clay"/)
+  assert.match(html, /data-text-size="medium"/)
+  assert.match(html, /data-language="system"/)
+  assert.match(html, /data-resolved-language="en"/)
+  assert.match(html, /lang="en" dir="ltr"/)
+  assert.match(html, /--v2-app-zoom:1/)
+  assert.match(html, />Appearance</)
+  assert.match(html, />Theme</)
+  assert.match(html, />Accent</)
+  assert.match(html, />Text size</)
+  assert.match(html, />Page zoom</)
+  assert.match(html, />Language</)
+  assert.match(html, /aria-label="Clay"/)
+  assert.match(html, />100%</)
+  assert.match(html, />System language</)
+  assert.doesNotMatch(html, />Fun</)
+  assert.doesNotMatch(html, />Classic</)
+  assert.doesNotMatch(html, />Modern</)
+
+  const rtlHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{
+        ...homeV2Fixture,
+        appearance: {
+          ...homeV2Fixture.appearance,
+          language: 'ar',
+          resolvedLanguage: 'ar',
+        },
+      }}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="phone"
+    />,
+  )
+  assert.match(rtlHtml, /lang="ar" dir="rtl"/)
+
+  const migrated = migrateLegacyAppearance(
+    {
+      theme: 'dark',
+      accent: 'green',
+      textSize: 'huge',
+      appZoom: 137.4,
+      language: 'zh-TW',
+      ui: 'fun',
+    },
+    'light',
+    'en',
+  )
+  assert.deepEqual(migrated, {
+    theme: 'dark',
+    resolvedTheme: 'dark',
+    accent: 'green',
+    textSize: 'huge',
+    appZoom: 137,
+    language: 'zh-TW',
+    resolvedLanguage: 'zh-TW',
+  })
+  assert.equal('ui' in migrated, false)
+  assert.deepEqual(
+    homeV2AccentOptions.slice(1).map((option) => option.value),
+    [
+      'green',
+      'blue',
+      'orange',
+      'purple',
+      'red',
+      'teal',
+      'cyan',
+      'pink',
+      'yellow',
+    ],
+  )
+  assert.equal(homeV2LanguageOptions.length, 24)
+  assert.equal(resolveHomeV2SystemLanguage('pt-BR'), 'pt')
+  assert.equal(resolveHomeV2SystemLanguage('zh-Hant-TW'), 'zh-TW')
+  assert.equal(resolveHomeV2SystemLanguage('unknown'), 'en')
+  assert.deepEqual(migrateLegacyAppearance(null), defaultHomeV2Appearance)
+  assert.equal(migrateLegacyAppearance({ appZoom: 400 }).appZoom, 200)
+  assert.equal(migrateLegacyAppearance({ appZoom: 20 }).appZoom, 50)
 }
 
 function testPermissionDialogsOnDesktopAndPhone(): void {
@@ -556,19 +665,17 @@ function testPermissionDialogsOnDesktopAndPhone(): void {
 
 function testInteractiveFixturePreviewContract(): void {
   const html = renderToStaticMarkup(<HomeV2FixturePreview />)
-  assert.match(html, /Home 2.0 interactive fixture/)
-  assert.match(html, /No network, wallet, node, signing, Core, or Reticulum access/)
+  assert.match(html, /Home 2.0 offline preview/)
+  assert.match(html, /No live services/)
   assert.match(html, />desktop</)
   assert.match(html, />phone</)
-  assert.match(html, />light</)
-  assert.match(html, />dark</)
   assert.match(html, />none</)
   assert.match(html, />locked</)
   assert.match(html, />unlocked</)
   assert.match(html, />electron</)
   assert.match(html, />android</)
-  assert.match(html, />Try qdnRequest</)
-  assert.match(html, />Try qortalRequest</)
+  assert.match(html, />qdnRequest permission</)
+  assert.match(html, />qortalRequest permission</)
   assert.match(html, />Lock fixture</)
   assert.match(html, /0 saved fixture grants/)
   assert.match(html, /value="home:\/\/dashboard"/)
@@ -690,7 +797,8 @@ testProductModelKeepsNetworkQualifiedTabs()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()
-testStartupStatesAndWarmThemes()
+testStartupStatesAndAppearance()
+testAppearanceSettingsAndLegacyMigration()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()
 testFixtureElectronEntryIsIsolated()
