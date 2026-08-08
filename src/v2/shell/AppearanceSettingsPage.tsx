@@ -10,14 +10,18 @@ import {
   type HomeV2TextSize,
   type HomeV2ThemePreference,
 } from '../appearance'
+import type { AccountSessionSummary } from '../contracts'
 
 export interface AppearanceSettingsPageProps {
   readonly appearance: HomeV2AppearanceSettings
+  readonly account: AccountSessionSummary
   readonly onSetTheme?: (theme: HomeV2ThemePreference) => void
   readonly onSetAccent?: (accent: HomeV2Accent) => void
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
+  readonly onToggleRememberUnlock?: () => void
+  readonly onToggleLockOnExit?: () => void
 }
 
 function SettingRow({
@@ -42,11 +46,14 @@ function SettingRow({
 
 export function AppearanceSettingsPage({
   appearance,
+  account,
   onSetTheme,
   onSetAccent,
   onSetTextSize,
   onSetAppZoom,
   onSetLanguage,
+  onToggleRememberUnlock,
+  onToggleLockOnExit,
 }: AppearanceSettingsPageProps) {
   return (
     <section className="home-v2-settings-page">
@@ -71,49 +78,47 @@ export function AppearanceSettingsPage({
               : `Using ${appearance.resolvedTheme} mode.`
           }
         >
-          <div
-            className="home-v2-segmented"
-            role="radiogroup"
+          <select
             aria-label="Theme"
+            value={appearance.theme}
+            onChange={(event) =>
+              onSetTheme?.(event.target.value as HomeV2ThemePreference)
+            }
           >
             {homeV2ThemeOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={appearance.theme === option.value}
-                className={appearance.theme === option.value ? 'is-active' : ''}
-                onClick={() => onSetTheme?.(option.value)}
-              >
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </button>
+              </option>
             ))}
-          </div>
+          </select>
         </SettingRow>
 
         <SettingRow
           label="Accent"
           description="Used for focus, selection, and primary actions."
         >
-          <div
-            className="home-v2-accent-options"
-            role="radiogroup"
-            aria-label="Accent"
-          >
-            {homeV2AccentOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-label={option.label}
-                aria-checked={appearance.accent === option.value}
-                className={appearance.accent === option.value ? 'is-active' : ''}
-                title={option.label}
-                onClick={() => onSetAccent?.(option.value)}
-              >
-                <span style={{ background: option.swatch }} aria-hidden="true" />
-              </button>
-            ))}
+          <div className="home-v2-accent-select">
+            <span
+              aria-hidden="true"
+              style={{
+                background: homeV2AccentOptions.find(
+                  (option) => option.value === appearance.accent,
+                )?.swatch,
+              }}
+            />
+            <select
+              aria-label="Accent"
+              value={appearance.accent}
+              onChange={(event) =>
+                onSetAccent?.(event.target.value as HomeV2Accent)
+              }
+            >
+              {homeV2AccentOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         </SettingRow>
 
@@ -192,6 +197,53 @@ export function AppearanceSettingsPage({
           </select>
         </SettingRow>
       </section>
+
+      {account.state !== 'none' ? (
+        <section
+          className="home-v2-settings-panel"
+          aria-labelledby="account-security-title"
+        >
+          <div className="home-v2-settings-panel__heading">
+            <h2 id="account-security-title">Account security</h2>
+            <p>Control how the selected account locks on this device.</p>
+          </div>
+
+          <SettingRow
+            label="Remember unlock"
+            description={
+              account.secureStorageAvailable
+                ? 'Use secure device storage instead of asking on every start.'
+                : 'Secure device storage is unavailable.'
+            }
+          >
+            <label className="home-v2-toggle-control">
+              <input
+                type="checkbox"
+                checked={account.rememberUnlock}
+                disabled={!account.secureStorageAvailable}
+                readOnly={!onToggleRememberUnlock}
+                onChange={onToggleRememberUnlock}
+              />
+              <span>{account.rememberUnlock ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </SettingRow>
+
+          <SettingRow
+            label="Lock on exit"
+            description="Require an unlock after Home closes. Enabled by default."
+          >
+            <label className="home-v2-toggle-control">
+              <input
+                type="checkbox"
+                checked={account.lockOnExit}
+                readOnly={!onToggleLockOnExit}
+                onChange={onToggleLockOnExit}
+              />
+              <span>{account.lockOnExit ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </SettingRow>
+        </section>
+      ) : null}
     </section>
   )
 }

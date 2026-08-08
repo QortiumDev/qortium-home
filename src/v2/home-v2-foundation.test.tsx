@@ -464,6 +464,9 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, />Local</)
     assert.match(html, />Public</)
     assert.match(html, />Custom</)
+    assert.match(html, /aria-label="Qortal connection mode"/)
+    assert.match(html, /aria-label="Qortium connection mode"/)
+    assert.doesNotMatch(html, /home-v2-node-modes/)
     assert.doesNotMatch(html, /Previewnet/)
     assert.match(html, /role="tablist"/)
     assert.match(html, /fixture:tab:chat:qortal/)
@@ -497,8 +500,13 @@ function testStartupStatesAndAppearance(): void {
     },
   )
   assert.match(noAccount, /data-account-state="none"/)
+  assert.match(noAccount, /home-v2-account-panel/)
   assert.match(noAccount, />No account selected</)
-  assert.match(noAccount, />Add or import account</)
+  assert.match(noAccount, /aria-label="Selected account"/)
+  assert.match(noAccount, />Create account…</)
+  assert.match(noAccount, />Import account…</)
+  assert.match(noAccount, />New Account</)
+  assert.doesNotMatch(noAccount, />Switch account</)
   assert.doesNotMatch(noAccount, /Browse first|Your start page/)
 
   const locked = render(
@@ -515,8 +523,10 @@ function testStartupStatesAndAppearance(): void {
   )
   assert.match(locked, /data-theme="dark"/)
   assert.match(locked, /data-account-state="locked"/)
+  assert.match(locked, /home-v2-account-panel/)
   assert.match(locked, />Unlock account</)
-  assert.match(locked, />Lock on exit</)
+  assert.doesNotMatch(locked, />Lock on exit</)
+  assert.doesNotMatch(locked, />Remember unlock</)
 
   const unlocked = render(homeV2Fixture.account)
   assert.match(unlocked, /data-account-state="unlocked"/)
@@ -526,8 +536,17 @@ function testStartupStatesAndAppearance(): void {
   const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
   assert.match(css, /--v2-bg: #edece8/)
   assert.match(css, /--v2-bg: #242423/)
+  assert.match(css, /--v2-qortal: #356da5/)
+  assert.match(css, /--v2-qortium: #2f7953/)
+  assert.match(css, /--v2-status-online: #327653/)
+  assert.equal([...css.matchAll(/--v2-qortal:/g)].length, 2)
+  assert.equal([...css.matchAll(/--v2-qortium:/g)].length, 2)
+  assert.match(css, /\.home-v2-node-card \{[\s\S]*?grid-template-rows:/)
+  assert.match(css, /\.home-v2-account-panel \{[\s\S]*?grid-template-rows:/)
   assert.doesNotMatch(css, /--v2-bg: #e6dac8/)
   assert.doesNotMatch(css, /--v2-bg: #211e1c/)
+  assert.doesNotMatch(css, /--v2-qortal: #73566d/)
+  assert.doesNotMatch(css, /--v2-qortium: #805d49/)
   assert.doesNotMatch(css, /#225b44/i)
 }
 
@@ -558,12 +577,36 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.match(html, />Text size</)
   assert.match(html, />Page zoom</)
   assert.match(html, />Language</)
-  assert.match(html, /aria-label="Clay"/)
+  assert.match(html, /aria-label="Theme"/)
+  assert.match(html, /aria-label="Accent"/)
+  assert.match(html, />Clay<\/option>/)
   assert.match(html, />100%</)
   assert.match(html, />System language</)
+  assert.match(html, />Account security</)
+  assert.match(html, />Remember unlock</)
+  assert.match(html, />Lock on exit</)
+  assert.doesNotMatch(html, /home-v2-segmented/)
+  assert.doesNotMatch(html, /home-v2-accent-options/)
   assert.doesNotMatch(html, />Fun</)
   assert.doesNotMatch(html, />Classic</)
   assert.doesNotMatch(html, />Modern</)
+
+  const noAccountSettings = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{
+        ...homeV2Fixture,
+        account: {
+          ...homeV2Fixture.account,
+          state: 'none',
+          selectedIdentityId: null,
+        },
+      }}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+    />,
+  )
+  assert.doesNotMatch(noAccountSettings, />Account security</)
 
   const rtlHtml = renderToStaticMarkup(
     <HomeV2Prototype

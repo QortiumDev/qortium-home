@@ -26,6 +26,7 @@ import { PermissionDialog } from './PermissionDialog'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
+export type HomeV2AccountSelection = 'none' | 'current' | 'create' | 'import'
 
 export interface HomeV2PrototypeProps {
   readonly snapshot: HomeV2Snapshot
@@ -48,7 +49,11 @@ export interface HomeV2PrototypeProps {
   ) => void
   readonly onUnlockAccount?: () => void
   readonly onLockAccount?: () => void
-  readonly onAddAccount?: () => void
+  readonly onSelectAccount?: (
+    selection: Extract<HomeV2AccountSelection, 'none' | 'current'>,
+  ) => void
+  readonly onCreateAccount?: () => void
+  readonly onImportAccount?: () => void
   readonly onToggleRememberUnlock?: () => void
   readonly onToggleLockOnExit?: () => void
   readonly onSetTheme?: (theme: HomeV2ThemePreference) => void
@@ -109,23 +114,23 @@ function NodeCard({
           {node.statusText}
         </span>
       </header>
-      <div
-        className="home-v2-node-modes"
-        aria-label={`${networkLabels[network]} connection mode`}
-      >
-        {(Object.keys(nodeModeLabels) as NodeConnectionMode[]).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            className={node.mode === mode ? 'is-active' : ''}
-            aria-pressed={node.mode === mode}
-            onClick={() => onSetNodeMode?.(network, mode)}
-          >
-            {nodeModeLabels[mode]}
-          </button>
-        ))}
-      </div>
-      <p>
+      <label className="home-v2-node-mode-control">
+        <span>Connection mode</span>
+        <select
+          aria-label={`${networkLabels[network]} connection mode`}
+          value={node.mode}
+          onChange={(event) =>
+            onSetNodeMode?.(network, event.target.value as NodeConnectionMode)
+          }
+        >
+          {(Object.keys(nodeModeLabels) as NodeConnectionMode[]).map((mode) => (
+            <option key={mode} value={mode}>
+              {nodeModeLabels[mode]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="home-v2-node-detail">
         {node.mode === 'disabled'
           ? 'No connection'
           : `${nodeModeLabels[node.mode]} · ${node.label}`}
@@ -141,84 +146,93 @@ function AccountCard({
   snapshot,
   onUnlockAccount,
   onLockAccount,
-  onAddAccount,
-  onToggleRememberUnlock,
-  onToggleLockOnExit,
+  onSelectAccount,
+  onCreateAccount,
+  onImportAccount,
 }: Pick<
   HomeV2PrototypeProps,
   | 'snapshot'
   | 'onUnlockAccount'
   | 'onLockAccount'
-  | 'onAddAccount'
-  | 'onToggleRememberUnlock'
-  | 'onToggleLockOnExit'
+  | 'onSelectAccount'
+  | 'onCreateAccount'
+  | 'onImportAccount'
 >) {
-  if (snapshot.account.state === 'none') {
-    return (
-      <section className="home-v2-panel home-v2-account-empty">
-        <div>
-          <h2>No account selected</h2>
-          <p>Public apps remain available.</p>
-        </div>
-        <button
-          type="button"
-          className="home-v2-primary-button"
-          onClick={onAddAccount}
-        >
-          Add or import account
-        </button>
-      </section>
-    )
+  const hasAccount = snapshot.account.state !== 'none'
+  const isLocked = snapshot.account.state === 'locked'
+  const handleSelection = (selection: HomeV2AccountSelection) => {
+    if (selection === 'create') {
+      onCreateAccount?.()
+      return
+    }
+    if (selection === 'import') {
+      onImportAccount?.()
+      return
+    }
+    onSelectAccount?.(selection)
   }
 
-  const isLocked = snapshot.account.state === 'locked'
   return (
     <section className="home-v2-panel home-v2-account-panel">
       <div className="home-v2-section-heading">
-        <div>
-          <h2>Account</h2>
-          <p>{snapshot.identity.displayLabel}</p>
-        </div>
-        <span className="home-v2-lock-state" data-locked={isLocked}>
-          {isLocked ? 'Locked' : 'Unlocked'}
+        <h2>Account</h2>
+        <span
+          className="home-v2-lock-state"
+          data-account-state={snapshot.account.state}
+        >
+          {!hasAccount ? 'Not selected' : isLocked ? 'Locked' : 'Unlocked'}
         </span>
       </div>
-      <div className="home-v2-presence-list">
-        <IdentityPresence snapshot={snapshot} network="qortal" />
-        <IdentityPresence snapshot={snapshot} network="qortium" />
-      </div>
-      <div className="home-v2-account-options">
-        <label>
-          <input
-            type="checkbox"
-            checked={snapshot.account.rememberUnlock}
-            disabled={!snapshot.account.secureStorageAvailable}
-            readOnly={!onToggleRememberUnlock}
-            onChange={onToggleRememberUnlock}
-          />
-          Remember unlock on this device
+      <div className="home-v2-account-control-row">
+        <label className="home-v2-account-select">
+          <span>Selected account</span>
+          <select
+            aria-label="Selected account"
+            value={hasAccount ? 'current' : 'none'}
+            onChange={(event) =>
+              handleSelection(event.target.value as HomeV2AccountSelection)
+            }
+          >
+            <optgroup label="Accounts">
+              <option value="none">No account selected</option>
+              <option value="current">{snapshot.identity.displayLabel}</option>
+            </optgroup>
+            <optgroup label="Account actions">
+              <option value="create">Create account…</option>
+              <option value="import">Import account…</option>
+            </optgroup>
+          </select>
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={snapshot.account.lockOnExit}
-            readOnly={!onToggleLockOnExit}
-            onChange={onToggleLockOnExit}
-          />
-          Lock on exit
-        </label>
-      </div>
-      <div className="home-v2-account-actions">
         <button
           type="button"
           className="home-v2-primary-button"
-          onClick={isLocked ? onUnlockAccount : onLockAccount}
+          onClick={
+            !hasAccount
+              ? onCreateAccount
+              : isLocked
+                ? onUnlockAccount
+                : onLockAccount
+          }
         >
-          {isLocked ? 'Unlock account' : 'Lock account'}
+          {!hasAccount
+            ? 'New Account'
+            : isLocked
+              ? 'Unlock account'
+              : 'Lock account'}
         </button>
-        <button type="button" className="home-v2-secondary-button">
-          Switch account
-        </button>
+      </div>
+      <div className="home-v2-account-content">
+        {hasAccount ? (
+          <div className="home-v2-presence-list">
+            <IdentityPresence snapshot={snapshot} network="qortal" />
+            <IdentityPresence snapshot={snapshot} network="qortium" />
+          </div>
+        ) : (
+          <div className="home-v2-account-placeholder">
+            <strong>No account selected</strong>
+            <span>Public apps and connection controls remain available.</span>
+          </div>
+        )}
       </div>
     </section>
   )
@@ -287,16 +301,7 @@ function Dashboard(props: HomeV2PrototypeProps) {
   return (
     <div className="home-v2-dashboard">
       <header className="home-v2-dashboard-intro">
-        <div>
-          <h1>Dashboard</h1>
-        </div>
-        <button
-          type="button"
-          className="home-v2-secondary-button"
-          onClick={() => props.onNavigate?.('settings')}
-        >
-          Settings
-        </button>
+        <h1>Dashboard</h1>
       </header>
 
       <section
@@ -397,11 +402,14 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         ) : productState.destination === 'settings' ? (
           <AppearanceSettingsPage
             appearance={snapshot.appearance}
+            account={snapshot.account}
             onSetTheme={props.onSetTheme}
             onSetAccent={props.onSetAccent}
             onSetTextSize={props.onSetTextSize}
             onSetAppZoom={props.onSetAppZoom}
             onSetLanguage={props.onSetLanguage}
+            onToggleRememberUnlock={props.onToggleRememberUnlock}
+            onToggleLockOnExit={props.onToggleLockOnExit}
           />
         ) : productState.destination === 'dashboard' ||
           productState.destination === 'tab' ? (

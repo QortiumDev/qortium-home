@@ -365,9 +365,24 @@ export function HomeV2FixturePreview() {
           onNavigate={navigate}
           onResolvePermission={resolvePrompt}
           onSetNodeMode={setNodeMode}
-          onAddAccount={() => {
+          onSelectAccount={(selection) => {
+            setPermissionState((current) =>
+              invalidatePermissionState(current, { kind: 'locked' }),
+            )
+            setAccountState(selection === 'none' ? 'none' : 'locked')
+            setStatus(
+              selection === 'none'
+                ? 'No account selected.'
+                : 'Synthetic account selected in a locked state.',
+            )
+          }}
+          onCreateAccount={() => {
             setAccountState('locked')
-            setStatus('Synthetic account selected in a locked state.')
+            setStatus('Synthetic account creation selected. No file was created.')
+          }}
+          onImportAccount={() => {
+            setAccountState('locked')
+            setStatus('Synthetic account import selected. No file was read.')
           }}
           onUnlockAccount={() => {
             setAccountState('unlocked')

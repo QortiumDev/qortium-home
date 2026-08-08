@@ -44,9 +44,9 @@ Dashboard is never replaced by a login wall. It renders three explicit states:
 
 | State | Startup behavior | Available behavior |
 | --- | --- | --- |
-| No account | Open Dashboard with no selected identity. | Node controls, public browsing, and account import/create. |
-| Selected and locked | Restore the last selected identity and show both labelled network presences without signing authority. | Node controls, public browsing, account switch, and unlock. |
-| Selected and unlocked | Restore the last identity and unlock only when the user previously opted into secure device storage. | Normal granted account capabilities. |
+| No account | Open Dashboard with no selected account. | Node controls, public browsing, and account import/create. |
+| Selected and locked | Restore the last selected account and show both labelled network presences without signing authority. | Node controls, public browsing, account selection, and unlock. |
+| Selected and unlocked | Restore the last account and unlock only when the user previously opted into secure device storage. | Normal granted account capabilities. |
 
 Manual lock is immediate, clears pending requests and affected grants, and
 persists as locked. `Lock on exit` is an account/device preference enabled by
@@ -77,9 +77,10 @@ only status signal.
 The foundation palette is warm and neutral rather than green- or blue-led.
 Light mode uses linen, warm gray, and restrained tan surfaces; dark mode uses
 graphite and charcoal with a subtle chocolate undertone. Brown is not the main
-surface color. A restrained clay accent supports actions by default. Qortal and
-Qortium may use muted plum and umber labels respectively, always accompanied by
-network text.
+surface color. A restrained clay accent supports actions by default. Qortal is
+always identified with blue and Qortium with green; neither network identity
+color follows the user accent. Health and synchronization use separate semantic
+status colors. Network color is always accompanied by network text.
 
 Home retains system/light/dark theme, accent, six text sizes, 50–200% page zoom,
 and system/supported-language controls. Existing valid v1 values migrate into
@@ -103,6 +104,9 @@ not a deferred or reduced product.
 - Apps are visually and behaviorally first-class browser tabs.
 - Account selection, account unlock, and network connectivity remain separate
   concepts in contracts and production host services.
+- Dashboard option selectors use compact dropdowns. Account and connection
+  cards reserve stable rows so changing state replaces content in place rather
+  than shifting surrounding modules.
 - Secure unlock persistence requires platform-specific host work and a threat
   model before connection to real wallets.
 - Existing v1 styling and the first green v2 fixture are not maintained as
@@ -118,4 +122,7 @@ not a deferred or reduced product.
 - No-account, locked, and unlocked startup states are selectable.
 - Qortal and Qortium modes can each switch among Disabled, Local, Public, and
   Custom without making a live request.
+- Network identity colors remain fixed blue/green across every accent, and
+  no-account, locked, unlocked, or node-mode changes preserve card geometry at
+  each responsive layout.
 - The fixture remains disconnected and fail-closed.

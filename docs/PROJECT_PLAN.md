@@ -18,7 +18,7 @@ cleaner, more predictable experience while preserving Qortium Home's strict
 app isolation, permissions, managed services, and multi-platform foundation.
 
 Home is not a monolithic social portal. It provides a stable Dashboard, app
-launcher and browser, unified identity, wallet custody, node and service
+launcher and browser, unified account context, wallet custody, node and service
 management, permissions, signing mediation, notifications, downloads, and
 operating-system integration. Full Chat, Wallets, Groups, Explorer, publishing,
 trading, and similar experiences belong in QDN apps.
@@ -38,7 +38,8 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 | Visual language | Soft linen/warm-gray light mode and graphite dark mode with a subtle chocolate undertone. Clay is the neutral default accent, not the dominant surface color. |
 | Appearance settings | Retain theme, accent, text size, page zoom, and language. Migrate legacy UI styles to one standard professional presentation. |
 | Feature ownership | Chat, Wallets, Groups, Explorer, publishing, markets, and similar full experiences are QDN apps. |
-| Identity | Present one user-facing identity with separately labelled Qortal and Qortium network presences. |
+| Account | Present one account with separately labelled Qortal and Qortium network presences; do not model the chains as separate user identities. |
+| Compact controls | Use dropdowns for in-card option selection, reserve stable card rows, and swap context actions in place so state changes do not move surrounding content. |
 | Bridges | Preserve `qdnRequest` and `qortalRequest` as separate public protocols over shared typed services where semantics match exactly. |
 | Q-App compatibility | Target the complete Q-App-facing `qortalRequest` surface, implemented and verified action by action. |
 | Licensing | Keep Home and first-party apps 0BSD wherever possible. Treat GPL Hub/HubCE code as behavioral reference, not copyable implementation. |
@@ -49,12 +50,16 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 
 ## Product terminology
 
-- **Identity**: the person/account concept shown to the user.
-- **Network presence**: one identity's independently resolved state on Qortal or
+- **Account**: the complete seed-backed user context shown by Home, including
+  its wallet file, key set, derived addresses, owned names, and related data.
+- **Network presence**: one account's independently resolved state on Qortal or
   Qortium, including address validity, names, avatars, groups, and activity.
-- **Wallet**: an encrypted seed container held by Home.
-- **Operation context**: trusted identity, wallet, target network, node,
-  application, tab, and permission information attached to one request.
+- **Wallet**: the account's encrypted seed file or, in a technical derivation
+  context, the keys and addresses derived from that seed. It is not the primary
+  product concept.
+- **Operation context**: trusted account, selected derived address where
+  applicable, backing wallet reference, target network, node, application, tab,
+  and permission information attached to one request.
 - **QDN app**: an `APP` or `WEBSITE` resource hosted by Home from Qortal or
   Qortium QDN.
 - **Default app**: a recommended or initially pinned QDN app. Default does not
@@ -72,7 +77,7 @@ The shell should be calm, app-focused, and immediately familiar as a browser:
   sidebar or nested app tabs inside Dashboard.
 - Dashboard, Apps, Activity, and Settings as internal browser destinations;
   QDN apps open as top-level peer tabs.
-- One compact context surface showing the active identity, address/destination,
+- One compact context surface showing the active account, address/destination,
   and both Qortal/Qortium node capabilities.
 - Browser-like tabs with independent history, reliable back/forward behavior,
   desktop context menus and shortcuts, and clear mobile equivalents.
@@ -94,10 +99,10 @@ Hub homepage without reproducing Hub 2.x's dense operations wall.
 
 Dashboard may contain configurable, progressively disclosed modules for:
 
-- Unified identity summary with Qortal and Qortium names/avatars.
+- Unified account summary with Qortal and Qortium names/avatars.
 - Recently used, pinned, and recommended apps.
 - Concise Qortal and Qortium node/Core status.
-- Wallet lock/availability summary without becoming the Wallets application.
+- Account lock/availability summary without becoming the Wallets application.
 - Reticulum status when the optional subsystem is installed or enabled.
 - Recent relevant activity and actionable failures.
 - User-selected quick actions and contextual app handoffs.
@@ -108,12 +113,12 @@ belong behind summaries. Promotional or AI modules are optional and removable.
 
 Dashboard is available without an account and never becomes a login gate. It
 shows both network connection controls before unlock. With a last-used account,
-it shows the selected identity and its labelled Qortal/Qortium presences in
+it shows the selected account and its labelled Qortal/Qortium presences in
 either locked or unlocked state.
 
 ### Startup, lock, and connection state
 
-- Restore the last selected identity independently of whether it is unlocked.
+- Restore the last selected account independently of whether it is unlocked.
 - `Lock on exit` is enabled by default for each account/device pairing.
 - A user may opt into remembered unlock only through suitable OS secure storage
   or Android Keystore-backed storage; never store a plaintext password.
@@ -128,9 +133,9 @@ either locked or unlocked state.
 
 ### Home owns
 
-- Wallet creation, import, encrypted persistence, backup, lock/unlock, and
-  in-memory signing authority.
-- Unified identity selection and cross-network identity resolution.
+- Account creation/import, encrypted wallet-file persistence and backup,
+  lock/unlock, derived-key management, and in-memory signing authority.
+- Unified account selection and cross-network identity resolution.
 - Target-network and node routing.
 - Permission prompts, grants, revocation, and request auditing.
 - Transaction review, typed intent validation, signing, and broadcast.
@@ -150,10 +155,17 @@ Apps never receive wallet seeds, private keys, Core API keys, unrestricted node
 access, or generic native-process authority. Sensitive work is requested through
 the host and confirmed in trusted Home UI.
 
-## Unified cross-network identity
+## Unified account and cross-network identity
 
-The user should not have to reason about two unrelated account personas simply
-because Qortal and Qortium are separate chains.
+The user selects an account, not a wallet or one chain-specific persona. An
+account encompasses its seed-backed wallet file, derived keys and addresses,
+owned names, and related data. One account can contain multiple derived
+addresses. Names belong to addresses, and avatars belong to names.
+
+The user should not have to reason about two unrelated personas simply because
+Qortal and Qortium are separate chains. `IdentityRecord` remains a technical
+public-resolution projection for an address; it is not a synonym for the whole
+account.
 
 ### Resolution model
 
@@ -183,9 +195,10 @@ IdentityRecord
 
 ### Operational safety
 
-The user-facing identity is unified; privileged operations are not
+The user-facing account context is unified; privileged operations are not
 network-ambiguous. Every protected request includes a trusted target network,
-identity, wallet/account reference, node profile, app identity, and tab/session.
+account, derived address when applicable, wallet reference, node profile, app
+identity, and tab/session.
 Changing any relevant element invalidates pending approvals and affected grants.
 
 ## App hosting and cross-network apps

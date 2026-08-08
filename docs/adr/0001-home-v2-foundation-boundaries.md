@@ -17,9 +17,10 @@ Home 2.0 also has stronger product constraints than the existing renderer:
 
 - Dashboard is the landing page; there is no page named Home inside Home.
 - Chat, Wallets, Groups, Explorer, and similar experiences are QDN apps.
-- One selected identity exposes separately labelled Qortal and Qortium
-  presences. It is not represented as two unrelated app identities.
-- Every operation remains explicitly bound to one network, account/wallet,
+- One selected account exposes separately labelled Qortal and Qortium
+  presences. It is not represented as two unrelated chain identities.
+- Every operation remains explicitly bound to one network, account, derived
+  address and backing wallet reference where applicable,
   node profile, app, and tab.
 - `qdnRequest` and `qortalRequest` keep their exact public contracts. Internal
   services may be shared only when the translation is lossless.
@@ -43,7 +44,7 @@ The first implementation lives under `src/v2/` and follows these boundaries:
    typed. An operation cannot omit its target network.
 3. The fixture host supplies synthetic read models only. Network, filesystem,
    vault, signing, and managed-service methods throw a stable boundary error.
-4. Qortal and Qortium identity presences can be displayed together, but their
+4. Qortal and Qortium account presences can be displayed together, but their
    addresses, names, avatars, nodes, assets, permissions, and transactions are
    never silently merged.
 5. Wrong-network operations are rejected by policy before any platform adapter
@@ -79,7 +80,7 @@ testable seam before any live migration begins.
 ## Acceptance criteria
 
 - A fixture Dashboard and app launcher render in desktop and phone layouts.
-- The same synthetic identity shows labelled Qortal and Qortium presences.
+- The same synthetic account shows labelled Qortal and Qortium presences.
 - All privileged fixture-host methods fail closed with a stable error.
 - A wrong-network operation fails before the supplied adapter callback runs.
 - Source checks prevent v2 UI code from reaching current global bridge or live

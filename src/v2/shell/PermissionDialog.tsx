@@ -48,7 +48,7 @@ export function PermissionDialog({
         <div className="home-v2-permission-context">
           <span>App</span>
           <strong>{prompt.appTitle}</strong>
-          <span>Identity</span>
+          <span>Account</span>
           <strong>{prompt.context.identityId}</strong>
           <span>Network</span>
           <strong>{networkLabels[prompt.context.targetNetwork]}</strong>

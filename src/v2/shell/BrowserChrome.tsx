@@ -126,7 +126,7 @@ export function BrowserChrome({
             type="button"
             className="home-v2-account-button"
             data-account-state={snapshot.account.state}
-            onClick={() => onNavigate?.('settings')}
+            onClick={() => onNavigate?.('dashboard')}
           >
             <span aria-hidden="true">
               {snapshot.account.state === 'none'
