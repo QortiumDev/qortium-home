@@ -6,12 +6,13 @@ easy to follow without reading code.
 
 ## What Qortium Home Is
 
-Qortium Home is a simple user interface for managing Qortium wallets,
-connecting to a configured node, browsing QDN content, and viewing chain/API
-data.
+Qortium Home is an app-focused client and trusted host for Qortium and Qortal.
+It manages identities, wallets, nodes, QDN apps, permissions, and native
+services while leaving full Chat, Wallets, Groups, Explorer, publishing, and
+similar experiences to QDN apps.
 
-The aim is to keep the application focused, understandable, and Qortium-native,
-with its own clear scope.
+The aim is to keep the application focused and understandable while supporting
+both networks through explicit compatibility and security boundaries.
 
 ## Early Goals
 
@@ -32,6 +33,19 @@ with its own clear scope.
   technical git history
 
 ## Change Entries
+
+### 2026-08-08 - docs: establish Qortium Home v2 product plan
+
+Replaces the obsolete Qortium-only, desktop-first project plan with the adopted
+Qortium Home 2.0 direction. Dashboard remains the landing page; Chat, Wallets,
+and similar experiences remain QDN apps; identities show labelled Qortal and
+Qortium presences; Home targets complete `qortalRequest` compatibility while
+preserving strict `qdnRequest`; desktop and Android are co-primary; Reticulum is
+an optional Home-managed cross-network subsystem with explicit user controls;
+and Home plus first-party apps remain 0BSD-first through clean implementation.
+The plan freezes the old renderer, defines in-place migration and security
+gates, and stops the first code tranche at a fixture-only shell with no real
+wallet, node, signing, or Reticulum access.
 
 ### 2026-08-06 - fix: make foreign wallet read failures actionable
 
