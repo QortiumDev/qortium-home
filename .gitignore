@@ -2,6 +2,10 @@ node_modules/
 dist/
 dist-electron/
 dist-release/
+dist-release-v2-fixture/
+dist-v2-fixture/
+dist-electron-v2/
+.v2-fixture-package/
 .vite/
 *.log
 npm-debug.log*

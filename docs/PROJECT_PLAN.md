@@ -2,8 +2,8 @@
 
 Last updated: 2026-08-08
 
-Status: accepted product direction and implementation baseline. The v2 code
-scaffold has not started.
+Status: accepted product direction with the fixture-only Phase 1 foundation
+implemented. No live v2 host adapter or migration has started.
 
 This is the canonical product and architecture plan for Qortium Home. When an
 older issue, note, or implementation assumption conflicts with this document,
@@ -495,14 +495,16 @@ This is an engineering provenance policy, not legal advice.
 No real wallet, address, API key, Core, network, or QDN resource is reachable in
 this phase.
 
-Status on 2026-08-08: the runtime-free product model now preserves app tabs
+Status on 2026-08-08: complete. The runtime-free product model preserves app tabs
 across Dashboard navigation and keeps separate, visibly labelled Qortal and
 Qortium contexts. Fixture-only `qdnRequest/PUBLISH_QDN_RESOURCE` and
 `qortalRequest/GET_USER_ACCOUNT` adapters feed an account-, app-, network-,
 node-, and tab-scoped permission broker and responsive dialogs. The Qortal
-account fixture deliberately grants no implicit extra capabilities. Phase 1
-remains open until the same fixture scenarios run through explicit Electron and
-Android host fakes; no live host adapter is authorized yet.
+account fixture deliberately grants no implicit extra capabilities. Explicit
+Electron and Android host fakes run the same model and throw on every privileged
+capability. A separately packaged preview AppImage uses a minimal Electron main
+process and isolated staging tree, with no production Home dependencies or live
+host reachability. No live host adapter is authorized yet.
 
 ### Phase 2: retained host adapters and read-only slice
 
@@ -622,7 +624,7 @@ Android host fakes; no live host adapter is authorized yet.
 - Production code-signing/notarization policy for Linux, macOS, Windows, and
   Android.
 
-## Immediate next implementation tranche
+## Completed foundation tranche
 
 After this planning commit is accepted:
 
@@ -635,8 +637,9 @@ After this planning commit is accepted:
 Stop before real wallet, node, Reticulum, or signing integration and review the
 fixture shell and contracts as a separate checkpoint.
 
-Status on 2026-08-08: this immediate tranche is implemented on the dedicated
-`codex/home-v2` branch. The fixture host also fails closed for filesystem and
-managed-service access, and the focused desktop/phone render and wrong-network
-policy tests are wired into the repository suite. Phase 1 remains open for the
-tab model, mock bridge permission flows, and Electron/Android host fakes.
+Status on 2026-08-08: this tranche and the remaining Phase 1 tab, mock bridge,
+permission, Electron-host-fake, Android-host-fake, and isolated preview-package
+work are implemented on the dedicated `codex/home-v2` branch. The next code
+tranche is Phase 2's retained-host-adapter and read-only slice. It requires a
+separate review before any current profile, node, wallet, bridge, or QDN app is
+connected.

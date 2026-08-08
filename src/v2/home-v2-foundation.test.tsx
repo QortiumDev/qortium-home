@@ -20,8 +20,15 @@ import {
   ProductModelError,
   reduceProductState,
 } from './product-model'
+import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
-import { FixtureBoundaryError, MockHost } from './test-kit/MockHost'
+import {
+  createAndroidFixtureHost,
+  createElectronFixtureHost,
+  FixtureBoundaryError,
+  MockHost,
+  type FixturePlatform,
+} from './test-kit/MockHost'
 import {
   fixtureApp,
   fixtureIds,
@@ -39,10 +46,12 @@ import {
 function assertFixtureBoundary(
   error: unknown,
   capability: FixtureBoundaryError['capability'],
+  platform: FixturePlatform = 'generic',
 ): boolean {
   assert.ok(error instanceof FixtureBoundaryError)
   assert.equal(error.code, 'FIXTURE_BOUNDARY')
   assert.equal(error.capability, capability)
+  assert.equal(error.platform, platform)
   return true
 }
 
@@ -82,6 +91,45 @@ async function testMockHostFailsClosed(): Promise<void> {
     }),
     (error) => assertFixtureBoundary(error, 'managed-service'),
   )
+}
+
+async function testPlatformFixtureHostsFailClosed(): Promise<void> {
+  const context = fixtureOperationContext(fixtureIds.chatApp, 'qortium')
+  for (const host of [
+    createElectronFixtureHost(homeV2Fixture),
+    createAndroidFixtureHost(homeV2Fixture),
+  ]) {
+    assert.equal(await host.getSnapshot(), homeV2Fixture)
+    await assert.rejects(
+      host.requestNetwork({ context, path: '/fixture', method: 'GET' }),
+      (error) => assertFixtureBoundary(error, 'network', host.platform),
+    )
+    await assert.rejects(
+      host.readFile({ context, purpose: 'fixture' }),
+      (error) => assertFixtureBoundary(error, 'filesystem', host.platform),
+    )
+    await assert.rejects(
+      host.unlockVault(context),
+      (error) => assertFixtureBoundary(error, 'vault', host.platform),
+    )
+    await assert.rejects(
+      host.signIntent({
+        context,
+        transactionType: 'FIXTURE',
+        summary: 'Must never sign',
+      }),
+      (error) => assertFixtureBoundary(error, 'signing', host.platform),
+    )
+    await assert.rejects(
+      host.manageNativeService({
+        context,
+        service: 'reticulum',
+        command: 'start',
+      }),
+      (error) =>
+        assertFixtureBoundary(error, 'managed-service', host.platform),
+    )
+  }
 }
 
 function testWrongNetworkStopsBeforeAdapter(): void {
@@ -441,15 +489,96 @@ function testPermissionDialogsOnDesktopAndPhone(): void {
   }
 }
 
+function testInteractiveFixturePreviewContract(): void {
+  const html = renderToStaticMarkup(<HomeV2FixturePreview />)
+  assert.match(html, /Home 2.0 interactive fixture/)
+  assert.match(html, /No network, wallet, node, signing, Core, or Reticulum access/)
+  assert.match(html, />desktop</)
+  assert.match(html, />phone</)
+  assert.match(html, />electron</)
+  assert.match(html, />android</)
+  assert.match(html, />Try qdnRequest</)
+  assert.match(html, />Try qortalRequest</)
+  assert.match(html, />Lock fixture</)
+  assert.match(html, /0 saved fixture grants/)
+}
+
+function testFixtureElectronEntryIsIsolated(): void {
+  const source = readFileSync('electron/v2-fixture-main.ts', 'utf8')
+  const config = JSON.parse(
+    readFileSync('electron-builder.v2-fixture.json', 'utf8'),
+  ) as {
+    appId: string
+    directories: { output: string; buildResources: string }
+    electronFuses: Readonly<Record<string, boolean>>
+    files: readonly string[]
+  }
+  const stageScript = readFileSync('scripts/stage-home-v2-fixture.mjs', 'utf8')
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    scripts: Readonly<Record<string, string>>
+  }
+
+  assert.equal(config.appId, 'org.qortium.home.v2preview')
+  assert.equal(config.directories.output, '../dist-release-v2-fixture')
+  assert.equal(config.directories.buildResources, '../build')
+  assert.deepEqual(config.files, [
+    'dist/**/*',
+    'dist-electron/v2-fixture-main.js',
+    'package.json',
+    'LICENSE',
+  ])
+  assert.equal(config.electronFuses.runAsNode, false)
+  assert.equal(config.electronFuses.onlyLoadAppFromAsar, true)
+  assert.equal(config.electronFuses.grantFileProtocolExtraPrivileges, false)
+  assert.match(
+    packageJson.scripts['dist:linux:x64:v2-fixture'],
+    /--projectDir \.v2-fixture-package --config electron-builder\.json/,
+  )
+  assert.match(packageJson.scripts['dist:linux:x64:v2-fixture'], /--publish never/)
+  assert.match(stageScript, /main: 'dist-electron\/v2-fixture-main\.js'/)
+  assert.match(stageScript, /type: 'module'/)
+  assert.match(stageScript, /node_modules\/electron\/package\.json/)
+  assert.doesNotMatch(stageScript, /dependencies:/)
+  assert.match(source, /contextIsolation: true/)
+  assert.match(source, /nodeIntegration: false/)
+  assert.match(source, /sandbox: true/)
+  assert.match(source, /enableNetworkEmulation\(\{ offline: true \}\)/)
+  assert.match(source, /setDevicePermissionHandler\(\(\) => false\)/)
+  assert.match(source, /disable-background-networking/)
+  assert.match(source, /qortium-home-v2-fixture-preview/)
+  assert.match(source, /devTools: false/)
+  assert.match(source, /will-redirect/)
+  assert.match(source, /callback\(false\)/)
+  assert.match(source, /action: 'deny'/)
+  assert.match(source, /http:\/\/\*\/\*/)
+  assert.doesNotMatch(source, /preload:/)
+  for (const productionModule of [
+    './accounts',
+    './app-updates',
+    './core-manager',
+    './i2pd-manager',
+    './qdn',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(productionModule.replace('.', '\\.')))
+  }
+}
+
+function collectV2SourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const sourcePath = `${directory}/${entry.name}`
+    if (entry.isDirectory()) return collectV2SourceFiles(sourcePath)
+    if (!/\.(?:css|ts|tsx)$/.test(entry.name) || entry.name.endsWith('.test.tsx')) {
+      return []
+    }
+    return [sourcePath]
+  })
+}
+
 function testRendererSourceHasNoRuntimeEscapeHatches(): void {
   const sourceFiles = [
-    ...readdirSync('src/v2/shell')
-      .filter((name) => name.endsWith('.tsx'))
-      .map((name) => `src/v2/shell/${name}`),
-    'src/v2/product-model.ts',
-    'src/v2/bridge-permissions.ts',
-    'src/v2/mock-bridge-adapters.ts',
-    'src/v2/test-kit/fixtures.ts',
+    ...collectV2SourceFiles('src/v2'),
+    'v2-fixture.html',
+    'vite.v2-fixture.config.ts',
   ]
   const forbidden = [
     'window.qortiumHome',
@@ -474,12 +603,15 @@ function testRendererSourceHasNoRuntimeEscapeHatches(): void {
 }
 
 await testMockHostFailsClosed()
+await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
 testProductModelKeepsNetworkQualifiedTabs()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()
 testPermissionDialogsOnDesktopAndPhone()
+testInteractiveFixturePreviewContract()
+testFixtureElectronEntryIsIsolated()
 testRendererSourceHasNoRuntimeEscapeHatches()
 
 console.log('home v2 foundation contract tests passed')

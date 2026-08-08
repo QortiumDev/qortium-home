@@ -1,0 +1,30 @@
+{
+  "appId": "org.qortium.home.v2preview",
+  "productName": "Qortium Home 2 Preview",
+  "artifactName": "Qortium-Home-2-Preview-${version}-${arch}.${ext}",
+  "asar": true,
+  "npmRebuild": false,
+  "directories": {
+    "output": "../dist-release-v2-fixture",
+    "buildResources": "../build"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/v2-fixture-main.js",
+    "package.json",
+    "LICENSE"
+  ],
+  "electronFuses": {
+    "runAsNode": false,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableNodeCliInspectArguments": false,
+    "onlyLoadAppFromAsar": true,
+    "grantFileProtocolExtraPrivileges": false
+  },
+  "linux": {
+    "target": [{ "target": "AppImage" }],
+    "category": "Network",
+    "executableName": "qortium-home-2-preview",
+    "syncDesktopName": true
+  }
+}

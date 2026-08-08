@@ -7,8 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-const distReleasePath = path.join(repoRoot, 'dist-release');
-const expectedPrefix = `Qortium-Home-${packageJson.version}-`;
+const isV2Fixture = process.argv.includes('--v2-fixture');
+const distReleasePath = path.join(
+  repoRoot,
+  isV2Fixture ? 'dist-release-v2-fixture' : 'dist-release',
+);
+const expectedPrefix = isV2Fixture
+  ? `Qortium-Home-2-Preview-${packageJson.version}-`
+  : `Qortium-Home-${packageJson.version}-`;
 
 function formatMode(mode) {
   return (mode & 0o777).toString(8).padStart(3, '0');

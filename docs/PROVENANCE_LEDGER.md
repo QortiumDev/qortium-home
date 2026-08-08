@@ -32,7 +32,7 @@ implementation. It is an engineering record, not legal advice.
 | Qortal Unite archive | Unborn `main`; no implementation commit | No confirmed repo-level license | Planning concept reference | No | Concept only |
 | QortDEX archive | `bb673a77479e28e252702c65726621f794ad6d67` | No confirmed repo-level license | Wallet/trading concept reference | No | Concept only |
 | Reticulum/RCHAT engine | Hub v3 reference above; packaged dependency provenance not yet frozen | GPL Hub code plus dependency license review required | Optional cross-network native subsystem after protocol and licensing gates | No | Blocked from implementation |
-| Fixture Home v2 foundation | This repository, commit to be recorded after merge | 0BSD | Runtime-free types, policy, mock host, Dashboard, and launcher | Original work | In progress |
+| Fixture Home v2 foundation | This repository, dedicated `codex/home-v2` commits recorded in the changelog | 0BSD | Runtime-free types, policy, host fakes, Dashboard, launcher, and isolated AppImage preview | Original work | Approved Phase 1 foundation |
 
 ## Addition template
 

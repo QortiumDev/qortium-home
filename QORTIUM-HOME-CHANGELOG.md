@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: package isolated Home v2 fixture preview
+
+Makes the Home 2.0 foundation available as a stateful Linux AppImage checkpoint
+without connecting it to current Home data or services. The fixture can switch
+between desktop and phone layouts, exercise labelled Qortal/Qortium app tabs,
+and walk through separate `qdnRequest` and `qortalRequest` permission prompts.
+Electron and Android host fakes throw on all privileged capabilities. A minimal
+Electron entry, separate build outputs, dependency-free staging package,
+network-denying policy, and distinct preview app identity keep production
+wallet, Core, QDN, updater, Reticulum, and profile code out of the artifact.
+This temporary preview target supports visual review only; Qortium Home v2 still
+replaces v1 in place once retained host capabilities are migrated and accepted.
+
 ### 2026-08-08 - feat: model Home v2 tabs and bridge permissions
 
 Extends the disconnected Home 2.0 fixture with an immutable tab and navigation
