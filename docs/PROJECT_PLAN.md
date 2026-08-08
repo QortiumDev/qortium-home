@@ -30,8 +30,12 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 
 | Area | Decision |
 | --- | --- |
-| Product shape | App-focused shell with Dashboard, Apps/launcher, and Settings as stable product surfaces. |
+| Product shape | Familiar global browser shell. Dashboard and internal pages occupy browser tabs; QDN apps open as peer tabs, never inside Dashboard. |
 | Landing page | Keep the name `Dashboard`. Do not create a page named Home inside Qortium Home. |
+| Startup | No login wall. Restore the last selected account; Dashboard also works with no account or a locked account. |
+| Unlock persistence | Optional secure-device unlock only; `Lock on exit` defaults on, manual lock persists, and plaintext password storage is forbidden. |
+| Connections | Qortal and Qortium independently use Disabled, Local, Public, or Custom modes. Public access is not called Previewnet. |
+| Visual language | Warm neutral tan/parchment light mode and chocolate-gray dark mode, with restrained clay/copper accents rather than green- or blue-led themes. |
 | Feature ownership | Chat, Wallets, Groups, Explorer, publishing, markets, and similar full experiences are QDN apps. |
 | Identity | Present one user-facing identity with separately labelled Qortal and Qortium network presences. |
 | Bridges | Preserve `qdnRequest` and `qortalRequest` as separate public protocols over shared typed services where semantics match exactly. |
@@ -61,12 +65,14 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 
 ### Stable shell
 
-The shell should be calm and app-focused:
+The shell should be calm, app-focused, and immediately familiar as a browser:
 
-- One stable launcher/navigation surface rather than stacked or hover-only
-  primary navigation.
-- One compact context surface showing the active identity, current app/page,
-  and relevant Qortal/Qortium node capabilities.
+- One global tab strip and browser toolbar outside page content rather than a
+  sidebar or nested app tabs inside Dashboard.
+- Dashboard, Apps, Activity, and Settings as internal browser destinations;
+  QDN apps open as top-level peer tabs.
+- One compact context surface showing the active identity, address/destination,
+  and both Qortal/Qortium node capabilities.
 - Browser-like tabs with independent history, reliable back/forward behavior,
   desktop context menus and shortcuts, and clear mobile equivalents.
 - User-organized apps, folders/sections, search, bookmarks, downloads, and
@@ -96,6 +102,24 @@ Dashboard may contain configurable, progressively disclosed modules for:
 Dashboard must not mix every node detail, social feed, promotion, wallet
 operation, and onboarding task into the default view. Detailed diagnostics
 belong behind summaries. Promotional or AI modules are optional and removable.
+
+Dashboard is available without an account and never becomes a login gate. It
+shows both network connection controls before unlock. With a last-used account,
+it shows the selected identity and its labelled Qortal/Qortium presences in
+either locked or unlocked state.
+
+### Startup, lock, and connection state
+
+- Restore the last selected identity independently of whether it is unlocked.
+- `Lock on exit` is enabled by default for each account/device pairing.
+- A user may opt into remembered unlock only through suitable OS secure storage
+  or Android Keystore-backed storage; never store a plaintext password.
+- Manual lock clears pending privileged work and persists until an explicit
+  unlock.
+- No-account and locked states retain Dashboard, public apps, and account-
+  independent node controls.
+- Each network independently exposes Disabled, Local, Public, and Custom node
+  modes. “Public” replaces the old Previewnet-facing label in Home.
 
 ## Trusted shell and app boundary
 
@@ -504,7 +528,11 @@ account fixture deliberately grants no implicit extra capabilities. Explicit
 Electron and Android host fakes run the same model and throw on every privileged
 capability. A separately packaged preview AppImage uses a minimal Electron main
 process and isolated staging tree, with no production Home dependencies or live
-host reachability. No live host adapter is authorized yet.
+host reachability. Its global browser chrome starts with Dashboard only, opens
+QDN apps as peer tabs, exercises no-account/locked/unlocked startup states,
+independent four-mode Qortal/Qortium connection controls, and warm neutral light
+and dark themes at desktop and phone widths. No live host adapter is authorized
+yet.
 
 ### Phase 2: retained host adapters and read-only slice
 
@@ -612,7 +640,8 @@ host reachability. No live host adapter is authorized yet.
 ## Open questions
 
 - Final product name beyond the working Qortium Home 2.0 label.
-- Exact visual language and configurable Dashboard module set.
+- Exact configurable Dashboard module set beyond Connections, Account, and
+  Pinned Apps.
 - Exact portable Reticulum engine/language and compatible dependency set.
 - Whether at-rest encryption is mandatory for all Reticulum databases or only
   private/direct content, and how keys are recovered across devices.

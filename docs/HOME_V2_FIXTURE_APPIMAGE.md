@@ -24,8 +24,16 @@ or dependencies. Packaging explicitly disables publication.
 
 ## What to test
 
-- Dashboard clarity at normal desktop width.
-- The phone-layout toggle at a narrow or normal window size.
+- Whether the global tab strip, toolbar, address field, and Dashboard start page
+  feel like one familiar web browser rather than a dashboard containing apps.
+- Dashboard clarity at normal desktop width and the phone-layout toggle.
+- Warm tan/parchment light mode and chocolate-gray dark mode.
+- No-account, locked, and unlocked startup states. All retain both connection
+  controls and public app browsing; there is no login wall.
+- The remembered-unlock and default-on lock-on-exit controls. They only change
+  synthetic fixture state and do not store a password.
+- Independent Disabled, Local, Public, and Custom modes for both Qortal and
+  Qortium. The fixture makes no connection in any mode.
 - Qortal and Qortium names, addresses, nodes, and app contexts remaining clearly
   labelled while representing one person.
 - Opening the same Chat fixture on both networks and returning to Dashboard
@@ -35,6 +43,11 @@ or dependencies. Packaging explicitly disables publication.
 - `qortalRequest` account consent offering once, tab-session, and durable app
   scopes without hidden permissions.
 - Locking the fixture clearing pending requests and saved fixture grants.
+
+The initial tab strip intentionally contains only Dashboard. Open Chat or
+Wallets from Pinned Apps to add peer tabs. The fixture's back/forward, reload,
+address/search, connection-details, account-switch, and new-tab behavior is
+visual scaffolding where no explicit fixture transition is described.
 
 Apps, Activity, and Settings are navigation-state placeholders in this visual
 checkpoint. App content is also deliberately disconnected.

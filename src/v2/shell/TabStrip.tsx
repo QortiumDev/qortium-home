@@ -9,6 +9,16 @@ export interface TabStripProps {
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
+  readonly onNewTab?: () => void
+}
+
+const internalTabLabels: Readonly<
+  Record<Exclude<ShellDestination, 'tab'>, string>
+> = {
+  activity: 'Activity',
+  apps: 'Apps',
+  dashboard: 'Dashboard',
+  settings: 'Settings',
 }
 
 export function TabStrip({
@@ -16,22 +26,27 @@ export function TabStrip({
   onActivateTab,
   onCloseTab,
   onNavigate,
+  onNewTab,
 }: TabStripProps) {
+  const internalDestination =
+    productState.destination === 'tab' ? 'dashboard' : productState.destination
+  const internalLabel = internalTabLabels[internalDestination]
   return (
-    <div className="home-v2-tabs" role="tablist" aria-label="Open apps">
+    <div className="home-v2-tabs" role="tablist" aria-label="Browser tabs">
       <div
         className={`home-v2-tab home-v2-tab--dashboard${
-          productState.destination === 'dashboard' ? ' is-active' : ''
+          productState.destination !== 'tab' ? ' is-active' : ''
         }`}
       >
         <button
           type="button"
           role="tab"
-          aria-selected={productState.destination === 'dashboard'}
-          className={productState.destination === 'dashboard' ? 'is-active' : ''}
-          onClick={() => onNavigate?.('dashboard')}
+          aria-selected={productState.destination !== 'tab'}
+          className={productState.destination !== 'tab' ? 'is-active' : ''}
+          onClick={() => onNavigate?.(internalDestination)}
         >
-          Dashboard
+          <span className="home-v2-tab__favicon" aria-hidden="true">Q</span>
+          {internalLabel}
         </button>
       </div>
       {productState.tabs.map((tab) => {
@@ -63,6 +78,15 @@ export function TabStrip({
           </div>
         )
       })}
+      <button
+        type="button"
+        className="home-v2-new-tab"
+        aria-label="New Dashboard tab"
+        title="New tab"
+        onClick={onNewTab}
+      >
+        +
+      </button>
     </div>
   )
 }

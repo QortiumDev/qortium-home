@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: reshape Home v2 as a warm browser shell
+
+Reworks the disconnected Home 2.0 preview around a familiar, global browser
+frame instead of a dashboard containing app tabs. Dashboard starts as the only
+tab; Chat, Wallets, and other QDN apps open beside it. The fixture adds a warm
+tan/parchment light theme and chocolate-gray dark theme, responsive desktop and
+phone layouts, no-account/locked/unlocked startup states without a login wall,
+secure-unlock and default-on lock-on-exit preference models, and independent
+Disabled, Local, Public, and Custom modes for both Qortal and Qortium. Public
+node access is no longer labelled Previewnet. All controls remain synthetic and
+offline; no profile, password, wallet, node, Core, QDN, or Reticulum service is
+connected.
+
 ### 2026-08-08 - fix: load packaged Home v2 fixture assets
 
 Fixes the Home 2.0 preview AppImage opening to a plain white window. The first

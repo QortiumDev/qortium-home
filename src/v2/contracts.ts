@@ -16,6 +16,17 @@ export type NetworkAddress<Network extends NetworkId = NetworkId> = Brand<
 export type PresenceState = 'present' | 'absent' | 'unavailable'
 export type NodeState = 'online' | 'syncing' | 'offline' | 'unknown'
 export type ReticulumState = 'disabled' | 'starting' | 'online' | 'degraded'
+export type AccountSessionState = 'none' | 'locked' | 'unlocked'
+export type NodeConnectionMode = 'disabled' | 'local' | 'public' | 'custom'
+
+export interface AccountSessionSummary {
+  readonly state: AccountSessionState
+  readonly selectedIdentityId: IdentityId | null
+  readonly rememberUnlock: boolean
+  readonly lockOnExit: boolean
+  readonly manuallyLocked: boolean
+  readonly secureStorageAvailable: boolean
+}
 
 export interface AvatarDescriptor {
   readonly kind: 'initials' | 'qdn'
@@ -44,6 +55,7 @@ export interface NodeSummary {
   readonly ref: NodeProfileRef
   readonly network: NetworkId
   readonly label: string
+  readonly mode: NodeConnectionMode
   readonly state: NodeState
   readonly statusText: string
   readonly isTrusted: boolean
@@ -81,6 +93,7 @@ export interface ReticulumSummary {
 }
 
 export interface HomeV2Snapshot {
+  readonly account: AccountSessionSummary
   readonly identity: IdentityRecord
   readonly nodes: Readonly<Record<NetworkId, NodeSummary>>
   readonly apps: readonly AppDescriptor[]

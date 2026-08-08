@@ -1,14 +1,16 @@
 :root {
-  color: #17201c;
-  background: #dfe5e1;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+  color: #302822;
+  background: #1f1b18;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  margin: 0;
+  background: #1f1b18;
 }
 
 button {
@@ -17,119 +19,118 @@ button {
 
 .home-v2-fixture-preview {
   min-height: 100vh;
-  background: #dfe5e1;
+  background: #1f1b18;
 }
 
 .home-v2-fixture-toolbar {
   position: relative;
   z-index: 50;
-  padding: 12px 18px;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  align-items: center;
-  gap: 10px 18px;
-  color: #eef7f2;
-  background: #0e2820;
-  box-shadow: 0 4px 18px rgba(8, 24, 18, 0.18);
+  gap: 9px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #5d4e43;
+  color: #eee2d6;
+  background: #29231f;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 24%);
 }
 
 .home-v2-fixture-toolbar > div:first-child {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.home-v2-fixture-toolbar strong {
-  font-size: 13px;
-}
-
-.home-v2-fixture-toolbar span {
-  color: #b8ccc2;
-  font-size: 10px;
+.home-v2-fixture-toolbar > div:first-child span {
+  color: #b9aa9d;
+  font-size: 11px;
 }
 
 .home-v2-fixture-toolbar__controls {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  align-items: end;
   gap: 7px;
 }
 
 .home-v2-fixture-toolbar fieldset {
-  margin: 0;
-  padding: 2px;
   display: flex;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
+  gap: 3px;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid #645449;
+  border-radius: 9px;
 }
 
 .home-v2-fixture-toolbar legend {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
+  padding: 0 5px;
+  color: #b9aa9d;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .home-v2-fixture-toolbar button {
-  padding: 7px 9px;
-  color: #d9e7df;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid #6e5b4d;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.07);
+  color: #eee2d6;
+  background: #3a302a;
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: capitalize;
-}
-
-.home-v2-fixture-toolbar fieldset button {
-  border: 0;
-  background: transparent;
+  padding: 6px 9px;
+  font-size: 11px;
 }
 
 .home-v2-fixture-toolbar button:hover,
-.home-v2-fixture-toolbar button:focus-visible,
 .home-v2-fixture-toolbar button.is-active {
-  color: #102b21;
-  outline: none;
-  background: #dceee4;
+  border-color: #c48b65;
+  color: #fff8f0;
+  background: #7e5139;
 }
 
 .home-v2-fixture-toolbar p {
-  grid-column: 1 / -1;
-  margin: 0;
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
+  align-items: center;
   gap: 7px;
-  color: #b8ccc2;
-  font-size: 10px;
+  margin: 0;
+  color: #c7b9ac;
+  font-size: 11px;
 }
 
 .home-v2-fixture-toolbar p span {
-  padding: 3px 6px;
+  border: 1px solid #5d4e43;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.09);
+  padding: 3px 7px;
 }
 
 .home-v2-fixture-stage {
-  margin: 0 auto;
-  background: #f3f5f3;
+  min-height: calc(100vh - 145px);
+  overflow: auto;
+  background: #181411;
+  padding: 18px;
 }
 
 .home-v2-fixture-preview--phone .home-v2-fixture-stage {
-  width: min(430px, 100%);
-  min-height: 760px;
-  border-inline: 1px solid #c9d2cd;
-  box-shadow: 0 18px 60px rgba(17, 42, 31, 0.14);
+  display: grid;
+  justify-content: center;
+  padding: 18px 8px 40px;
 }
 
-@media (max-width: 900px) {
-  .home-v2-fixture-toolbar {
-    grid-template-columns: 1fr;
+.home-v2-fixture-preview--phone .home-v2-shell {
+  overflow: hidden;
+  border: 1px solid #5d4e43;
+  border-radius: 24px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 42%);
+}
+
+@media (max-width: 720px) {
+  .home-v2-fixture-toolbar > div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
-  .home-v2-fixture-toolbar__controls {
-    justify-content: flex-start;
+  .home-v2-fixture-stage {
+    padding-inline: 0;
   }
 }

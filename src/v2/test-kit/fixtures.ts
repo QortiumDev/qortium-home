@@ -144,6 +144,14 @@ const apps: readonly AppDescriptor[] = [
 ]
 
 export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
+  account: {
+    state: 'unlocked',
+    selectedIdentityId: fixtureIds.identity,
+    rememberUnlock: true,
+    lockOnExit: true,
+    manuallyLocked: false,
+    secureStorageAvailable: true,
+  },
   identity: {
     id: fixtureIds.identity,
     displayLabel: 'Alice',
@@ -182,6 +190,7 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
       ref: fixtureIds.qortalNode,
       network: 'qortal',
       label: 'Qortal local node',
+      mode: 'local',
       state: 'syncing',
       statusText: 'Syncing 96%',
       isTrusted: true,
@@ -190,6 +199,7 @@ export const homeV2Fixture: HomeV2Snapshot = deepFreeze({
       ref: fixtureIds.qortiumNode,
       network: 'qortium',
       label: 'Qortium local node',
+      mode: 'local',
       state: 'online',
       statusText: 'Online',
       isTrusted: true,

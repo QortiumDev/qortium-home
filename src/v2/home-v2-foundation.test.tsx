@@ -433,10 +433,18 @@ function testDesktopAndPhoneContracts(): void {
   )
 
   assert.match(desktop, /data-layout="desktop"/)
+  assert.match(desktop, /data-theme="light"/)
   assert.match(phone, /data-layout="phone"/)
   for (const html of [desktop, phone]) {
-    assert.match(html, /data-nav-label="Dashboard"/)
-    assert.doesNotMatch(html, /data-nav-label="Home"/)
+    assert.match(html, /class="home-v2-browser-chrome"/)
+    assert.match(html, /aria-label="Browser tabs"/)
+    assert.match(html, /value="home:\/\/dashboard"/)
+    assert.ok(
+      html.indexOf('home-v2-browser-chrome') < html.indexOf('home-v2-dashboard'),
+      'browser chrome must wrap the Dashboard rather than live inside it',
+    )
+    assert.doesNotMatch(html, /home-v2-sidebar/)
+    assert.doesNotMatch(html, />Home</)
     assert.match(html, />Qortal</)
     assert.match(html, />Qortium</)
     assert.match(html, />AliceQ</)
@@ -444,13 +452,70 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, />Pinned apps</)
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)
-    assert.match(html, />Reticulum</)
-    assert.match(html, />Optional</)
+    assert.match(html, />Disabled</)
+    assert.match(html, />Local</)
+    assert.match(html, />Public</)
+    assert.match(html, />Custom</)
+    assert.doesNotMatch(html, /Previewnet/)
     assert.match(html, /role="tablist"/)
     assert.match(html, /fixture:tab:chat:qortal/)
     assert.match(html, /fixture:tab:chat:qortium/)
     assert.doesNotMatch(html, /role="dialog"/)
   }
+}
+
+function testStartupStatesAndWarmThemes(): void {
+  const productState = createProductState()
+  const render = (
+    account: typeof homeV2Fixture.account,
+    theme: 'dark' | 'light',
+  ) =>
+    renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={{ ...homeV2Fixture, account }}
+        productState={productState}
+        permissionState={createPermissionState()}
+        layout="desktop"
+        theme={theme}
+      />,
+    )
+
+  const noAccount = render(
+    {
+      ...homeV2Fixture.account,
+      state: 'none',
+      selectedIdentityId: null,
+      rememberUnlock: false,
+      manuallyLocked: false,
+    },
+    'light',
+  )
+  assert.match(noAccount, /data-account-state="none"/)
+  assert.match(noAccount, /Browse first\. Add an account when you need one\./)
+  assert.match(noAccount, />Add or import account</)
+
+  const locked = render(
+    {
+      ...homeV2Fixture.account,
+      state: 'locked',
+      manuallyLocked: true,
+    },
+    'dark',
+  )
+  assert.match(locked, /data-theme="dark"/)
+  assert.match(locked, /data-account-state="locked"/)
+  assert.match(locked, />Unlock account</)
+  assert.match(locked, />Lock on exit</)
+
+  const unlocked = render(homeV2Fixture.account, 'light')
+  assert.match(unlocked, /data-account-state="unlocked"/)
+  assert.match(unlocked, />Lock account</)
+
+  const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
+  assert.match(css, /--v2-bg: #e6dac8/)
+  assert.match(css, /--v2-bg: #211e1c/)
+  assert.doesNotMatch(css, /#225b44/i)
+  assert.doesNotMatch(css, /\b(?:green|blue)\b/i)
 }
 
 function testPermissionDialogsOnDesktopAndPhone(): void {
@@ -495,12 +560,19 @@ function testInteractiveFixturePreviewContract(): void {
   assert.match(html, /No network, wallet, node, signing, Core, or Reticulum access/)
   assert.match(html, />desktop</)
   assert.match(html, />phone</)
+  assert.match(html, />light</)
+  assert.match(html, />dark</)
+  assert.match(html, />none</)
+  assert.match(html, />locked</)
+  assert.match(html, />unlocked</)
   assert.match(html, />electron</)
   assert.match(html, />android</)
   assert.match(html, />Try qdnRequest</)
   assert.match(html, />Try qortalRequest</)
   assert.match(html, />Lock fixture</)
   assert.match(html, /0 saved fixture grants/)
+  assert.match(html, /value="home:\/\/dashboard"/)
+  assert.doesNotMatch(html, /data-tab-id="fixture:tab:/)
 }
 
 function testFixtureElectronEntryIsIsolated(): void {
@@ -618,6 +690,7 @@ testProductModelKeepsNetworkQualifiedTabs()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()
+testStartupStatesAndWarmThemes()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()
 testFixtureElectronEntryIsIsolated()
