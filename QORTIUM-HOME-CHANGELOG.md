@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: scaffold fixture-only Home v2 foundation
+
+Creates the first additive Home 2.0 implementation without changing the
+current application or connecting the prototype to it. An architecture
+decision fixes the
+same-repository renderer replacement, a provenance ledger protects the
+0BSD-first clean-implementation boundary, and runtime-free contracts make
+identity, wallet, app, tab, node, and target network context explicit. A
+synthetic Dashboard and app launcher demonstrate the shared Qortal/Qortium
+identity view and responsive desktop/phone layouts. The injected fixture host
+throws on every network, filesystem, vault, signing, and native-service request,
+while contract tests prove wrong-network work is rejected before an adapter can
+run. No live account, node, QDN app, wallet, Core, or Reticulum service is
+connected.
+
 ### 2026-08-08 - docs: establish Qortium Home v2 product plan
 
 Replaces the obsolete Qortium-only, desktop-first project plan with the adopted

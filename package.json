@@ -56,6 +56,7 @@
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",
     "test:wiring": "node scripts/check-test-wiring.mjs",
+    "test:home-v2-foundation": "esbuild src/v2/home-v2-foundation.test.tsx --bundle --platform=node --format=esm --packages=external --loader:.css=empty --outfile=dist-electron/home-v2-foundation.test.js && node dist-electron/home-v2-foundation.test.js",
     "android:test:qdn-stream-lifecycle": "cd android && ./gradlew testDebugUnitTest --tests org.qortium.home.QdnBridgeWebViewClientTest --tests org.qortium.home.QdnRenderProxyTest",
     "test:app-versioning": "node scripts/ensure-electron-build.mjs && node dist-electron/app-versioning.test.js",
     "test:notification-target": "node scripts/ensure-electron-build.mjs && node dist-electron/notification-target.test.js",

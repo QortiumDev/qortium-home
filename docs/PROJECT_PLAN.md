@@ -625,3 +625,9 @@ After this planning commit is accepted:
 
 Stop before real wallet, node, Reticulum, or signing integration and review the
 fixture shell and contracts as a separate checkpoint.
+
+Status on 2026-08-08: this immediate tranche is implemented on the dedicated
+`codex/home-v2` branch. The fixture host also fails closed for filesystem and
+managed-service access, and the focused desktop/phone render and wrong-network
+policy tests are wired into the repository suite. Phase 1 remains open for the
+tab model, mock bridge permission flows, and Electron/Android host fakes.

@@ -1,0 +1,46 @@
+# Qortium Home Provenance Ledger
+
+This ledger records what Home 2.0 learns from, imports, or adapts. It protects
+the project's 0BSD-first policy by separating behavioral research from copied
+implementation. It is an engineering record, not legal advice.
+
+## Policy
+
+- New Home and first-party QDN app code is 0BSD unless a component is clearly
+  isolated and documented under another compatible license.
+- GPL Qortal Hub and HubCE sources may inform behavior, interoperability tests,
+  and independently implemented UX, but their implementation code is not copied
+  into Home's 0BSD source.
+- Repositories without a confirmed license are concept references only.
+- Every imported dependency or adapted component must record an exact source,
+  revision/version, license, usage form, and review status before distribution.
+- Protocol compatibility claims require independent fixtures or live
+  interoperability evidence; visual similarity or a successful handshake is
+  not sufficient.
+
+## Current ledger
+
+| Component or reference | Exact source | License evidence | Use in Home 2.0 | Copied implementation | Status |
+| --- | --- | --- | --- | --- | --- |
+| Existing Qortium Home | This repository, base `930bbfd28b7831638fb8d5470c6333be189b7c2f` | Repository `LICENSE`: 0BSD | Retain platform, packaging, security, and repository history behind new typed adapters | Existing project code | Approved foundation |
+| Home v2 product plan | This repository, `6f397d4146fc1452245cc172efe89bb5d9097a93` | 0BSD project documentation | Governing product and migration direction | Original work | Approved |
+| Qortal Hub 1.0.1 | `2ec883d54165095cf055f9b58d6c4e43e0565c89` | GPL-3.0 repository license | Static UX and compatibility behavior reference | No | Reference only |
+| Qortal Hub 2.0.1 | `3889cf38a6f50b5b6a601f3d4a4fae13feec2cde` | GPL-3.0 repository license | Static shell, tab, onboarding, and diagnostics behavior reference | No | Reference only |
+| Qortal Hub 3.0.0 | `4f1d5127eebbb8747056ae8a4b8cb060b2559820` | GPL-3.0 repository license | Static `qortalRequest`, Q-Chat, and Reticulum protocol research | No | Reference only; Reticulum path unresolved |
+| Qortal HubCE archive | `69d0b931c225edd8f79bdf340051f4fd5ed11dae` | GPL-3.0 repository license | Monolithic UX/community-edition behavior reference | No | Reference only |
+| Archived Qortal Home | `2ab55b576f6afa0fb1dbbab9d3f98849d462b121` | No confirmed repo-level license in reviewed archive | Architecture and permission-model concept reference | No | Concept only |
+| Qortal Unite archive | Unborn `main`; no implementation commit | No confirmed repo-level license | Planning concept reference | No | Concept only |
+| QortDEX archive | `bb673a77479e28e252702c65726621f794ad6d67` | No confirmed repo-level license | Wallet/trading concept reference | No | Concept only |
+| Reticulum/RCHAT engine | Hub v3 reference above; packaged dependency provenance not yet frozen | GPL Hub code plus dependency license review required | Optional cross-network native subsystem after protocol and licensing gates | No | Blocked from implementation |
+| Fixture Home v2 foundation | This repository, commit to be recorded after merge | 0BSD | Runtime-free types, policy, mock host, Dashboard, and launcher | Original work | In progress |
+
+## Addition template
+
+Add a row before importing or adapting code:
+
+| Component or reference | Exact source | License evidence | Use in Home 2.0 | Copied implementation | Status |
+| --- | --- | --- | --- | --- | --- |
+| Name | Repository URL/path plus immutable commit, tag, or package integrity hash | License file/SPDX plus review note | Behavioral reference, protocol fixture, dependency, asset, or code | Yes/No and exact files | Proposed/approved/blocked/replaced |
+
+If a source cannot be pinned or its license cannot be confirmed, stop at
+behavioral research and record the unresolved question in the project plan.
