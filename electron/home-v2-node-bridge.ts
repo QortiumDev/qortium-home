@@ -18,6 +18,14 @@ import {
   type HomeV2LocalCoreInstallState,
 } from './home-v2-core-readiness.js'
 import { nodeFetch } from './node-tls.js'
+import {
+  buildAccountAvatarPath,
+  buildAvatarResourcePath,
+  getAvatarImageContentType,
+  getGroupAvatarRetryAfterSeconds,
+  GROUP_AVATAR_MAX_BYTES,
+} from './qdn-group-avatar-input.js'
+import { getHomeV2AccountCatalogue } from './accounts.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
@@ -138,6 +146,66 @@ async function readBoundedText(response: Response) {
     offset += chunk.byteLength
   }
   return new TextDecoder().decode(bytes)
+}
+
+function normalizeAvatarReadRequest(network: NetworkId, value: unknown) {
+  if (!isRecord(value)) throw new Error('Avatar read request is required.')
+  const address = typeof value.address === 'string' ? value.address.trim() : ''
+  const pointer = isRecord(value.pointer) ? value.pointer : {}
+  const service = typeof pointer.service === 'string' ? pointer.service.trim() : ''
+  const name = typeof pointer.name === 'string' ? pointer.name.trim() : ''
+  const identifier =
+    typeof pointer.identifier === 'string' ? pointer.identifier.trim() : ''
+  const source = pointer.source
+  if (!/^Q[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) {
+    throw new Error('Avatar address is invalid.')
+  }
+  if (!service || !name || !identifier || name.length > 128) {
+    throw new Error('Avatar pointer metadata is invalid.')
+  }
+  if (network === 'qortium' && source === 'account-pointer') {
+    return { address, path: buildAccountAvatarPath(address) }
+  }
+  const expectedIdentifier = network === 'qortal' ? 'qortal_avatar' : 'avatar'
+  if (
+    source !== 'legacy-name' ||
+    service !== 'THUMBNAIL' ||
+    identifier !== expectedIdentifier
+  ) {
+    throw new Error('Avatar pointer does not match the selected network.')
+  }
+  return {
+    address,
+    path: buildAvatarResourcePath({ identifier, name, service }),
+  }
+}
+
+async function readBoundedBytes(response: Response, maxBytes: number) {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error('Avatar exceeded the 500 KiB limit.')
+  }
+  if (!response.body) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > maxBytes) {
+      await reader.cancel()
+      throw new Error('Avatar exceeded the 500 KiB limit.')
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
 }
 
 function getNodeState(status: unknown) {
@@ -383,6 +451,69 @@ async function readIdentity(network: NetworkId, requestValue: unknown) {
   }
 }
 
+async function readAvatar(network: NetworkId, requestValue: unknown) {
+  let request: ReturnType<typeof normalizeAvatarReadRequest>
+  try {
+    request = normalizeAvatarReadRequest(network, requestValue)
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Avatar request is invalid.',
+      status: 'unavailable' as const,
+    }
+  }
+  const snapshot = await getRecentSnapshot()
+  const node = snapshot.nodes[network]
+  if (!node.capabilities.read || !node.nodeApiUrl) {
+    return {
+      message: node.error ?? `${network} node is unavailable.`,
+      status: 'unavailable' as const,
+    }
+  }
+  try {
+    const response = await nodeFetch(`${node.nodeApiUrl}${request.path}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (response.status === 202) {
+      return {
+        retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
+          response.headers.get('retry-after') ?? undefined,
+        ),
+        status: 'pending' as const,
+      }
+    }
+    if (response.status === 404) return { status: 'missing' as const }
+    if (!response.ok) {
+      return {
+        message: `Avatar request returned HTTP ${response.status}.`,
+        status: 'unavailable' as const,
+      }
+    }
+    const bytes = await readBoundedBytes(response, GROUP_AVATAR_MAX_BYTES)
+    const contentType = getAvatarImageContentType(
+      response.headers.get('content-type') ?? undefined,
+      bytes,
+    )
+    if (!contentType) {
+      return {
+        message: 'Avatar was not a supported image.',
+        status: 'unavailable' as const,
+      }
+    }
+    return {
+      body: Buffer.from(bytes).toString('base64'),
+      contentLength: bytes.byteLength,
+      contentType,
+      status: 'ready' as const,
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'Avatar request failed.',
+      status: 'unavailable' as const,
+    }
+  }
+}
+
 export function authorizeHomeV2NodeBridge(sender: WebContents) {
   authorizedSenderIds.add(sender.id)
   sender.once('destroyed', () => authorizedSenderIds.delete(sender.id))
@@ -393,11 +524,22 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     assertAuthorized(event.sender)
     return getSnapshot()
   })
+  ipcMain.handle('home-v2-accounts:list', (event) => {
+    assertAuthorized(event.sender)
+    return getHomeV2AccountCatalogue()
+  })
   ipcMain.handle(
     'home-v2-nodes:readIdentity',
     (event, networkValue: unknown, requestValue: unknown) => {
       assertAuthorized(event.sender)
       return readIdentity(normalizeNetwork(networkValue), requestValue)
+    },
+  )
+  ipcMain.handle(
+    'home-v2-nodes:readAvatar',
+    (event, networkValue: unknown, requestValue: unknown) => {
+      assertAuthorized(event.sender)
+      return readAvatar(normalizeNetwork(networkValue), requestValue)
     },
   )
   ipcMain.handle(

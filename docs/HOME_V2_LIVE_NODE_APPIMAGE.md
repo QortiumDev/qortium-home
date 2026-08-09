@@ -65,19 +65,27 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
 - Independently labelled names, primary names, owner addresses, and QDN avatar
   descriptors. Qortal uses `THUMBNAIL/<name>/qortal_avatar`; Qortium prefers its
   account avatar pointer and otherwise reports `THUMBNAIL/<name>/avatar`.
+- Visible public avatars are fetched through those exact pointers, capped at
+  500 KiB, magic-byte checked as PNG, JPEG, GIF, BMP, or WebP, and rendered from
+  a local Blob URL. Pending resource builds retry at most six times.
+- A read-only Account dropdown lists saved addresses from the preview's own
+  isolated profile, including derived addresses. Selecting one resolves its
+  public Qortal and Qortium presences without changing the wallet store.
 - One source-qualified app model: `qdn://` for Qortium resources and
   `qortal://` for Qortal resources, independent of target-network capabilities.
 
 ## Not connected yet
 
-- Wallet account selection and unlocking. Public identity lookup is connected,
-  but avatar image bytes are not loaded yet.
+- Account creation, import, removal, persistent selection, and unlocking. The
+  preview catalogue intentionally does not read the production Home profile;
+  profile migration remains a separate reviewed decision.
 - QDN app catalogue or resource loading; the Chat and Wallets cards are plans,
   not runnable apps in this build.
 - Signing, publishing, transactions, Core control, updates, or Reticulum.
 
-The desktop preload exposes only node snapshot, node-mode, custom-URL, and four
-allowlisted public identity-read operations. Identity responses are capped at
-256 KiB. The renderer cannot directly access the network, the Home 1.x bridge,
-wallet accounts, QDN content, Core control, updates, private keys, or seed
-material.
+The desktop preload exposes only node snapshot, node-mode, custom-URL, a
+sanitized read-only account list, four allowlisted public identity reads, and
+bounded pointer-aware avatar reads. Identity responses are capped at 256 KiB
+and avatars at 500 KiB. The renderer cannot directly access the network, the
+Home 1.x bridge, wallet files, QDN content, Core control, updates, private keys,
+or seed material.

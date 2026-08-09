@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 import {
+  buildHomeV2AvatarPath,
   createPortableNodeClient,
+  parseHomeV2AvatarResponse,
   normalizePortableNodeUrl,
   type PortableNodeClientDependencies,
 } from './node-client'
+import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
+import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 
 const syncedStatus = {
   height: 123,
@@ -26,6 +30,28 @@ const preferences = new Map<string, string>([
   [
     'home-v2-live-node:qortium',
     JSON.stringify({ customUrl: '', mode: 'disabled' }),
+  ],
+  [
+    'qortium-home-wallet-store',
+    JSON.stringify({
+      activeAccountId: 'wallet:one:2',
+      wallets: [
+        {
+          address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+          derivedAddresses: [
+            { address: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE', index: 2 },
+          ],
+          encryptedWallet: {
+            encryptedSeed: 'must-not-cross-the-bridge',
+            salt: 'also-secret-adjacent',
+            version: 2,
+          },
+          id: 'wallet:one',
+          label: 'Main account',
+          sourceFilename: '/private/wallet.json',
+        },
+      ],
+    }),
   ],
 ])
 const latency = new Map([
@@ -55,10 +81,48 @@ const dependencies: PortableNodeClientDependencies = {
       status: 200,
     }
   },
+  async requestBinary() {
+    return {
+      data: 'iVBORw0KGgo=',
+      headers: { 'content-type': 'application/octet-stream' },
+      status: 200,
+    }
+  },
   now: () => 1_700_000_000_000,
 }
 
 const client = createPortableNodeClient(dependencies)
+
+const catalogue = await client.listAccounts()
+assert.equal(catalogue.activeAccountId, 'wallet:one:2')
+assert.deepEqual(catalogue.accounts, [
+  {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    addressIndex: 0,
+    id: 'wallet:one',
+    isUnlocked: false,
+    label: 'Main account',
+    supportsDerivedAddresses: true,
+    walletId: 'wallet:one',
+  },
+  {
+    address: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE',
+    addressIndex: 2,
+    id: 'wallet:one:2',
+    isUnlocked: false,
+    label: 'Main account · 2',
+    supportsDerivedAddresses: true,
+    walletId: 'wallet:one',
+  },
+])
+assert.doesNotMatch(
+  JSON.stringify(catalogue),
+  /encryptedSeed|salt|sourceFilename|private\/wallet/,
+)
+assert.deepEqual(parseHomeV2AccountCatalogueStore('{broken'), {
+  accounts: [],
+  activeAccountId: null,
+})
 
 const first = (await client.getSnapshot()) as Snapshot
 assert.equal(first.version, 1)
@@ -82,6 +146,87 @@ await assert.rejects(
   () => client.setCustomUrl('qortal', 'http://remote.example:12391'),
   /must use HTTPS/,
 )
+
+const avatarRequest = {
+  address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  pointer: {
+    identifier: 'qortal_avatar',
+    name: 'Alice Smith',
+    service: 'THUMBNAIL',
+    source: 'legacy-name' as const,
+  },
+}
+assert.equal(
+  buildHomeV2AvatarPath('qortal', avatarRequest),
+  '/arbitrary/THUMBNAIL/Alice%20Smith/qortal_avatar?async=true',
+)
+assert.equal(
+  buildHomeV2AvatarPath('qortium', {
+    ...avatarRequest,
+    pointer: {
+      identifier: 'portrait',
+      name: 'Alice',
+      service: 'THUMBNAIL',
+      source: 'account-pointer',
+    },
+  }),
+  '/addresses/QH143K2qjVdn864NSY7aNESo88ao1ZnALH/avatar',
+)
+assert.throws(
+  () =>
+    buildHomeV2AvatarPath('qortium', {
+      ...avatarRequest,
+      pointer: { ...avatarRequest.pointer, identifier: 'qortal_avatar' },
+    }),
+  /does not match/,
+)
+
+const readyAvatar = parseHomeV2AvatarResponse({
+  data: 'iVBORw0KGgo=',
+  headers: { 'content-length': '8', 'content-type': 'text/html' },
+  status: 200,
+})
+assert.equal(readyAvatar.status, 'ready')
+if (readyAvatar.status === 'ready') {
+  assert.equal(readyAvatar.contentType, 'image/png')
+  assert.equal(readyAvatar.contentLength, 8)
+}
+assert.equal(
+  validateVisibleAvatarPayload('iVBORw0KGgo=', 8, 'image/png').byteLength,
+  8,
+)
+assert.throws(
+  () => validateVisibleAvatarPayload('iVBORw0KGgo=', 7, 'image/png'),
+  /byte length/,
+)
+assert.throws(
+  () => validateVisibleAvatarPayload('iVBORw0KGgo=', 8, 'text\/html'),
+  /content type/,
+)
+assert.equal(
+  parseHomeV2AvatarResponse({
+    data: 'iVBORw0KGgo=',
+    headers: { 'content-length': String(500 * 1024 + 1) },
+    status: 200,
+  }).status,
+  'unavailable',
+)
+assert.deepEqual(
+  parseHomeV2AvatarResponse({ data: '', headers: { 'retry-after': '4' }, status: 202 }),
+  { retryAfterSeconds: 4, status: 'pending' },
+)
+assert.equal(
+  parseHomeV2AvatarResponse({
+    data: btoa('<script>'),
+    headers: { 'content-type': 'image/png' },
+    status: 200,
+  }).status,
+  'unavailable',
+)
+
+await client.setMode('qortal', 'public')
+const avatar = await client.readAvatar('qortal', avatarRequest)
+assert.equal(avatar.status, 'ready')
 assert.equal(normalizePortableNodeUrl('localhost:12391'), 'https://localhost:12391')
 assert.equal(
   normalizePortableNodeUrl('http://127.0.0.1:12391/path'),

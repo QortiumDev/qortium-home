@@ -663,6 +663,35 @@ function testStartupStatesAndAppearance(): void {
   assert.match(unlocked, />Lock account</)
   assert.doesNotMatch(unlocked, /Good to see you|Welcome back|Your browser/)
 
+  const catalogue = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={homeV2ProductFixture}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      accountCatalogue={{
+        activeAccountId: 'wallet:main',
+        accounts: [
+          {
+            address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+            addressIndex: 0,
+            id: 'wallet:main',
+            isUnlocked: false,
+            label: 'Main account',
+            supportsDerivedAddresses: true,
+            walletId: 'wallet:main',
+          },
+        ],
+      }}
+      selectedAccountId="wallet:main"
+      onSelectAccount={() => undefined}
+    />,
+  )
+  assert.match(catalogue, /value="account:wallet:main" selected=""/)
+  assert.match(catalogue, /Main account · QH143K2q…/)
+  assert.match(catalogue, /value="create" disabled=""/)
+  assert.match(catalogue, /value="import" disabled=""/)
+
   const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
   assert.match(css, /--v2-bg: #edece8/)
   assert.match(css, /--v2-bg: #242423/)
@@ -988,11 +1017,15 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-nodes:getSnapshot/)
   assert.match(preload, /home-v2-nodes:setMode/)
   assert.match(preload, /home-v2-nodes:readIdentity/)
-  assert.doesNotMatch(preload, /qortiumHome|accounts:|qdn:|core:|sign|wallet/i)
+  assert.match(preload, /home-v2-nodes:readAvatar/)
+  assert.match(preload, /home-v2-accounts:list/)
+  assert.doesNotMatch(preload, /qortiumHome|qdn:|core:|sign|wallet/i)
+  assert.doesNotMatch(preload, /ipcRenderer\.invoke\('accounts:/)
   assert.equal((preload.match(/require\(/g) ?? []).length, 1)
   assert.doesNotMatch(bridge, /apiKey|privateKey|password|seedPhrase|sourceFilename/)
   assert.match(bridge, /authorizedSenderIds/)
   assert.match(bridge, /IDENTITY_RESPONSE_LIMIT/)
+  assert.match(bridge, /GROUP_AVATAR_MAX_BYTES/)
   assert.match(bridge, /Unsupported identity read/)
   assert.match(bridge, /assertAuthorized\(event\.sender\)/)
   assert.match(bridge, /function endpointHost/)
@@ -1001,6 +1034,7 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.match(main, /home-v2-live-preload\.cjs/)
   assert.match(main, /authorizeHomeV2NodeBridge/)
   assert.match(html, /connect-src 'none'/)
+  assert.match(html, /img-src 'self' data: blob:/)
   assert.match(html, /src="\/src\/home-v2-live\/main\.tsx"/)
 
   const liveSources = collectV2SourceFiles('src/home-v2-live')

@@ -27,6 +27,19 @@ export function createAndroidHomeV2NodeClient() {
         status: response.status,
       }
     },
+    async requestBinary(url) {
+      const response = await CapacitorHttp.get({
+        url,
+        responseType: 'arraybuffer',
+        connectTimeout: 5_000,
+        readTimeout: 8_000,
+      })
+      return {
+        data: response.data,
+        headers: response.headers,
+        status: response.status,
+      }
+    },
     now: () => Date.now(),
   })
 }

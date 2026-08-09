@@ -903,6 +903,7 @@
   width: 42px;
   height: 42px;
   flex: 0 0 42px;
+  object-fit: cover;
 }
 
 .home-v2-presence__details {

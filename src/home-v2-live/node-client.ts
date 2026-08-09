@@ -1,11 +1,20 @@
 import type {
+  HomeV2AccountCatalogue,
   NetworkId,
   NodeConnectionMode,
   NodeSummary,
+  VisibleAvatarReadRequest,
+  VisibleAvatarReadResult,
 } from '../v2/contracts'
+import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
+  listAccounts(): Promise<HomeV2AccountCatalogue>
+  readAvatar(
+    network: NetworkId,
+    request: VisibleAvatarReadRequest,
+  ): Promise<VisibleAvatarReadResult>
   readIdentity(
     network: NetworkId,
     request: HomeV2IdentityReadRequest,
@@ -44,6 +53,11 @@ export interface PortableNodeClientDependencies {
     ok: boolean
     status: number
   }>
+  requestBinary(url: string): Promise<{
+    data: unknown
+    headers: Readonly<Record<string, string>>
+    status: number
+  }>
   now(): number
 }
 
@@ -55,6 +69,128 @@ const PUBLIC_NODE_URLS = {
 const PUBLIC_READ_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false'
 const SETTINGS_PREFIX = 'home-v2-live-node:'
+const AVATAR_MAX_BYTES = 500 * 1024
+const WALLET_STORE_KEY = 'qortium-home-wallet-store'
+
+function normalizedAvatarPointer(pointer: VisibleAvatarReadRequest['pointer']) {
+  const service = pointer.service.trim()
+  const name = pointer.name.trim()
+  const identifier = pointer.identifier.trim()
+  if (!service || !name || !identifier || name.length > 128) {
+    throw new Error('Avatar pointer metadata is invalid.')
+  }
+  return { ...pointer, identifier, name, service }
+}
+
+export function buildHomeV2AvatarPath(
+  network: NetworkId,
+  request: VisibleAvatarReadRequest,
+) {
+  const address = request.address.trim()
+  const pointer = normalizedAvatarPointer(request.pointer)
+  if (!/^Q[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) {
+    throw new Error('Avatar address is invalid.')
+  }
+  if (
+    network === 'qortium' &&
+    pointer.source === 'account-pointer'
+  ) {
+    return `/addresses/${encodeURIComponent(address)}/avatar`
+  }
+  const expectedIdentifier = network === 'qortal' ? 'qortal_avatar' : 'avatar'
+  if (
+    pointer.source !== 'legacy-name' ||
+    pointer.service !== 'THUMBNAIL' ||
+    pointer.identifier !== expectedIdentifier
+  ) {
+    throw new Error('Avatar pointer does not match the selected network.')
+  }
+  return `/arbitrary/THUMBNAIL/${encodeURIComponent(pointer.name)}/${expectedIdentifier}?async=true`
+}
+
+function headerValue(headers: Readonly<Record<string, string>>, name: string) {
+  const expected = name.toLowerCase()
+  return Object.entries(headers).find(([key]) => key.toLowerCase() === expected)?.[1]
+}
+
+function decodeAvatarBase64(value: string) {
+  const binary = globalThis.atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
+function startsWith(bytes: Uint8Array, signature: readonly number[], offset = 0) {
+  return signature.every((byte, index) => bytes[offset + index] === byte)
+}
+
+export function getHomeV2AvatarContentType(bytes: Uint8Array) {
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png'
+  if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg'
+  if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return 'image/gif'
+  if (startsWith(bytes, [0x42, 0x4d])) return 'image/bmp'
+  if (
+    startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    startsWith(bytes, [0x57, 0x45, 0x42, 0x50], 8)
+  ) {
+    return 'image/webp'
+  }
+  return null
+}
+
+function retryAfterSeconds(value: string | undefined) {
+  if (!value) return null
+  if (/^\d+$/.test(value.trim())) return Number(value.trim())
+  const retryAt = Date.parse(value)
+  return Number.isFinite(retryAt)
+    ? Math.max(0, Math.ceil((retryAt - Date.now()) / 1000))
+    : null
+}
+
+export function parseHomeV2AvatarResponse(response: {
+  data: unknown
+  headers: Readonly<Record<string, string>>
+  status: number
+}): VisibleAvatarReadResult {
+  if (response.status === 202) {
+    return {
+      retryAfterSeconds: retryAfterSeconds(headerValue(response.headers, 'retry-after')),
+      status: 'pending',
+    }
+  }
+  if (response.status === 404) return { status: 'missing' }
+  if (response.status < 200 || response.status >= 300) {
+    return { message: `Avatar request returned HTTP ${response.status}.`, status: 'unavailable' }
+  }
+  if (typeof response.data !== 'string') {
+    return { message: 'Avatar response was not binary data.', status: 'unavailable' }
+  }
+  const declaredLength = Number(headerValue(response.headers, 'content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > AVATAR_MAX_BYTES) {
+    return { message: 'Avatar exceeded the 500 KiB limit.', status: 'unavailable' }
+  }
+  let bytes: Uint8Array
+  try {
+    bytes = decodeAvatarBase64(response.data)
+  } catch {
+    return { message: 'Avatar response was not valid base64.', status: 'unavailable' }
+  }
+  if (bytes.byteLength > AVATAR_MAX_BYTES) {
+    return { message: 'Avatar exceeded the 500 KiB limit.', status: 'unavailable' }
+  }
+  const contentType = getHomeV2AvatarContentType(bytes)
+  if (!contentType) {
+    return { message: 'Avatar was not a supported image.', status: 'unavailable' }
+  }
+  return {
+    body: response.data,
+    contentLength: bytes.byteLength,
+    contentType,
+    status: 'ready',
+  }
+}
 
 function identityPath(request: HomeV2IdentityReadRequest) {
   const value = request.value.trim()
@@ -326,6 +462,48 @@ export function createPortableNodeClient(
 
   return {
     getSnapshot,
+    async listAccounts() {
+      return parseHomeV2AccountCatalogueStore(
+        await dependencies.getPreference(WALLET_STORE_KEY),
+      )
+    },
+    async readAvatar(network, request) {
+      const settings = await readSettings(network)
+      if (settings.mode === 'disabled' || settings.mode === 'local') {
+        return {
+          message:
+            settings.mode === 'disabled'
+              ? `${network} access is disabled.`
+              : 'Local Core connections are not available on Android.',
+          status: 'unavailable' as const,
+        }
+      }
+      const recent = recentReadableNodes[network]
+      const nodeApiUrl =
+        settings.mode === 'custom'
+          ? settings.customUrl
+          : recent && dependencies.now() - recent.verifiedAt < 30_000
+            ? recent.nodeApiUrl
+            : (await resolvePublic(network))?.nodeApiUrl ?? ''
+      if (!nodeApiUrl) {
+        return {
+          message: `No healthy ${network} node was available.`,
+          status: 'unavailable' as const,
+        }
+      }
+      try {
+        return parseHomeV2AvatarResponse(
+          await dependencies.requestBinary(
+            `${nodeApiUrl}${buildHomeV2AvatarPath(network, request)}`,
+          ),
+        )
+      } catch (error) {
+        return {
+          message: error instanceof Error ? error.message : 'Avatar request failed.',
+          status: 'unavailable' as const,
+        }
+      }
+    },
     async readIdentity(network, request) {
       const settings = await readSettings(network)
       if (settings.mode === 'disabled') {

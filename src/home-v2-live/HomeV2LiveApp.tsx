@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   defaultHomeV2Appearance,
   resolveHomeV2SystemLanguage,
@@ -7,6 +7,8 @@ import { createPermissionState } from '../v2/bridge-permissions'
 import type {
   AppDescriptor,
   AppId,
+  HomeV2AccountCatalogue,
+  HomeV2AccountCatalogueEntry,
   HomeV2Snapshot,
   IdentityId,
   NetworkId,
@@ -14,6 +16,8 @@ import type {
   NodeProfileRef,
   NodeSummary,
   DualIdentityLookupResult,
+  NetworkAddress,
+  WalletRef,
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
@@ -139,6 +143,51 @@ function initialSnapshot(): HomeV2Snapshot {
   }
 }
 
+const emptyAccountCatalogue: HomeV2AccountCatalogue = Object.freeze({
+  accounts: Object.freeze([]),
+  activeAccountId: null,
+})
+
+function accountIdentity(
+  account: HomeV2AccountCatalogueEntry,
+  result?: DualIdentityLookupResult,
+): HomeV2Snapshot['identity'] {
+  const displayLabel =
+    result?.networks.qortium.primaryName ??
+    result?.networks.qortal.primaryName ??
+    account.label
+  const presences = Object.fromEntries(
+    (['qortal', 'qortium'] as const).map((network) => {
+      const resolved = result?.networks[network]
+      const primaryName = resolved?.primaryName ?? null
+      const initial = (primaryName ?? account.label).slice(0, 1).toUpperCase() || '?'
+      return [
+        network,
+        {
+          network,
+          state:
+            resolved?.state === 'resolved'
+              ? ('present' as const)
+              : resolved?.state === 'not-found'
+                ? ('absent' as const)
+                : ('unavailable' as const),
+          address: (resolved?.address ?? account.address) as NetworkAddress<typeof network>,
+          names: resolved?.names ?? [],
+          primaryName,
+          avatar: { kind: 'initials' as const, network, value: initial },
+          detail: resolved?.detail ?? 'Resolving public names.',
+        },
+      ]
+    }),
+  ) as HomeV2Snapshot['identity']['presences']
+  return {
+    id: brand<IdentityId>(`home-v2:identity:${account.id}`),
+    displayLabel,
+    selectedWallet: brand<WalletRef>(account.walletId),
+    presences,
+  }
+}
+
 function parseNodeSummary(value: unknown, network: NetworkId): NodeSummary {
   if (!isRecord(value) || value.network !== network) {
     throw new Error(`Invalid ${network} node snapshot.`)
@@ -237,7 +286,67 @@ export function HomeV2LiveApp() {
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
+  const [accountCatalogue, setAccountCatalogue] =
+    useState<HomeV2AccountCatalogue>(emptyAccountCatalogue)
+  const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const [selectedAccountLookup, setSelectedAccountLookup] =
+    useState<DualIdentityLookupResult | null>(null)
+  const accountSelectionEpoch = useRef(0)
   const permissionState = useMemo(createPermissionState, [])
+
+  const loadVisibleAvatar = useCallback(
+    (network: NetworkId, request: Parameters<HomeV2NodeClient['readAvatar']>[1]) =>
+      nodeClient
+        ? nodeClient.readAvatar(network, request)
+        : Promise.resolve({
+            message: 'Avatar loading is unavailable.',
+            status: 'unavailable' as const,
+          }),
+    [nodeClient],
+  )
+
+  const selectAccount = useCallback(
+    async (
+      accountId: string | null,
+      catalogue: HomeV2AccountCatalogue = accountCatalogueRef.current,
+    ) => {
+      const epoch = accountSelectionEpoch.current + 1
+      accountSelectionEpoch.current = epoch
+      setSelectedAccountId(accountId)
+      setSelectedAccountLookup(null)
+      if (!accountId) {
+        const empty = initialSnapshot()
+        setSnapshot((current) => ({
+          ...current,
+          account: empty.account,
+          identity: empty.identity,
+        }))
+        return
+      }
+      const account = catalogue.accounts.find((entry) => entry.id === accountId)
+      if (!account || !nodeClient) return
+      setSnapshot((current) => ({
+        ...current,
+        account: {
+          ...current.account,
+          state: account.isUnlocked ? 'unlocked' : 'locked',
+          selectedIdentityId: brand<IdentityId>(`home-v2:identity:${account.id}`),
+        },
+        identity: accountIdentity(account),
+      }))
+      const result = await resolveDualIdentity(account.address, (network, request) =>
+        nodeClient.readIdentity(network, request),
+      ).catch(() => undefined)
+      if (accountSelectionEpoch.current !== epoch) return
+      setSelectedAccountLookup(result ?? null)
+      setSnapshot((current) => ({
+        ...current,
+        identity: accountIdentity(account, result),
+      }))
+    },
+    [nodeClient],
+  )
 
   useEffect(() => {
     if (nodeClient) return
@@ -260,6 +369,30 @@ export function HomeV2LiveApp() {
       cancelled = true
     }
   }, [nodeClient])
+
+  useEffect(() => {
+    if (!nodeClient) return
+    let cancelled = false
+    void nodeClient
+      .listAccounts()
+      .then((catalogue) => {
+        if (cancelled) return
+        accountCatalogueRef.current = catalogue
+        setAccountCatalogue(catalogue)
+        if (catalogue.activeAccountId) {
+          void selectAccount(catalogue.activeAccountId, catalogue)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          accountCatalogueRef.current = emptyAccountCatalogue
+          setAccountCatalogue(emptyAccountCatalogue)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [nodeClient, selectAccount])
 
   const refresh = useCallback(async () => {
     if (!nodeClient) return
@@ -434,6 +567,10 @@ export function HomeV2LiveApp() {
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}
       identityLookupInput={identityInput}
+      loadVisibleAvatar={loadVisibleAvatar}
+      accountCatalogue={accountCatalogue}
+      selectedAccountId={selectedAccountId}
+      selectedAccountLookup={selectedAccountLookup}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })
       }
@@ -449,6 +586,7 @@ export function HomeV2LiveApp() {
         setIdentityLookupError(null)
       }}
       onIdentityLookupSubmit={() => void runIdentityLookup()}
+      onSelectAccount={(accountId) => void selectAccount(accountId)}
     />
   )
 }

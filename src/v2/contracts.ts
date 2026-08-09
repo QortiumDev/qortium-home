@@ -45,6 +45,45 @@ export interface IdentityAvatarPointer {
   readonly source: 'account-pointer' | 'legacy-name'
 }
 
+export interface VisibleAvatarReadRequest {
+  readonly address: string
+  readonly pointer: IdentityAvatarPointer
+}
+
+export type VisibleAvatarReadResult =
+  | {
+      readonly body: string
+      readonly contentLength: number
+      readonly contentType: string
+      readonly status: 'ready'
+    }
+  | {
+      readonly retryAfterSeconds: number | null
+      readonly status: 'pending'
+    }
+  | { readonly status: 'missing' }
+  | { readonly message: string; readonly status: 'unavailable' }
+
+export type VisibleAvatarLoader = (
+  network: NetworkId,
+  request: VisibleAvatarReadRequest,
+) => Promise<VisibleAvatarReadResult>
+
+export interface HomeV2AccountCatalogueEntry {
+  readonly address: string
+  readonly addressIndex: number
+  readonly id: string
+  readonly isUnlocked: boolean
+  readonly label: string
+  readonly supportsDerivedAddresses: boolean
+  readonly walletId: string
+}
+
+export interface HomeV2AccountCatalogue {
+  readonly accounts: readonly HomeV2AccountCatalogueEntry[]
+  readonly activeAccountId: string | null
+}
+
 export interface NetworkIdentityLookup {
   readonly address: string | null
   readonly avatar: IdentityAvatarPointer | null

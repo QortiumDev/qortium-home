@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: add Home v2 bounded avatars and account catalogue
+
+Adds visible public avatars and the first read-only account selector to the
+Home 2.0 live preview on desktop and Android. Avatar content is fetched only
+for visible resolved identities, follows Qortal legacy and Qortium
+account-pointer rules, retries bounded pending builds, accepts only recognized
+raster formats, and never renders more than 500 KiB. The Account dropdown can
+enumerate the preview profile's saved addresses, including derived addresses,
+and resolve the selected address across both networks without exposing wallet
+files or encrypted key material. Selection remains non-mutating and account
+creation, import, unlocking, signing, QDN execution, and production-profile
+migration remain outside this slice.
+
 ### 2026-08-08 - feat: add Home v2 dual-network account lookup
 
 Adds the first public account lookup to the Home 2.0 live preview on desktop and

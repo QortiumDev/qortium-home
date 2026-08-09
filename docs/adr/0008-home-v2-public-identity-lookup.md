@@ -31,10 +31,15 @@ sender-gates them to the v2 preview window, applies a five-second timeout, and
 caps response bodies at 256 KiB. No generic Core path, API key, wallet, unlock,
 signing, QDN content, or write capability is exposed.
 
+Visible results may request avatar content through the resolved pointer only.
+Both hosts cap it at 500 KiB and accept only PNG, JPEG, GIF, BMP, or WebP by
+magic bytes; declared MIME alone is not trusted. The renderer rechecks type and
+length, uses a local Blob URL, revokes it on cleanup, and performs at most six
+bounded retries for a pending QDN build.
+
 ## Consequences
 
-The Dashboard can identify public accounts before wallet integration and can
-represent cross-chain disagreement honestly. Avatar images remain initials and
-resource descriptors until bounded, pointer-aware loading is added for visible
-results. This decision does not link different addresses and does not grant any
-signing or permission authority from names, avatars, or visual similarity.
+The Dashboard can identify public accounts before wallet integration, display
+their visible avatars, and represent cross-chain disagreement honestly. This
+decision does not link different addresses and does not grant any signing or
+permission authority from names, avatars, or visual similarity.

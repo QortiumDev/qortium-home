@@ -9,9 +9,11 @@ import {
 import type {
   AppDescriptor,
   DualIdentityLookupResult,
+  HomeV2AccountCatalogue,
   HomeV2Snapshot,
   NetworkId,
   NodeConnectionMode,
+  VisibleAvatarLoader,
 } from '../contracts'
 import type {
   PermissionDecision,
@@ -24,10 +26,11 @@ import { AppearanceSettingsPage } from './AppearanceSettingsPage'
 import { BrowserChrome } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
+import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
-export type HomeV2AccountSelection = 'none' | 'current' | 'create' | 'import'
+export type HomeV2AccountSelection = 'none' | 'current' | 'create' | 'import' | `account:${string}`
 
 export interface HomeV2PrototypeProps {
   readonly snapshot: HomeV2Snapshot
@@ -40,6 +43,10 @@ export interface HomeV2PrototypeProps {
   readonly identityLookupBusy?: boolean
   readonly identityLookupError?: string | null
   readonly identityLookupInput?: string
+  readonly loadVisibleAvatar?: VisibleAvatarLoader
+  readonly accountCatalogue?: HomeV2AccountCatalogue
+  readonly selectedAccountId?: string | null
+  readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
@@ -60,9 +67,7 @@ export interface HomeV2PrototypeProps {
   readonly onIdentityLookupSubmit?: () => void
   readonly onUnlockAccount?: () => void
   readonly onLockAccount?: () => void
-  readonly onSelectAccount?: (
-    selection: Extract<HomeV2AccountSelection, 'none' | 'current'>,
-  ) => void
+  readonly onSelectAccount?: (accountId: string | null) => void
   readonly onCreateAccount?: () => void
   readonly onImportAccount?: () => void
   readonly onToggleRememberUnlock?: () => void
@@ -72,10 +77,6 @@ export interface HomeV2PrototypeProps {
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
-}
-
-function identityInitial(value: string | null) {
-  return value?.trim().slice(0, 1).toUpperCase() || '?'
 }
 
 function IdentityLookupCard(props: HomeV2PrototypeProps) {
@@ -154,9 +155,12 @@ function IdentityLookupCard(props: HomeV2PrototypeProps) {
                     data-identity-state={identity.state}
                     key={network}
                   >
-                    <div className="home-v2-presence__avatar" aria-hidden="true">
-                      {identityInitial(identity.primaryName ?? result.query)}
-                    </div>
+                    <VisibleIdentityAvatar
+                      identity={identity}
+                      loader={props.loadVisibleAvatar}
+                      network={network}
+                      query={result.query}
+                    />
                     <div className="home-v2-identity-network__copy">
                       <NetworkBadge network={network} />
                       <strong>
@@ -205,16 +209,30 @@ const nodeModeLabels: Readonly<Record<NodeConnectionMode, string>> = {
 function IdentityPresence({
   snapshot,
   network,
+  lookup,
+  loader,
 }: {
   readonly snapshot: HomeV2Snapshot
   readonly network: NetworkId
+  readonly lookup?: DualIdentityLookupResult | null
+  readonly loader?: VisibleAvatarLoader
 }) {
   const presence = snapshot.identity.presences[network]
+  const publicIdentity = lookup?.networks[network]
   return (
     <article className="home-v2-presence">
-      <div className="home-v2-presence__avatar" aria-hidden="true">
-        {presence.avatar?.value ?? '?'}
-      </div>
+      {publicIdentity ? (
+        <VisibleIdentityAvatar
+          identity={publicIdentity}
+          loader={loader}
+          network={network}
+          query={lookup?.query ?? presence.address ?? ''}
+        />
+      ) : (
+        <div className="home-v2-presence__avatar" aria-hidden="true">
+          {presence.avatar?.value ?? '?'}
+        </div>
+      )}
       <div className="home-v2-presence__details">
         <NetworkBadge network={network} />
         <strong>{presence.primaryName ?? 'No registered name'}</strong>
@@ -327,6 +345,10 @@ function AccountCard({
   onSelectAccount,
   onCreateAccount,
   onImportAccount,
+  accountCatalogue,
+  selectedAccountId,
+  selectedAccountLookup,
+  loadVisibleAvatar,
 }: Pick<
   HomeV2PrototypeProps,
   | 'snapshot'
@@ -335,6 +357,10 @@ function AccountCard({
   | 'onSelectAccount'
   | 'onCreateAccount'
   | 'onImportAccount'
+  | 'accountCatalogue'
+  | 'selectedAccountId'
+  | 'selectedAccountLookup'
+  | 'loadVisibleAvatar'
 >) {
   const hasAccount = snapshot.account.state !== 'none'
   const isLocked = snapshot.account.state === 'locked'
@@ -347,8 +373,22 @@ function AccountCard({
       onImportAccount?.()
       return
     }
-    onSelectAccount?.(selection)
+    if (selection === 'none') {
+      onSelectAccount?.(null)
+      return
+    }
+    if (selection.startsWith('account:')) {
+      onSelectAccount?.(selection.slice('account:'.length))
+    }
   }
+  const accountOptions = accountCatalogue?.accounts ?? []
+  const selectedValue = accountCatalogue
+    ? selectedAccountId
+      ? `account:${selectedAccountId}`
+      : 'none'
+    : hasAccount
+      ? 'current'
+      : 'none'
 
   return (
     <section className="home-v2-panel home-v2-account-panel">
@@ -366,7 +406,7 @@ function AccountCard({
           <span>Selected account</span>
           <select
             aria-label="Selected account"
-            value={hasAccount ? 'current' : 'none'}
+            value={selectedValue}
             disabled={!onSelectAccount && !onCreateAccount && !onImportAccount}
             onChange={(event) =>
               handleSelection(event.target.value as HomeV2AccountSelection)
@@ -374,11 +414,19 @@ function AccountCard({
           >
             <optgroup label="Accounts">
               <option value="none">No account selected</option>
-              <option value="current">{snapshot.identity.displayLabel}</option>
+              {accountCatalogue ? (
+                accountOptions.map((account) => (
+                  <option value={`account:${account.id}`} key={account.id}>
+                    {account.label} · {account.address.slice(0, 8)}…
+                  </option>
+                ))
+              ) : (
+                <option value="current">{snapshot.identity.displayLabel}</option>
+              )}
             </optgroup>
             <optgroup label="Account actions">
-              <option value="create">Create account…</option>
-              <option value="import">Import account…</option>
+              <option value="create" disabled={!onCreateAccount}>Create account…</option>
+              <option value="import" disabled={!onImportAccount}>Import account…</option>
             </optgroup>
           </select>
         </label>
@@ -410,8 +458,18 @@ function AccountCard({
       <div className="home-v2-account-content">
         {hasAccount ? (
           <div className="home-v2-presence-list">
-            <IdentityPresence snapshot={snapshot} network="qortal" />
-            <IdentityPresence snapshot={snapshot} network="qortium" />
+            <IdentityPresence
+              snapshot={snapshot}
+              network="qortal"
+              lookup={selectedAccountLookup}
+              loader={loadVisibleAvatar}
+            />
+            <IdentityPresence
+              snapshot={snapshot}
+              network="qortium"
+              lookup={selectedAccountLookup}
+              loader={loadVisibleAvatar}
+            />
           </div>
         ) : (
           <div className="home-v2-account-placeholder">

@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron') as typeof import('ele
 
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
+  listAccounts: () => ipcRenderer.invoke('home-v2-accounts:list'),
   readIdentity: (
     network: 'qortal' | 'qortium',
     request: {
@@ -9,6 +10,18 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
       value: string
     },
   ) => ipcRenderer.invoke('home-v2-nodes:readIdentity', network, request),
+  readAvatar: (
+    network: 'qortal' | 'qortium',
+    request: {
+      address: string
+      pointer: {
+        identifier: string
+        name: string
+        service: string
+        source: 'account-pointer' | 'legacy-name'
+      }
+    },
+  ) => ipcRenderer.invoke('home-v2-nodes:readAvatar', network, request),
   setMode: (
     network: 'qortal' | 'qortium',
     mode: 'custom' | 'disabled' | 'local' | 'public',

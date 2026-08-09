@@ -60,5 +60,5 @@ if (!badging.includes("application-label:'Qortium Home 2 Live Preview'")) {
 }
 
 console.log(
-  `Verified Home v2 Android live-node artifact (${Object.keys(archive.files).length} archive entries, v2 renderer and temporary package identity).`,
+  `Verified Home v2 Android live-preview artifact (${Object.keys(archive.files).length} archive entries, v2 renderer and temporary package identity).`,
 )

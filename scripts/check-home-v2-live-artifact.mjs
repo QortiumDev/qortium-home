@@ -92,17 +92,25 @@ for (const requiredChannel of [
   'home-v2-nodes:getSnapshot',
   'home-v2-nodes:setMode',
   'home-v2-nodes:setCustomUrl',
+  'home-v2-nodes:readIdentity',
+  'home-v2-nodes:readAvatar',
+  'home-v2-accounts:list',
 ]) {
   if (!preloadSource.includes(requiredChannel)) {
     throw new Error(`Home v2 live preload is missing ${requiredChannel}.`);
   }
 }
-for (const forbiddenChannel of ['accounts:', 'qdn:', 'core:', 'updates:']) {
+for (const forbiddenChannel of [
+  "invoke('accounts:",
+  'qdn:',
+  'core:',
+  'updates:',
+]) {
   if (preloadSource.includes(forbiddenChannel)) {
     throw new Error(`Home v2 live preload exposes forbidden channel ${forbiddenChannel}.`);
   }
 }
 
 console.log(
-  `Verified Home v2 live node artifact (${entries.length} archive entries, v2-only renderer and scoped preload).`,
+  `Verified Home v2 live preview artifact (${entries.length} archive entries, v2-only renderer and scoped preload).`,
 );
