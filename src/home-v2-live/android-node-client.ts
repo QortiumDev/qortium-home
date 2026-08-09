@@ -24,6 +24,7 @@ export function createAndroidHomeV2NodeClient() {
         data: response.data,
         latencyMs: Date.now() - startedAt,
         ok: response.status >= 200 && response.status < 300,
+        status: response.status,
       }
     },
     now: () => Date.now(),

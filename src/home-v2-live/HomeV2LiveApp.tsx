@@ -13,10 +13,12 @@ import type {
   NodeConnectionMode,
   NodeProfileRef,
   NodeSummary,
+  DualIdentityLookupResult,
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import type { HomeV2NodeClient } from './node-client'
+import { resolveDualIdentity } from './identity-resolver'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -227,6 +229,11 @@ export function HomeV2LiveApp() {
   const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
   const [customUrl, setCustomUrl] = useState('')
   const [customError, setCustomError] = useState<string | null>(null)
+  const [identityInput, setIdentityInput] = useState('')
+  const [identityLookup, setIdentityLookup] =
+    useState<DualIdentityLookupResult | null>(null)
+  const [identityLookupBusy, setIdentityLookupBusy] = useState(false)
+  const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
@@ -291,6 +298,7 @@ export function HomeV2LiveApp() {
   ) => {
     if (!nodeClient) return
     setBusyNetwork(network)
+    setIdentityLookup(null)
     try {
       const nodes = parseNodesSnapshot(
         await nodeClient.setMode(network, mode),
@@ -318,6 +326,7 @@ export function HomeV2LiveApp() {
   const saveCustomNode = async () => {
     if (!customNetwork || !nodeClient) return
     setBusyNetwork(customNetwork)
+    setIdentityLookup(null)
     setCustomError(null)
     try {
       const nodes = parseNodesSnapshot(
@@ -334,83 +343,112 @@ export function HomeV2LiveApp() {
     }
   }
 
-  return (
-    <>
-      <HomeV2Prototype
-        snapshot={snapshot}
-        productState={productState}
-        permissionState={permissionState}
-        layout={window.homeV2Nodes ? 'desktop' : 'phone'}
-        surfaceNotice={
-          busyNetwork
-            ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
-            : 'Live node data · account and apps not connected'
-        }
-        onActivateTab={(tabId) =>
-          dispatchProduct({ type: 'activate-tab', tabId })
-        }
-        onCloseTab={(tabId) => dispatchProduct({ type: 'close-tab', tabId })}
-        onNavigate={(destination) =>
-          dispatchProduct({ type: 'navigate', destination })
-        }
-        onRefreshNode={() => void refresh()}
-        onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
-        onConfigureCustomNode={openCustomNode}
-      />
-      {customNetwork ? (
-        <div className="home-v2-dialog-backdrop" role="presentation">
-          <section
-            className="home-v2-custom-node-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="home-v2-custom-node-title"
-          >
-            <header>
-              <h2 id="home-v2-custom-node-title">
-                Custom {customNetwork === 'qortal' ? 'Qortal' : 'Qortium'} node
-              </h2>
-              <p>Remote nodes must use HTTPS. Loopback HTTP is allowed.</p>
-            </header>
-            <label>
-              <span>Node URL</span>
-              <input
-                autoFocus
-                type="url"
-                value={customUrl}
-                placeholder="https://node.example"
-                onChange={(event) => setCustomUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void saveCustomNode()
-                }}
-              />
-            </label>
-            <div
-              className="home-v2-custom-node-dialog__message"
-              aria-live="polite"
-            >
-              {customError ?? 'Saving also selects Custom mode.'}
-            </div>
-            <footer>
-              <button
-                type="button"
-                className="home-v2-secondary-button"
-                disabled={busyNetwork !== null}
-                onClick={() => setCustomNetwork(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="home-v2-primary-button"
-                disabled={busyNetwork !== null || !customUrl.trim()}
-                onClick={() => void saveCustomNode()}
-              >
-                Save
-              </button>
-            </footer>
-          </section>
+  const runIdentityLookup = async () => {
+    if (!nodeClient) return
+    setIdentityLookupBusy(true)
+    setIdentityLookupError(null)
+    try {
+      setIdentityLookup(
+        await resolveDualIdentity(identityInput, (network, request) =>
+          nodeClient.readIdentity(network, request),
+        ),
+      )
+    } catch (error) {
+      setIdentityLookup(null)
+      setIdentityLookupError(
+        error instanceof Error ? error.message : 'Account lookup failed.',
+      )
+    } finally {
+      setIdentityLookupBusy(false)
+    }
+  }
+
+  const customNodeDialog = customNetwork ? (
+    <div className="home-v2-dialog-backdrop" role="presentation">
+      <section
+        className="home-v2-custom-node-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="home-v2-custom-node-title"
+      >
+        <header>
+          <h2 id="home-v2-custom-node-title">
+            Custom {customNetwork === 'qortal' ? 'Qortal' : 'Qortium'} node
+          </h2>
+          <p>Remote nodes must use HTTPS. Loopback HTTP is allowed.</p>
+        </header>
+        <label>
+          <span>Node URL</span>
+          <input
+            autoFocus
+            type="url"
+            value={customUrl}
+            placeholder="https://node.example"
+            onChange={(event) => setCustomUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void saveCustomNode()
+            }}
+          />
+        </label>
+        <div
+          className="home-v2-custom-node-dialog__message"
+          aria-live="polite"
+        >
+          {customError ?? 'Saving also selects Custom mode.'}
         </div>
-      ) : null}
-    </>
+        <footer>
+          <button
+            type="button"
+            className="home-v2-secondary-button"
+            disabled={busyNetwork !== null}
+            onClick={() => setCustomNetwork(null)}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="home-v2-primary-button"
+            disabled={busyNetwork !== null || !customUrl.trim()}
+            onClick={() => void saveCustomNode()}
+          >
+            Save
+          </button>
+        </footer>
+      </section>
+    </div>
+  ) : null
+
+  return (
+    <HomeV2Prototype
+      snapshot={snapshot}
+      productState={productState}
+      permissionState={permissionState}
+      layout={window.homeV2Nodes ? 'desktop' : 'phone'}
+      surfaceNotice={
+        busyNetwork
+          ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
+          : 'Live node and identity data · account vault and apps not connected'
+      }
+      overlay={customNodeDialog}
+      identityLookup={identityLookup}
+      identityLookupBusy={identityLookupBusy}
+      identityLookupError={identityLookupError}
+      identityLookupInput={identityInput}
+      onActivateTab={(tabId) =>
+        dispatchProduct({ type: 'activate-tab', tabId })
+      }
+      onCloseTab={(tabId) => dispatchProduct({ type: 'close-tab', tabId })}
+      onNavigate={(destination) =>
+        dispatchProduct({ type: 'navigate', destination })
+      }
+      onRefreshNode={() => void refresh()}
+      onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
+      onConfigureCustomNode={openCustomNode}
+      onIdentityLookupInput={(value) => {
+        setIdentityInput(value)
+        setIdentityLookupError(null)
+      }}
+      onIdentityLookupSubmit={() => void runIdentityLookup()}
+    />
   )
 }

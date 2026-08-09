@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import {
   isHomeV2RtlLanguage,
   type HomeV2Accent,
@@ -8,6 +8,7 @@ import {
 } from '../appearance'
 import type {
   AppDescriptor,
+  DualIdentityLookupResult,
   HomeV2Snapshot,
   NetworkId,
   NodeConnectionMode,
@@ -34,6 +35,11 @@ export interface HomeV2PrototypeProps {
   readonly permissionState: PermissionState
   readonly layout: HomeV2Layout
   readonly surfaceNotice?: string
+  readonly overlay?: ReactNode
+  readonly identityLookup?: DualIdentityLookupResult | null
+  readonly identityLookupBusy?: boolean
+  readonly identityLookupError?: string | null
+  readonly identityLookupInput?: string
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
@@ -50,6 +56,8 @@ export interface HomeV2PrototypeProps {
   ) => void
   readonly onRefreshNode?: (network: NetworkId) => void
   readonly onConfigureCustomNode?: (network: NetworkId) => void
+  readonly onIdentityLookupInput?: (value: string) => void
+  readonly onIdentityLookupSubmit?: () => void
   readonly onUnlockAccount?: () => void
   readonly onLockAccount?: () => void
   readonly onSelectAccount?: (
@@ -64,6 +72,127 @@ export interface HomeV2PrototypeProps {
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
+}
+
+function identityInitial(value: string | null) {
+  return value?.trim().slice(0, 1).toUpperCase() || '?'
+}
+
+function IdentityLookupCard(props: HomeV2PrototypeProps) {
+  const result = props.identityLookup
+  const stateLabel = props.identityLookupBusy
+    ? 'Searching'
+    : result?.state === 'conflict'
+      ? 'Name conflict'
+      : result?.state === 'partial'
+        ? 'Partial result'
+        : result?.state === 'not-found'
+          ? 'Not found'
+          : result?.state === 'unavailable'
+            ? 'Unavailable'
+            : result
+              ? 'Resolved'
+              : 'Public lookup'
+  return (
+    <section className="home-v2-panel home-v2-identity-lookup" aria-labelledby="identity-lookup-title">
+      <div className="home-v2-section-heading">
+        <h2 id="identity-lookup-title">Account lookup</h2>
+        <span className="home-v2-lookup-state" data-lookup-state={result?.state ?? 'idle'}>
+          {stateLabel}
+        </span>
+      </div>
+      <form
+        className="home-v2-identity-search"
+        onSubmit={(event) => {
+          event.preventDefault()
+          props.onIdentityLookupSubmit?.()
+        }}
+      >
+        <label>
+          <span>Address or name</span>
+          <input
+            aria-label="Account address or name"
+            autoComplete="off"
+            disabled={!props.onIdentityLookupInput}
+            placeholder="Enter a Qortal or Qortium address or name"
+            spellCheck={false}
+            value={props.identityLookupInput ?? ''}
+            onChange={(event) => props.onIdentityLookupInput?.(event.target.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          className="home-v2-primary-button"
+          disabled={
+            !props.onIdentityLookupSubmit ||
+            props.identityLookupBusy ||
+            !(props.identityLookupInput ?? '').trim()
+          }
+        >
+          {props.identityLookupBusy ? 'Searching…' : 'Search'}
+        </button>
+      </form>
+      <div className="home-v2-identity-result" aria-live="polite">
+        {props.identityLookupError ? (
+          <p className="home-v2-lookup-message" data-lookup-tone="error">
+            {props.identityLookupError}
+          </p>
+        ) : result ? (
+          <>
+            <p
+              className="home-v2-lookup-message"
+              data-lookup-tone={result.state === 'conflict' ? 'warning' : 'neutral'}
+            >
+              {result.message}
+            </p>
+            <div className="home-v2-identity-network-grid">
+              {(['qortal', 'qortium'] as const).map((network) => {
+                const identity = result.networks[network]
+                return (
+                  <article
+                    className="home-v2-identity-network"
+                    data-identity-state={identity.state}
+                    key={network}
+                  >
+                    <div className="home-v2-presence__avatar" aria-hidden="true">
+                      {identityInitial(identity.primaryName ?? result.query)}
+                    </div>
+                    <div className="home-v2-identity-network__copy">
+                      <NetworkBadge network={network} />
+                      <strong>
+                        {identity.primaryName ??
+                          (identity.state === 'not-found'
+                            ? 'Name not registered'
+                            : identity.state === 'unavailable'
+                              ? 'Node unavailable'
+                              : 'No primary name')}
+                      </strong>
+                      {identity.address ? <code>{identity.address}</code> : null}
+                      <small>
+                        {identity.names.length > 0
+                          ? `Names: ${identity.names.join(', ')}`
+                          : identity.detail}
+                      </small>
+                      {identity.avatar ? (
+                        <small>
+                          Avatar: {identity.avatar.service}/{identity.avatar.name}/
+                          {identity.avatar.identifier}
+                        </small>
+                      ) : null}
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="home-v2-lookup-placeholder">
+            Search public name records across both networks. Matching names are grouped only when their owner address is the same.
+          </p>
+        )}
+      </div>
+    </section>
+  )
 }
 
 const nodeModeLabels: Readonly<Record<NodeConnectionMode, string>> = {
@@ -399,6 +528,8 @@ function Dashboard(props: HomeV2PrototypeProps) {
         </div>
       </section>
 
+      <IdentityLookupCard {...props} />
+
       <AccountCard {...props} />
 
       <section className="home-v2-launcher" aria-labelledby="pinned-apps-title">
@@ -490,6 +621,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           <InternalPage destination={productState.destination} />
         )}
       </main>
+      {props.overlay}
       <PermissionDialog
         permissionState={permissionState}
         onResolvePermission={onResolvePermission}

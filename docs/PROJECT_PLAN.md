@@ -3,8 +3,8 @@
 Last updated: 2026-08-08
 
 Status: accepted product direction with Phase 1 complete and the first desktop
-and Android Phase 2 live-node slice implemented. Account and QDN app adapters
-have not started.
+and Android Phase 2 live-node plus public cross-network identity slices
+implemented. Wallet account and QDN app adapters have not started.
 
 This is the canonical product and architecture plan for Qortium Home. When an
 older issue, note, or implementation assumption conflicts with this document,
@@ -579,6 +579,16 @@ The Dashboard displays live node status while accounts, QDN resource loading,
 signing, writes, Core control, Reticulum, and the production Home profile remain
 inaccessible.
 
+The next read-only slice adds a compact Dashboard account lookup without
+requiring a selected or unlocked wallet account. One shared resolver accepts a
+name or address on desktop and Android, independently queries both configured
+networks, and groups results only by an identical owner address. The same name
+at different addresses produces an explicit conflict. Qortal legacy avatar
+resources and Qortium account-pointer or legacy resources are returned as
+metadata descriptors; visible bounded image loading remains the next identity
+step. The desktop host accepts only allowlisted identity reads, caps response
+data at 256 KiB, and sender-gates the IPC alongside the existing node adapter.
+
 ### Phase 3: app-first default experiences
 
 - Define exact cross-network identities and publish/release process for default
@@ -703,7 +713,8 @@ fixture shell and contracts as a separate checkpoint.
 
 Status on 2026-08-08: this tranche and the remaining Phase 1 tab, mock bridge,
 permission, Electron-host-fake, Android-host-fake, and isolated preview-package
-work are implemented on the dedicated `codex/home-v2` branch. The separately
-reviewed first Phase 2 desktop node adapter is now implemented. The next slice
-is Android node parity, followed by read-only account and cross-network identity
-resolution; wallet secrets, signing, and QDN app execution remain later gates.
+work are implemented on the dedicated `codex/home-v2` branch. Phase 2 now has
+desktop/Android node parity and a public, read-only cross-network address/name
+resolver. Bounded visible avatar loading and the wallet account catalogue are
+the next identity steps; wallet secrets, signing, and QDN app execution remain
+later gates.

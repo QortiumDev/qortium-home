@@ -58,17 +58,26 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   latency.
 - The Dashboard shows the selected public-node hostname.
 - Refresh on launch, every 15 seconds while visible, and on manual request.
+- Public account lookup by address or name across both configured networks,
+  available without selecting or unlocking a wallet account. A name is grouped
+  only when its owner address agrees; different owners produce a visible
+  conflict rather than a merged identity.
+- Independently labelled names, primary names, owner addresses, and QDN avatar
+  descriptors. Qortal uses `THUMBNAIL/<name>/qortal_avatar`; Qortium prefers its
+  account avatar pointer and otherwise reports `THUMBNAIL/<name>/avatar`.
 - One source-qualified app model: `qdn://` for Qortium resources and
   `qortal://` for Qortal resources, independent of target-network capabilities.
 
 ## Not connected yet
 
-- Account selection, unlocking, names, avatars, and cross-network identity.
+- Wallet account selection and unlocking. Public identity lookup is connected,
+  but avatar image bytes are not loaded yet.
 - QDN app catalogue or resource loading; the Chat and Wallets cards are plans,
   not runnable apps in this build.
 - Signing, publishing, transactions, Core control, updates, or Reticulum.
 
-The desktop preload exposes only node snapshot, node-mode, and custom-URL
-operations. The renderer
-cannot directly access the network, the Home 1.x bridge, accounts, QDN, Core,
-updates, private keys, or seed material.
+The desktop preload exposes only node snapshot, node-mode, custom-URL, and four
+allowlisted public identity-read operations. Identity responses are capped at
+256 KiB. The renderer cannot directly access the network, the Home 1.x bridge,
+wallet accounts, QDN content, Core control, updates, private keys, or seed
+material.

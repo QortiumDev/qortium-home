@@ -26,6 +26,44 @@ export type LocalCoreState =
 export type ReticulumState = 'disabled' | 'starting' | 'online' | 'degraded'
 export type AccountSessionState = 'none' | 'locked' | 'unlocked'
 export type NodeConnectionMode = 'disabled' | 'local' | 'public' | 'custom'
+export type IdentityLookupInputKind = 'address' | 'name'
+export type IdentityLookupState =
+  | 'conflict'
+  | 'not-found'
+  | 'partial'
+  | 'resolved'
+  | 'unavailable'
+export type NetworkIdentityLookupState =
+  | 'not-found'
+  | 'resolved'
+  | 'unavailable'
+
+export interface IdentityAvatarPointer {
+  readonly identifier: string
+  readonly name: string
+  readonly service: string
+  readonly source: 'account-pointer' | 'legacy-name'
+}
+
+export interface NetworkIdentityLookup {
+  readonly address: string | null
+  readonly avatar: IdentityAvatarPointer | null
+  readonly detail: string
+  readonly matchedQueryName: boolean
+  readonly names: readonly string[]
+  readonly network: NetworkId
+  readonly primaryName: string | null
+  readonly state: NetworkIdentityLookupState
+}
+
+export interface DualIdentityLookupResult {
+  readonly inputKind: IdentityLookupInputKind
+  readonly message: string
+  readonly networks: Readonly<Record<NetworkId, NetworkIdentityLookup>>
+  readonly query: string
+  readonly sharedAddress: string | null
+  readonly state: IdentityLookupState
+}
 
 export interface AccountSessionSummary {
   readonly state: AccountSessionState

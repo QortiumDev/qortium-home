@@ -17,9 +17,18 @@ import {
   getHomeV2LocalCoreInstallState,
   type HomeV2LocalCoreInstallState,
 } from './home-v2-core-readiness.js'
+import { nodeFetch } from './node-tls.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
+type IdentityReadKind =
+  | 'accountAvatarInfo'
+  | 'name'
+  | 'namesByAddress'
+  | 'primaryName'
+
+const IDENTITY_RESPONSE_LIMIT = 256 * 1024
+const SNAPSHOT_CACHE_MS = 30_000
 
 const authorizedSenderIds = new Set<number>()
 
@@ -66,6 +75,69 @@ function normalizeNetwork(value: unknown): NetworkId {
     throw new Error('Choose Qortal or Qortium.')
   }
   return value
+}
+
+function normalizeIdentityReadRequest(value: unknown) {
+  if (!isRecord(value)) throw new Error('Identity read request is required.')
+  const kind = value.kind
+  if (
+    kind !== 'accountAvatarInfo' &&
+    kind !== 'name' &&
+    kind !== 'namesByAddress' &&
+    kind !== 'primaryName'
+  ) {
+    throw new Error('Unsupported identity read.')
+  }
+  const rawValue = typeof value.value === 'string' ? value.value.trim() : ''
+  if (!rawValue || rawValue.length > 128) {
+    throw new Error('Identity lookup values must contain 1 to 128 characters.')
+  }
+  return { kind, value: rawValue } as const
+}
+
+function identityPath(request: {
+  readonly kind: IdentityReadKind
+  readonly value: string
+}) {
+  const encoded = encodeURIComponent(request.value)
+  switch (request.kind) {
+    case 'name':
+      return `/names/${encoded}`
+    case 'namesByAddress':
+      return `/names/address/${encoded}?limit=0`
+    case 'primaryName':
+      return `/names/primary/${encoded}`
+    case 'accountAvatarInfo':
+      return `/addresses/${encoded}/avatar/info`
+  }
+}
+
+async function readBoundedText(response: Response) {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > IDENTITY_RESPONSE_LIMIT) {
+    throw new Error('Identity response exceeded the size limit.')
+  }
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > IDENTITY_RESPONSE_LIMIT) {
+      await reader.cancel()
+      throw new Error('Identity response exceeded the size limit.')
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 function getNodeState(status: unknown) {
@@ -198,7 +270,7 @@ function normalizeNodeSummary(
   }
 }
 
-async function getSnapshot() {
+async function buildSnapshot() {
   const [qortalSettings, qortiumSettings] = await Promise.all([
       getQortalNodeSettingsForHomeV2().catch((error: unknown) => ({
         mode: 'local',
@@ -256,6 +328,61 @@ async function getSnapshot() {
   }
 }
 
+type HomeV2NodeSnapshot = Awaited<ReturnType<typeof buildSnapshot>>
+let cachedSnapshot: { snapshot: HomeV2NodeSnapshot; storedAt: number } | null = null
+
+async function getSnapshot() {
+  const snapshot = await buildSnapshot()
+  cachedSnapshot = { snapshot, storedAt: Date.now() }
+  return snapshot
+}
+
+async function getRecentSnapshot() {
+  if (
+    cachedSnapshot &&
+    Date.now() - cachedSnapshot.storedAt < SNAPSHOT_CACHE_MS
+  ) {
+    return cachedSnapshot.snapshot
+  }
+  return getSnapshot()
+}
+
+async function readIdentity(network: NetworkId, requestValue: unknown) {
+  const request = normalizeIdentityReadRequest(requestValue)
+  const snapshot = await getRecentSnapshot()
+  const node = snapshot.nodes[network]
+  if (!node.capabilities.read || !node.nodeApiUrl) {
+    return {
+      data: { message: node.error ?? `${network} node is unavailable.` },
+      status: 503,
+    }
+  }
+  try {
+    const response = await nodeFetch(`${node.nodeApiUrl}${identityPath(request)}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5_000),
+    })
+    const text = await readBoundedText(response)
+    let data: unknown = null
+    if (text) {
+      try {
+        data = JSON.parse(text) as unknown
+      } catch {
+        data = { message: text.slice(0, 300) }
+      }
+    }
+    return { data, status: response.status }
+  } catch (error) {
+    return {
+      data: {
+        message:
+          error instanceof Error ? error.message : 'Identity lookup failed.',
+      },
+      status: 503,
+    }
+  }
+}
+
 export function authorizeHomeV2NodeBridge(sender: WebContents) {
   authorizedSenderIds.add(sender.id)
   sender.once('destroyed', () => authorizedSenderIds.delete(sender.id))
@@ -267,6 +394,13 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     return getSnapshot()
   })
   ipcMain.handle(
+    'home-v2-nodes:readIdentity',
+    (event, networkValue: unknown, requestValue: unknown) => {
+      assertAuthorized(event.sender)
+      return readIdentity(normalizeNetwork(networkValue), requestValue)
+    },
+  )
+  ipcMain.handle(
     'home-v2-nodes:setMode',
     async (event, networkValue: unknown, modeValue: unknown) => {
       assertAuthorized(event.sender)
@@ -277,6 +411,7 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
       } else {
         await saveNodeModeForHomeV2(mode)
       }
+      cachedSnapshot = null
       return getSnapshot()
     },
   )
@@ -293,6 +428,7 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
       } else {
         await saveNodeCustomUrlForHomeV2(customUrlValue)
       }
+      cachedSnapshot = null
       return getSnapshot()
     },
   )

@@ -2,6 +2,13 @@ const { contextBridge, ipcRenderer } = require('electron') as typeof import('ele
 
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
+  readIdentity: (
+    network: 'qortal' | 'qortium',
+    request: {
+      kind: 'accountAvatarInfo' | 'name' | 'namesByAddress' | 'primaryName'
+      value: string
+    },
+  ) => ipcRenderer.invoke('home-v2-nodes:readIdentity', network, request),
   setMode: (
     network: 'qortal' | 'qortium',
     mode: 'custom' | 'disabled' | 'local' | 'public',

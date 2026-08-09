@@ -6,8 +6,28 @@ import type {
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
+  readIdentity(
+    network: NetworkId,
+    request: HomeV2IdentityReadRequest,
+  ): Promise<HomeV2IdentityReadResponse>
   setMode(network: NetworkId, mode: NodeConnectionMode): Promise<unknown>
   setCustomUrl(network: NetworkId, customUrl: string): Promise<unknown>
+}
+
+export type HomeV2IdentityReadKind =
+  | 'accountAvatarInfo'
+  | 'name'
+  | 'namesByAddress'
+  | 'primaryName'
+
+export interface HomeV2IdentityReadRequest {
+  readonly kind: HomeV2IdentityReadKind
+  readonly value: string
+}
+
+export interface HomeV2IdentityReadResponse {
+  readonly data: unknown
+  readonly status: number
 }
 
 interface PortableNodeSettings {
@@ -18,7 +38,12 @@ interface PortableNodeSettings {
 export interface PortableNodeClientDependencies {
   getPreference(key: string): Promise<string | null>
   setPreference(key: string, value: string): Promise<void>
-  requestJson(url: string): Promise<{ data: unknown; latencyMs: number; ok: boolean }>
+  requestJson(url: string): Promise<{
+    data: unknown
+    latencyMs: number
+    ok: boolean
+    status: number
+  }>
   now(): number
 }
 
@@ -30,6 +55,24 @@ const PUBLIC_NODE_URLS = {
 const PUBLIC_READ_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false'
 const SETTINGS_PREFIX = 'home-v2-live-node:'
+
+function identityPath(request: HomeV2IdentityReadRequest) {
+  const value = request.value.trim()
+  if (!value || value.length > 128) {
+    throw new Error('Identity lookup values must contain 1 to 128 characters.')
+  }
+  const encoded = encodeURIComponent(value)
+  switch (request.kind) {
+    case 'name':
+      return `/names/${encoded}`
+    case 'namesByAddress':
+      return `/names/address/${encoded}?limit=0`
+    case 'primaryName':
+      return `/names/primary/${encoded}`
+    case 'accountAvatarInfo':
+      return `/addresses/${encoded}/avatar/info`
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -169,6 +212,9 @@ export function createPortableNodeClient(
   dependencies: PortableNodeClientDependencies,
 ): HomeV2NodeClient {
   const stickyPublicUrls: Partial<Record<NetworkId, string>> = {}
+  const recentReadableNodes: Partial<
+    Record<NetworkId, { nodeApiUrl: string; verifiedAt: number }>
+  > = {}
 
   async function readSettings(network: NetworkId) {
     return parseSettings(await dependencies.getPreference(settingsKey(network)))
@@ -245,6 +291,10 @@ export function createPortableNodeClient(
         `No healthy ${network === 'qortal' ? 'Qortal' : 'Qortium'} node was available.`,
       )
     }
+    recentReadableNodes[network] = {
+      nodeApiUrl: result.nodeApiUrl,
+      verifiedAt: dependencies.now(),
+    }
     const status = result.status
     return {
       ...emptySummary(network, settings, checkedAt, null),
@@ -276,6 +326,32 @@ export function createPortableNodeClient(
 
   return {
     getSnapshot,
+    async readIdentity(network, request) {
+      const settings = await readSettings(network)
+      if (settings.mode === 'disabled') {
+        return { data: { message: `${network} access is disabled.` }, status: 503 }
+      }
+      if (settings.mode === 'local') {
+        return {
+          data: { message: 'Local Core connections are not available on Android.' },
+          status: 503,
+        }
+      }
+      const recent = recentReadableNodes[network]
+      const nodeApiUrl =
+        settings.mode === 'custom'
+          ? settings.customUrl
+          : recent && dependencies.now() - recent.verifiedAt < 30_000
+            ? recent.nodeApiUrl
+            : (await resolvePublic(network))?.nodeApiUrl ?? ''
+      if (!nodeApiUrl) {
+        return { data: { message: `No healthy ${network} node was available.` }, status: 503 }
+      }
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}${identityPath(request)}`,
+      )
+      return { data: response.data, status: response.status }
+    },
     async setMode(network, mode) {
       const settings = await readSettings(network)
       if (mode === 'custom' && !settings.customUrl) {

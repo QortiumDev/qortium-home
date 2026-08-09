@@ -34,6 +34,7 @@ import {
 } from './product-model'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
+import type { DualIdentityLookupResult } from './contracts'
 import {
   createAndroidFixtureHost,
   createElectronFixtureHost,
@@ -489,6 +490,8 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, />AliceQ</)
     assert.match(html, />Alice</)
     assert.match(html, />Pinned apps</)
+    assert.match(html, />Account lookup</)
+    assert.match(html, /aria-label="Account address or name"/)
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)
     assert.match(html, />Disabled</)
@@ -503,6 +506,65 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, /fixture:tab:chat/)
     assert.match(html, /fixture:tab:qortal-compat/)
     assert.doesNotMatch(html, /role="dialog"/)
+  }
+}
+
+function testDualIdentityLookupContract(): void {
+  const qortalAddress = 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH'
+  const qortiumAddress = 'QwbXDZs6N7YmfTaHoHX2FCTiDtUjsLH22E'
+  const lookup: DualIdentityLookupResult = {
+    inputKind: 'name',
+    message: 'This name belongs to different addresses. The results are not merged.',
+    networks: {
+      qortal: {
+        address: qortalAddress,
+        avatar: {
+          identifier: 'qortal_avatar',
+          name: 'SharedName',
+          service: 'THUMBNAIL',
+          source: 'legacy-name',
+        },
+        detail: '1 registered name',
+        matchedQueryName: true,
+        names: ['SharedName'],
+        network: 'qortal',
+        primaryName: 'SharedName',
+        state: 'resolved',
+      },
+      qortium: {
+        address: qortiumAddress,
+        avatar: null,
+        detail: '1 registered name',
+        matchedQueryName: true,
+        names: ['SharedName'],
+        network: 'qortium',
+        primaryName: 'SharedName',
+        state: 'resolved',
+      },
+    },
+    query: 'SharedName',
+    sharedAddress: null,
+    state: 'conflict',
+  }
+  for (const layout of ['desktop', 'phone'] as const) {
+    const html = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={createProductState()}
+        permissionState={createPermissionState()}
+        layout={layout}
+        identityLookup={lookup}
+        identityLookupInput="SharedName"
+        onIdentityLookupInput={() => undefined}
+        onIdentityLookupSubmit={() => undefined}
+      />,
+    )
+    assert.match(html, /data-lookup-state="conflict"/)
+    assert.match(html, />Name conflict</)
+    assert.match(html, /results are not merged/)
+    assert.match(html, new RegExp(qortalAddress))
+    assert.match(html, new RegExp(qortiumAddress))
+    assert.match(html, /qortal_avatar/)
   }
 }
 
@@ -925,10 +987,13 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.match(preload, /exposeInMainWorld\('homeV2Nodes'/)
   assert.match(preload, /home-v2-nodes:getSnapshot/)
   assert.match(preload, /home-v2-nodes:setMode/)
+  assert.match(preload, /home-v2-nodes:readIdentity/)
   assert.doesNotMatch(preload, /qortiumHome|accounts:|qdn:|core:|sign|wallet/i)
   assert.equal((preload.match(/require\(/g) ?? []).length, 1)
   assert.doesNotMatch(bridge, /apiKey|privateKey|password|seedPhrase|sourceFilename/)
   assert.match(bridge, /authorizedSenderIds/)
+  assert.match(bridge, /IDENTITY_RESPONSE_LIMIT/)
+  assert.match(bridge, /Unsupported identity read/)
   assert.match(bridge, /assertAuthorized\(event\.sender\)/)
   assert.match(bridge, /function endpointHost/)
   assert.match(bridge, /mode === 'public' && nodeApiUrl/)
@@ -963,6 +1028,7 @@ testAppResourceSchemesStaySourceQualified()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()
 testDesktopAndPhoneContracts()
+testDualIdentityLookupContract()
 testProductMarkAssetsAndColorOwnership()
 testStartupStatesAndAppearance()
 testAppearanceSettingsAndLegacyMigration()

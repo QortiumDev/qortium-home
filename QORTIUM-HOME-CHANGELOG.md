@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: add Home v2 dual-network account lookup
+
+Adds the first public account lookup to the Home 2.0 live preview on desktop and
+Android. Users can enter an address or name and see separately labelled Qortal
+and Qortium names, primary names, addresses, and avatar resource descriptors.
+Addresses are treated as the shared public key-derived identity; a name is
+grouped across networks only when its owner address agrees, while conflicting
+owners are shown clearly and never merged. Disabled or unavailable nodes remain
+explicit instead of appearing as missing accounts. The narrow host adapters
+allow only four bounded, read-only identity queries and still expose no wallet,
+unlock, signing, generic node, or write access. Device testing also keeps the
+custom-node dialog inside the themed shell so it renders correctly in packaged
+desktop and Android builds.
+
 ### 2026-08-08 - feat: add Home v2 desktop and Android node readiness
 
 Extends the Home 2.0 live preview to Android and completes the first practical

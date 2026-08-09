@@ -45,11 +45,14 @@ const dependencies: PortableNodeClientDependencies = {
   async requestJson(url) {
     const origin = new URL(url).origin
     requestCount.set(origin, (requestCount.get(origin) ?? 0) + 1)
-    if (unavailable.has(origin)) return { data: null, latencyMs: 1, ok: false }
+    if (unavailable.has(origin)) {
+      return { data: null, latencyMs: 1, ok: false, status: 503 }
+    }
     return {
       data: url.includes('/admin/status') ? syncedStatus : [],
       latencyMs: latency.get(origin) ?? 1,
       ok: true,
+      status: 200,
     }
   },
   now: () => 1_700_000_000_000,
@@ -97,5 +100,23 @@ const local = (await client.setMode('qortal', 'local')) as Snapshot
 assert.equal(local.nodes.qortal.nodeApiUrl, null)
 assert.match(local.nodes.qortal.error ?? '', /not available/i)
 assert.equal(requestCount.size, 0)
+
+const localIdentity = await client.readIdentity('qortal', {
+  kind: 'name',
+  value: 'Alice',
+})
+assert.equal(localIdentity.status, 503)
+
+await client.setMode('qortal', 'public')
+const identity = await client.readIdentity('qortal', {
+  kind: 'namesByAddress',
+  value: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+})
+assert.equal(identity.status, 200)
+
+await assert.rejects(
+  () => client.readIdentity('qortal', { kind: 'name', value: '' }),
+  /1 to 128/,
+)
 
 console.log('Home v2 portable node client tests passed.')
