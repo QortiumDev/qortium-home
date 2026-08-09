@@ -18,6 +18,11 @@ export type NetworkAddress<Network extends NetworkId = NetworkId> = Brand<
 
 export type PresenceState = 'present' | 'absent' | 'unavailable'
 export type NodeState = 'online' | 'syncing' | 'offline' | 'unknown'
+export type LocalCoreState =
+  | 'running'
+  | 'installed'
+  | 'not-detected'
+  | 'unsupported'
 export type ReticulumState = 'disabled' | 'starting' | 'online' | 'degraded'
 export type AccountSessionState = 'none' | 'locked' | 'unlocked'
 export type NodeConnectionMode = 'disabled' | 'local' | 'public' | 'custom'
@@ -63,6 +68,9 @@ export interface NodeSummary {
   readonly statusText: string
   readonly isTrusted: boolean
   readonly customConfigured: boolean
+  readonly customUrl: string | null
+  readonly localCoreState: LocalCoreState
+  readonly localCoreStatusText: string
   readonly nodeApiUrl: string | null
   readonly height: number | null
   readonly peerCount: number | null

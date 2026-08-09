@@ -12,6 +12,33 @@ export interface QortiumPublicNodeCandidate {
   supportsPublicReads: boolean;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function numberField(value: unknown, key: string) {
+  if (!isRecord(value)) return null;
+  const field = value[key];
+  return typeof field === 'number' && Number.isFinite(field) ? field : null;
+}
+
+function stringField(value: unknown, key: string) {
+  if (!isRecord(value)) return '';
+  const field = value[key];
+  return typeof field === 'string' ? field.trim().toUpperCase() : '';
+}
+
+export function isFullySyncedQortiumStatus(status: unknown) {
+  return (
+    (numberField(status, 'height') ?? 0) > 0 &&
+    stringField(status, 'syncPhase') === 'SYNCED' &&
+    numberField(status, 'syncPercent') === 100 &&
+    numberField(status, 'syncBlocksRemaining') === 0 &&
+    isRecord(status) &&
+    status.isSynchronizing === false
+  );
+}
+
 export function isUsableQortiumPublicNode(
   candidate: QortiumPublicNodeCandidate,
 ) {

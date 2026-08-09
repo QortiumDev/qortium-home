@@ -16,18 +16,7 @@ import type {
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
-
-declare global {
-  interface Window {
-    homeV2Nodes: {
-      getSnapshot: () => Promise<unknown>
-      setMode: (
-        network: NetworkId,
-        mode: NodeConnectionMode,
-      ) => Promise<unknown>
-    }
-  }
-}
+import type { HomeV2NodeClient } from './node-client'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -78,6 +67,9 @@ function initialNode(network: NetworkId): NodeSummary {
     statusText: 'Checking',
     isTrusted: true,
     customConfigured: false,
+    customUrl: null,
+    localCoreState: 'not-detected',
+    localCoreStatusText: 'Checking local Core',
     nodeApiUrl: null,
     height: null,
     peerCount: null,
@@ -177,6 +169,17 @@ function parseNodeSummary(value: unknown, network: NetworkId): NodeSummary {
     statusText: String(value.statusText ?? 'Unknown'),
     isTrusted: value.isTrusted === true,
     customConfigured: value.customConfigured === true,
+    customUrl: nullableString(value.customUrl),
+    localCoreState:
+      value.localCoreState === 'running' ||
+      value.localCoreState === 'installed' ||
+      value.localCoreState === 'not-detected' ||
+      value.localCoreState === 'unsupported'
+        ? value.localCoreState
+        : 'not-detected',
+    localCoreStatusText: String(
+      value.localCoreStatusText ?? 'Local Core status unavailable',
+    ),
     nodeApiUrl: nullableString(value.nodeApiUrl),
     height: nullableNumber(value.height),
     peerCount: nullableNumber(value.peerCount),
@@ -221,11 +224,40 @@ export function HomeV2LiveApp() {
   )
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [busyNetwork, setBusyNetwork] = useState<NetworkId | null>(null)
+  const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
+  const [customUrl, setCustomUrl] = useState('')
+  const [customError, setCustomError] = useState<string | null>(null)
+  const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
+    () => window.homeV2Nodes ?? null,
+  )
   const permissionState = useMemo(createPermissionState, [])
 
+  useEffect(() => {
+    if (nodeClient) return
+    let cancelled = false
+    void import('./android-node-client')
+      .then(({ createAndroidHomeV2NodeClient }) => {
+        if (!cancelled) setNodeClient(createAndroidHomeV2NodeClient())
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setSnapshot((current) => ({
+          ...current,
+          nodes: {
+            qortal: unavailableNode(current.nodes.qortal, error),
+            qortium: unavailableNode(current.nodes.qortium, error),
+          },
+        }))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [nodeClient])
+
   const refresh = useCallback(async () => {
+    if (!nodeClient) return
     try {
-      const nodes = parseNodesSnapshot(await window.homeV2Nodes.getSnapshot())
+      const nodes = parseNodesSnapshot(await nodeClient.getSnapshot())
       setSnapshot((current) => ({ ...current, nodes }))
     } catch (error) {
       setSnapshot((current) => ({
@@ -236,7 +268,7 @@ export function HomeV2LiveApp() {
         },
       }))
     }
-  }, [])
+  }, [nodeClient])
 
   useEffect(() => {
     void refresh()
@@ -257,10 +289,11 @@ export function HomeV2LiveApp() {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => {
+    if (!nodeClient) return
     setBusyNetwork(network)
     try {
       const nodes = parseNodesSnapshot(
-        await window.homeV2Nodes.setMode(network, mode),
+        await nodeClient.setMode(network, mode),
       )
       setSnapshot((current) => ({ ...current, nodes }))
     } catch (error) {
@@ -276,26 +309,108 @@ export function HomeV2LiveApp() {
     }
   }
 
+  const openCustomNode = (network: NetworkId) => {
+    setCustomNetwork(network)
+    setCustomUrl(snapshot.nodes[network].customUrl ?? '')
+    setCustomError(null)
+  }
+
+  const saveCustomNode = async () => {
+    if (!customNetwork || !nodeClient) return
+    setBusyNetwork(customNetwork)
+    setCustomError(null)
+    try {
+      const nodes = parseNodesSnapshot(
+        await nodeClient.setCustomUrl(customNetwork, customUrl),
+      )
+      setSnapshot((current) => ({ ...current, nodes }))
+      setCustomNetwork(null)
+    } catch (error) {
+      setCustomError(
+        error instanceof Error ? error.message : 'Unable to save the custom node.',
+      )
+    } finally {
+      setBusyNetwork(null)
+    }
+  }
+
   return (
-    <HomeV2Prototype
-      snapshot={snapshot}
-      productState={productState}
-      permissionState={permissionState}
-      layout="desktop"
-      surfaceNotice={
-        busyNetwork
-          ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
-          : 'Live node data · account and apps not connected'
-      }
-      onActivateTab={(tabId) =>
-        dispatchProduct({ type: 'activate-tab', tabId })
-      }
-      onCloseTab={(tabId) => dispatchProduct({ type: 'close-tab', tabId })}
-      onNavigate={(destination) =>
-        dispatchProduct({ type: 'navigate', destination })
-      }
-      onRefreshNode={() => void refresh()}
-      onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
-    />
+    <>
+      <HomeV2Prototype
+        snapshot={snapshot}
+        productState={productState}
+        permissionState={permissionState}
+        layout={window.homeV2Nodes ? 'desktop' : 'phone'}
+        surfaceNotice={
+          busyNetwork
+            ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
+            : 'Live node data · account and apps not connected'
+        }
+        onActivateTab={(tabId) =>
+          dispatchProduct({ type: 'activate-tab', tabId })
+        }
+        onCloseTab={(tabId) => dispatchProduct({ type: 'close-tab', tabId })}
+        onNavigate={(destination) =>
+          dispatchProduct({ type: 'navigate', destination })
+        }
+        onRefreshNode={() => void refresh()}
+        onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
+        onConfigureCustomNode={openCustomNode}
+      />
+      {customNetwork ? (
+        <div className="home-v2-dialog-backdrop" role="presentation">
+          <section
+            className="home-v2-custom-node-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="home-v2-custom-node-title"
+          >
+            <header>
+              <h2 id="home-v2-custom-node-title">
+                Custom {customNetwork === 'qortal' ? 'Qortal' : 'Qortium'} node
+              </h2>
+              <p>Remote nodes must use HTTPS. Loopback HTTP is allowed.</p>
+            </header>
+            <label>
+              <span>Node URL</span>
+              <input
+                autoFocus
+                type="url"
+                value={customUrl}
+                placeholder="https://node.example"
+                onChange={(event) => setCustomUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void saveCustomNode()
+                }}
+              />
+            </label>
+            <div
+              className="home-v2-custom-node-dialog__message"
+              aria-live="polite"
+            >
+              {customError ?? 'Saving also selects Custom mode.'}
+            </div>
+            <footer>
+              <button
+                type="button"
+                className="home-v2-secondary-button"
+                disabled={busyNetwork !== null}
+                onClick={() => setCustomNetwork(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="home-v2-primary-button"
+                disabled={busyNetwork !== null || !customUrl.trim()}
+                onClick={() => void saveCustomNode()}
+              >
+                Save
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </>
   )
 }

@@ -1,6 +1,6 @@
-# Home 2.0 Live Node AppImage
+# Home 2.0 Live Node Preview
 
-This desktop preview connects the Home v2 Dashboard to real Qortal and Qortium
+This desktop and Android preview connects the Home v2 Dashboard to real Qortal and Qortium
 node status. It is the first reviewed live-data slice, not a production Home
 replacement.
 
@@ -22,12 +22,34 @@ The build does not launch the application or publish an artifact. This preview
 uses the separate Electron profile name `qortium-home-v2-live`, so its settings
 do not modify the current Qortium Home profile.
 
+For the Android debug APK:
+
+```bash
+npm run dist:android:debug:v2-live
+```
+
+The Android build uses the temporary `.v2live` application ID and restores the
+standard Android web assets after packaging. It does not install or launch the
+APK.
+
+The output is:
+
+```text
+android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.apk
+```
+
 ## What works
 
 - Live, independently refreshed Qortal and Qortium node status on Dashboard.
-- Exact Local, Public, and Disabled selection for each network.
-- Custom mode when that network already has a custom endpoint in this preview's
-  isolated settings; otherwise the option is visibly unavailable.
+- Exact Local, Public, Custom, and Disabled selection for each network on
+  desktop. Android exposes the same choices but reports Local as unavailable;
+  it never silently substitutes Public.
+- A compact Custom endpoint editor. Remote endpoints require HTTPS; explicit
+  loopback HTTP remains available for local development.
+- Desktop detection distinguishes a running local Core, an installed but
+  stopped Core, and no detected installation. Qortal detection includes the
+  future managed sibling folder, the standard `~/qortal` locations, and a
+  Qortal Hub custom Core directory when configured.
 - Public-node selection only after a positive-height, fully synchronized status
   and a successful public-read check.
 - Qortium Public selection is limited to `https://node1.qortium.app` and
@@ -44,10 +66,9 @@ do not modify the current Qortium Home profile.
 - Account selection, unlocking, names, avatars, and cross-network identity.
 - QDN app catalogue or resource loading; the Chat and Wallets cards are plans,
   not runnable apps in this build.
-- A Custom endpoint editor.
 - Signing, publishing, transactions, Core control, updates, or Reticulum.
-- The Android live-node adapter.
 
-The preload exposes only node snapshot and node-mode operations. The renderer
+The desktop preload exposes only node snapshot, node-mode, and custom-URL
+operations. The renderer
 cannot directly access the network, the Home 1.x bridge, accounts, QDN, Core,
 updates, private keys, or seed material.

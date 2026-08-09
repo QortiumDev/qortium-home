@@ -1,12 +1,16 @@
 import { app, ipcMain } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { normalizeNodeApiUrl } from './node-api-url.js'
+import {
+  isNodeApiKeyTransportSafe,
+  normalizeNodeApiUrl,
+} from './node-api-url.js'
 import { nodeFetch } from './node-tls.js'
 import { assertShellWindowSender } from './shell-window-sender.js'
 import {
   isFullySyncedQortalStatus,
   parseQortalNodeSettings,
+  QORTAL_PUBLIC_NODE_API_URLS,
   resolveQortalNodePolicy,
   selectQortalPublicNode,
   type QortalNodeProbeResult as ProbeResult,
@@ -17,15 +21,10 @@ import {
 export type { QortalNodeSettings, QortalNodeSettingsMode } from './qortal-node-policy.js'
 
 const DEFAULT_LOCAL_URL = 'http://127.0.0.1:12391'
-const DEFAULT_PUBLIC_URLS = [
-  'https://ext-node.qortal.link',
-  'https://api.qortal.org',
-] as const
 const PUBLIC_READ_PROBE_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false'
 const SETTINGS_FILE = 'qortal-node-settings.json'
 const PROBE_TIMEOUT_MS = 5_000
-const PUBLIC_CACHE_TTL_MS = 5 * 60_000
 const IPC_REFUSAL = 'Qortal node settings are only available to a Home window.'
 
 type QortalNodeSettingsRequest = {
@@ -61,7 +60,7 @@ export type QortalNodeStatusResult =
       message: string
     }
 
-let cachedPublicNode: { expiresAt: number; url: string } | null = null
+let selectedPublicNodeUrl: string | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -125,7 +124,7 @@ function writeSettings(settings: QortalNodeSettings) {
     encoding: 'utf8',
     mode: 0o600,
   })
-  cachedPublicNode = null
+  selectedPublicNodeUrl = null
 }
 
 async function fetchWithTimeout(url: string) {
@@ -142,11 +141,14 @@ async function readStatus(nodeApiUrl: string) {
 }
 
 async function probePublicNode(url: string): Promise<ProbeResult | null> {
+  const startedAt = Date.now()
   try {
     const status = await readStatus(url)
+    const latencyMs = Date.now() - startedAt
     const readResponse = await fetchWithTimeout(`${url}${PUBLIC_READ_PROBE_PATH}`)
     return {
       isSynced: isFullySyncedQortalStatus(status),
+      latencyMs,
       status,
       supportsPublicReads: readResponse.ok,
       url,
@@ -157,19 +159,19 @@ async function probePublicNode(url: string): Promise<ProbeResult | null> {
 }
 
 async function discoverPublicNode(forceRefresh = false) {
-  if (
-    !forceRefresh &&
-    cachedPublicNode &&
-    cachedPublicNode.expiresAt > Date.now()
-  ) {
-    return cachedPublicNode.url
+  if (!forceRefresh && selectedPublicNodeUrl) {
+    const selected = await probePublicNode(selectedPublicNodeUrl)
+    if (selected?.isSynced && selected.supportsPublicReads) {
+      return selected.url
+    }
+    selectedPublicNodeUrl = null
   }
-  const selected = await selectQortalPublicNode(DEFAULT_PUBLIC_URLS, probePublicNode)
+  const selected = await selectQortalPublicNode(
+    QORTAL_PUBLIC_NODE_API_URLS,
+    probePublicNode,
+  )
   if (!selected) throw new Error('No reachable synchronized public Qortal node was found.')
-  cachedPublicNode = {
-    expiresAt: Date.now() + PUBLIC_CACHE_TTL_MS,
-    url: selected.url,
-  }
+  selectedPublicNodeUrl = selected.url
   return selected.url
 }
 
@@ -188,7 +190,9 @@ export async function getQortalNodeConnection(forcePublicRefresh = false) {
 }
 
 export function invalidateQortalPublicNode(nodeApiUrl?: string) {
-  if (!nodeApiUrl || cachedPublicNode?.url === nodeApiUrl) cachedPublicNode = null
+  if (!nodeApiUrl || selectedPublicNodeUrl === nodeApiUrl) {
+    selectedPublicNodeUrl = null
+  }
 }
 
 async function testSettings(
@@ -238,7 +242,7 @@ async function getSettingsSnapshot(settings = readSettings()) {
   return {
     ...settings,
     localUrl: getLocalUrl(),
-    publicUrls: [...DEFAULT_PUBLIC_URLS],
+    publicUrls: [...QORTAL_PUBLIC_NODE_API_URLS],
     nodeApiUrl,
     resolutionError,
   }
@@ -252,6 +256,10 @@ export async function getQortalNodeStatusForHomeV2() {
   return testSettings(readSettings())
 }
 
+export async function getQortalLocalNodeStatusForHomeV2() {
+  return testSettings({ customUrl: '', mode: 'local' })
+}
+
 export async function saveQortalNodeModeForHomeV2(
   mode: QortalNodeSettingsMode,
 ) {
@@ -260,6 +268,16 @@ export async function saveQortalNodeModeForHomeV2(
     customUrl: current.customUrl,
     mode,
   })
+  writeSettings(settings)
+  return getSettingsSnapshot(settings)
+}
+
+export async function saveQortalCustomUrlForHomeV2(customUrl: string) {
+  const normalizedUrl = normalizeNodeApiUrl(customUrl)
+  if (!isNodeApiKeyTransportSafe(normalizedUrl)) {
+    throw new Error('Remote custom nodes must use HTTPS.')
+  }
+  const settings = normalizeRequest({ customUrl: normalizedUrl, mode: 'custom' })
   writeSettings(settings)
   return getSettingsSnapshot(settings)
 }

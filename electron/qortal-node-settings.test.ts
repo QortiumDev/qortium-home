@@ -2,9 +2,15 @@ import assert from 'node:assert/strict'
 import {
   isFullySyncedQortalStatus,
   parseQortalNodeSettings,
+  QORTAL_PUBLIC_NODE_API_URLS,
   resolveQortalNodePolicy,
   selectQortalPublicNode,
 } from './qortal-node-policy.js'
+
+assert.deepEqual(QORTAL_PUBLIC_NODE_API_URLS, [
+  'https://ext-node.qortal.link',
+  'https://api.qortal.org',
+])
 
 const syncedStatus = {
   height: 2_000_000,
@@ -87,6 +93,7 @@ const selected = await selectQortalPublicNode(
     if (url.includes('stale')) {
       return {
         isSynced: false,
+        latencyMs: 1,
         status: { ...syncedStatus, height: 2_100_000, syncPercent: 90 },
         supportsPublicReads: true,
         url,
@@ -94,6 +101,7 @@ const selected = await selectQortalPublicNode(
     }
     return {
       isSynced: true,
+      latencyMs: url.includes('high') ? 40 : 120,
       status: {
         ...syncedStatus,
         height: url.includes('high') ? 2_050_000 : 2_000_000,
@@ -130,6 +138,7 @@ assert.equal(
     disabledProbeCalls += 1
     return {
       isSynced: true,
+      latencyMs: 1,
       status: syncedStatus,
       supportsPublicReads: false,
       url,

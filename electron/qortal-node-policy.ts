@@ -6,6 +6,11 @@ export type QortalNodeSettingsMode =
   | 'public'
   | 'custom'
 
+export const QORTAL_PUBLIC_NODE_API_URLS = [
+  'https://ext-node.qortal.link',
+  'https://api.qortal.org',
+] as const
+
 export interface QortalNodeSettings {
   customUrl: string
   mode: QortalNodeSettingsMode
@@ -18,6 +23,7 @@ export interface QortalNodePolicyConnection {
 
 export interface QortalNodeProbeResult {
   isSynced: boolean
+  latencyMs: number
   status: unknown
   supportsPublicReads: boolean
   url: string
@@ -92,6 +98,9 @@ export async function selectQortalPublicNode(
       !!result && result.isSynced && result.supportsPublicReads,
   )
   candidates.sort((left, right) => {
+    if (left.latencyMs !== right.latencyMs) {
+      return left.latencyMs - right.latencyMs
+    }
     const heightDifference =
       (numberField(right.status, 'height') ?? 0) -
       (numberField(left.status, 'height') ?? 0)

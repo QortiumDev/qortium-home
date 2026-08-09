@@ -526,8 +526,8 @@
 
 .home-v2-node-card {
   display: grid;
-  min-block-size: 205px;
-  grid-template-rows: minmax(44px, auto) auto minmax(24px, 1fr) auto;
+  min-block-size: 224px;
+  grid-template-rows: minmax(44px, auto) auto minmax(45px, 1fr) auto;
   align-items: start;
   gap: 12px;
   padding: 18px;
@@ -573,6 +573,77 @@
   margin: 0;
   gap: 3px;
   font-size: 13px;
+}
+
+.home-v2-node-actions {
+  display: flex;
+  min-block-size: 29px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.home-v2-dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(20 18 16 / 58%);
+}
+
+.home-v2-custom-node-dialog {
+  display: grid;
+  width: min(440px, 100%);
+  gap: 18px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 16px;
+  padding: 22px;
+  color: var(--v2-ink);
+  background: var(--v2-surface);
+  box-shadow: 0 24px 72px rgb(0 0 0 / 26%);
+}
+
+.home-v2-custom-node-dialog h2,
+.home-v2-custom-node-dialog p {
+  margin: 0;
+}
+
+.home-v2-custom-node-dialog p,
+.home-v2-custom-node-dialog__message {
+  margin-top: 6px;
+  color: var(--v2-muted);
+  font-size: 12px;
+}
+
+.home-v2-custom-node-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--v2-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.home-v2-custom-node-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 9px;
+  padding: 10px 11px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  font: inherit;
+}
+
+.home-v2-custom-node-dialog__message {
+  min-block-size: 18px;
+}
+
+.home-v2-custom-node-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
 }
 
 .home-v2-node-detail span,

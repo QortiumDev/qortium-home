@@ -2,7 +2,7 @@
 
 Date: 2026-08-08
 
-Status: accepted and implemented for the desktop preview
+Status: accepted and superseded in part by ADR 0007
 
 ## Context
 
@@ -23,7 +23,8 @@ operations can target both networks.
   and product identity. This is a testing boundary, not a second product or a
   promise to maintain the old renderer.
 - Use a separate v2 renderer entry and a scoped preload exposing only
-  `getSnapshot()` and `setMode(network, mode)` for node connections.
+  `getSnapshot()`, `setMode(network, mode)`, and
+  `setCustomUrl(network, url)` for node connections.
 - Gate the IPC handlers to explicitly authorized Home v2 window IDs. Do not
   expose a generic invoke function or the Home 1.x preload.
 - Reuse the retained Qortium node service and add an independent Qortal node
@@ -37,16 +38,15 @@ operations can target both networks.
 - Return normalized status only: endpoint, mode, reachability, sync, height,
   peers, timestamps, errors, and read capability. Never return an API key,
   account material, or private node credentials.
-- Keep the first live slice desktop-only. Android and the browser fallback must
-  adopt the same exact-mode contract before parity is claimed.
+- The initial slice was desktop-only. ADR 0007 extends its exact-mode contract
+  to Android without broadening the desktop preload.
 
 ## Consequences
 
 The preview can display real Qortal and Qortium node state and safely persist
 connection-mode choices in its isolated profile. It cannot select or unlock an
 account, load QDN apps, sign, publish, control Core, access updates, or start
-Reticulum. Custom mode exists in the contract but cannot be selected until an
-endpoint has been configured; the preview does not yet contain that editor.
+Reticulum. Custom mode is configured through a compact endpoint editor.
 
 The packaged main process still carries retained production modules because it
 is compiled from the existing Electron graph. Runtime registration and renderer

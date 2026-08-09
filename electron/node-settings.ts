@@ -16,6 +16,7 @@ import {
 import { isNodeApiKeyTransportSafe, normalizeNodeApiUrl } from './node-api-url.js';
 import { ensureNodeCa, nodeFetch, resolveNodeTlsTrust } from './node-tls.js';
 import {
+  isFullySyncedQortiumStatus as isSyncedStatus,
   isUsableQortiumPublicNode as isUsableDiscoveryCandidate,
   QORTIUM_PUBLIC_NODE_API_URLS,
   rankQortiumPublicNodes as rankDiscoveryCandidates,
@@ -659,16 +660,6 @@ function getStatusSyncBlocksRemaining(status: unknown) {
   return typeof syncBlocksRemaining === 'number' && Number.isFinite(syncBlocksRemaining)
     ? syncBlocksRemaining
     : null;
-}
-
-function isSyncedStatus(status: unknown) {
-  return (
-    getStatusHeight(status) > 0 &&
-    getStatusSyncPhase(status) === 'SYNCED' &&
-    getStatusSyncPercent(status) === 100 &&
-    getStatusSyncBlocksRemaining(status) === 0 &&
-    !getStatusIsSynchronizing(status)
-  );
 }
 
 async function fetchWithTimeout(url: string) {
@@ -1319,6 +1310,11 @@ export async function getNodeStatusForHomeV2() {
   return testNodeSettings(readNodeSettings());
 }
 
+export async function getLocalNodeStatusForHomeV2() {
+  const current = readNodeSettings();
+  return testNodeSettings({ ...current, mode: 'local' });
+}
+
 export async function saveNodeModeForHomeV2(
   mode: 'custom' | 'disabled' | 'local' | 'public',
 ) {
@@ -1327,6 +1323,22 @@ export async function saveNodeModeForHomeV2(
     apiKey: current.apiKey,
     customUrl: current.customUrl,
     mode: mode === 'public' ? 'network' : mode,
+  });
+  writeNodeSettings(settings);
+  nodeSettingsChangeListeners.forEach((listener) => listener());
+  return getNodeSettingsSnapshot(settings);
+}
+
+export async function saveNodeCustomUrlForHomeV2(customUrl: string) {
+  const current = readNodeSettings();
+  const normalizedUrl = normalizeNodeApiUrl(customUrl);
+  if (!isNodeApiKeyTransportSafe(normalizedUrl)) {
+    throw new Error('Remote custom nodes must use HTTPS.');
+  }
+  const settings = normalizeNodeSettingsRequest({
+    apiKey: current.apiKey,
+    customUrl: normalizedUrl,
+    mode: 'custom',
   });
   writeNodeSettings(settings);
   nodeSettingsChangeListeners.forEach((listener) => listener());

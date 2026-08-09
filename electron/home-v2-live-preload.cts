@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     network: 'qortal' | 'qortium',
     mode: 'custom' | 'disabled' | 'local' | 'public',
   ) => ipcRenderer.invoke('home-v2-nodes:setMode', network, mode),
+  setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string) =>
+    ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
 })

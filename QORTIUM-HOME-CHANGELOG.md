@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-08 - feat: add Home v2 desktop and Android node readiness
+
+Extends the Home 2.0 live preview to Android and completes the first practical
+connection controls on both platforms. Qortal and Qortium can independently use
+Disabled, Local, Public, or Custom modes without silently changing modes when a
+node fails. Public nodes must be synchronized and support public reads, healthy
+choices stay stable until failure, and the selected hostname remains visible.
+Desktop now distinguishes a running local Core, an installed but stopped Core,
+and no detected installation; Android clearly reports that a local Core is not
+available. A compact editor accepts HTTPS custom nodes, while a separate debug
+APK identity and restricted desktop bridge keep account, wallet, signing, QDN,
+Core-control, update, and Reticulum capabilities out of this preview slice.
+
 ### 2026-08-08 - feat: refine Home v2 appearance settings
 
 Softens the offline Home 2.0 preview from strongly brown surfaces to linen and

@@ -91,6 +91,7 @@ const preloadSource = extractFile(
 for (const requiredChannel of [
   'home-v2-nodes:getSnapshot',
   'home-v2-nodes:setMode',
+  'home-v2-nodes:setCustomUrl',
 ]) {
   if (!preloadSource.includes(requiredChannel)) {
     throw new Error(`Home v2 live preload is missing ${requiredChannel}.`);

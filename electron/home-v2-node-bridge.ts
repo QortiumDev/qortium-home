@@ -1,14 +1,22 @@
 import { ipcMain, type WebContents } from 'electron'
 import {
+  getLocalNodeStatusForHomeV2,
   getNodeSettingsForHomeV2,
   getNodeStatusForHomeV2,
+  saveNodeCustomUrlForHomeV2,
   saveNodeModeForHomeV2,
 } from './node-settings.js'
 import {
+  getQortalLocalNodeStatusForHomeV2,
   getQortalNodeSettingsForHomeV2,
   getQortalNodeStatusForHomeV2,
+  saveQortalCustomUrlForHomeV2,
   saveQortalNodeModeForHomeV2,
 } from './qortal-node-settings.js'
+import {
+  getHomeV2LocalCoreInstallState,
+  type HomeV2LocalCoreInstallState,
+} from './home-v2-core-readiness.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
@@ -86,10 +94,40 @@ function endpointHost(nodeApiUrl: string) {
   }
 }
 
+function localCoreSummary(
+  installState: HomeV2LocalCoreInstallState,
+  rawLocalStatus: unknown,
+) {
+  if (isRecord(rawLocalStatus) && rawLocalStatus.ok === true) {
+    return {
+      localCoreState: 'running' as const,
+      localCoreStatusText: 'Local Core running',
+    }
+  }
+  if (installState === 'installed') {
+    return {
+      localCoreState: 'installed' as const,
+      localCoreStatusText: 'Local Core installed · stopped',
+    }
+  }
+  if (installState === 'unsupported') {
+    return {
+      localCoreState: 'unsupported' as const,
+      localCoreStatusText: 'Local Core detection unavailable',
+    }
+  }
+  return {
+    localCoreState: 'not-detected' as const,
+    localCoreStatusText: 'Local Core not detected',
+  }
+}
+
 function normalizeNodeSummary(
   network: NetworkId,
   rawSettings: unknown,
   rawStatus: unknown,
+  rawLocalStatus: unknown,
+  installState: HomeV2LocalCoreInstallState,
 ) {
   const settings = isRecord(rawSettings) ? rawSettings : {}
   const internalMode = stringField(settings, 'mode')
@@ -141,6 +179,8 @@ function normalizeNodeSummary(
     statusText,
     isTrusted: mode === 'local',
     customConfigured: !!stringField(settings, 'customUrl'),
+    customUrl: stringField(settings, 'customUrl'),
+    ...localCoreSummary(installState, rawLocalStatus),
     nodeApiUrl: disabled ? null : nodeApiUrl,
     height: numberField(status, 'height'),
     peerCount:
@@ -159,31 +199,59 @@ function normalizeNodeSummary(
 }
 
 async function getSnapshot() {
-  const [qortalSettings, qortalStatus, qortiumSettings, qortiumStatus] =
-    await Promise.all([
+  const [qortalSettings, qortiumSettings] = await Promise.all([
       getQortalNodeSettingsForHomeV2().catch((error: unknown) => ({
         mode: 'local',
         resolutionError: error instanceof Error ? error.message : 'Unable to read Qortal node settings.',
-      })),
-      getQortalNodeStatusForHomeV2().catch((error: unknown) => ({
-        ok: false,
-        message: error instanceof Error ? error.message : 'Unable to read Qortal node status.',
       })),
       getNodeSettingsForHomeV2().catch((error: unknown) => ({
         mode: 'local',
         resolutionError: error instanceof Error ? error.message : 'Unable to read Qortium node settings.',
       })),
-      getNodeStatusForHomeV2().catch((error: unknown) => ({
-        ok: false,
-        message: error instanceof Error ? error.message : 'Unable to read Qortium node status.',
-      })),
+    ])
+  const qortalStatusPromise = getQortalNodeStatusForHomeV2().catch(
+    (error: unknown) => ({
+      ok: false,
+      message:
+        error instanceof Error ? error.message : 'Unable to read Qortal node status.',
+    }),
+  )
+  const qortiumStatusPromise = getNodeStatusForHomeV2().catch(
+    (error: unknown) => ({
+      ok: false,
+      message:
+        error instanceof Error ? error.message : 'Unable to read Qortium node status.',
+    }),
+  )
+  const [qortalStatus, qortalLocalStatus, qortiumStatus, qortiumLocalStatus] =
+    await Promise.all([
+      qortalStatusPromise,
+      stringField(qortalSettings, 'mode') === 'local'
+        ? qortalStatusPromise
+        : getQortalLocalNodeStatusForHomeV2(),
+      qortiumStatusPromise,
+      stringField(qortiumSettings, 'mode') === 'local'
+        ? qortiumStatusPromise
+        : getLocalNodeStatusForHomeV2(),
     ])
 
   return {
     version: 1,
     nodes: {
-      qortal: normalizeNodeSummary('qortal', qortalSettings, qortalStatus),
-      qortium: normalizeNodeSummary('qortium', qortiumSettings, qortiumStatus),
+      qortal: normalizeNodeSummary(
+        'qortal',
+        qortalSettings,
+        qortalStatus,
+        qortalLocalStatus,
+        getHomeV2LocalCoreInstallState('qortal'),
+      ),
+      qortium: normalizeNodeSummary(
+        'qortium',
+        qortiumSettings,
+        qortiumStatus,
+        qortiumLocalStatus,
+        getHomeV2LocalCoreInstallState('qortium'),
+      ),
     },
   }
 }
@@ -208,6 +276,22 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
         await saveQortalNodeModeForHomeV2(mode)
       } else {
         await saveNodeModeForHomeV2(mode)
+      }
+      return getSnapshot()
+    },
+  )
+  ipcMain.handle(
+    'home-v2-nodes:setCustomUrl',
+    async (event, networkValue: unknown, customUrlValue: unknown) => {
+      assertAuthorized(event.sender)
+      const network = normalizeNetwork(networkValue)
+      if (typeof customUrlValue !== 'string' || !customUrlValue.trim()) {
+        throw new Error('Enter a custom node URL.')
+      }
+      if (network === 'qortal') {
+        await saveQortalCustomUrlForHomeV2(customUrlValue)
+      } else {
+        await saveNodeCustomUrlForHomeV2(customUrlValue)
       }
       return getSnapshot()
     },

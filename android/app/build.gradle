@@ -47,6 +47,14 @@ android {
         }
     }
     buildTypes {
+        v2Live {
+            initWith debug
+            applicationIdSuffix ".v2live"
+            versionNameSuffix "-v2-live"
+            resValue "string", "app_name", "Qortium Home 2 Live Preview"
+            resValue "string", "title_activity_main", "Qortium Home 2 Live Preview"
+            matchingFallbacks = ['debug']
+        }
         release {
             if (qortiumHomeAndroidReleaseSigningConfigured) {
                 signingConfig signingConfigs.release

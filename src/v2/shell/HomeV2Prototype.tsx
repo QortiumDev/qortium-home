@@ -49,6 +49,7 @@ export interface HomeV2PrototypeProps {
     mode: NodeConnectionMode,
   ) => void
   readonly onRefreshNode?: (network: NetworkId) => void
+  readonly onConfigureCustomNode?: (network: NetworkId) => void
   readonly onUnlockAccount?: () => void
   readonly onLockAccount?: () => void
   readonly onSelectAccount?: (
@@ -99,11 +100,13 @@ function NodeCard({
   network,
   onSetNodeMode,
   onRefreshNode,
+  onConfigureCustomNode,
 }: {
   readonly snapshot: HomeV2Snapshot
   readonly network: NetworkId
   readonly onSetNodeMode?: HomeV2PrototypeProps['onSetNodeMode']
   readonly onRefreshNode?: HomeV2PrototypeProps['onRefreshNode']
+  readonly onConfigureCustomNode?: HomeV2PrototypeProps['onConfigureCustomNode']
 }) {
   const node = snapshot.nodes[network]
   return (
@@ -158,18 +161,32 @@ function NodeCard({
               .filter(Boolean)
               .join(' · ') || 'Waiting for node status')}
         </small>
+        <small>{node.localCoreStatusText}</small>
       </div>
-      {onRefreshNode ? (
-        <button
-          type="button"
-          className="home-v2-link-button"
-          onClick={() => onRefreshNode(network)}
-        >
-          Refresh
-        </button>
-      ) : (
-        <span aria-hidden="true" />
-      )}
+      <div className="home-v2-node-actions">
+        {onConfigureCustomNode ? (
+          <button
+            type="button"
+            className="home-v2-link-button"
+            onClick={() => onConfigureCustomNode(network)}
+          >
+            Configure
+          </button>
+        ) : (
+          <span aria-hidden="true" />
+        )}
+        {onRefreshNode ? (
+          <button
+            type="button"
+            className="home-v2-link-button"
+            onClick={() => onRefreshNode(network)}
+          >
+            Refresh
+          </button>
+        ) : (
+          <span aria-hidden="true" />
+        )}
+      </div>
     </article>
   )
 }
@@ -338,7 +355,13 @@ function InternalPage({
 }
 
 function Dashboard(props: HomeV2PrototypeProps) {
-  const { snapshot, onOpenApp, onSetNodeMode, onRefreshNode } = props
+  const {
+    snapshot,
+    onOpenApp,
+    onSetNodeMode,
+    onRefreshNode,
+    onConfigureCustomNode,
+  } = props
   const pinnedApps = snapshot.apps.filter((app) => app.placement === 'pinned')
   return (
     <div className="home-v2-dashboard">
@@ -364,12 +387,14 @@ function Dashboard(props: HomeV2PrototypeProps) {
             network="qortal"
             onSetNodeMode={onSetNodeMode}
             onRefreshNode={onRefreshNode}
+            onConfigureCustomNode={onConfigureCustomNode}
           />
           <NodeCard
             snapshot={snapshot}
             network="qortium"
             onSetNodeMode={onSetNodeMode}
             onRefreshNode={onRefreshNode}
+            onConfigureCustomNode={onConfigureCustomNode}
           />
         </div>
       </section>

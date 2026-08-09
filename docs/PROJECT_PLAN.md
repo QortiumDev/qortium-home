@@ -3,7 +3,7 @@
 Last updated: 2026-08-08
 
 Status: accepted product direction with Phase 1 complete and the first desktop
-Phase 2 live-node slice implemented. Account, QDN app, and Android live adapters
+and Android Phase 2 live-node slice implemented. Account and QDN app adapters
 have not started.
 
 This is the canonical product and architecture plan for Qortium Home. When an
@@ -568,15 +568,16 @@ the first exception.
 - Connect read-only bridge families and capability reporting.
 - Preserve app isolation and immutable operation context.
 
-Status on 2026-08-08: the first desktop slice is implemented as a separate live
-preview artifact and profile. Its renderer can obtain only a normalized node
-snapshot and change Qortal or Qortium connection mode through a scoped preload.
-Both networks support exact Disabled, Local, Public, and preconfigured Custom
-modes without cross-mode fallback; public candidates must pass synchronization
-and read-capability checks. The Dashboard displays live node status while
-accounts, QDN resource loading, signing, writes, Core control, Reticulum, and
-the production Home profile remain inaccessible. The Android adapter and the
-Qortal browser fallback still require an equivalent exact-mode implementation.
+Status on 2026-08-08: the first desktop and Android slice is implemented as
+separate live-preview artifacts. Both networks support exact Disabled, Local,
+Public, and Custom modes without cross-mode fallback; public candidates must
+pass synchronization and read-capability checks. Desktop uses a sender-gated
+preload and reports running, installed-but-stopped, or undetected local Cores.
+Android uses a narrow Capacitor HTTP/preferences adapter, visibly reports Local
+as unsupported, and is packaged under a temporary `.v2live` application ID.
+The Dashboard displays live node status while accounts, QDN resource loading,
+signing, writes, Core control, Reticulum, and the production Home profile remain
+inaccessible.
 
 ### Phase 3: app-first default experiences
 

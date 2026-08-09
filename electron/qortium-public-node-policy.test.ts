@@ -4,10 +4,32 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   isUsableQortiumPublicNode,
+  isFullySyncedQortiumStatus,
   QORTIUM_PUBLIC_NODE_API_URLS,
   rankQortiumPublicNodes,
   type QortiumPublicNodeCandidate,
 } from './qortium-public-node-policy.js';
+
+assert.equal(
+  isFullySyncedQortiumStatus({
+    height: 85_000,
+    isSynchronizing: false,
+    syncBlocksRemaining: 0,
+    syncPercent: 100,
+    syncPhase: 'SYNCED',
+  }),
+  true,
+);
+assert.equal(
+  isFullySyncedQortiumStatus({
+    height: 85_000,
+    isSynchronizing: false,
+    syncBlocksRemaining: 1,
+    syncPercent: 100,
+    syncPhase: 'SYNCED',
+  }),
+  false,
+);
 
 assert.deepEqual(QORTIUM_PUBLIC_NODE_API_URLS, [
   'https://node1.qortium.app',
