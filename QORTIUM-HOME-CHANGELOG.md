@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-10 - fix: detach managed services from AppImage mounts
+
+Prevents a closed Linux AppImage from lingering as an invisible FUSE helper
+while its managed Qortium Core or i2pd service continues running. Home now
+removes AppImage-only variables and temporary mount paths from managed-service
+environments before launch. Linux Core scripts and i2pd also close inherited
+Electron descriptors, including the AppImage runtime control pipe, before
+starting their managed processes. Core and i2pd can continue running after Home
+closes, as designed, without keeping that particular AppImage mounted or
+appearing as a hidden Home instance.
+
 ### 2026-08-10 - fix: wire Home v2 Android app tab navigation
 
 Connects Android Q-Apps to Home 2.0's browser tabs and navigation controls.

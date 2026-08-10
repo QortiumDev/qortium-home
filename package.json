@@ -89,6 +89,7 @@
     "test:node-ca-bootstrap": "node scripts/ensure-electron-build.mjs && node dist-electron/node-ca-bootstrap.test.js",
     "test:node-cert-trust": "node scripts/ensure-electron-build.mjs && node dist-electron/node-cert-trust.test.js",
     "test:managed-java-asset": "node scripts/ensure-electron-build.mjs && node dist-electron/managed-java-asset.test.js",
+    "test:managed-child-process": "node scripts/ensure-electron-build.mjs && node dist-electron/managed-child-process.test.js",
     "test:core-install-transaction": "node scripts/ensure-electron-build.mjs && node dist-electron/core-install-transaction.test.js",
     "test:filesystem-move": "node scripts/ensure-electron-build.mjs && node dist-electron/filesystem-move.test.js",
     "test:base58": "node scripts/ensure-electron-build.mjs && node dist-electron/base58.test.js",

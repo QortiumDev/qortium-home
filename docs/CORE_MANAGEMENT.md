@@ -139,6 +139,14 @@ Java runtime's `bin` directory to `PATH` when available. This lets the bundled
 preview scripts keep calling `java` normally while still preferring the managed
 runtime over system Java.
 
+Packaged Linux launches must not pass AppImage-only variables, temporary mount
+paths, or inherited Electron resource descriptors into managed services that
+outlive Home. Core and i2pd intentionally keep running after the Home window
+closes, but they must run solely from their stable managed install/runtime paths.
+The Linux launch wrapper uses Bash so it can close all inherited descriptors
+above stderr, including Electron's high-numbered resource handles and the
+AppImage runtime control pipe, so the mount can exit normally.
+
 ## Deferred Work
 
 - Stable/mainnet Core profile selection.

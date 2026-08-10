@@ -40,6 +40,10 @@ import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManage
 import { selectManagedJavaBinary } from './managed-java-asset.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { userMessage } from './user-message.js';
+import {
+  prepareManagedLongLivedCommand,
+  sanitizeManagedChildEnvironment,
+} from './managed-child-process.js';
 
 const CORE_REPOSITORY = 'QortiumDev/qortium-core';
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
@@ -2014,16 +2018,18 @@ async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<
 }
 
 function getJavaRuntimeEnv(java: JavaStatus) {
+  const environment = sanitizeManagedChildEnvironment();
+
   if (java.source !== 'managed' || !java.path) {
-    return undefined;
+    return environment;
   }
 
   const javaBinPath = path.dirname(java.path);
 
   return {
-    ...process.env,
+    ...environment,
     JAVA_HOME: path.dirname(javaBinPath),
-    PATH: `${javaBinPath}${path.delimiter}${process.env.PATH ?? ''}`,
+    PATH: `${javaBinPath}${path.delimiter}${environment.PATH ?? ''}`,
   };
 }
 
@@ -3492,18 +3498,19 @@ async function runScript(
   return new Promise<void>((resolve, reject) => {
     let output = '';
     const ignoreStdio = options.stdio === 'ignore';
+    const launch = prepareManagedLongLivedCommand(command, args);
     const child =
       process.platform === 'win32'
         ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `""${command}" ${args.map(quoteWindowsCommandArg).join(' ')}"`], {
             cwd,
-            env,
+            env: sanitizeManagedChildEnvironment(env ?? process.env),
             ...(ignoreStdio ? { stdio: 'ignore' as const } : {}),
             windowsHide: true,
             windowsVerbatimArguments: true,
           })
-        : spawn(command, args, {
+        : spawn(launch.command, launch.args, {
             cwd,
-            env,
+            env: sanitizeManagedChildEnvironment(env ?? process.env),
             ...(ignoreStdio ? { stdio: 'ignore' as const } : {}),
             windowsHide: true,
           });
@@ -3652,7 +3659,6 @@ async function startCore(options: { quiet?: boolean } = {}) {
       ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
-      // This only covers fd 0/1/2; closing fd >= 3 belongs in Core's start.sh.
       { stdio: 'ignore' },
     );
     await waitForRuntimeState(true, START_TIMEOUT_MS, 'starting');

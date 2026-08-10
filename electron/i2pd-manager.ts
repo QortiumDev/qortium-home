@@ -9,6 +9,10 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import extract from 'extract-zip';
 import { extract as extractTar } from 'tar';
+import {
+  prepareManagedLongLivedCommand,
+  sanitizeManagedChildEnvironment,
+} from './managed-child-process.js';
 
 // Managed i2pd for desktop. Downloads a verified i2pd binary from our build repo
 // (QortiumDev/qortium-i2pd), installs it under Home's managed data area, writes a
@@ -541,11 +545,17 @@ async function launchI2pd(installed: InstalledI2pd) {
   // process group so it doesn't receive Home's terminal signals; `unref` lets
   // Home exit without waiting on it. stdio is ignored because the router writes
   // its own logfile (see writeI2pdConf) — a piped stream would die with Home.
-  const child = spawn(
-    installed.binaryPath,
-    [`--datadir=${getI2pdRuntimePath()}`, `--conf=${getI2pdConfPath()}`],
-    { windowsHide: true, detached: true, stdio: 'ignore' },
-  );
+  const launch = prepareManagedLongLivedCommand(installed.binaryPath, [
+    `--datadir=${getI2pdRuntimePath()}`,
+    `--conf=${getI2pdConfPath()}`,
+  ]);
+  const child = spawn(launch.command, launch.args, {
+    cwd: getI2pdRuntimePath(),
+    env: sanitizeManagedChildEnvironment(),
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore',
+  });
   child.once('exit', () => {
     if (managedChild === child) {
       managedChild = null;
