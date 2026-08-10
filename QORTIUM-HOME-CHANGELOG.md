@@ -37,9 +37,11 @@ with its own clear scope.
 
 Updates Home's icon library and WebSocket development tooling, and aligns the
 Capacitor Android and command-line packages with the existing Capacitor 8.5.0
-runtime. The CodeQL workflow also moves to its latest compatible patch release.
-These are maintenance updates only; they do not intentionally change Home's
-features, account handling, network permissions, or release behavior.
+runtime. Home also pins the command-line tool's transitive UUID helper to its
+patched compatible release. The CodeQL workflow moves to its latest compatible
+patch release. These are maintenance updates only; they do not intentionally
+change Home's features, account handling, network permissions, or release
+behavior.
 
 ### 2026-08-06 - fix: make foreign wallet read failures actionable
 

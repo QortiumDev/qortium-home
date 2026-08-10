@@ -174,7 +174,10 @@
     "epubjs": {
       "@xmldom/xmldom": "0.8.13"
     },
-    "tmp": "0.2.7"
+    "tmp": "0.2.7",
+    "xcode": {
+      "uuid": "11.1.1"
+    }
   },
   "build": {
     "appId": "org.qortium.home",
