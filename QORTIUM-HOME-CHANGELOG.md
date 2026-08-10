@@ -33,6 +33,14 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-10 - build(deps): refresh Home dependencies and CodeQL
+
+Updates Home's icon library and WebSocket development tooling, and aligns the
+Capacitor Android and command-line packages with the existing Capacitor 8.5.0
+runtime. The CodeQL workflow also moves to its latest compatible patch release.
+These are maintenance updates only; they do not intentionally change Home's
+features, account handling, network permissions, or release behavior.
+
 ### 2026-08-06 - fix: make foreign wallet read failures actionable
 
 Home's desktop and Android bridges now share one exact contract for the eight
