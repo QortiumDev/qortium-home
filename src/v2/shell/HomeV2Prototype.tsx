@@ -51,6 +51,7 @@ export interface HomeV2PrototypeProps {
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly accountCatalogue?: HomeV2AccountCatalogue
   readonly selectedAccountId?: string | null
+  readonly appReloadVersion?: number
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
   readonly requestApp?: (
@@ -690,6 +691,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             snapshot={snapshot}
             nodeClient={props.nodeClient}
             selectedAccountId={props.selectedAccountId}
+            reloadVersion={props.appReloadVersion}
             onOpenAddress={props.onOpenAddress}
             requestApp={props.requestApp}
           />

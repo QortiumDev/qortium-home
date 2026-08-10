@@ -39,7 +39,7 @@ where these adapters share validated paths.
 | `GET_ACCOUNT_DATA`, `GET_BALANCE` | `qortalRequest` | Bare Core JSON | Explicit Qortal address read | yes | yes |
 | `RESOLVE_IDENTITIES` | `qdnRequest` | Address/name/avatar-hint array | Qortium metadata only; at most 500 unique addresses | yes | yes |
 | `FETCH_ACCOUNT_AVATAR` | `qdnRequest` | Pointer-aware bounded base64 image or pending state | Qortium; explicit address; max 500 KiB; raster magic-byte validation | yes | yes |
-| `FETCH_QDN_RESOURCE` | both | Bare decoded Core response | Source protocol selects chain; max 2 MiB | yes | yes |
+| `FETCH_QDN_RESOURCE` | both | Bare decoded Core response | Source protocol selects chain; 2 MiB default and 5 MiB maximum | yes | yes |
 | `LIST_QDN_RESOURCES`, `SEARCH_QDN_RESOURCES` | both | Bare Core resource array | Validated query mapping | yes | yes |
 | `GET_QDN_RESOURCE_METADATA`, `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`, `GET_QDN_RESOURCE_URL` | both | Bare JSON or render URL | Source protocol selects chain | yes | yes |
 | `GET_SELECTED_ACCOUNT` | `qdnRequest` | Address, public name, lock state, avatar contract | Trusted Home prompt; once or tab-session grant | yes | yes |
@@ -99,6 +99,11 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - Android's generic app fetch adapter currently represents node responses as
   JSON. Arbitrary binary QDN resources require a separate bounded binary
   contract rather than string coercion.
+- Android gives app-originated reads a 30-second response timeout. Node health
+  probes remain short so endpoint selection and dashboard refreshes stay responsive.
+- Android's isolated app origin forwards GET-only `/arbitrary/...` relative
+  requests to that app's already-authorized node. Other Core API families and
+  non-GET methods remain blocked at the proxy boundary.
 - `GET_USER_ACCOUNT.publicKey` is read from Qortal's public account data. It can
   be `null` for an address whose public key is not yet visible on chain; Home
   does not unlock or expose private material to fill it.

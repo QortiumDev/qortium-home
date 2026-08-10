@@ -94,7 +94,7 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   `GET_HOST_INFO`, `GET_NODE_STATUS`, `GET_NODE_INFO`,
   `IS_USING_PUBLIC_NODE`, `FETCH_NODE_API`, and the compatibility
   `FETCH_QORTAL_NODE_API`. Node fetches accept only GET/HEAD, use an endpoint
-  allowlist, and cap responses at 2 MiB.
+  allowlist, default responses to 2 MiB, and cap explicit requests at 5 MiB.
 - Theme, accent, text size, app zoom, language, selected account ID, open app
   tabs, active tab, and current Home destination persist in the isolated v2
   profile. Invalid or older state fails closed to documented defaults; wallet

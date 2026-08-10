@@ -64,6 +64,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * passed through, so the proxy can never reach an origin Home did not choose.
      */
     private WebResourceResponse serveProxiedQdnRequest(WebResourceRequest request) {
+        if (!"GET".equalsIgnoreCase(request.getMethod())) {
+            return forbiddenResponse();
+        }
+
         String upstreamUrl = QdnRenderProxy.resolveUpstreamUrl(request.getUrl());
 
         if (upstreamUrl == null) {

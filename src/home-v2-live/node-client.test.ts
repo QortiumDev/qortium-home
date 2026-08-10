@@ -65,6 +65,7 @@ const latency = new Map([
 const unavailable = new Set<string>()
 const requestCount = new Map<string, number>()
 let lastRequestedUrl = ''
+let lastRequestedTimeoutMs: number | undefined
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
@@ -73,8 +74,9 @@ const dependencies: PortableNodeClientDependencies = {
   async setPreference(key, value) {
     preferences.set(key, value)
   },
-  async requestJson(url) {
+  async requestJson(url, _method, timeoutMs) {
     lastRequestedUrl = url
+    lastRequestedTimeoutMs = timeoutMs
     const origin = new URL(url).origin
     requestCount.set(origin, (requestCount.get(origin) ?? 0) + 1)
     if (unavailable.has(origin)) {
@@ -87,6 +89,7 @@ const dependencies: PortableNodeClientDependencies = {
           ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
           : [],
       latencyMs: latency.get(origin) ?? 1,
+      headers: { 'x-total-count': '7' },
       ok: true,
       status: 200,
     }
@@ -129,9 +132,11 @@ assert.deepEqual(
 const qortalRead = await client.requestApp('qortalRequest', {
   action: 'FETCH_NODE_API',
   path: '/names/Alice',
-}) as { ok: boolean; status: number }
+}) as { headers: Record<string, string>; ok: boolean; status: number }
 assert.equal(qortalRead.ok, true)
 assert.equal(qortalRead.status, 200)
+assert.equal(qortalRead.headers['x-total-count'], '7')
+assert.equal(lastRequestedTimeoutMs, 30_000)
 assert.match(lastRequestedUrl, /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/names\/Alice$/)
 await assert.rejects(
   () => client.requestApp('qdnRequest', { action: 'FETCH_NODE_API', path: '/admin/stop' }),

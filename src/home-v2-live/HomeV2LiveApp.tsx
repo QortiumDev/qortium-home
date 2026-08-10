@@ -329,6 +329,7 @@ export function HomeV2LiveApp() {
   const [appNavigation, setAppNavigation] = useState<
     Readonly<Record<string, AppNavigationState>>
   >({})
+  const [appReloadVersion, setAppReloadVersion] = useState(0)
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
@@ -1078,6 +1079,7 @@ export function HomeV2LiveApp() {
       accountCatalogue={accountCatalogue}
       selectedAccountId={selectedAccountId}
       selectedAccountLookup={selectedAccountLookup}
+      appReloadVersion={appReloadVersion}
       nodeClient={nodeClient}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
@@ -1116,7 +1118,11 @@ export function HomeV2LiveApp() {
       onGoForward={() => navigateActiveApp(1)}
       onReload={() => {
         if (productState.activeTabId) {
-          void window.homeV2Apps?.reload({ tabId: productState.activeTabId })
+          if (window.homeV2Apps) {
+            void window.homeV2Apps.reload({ tabId: productState.activeTabId })
+          } else {
+            setAppReloadVersion((current) => current + 1)
+          }
         } else {
           void refresh()
         }

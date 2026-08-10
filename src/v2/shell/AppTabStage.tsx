@@ -119,6 +119,7 @@ function AndroidAppStage(props: AppTabStageProps) {
   useEffect(() => {
     if (!resolved) return
     let cancelled = false
+    setRuntimeError(null)
     void import('../../home-v2-live/android-app-host')
       .then(({ authorizeHomeV2AndroidAppOrigin }) => authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl))
       .then((proxyOrigin) => {
@@ -133,7 +134,7 @@ function AndroidAppStage(props: AppTabStageProps) {
         if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : 'Unable to prepare the app view.')
       })
     return () => { cancelled = true }
-  }, [resolved, token])
+  }, [props.reloadVersion, resolved, token])
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -183,7 +184,13 @@ function AndroidAppStage(props: AppTabStageProps) {
   }, [props.nodeClient, props.onOpenAddress, props.requestApp, props.selectedAccountId, resolved, source, token])
 
   return <section className="home-v2-app-stage home-v2-app-stage--live">
-    {source ? <iframe ref={frameRef} className="home-v2-app-frame" src={source} title="QDN app" /> : null}
+    {source ? <iframe
+      key={`${resolved?.tab.id ?? 'app'}:${props.reloadVersion ?? 0}`}
+      ref={frameRef}
+      className="home-v2-app-frame"
+      src={source}
+      title="QDN app"
+    /> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }
@@ -193,6 +200,7 @@ export interface AppTabStageProps {
   readonly snapshot: HomeV2Snapshot
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null
+  readonly reloadVersion?: number
   readonly onOpenAddress?: (address: string) => Promise<unknown>
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,

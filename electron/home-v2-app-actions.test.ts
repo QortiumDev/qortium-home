@@ -6,6 +6,7 @@ import {
   getHomeV2AppActions,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadPath,
+  normalizeHomeV2ResponseMaxBytes,
 } from './home-v2-app-actions.js'
 
 const qdnActions = getHomeV2AppActions('qdnRequest')
@@ -61,6 +62,12 @@ assert.equal(
 )
 assert.equal(normalizeHomeV2OpenAddress({ address: 'qdn://APP/Trust' }), 'qdn://APP/Trust')
 assert.equal(normalizeHomeV2OpenAddress({ qdnUrl: 'qortal://APP/Q-Tube' }), 'qortal://APP/Q-Tube')
+assert.equal(normalizeHomeV2ResponseMaxBytes(undefined), 2 * 1024 * 1024)
+assert.equal(normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024), 5 * 1024 * 1024)
+assert.throws(
+  () => normalizeHomeV2ResponseMaxBytes(5 * 1024 * 1024 + 1),
+  /between 1 byte and 5 MiB/,
+)
 assert.throws(
   () => normalizeHomeV2OpenAddress({ address: 'https://example.com' }),
   /only accepts/,

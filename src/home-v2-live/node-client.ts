@@ -87,8 +87,13 @@ interface PortableNodeSettings {
 export interface PortableNodeClientDependencies {
   getPreference(key: string): Promise<string | null>
   setPreference(key: string, value: string): Promise<void>
-  requestJson(url: string, method?: 'GET' | 'HEAD'): Promise<{
+  requestJson(
+    url: string,
+    method?: 'GET' | 'HEAD',
+    timeoutMs?: number,
+  ): Promise<{
     data: unknown
+    headers?: Readonly<Record<string, string>>
     latencyMs: number
     ok: boolean
     status: number
@@ -113,6 +118,7 @@ const AVATAR_MAX_BYTES = 500 * 1024
 const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESOURCE_LIMIT = 50
+const APP_READ_TIMEOUT_MS = 30_000
 
 function normalizedAppResourceName(value: string) {
   const name = value.trim()
@@ -629,7 +635,11 @@ export function createPortableNodeClient(
       }
       const requestData = async (targetNetwork: NetworkId, path: string, maxBytes: number) => {
         const { nodeApiUrl } = await getReadableNode(targetNetwork)
-        const response = await dependencies.requestJson(`${nodeApiUrl}${path}`)
+        const response = await dependencies.requestJson(
+          `${nodeApiUrl}${path}`,
+          'GET',
+          APP_READ_TIMEOUT_MS,
+        )
         const body = JSON.stringify(response.data ?? null)
         if (new TextEncoder().encode(body).byteLength > maxBytes) {
           throw new Error('Node API response exceeded the requested size limit.')
@@ -801,7 +811,11 @@ export function createPortableNodeClient(
       if (!path) throw new Error(`${action} is not available in Home v2 read-only mode.`)
       const method = normalizeHomeV2ReadMethod(request.method)
       const { nodeApiUrl } = await getReadableNode(network)
-      const response = await dependencies.requestJson(`${nodeApiUrl}${path}`, method)
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}${path}`,
+        method,
+        APP_READ_TIMEOUT_MS,
+      )
       const body = method === 'HEAD' ? '' : JSON.stringify(response.data ?? null)
       const bodyLength = new TextEncoder().encode(body).byteLength
       if (bodyLength > normalizeHomeV2ResponseMaxBytes(request.maxBytes)) {
@@ -816,7 +830,7 @@ export function createPortableNodeClient(
         contentLength: bodyLength,
         contentType: 'application/json',
         data: response.data,
-        headers: {},
+        headers: response.headers ?? {},
         ok: response.ok,
         status: response.status,
         statusText: '',

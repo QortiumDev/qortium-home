@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-10 - fix: complete Home v2 Android public Q-App reads
+
+Completes the first Android public-reading acceptance pass for Qortium and
+Qortal apps in Home 2.0. Android app requests now keep their response headers,
+allow up to 30 seconds for larger public reads, and support the established
+5 MiB maximum when an app requests it. The isolated Android app origin also
+forwards GET-only `/arbitrary/...` reads to the node Home already selected while
+continuing to block other Core API families and non-read methods. The browser
+reload control now reloads Android app frames. Together these changes let Help
+and Trust load current Qortium data and let Q-Tube load its Qortal feed and
+images without widening Home's read-only bridge into signing, publishing,
+transactions, account secrets, or unrestricted node access.
+
 ### 2026-08-10 - fix: resolve name-only apps and pending avatars
 
 Makes name-only app addresses behave consistently across Qortium and Qortal.

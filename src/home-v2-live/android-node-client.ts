@@ -13,16 +13,17 @@ export function createAndroidHomeV2NodeClient() {
     async setPreference(key, value) {
       await Preferences.set({ key, value })
     },
-    async requestJson(url, method = 'GET') {
+    async requestJson(url, method = 'GET', timeoutMs = 5_000) {
       const startedAt = Date.now()
       const response = await CapacitorHttp.request({
         url,
         method,
         connectTimeout: 5_000,
-        readTimeout: 5_000,
+        readTimeout: timeoutMs,
       })
       return {
         data: response.data,
+        headers: response.headers,
         latencyMs: Date.now() - startedAt,
         ok: response.status >= 200 && response.status < 300,
         status: response.status,

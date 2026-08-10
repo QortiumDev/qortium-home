@@ -1,7 +1,8 @@
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type HomeV2AppNetwork = 'qortal' | 'qortium'
 
-const RESPONSE_MAX_BYTES = 2 * 1024 * 1024
+const RESPONSE_DEFAULT_MAX_BYTES = 2 * 1024 * 1024
+const RESPONSE_MAX_BYTES = 5 * 1024 * 1024
 const AVATAR_MAX_BYTES = 500 * 1024
 const MAX_IDENTITY_ADDRESSES = 500
 const MAX_ADDRESS_LENGTH = 2_048
@@ -209,10 +210,10 @@ function appendQueryValue(query: URLSearchParams, key: string, value: unknown) {
 }
 
 export function normalizeHomeV2ResponseMaxBytes(value: unknown) {
-  if (value === undefined || value === null || value === '') return RESPONSE_MAX_BYTES
+  if (value === undefined || value === null || value === '') return RESPONSE_DEFAULT_MAX_BYTES
   const parsed = typeof value === 'number' ? value : Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > RESPONSE_MAX_BYTES) {
-    throw new Error('maxBytes must be between 1 byte and 2 MiB.')
+    throw new Error('maxBytes must be between 1 byte and 5 MiB.')
   }
   return parsed
 }

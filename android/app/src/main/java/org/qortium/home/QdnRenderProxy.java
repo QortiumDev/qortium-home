@@ -119,13 +119,7 @@ final class QdnRenderProxy {
 
         java.util.List<String> segments = url.getPathSegments();
 
-        if (segments.size() < 3 || !"render".equals(segments.get(0))) {
-            return null;
-        }
-
-        String service = segments.get(1).toUpperCase(Locale.ROOT);
-
-        if (!ALLOWED_RENDER_SERVICES.contains(service)) {
+        if (!isAllowedProxyPath(segments)) {
             return null;
         }
 
@@ -148,6 +142,32 @@ final class QdnRenderProxy {
         }
 
         return upstream.toString();
+    }
+
+    /**
+     * Q-Apps commonly use same-origin relative GETs for public QDN resources.
+     * Keep those reads on the already-authorized node while refusing every
+     * other Core API family (admin, transactions, cross-chain, and so on).
+     */
+    static boolean isAllowedProxyPath(java.util.List<String> segments) {
+        if (segments == null || segments.size() < 2) {
+            return false;
+        }
+
+        for (String segment : segments) {
+            if (".".equals(segment) || "..".equals(segment)) {
+                return false;
+            }
+        }
+
+        if ("arbitrary".equals(segments.get(0))) {
+            return true;
+        }
+
+        return
+            segments.size() >= 3 &&
+            "render".equals(segments.get(0)) &&
+            ALLOWED_RENDER_SERVICES.contains(segments.get(1).toUpperCase(Locale.ROOT));
     }
 
     /**
