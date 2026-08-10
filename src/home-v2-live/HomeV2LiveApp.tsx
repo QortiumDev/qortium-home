@@ -37,6 +37,10 @@ import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import type { AddressOpenResult } from '../v2/shell/BrowserChrome'
 import type {
+  AppTabNavigationController,
+  AppTabNavigationSnapshot,
+} from '../v2/shell/AppTabStage'
+import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppRequestContext,
   HomeV2NodeClient,
@@ -178,11 +182,6 @@ function currentSystemTheme() {
 
 function currentSystemLanguage() {
   return resolveHomeV2SystemLanguage(navigator.language)
-}
-
-interface AppNavigationState {
-  readonly activeIndex: number
-  readonly entries: readonly { readonly index: number; readonly url: string }[]
 }
 
 const emptyAccountCatalogue: HomeV2AccountCatalogue = Object.freeze({
@@ -327,7 +326,7 @@ export function HomeV2LiveApp() {
   const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
   const [shellNotice, setShellNotice] = useState<string | null>(null)
   const [appNavigation, setAppNavigation] = useState<
-    Readonly<Record<string, AppNavigationState>>
+    Readonly<Record<string, AppTabNavigationSnapshot>>
   >({})
   const [appReloadVersion, setAppReloadVersion] = useState(0)
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
@@ -352,7 +351,32 @@ export function HomeV2LiveApp() {
     (decision: PermissionDecision) => void
   >())
   const androidSessionAccountGrants = useRef(new Set<string>())
+  const androidNavigationControllers = useRef(
+    new Map<string, AppTabNavigationController>(),
+  )
   const tabSequence = useRef(0)
+
+  const handleAppNavigationChanged = useCallback(
+    (tabId: TabId, navigation: AppTabNavigationSnapshot) => {
+      setAppNavigation((current) => ({
+        ...current,
+        [tabId]: navigation,
+      }))
+    },
+    [],
+  )
+
+  const handleAppNavigationControllerChange = useCallback(
+    (tabId: TabId, controller: AppTabNavigationController | null) => {
+      if (controller) androidNavigationControllers.current.set(tabId, controller)
+      else androidNavigationControllers.current.delete(tabId)
+    },
+    [],
+  )
+
+  const handleAppTitleChanged = useCallback((tabId: TabId, title: string | null) => {
+    dispatchProduct({ type: 'set-tab-title', tabId, title })
+  }, [])
 
   useEffect(() => {
     const bridge = window.homeV2Apps
@@ -374,12 +398,12 @@ export function HomeV2LiveApp() {
             typeof entry.url === 'string',
         )
         .map((entry) => ({ index: entry.index, url: entry.url }))
-      setAppNavigation((current) => ({
-        ...current,
-        [value.tabId as string]: { activeIndex: value.activeIndex as number, entries },
-      }))
+      handleAppNavigationChanged(value.tabId as TabId, {
+        activeIndex: value.activeIndex as number,
+        entries,
+      })
     })
-  }, [])
+  }, [handleAppNavigationChanged])
 
   const loadVisibleAvatar = useCallback(
     (network: NetworkId, request: Parameters<HomeV2NodeClient['readAvatar']>[1]) =>
@@ -1052,10 +1076,16 @@ export function HomeV2LiveApp() {
     if (!productState.activeTabId || !activeNavigation) return
     const target = activeNavigation.entries[activeNavigationPosition + offset]
     if (target) {
-      void window.homeV2Apps?.navigate({
-        index: target.index,
-        tabId: productState.activeTabId,
-      })
+      if (window.homeV2Apps) {
+        void window.homeV2Apps.navigate({
+          index: target.index,
+          tabId: productState.activeTabId,
+        })
+      } else {
+        void androidNavigationControllers.current
+          .get(productState.activeTabId)
+          ?.goToIndex(target.index)
+      }
     }
   }
 
@@ -1087,8 +1117,18 @@ export function HomeV2LiveApp() {
       }
       onCloseTab={(tabId) => {
         void window.homeV2Apps?.destroy({ tabId })
+        androidNavigationControllers.current.delete(tabId)
+        setAppNavigation((current) => {
+          if (!(tabId in current)) return current
+          const next = { ...current }
+          delete next[tabId]
+          return next
+        })
         dispatchProduct({ type: 'close-tab', tabId })
       }}
+      onAppNavigationChanged={handleAppNavigationChanged}
+      onAppNavigationControllerChange={handleAppNavigationControllerChange}
+      onAppTitleChanged={handleAppTitleChanged}
       onNavigate={(destination) =>
         dispatchProduct({ type: 'navigate', destination })
       }

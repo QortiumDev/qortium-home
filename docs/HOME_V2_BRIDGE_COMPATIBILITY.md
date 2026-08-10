@@ -104,6 +104,10 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - Android's isolated app origin forwards GET-only `/arbitrary/...` relative
   requests to that app's already-authorized node. Other Core API families and
   non-GET methods remain blocked at the proxy boundary.
+- Android app titles and browser-history snapshots are accepted only from the
+  active iframe with its private bridge token and selected proxy origin. Titles
+  are sanitized and capped at 160 characters. History is capped at 200 entries,
+  confined to the app origin, and must contain one unique active index.
 - `GET_USER_ACCOUNT.publicKey` is read from Qortal's public account data. It can
   be `null` for an address whose public key is not yet visible on chain; Home
   does not unlock or expose private material to fill it.

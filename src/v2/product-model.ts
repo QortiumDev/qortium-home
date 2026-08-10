@@ -5,6 +5,7 @@ import type {
   TabId,
 } from './contracts'
 import { parseAppResourceLocation } from './resource-location'
+import { sanitizeHomeV2AppTitle } from './app-frame-messages'
 
 export type ShellDestination =
   | 'activity'
@@ -36,6 +37,11 @@ export type ProductAction =
     }
   | { readonly type: 'activate-tab'; readonly tabId: TabId }
   | { readonly type: 'close-tab'; readonly tabId: TabId }
+  | {
+      readonly type: 'set-tab-title'
+      readonly tabId: TabId
+      readonly title: string | null
+    }
   | {
       readonly type: 'navigate'
       readonly destination: Exclude<ShellDestination, 'tab'>
@@ -97,7 +103,7 @@ export function restoreProductState(value: unknown): ProductState {
     if (!isRecord(candidate) || !isRecord(candidate.context)) continue
     const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
     const appId = typeof candidate.appId === 'string' ? candidate.appId.trim() : ''
-    const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
+    const title = sanitizeHomeV2AppTitle(candidate.title)
     const context = candidate.context
     const resourceLocation =
       typeof context.resourceLocation === 'string'
@@ -109,7 +115,6 @@ export function restoreProductState(value: unknown): ProductState {
       !appId ||
       appId.length > 400 ||
       !title ||
-      title.length > 160 ||
       context.appId !== appId ||
       context.tabId !== id ||
       (context.sourceNetwork !== 'qortal' &&
@@ -280,6 +285,29 @@ function closeTab(state: ProductState, tabId: TabId): ProductState {
   })
 }
 
+function setTabTitle(
+  state: ProductState,
+  tabId: TabId,
+  requestedTitle: string | null,
+): ProductState {
+  const current = state.tabs.find((tab) => tab.id === tabId)
+  if (!current) {
+    throw new ProductModelError('TAB_NOT_FOUND', `Tab ${tabId} was not found.`)
+  }
+  const fallback = parseAppResourceLocation(
+    current.context.resourceLocation,
+  ).identity.name
+  const title = sanitizeHomeV2AppTitle(requestedTitle) ?? fallback
+  if (title === current.title) return state
+  return freezeProductState({
+    ...state,
+    tabs: state.tabs.map((tab) =>
+      tab.id === tabId ? { ...tab, title } : tab,
+    ),
+    revision: state.revision + 1,
+  })
+}
+
 export function reduceProductState(
   state: ProductState,
   action: ProductAction,
@@ -291,6 +319,8 @@ export function reduceProductState(
       return activateTab(state, action.tabId)
     case 'close-tab':
       return closeTab(state, action.tabId)
+    case 'set-tab-title':
+      return setTabTitle(state, action.tabId, action.title)
     case 'navigate':
       return freezeProductState({
         ...state,

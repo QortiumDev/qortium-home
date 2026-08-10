@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
+import {
+  readHomeV2AppNavigationMessage,
+  readHomeV2AppTitleMessage,
+} from '../app-frame-messages'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppRequestContext,
@@ -141,13 +145,25 @@ function AndroidAppStage(props: AppTabStageProps) {
       const data = event.data
       if (
         !data ||
-        data.type !== 'qortium:qdn-request' ||
         data.bridgeToken !== token ||
-        typeof data.requestId !== 'string' ||
         event.source !== frameRef.current?.contentWindow ||
         !source ||
         event.origin !== new URL(source).origin
       ) return
+
+      const titleMessage = readHomeV2AppTitleMessage(data, token)
+      if (titleMessage) {
+        if (resolved) props.onTitleChanged?.(resolved.tab.id, titleMessage.title)
+        return
+      }
+
+      const navigationMessage = readHomeV2AppNavigationMessage(data, token, source)
+      if (navigationMessage) {
+        if (resolved) props.onNavigationChanged?.(resolved.tab.id, navigationMessage)
+        return
+      }
+
+      if (data.type !== 'qortium:qdn-request' || typeof data.requestId !== 'string') return
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
       const context: HomeV2AppRequestContext = {
         resourceLocation: resolved?.tab.context.resourceLocation ?? '',
@@ -181,7 +197,35 @@ function AndroidAppStage(props: AppTabStageProps) {
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [props.nodeClient, props.onOpenAddress, props.requestApp, props.selectedAccountId, resolved, source, token])
+  }, [
+    props.nodeClient,
+    props.onNavigationChanged,
+    props.onOpenAddress,
+    props.onTitleChanged,
+    props.requestApp,
+    props.selectedAccountId,
+    resolved,
+    source,
+    token,
+  ])
+
+  useEffect(() => {
+    if (!resolved || !source || !props.onNavigationControllerChange) return
+    const controller: AppTabNavigationController = {
+      goToIndex: async (index) => {
+        const frameWindow = frameRef.current?.contentWindow
+        if (!frameWindow || !Number.isSafeInteger(index) || index < 0) return false
+        frameWindow.postMessage({
+          type: 'qortium:qdn-navigation-command',
+          bridgeToken: token,
+          index,
+        }, new URL(source).origin)
+        return true
+      },
+    }
+    props.onNavigationControllerChange(resolved.tab.id, controller)
+    return () => props.onNavigationControllerChange?.(resolved.tab.id, null)
+  }, [props.onNavigationControllerChange, resolved, source, token])
 
   return <section className="home-v2-app-stage home-v2-app-stage--live">
     {source ? <iframe
@@ -195,13 +239,37 @@ function AndroidAppStage(props: AppTabStageProps) {
   </section>
 }
 
+export interface AppTabNavigationSnapshot {
+  readonly activeIndex: number
+  readonly entries: readonly {
+    readonly index: number
+    readonly url: string
+  }[]
+}
+
+export interface AppTabNavigationController {
+  goToIndex(index: number): Promise<boolean>
+}
+
 export interface AppTabStageProps {
   readonly productState: ProductState
   readonly snapshot: HomeV2Snapshot
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null
   readonly reloadVersion?: number
+  readonly onNavigationChanged?: (
+    tabId: ProductState['tabs'][number]['id'],
+    snapshot: AppTabNavigationSnapshot,
+  ) => void
+  readonly onNavigationControllerChange?: (
+    tabId: ProductState['tabs'][number]['id'],
+    controller: AppTabNavigationController | null,
+  ) => void
   readonly onOpenAddress?: (address: string) => Promise<unknown>
+  readonly onTitleChanged?: (
+    tabId: ProductState['tabs'][number]['id'],
+    title: string | null,
+  ) => void
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,

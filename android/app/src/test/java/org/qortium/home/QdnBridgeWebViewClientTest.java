@@ -26,6 +26,9 @@ public class QdnBridgeWebViewClientTest {
         assertTrue(homeV2.contains("window,'qdnRequest'"));
         assertTrue(homeV2.contains("window,'qortalRequest'"));
         assertTrue(homeV2.contains("protocol:protocol"));
+        assertTrue(homeV2.contains("qortium:qdn-title"));
+        assertTrue(homeV2.contains("qortium:qdn-navigation"));
+        assertTrue(homeV2.contains("qortium:qdn-navigation-command"));
     }
 
     @Test

@@ -33,6 +33,11 @@ import {
   reduceProductState,
   restoreProductState,
 } from './product-model'
+import {
+  readHomeV2AppNavigationMessage,
+  readHomeV2AppTitleMessage,
+  sanitizeHomeV2AppTitle,
+} from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
 import type { DualIdentityLookupResult } from './contracts'
@@ -225,6 +230,27 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   )
   assert.equal(reopenedChat.tabs.length, 1)
   assert.equal(reopenedChat.activeTabId, fixtureIds.chatTab)
+  const titledChat = reduceProductState(withChat, {
+    type: 'set-tab-title',
+    tabId: fixtureIds.chatTab,
+    title: 'Chat room 42',
+  })
+  assert.equal(titledChat.tabs[0].title, 'Chat room 42')
+  assert.equal(titledChat.revision, withChat.revision + 1)
+  assert.equal(
+    reduceProductState(titledChat, {
+      type: 'set-tab-title',
+      tabId: fixtureIds.chatTab,
+      title: 'Chat room 42',
+    }),
+    titledChat,
+  )
+  const resetChatTitle = reduceProductState(titledChat, {
+    type: 'set-tab-title',
+    tabId: fixtureIds.chatTab,
+    title: null,
+  })
+  assert.equal(resetChatTitle.tabs[0].title, 'fixture-chat')
   assert.equal(withBothSources.tabs.length, 2)
   assert.deepEqual(
     withBothSources.tabs.map((tab) => tab.context.sourceNetwork),
@@ -286,6 +312,75 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
       assert.equal(error.code, 'APP_CONTEXT_MISMATCH')
       return true
     },
+  )
+}
+
+function testAndroidAppFrameMessagesStayBounded(): void {
+  const token = 'fixture-bridge-token'
+  const renderUrl = 'https://qdn-app.local/render/APP/Help/Help'
+
+  assert.equal(
+    sanitizeHomeV2AppTitle('  Help\n\u202eCenter  '),
+    'Help Center',
+  )
+  const longTitle = sanitizeHomeV2AppTitle('A'.repeat(200))
+  assert.equal(longTitle?.length, 160)
+  assert.equal(longTitle?.endsWith('…'), true)
+  assert.deepEqual(
+    readHomeV2AppTitleMessage({
+      type: 'qortium:qdn-title',
+      bridgeToken: token,
+      title: 'Help v2',
+    }, token),
+    { title: 'Help v2' },
+  )
+  assert.equal(
+    readHomeV2AppTitleMessage({
+      type: 'qortium:qdn-title',
+      bridgeToken: 'wrong-token',
+      title: 'Forged',
+    }, token),
+    null,
+  )
+
+  assert.deepEqual(
+    readHomeV2AppNavigationMessage({
+      type: 'qortium:qdn-navigation',
+      bridgeToken: token,
+      activeIndex: 1,
+      entries: [
+        { index: 0, url: '/render/APP/Help/Help#overview' },
+        { index: 1, url: `${renderUrl}#details` },
+      ],
+    }, token, renderUrl),
+    {
+      activeIndex: 1,
+      entries: [
+        { index: 0, url: `${renderUrl}#overview` },
+        { index: 1, url: `${renderUrl}#details` },
+      ],
+    },
+  )
+  assert.equal(
+    readHomeV2AppNavigationMessage({
+      type: 'qortium:qdn-navigation',
+      bridgeToken: token,
+      activeIndex: 0,
+      entries: [{ index: 0, url: 'https://other.example/forged' }],
+    }, token, renderUrl),
+    null,
+  )
+  assert.equal(
+    readHomeV2AppNavigationMessage({
+      type: 'qortium:qdn-navigation',
+      bridgeToken: token,
+      activeIndex: 1,
+      entries: [
+        { index: 0, url: renderUrl },
+        { index: 0, url: `${renderUrl}#duplicate` },
+      ],
+    }, token, renderUrl),
+    null,
   )
 }
 
@@ -1110,6 +1205,7 @@ await testMockHostFailsClosed()
 await testPlatformFixtureHostsFailClosed()
 testWrongNetworkStopsBeforeAdapter()
 testProductModelKeepsSourceQualifiedTabs()
+testAndroidAppFrameMessagesStayBounded()
 testAppResourceSchemesStaySourceQualified()
 testBridgeProtocolsStaySeparate()
 testPermissionBrokerScopesAndInvalidation()

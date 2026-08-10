@@ -21,7 +21,11 @@ import type {
   PermissionState,
 } from '../bridge-permissions'
 import type { ProductState, ShellDestination } from '../product-model'
-import { AppTabStage } from './AppTabStage'
+import {
+  AppTabStage,
+  type AppTabNavigationController,
+  type AppTabNavigationSnapshot,
+} from './AppTabStage'
 import { AppearanceSettingsPage } from './AppearanceSettingsPage'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
@@ -61,6 +65,18 @@ export interface HomeV2PrototypeProps {
   ) => Promise<unknown>
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
+  readonly onAppNavigationChanged?: (
+    tabId: ProductState['tabs'][number]['id'],
+    snapshot: AppTabNavigationSnapshot,
+  ) => void
+  readonly onAppNavigationControllerChange?: (
+    tabId: ProductState['tabs'][number]['id'],
+    controller: AppTabNavigationController | null,
+  ) => void
+  readonly onAppTitleChanged?: (
+    tabId: ProductState['tabs'][number]['id'],
+    title: string | null,
+  ) => void
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void
@@ -692,7 +708,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             nodeClient={props.nodeClient}
             selectedAccountId={props.selectedAccountId}
             reloadVersion={props.appReloadVersion}
+            onNavigationChanged={props.onAppNavigationChanged}
+            onNavigationControllerChange={props.onAppNavigationControllerChange}
             onOpenAddress={props.onOpenAddress}
+            onTitleChanged={props.onAppTitleChanged}
             requestApp={props.requestApp}
           />
         ) : productState.destination === 'settings' ? (

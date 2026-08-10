@@ -99,8 +99,10 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   tabs, active tab, and current Home destination persist in the isolated v2
   profile. Invalid or older state fails closed to documented defaults; wallet
   files, passwords, unlock material, and keys are not included.
-- Desktop app navigation drives working Back, Forward, and Reload controls.
-  Tab switching preserves the live isolated view for the current session.
+- Desktop and Android app navigation drive working Back, Forward, and Reload
+  controls. App-provided document titles update sanitized tab labels. Tab
+  switching preserves the live isolated desktop view for the current session;
+  Android mirrors the active iframe's bounded same-origin history.
 
 ## Not connected yet
 

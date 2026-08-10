@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-10 - fix: wire Home v2 Android app tab navigation
+
+Connects Android Q-Apps to Home 2.0's browser tabs and navigation controls.
+An app's document title can now update its tab label after Home removes control
+characters, normalizes whitespace, and applies the existing length limit.
+Android app history now enables Back and Forward and accepts navigation commands
+through the app iframe's existing private bridge token. Home accepts these
+signals only from the active frame and its selected same-origin QDN proxy, caps
+the mirrored history, and rejects duplicate indexes, oversized URLs, missing
+active entries, and cross-origin destinations. The bridge's Qortium/Qortal
+protocol and read-only permission boundaries are unchanged.
+
 ### 2026-08-10 - fix: complete Home v2 Android public Q-App reads
 
 Completes the first Android public-reading acceptance pass for Qortium and
