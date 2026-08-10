@@ -157,7 +157,7 @@
     "tweetnacl": "1.0.3"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.4.2",
+    "@capacitor/cli": "^8.5.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
