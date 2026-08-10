@@ -192,6 +192,15 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     context: chatContext,
     tabId: fixtureIds.chatTab,
   })
+  const routedChat = reduceProductState(empty, {
+    type: 'open-app',
+    app: chat,
+    context: {
+      ...chatContext,
+      resourceLocation: `${chatContext.resourceLocation}?group=42` as typeof chatContext.resourceLocation,
+    },
+    tabId: fixtureIds.chatTab,
+  })
   const reopenedChat = reduceProductState(withChat, {
     type: 'open-app',
     app: chat,
@@ -210,6 +219,10 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
 
   assert.equal(empty.tabs.length, 0)
   assert.equal(withChat.tabs.length, 1)
+  assert.equal(
+    routedChat.tabs[0].context.resourceLocation,
+    `${chatContext.resourceLocation}?group=42`,
+  )
   assert.equal(reopenedChat.tabs.length, 1)
   assert.equal(reopenedChat.activeTabId, fixtureIds.chatTab)
   assert.equal(withBothSources.tabs.length, 2)
@@ -292,9 +305,34 @@ function testAppResourceSchemesStaySourceQualified(): void {
   assert.deepEqual(parseAppResourceLocation(qdn), {
     identity: { service: 'APP', name: 'Chat', identifier: 'Chat' },
     location: qdn,
+    routePath: '',
+    search: '',
+    hash: '',
     sourceNetwork: 'qortium',
   })
   assert.equal(parseAppResourceLocation(qortal).sourceNetwork, 'qortal')
+  assert.deepEqual(
+    parseAppResourceLocation(
+      'qdn://APP/Help/Help/page%20two?view=docs#install-linux',
+    ),
+    {
+      identity: { service: 'APP', name: 'Help', identifier: 'Help' },
+      location: 'qdn://APP/Help/Help/page%20two?view=docs#install-linux',
+      routePath: '/page%20two',
+      search: '?view=docs',
+      hash: '#install-linux',
+      sourceNetwork: 'qortium',
+    },
+  )
+  assert.deepEqual(parseAppResourceLocation('qortal://APP/Example'), {
+    identity: { service: 'APP', name: 'Example', identifier: null },
+    location: 'qortal://APP/Example/default',
+    routePath: '',
+    search: '',
+    hash: '',
+    sourceNetwork: 'qortal',
+  })
+  assert.throws(() => parseAppResourceLocation('qdn://'))
   assert.throws(() => parseAppResourceLocation('qdn://qortal/APP/Chat'))
   assert.throws(() => parseAppResourceLocation('https://example.invalid/app'))
 }
@@ -488,6 +526,7 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, /home-v2-status-dot/)
     assert.match(html, /aria-label="Browser tabs"/)
     assert.match(html, /value="home:\/\/dashboard"/)
+    assert.match(html, /aria-label="Go to address"/)
     assert.ok(
       html.indexOf('home-v2-browser-chrome') < html.indexOf('home-v2-dashboard'),
       'browser chrome must wrap the Dashboard rather than live inside it',

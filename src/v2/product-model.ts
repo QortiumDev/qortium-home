@@ -4,10 +4,7 @@ import type {
   AppTabContext,
   TabId,
 } from './contracts'
-import {
-  buildAppResourceLocation,
-  parseAppResourceLocation,
-} from './resource-location'
+import { parseAppResourceLocation } from './resource-location'
 
 export type ShellDestination =
   | 'activity'
@@ -191,13 +188,20 @@ function openApp(
       'The app or tab does not match the immutable operation context.',
     )
   }
-  const expectedLocation = buildAppResourceLocation(
-    action.app.sourceNetwork,
-    action.app.resourceIdentity,
-  )
+  let parsedLocation: ReturnType<typeof parseAppResourceLocation>
+  try {
+    parsedLocation = parseAppResourceLocation(action.context.resourceLocation)
+  } catch {
+    throw new ProductModelError(
+      'APP_CONTEXT_MISMATCH',
+      'The app resource location is invalid.',
+    )
+  }
   if (
     action.context.sourceNetwork !== action.app.sourceNetwork ||
-    action.context.resourceLocation !== expectedLocation
+    parsedLocation.sourceNetwork !== action.app.sourceNetwork ||
+    parsedLocation.identity.name !== action.app.resourceIdentity.name ||
+    parsedLocation.identity.identifier !== action.app.resourceIdentity.identifier
   ) {
     throw new ProductModelError(
       'APP_CONTEXT_MISMATCH',

@@ -349,6 +349,7 @@
 }
 
 .home-v2-address {
+  position: relative;
   display: flex;
   height: 36px;
   align-items: center;
@@ -368,6 +369,38 @@
   background: transparent;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
+}
+
+.home-v2-address > button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 14px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-soft);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.home-v2-address[data-error='true'] {
+  border-color: var(--v2-danger);
+}
+
+.home-v2-address__error {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 7px);
+  left: 10px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 7px 10px;
+  border: 1px solid var(--v2-danger);
+  border-radius: 8px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  box-shadow: var(--v2-shadow);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .home-v2-node-pill,

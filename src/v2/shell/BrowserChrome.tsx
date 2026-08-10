@@ -13,7 +13,7 @@ export interface BrowserChromeProps {
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
-  readonly onOpenAddress?: (address: string) => void
+  readonly onOpenAddress?: (address: string) => string | null
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void
@@ -62,7 +62,15 @@ export function BrowserChrome({
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(productState)
   const [address, setAddress] = useState(currentAddress)
-  useEffect(() => setAddress(currentAddress), [currentAddress])
+  const [addressError, setAddressError] = useState<string | null>(null)
+  useEffect(() => {
+    setAddress(currentAddress)
+    setAddressError(null)
+  }, [currentAddress])
+  const submitAddress = () => {
+    if (!onOpenAddress) return
+    setAddressError(onOpenAddress(address))
+  }
   return (
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">
@@ -103,16 +111,28 @@ export function BrowserChrome({
           aria-label="Address and search"
           onSubmit={(event) => {
             event.preventDefault()
-            onOpenAddress?.(address)
+            submitAddress()
           }}
+          data-error={addressError ? 'true' : 'false'}
         >
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Address and search"
             spellCheck={false}
             value={address}
-            onChange={(event) => setAddress(event.target.value)}
+            onChange={(event) => {
+              setAddress(event.target.value)
+              setAddressError(null)
+            }}
           />
+          <button type="submit" aria-label="Go to address" title="Go to address">
+            Go
+          </button>
+          {addressError ? (
+            <span className="home-v2-address__error" role="alert">
+              {addressError}
+            </span>
+          ) : null}
         </form>
         <div className="home-v2-browser-actions">
           {(['qortal', 'qortium'] as const).map((network) => (

@@ -50,7 +50,7 @@ export interface HomeV2PrototypeProps {
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
   readonly onOpenApp?: (app: AppDescriptor) => void
-  readonly onOpenAddress?: (address: string) => void
+  readonly onOpenAddress?: (address: string) => string | null
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void

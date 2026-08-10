@@ -76,7 +76,9 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
 - The Chat (`qdn://APP/Chat/Chat`) and Help (`qdn://APP/Help/Help`) Dashboard
   cards open real QDN resources. Complete `qdn://APP/<name>/<identifier>` and
   `qortal://APP/<name>/<identifier>` addresses can also be entered directly in
-  the browser bar.
+  the browser bar with Enter or Go. Paths, query parameters, and fragments are
+  preserved, and invalid or incomplete addresses produce a visible inline
+  error.
 - Desktop app content runs in a sandboxed, separately partitioned
   `WebContentsView`; Android uses its existing separate-origin HTTPS QDN render
   proxy. Both app contexts receive `qdnRequest` and `qortalRequest` as distinct

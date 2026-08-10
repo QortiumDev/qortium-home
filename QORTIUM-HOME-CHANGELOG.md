@@ -34,6 +34,14 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-09 - fix: make Home v2 address navigation explicit
+
+Fixes the Home 2.0 browser bar so Enter or the new Go button opens complete
+`qdn://` and `qortal://` app addresses. Routed app links now preserve path,
+query, and fragment components, and app addresses without an explicit
+identifier normalize to `default`. Invalid or incomplete addresses display a
+visible inline explanation instead of failing behind the current app view.
+
 ### 2026-08-09 - feat: add Home v2 persistent shell and read-only QDN apps
 
 Turns the Home 2.0 live preview into a usable first browser slice on desktop and

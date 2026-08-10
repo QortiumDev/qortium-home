@@ -15,17 +15,17 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   const name = resource.identity.name
   const identifier = resource.identity.identifier
   const suffix = identifier ? `/${encodeURIComponent(identifier)}` : ''
-  const query = new URLSearchParams({
-    accent: snapshot.appearance.accent,
-    lang: snapshot.appearance.resolvedLanguage,
-    textSize: snapshot.appearance.textSize,
-    theme: snapshot.appearance.resolvedTheme,
-    uiStyle: 'classic',
-  })
+  const query = new URLSearchParams(resource.search)
+  query.set('accent', snapshot.appearance.accent)
+  query.set('lang', snapshot.appearance.resolvedLanguage)
+  query.set('textSize', snapshot.appearance.textSize)
+  query.set('theme', snapshot.appearance.resolvedTheme)
+  query.set('uiStyle', 'classic')
+  const queryString = query.toString()
   return {
     nodeApiUrl: node.nodeApiUrl,
     tab,
-    url: `${node.nodeApiUrl}/render/APP/${encodeURIComponent(name)}${suffix}?${query}`,
+    url: `${node.nodeApiUrl}/render/APP/${encodeURIComponent(name)}${suffix}${resource.routePath}${queryString ? `?${queryString}` : ''}${resource.hash}`,
   }
 }
 

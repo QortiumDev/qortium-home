@@ -12,6 +12,7 @@ import { createPermissionState } from '../v2/bridge-permissions'
 import type {
   AppDescriptor,
   AppId,
+  AppTabContext,
   HomeV2AccountCatalogue,
   HomeV2AccountCatalogueEntry,
   HomeV2Snapshot,
@@ -563,7 +564,7 @@ export function HomeV2LiveApp() {
   )
 
   const openApp = useCallback(
-    (app: AppDescriptor) => {
+    (app: AppDescriptor, requestedLocation?: AppTabContext['resourceLocation']) => {
       setShellNotice(null)
       tabSequence.current += 1
       const tabId = brand<TabId>(
@@ -576,10 +577,9 @@ export function HomeV2LiveApp() {
         context: {
           appId: app.id,
           identityId: snapshot.identity.id,
-          resourceLocation: buildAppResourceLocation(
-            app.sourceNetwork,
-            app.resourceIdentity,
-          ),
+          resourceLocation:
+            requestedLocation ??
+            buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
           sourceNetwork: app.sourceNetwork,
           tabId,
           walletRef: snapshot.identity.selectedWallet,
@@ -605,7 +605,7 @@ export function HomeV2LiveApp() {
               | 'dashboard'
               | 'settings',
           })
-          return
+          return null
         }
         const parsed = parseAppResourceLocation(address)
         const app: AppDescriptor = {
@@ -620,21 +620,12 @@ export function HomeV2LiveApp() {
           targetNetworks: [parsed.sourceNetwork],
           placement: 'recommended',
         }
-        openApp(app)
+        openApp(app, parsed.location)
+        return null
       } catch (error) {
-        setShellNotice(error instanceof Error ? error.message : 'Invalid app address.')
-        setSnapshot((current) => ({
-          ...current,
-          recentItems: [
-            {
-              id: `address-error:${Date.now()}`,
-              appId: brand<AppId>('home-v2:app:address-error'),
-              label: error instanceof Error ? error.message : 'Invalid app address.',
-              context: address,
-              targetNetwork: 'qortium',
-            },
-          ],
-        }))
+        const message = error instanceof Error ? error.message : 'Invalid app address.'
+        setShellNotice(message)
+        return message
       }
     },
     [openApp],
