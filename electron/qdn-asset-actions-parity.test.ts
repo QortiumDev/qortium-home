@@ -12,6 +12,7 @@ const desktop = readRepoSource('../electron/qdn.ts', './qdn.ts');
 const android = readRepoSource('../src/platform.ts', './platform.ts');
 
 const ASSET_READ_ACTIONS = ['GET_ASSET_INFO', 'GET_ASSET_BALANCES', 'GET_ASSET_TRANSFERS'] as const;
+const ASSET_PATH_BUILDERS = ['getAssetInfoPath', 'getAssetBalancesPath', 'getAssetTransfersPath'] as const;
 
 for (const action of ASSET_READ_ACTIONS) {
   assert(QDN_APP_BRIDGE_ACTIONS.includes(action), `${action} must be in QDN_APP_BRIDGE_ACTIONS.`);
@@ -29,19 +30,12 @@ for (const [name, source] of [
     assert(source.includes(`case '${action}':`), `${name} must dispatch ${action}.`);
   }
 
-  assert(
-    source.includes('getOptionalAssetSelector(request)'),
-    `${name} GET_ASSET_INFO must resolve assetId/assetName through the shared getOptionalAssetSelector helper.`,
-  );
-
-  const balancesStart = source.indexOf("case 'GET_ASSET_BALANCES':");
-  const balancesEnd = source.indexOf("case 'GET_ASSET_TRANSFERS':", balancesStart);
-  const balancesBody = source.slice(balancesStart, balancesEnd);
-
-  assert(
-    !balancesBody.includes('getRequestAssetId('),
-    `${name} GET_ASSET_BALANCES must not use getRequestAssetId (it silently drops numeric assetId - see plan doc).`,
-  );
+  for (const builder of ASSET_PATH_BUILDERS) {
+    assert(
+      source.includes(`${builder}(request)`),
+      `${name} must build asset-read paths through shared ${builder} validation.`,
+    );
+  }
 }
 
 console.log('QDN asset read-action bridge parity tests passed.');

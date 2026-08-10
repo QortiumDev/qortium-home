@@ -12,13 +12,15 @@ import {
   assertQortiumAddress,
   getBoolean,
   getAccountBalancePath,
+  getAssetBalancesPath,
+  getAssetInfoPath,
+  getAssetTransfersPath,
   getExactQdnApprovalValue,
   getInlinePublishData,
   getInteger,
   getNodeApiPath,
   getNodeSettingsPatch,
   getNumber,
-  getOptionalAssetSelector,
   getOptionalAddressRequestString,
   getOptionalBase58RequestString,
   getOptionalBooleanRequestValue,
@@ -10936,47 +10938,14 @@ export async function handleQdnAppRequest(value: unknown, context?: QdnAppReques
       return fetchQortalNodeApi(apiPath, getQdnAppMaxBytes(getRequestValue(request, 'maxBytes')), method);
     }
 
-    case 'GET_ASSET_INFO': {
-      const selector = getOptionalAssetSelector(request);
-      const query = typeof selector.assetId === 'number'
-        ? `assetId=${selector.assetId}`
-        : `assetName=${encodeURIComponent(selector.assetName)}`;
+    case 'GET_ASSET_INFO':
+      return fetchNodeApiPayload(getAssetInfoPath(request), request);
 
-      return fetchNodeApiPayload(`/assets/info?${query}`, request);
-    }
+    case 'GET_ASSET_BALANCES':
+      return fetchNodeApiPayload(getAssetBalancesPath(request), request);
 
-    case 'GET_ASSET_BALANCES': {
-      const address = getOptionalAddressRequestString(request, 'Address', 'address');
-      const assetId = getInteger(getRequestValue(request, 'assetId'));
-
-      if (!address && typeof assetId === 'undefined') {
-        throw new Error('Supply either an address or an assetId.');
-      }
-
-      const params = new URLSearchParams();
-      if (address) params.set('address', address);
-      if (typeof assetId === 'number') params.set('assetid', String(assetId));
-      const excludeZero = getBoolean(getRequestValue(request, 'excludeZero'));
-      if (typeof excludeZero === 'boolean') params.set('excludeZero', String(excludeZero));
-      const limit = getOptionalIntegerRequestValue(request, 0, 'limit');
-      if (typeof limit === 'number') params.set('limit', String(limit));
-
-      return fetchNodeApiPayload(`/assets/balances?${params.toString()}`, request);
-    }
-
-    case 'GET_ASSET_TRANSFERS': {
-      const assetId = getRequiredIntegerRequestValue(request, 0, 'Asset id', 'assetId');
-      const address = getOptionalAddressRequestString(request, 'Address', 'address');
-      const params = new URLSearchParams();
-      if (address) params.set('address', address);
-      const limit = getOptionalIntegerRequestValue(request, 0, 'limit');
-      if (typeof limit === 'number') params.set('limit', String(limit));
-      const reverse = getBoolean(getRequestValue(request, 'reverse'));
-      if (typeof reverse === 'boolean') params.set('reverse', String(reverse));
-      const query = params.toString();
-
-      return fetchNodeApiPayload(`/assets/transfers/${assetId}${query ? `?${query}` : ''}`, request);
-    }
+    case 'GET_ASSET_TRANSFERS':
+      return fetchNodeApiPayload(getAssetTransfersPath(request), request);
 
     case 'GET_NODE_INFO':
       return fetchNodeApiPayload('/admin/info', request);
