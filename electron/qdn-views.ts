@@ -10,6 +10,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
+import { isHomeV2CoreBridgeClientRequest } from './home-v2-core-bridge-client.js';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
 import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
 import {
@@ -867,6 +868,14 @@ function applyViewGuards(entry: QdnViewEntry) {
   isolatedSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
   });
+
+  if (process.env.QORTIUM_HOME_V2_LIVE === '1') {
+    isolatedSession.webRequest.onBeforeRequest((details, callback) => {
+      callback({
+        cancel: isHomeV2CoreBridgeClientRequest(details.url, entry.nodeOrigin),
+      });
+    });
+  }
 
   // Relax the rendered app's Content-Security-Policy so it can read cross-chain (Qortal) resources.
   // Narrow by design: only the configured Qortal node origins are added to connect-src/img-src/

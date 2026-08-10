@@ -616,10 +616,16 @@ Forward remain visible at phone width and drive an unchanged Help app through a
 detail/list/detail round trip. The isolated v2 APK also disables Capacitor's
 unbounded debug bridge logger while retaining deliberate WebView inspection.
 Q-Tube's current `MediaInfoModule.wasm` returned `200 application/wasm` and its
-public feed rendered; the next compatibility evidence is instead its rejected
-legacy same-origin Core reads, including `/transactions/signature/...`. Those
-paths stay denied until they are mapped to bounded, explicitly read-only host
-capabilities rather than opening the app origin to arbitrary Core APIs.
+public feed rendered. Home now owns the embedded bridge on both platforms by
+neutralizing only Core's exact `/apps/q-apps.js` client inside Home 2.0 app
+views. Android additionally permits only Q-Tube's observed, query-free
+`GET /transactions/signature/{signature}` relative read with strict Base58
+validation and a 512 KiB response cap. Broader transaction searches, writes,
+and other Core API families remain denied. Packaged desktop and phone acceptance
+on 2026-08-10 confirmed Home's 21-action catalogue, Q-Tube's live feed, and a
+real transaction lookup. Android additionally confirmed an empty local bridge
+client response plus `403` for transaction search and POST. Trust and Help
+loaded live data on both platforms afterward.
 
 ### Phase 3: app-first default experiences
 

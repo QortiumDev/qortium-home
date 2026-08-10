@@ -23,6 +23,11 @@ The shared runtime-free validator and action catalogue is
 `src/home-v2-live/node-client.ts`. The public protocols remain separate even
 where these adapters share validated paths.
 
+Inside Home 2.0 app views, Home is the bridge authority. Desktop cancels only
+the active node's exact `/apps/q-apps.js` request; Android answers that same
+request locally with an empty JavaScript response. Standalone Core `/render`
+pages and Home 1.x retain Core's injected bridge client.
+
 ## Implemented slice
 
 | Public action | Protocol | Result contract | Permission and route | Desktop | Android |
@@ -46,6 +51,14 @@ where these adapters share validated paths.
 | `GET_USER_ACCOUNT` | `qortalRequest` | Address and public key when available from Qortal | Trusted Home prompt; once or tab-session grant | yes | yes |
 | `OPEN_NEW_TAB` | both | `true` | Only `qdn://`, `qortal://`, or `home://`; Home owns navigation | yes | yes |
 
+Q-Apps may also make an unchanged same-origin
+`GET /transactions/signature/{signature}` read. On Android this route requires
+an authorized Home 2.0 proxy origin, exactly three path segments, a query-free
+64-88 character Base58 signature, and a response no larger than 512 KiB.
+Every other transaction path and every non-GET method remains denied by the
+Android proxy. This compatibility route does not add or advertise a bridge
+action.
+
 Account prompts are scoped by protocol, action, app resource identity, selected
 account, and tab. Home rechecks the live tab/account/resource context after the
 decision. Home 2.0 does not migrate v1 grants and this preview offers no durable
@@ -57,12 +70,17 @@ decision. Home 2.0 does not migrate v1 grants and this preview offers no durable
 | --- | --- | --- |
 | Qortium Trust public browsing | Public ratings, names, identity batches, and visible avatars have bridge coverage | `RATE_ACCOUNT`, unlock, and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
-| Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, and navigation have bridge coverage | media/file helpers and any app-specific action outside this slice remain deferred |
+| Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
 | Chat | Public generic reads are possible only through the bounded allowlist | classic chat actions, private chat, encryption, signing, and Reticulum remain deferred |
 
-These are contract statements. An unchanged packaged-app acceptance run on
-desktop and the connected Android phone is still required before marking any
-app fully compatible.
+On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
+slice in packaged desktop and Android previews: its feed rendered, Home's
+21-action `SHOW_ACTIONS` result was authoritative, and a real transaction
+signature returned `200`. Android returned an empty `200` for the local bridge
+client while transaction search and POST probes remained `403`; desktop
+cancelled the bridge-client request. Current Trust and Help also loaded live
+data on both platforms after the change. Deferred write/private/action families
+are not covered by this acceptance.
 
 ## Deferred Qortal v3 surface
 
@@ -102,8 +120,13 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - Android gives app-originated reads a 30-second response timeout. Node health
   probes remain short so endpoint selection and dashboard refreshes stay responsive.
 - Android's isolated app origin forwards GET-only `/arbitrary/...` relative
-  requests to that app's already-authorized node. Other Core API families and
-  non-GET methods remain blocked at the proxy boundary.
+  requests to that app's already-authorized node. It also supports the exact,
+  bounded transaction-signature compatibility route documented above. Other
+  Core API families and non-GET methods remain blocked at the proxy boundary.
+- Home 2.0 intentionally does not expose `qortalRequestWithTimeout` or
+  `qdnRequestWithTimeout` aliases yet. Current Q-Tube uses the former only for
+  deferred publishing flows, so adding it would not improve this read-only
+  slice.
 - Android app titles and browser-history snapshots are accepted only from the
   active iframe with its private bridge token and selected proxy origin. Titles
   are sanitized and capped at 160 characters. History is capped at 200 entries,

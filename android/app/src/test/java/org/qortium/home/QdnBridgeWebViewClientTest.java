@@ -171,6 +171,34 @@ public class QdnBridgeWebViewClientTest {
         assertEquals(0, QdnBridgeWebViewClient.getContentRangeStart(headers));
     }
 
+    @Test
+    public void boundedTransactionResponsesAcceptTheLimitAndRejectOneByteMore() throws Exception {
+        int limit = QdnBridgeWebViewClient.TRANSACTION_RESPONSE_MAX_BYTES;
+        byte[] accepted = new byte[limit];
+
+        assertEquals(
+            limit,
+            QdnBridgeWebViewClient.readAllBytes(new ByteArrayInputStream(accepted), limit).length
+        );
+
+        try {
+            QdnBridgeWebViewClient.readAllBytes(new ByteArrayInputStream(new byte[limit + 1]), limit);
+        } catch (QdnBridgeWebViewClient.ResponseTooLargeException expected) {
+            return;
+        }
+
+        throw new AssertionError("A transaction response above 512 KiB was accepted.");
+    }
+
+    @Test
+    public void proxyCompatibilityReadsRemainGetOnly() {
+        assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("GET"));
+        assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("get"));
+        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("HEAD"));
+        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("POST"));
+        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod(null));
+    }
+
     private static final class CloseAwareInputStream extends FilterInputStream {
         private boolean closed;
 

@@ -89,7 +89,9 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
 - Desktop app content runs in a sandboxed, separately partitioned
   `WebContentsView`; Android uses its existing separate-origin HTTPS QDN render
   proxy. Both app contexts receive `qdnRequest` and `qortalRequest` as distinct
-  protocols.
+  protocols. Home 2.0 suppresses only Core's exact `/apps/q-apps.js` client in
+  these embedded contexts so the Home bridge cannot be shadowed; standalone
+  Core-rendered pages are unchanged.
 - The initial bridge is deliberately read-only: `SHOW_ACTIONS`, `WHICH_UI`,
   `GET_HOST_INFO`, `GET_NODE_STATUS`, `GET_NODE_INFO`,
   `IS_USING_PUBLIC_NODE`, `FETCH_NODE_API`, and the compatibility
@@ -103,6 +105,11 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   controls. App-provided document titles update sanitized tab labels. Tab
   switching preserves the live isolated desktop view for the current session;
   Android mirrors the active iframe's bounded same-origin history.
+- Android accepts unchanged Q-App
+  `GET /transactions/signature/{signature}` reads only when the request is
+  query-free, the signature is 64-88 Base58 characters, and the response is at
+  most 512 KiB. Transaction searches, POSTs, and every other newly exposed Core
+  API family remain blocked.
 
 ## Not connected yet
 
@@ -122,3 +129,20 @@ that exposes only the read-only action list above. Identity and app-discovery
 responses are capped at 256 KiB and avatars at 500 KiB. The renderer cannot
 directly access the network, the Home 1.x bridge, wallet files, Core control,
 updates, private keys, or seed material.
+
+## Current acceptance artifacts
+
+Built and exercised on 2026-08-10:
+
+- Desktop:
+  `dist-release-v2-live/Qortium-Home-2-Live-Preview-1.6.3-x86_64.AppImage`
+  (`fb9cfdcdeebfd7ab7d9e43e23d59e95cb067b93f617415b12f1d6ac18b48f3ff`).
+- Android:
+  `android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.apk`
+  (`6642ce478f69201d5d062b23973f3f7c31a47646bbc448e541a590f61c2c6f90`).
+
+Q-Tube returned Home's 21-action catalogue, rendered its live feed, and read a
+real Qortal transaction by signature on both artifacts. Desktop cancelled the
+Core bridge client. Android served an empty local bridge client and kept
+transaction search and POST at `403`. Trust and Help then loaded live data on
+both platforms. The preview processes were stopped after acceptance.

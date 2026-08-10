@@ -16,7 +16,8 @@ public class QdnRenderProxyPlugin extends Plugin {
 
     @PluginMethod
     public void authorize(PluginCall call) {
-        String proxyOrigin = QdnRenderProxy.authorize(call.getString("origin"));
+        boolean homeV2 = Boolean.TRUE.equals(call.getBoolean("homeV2"));
+        String proxyOrigin = QdnRenderProxy.authorize(call.getString("origin"), homeV2);
 
         if (proxyOrigin == null) {
             call.reject("An http(s) node origin is required to authorize the QDN render proxy.");
