@@ -848,6 +848,10 @@ function testStartupStatesAndAppearance(): void {
   assert.equal([...css.matchAll(/--v2-qortium:/g)].length, 2)
   assert.match(css, /\.home-v2-node-card \{[\s\S]*?grid-template-rows:/)
   assert.match(css, /\.home-v2-account-panel \{[\s\S]*?grid-template-rows:/)
+  assert.doesNotMatch(
+    css,
+    /\.home-v2-browser-controls button:nth-child\(-n \+ 2\)[\s\S]*?display:\s*none/,
+  )
   assert.doesNotMatch(css, /--v2-bg: #e6dac8/)
   assert.doesNotMatch(css, /--v2-bg: #211e1c/)
   assert.doesNotMatch(css, /--v2-qortal: #73566d/)

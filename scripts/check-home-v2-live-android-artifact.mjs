@@ -33,6 +33,9 @@ const capacitorConfig = JSON.parse(
 if (capacitorConfig.appId !== 'org.qortium.home.v2live') {
   throw new Error('Android preview uses the wrong Capacitor application ID.')
 }
+if (capacitorConfig.loggingBehavior !== 'none') {
+  throw new Error('Android preview must not emit complete Capacitor bridge payloads.')
+}
 const plugins = JSON.parse(
   await archive.file('assets/capacitor.plugins.json').async('string'),
 )

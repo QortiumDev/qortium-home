@@ -610,6 +610,17 @@ wallet secrets, private chat, broader viewer/file APIs, and production-profile
 migration remain inaccessible. The exact implemented and deferred surfaces are
 tracked in `docs/HOME_V2_BRIDGE_COMPATIBILITY.md`.
 
+Android phone acceptance on 2026-08-10 confirmed that active Q-Apps can mirror
+their document title and same-origin navigation history into Home. Back and
+Forward remain visible at phone width and drive an unchanged Help app through a
+detail/list/detail round trip. The isolated v2 APK also disables Capacitor's
+unbounded debug bridge logger while retaining deliberate WebView inspection.
+Q-Tube's current `MediaInfoModule.wasm` returned `200 application/wasm` and its
+public feed rendered; the next compatibility evidence is instead its rejected
+legacy same-origin Core reads, including `/transactions/signature/...`. Those
+paths stay denied until they are mapped to bounded, explicitly read-only host
+capabilities rather than opening the app origin to arbitrary Core APIs.
+
 ### Phase 3: app-first default experiences
 
 - Define exact cross-network identities and publish/release process for default

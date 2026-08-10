@@ -1413,7 +1413,6 @@
   padding-inline: 7px;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-browser-controls button:nth-child(-n + 2),
 .home-v2-shell[data-layout='phone'] .home-v2-node-pill,
 .home-v2-shell[data-layout='phone'] .home-v2-toolbar-button {
   display: none;
@@ -1499,7 +1498,6 @@
     padding-inline: 7px;
   }
 
-  .home-v2-browser-controls button:nth-child(-n + 2),
   .home-v2-node-pill,
   .home-v2-toolbar-button {
     display: none;
