@@ -4,7 +4,10 @@ import type {
   AppTabContext,
   TabId,
 } from './contracts'
-import { buildAppResourceLocation } from './resource-location'
+import {
+  buildAppResourceLocation,
+  parseAppResourceLocation,
+} from './resource-location'
 
 export type ShellDestination =
   | 'activity'
@@ -40,6 +43,7 @@ export type ProductAction =
       readonly type: 'navigate'
       readonly destination: Exclude<ShellDestination, 'tab'>
     }
+  | { readonly type: 'restore'; readonly state: ProductState }
 
 export class ProductModelError extends Error {
   constructor(
@@ -73,6 +77,90 @@ export function createProductState(): ProductState {
     destination: 'dashboard',
     tabs: [],
     activeTabId: null,
+    revision: 0,
+  })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+const destinations = new Set<ShellDestination>([
+  'activity',
+  'apps',
+  'dashboard',
+  'settings',
+  'tab',
+])
+
+export function restoreProductState(value: unknown): ProductState {
+  if (!isRecord(value) || !Array.isArray(value.tabs)) return createProductState()
+  const tabs: AppTab[] = []
+  for (const candidate of value.tabs.slice(0, 12)) {
+    if (!isRecord(candidate) || !isRecord(candidate.context)) continue
+    const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+    const appId = typeof candidate.appId === 'string' ? candidate.appId.trim() : ''
+    const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
+    const context = candidate.context
+    const resourceLocation =
+      typeof context.resourceLocation === 'string'
+        ? context.resourceLocation.trim()
+        : ''
+    if (
+      !id ||
+      id.length > 80 ||
+      !appId ||
+      appId.length > 400 ||
+      !title ||
+      title.length > 160 ||
+      context.appId !== appId ||
+      context.tabId !== id ||
+      (context.sourceNetwork !== 'qortal' &&
+        context.sourceNetwork !== 'qortium')
+    ) {
+      continue
+    }
+    try {
+      const parsed = parseAppResourceLocation(resourceLocation)
+      if (parsed.sourceNetwork !== context.sourceNetwork) continue
+    } catch {
+      continue
+    }
+    tabs.push(
+      freezeTab({
+        id: id as TabId,
+        appId: appId as AppId,
+        title,
+        context: {
+          appId: appId as AppId,
+          identityId:
+            typeof context.identityId === 'string'
+              ? (context.identityId as AppTabContext['identityId'])
+              : ('home-v2:identity:none' as AppTabContext['identityId']),
+          resourceLocation:
+            resourceLocation as AppTabContext['resourceLocation'],
+          sourceNetwork: context.sourceNetwork,
+          tabId: id as TabId,
+          walletRef:
+            typeof context.walletRef === 'string'
+              ? (context.walletRef as AppTabContext['walletRef'])
+              : null,
+        },
+      }),
+    )
+  }
+  const destination = destinations.has(value.destination as ShellDestination)
+    ? (value.destination as ShellDestination)
+    : 'dashboard'
+  const activeTabId =
+    typeof value.activeTabId === 'string' &&
+    tabs.some((tab) => tab.id === value.activeTabId)
+      ? (value.activeTabId as TabId)
+      : null
+  return freezeProductState({
+    destination: destination === 'tab' && !activeTabId ? 'dashboard' : destination,
+    tabs,
+    activeTabId: destination === 'tab' ? activeTabId : null,
     revision: 0,
   })
 }
@@ -206,5 +294,7 @@ export function reduceProductState(
         activeTabId: null,
         revision: state.revision + 1,
       })
+    case 'restore':
+      return freezeProductState(action.state)
   }
 }

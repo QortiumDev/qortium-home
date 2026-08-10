@@ -31,6 +31,7 @@ import {
   createProductState,
   ProductModelError,
   reduceProductState,
+  restoreProductState,
 } from './product-model'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
@@ -219,6 +220,14 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(Object.isFrozen(withBothSources), true)
   assert.equal(Object.isFrozen(withBothSources.tabs), true)
   assert.equal(Object.isFrozen(withBothSources.tabs[0].context), true)
+  const restored = restoreProductState(JSON.parse(JSON.stringify(withBothSources)))
+  assert.equal(restored.tabs.length, 2)
+  assert.equal(restored.activeTabId, fixtureIds.qortalCompatTab)
+  assert.deepEqual(
+    restored.tabs.map((tab) => tab.context.resourceLocation),
+    withBothSources.tabs.map((tab) => tab.context.resourceLocation),
+  )
+  assert.deepEqual(restoreProductState({ tabs: [{ id: '../../unsafe' }] }), createProductState())
 
   const dashboard = reduceProductState(withBothSources, {
     type: 'navigate',

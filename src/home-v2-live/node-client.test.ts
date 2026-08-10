@@ -60,6 +60,7 @@ const latency = new Map([
 ])
 const unavailable = new Set<string>()
 const requestCount = new Map<string, number>()
+let lastRequestedUrl = ''
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
@@ -69,6 +70,7 @@ const dependencies: PortableNodeClientDependencies = {
     preferences.set(key, value)
   },
   async requestJson(url) {
+    lastRequestedUrl = url
     const origin = new URL(url).origin
     requestCount.set(origin, (requestCount.get(origin) ?? 0) + 1)
     if (unavailable.has(origin)) {
@@ -92,6 +94,33 @@ const dependencies: PortableNodeClientDependencies = {
 }
 
 const client = createPortableNodeClient(dependencies)
+
+await client.saveShellState({ version: 1, selectedAccountId: 'wallet:one:2' })
+assert.deepEqual(await client.getShellState(), {
+  version: 1,
+  selectedAccountId: 'wallet:one:2',
+})
+assert.deepEqual(await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }), [
+  'FETCH_NODE_API',
+  'FETCH_QORTAL_NODE_API',
+  'GET_HOST_INFO',
+  'GET_NODE_INFO',
+  'GET_NODE_STATUS',
+  'IS_USING_PUBLIC_NODE',
+  'SHOW_ACTIONS',
+  'WHICH_UI',
+])
+const qortalRead = await client.requestApp('qortalRequest', {
+  action: 'FETCH_NODE_API',
+  path: '/names/Alice',
+}) as { ok: boolean; status: number }
+assert.equal(qortalRead.ok, true)
+assert.equal(qortalRead.status, 200)
+assert.match(lastRequestedUrl, /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/names\/Alice$/)
+await assert.rejects(
+  () => client.requestApp('qdnRequest', { action: 'FETCH_NODE_API', path: '/admin/stop' }),
+  /outside Home v2 read-only scope/,
+)
 
 const catalogue = await client.listAccounts()
 assert.equal(catalogue.activeAccountId, 'wallet:one:2')

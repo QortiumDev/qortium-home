@@ -73,19 +73,40 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   public Qortal and Qortium presences without changing the wallet store.
 - One source-qualified app model: `qdn://` for Qortium resources and
   `qortal://` for Qortal resources, independent of target-network capabilities.
+- The Chat (`qdn://APP/Chat/Chat`) and Help (`qdn://APP/Help/Help`) Dashboard
+  cards open real QDN resources. Complete `qdn://APP/<name>/<identifier>` and
+  `qortal://APP/<name>/<identifier>` addresses can also be entered directly in
+  the browser bar.
+- Desktop app content runs in a sandboxed, separately partitioned
+  `WebContentsView`; Android uses its existing separate-origin HTTPS QDN render
+  proxy. Both app contexts receive `qdnRequest` and `qortalRequest` as distinct
+  protocols.
+- The initial bridge is deliberately read-only: `SHOW_ACTIONS`, `WHICH_UI`,
+  `GET_HOST_INFO`, `GET_NODE_STATUS`, `GET_NODE_INFO`,
+  `IS_USING_PUBLIC_NODE`, `FETCH_NODE_API`, and the compatibility
+  `FETCH_QORTAL_NODE_API`. Node fetches accept only GET/HEAD, use an endpoint
+  allowlist, and cap responses at 2 MiB.
+- Theme, accent, text size, app zoom, language, selected account ID, open app
+  tabs, active tab, and current Home destination persist in the isolated v2
+  profile. Invalid or older state fails closed to documented defaults; wallet
+  files, passwords, unlock material, and keys are not included.
+- Desktop app navigation drives working Back, Forward, and Reload controls.
+  Tab switching preserves the live isolated view for the current session.
 
 ## Not connected yet
 
-- Account creation, import, removal, persistent selection, and unlocking. The
+- Account creation, import, removal, and unlocking. The
   preview catalogue intentionally does not read the production Home profile;
   profile migration remains a separate reviewed decision.
-- QDN app catalogue or resource loading; the Chat and Wallets cards are plans,
-  not runnable apps in this build.
-- Signing, publishing, transactions, Core control, updates, or Reticulum.
+- Searchable QDN app catalogue, pins/dashboard organization, and restoration of
+  an app's internal browser-history entries after a full app restart.
+- Most Q-App actions, including wallet/account reads that require authority,
+  chat, signing, publishing, transactions, Core control, updates, or Reticulum.
 
-The desktop preload exposes only node snapshot, node-mode, custom-URL, a
+The desktop shell preload exposes only node snapshot, node-mode, custom-URL, a
 sanitized read-only account list, four allowlisted public identity reads, and
-bounded pointer-aware avatar reads. Identity responses are capped at 256 KiB
-and avatars at 500 KiB. The renderer cannot directly access the network, the
-Home 1.x bridge, wallet files, QDN content, Core control, updates, private keys,
-or seed material.
+bounded pointer-aware avatar reads, isolated app-view controls, and isolated v2
+shell-state storage. App views use a separate preload that exposes only the
+read-only action list above. Identity responses are capped at 256 KiB and
+avatars at 500 KiB. The renderer cannot directly access the network, the Home
+1.x bridge, wallet files, Core control, updates, private keys, or seed material.

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
+  clampHomeV2AppZoom,
   defaultHomeV2Appearance,
   resolveHomeV2SystemLanguage,
+  type HomeV2Accent,
+  type HomeV2Language,
+  type HomeV2TextSize,
+  type HomeV2ThemePreference,
 } from '../v2/appearance'
 import { createPermissionState } from '../v2/bridge-permissions'
 import type {
@@ -18,11 +23,20 @@ import type {
   DualIdentityLookupResult,
   NetworkAddress,
   WalletRef,
+  TabId,
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import type { HomeV2NodeClient } from './node-client'
 import { resolveDualIdentity } from './identity-resolver'
+import {
+  parseHomeV2ShellState,
+  serializeHomeV2ShellState,
+} from './shell-state'
+import {
+  buildAppResourceLocation,
+  parseAppResourceLocation,
+} from '../v2/resource-location'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -52,13 +66,13 @@ const plannedApps: readonly AppDescriptor[] = [
     placement: 'pinned',
   },
   {
-    id: brand<AppId>('home-v2:app:wallets'),
-    title: 'Wallets',
-    description: 'Balances and activity across available networks.',
-    category: 'finance',
+    id: brand<AppId>('home-v2:app:help'),
+    title: 'Help',
+    description: 'Community support, issues, and developer references.',
+    category: 'community',
     sourceNetwork: 'qortium',
-    resourceIdentity: { service: 'APP', name: 'Wallets', identifier: 'Wallets' },
-    targetNetworks: ['qortium', 'qortal'],
+    resourceIdentity: { service: 'APP', name: 'Help', identifier: 'Help' },
+    targetNetworks: ['qortium'],
     placement: 'pinned',
   },
 ]
@@ -141,6 +155,21 @@ function initialSnapshot(): HomeV2Snapshot {
       statusText: 'Not connected in this build',
     },
   }
+}
+
+function currentSystemTheme() {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    ? ('dark' as const)
+    : ('light' as const)
+}
+
+function currentSystemLanguage() {
+  return resolveHomeV2SystemLanguage(navigator.language)
+}
+
+interface AppNavigationState {
+  readonly activeIndex: number
+  readonly entries: readonly { readonly index: number; readonly url: string }[]
 }
 
 const emptyAccountCatalogue: HomeV2AccountCatalogue = Object.freeze({
@@ -283,17 +312,55 @@ export function HomeV2LiveApp() {
     useState<DualIdentityLookupResult | null>(null)
   const [identityLookupBusy, setIdentityLookupBusy] = useState(false)
   const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
+  const [shellNotice, setShellNotice] = useState<string | null>(null)
+  const [appNavigation, setAppNavigation] = useState<
+    Readonly<Record<string, AppNavigationState>>
+  >({})
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
   const [accountCatalogue, setAccountCatalogue] =
     useState<HomeV2AccountCatalogue>(emptyAccountCatalogue)
+  const [accountCatalogueReady, setAccountCatalogueReady] = useState(false)
   const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const [restoredAccountId, setRestoredAccountId] = useState<
+    string | null | undefined
+  >(undefined)
+  const [shellStateReady, setShellStateReady] = useState(false)
+  const [useCatalogueActiveAccount, setUseCatalogueActiveAccount] = useState(false)
   const [selectedAccountLookup, setSelectedAccountLookup] =
     useState<DualIdentityLookupResult | null>(null)
   const accountSelectionEpoch = useRef(0)
   const permissionState = useMemo(createPermissionState, [])
+  const tabSequence = useRef(0)
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    return bridge.onNavigationChanged((value) => {
+      if (
+        !isRecord(value) ||
+        typeof value.tabId !== 'string' ||
+        typeof value.activeIndex !== 'number' ||
+        !Array.isArray(value.entries)
+      ) {
+        return
+      }
+      const entries = value.entries
+        .filter(
+          (entry): entry is { index: number; url: string } =>
+            isRecord(entry) &&
+            typeof entry.index === 'number' &&
+            typeof entry.url === 'string',
+        )
+        .map((entry) => ({ index: entry.index, url: entry.url }))
+      setAppNavigation((current) => ({
+        ...current,
+        [value.tabId as string]: { activeIndex: value.activeIndex as number, entries },
+      }))
+    })
+  }, [])
 
   const loadVisibleAvatar = useCallback(
     (network: NetworkId, request: Parameters<HomeV2NodeClient['readAvatar']>[1]) =>
@@ -374,25 +441,204 @@ export function HomeV2LiveApp() {
     if (!nodeClient) return
     let cancelled = false
     void nodeClient
+      .getShellState()
+      .then((rawState) => {
+        if (cancelled) return
+        const restored = parseHomeV2ShellState(
+          rawState,
+          currentSystemTheme(),
+          currentSystemLanguage(),
+        )
+        setSnapshot((current) => ({
+          ...current,
+          appearance: restored.appearance,
+        }))
+        dispatchProduct({ type: 'restore', state: restored.product })
+        setRestoredAccountId(restored.selectedAccountId)
+        setUseCatalogueActiveAccount(rawState === null || rawState === undefined)
+        setShellStateReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRestoredAccountId(null)
+          setShellStateReady(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [nodeClient])
+
+  useEffect(() => {
+    if (!nodeClient) return
+    let cancelled = false
+    void nodeClient
       .listAccounts()
       .then((catalogue) => {
         if (cancelled) return
         accountCatalogueRef.current = catalogue
         setAccountCatalogue(catalogue)
-        if (catalogue.activeAccountId) {
-          void selectAccount(catalogue.activeAccountId, catalogue)
-        }
+        setAccountCatalogueReady(true)
       })
       .catch(() => {
         if (!cancelled) {
           accountCatalogueRef.current = emptyAccountCatalogue
           setAccountCatalogue(emptyAccountCatalogue)
+          setAccountCatalogueReady(true)
         }
       })
     return () => {
       cancelled = true
     }
   }, [nodeClient, selectAccount])
+
+  useEffect(() => {
+    if (!nodeClient || restoredAccountId === undefined) return
+    const requestedAccountId = useCatalogueActiveAccount
+      ? accountCatalogue.activeAccountId
+      : restoredAccountId
+    const selected = requestedAccountId
+      ? accountCatalogue.accounts.some((account) => account.id === requestedAccountId)
+        ? requestedAccountId
+        : null
+      : null
+    void selectAccount(selected, accountCatalogue)
+  }, [
+    accountCatalogue,
+    nodeClient,
+    restoredAccountId,
+    selectAccount,
+    useCatalogueActiveAccount,
+  ])
+
+  useEffect(() => {
+    if (!nodeClient || !shellStateReady || !accountCatalogueReady) return
+    const timeout = window.setTimeout(() => {
+      void nodeClient.saveShellState(
+        serializeHomeV2ShellState({
+          version: 1,
+          appearance: snapshot.appearance,
+          selectedAccountId,
+          product: productState,
+        }),
+      )
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [
+    accountCatalogueReady,
+    nodeClient,
+    productState,
+    selectedAccountId,
+    shellStateReady,
+    snapshot.appearance,
+  ])
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!media) return
+    const update = () => {
+      setSnapshot((current) =>
+        current.appearance.theme === 'system'
+          ? {
+              ...current,
+              appearance: {
+                ...current.appearance,
+                resolvedTheme: media.matches ? 'dark' : 'light',
+              },
+            }
+          : current,
+      )
+    }
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  const updateAppearance = useCallback(
+    (patch: Partial<HomeV2Snapshot['appearance']>) =>
+      setSnapshot((current) => ({
+        ...current,
+        appearance: { ...current.appearance, ...patch },
+      })),
+    [],
+  )
+
+  const openApp = useCallback(
+    (app: AppDescriptor) => {
+      setShellNotice(null)
+      tabSequence.current += 1
+      const tabId = brand<TabId>(
+        `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+      )
+      dispatchProduct({
+        type: 'open-app',
+        app,
+        tabId,
+        context: {
+          appId: app.id,
+          identityId: snapshot.identity.id,
+          resourceLocation: buildAppResourceLocation(
+            app.sourceNetwork,
+            app.resourceIdentity,
+          ),
+          sourceNetwork: app.sourceNetwork,
+          tabId,
+          walletRef: snapshot.identity.selectedWallet,
+        },
+      })
+    },
+    [snapshot.identity.id, snapshot.identity.selectedWallet],
+  )
+
+  const openAddress = useCallback(
+    (address: string) => {
+      try {
+        const internal = /^home:\/\/(dashboard|apps|activity|settings)\/?$/i.exec(
+          address.trim(),
+        )
+        if (internal) {
+          setShellNotice(null)
+          dispatchProduct({
+            type: 'navigate',
+            destination: internal[1].toLowerCase() as
+              | 'activity'
+              | 'apps'
+              | 'dashboard'
+              | 'settings',
+          })
+          return
+        }
+        const parsed = parseAppResourceLocation(address)
+        const app: AppDescriptor = {
+          id: brand<AppId>(
+            `home-v2:app:${parsed.sourceNetwork}:${parsed.identity.name}:${parsed.identity.identifier ?? 'default'}`,
+          ),
+          title: parsed.identity.name,
+          description: `QDN app from ${parsed.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'}.`,
+          category: 'utility',
+          sourceNetwork: parsed.sourceNetwork,
+          resourceIdentity: parsed.identity,
+          targetNetworks: [parsed.sourceNetwork],
+          placement: 'recommended',
+        }
+        openApp(app)
+      } catch (error) {
+        setShellNotice(error instanceof Error ? error.message : 'Invalid app address.')
+        setSnapshot((current) => ({
+          ...current,
+          recentItems: [
+            {
+              id: `address-error:${Date.now()}`,
+              appId: brand<AppId>('home-v2:app:address-error'),
+              label: error instanceof Error ? error.message : 'Invalid app address.',
+              context: address,
+              targetNetwork: 'qortium',
+            },
+          ],
+        }))
+      }
+    },
+    [openApp],
+  )
 
   const refresh = useCallback(async () => {
     if (!nodeClient) return
@@ -551,6 +797,25 @@ export function HomeV2LiveApp() {
     </div>
   ) : null
 
+  const activeNavigation = productState.activeTabId
+    ? appNavigation[productState.activeTabId]
+    : undefined
+  const activeNavigationPosition = activeNavigation
+    ? activeNavigation.entries.findIndex(
+        (entry) => entry.index === activeNavigation.activeIndex,
+      )
+    : -1
+  const navigateActiveApp = (offset: -1 | 1) => {
+    if (!productState.activeTabId || !activeNavigation) return
+    const target = activeNavigation.entries[activeNavigationPosition + offset]
+    if (target) {
+      void window.homeV2Apps?.navigate({
+        index: target.index,
+        tabId: productState.activeTabId,
+      })
+    }
+  }
+
   return (
     <HomeV2Prototype
       snapshot={snapshot}
@@ -560,7 +825,7 @@ export function HomeV2LiveApp() {
       surfaceNotice={
         busyNetwork
           ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
-          : 'Live node and identity data · account vault and apps not connected'
+          : shellNotice ?? 'Live nodes, accounts, and read-only QDN apps'
       }
       overlay={customNodeDialog}
       identityLookup={identityLookup}
@@ -571,10 +836,14 @@ export function HomeV2LiveApp() {
       accountCatalogue={accountCatalogue}
       selectedAccountId={selectedAccountId}
       selectedAccountLookup={selectedAccountLookup}
+      nodeClient={nodeClient}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })
       }
-      onCloseTab={(tabId) => dispatchProduct({ type: 'close-tab', tabId })}
+      onCloseTab={(tabId) => {
+        void window.homeV2Apps?.destroy({ tabId })
+        dispatchProduct({ type: 'close-tab', tabId })
+      }}
       onNavigate={(destination) =>
         dispatchProduct({ type: 'navigate', destination })
       }
@@ -586,7 +855,48 @@ export function HomeV2LiveApp() {
         setIdentityLookupError(null)
       }}
       onIdentityLookupSubmit={() => void runIdentityLookup()}
-      onSelectAccount={(accountId) => void selectAccount(accountId)}
+      onSelectAccount={(accountId) => {
+        setUseCatalogueActiveAccount(false)
+        setRestoredAccountId(accountId)
+        void selectAccount(accountId)
+      }}
+      onOpenApp={openApp}
+      onOpenAddress={openAddress}
+      canGoBack={activeNavigationPosition > 0}
+      canGoForward={
+        !!activeNavigation &&
+        activeNavigationPosition >= 0 &&
+        activeNavigationPosition < activeNavigation.entries.length - 1
+      }
+      onGoBack={() => navigateActiveApp(-1)}
+      onGoForward={() => navigateActiveApp(1)}
+      onReload={() => {
+        if (productState.activeTabId) {
+          void window.homeV2Apps?.reload({ tabId: productState.activeTabId })
+        } else {
+          void refresh()
+        }
+      }}
+      onSetTheme={(theme: HomeV2ThemePreference) =>
+        updateAppearance({
+          theme,
+          resolvedTheme: theme === 'system' ? currentSystemTheme() : theme,
+        })
+      }
+      onSetAccent={(accent: HomeV2Accent) => updateAppearance({ accent })}
+      onSetTextSize={(textSize: HomeV2TextSize) =>
+        updateAppearance({ textSize })
+      }
+      onSetAppZoom={(appZoom: number) =>
+        updateAppearance({ appZoom: clampHomeV2AppZoom(appZoom) })
+      }
+      onSetLanguage={(language: HomeV2Language) =>
+        updateAppearance({
+          language,
+          resolvedLanguage:
+            language === 'system' ? currentSystemLanguage() : language,
+        })
+      }
     />
   )
 }

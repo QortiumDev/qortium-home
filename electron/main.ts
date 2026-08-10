@@ -29,6 +29,7 @@ import {
   authorizeHomeV2NodeBridge,
   registerHomeV2NodeBridgeIpcHandlers,
 } from './home-v2-node-bridge.js';
+import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
 import { startNotificationWatcher } from './notification-watcher.js';
 import {
@@ -832,6 +833,8 @@ app.whenReady().then(() => {
 
   if (IS_HOME_V2_LIVE) {
     registerHomeV2NodeBridgeIpcHandlers();
+    registerHomeV2AppBridgeIpcHandlers();
+    registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);
     createWindow();
     app.on('activate', () => {

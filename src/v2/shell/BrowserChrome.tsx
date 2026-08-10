@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { HomeV2Snapshot, NetworkId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
 import { networkLabels } from './NetworkBadge'
@@ -12,6 +13,12 @@ export interface BrowserChromeProps {
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
+  readonly onOpenAddress?: (address: string) => void
+  readonly canGoBack?: boolean
+  readonly canGoForward?: boolean
+  readonly onGoBack?: () => void
+  readonly onGoForward?: () => void
+  readonly onReload?: () => void
 }
 
 function nodeTone(snapshot: HomeV2Snapshot, network: NetworkId) {
@@ -46,7 +53,16 @@ export function BrowserChrome({
   onActivateTab,
   onCloseTab,
   onNavigate,
+  onOpenAddress,
+  canGoBack,
+  canGoForward,
+  onGoBack,
+  onGoForward,
+  onReload,
 }: BrowserChromeProps) {
+  const currentAddress = browserAddress(productState)
+  const [address, setAddress] = useState(currentAddress)
+  useEffect(() => setAddress(currentAddress), [currentAddress])
   return (
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">
@@ -64,13 +80,13 @@ export function BrowserChrome({
       </div>
       <div className="home-v2-browser-toolbar">
         <div className="home-v2-browser-controls" aria-label="Page navigation">
-          <button type="button" disabled aria-label="Back" title="Back">
+          <button type="button" disabled={!canGoBack} aria-label="Back" title="Back" onClick={onGoBack}>
             ←
           </button>
-          <button type="button" disabled aria-label="Forward" title="Forward">
+          <button type="button" disabled={!canGoForward} aria-label="Forward" title="Forward" onClick={onGoForward}>
             →
           </button>
-          <button type="button" aria-label="Reload" title="Reload">
+          <button type="button" aria-label="Reload" title="Reload" onClick={onReload}>
             ↻
           </button>
           <button
@@ -82,15 +98,22 @@ export function BrowserChrome({
             ⌂
           </button>
         </div>
-        <div className="home-v2-address" aria-label="Address and search">
+        <form
+          className="home-v2-address"
+          aria-label="Address and search"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onOpenAddress?.(address)
+          }}
+        >
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Address and search"
-            readOnly
             spellCheck={false}
-            value={browserAddress(productState)}
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
           />
-        </div>
+        </form>
         <div className="home-v2-browser-actions">
           {(['qortal', 'qortium'] as const).map((network) => (
             <button
@@ -142,3 +165,4 @@ export function BrowserChrome({
     </header>
   )
 }
+import { useEffect, useState } from 'react'

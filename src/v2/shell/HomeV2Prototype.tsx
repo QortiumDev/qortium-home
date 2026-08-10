@@ -27,6 +27,7 @@ import { BrowserChrome } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
+import type { HomeV2NodeClient } from '../../home-v2-live/node-client'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -47,7 +48,14 @@ export interface HomeV2PrototypeProps {
   readonly accountCatalogue?: HomeV2AccountCatalogue
   readonly selectedAccountId?: string | null
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
+  readonly nodeClient?: HomeV2NodeClient | null
   readonly onOpenApp?: (app: AppDescriptor) => void
+  readonly onOpenAddress?: (address: string) => void
+  readonly canGoBack?: boolean
+  readonly canGoForward?: boolean
+  readonly onGoBack?: () => void
+  readonly onGoForward?: () => void
+  readonly onReload?: () => void
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onNavigate?: (
@@ -656,10 +664,24 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onActivateTab={onActivateTab}
         onCloseTab={onCloseTab}
         onNavigate={onNavigate}
+        onOpenAddress={props.onOpenAddress}
+        canGoBack={props.canGoBack}
+        canGoForward={props.canGoForward}
+        onGoBack={props.onGoBack}
+        onGoForward={props.onGoForward}
+        onReload={props.onReload}
       />
-      <main className="home-v2-page-viewport">
+      <main
+        className="home-v2-page-viewport"
+        data-app-active={activeTab ? 'true' : 'false'}
+      >
         {activeTab ? (
-          <AppTabStage productState={productState} />
+          <AppTabStage
+            productState={productState}
+            snapshot={snapshot}
+            nodeClient={props.nodeClient}
+            selectedAccountId={props.selectedAccountId}
+          />
         ) : productState.destination === 'settings' ? (
           <AppearanceSettingsPage
             appearance={snapshot.appearance}

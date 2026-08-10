@@ -26,6 +26,10 @@ import {
   GROUP_AVATAR_MAX_BYTES,
 } from './qdn-group-avatar-input.js'
 import { getHomeV2AccountCatalogue } from './accounts.js'
+import {
+  readHomeV2ShellState,
+  writeHomeV2ShellState,
+} from './home-v2-shell-store.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
@@ -415,6 +419,18 @@ async function getRecentSnapshot() {
   return getSnapshot()
 }
 
+export async function getHomeV2ReadableNode(network: NetworkId) {
+  const snapshot = await getRecentSnapshot()
+  const node = snapshot.nodes[network]
+  if (!node.capabilities.read || !node.nodeApiUrl) {
+    throw new Error(node.error ?? `${network} node is unavailable.`)
+  }
+  return {
+    mode: node.mode,
+    nodeApiUrl: node.nodeApiUrl,
+  }
+}
+
 async function readIdentity(network: NetworkId, requestValue: unknown) {
   const request = normalizeIdentityReadRequest(requestValue)
   const snapshot = await getRecentSnapshot()
@@ -527,6 +543,14 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle('home-v2-accounts:list', (event) => {
     assertAuthorized(event.sender)
     return getHomeV2AccountCatalogue()
+  })
+  ipcMain.handle('home-v2-shell:getState', (event) => {
+    assertAuthorized(event.sender)
+    return readHomeV2ShellState()
+  })
+  ipcMain.handle('home-v2-shell:saveState', (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    writeHomeV2ShellState(value)
   })
   ipcMain.handle(
     'home-v2-nodes:readIdentity',

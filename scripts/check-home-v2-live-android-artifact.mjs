@@ -40,7 +40,6 @@ const pluginClasses = JSON.stringify(plugins)
 for (const forbiddenPlugin of [
   'QdnFileSaverPlugin',
   'QdnPublishSourcePlugin',
-  'QdnRenderProxyPlugin',
   'UpdateInstallerPlugin',
   'WalletBackupPlugin',
 ]) {

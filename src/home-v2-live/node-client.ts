@@ -10,6 +10,12 @@ import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
+  getShellState(): Promise<unknown>
+  saveShellState(value: unknown): Promise<void>
+  requestApp(
+    protocol: HomeV2AppBridgeProtocol,
+    request: unknown,
+  ): Promise<unknown>
   listAccounts(): Promise<HomeV2AccountCatalogue>
   readAvatar(
     network: NetworkId,
@@ -22,6 +28,8 @@ export interface HomeV2NodeClient {
   setMode(network: NetworkId, mode: NodeConnectionMode): Promise<unknown>
   setCustomUrl(network: NetworkId, customUrl: string): Promise<unknown>
 }
+
+export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 
 export type HomeV2IdentityReadKind =
   | 'accountAvatarInfo'
@@ -47,7 +55,7 @@ interface PortableNodeSettings {
 export interface PortableNodeClientDependencies {
   getPreference(key: string): Promise<string | null>
   setPreference(key: string, value: string): Promise<void>
-  requestJson(url: string): Promise<{
+  requestJson(url: string, method?: 'GET' | 'HEAD'): Promise<{
     data: unknown
     latencyMs: number
     ok: boolean
@@ -71,6 +79,76 @@ const PUBLIC_READ_PATH =
 const SETTINGS_PREFIX = 'home-v2-live-node:'
 const AVATAR_MAX_BYTES = 500 * 1024
 const WALLET_STORE_KEY = 'qortium-home-wallet-store'
+const SHELL_STATE_KEY = 'home-v2-live-shell-state'
+const APP_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
+export const HOME_V2_READ_ONLY_APP_ACTIONS = Object.freeze([
+  'FETCH_NODE_API',
+  'FETCH_QORTAL_NODE_API',
+  'GET_HOST_INFO',
+  'GET_NODE_INFO',
+  'GET_NODE_STATUS',
+  'IS_USING_PUBLIC_NODE',
+  'SHOW_ACTIONS',
+  'WHICH_UI',
+])
+
+const APP_READ_PATH_PREFIXES = [
+  '/account-ratings',
+  '/addresses',
+  '/arbitrary',
+  '/assets',
+  '/blocks',
+  '/chat/messages',
+  '/crosschain',
+  '/groups',
+  '/names',
+  '/polls',
+  '/transactions',
+] as const
+
+function appRequestRecord(value: unknown) {
+  if (!isRecord(value)) throw new Error('App requests must be objects.')
+  return value
+}
+
+function appAction(request: Record<string, unknown>) {
+  const action = typeof request.action === 'string' ? request.action.trim().toUpperCase() : ''
+  if (!action) throw new Error('App request action is required.')
+  return action
+}
+
+function appReadPath(value: unknown) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 2_000) {
+    throw new Error('A node API path is required.')
+  }
+  const raw = value.trim()
+  if (!raw.startsWith('/') || raw.startsWith('//') || /[\u0000-\u001f]/.test(raw)) {
+    throw new Error('Node API paths must be relative paths beginning with /.')
+  }
+  const parsed = new URL(raw, 'https://home-v2.invalid')
+  const pathname = parsed.pathname
+  const allowedAdminPath =
+    pathname === '/admin/status' ||
+    pathname === '/admin/info' ||
+    pathname === '/admin/settings/metadata'
+  if (
+    !allowedAdminPath &&
+    !APP_READ_PATH_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
+  ) {
+    throw new Error('That node API path is outside Home v2 read-only scope.')
+  }
+  return `${pathname}${parsed.search}`
+}
+
+function appReadMethod(value: unknown) {
+  const method = typeof value === 'string' ? value.toUpperCase() : 'GET'
+  if (method !== 'GET' && method !== 'HEAD') {
+    throw new Error('Home v2 apps can only use GET or HEAD node reads.')
+  }
+  return method
+}
 
 function normalizedAvatarPointer(pointer: VisibleAvatarReadRequest['pointer']) {
   const service = pointer.service.trim()
@@ -460,8 +538,87 @@ export function createPortableNodeClient(
     return { version: 1, nodes: { qortal, qortium } }
   }
 
+  async function getReadableNode(network: NetworkId) {
+    const settings = await readSettings(network)
+    if (settings.mode === 'disabled') throw new Error(`${network} access is disabled.`)
+    if (settings.mode === 'local') {
+      throw new Error('Local Core connections are not available on Android.')
+    }
+    const recent = recentReadableNodes[network]
+    const nodeApiUrl =
+      settings.mode === 'custom'
+        ? settings.customUrl
+        : recent && dependencies.now() - recent.verifiedAt < 30_000
+          ? recent.nodeApiUrl
+          : (await resolvePublic(network))?.nodeApiUrl ?? ''
+    if (!nodeApiUrl) throw new Error(`No healthy ${network} node was available.`)
+    return { nodeApiUrl, settings }
+  }
+
   return {
     getSnapshot,
+    async getShellState() {
+      const value = await dependencies.getPreference(SHELL_STATE_KEY)
+      if (!value) return null
+      try {
+        return JSON.parse(value) as unknown
+      } catch {
+        return null
+      }
+    },
+    async saveShellState(value) {
+      const raw = JSON.stringify(value)
+      if (raw.length > 128 * 1024) {
+        throw new Error('Home v2 shell state exceeded the 128 KiB limit.')
+      }
+      await dependencies.setPreference(SHELL_STATE_KEY, raw)
+    },
+    async requestApp(protocol, requestValue) {
+      const request = appRequestRecord(requestValue)
+      const action = appAction(request)
+      const protocolNetwork: NetworkId =
+        protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+      if (action === 'SHOW_ACTIONS') return [...HOME_V2_READ_ONLY_APP_ACTIONS]
+      if (action === 'WHICH_UI') return 'QORTIUM_HOME_ANDROID'
+      if (action === 'GET_HOST_INFO') {
+        return { hostName: 'qortium-home', platform: 'android', platformVersion: '2.0-preview' }
+      }
+      const network = action === 'FETCH_QORTAL_NODE_API' ? 'qortal' : protocolNetwork
+      if (action === 'IS_USING_PUBLIC_NODE') {
+        return (await getReadableNode(network)).settings.mode === 'public'
+      }
+      const path =
+        action === 'GET_NODE_STATUS'
+          ? '/admin/status'
+          : action === 'GET_NODE_INFO'
+            ? '/admin/info'
+            : action === 'FETCH_NODE_API' || action === 'FETCH_QORTAL_NODE_API'
+              ? appReadPath(request.path)
+              : null
+      if (!path) throw new Error(`${action} is not available in Home v2 read-only mode.`)
+      const method = appReadMethod(request.method)
+      const { nodeApiUrl } = await getReadableNode(network)
+      const response = await dependencies.requestJson(`${nodeApiUrl}${path}`, method)
+      const body = method === 'HEAD' ? '' : JSON.stringify(response.data ?? null)
+      const bodyLength = new TextEncoder().encode(body).byteLength
+      if (bodyLength > APP_RESPONSE_MAX_BYTES) {
+        throw new Error('Node API response exceeded the 2 MiB limit.')
+      }
+      if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO') {
+        if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)
+        return response.data
+      }
+      return {
+        body,
+        contentLength: bodyLength,
+        contentType: 'application/json',
+        data: response.data,
+        headers: {},
+        ok: response.ok,
+        status: response.status,
+        statusText: '',
+      }
+    },
     async listAccounts() {
       return parseHomeV2AccountCatalogueStore(
         await dependencies.getPreference(WALLET_STORE_KEY),

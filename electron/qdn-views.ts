@@ -1088,7 +1088,12 @@ function createViewEntry(
         contextIsolation: true,
         nodeIntegration: false,
         partition,
-        preload: path.join(__dirname, 'qdn-app-preload.cjs'),
+        preload: path.join(
+          __dirname,
+          process.env.QORTIUM_HOME_V2_LIVE === '1'
+            ? 'home-v2-qdn-app-preload.cjs'
+            : 'qdn-app-preload.cjs',
+        ),
         sandbox: true,
       },
     }),
@@ -1341,6 +1346,15 @@ export function registerQdnViewIpcHandlers() {
     }
 
     navigationHistory.goToIndex(request.index);
+    return true;
+  });
+
+  ipcMain.handle('qdn-views:reload', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const tabId = sanitizeTabRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
+    if (!entry || entry.view.webContents.isDestroyed()) return false;
+    entry.view.webContents.reload();
     return true;
   });
 

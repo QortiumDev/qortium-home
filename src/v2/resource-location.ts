@@ -32,13 +32,22 @@ function decodeSegment(value: string) {
   }
 }
 
+function validateSegment(value: string, label: string) {
+  if (!value || value.length > 128 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`${label} must contain 1 to 128 visible characters.`)
+  }
+  return value
+}
+
 export function buildAppResourceLocation(
   sourceNetwork: NetworkId,
   identity: AppResourceIdentity,
 ): AppResourceLocation {
-  const name = identity.name.trim()
-  const identifier = identity.identifier?.trim() || 'default'
-  if (!name) throw new Error('App resource name is required.')
+  const name = validateSegment(identity.name.trim(), 'App resource name')
+  const identifier = validateSegment(
+    identity.identifier?.trim() || 'default',
+    'App resource identifier',
+  )
 
   return `${schemeForNetwork(sourceNetwork)}://${identity.service}/${encodeSegment(name)}/${encodeSegment(identifier)}` as AppResourceLocation
 }
@@ -60,11 +69,11 @@ export function parseAppResourceLocation(
     throw new Error('The resource address does not identify an app.')
   }
 
-  const name = decodeSegment(rawName).trim()
-  const identifier = decodeSegment(rawIdentifier).trim()
-  if (!name || !identifier) {
-    throw new Error('App resource name and identifier are required.')
-  }
+  const name = validateSegment(decodeSegment(rawName).trim(), 'App resource name')
+  const identifier = validateSegment(
+    decodeSegment(rawIdentifier).trim(),
+    'App resource identifier',
+  )
 
   const location = buildAppResourceLocation(networkForScheme(scheme), {
     service: 'APP',

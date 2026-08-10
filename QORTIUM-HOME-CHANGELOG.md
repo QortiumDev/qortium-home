@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-09 - feat: add Home v2 persistent shell and read-only QDN apps
+
+Turns the Home 2.0 live preview into a usable first browser slice on desktop and
+Android. Appearance, selected account, open source-qualified app tabs, active
+tab, and Home destination now persist in the isolated v2 profile. Chat and Help
+open as real Qortium QDN apps, and complete `qdn://` or `qortal://` app addresses
+can be entered directly. Desktop uses sandboxed isolated app views; Android uses
+the separate-origin HTTPS QDN proxy. Both expose distinct `qdnRequest` and
+`qortalRequest` functions, but only a small allowlisted read-only action set with
+GET/HEAD and 2 MiB response limits. No account secrets, signing, publishing,
+transactions, Core control, updates, or production-profile migration are added.
+
 ### 2026-08-08 - feat: add Home v2 bounded avatars and account catalogue
 
 Adds visible public avatars and the first read-only account selector to the

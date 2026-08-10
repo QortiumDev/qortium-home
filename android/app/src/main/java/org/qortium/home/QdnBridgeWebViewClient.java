@@ -193,7 +193,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
             String html = new String(responseBytes, charset);
 
-            responseBytes = injectQdnBridge(html, bridgeToken).getBytes(charset);
+            boolean homeV2Bridge = "1".equals(
+                request.getUrl().getQueryParameter("homeV2Bridge")
+            );
+            responseBytes = injectQdnBridge(html, bridgeToken, homeV2Bridge).getBytes(charset);
             removeHeader(responseHeaders, "Content-Length");
             removeHeader(responseHeaders, "Content-Encoding");
             removeHeader(responseHeaders, "Transfer-Encoding");
@@ -552,7 +555,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         return null;
     }
 
-    private String getQdnBridgeTag(String bridgeToken) {
+    static String getQdnBridgeTag(String bridgeToken, boolean homeV2Bridge) {
+        String qortalBridgeInstaller = homeV2Bridge
+            ? "Object.defineProperty(window,'qortalRequest',{configurable:false,enumerable:true,writable:false,value:function(request){return sendHomeRequest(request,'qortalRequest');}});"
+            : "";
         return "<script>" +
             "(function(){if(typeof window.qdnRequest==='function')return;" +
             "var bridgeToken='" + bridgeToken + "';" +
@@ -572,8 +578,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // receiving bookmark or notification data through postMessage.
             "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:bookmark-manager-changed'||!data.detail||!Number.isSafeInteger(data.detail.revision)||data.detail.revision<0)return;window.dispatchEvent(new CustomEvent('qortiumBookmarkManagerChanged',{detail:{revision:data.detail.revision}}));});" +
             "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:notification-manager-changed'||!data.detail||!Number.isSafeInteger(data.detail.revision)||data.detail.revision<0)return;window.dispatchEvent(new CustomEvent('qortiumNotificationManagerChanged',{detail:{revision:data.detail.revision}}));});" +
-            "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +
-            "return new Promise(function(resolve,reject){" +
+            "function sendHomeRequest(request,protocol){return new Promise(function(resolve,reject){" +
             "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
             "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
             "var action=request&&typeof request==='object'?String(request.action||'').toUpperCase():'';" +
@@ -581,8 +586,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "var timeoutMs=longActions[action]?330000:30000;" +
             "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},timeoutMs);" +
             "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +
-            "window.parent.postMessage({type:'qortium:qdn-request',bridgeToken:bridgeToken,requestId:requestId,request:request},'*');" +
-            "});}});" +
+            "window.parent.postMessage({type:'qortium:qdn-request',bridgeToken:bridgeToken,requestId:requestId,protocol:protocol,request:request},'*');" +
+            "});}" +
+            "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){return sendHomeRequest(request,'qdnRequest');}});" +
+            qortalBridgeInstaller +
             // Forward document.title changes to the host so the app controls its
             // tab label (the desktop shell gets this from page-title-updated).
             "var lastTitle=null;" +
@@ -627,8 +634,8 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "</script>";
     }
 
-    private String injectQdnBridge(String html, String bridgeToken) {
-        String bridgeTag = getQdnBridgeTag(bridgeToken);
+    private String injectQdnBridge(String html, String bridgeToken, boolean homeV2Bridge) {
+        String bridgeTag = getQdnBridgeTag(bridgeToken, homeV2Bridge);
         String lowerHtml = html.toLowerCase(Locale.ROOT);
         int headStart = lowerHtml.indexOf("<head");
 

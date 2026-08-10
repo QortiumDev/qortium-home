@@ -41,6 +41,8 @@ for (const requiredEntry of [
   '/dist/v2-live.html',
   '/dist-electron/home-v2-live-preload.cjs',
   '/dist-electron/home-v2-node-bridge.js',
+  '/dist-electron/home-v2-app-bridge.js',
+  '/dist-electron/home-v2-qdn-app-preload.cjs',
   '/dist-electron/v2-live-main.js',
   '/package.json',
 ]) {
@@ -95,6 +97,9 @@ for (const requiredChannel of [
   'home-v2-nodes:readIdentity',
   'home-v2-nodes:readAvatar',
   'home-v2-accounts:list',
+  'home-v2-shell:getState',
+  'home-v2-shell:saveState',
+  'qdn-views:show',
 ]) {
   if (!preloadSource.includes(requiredChannel)) {
     throw new Error(`Home v2 live preload is missing ${requiredChannel}.`);

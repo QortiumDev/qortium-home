@@ -12,10 +12,10 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         boolean isHomeV2Live = getPackageName().endsWith(".v2live");
+        registerPlugin(QdnRenderProxyPlugin.class);
         if (!isHomeV2Live) {
             registerPlugin(QdnFileSaverPlugin.class);
             registerPlugin(QdnPublishSourcePlugin.class);
-            registerPlugin(QdnRenderProxyPlugin.class);
             registerPlugin(UpdateInstallerPlugin.class);
             registerPlugin(WalletBackupPlugin.class);
         }
@@ -27,8 +27,6 @@ public class MainActivity extends BridgeActivity {
         // EdgeToEdge.enable() calls WindowCompat.setDecorFitsSystemWindows(false)
         // internally; do not also set that manually.
         EdgeToEdge.enable(this);
-        if (!isHomeV2Live) {
-            getBridge().setWebViewClient(new QdnBridgeWebViewClient(getBridge()));
-        }
+        getBridge().setWebViewClient(new QdnBridgeWebViewClient(getBridge()));
     }
 }

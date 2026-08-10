@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron') as typeof import('ele
 
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
+  getShellState: () => ipcRenderer.invoke('home-v2-shell:getState'),
+  saveShellState: (value: unknown) =>
+    ipcRenderer.invoke('home-v2-shell:saveState', value),
   listAccounts: () => ipcRenderer.invoke('home-v2-accounts:list'),
   readIdentity: (
     network: 'qortal' | 'qortium',
@@ -28,4 +31,17 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   ) => ipcRenderer.invoke('home-v2-nodes:setMode', network, mode),
   setCustomUrl: (network: 'qortal' | 'qortium', customUrl: string) =>
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
+})
+
+contextBridge.exposeInMainWorld('homeV2Apps', {
+  destroy: (request: unknown) => ipcRenderer.invoke('qdn-views:destroy', request),
+  hide: (request: unknown) => ipcRenderer.invoke('qdn-views:hide', request),
+  navigate: (request: unknown) => ipcRenderer.invoke('qdn-views:navigate', request),
+  reload: (request: unknown) => ipcRenderer.invoke('qdn-views:reload', request),
+  show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
+  onNavigationChanged: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('qdn-views:app-navigation-changed', handler)
+    return () => ipcRenderer.removeListener('qdn-views:app-navigation-changed', handler)
+  },
 })

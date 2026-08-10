@@ -17,6 +17,18 @@ import org.junit.Test;
 public class QdnBridgeWebViewClientTest {
 
     @Test
+    public void homeV2BridgeAddsSeparateQortalRequestWithoutChangingProductionBridge() {
+        String production = QdnBridgeWebViewClient.getQdnBridgeTag("abcdefghijklmnop", false);
+        String homeV2 = QdnBridgeWebViewClient.getQdnBridgeTag("abcdefghijklmnop", true);
+
+        assertTrue(production.contains("window,'qdnRequest'"));
+        assertFalse(production.contains("window,'qortalRequest'"));
+        assertTrue(homeV2.contains("window,'qdnRequest'"));
+        assertTrue(homeV2.contains("window,'qortalRequest'"));
+        assertTrue(homeV2.contains("protocol:protocol"));
+    }
+
+    @Test
     public void binaryResponsesDoNotDeclareACharacterEncoding() {
         assertNull(QdnBridgeWebViewClient.getResponseEncoding(null));
         assertNull(QdnBridgeWebViewClient.getResponseEncoding("video/webm"));
