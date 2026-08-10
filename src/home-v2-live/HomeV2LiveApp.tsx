@@ -8,7 +8,14 @@ import {
   type HomeV2TextSize,
   type HomeV2ThemePreference,
 } from '../v2/appearance'
-import { createPermissionState } from '../v2/bridge-permissions'
+import {
+  createPermissionPrompt,
+  createPermissionState,
+  queuePermissionPrompt,
+  resolvePermissionPrompt,
+  type PermissionDecision,
+  type PermissionRequestId,
+} from '../v2/bridge-permissions'
 import type {
   AppDescriptor,
   AppId,
@@ -29,7 +36,11 @@ import type {
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import type { AddressOpenResult } from '../v2/shell/BrowserChrome'
-import type { HomeV2NodeClient } from './node-client'
+import type {
+  HomeV2AppBridgeProtocol,
+  HomeV2AppRequestContext,
+  HomeV2NodeClient,
+} from './node-client'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -334,7 +345,12 @@ export function HomeV2LiveApp() {
   const [selectedAccountLookup, setSelectedAccountLookup] =
     useState<DualIdentityLookupResult | null>(null)
   const accountSelectionEpoch = useRef(0)
-  const permissionState = useMemo(createPermissionState, [])
+  const [permissionState, setPermissionState] = useState(createPermissionState)
+  const androidPermissionResolvers = useRef(new Map<
+    PermissionRequestId,
+    (decision: PermissionDecision) => void
+  >())
+  const androidSessionAccountGrants = useRef(new Set<string>())
   const tabSequence = useRef(0)
 
   useEffect(() => {
@@ -671,6 +687,201 @@ export function HomeV2LiveApp() {
     [nodeClient, openApp],
   )
 
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    return bridge.onOpenAddress((value) => {
+      if (!isRecord(value) || typeof value.address !== 'string') return
+      void openAddress(value.address)
+    })
+  }, [openAddress])
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    return bridge.onPermissionRequest((value) => {
+      if (
+        !isRecord(value) ||
+        typeof value.requestId !== 'string' ||
+        (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
+        (value.action !== 'GET_SELECTED_ACCOUNT' && value.action !== 'GET_USER_ACCOUNT') ||
+        typeof value.accountId !== 'string' ||
+        typeof value.tabId !== 'string' ||
+        (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium')
+      ) {
+        return
+      }
+      const account = accountCatalogueRef.current.accounts.find(
+        (candidate) => candidate.id === value.accountId,
+      )
+      const appIdentityKey =
+        typeof value.appIdentityKey === 'string' && value.appIdentityKey
+          ? value.appIdentityKey
+          : `home-v2-tab:${value.tabId}`
+      const appTitle = (() => {
+        if (typeof value.resourceUrl !== 'string') return 'QDN app'
+        try {
+          return parseAppResourceLocation(value.resourceUrl).identity.name
+        } catch {
+          return 'QDN app'
+        }
+      })()
+      const prompt = createPermissionPrompt({
+        id: brand<PermissionRequestId>(value.requestId),
+        protocol: value.protocol,
+        action: value.action,
+        capability: 'account.public.read',
+        appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
+        appIdentityKey,
+        appTitle,
+        context: {
+          appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
+          identityId: brand<IdentityId>(`home-v2:identity:${value.accountId}`),
+          nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
+          tabId: brand<TabId>(value.tabId),
+          targetNetwork: value.targetNetwork,
+          walletRef: account
+            ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
+            : null,
+        },
+        title: 'Allow account access?',
+        summary: `${appTitle} wants to read the selected account address and public identity data.`,
+        details: [
+          { label: 'Account', value: account?.label ?? value.accountId },
+          { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
+        ],
+        allowedScopes: ['single-request', 'session'],
+      })
+      setPermissionState((current) => {
+        try {
+          return queuePermissionPrompt(current, prompt)
+        } catch {
+          return current
+        }
+      })
+    })
+  }, [snapshot.nodes])
+
+  const resolveAccountPermission = useCallback(
+    (requestId: PermissionRequestId, decision: PermissionDecision) => {
+      setPermissionState((current) => {
+        try {
+          return resolvePermissionPrompt(current, requestId, decision).state
+        } catch {
+          return current
+        }
+      })
+      const androidResolver = androidPermissionResolvers.current.get(requestId)
+      if (androidResolver) {
+        androidPermissionResolvers.current.delete(requestId)
+        androidResolver(decision)
+      } else {
+        window.homeV2Apps?.resolvePermission({
+          approved: decision.approved,
+          requestId,
+          scope: decision.approved ? decision.scope : null,
+        })
+      }
+    },
+    [],
+  )
+
+  const requestApp = useCallback(
+    async (
+      protocol: HomeV2AppBridgeProtocol,
+      requestValue: unknown,
+      context: HomeV2AppRequestContext,
+    ) => {
+      if (!nodeClient) throw new Error('The app bridge is unavailable.')
+      const action = isRecord(requestValue) && typeof requestValue.action === 'string'
+        ? requestValue.action.trim().toUpperCase()
+        : ''
+      if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
+        return nodeClient.requestApp(protocol, requestValue, context)
+      }
+      if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+      const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+      const account = accountCatalogueRef.current.accounts.find(
+        (candidate) => candidate.id === context.selectedAccountId,
+      )
+      if (!account) throw new Error('The selected account is no longer available.')
+      const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+      const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
+      const grantKey = [
+        context.tabId,
+        context.resourceLocation,
+        context.selectedAccountId,
+        protocol,
+        action,
+        account.isUnlocked,
+        nodeRoute,
+      ].join('|')
+      if (!androidSessionAccountGrants.current.has(grantKey)) {
+        const requestId = brand<PermissionRequestId>(
+          globalThis.crypto.randomUUID?.() ??
+            `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        )
+        const appTitle = (() => {
+          try {
+            return parseAppResourceLocation(context.resourceLocation).identity.name
+          } catch {
+            return 'QDN app'
+          }
+        })()
+        const appIdentityKey = context.resourceLocation || `home-v2-tab:${context.tabId}`
+        const appId = brand<AppId>(`home-v2:permission-app:${appIdentityKey}`)
+        const prompt = createPermissionPrompt({
+          id: requestId,
+          protocol,
+          action,
+          capability: 'account.public.read',
+          appId,
+          appIdentityKey,
+          appTitle,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${context.selectedAccountId}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: account
+              ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
+              : null,
+          },
+          title: 'Allow account access?',
+          summary: `${appTitle} wants to read the selected account address and public identity data.`,
+          details: [
+            { label: 'Account', value: account?.label ?? context.selectedAccountId },
+            { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
+          ],
+          allowedScopes: ['single-request', 'session'],
+        })
+        setPermissionState((current) => queuePermissionPrompt(current, prompt))
+        const decision = await new Promise<PermissionDecision>((resolve) => {
+          androidPermissionResolvers.current.set(requestId, resolve)
+        })
+        if (!decision.approved) throw new Error('Account access was denied.')
+        if (decision.scope === 'session') androidSessionAccountGrants.current.add(grantKey)
+        const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
+        const freshAccount = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === context.selectedAccountId,
+        )
+        const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (
+          selectedAccountId !== context.selectedAccountId ||
+          !freshTab ||
+          freshTab.context.resourceLocation !== context.resourceLocation ||
+          freshAccount?.isUnlocked !== account.isUnlocked ||
+          `${nodeAfter.mode}|${nodeAfter.nodeApiUrl ?? ''}` !== nodeRoute
+        ) {
+          throw new Error('Account access context changed before approval completed.')
+        }
+      }
+      return nodeClient.requestApp(protocol, requestValue, context)
+    },
+    [nodeClient, productState.tabs, selectedAccountId, snapshot.nodes],
+  )
+
   const refresh = useCallback(async () => {
     if (!nodeClient) return
     try {
@@ -868,6 +1079,7 @@ export function HomeV2LiveApp() {
       selectedAccountId={selectedAccountId}
       selectedAccountLookup={selectedAccountLookup}
       nodeClient={nodeClient}
+      requestApp={requestApp}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })
       }
@@ -893,6 +1105,7 @@ export function HomeV2LiveApp() {
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}
+      onResolvePermission={resolveAccountPermission}
       canGoBack={activeNavigationPosition > 0}
       canGoForward={
         !!activeNavigation &&

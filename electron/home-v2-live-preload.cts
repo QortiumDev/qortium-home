@@ -41,6 +41,18 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
   navigate: (request: unknown) => ipcRenderer.invoke('qdn-views:navigate', request),
   reload: (request: unknown) => ipcRenderer.invoke('qdn-views:reload', request),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
+  resolvePermission: (request: unknown) =>
+    ipcRenderer.send('home-v2-app:permission-resolve', request),
+  onOpenAddress: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-app:open-address', handler)
+    return () => ipcRenderer.removeListener('home-v2-app:open-address', handler)
+  },
+  onPermissionRequest: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-app:permission-request', handler)
+    return () => ipcRenderer.removeListener('home-v2-app:permission-request', handler)
+  },
   onNavigationChanged: (listener: (event: unknown) => void) => {
     const handler = (_event: unknown, payload: unknown) => listener(payload)
     ipcRenderer.on('qdn-views:app-navigation-changed', handler)

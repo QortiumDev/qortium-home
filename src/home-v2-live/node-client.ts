@@ -7,6 +7,22 @@ import type {
   VisibleAvatarReadResult,
 } from '../v2/contracts'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
+import {
+  buildHomeV2NamePath,
+  buildHomeV2ResourcePath,
+  buildHomeV2ResourceRenderPath,
+  getHomeV2AppActions,
+  getHomeV2AppNetwork,
+  isHomeV2AppRecord,
+  normalizeHomeV2Address,
+  normalizeHomeV2AppAction,
+  normalizeHomeV2AvatarMaxBytes,
+  normalizeHomeV2IdentityAddresses,
+  normalizeHomeV2OpenAddress,
+  normalizeHomeV2ReadMethod,
+  normalizeHomeV2ReadPath,
+  normalizeHomeV2ResponseMaxBytes,
+} from '../../electron/home-v2-app-actions'
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
@@ -15,6 +31,7 @@ export interface HomeV2NodeClient {
   requestApp(
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
+    context?: HomeV2AppRequestContext,
   ): Promise<unknown>
   listAccounts(): Promise<HomeV2AccountCatalogue>
   listAppResources(
@@ -39,6 +56,12 @@ export interface HomeV2AppResourceCandidate {
 }
 
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
+
+export interface HomeV2AppRequestContext {
+  readonly resourceLocation: string
+  readonly selectedAccountId: string | null
+  readonly tabId: string
+}
 
 export type HomeV2IdentityReadKind =
   | 'accountAvatarInfo'
@@ -89,76 +112,7 @@ const SETTINGS_PREFIX = 'home-v2-live-node:'
 const AVATAR_MAX_BYTES = 500 * 1024
 const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
-const APP_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 const APP_RESOURCE_LIMIT = 50
-export const HOME_V2_READ_ONLY_APP_ACTIONS = Object.freeze([
-  'FETCH_NODE_API',
-  'FETCH_QORTAL_NODE_API',
-  'GET_HOST_INFO',
-  'GET_NODE_INFO',
-  'GET_NODE_STATUS',
-  'IS_USING_PUBLIC_NODE',
-  'SHOW_ACTIONS',
-  'WHICH_UI',
-])
-
-const APP_READ_PATH_PREFIXES = [
-  '/account-ratings',
-  '/addresses',
-  '/arbitrary',
-  '/assets',
-  '/blocks',
-  '/chat/messages',
-  '/crosschain',
-  '/groups',
-  '/names',
-  '/polls',
-  '/transactions',
-] as const
-
-function appRequestRecord(value: unknown) {
-  if (!isRecord(value)) throw new Error('App requests must be objects.')
-  return value
-}
-
-function appAction(request: Record<string, unknown>) {
-  const action = typeof request.action === 'string' ? request.action.trim().toUpperCase() : ''
-  if (!action) throw new Error('App request action is required.')
-  return action
-}
-
-function appReadPath(value: unknown) {
-  if (typeof value !== 'string' || !value.trim() || value.length > 2_000) {
-    throw new Error('A node API path is required.')
-  }
-  const raw = value.trim()
-  if (!raw.startsWith('/') || raw.startsWith('//') || /[\u0000-\u001f]/.test(raw)) {
-    throw new Error('Node API paths must be relative paths beginning with /.')
-  }
-  const parsed = new URL(raw, 'https://home-v2.invalid')
-  const pathname = parsed.pathname
-  const allowedAdminPath =
-    pathname === '/admin/status' ||
-    pathname === '/admin/info' ||
-    pathname === '/admin/settings/metadata'
-  if (
-    !allowedAdminPath &&
-    !APP_READ_PATH_PREFIXES.some(
-      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-    )
-  ) {
-    throw new Error('That node API path is outside Home v2 read-only scope.')
-  }
-  return `${pathname}${parsed.search}`
-}
-
-function appReadMethod(value: unknown) {
-  const method = typeof value === 'string' ? value.toUpperCase() : 'GET'
-  if (method !== 'GET' && method !== 'HEAD') {
-    throw new Error('Home v2 apps can only use GET or HEAD node reads.')
-  }
-  return method
-}
 
 function normalizedAppResourceName(value: string) {
   const name = value.trim()
@@ -653,19 +607,188 @@ export function createPortableNodeClient(
       }
       await dependencies.setPreference(SHELL_STATE_KEY, raw)
     },
-    async requestApp(protocol, requestValue) {
-      const request = appRequestRecord(requestValue)
-      const action = appAction(request)
-      const protocolNetwork: NetworkId =
-        protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-      if (action === 'SHOW_ACTIONS') return [...HOME_V2_READ_ONLY_APP_ACTIONS]
+    async requestApp(protocol, requestValue, context) {
+      if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
+      const request = requestValue
+      const action = normalizeHomeV2AppAction(request)
+      const availableActions = getHomeV2AppActions(protocol)
+      if (action === 'SHOW_ACTIONS') return [...availableActions]
+      if (!availableActions.includes(action)) {
+        throw new Error(`${action} is not available in Home v2 read-only mode.`)
+      }
       if (action === 'WHICH_UI') return 'QORTIUM_HOME_ANDROID'
       if (action === 'GET_HOST_INFO') {
         return { hostName: 'qortium-home', platform: 'android', platformVersion: '2.0-preview' }
       }
-      const network = action === 'FETCH_QORTAL_NODE_API' ? 'qortal' : protocolNetwork
+      if (action === 'OPEN_NEW_TAB') {
+        return { address: normalizeHomeV2OpenAddress(request), openIn: 'new-tab' }
+      }
+      const network = getHomeV2AppNetwork(protocol, action)
       if (action === 'IS_USING_PUBLIC_NODE') {
         return (await getReadableNode(network)).settings.mode === 'public'
+      }
+      const requestData = async (targetNetwork: NetworkId, path: string, maxBytes: number) => {
+        const { nodeApiUrl } = await getReadableNode(targetNetwork)
+        const response = await dependencies.requestJson(`${nodeApiUrl}${path}`)
+        const body = JSON.stringify(response.data ?? null)
+        if (new TextEncoder().encode(body).byteLength > maxBytes) {
+          throw new Error('Node API response exceeded the requested size limit.')
+        }
+        if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)
+        return { data: response.data, nodeApiUrl }
+      }
+      if (action === 'GET_SELECTED_ACCOUNT' || action === 'GET_USER_ACCOUNT') {
+        if (!context?.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const catalogue = parseHomeV2AccountCatalogueStore(
+          await dependencies.getPreference(WALLET_STORE_KEY),
+        )
+        const account = catalogue.accounts.find((candidate) => candidate.id === context.selectedAccountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (action === 'GET_USER_ACCOUNT') {
+          const { data } = await requestData(
+            'qortal',
+            `/addresses/${encodeURIComponent(account.address)}`,
+            256 * 1024,
+          )
+          return { address: account.address, publicKey: stringField(data, 'publicKey') }
+        }
+        const primary = await requestData(
+          'qortium',
+          `/names/primary/${encodeURIComponent(account.address)}`,
+          256 * 1024,
+        ).catch(() => ({ data: null }))
+        return {
+          address: account.address,
+          avatarContract: 'pointer-aware-account-avatar-v1',
+          avatarUrl: null,
+          isUnlocked: account.isUnlocked,
+          name: stringField(primary.data, 'name'),
+        }
+      }
+      if (action === 'GET_NAME_DATA' || action === 'GET_ACCOUNT_NAMES' || action === 'GET_PRIMARY_NAME') {
+        return (await requestData(
+          network,
+          buildHomeV2NamePath(action, request),
+          normalizeHomeV2ResponseMaxBytes(request.maxBytes),
+        )).data
+      }
+      if (action === 'GET_ACCOUNT_DATA' || action === 'GET_BALANCE') {
+        const address = normalizeHomeV2Address(request.address)
+        const path = action === 'GET_BALANCE'
+          ? `/addresses/balance/${encodeURIComponent(address)}`
+          : `/addresses/${encodeURIComponent(address)}`
+        return (await requestData(
+          network,
+          path,
+          normalizeHomeV2ResponseMaxBytes(request.maxBytes),
+        )).data
+      }
+      if (action === 'RESOLVE_IDENTITIES') {
+        const addresses = normalizeHomeV2IdentityAddresses(request.addresses)
+        return Promise.all(addresses.map(async (address) => {
+          const [primary, names] = await Promise.all([
+            requestData('qortium', `/names/primary/${encodeURIComponent(address)}`, 256 * 1024)
+              .catch(() => ({ data: null })),
+            requestData('qortium', `/names/address/${encodeURIComponent(address)}?limit=0`, 256 * 1024)
+              .catch(() => ({ data: null })),
+          ])
+          const name = stringField(primary.data, 'name') ?? (
+            Array.isArray(names.data)
+              ? names.data.map((entry) => stringField(entry, 'name')).find(Boolean) ?? null
+              : null
+          )
+          const { nodeApiUrl } = await getReadableNode('qortium')
+          return {
+            address,
+            name,
+            avatarSrc: name
+              ? `${nodeApiUrl}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
+              : null,
+            avatarContract: 'legacy-named-thumbnail',
+          }
+        }))
+      }
+      if (action === 'FETCH_ACCOUNT_AVATAR') {
+        const address = normalizeHomeV2Address(request.address)
+        const maxBytes = normalizeHomeV2AvatarMaxBytes(request.maxBytes)
+        const { nodeApiUrl } = await getReadableNode('qortium')
+        const pointerResponse = await dependencies.requestJson(
+          `${nodeApiUrl}/addresses/${encodeURIComponent(address)}/avatar/info`,
+        )
+        const pointer = pointerResponse.status === 200 && isRecord(pointerResponse.data)
+          ? {
+              identifier: stringField(pointerResponse.data, 'identifier'),
+              name: stringField(pointerResponse.data, 'name'),
+              service: stringField(pointerResponse.data, 'service'),
+            }
+          : null
+        let source: 'LEGACY' | 'POINTER' = 'POINTER'
+        let descriptor: { identifier: string; name: string; service: string } | null = null
+        let path = `/addresses/${encodeURIComponent(address)}/avatar`
+        if (pointer?.identifier && pointer.name && pointer.service) {
+          descriptor = {
+            identifier: pointer.identifier,
+            name: pointer.name,
+            service: pointer.service,
+          }
+        } else {
+          const primary = await dependencies.requestJson(
+            `${nodeApiUrl}/names/primary/${encodeURIComponent(address)}`,
+          )
+          const name = primary.status === 200 ? stringField(primary.data, 'name') : null
+          if (!name) throw new Error('Account avatar is not set.')
+          source = 'LEGACY'
+          path = `/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
+        }
+        const avatar = parseHomeV2AvatarResponse(
+          await dependencies.requestBinary(`${nodeApiUrl}${path}`),
+        )
+        if (avatar.status === 'pending') {
+          return {
+            address,
+            descriptor,
+            retryAfterSeconds: avatar.retryAfterSeconds,
+            source,
+            status: 'PENDING',
+          }
+        }
+        if (avatar.status !== 'ready' || avatar.contentLength > maxBytes) {
+          throw new Error('Account avatar is not available.')
+        }
+        return {
+          address,
+          body: avatar.body,
+          contentLength: avatar.contentLength,
+          contentType: avatar.contentType,
+          descriptor,
+          encoding: 'base64',
+          source,
+        }
+      }
+      if (
+        action === 'FETCH_QDN_RESOURCE' ||
+        action === 'LIST_QDN_RESOURCES' ||
+        action === 'SEARCH_QDN_RESOURCES' ||
+        action === 'GET_QDN_RESOURCE_METADATA' ||
+        action === 'GET_QDN_RESOURCE_PROPERTIES' ||
+        action === 'GET_QDN_RESOURCE_STATUS'
+      ) {
+        return (await requestData(
+          network,
+          buildHomeV2ResourcePath(action, request),
+          normalizeHomeV2ResponseMaxBytes(request.maxBytes),
+        )).data
+      }
+      if (action === 'GET_QDN_RESOURCE_URL') {
+        const status = await requestData(
+          network,
+          buildHomeV2ResourcePath('GET_QDN_RESOURCE_STATUS', request),
+          256 * 1024,
+        )
+        if (!isRecord(status.data) || !status.data.status || status.data.status === 'NOT_PUBLISHED') {
+          throw new Error('Resource does not exist.')
+        }
+        return `${status.nodeApiUrl}${buildHomeV2ResourceRenderPath(request)}`
       }
       const path =
         action === 'GET_NODE_STATUS'
@@ -673,16 +796,16 @@ export function createPortableNodeClient(
           : action === 'GET_NODE_INFO'
             ? '/admin/info'
             : action === 'FETCH_NODE_API' || action === 'FETCH_QORTAL_NODE_API'
-              ? appReadPath(request.path)
+              ? normalizeHomeV2ReadPath(request.path)
               : null
       if (!path) throw new Error(`${action} is not available in Home v2 read-only mode.`)
-      const method = appReadMethod(request.method)
+      const method = normalizeHomeV2ReadMethod(request.method)
       const { nodeApiUrl } = await getReadableNode(network)
       const response = await dependencies.requestJson(`${nodeApiUrl}${path}`, method)
       const body = method === 'HEAD' ? '' : JSON.stringify(response.data ?? null)
       const bodyLength = new TextEncoder().encode(body).byteLength
-      if (bodyLength > APP_RESPONSE_MAX_BYTES) {
-        throw new Error('Node API response exceeded the 2 MiB limit.')
+      if (bodyLength > normalizeHomeV2ResponseMaxBytes(request.maxBytes)) {
+        throw new Error('Node API response exceeded the requested size limit.')
       }
       if (action === 'GET_NODE_STATUS' || action === 'GET_NODE_INFO') {
         if (!response.ok) throw new Error(`Node request returned HTTP ${response.status}.`)

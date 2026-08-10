@@ -27,7 +27,11 @@ import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
-import type { HomeV2NodeClient } from '../../home-v2-live/node-client'
+import type {
+  HomeV2AppBridgeProtocol,
+  HomeV2AppRequestContext,
+  HomeV2NodeClient,
+} from '../../home-v2-live/node-client'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -49,6 +53,11 @@ export interface HomeV2PrototypeProps {
   readonly selectedAccountId?: string | null
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
+  readonly requestApp?: (
+    protocol: HomeV2AppBridgeProtocol,
+    request: unknown,
+    context: HomeV2AppRequestContext,
+  ) => Promise<unknown>
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   readonly canGoBack?: boolean
@@ -681,6 +690,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             snapshot={snapshot}
             nodeClient={props.nodeClient}
             selectedAccountId={props.selectedAccountId}
+            onOpenAddress={props.onOpenAddress}
+            requestApp={props.requestApp}
           />
         ) : productState.destination === 'settings' ? (
           <AppearanceSettingsPage

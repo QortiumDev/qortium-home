@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
-import type { HomeV2NodeClient } from '../../home-v2-live/node-client'
+import type {
+  HomeV2AppBridgeProtocol,
+  HomeV2AppRequestContext,
+  HomeV2NodeClient,
+} from '../../home-v2-live/node-client'
 
 function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
@@ -93,6 +97,7 @@ function DesktopAppStage(props: AppTabStageProps) {
 }
 
 function AndroidAppStage(props: AppTabStageProps) {
+  const frameRef = useRef<HTMLIFrameElement>(null)
   const [source, setSource] = useState<string | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [token] = useState(() => Array.from(
@@ -133,9 +138,36 @@ function AndroidAppStage(props: AppTabStageProps) {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const data = event.data
-      if (!data || data.type !== 'qortium:qdn-request' || data.bridgeToken !== token || typeof data.requestId !== 'string') return
+      if (
+        !data ||
+        data.type !== 'qortium:qdn-request' ||
+        data.bridgeToken !== token ||
+        typeof data.requestId !== 'string' ||
+        event.source !== frameRef.current?.contentWindow ||
+        !source ||
+        event.origin !== new URL(source).origin
+      ) return
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
-      void props.nodeClient?.requestApp(protocol, data.request).then((result) => {
+      const context: HomeV2AppRequestContext = {
+        resourceLocation: resolved?.tab.context.resourceLocation ?? '',
+        selectedAccountId: props.selectedAccountId ?? null,
+        tabId: resolved?.tab.id ?? '',
+      }
+      const request = props.requestApp
+        ? props.requestApp(protocol, data.request, context)
+        : props.nodeClient?.requestApp(protocol, data.request, context)
+      void request?.then(async (result) => {
+        if (
+          result &&
+          typeof result === 'object' &&
+          'openIn' in result &&
+          result.openIn === 'new-tab' &&
+          'address' in result &&
+          typeof result.address === 'string'
+        ) {
+          await props.onOpenAddress?.(result.address)
+          result = true
+        }
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId, result,
         }, '*')
@@ -148,10 +180,10 @@ function AndroidAppStage(props: AppTabStageProps) {
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [props.nodeClient, token])
+  }, [props.nodeClient, props.onOpenAddress, props.requestApp, props.selectedAccountId, resolved, source, token])
 
   return <section className="home-v2-app-stage home-v2-app-stage--live">
-    {source ? <iframe className="home-v2-app-frame" src={source} title="QDN app" /> : null}
+    {source ? <iframe ref={frameRef} className="home-v2-app-frame" src={source} title="QDN app" /> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }
@@ -161,6 +193,12 @@ export interface AppTabStageProps {
   readonly snapshot: HomeV2Snapshot
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null
+  readonly onOpenAddress?: (address: string) => Promise<unknown>
+  readonly requestApp?: (
+    protocol: HomeV2AppBridgeProtocol,
+    request: unknown,
+    context: HomeV2AppRequestContext,
+  ) => Promise<unknown>
 }
 
 export function AppTabStage(props: AppTabStageProps) {
@@ -174,7 +212,10 @@ declare global {
       hide(request: { tabId: string }): Promise<void>
       navigate(request: { index: number; tabId: string }): Promise<boolean>
       reload(request: { tabId: string }): Promise<boolean>
+      resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
+      onOpenAddress(listener: (event: unknown) => void): () => void
+      onPermissionRequest(listener: (event: unknown) => void): () => void
       onNavigationChanged(listener: (event: unknown) => void): () => void
     }
   }

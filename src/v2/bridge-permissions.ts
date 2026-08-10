@@ -12,7 +12,10 @@ import type {
 export type BridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type PermissionRequestId = Brand<string, 'PermissionRequestId'>
 export type PermissionScope = 'single-request' | 'session' | 'always'
-export type PermissionCapability = 'qdn.publish' | 'qortal.account.read'
+export type PermissionCapability =
+  | 'account.public.read'
+  | 'qdn.publish'
+  | 'qortal.account.read'
 
 export interface PermissionDetail {
   readonly label: string
@@ -22,7 +25,10 @@ export interface PermissionDetail {
 export interface PermissionPrompt {
   readonly id: PermissionRequestId
   readonly protocol: BridgeProtocol
-  readonly action: 'GET_USER_ACCOUNT' | 'PUBLISH_QDN_RESOURCE'
+  readonly action:
+    | 'GET_SELECTED_ACCOUNT'
+    | 'GET_USER_ACCOUNT'
+    | 'PUBLISH_QDN_RESOURCE'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

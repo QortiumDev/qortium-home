@@ -11,6 +11,7 @@ import {
 } from './node-client'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
+import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
 
 const syncedStatus = {
   height: 123,
@@ -107,16 +108,24 @@ assert.deepEqual(await client.getShellState(), {
   version: 1,
   selectedAccountId: 'wallet:one:2',
 })
-assert.deepEqual(await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }), [
-  'FETCH_NODE_API',
-  'FETCH_QORTAL_NODE_API',
-  'GET_HOST_INFO',
-  'GET_NODE_INFO',
-  'GET_NODE_STATUS',
-  'IS_USING_PUBLIC_NODE',
-  'SHOW_ACTIONS',
-  'WHICH_UI',
-])
+assert.deepEqual(
+  await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }),
+  getHomeV2AppActions('qdnRequest'),
+)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', { action: 'SHOW_ACTIONS' }),
+  getHomeV2AppActions('qortalRequest'),
+)
+assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_SELECTED_ACCOUNT'), true)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_USER_ACCOUNT'), true)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_SELECTED_ACCOUNT'), false)
+assert.deepEqual(
+  await client.requestApp('qdnRequest', {
+    action: 'OPEN_NEW_TAB',
+    address: 'qortal://APP/Q-Tube',
+  }),
+  { address: 'qortal://APP/Q-Tube', openIn: 'new-tab' },
+)
 const qortalRead = await client.requestApp('qortalRequest', {
   action: 'FETCH_NODE_API',
   path: '/names/Alice',
@@ -298,6 +307,45 @@ assert.equal(
 )
 
 await client.setMode('qortal', 'public')
+await client.setMode('qortium', 'public')
+const appContext = {
+  resourceLocation: 'qdn://APP/Trust/Trust',
+  selectedAccountId: 'wallet:one:2',
+  tabId: 'home-v2:tab:test',
+}
+assert.deepEqual(
+  await client.requestApp('qdnRequest', { action: 'GET_SELECTED_ACCOUNT' }, appContext),
+  {
+    address: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE',
+    avatarContract: 'pointer-aware-account-avatar-v1',
+    avatarUrl: null,
+    isUnlocked: false,
+    name: null,
+  },
+)
+await client.requestApp('qdnRequest', {
+  action: 'FETCH_QDN_RESOURCE',
+  service: 'DOCUMENT',
+  name: 'Help',
+  identifier: 'q-support-post-v1-example',
+})
+assert.match(
+  lastRequestedUrl,
+  /\/arbitrary\/DOCUMENT\/Help\/q-support-post-v1-example$/,
+)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', { action: 'GET_USER_ACCOUNT' }, appContext),
+  {
+    address: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE',
+    publicKey: null,
+  },
+)
+await client.requestApp('qortalRequest', {
+  action: 'SEARCH_QDN_RESOURCES',
+  name: 'Q-Tube',
+  service: 'APP',
+})
+assert.match(lastRequestedUrl, /\/arbitrary\/resources\/search\?name=Q-Tube&service=APP$/)
 assert.deepEqual(await client.listAppResources('qortal', 'Trust'), [
   { identifier: 'Trust', name: 'Trust' },
 ])
@@ -320,7 +368,8 @@ requestCount.clear()
 const local = (await client.setMode('qortal', 'local')) as Snapshot
 assert.equal(local.nodes.qortal.nodeApiUrl, null)
 assert.match(local.nodes.qortal.error ?? '', /not available/i)
-assert.equal(requestCount.size, 0)
+assert.equal(requestCount.has('https://ext-node.qortal.link'), false)
+assert.equal(requestCount.has('https://api.qortal.org'), false)
 
 const localIdentity = await client.readIdentity('qortal', {
   kind: 'name',

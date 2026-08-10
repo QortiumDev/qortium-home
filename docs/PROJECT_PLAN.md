@@ -1,11 +1,11 @@
 # Qortium Home 2.0 Project Plan
 
-Last updated: 2026-08-08
+Last updated: 2026-08-10
 
 Status: accepted product direction with Phase 1 complete and desktop/Android
-Phase 2 live-node, public cross-network identity, bounded avatar, and read-only
-account-catalogue slices implemented. Wallet authority and QDN app adapters
-have not started.
+Phase 2 live-node, public cross-network identity, bounded avatar, read-only
+account-catalogue, and first read-only QDN app-adapter slices implemented.
+Wallet authority, mutations, private chat, and Reticulum have not started.
 
 This is the canonical product and architecture plan for Qortium Home. When an
 older issue, note, or implementation assumption conflicts with this document,
@@ -595,7 +595,20 @@ A sanitized read-only catalogue now lists base and derived addresses from the
 preview profile and feeds the compact Account dropdown. Selection resolves one
 address across both networks but does not mutate the wallet store. Encrypted
 wallet material, filenames, production-profile migration, unlock, signing, and
-QDN app execution remain later gates.
+QDN app execution were still later gates at the end of the 2026-08-08 slice.
+
+Status on 2026-08-10: read-only QDN app execution has now started in the
+isolated Home 2.0 profile. Desktop `WebContentsView` apps and Android hosted apps
+share one runtime-free, protocol-specific action catalogue and validator while
+retaining separate `qdnRequest` and `qortalRequest` facades. The first slice
+covers bounded public node reads, QDN resource list/search/fetch/status/metadata/
+properties/URL operations, public identity/account reads, pointer-aware account
+avatars, and new-tab `qdn://`/`qortal://`/`home://` navigation. Selected-account
+reads require trusted Home UI consent with once or tab-session scope, and Home
+rechecks immutable app/tab/account context after approval. Signing, publishing,
+wallet secrets, private chat, broader viewer/file APIs, and production-profile
+migration remain inaccessible. The exact implemented and deferred surfaces are
+tracked in `docs/HOME_V2_BRIDGE_COMPATIBILITY.md`.
 
 ### Phase 3: app-first default experiences
 

@@ -437,7 +437,7 @@ export async function getHomeV2ReadableNode(network: NetworkId) {
   }
 }
 
-async function readIdentity(network: NetworkId, requestValue: unknown) {
+export async function readHomeV2Identity(network: NetworkId, requestValue: unknown) {
   const request = normalizeIdentityReadRequest(requestValue)
   const snapshot = await getRecentSnapshot()
   const node = snapshot.nodes[network]
@@ -497,7 +497,7 @@ async function listAppResources(network: NetworkId, nameValue: unknown) {
   return parseHomeV2AppResourceCandidates(data, name)
 }
 
-async function readAvatar(network: NetworkId, requestValue: unknown) {
+export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown) {
   let request: ReturnType<typeof normalizeAvatarReadRequest>
   try {
     request = normalizeAvatarReadRequest(network, requestValue)
@@ -597,14 +597,14 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     'home-v2-nodes:readIdentity',
     (event, networkValue: unknown, requestValue: unknown) => {
       assertAuthorized(event.sender)
-      return readIdentity(normalizeNetwork(networkValue), requestValue)
+      return readHomeV2Identity(normalizeNetwork(networkValue), requestValue)
     },
   )
   ipcMain.handle(
     'home-v2-nodes:readAvatar',
     (event, networkValue: unknown, requestValue: unknown) => {
       assertAuthorized(event.sender)
-      return readAvatar(normalizeNetwork(networkValue), requestValue)
+      return readHomeV2Avatar(normalizeNetwork(networkValue), requestValue)
     },
   )
   ipcMain.handle(
