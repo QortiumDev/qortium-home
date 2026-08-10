@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { HomeV2Snapshot, NetworkId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
 import { networkLabels } from './NetworkBadge'
@@ -13,13 +13,25 @@ export interface BrowserChromeProps {
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
-  readonly onOpenAddress?: (address: string) => string | null
+  readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void
   readonly onGoForward?: () => void
   readonly onReload?: () => void
 }
+
+export type AddressOpenResult =
+  | { readonly status: 'opened' }
+  | { readonly message: string; readonly status: 'error' }
+  | {
+      readonly message: string
+      readonly options: readonly {
+        readonly address: string
+        readonly label: string
+      }[]
+      readonly status: 'choose'
+    }
 
 function nodeTone(snapshot: HomeV2Snapshot, network: NetworkId) {
   const node = snapshot.nodes[network]
@@ -62,14 +74,37 @@ export function BrowserChrome({
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(productState)
   const [address, setAddress] = useState(currentAddress)
-  const [addressError, setAddressError] = useState<string | null>(null)
+  const [addressResult, setAddressResult] = useState<AddressOpenResult | null>(null)
+  const [addressBusy, setAddressBusy] = useState(false)
+  const [selectedChoice, setSelectedChoice] = useState('')
+  const addressRequest = useRef(0)
   useEffect(() => {
+    addressRequest.current += 1
     setAddress(currentAddress)
-    setAddressError(null)
+    setAddressResult(null)
+    setAddressBusy(false)
+    setSelectedChoice('')
   }, [currentAddress])
-  const submitAddress = () => {
+  const submitAddress = async (requestedAddress = address) => {
     if (!onOpenAddress) return
-    setAddressError(onOpenAddress(address))
+    const request = addressRequest.current + 1
+    addressRequest.current = request
+    setAddressBusy(true)
+    setAddressResult(null)
+    try {
+      const result = await onOpenAddress(requestedAddress)
+      if (addressRequest.current !== request) return
+      setAddressResult(result.status === 'opened' ? null : result)
+      setSelectedChoice(result.status === 'choose' ? result.options[0]?.address ?? '' : '')
+    } catch (error) {
+      if (addressRequest.current !== request) return
+      setAddressResult({
+        message: error instanceof Error ? error.message : 'Unable to open this address.',
+        status: 'error',
+      })
+    } finally {
+      if (addressRequest.current === request) setAddressBusy(false)
+    }
   }
   return (
     <header className="home-v2-browser-chrome">
@@ -111,9 +146,9 @@ export function BrowserChrome({
           aria-label="Address and search"
           onSubmit={(event) => {
             event.preventDefault()
-            submitAddress()
+            void submitAddress()
           }}
-          data-error={addressError ? 'true' : 'false'}
+          data-error={addressResult?.status === 'error' ? 'true' : 'false'}
         >
           <span aria-hidden="true">⌕</span>
           <input
@@ -121,17 +156,52 @@ export function BrowserChrome({
             spellCheck={false}
             value={address}
             onChange={(event) => {
+              addressRequest.current += 1
               setAddress(event.target.value)
-              setAddressError(null)
+              setAddressResult(null)
+              setAddressBusy(false)
+              setSelectedChoice('')
             }}
           />
-          <button type="submit" aria-label="Go to address" title="Go to address">
-            Go
+          <button
+            type="submit"
+            aria-label="Go to address"
+            title="Go to address"
+            disabled={addressBusy}
+          >
+            {addressBusy ? 'Finding…' : 'Go'}
           </button>
-          {addressError ? (
-            <span className="home-v2-address__error" role="alert">
-              {addressError}
-            </span>
+          {addressResult?.status === 'error' ? (
+            <div className="home-v2-address__result" data-tone="error" role="alert">
+              {addressResult.message}
+            </div>
+          ) : addressResult?.status === 'choose' ? (
+            <div className="home-v2-address__result" data-tone="choice">
+              <span>{addressResult.message}</span>
+              <div className="home-v2-address__choice">
+                <select
+                  aria-label="App resource identifier"
+                  value={selectedChoice}
+                  onChange={(event) => setSelectedChoice(event.target.value)}
+                >
+                  {addressResult.options.map((option) => (
+                    <option key={option.address} value={option.address}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!selectedChoice || addressBusy}
+                  onClick={() => {
+                    setAddress(selectedChoice)
+                    void submitAddress(selectedChoice)
+                  }}
+                >
+                  Open
+                </button>
+              </div>
+            </div>
           ) : null}
         </form>
         <div className="home-v2-browser-actions">

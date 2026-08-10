@@ -23,7 +23,7 @@ import type {
 import type { ProductState, ShellDestination } from '../product-model'
 import { AppTabStage } from './AppTabStage'
 import { AppearanceSettingsPage } from './AppearanceSettingsPage'
-import { BrowserChrome } from './BrowserChrome'
+import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
@@ -50,7 +50,7 @@ export interface HomeV2PrototypeProps {
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
   readonly onOpenApp?: (app: AppDescriptor) => void
-  readonly onOpenAddress?: (address: string) => string | null
+  readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void

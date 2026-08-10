@@ -304,6 +304,7 @@ function testAppResourceSchemesStaySourceQualified(): void {
   assert.equal(qortal, 'qortal://APP/Qortal%20App/default')
   assert.deepEqual(parseAppResourceLocation(qdn), {
     identity: { service: 'APP', name: 'Chat', identifier: 'Chat' },
+    identifierWasExplicit: true,
     location: qdn,
     routePath: '',
     search: '',
@@ -317,6 +318,7 @@ function testAppResourceSchemesStaySourceQualified(): void {
     ),
     {
       identity: { service: 'APP', name: 'Help', identifier: 'Help' },
+      identifierWasExplicit: true,
       location: 'qdn://APP/Help/Help/page%20two?view=docs#install-linux',
       routePath: '/page%20two',
       search: '?view=docs',
@@ -326,6 +328,7 @@ function testAppResourceSchemesStaySourceQualified(): void {
   )
   assert.deepEqual(parseAppResourceLocation('qortal://APP/Example'), {
     identity: { service: 'APP', name: 'Example', identifier: null },
+    identifierWasExplicit: false,
     location: 'qortal://APP/Example/default',
     routePath: '',
     search: '',
@@ -1066,6 +1069,7 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-nodes:setMode/)
   assert.match(preload, /home-v2-nodes:readIdentity/)
   assert.match(preload, /home-v2-nodes:readAvatar/)
+  assert.match(preload, /home-v2-nodes:listAppResources/)
   assert.match(preload, /home-v2-accounts:list/)
   assert.doesNotMatch(preload, /qortiumHome|qdn:|core:|sign|wallet/i)
   assert.doesNotMatch(preload, /ipcRenderer\.invoke\('accounts:/)

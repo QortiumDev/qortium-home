@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   saveShellState: (value: unknown) =>
     ipcRenderer.invoke('home-v2-shell:saveState', value),
   listAccounts: () => ipcRenderer.invoke('home-v2-accounts:list'),
+  listAppResources: (network: 'qortal' | 'qortium', name: string) =>
+    ipcRenderer.invoke('home-v2-nodes:listAppResources', network, name),
   readIdentity: (
     network: 'qortal' | 'qortium',
     request: {

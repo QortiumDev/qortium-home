@@ -28,6 +28,7 @@ import type {
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import type { AddressOpenResult } from '../v2/shell/BrowserChrome'
 import type { HomeV2NodeClient } from './node-client'
 import { resolveDualIdentity } from './identity-resolver'
 import {
@@ -590,7 +591,7 @@ export function HomeV2LiveApp() {
   )
 
   const openAddress = useCallback(
-    (address: string) => {
+    async (address: string): Promise<AddressOpenResult> => {
       try {
         const internal = /^home:\/\/(dashboard|apps|activity|settings)\/?$/i.exec(
           address.trim(),
@@ -605,30 +606,69 @@ export function HomeV2LiveApp() {
               | 'dashboard'
               | 'settings',
           })
-          return null
+          return { status: 'opened' }
         }
         const parsed = parseAppResourceLocation(address)
+        let resourceIdentity = parsed.identity
+        let resourceLocation = parsed.location
+        if (!parsed.identifierWasExplicit) {
+          if (!nodeClient) throw new Error('App discovery is not available yet.')
+          const candidates = await nodeClient.listAppResources(
+            parsed.sourceNetwork,
+            parsed.identity.name,
+          )
+          if (candidates.length === 0) {
+            throw new Error(
+              `No APP resource named ${parsed.identity.name} was found on ${parsed.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'}.`,
+            )
+          }
+          const resolvedLocations = candidates.map((candidate) => ({
+            address: `${buildAppResourceLocation(parsed.sourceNetwork, {
+              service: 'APP',
+              name: candidate.name,
+              identifier: candidate.identifier,
+            })}${parsed.routePath}${parsed.search}${parsed.hash}` as AppTabContext['resourceLocation'],
+            candidate,
+          }))
+          if (resolvedLocations.length > 1) {
+            return {
+              message: `More than one APP resource is published under ${parsed.identity.name}. Choose an identifier.`,
+              options: resolvedLocations.map(({ address: optionAddress, candidate }) => ({
+                address: optionAddress,
+                label: candidate.identifier ?? 'Default resource',
+              })),
+              status: 'choose',
+            }
+          }
+          const resolved = resolvedLocations[0]
+          resourceIdentity = {
+            service: 'APP',
+            name: resolved.candidate.name,
+            identifier: resolved.candidate.identifier,
+          }
+          resourceLocation = resolved.address
+        }
         const app: AppDescriptor = {
           id: brand<AppId>(
-            `home-v2:app:${parsed.sourceNetwork}:${parsed.identity.name}:${parsed.identity.identifier ?? 'default'}`,
+            `home-v2:app:${parsed.sourceNetwork}:${resourceIdentity.name}:${resourceIdentity.identifier ?? 'default'}`,
           ),
-          title: parsed.identity.name,
+          title: resourceIdentity.name,
           description: `QDN app from ${parsed.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'}.`,
           category: 'utility',
           sourceNetwork: parsed.sourceNetwork,
-          resourceIdentity: parsed.identity,
+          resourceIdentity,
           targetNetworks: [parsed.sourceNetwork],
           placement: 'recommended',
         }
-        openApp(app, parsed.location)
-        return null
+        openApp(app, resourceLocation)
+        return { status: 'opened' }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Invalid app address.'
         setShellNotice(message)
-        return message
+        return { message, status: 'error' }
       }
     },
-    [openApp],
+    [nodeClient, openApp],
   )
 
   const refresh = useCallback(async () => {

@@ -34,12 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-10 - fix: resolve name-only apps and pending avatars
+
+Makes name-only app addresses behave consistently across Qortium and Qortal.
+When an address omits its identifier, Home now asks the selected network for
+exact `APP` resources under that name: one result opens automatically, no
+results produce a visible error, and multiple results produce a compact
+identifier selector instead of guessing. Explicit identifiers remain exact.
+The Dashboard avatar loader now also recognizes the legacy asynchronous
+resource path's initial not-found response as pending, keeps a stable loading
+placeholder, and retries bounded pending or transient responses automatically.
+
 ### 2026-08-09 - fix: make Home v2 address navigation explicit
 
 Fixes the Home 2.0 browser bar so Enter or the new Go button opens complete
 `qdn://` and `qortal://` app addresses. Routed app links now preserve path,
-query, and fragment components, and app addresses without an explicit
-identifier normalize to `default`. Invalid or incomplete addresses display a
+query, and fragment components. Invalid or incomplete addresses display a
 visible inline explanation instead of failing behind the current app view.
 
 ### 2026-08-09 - feat: add Home v2 persistent shell and read-only QDN apps

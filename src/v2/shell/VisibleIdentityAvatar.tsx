@@ -6,7 +6,8 @@ import type {
 } from '../contracts'
 
 const AVATAR_MAX_BYTES = 500 * 1024
-const MAX_PENDING_ATTEMPTS = 6
+const MAX_PENDING_ATTEMPTS = 12
+const MAX_TRANSIENT_ATTEMPTS = 3
 const ALLOWED_CONTENT_TYPES = new Set([
   'image/bmp',
   'image/gif',
@@ -60,11 +61,14 @@ export function VisibleIdentityAvatar({
 }) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     setObjectUrl(null)
     setFailedUrl(null)
+    setIsLoading(false)
     if (!loader || !identity.address || !identity.avatar) return
+    setIsLoading(true)
 
     let cancelled = false
     let activeUrl: string | null = null
@@ -86,7 +90,14 @@ export function VisibleIdentityAvatar({
         timer = window.setTimeout(() => void load(), delaySeconds * 1000)
         return
       }
-      if (result.status !== 'ready') return
+      if (result.status === 'unavailable' && attempts < MAX_TRANSIENT_ATTEMPTS) {
+        timer = window.setTimeout(() => void load(), 2_000)
+        return
+      }
+      if (result.status !== 'ready') {
+        setIsLoading(false)
+        return
+      }
       try {
         activeUrl = avatarObjectUrl(
           result.body,
@@ -94,8 +105,10 @@ export function VisibleIdentityAvatar({
           result.contentType,
         )
         setObjectUrl(activeUrl)
+        setIsLoading(false)
       } catch {
         // Keep the deterministic initial when a response fails renderer checks.
+        setIsLoading(false)
       }
     }
 
@@ -120,7 +133,11 @@ export function VisibleIdentityAvatar({
   }
 
   return (
-    <div className="home-v2-presence__avatar" aria-hidden="true">
+    <div
+      className="home-v2-presence__avatar"
+      data-loading={isLoading ? 'true' : 'false'}
+      aria-hidden="true"
+    >
       {avatarInitial(identity, query)}
     </div>
   )

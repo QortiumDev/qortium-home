@@ -8,6 +8,7 @@ export type AppResourceScheme = 'qdn' | 'qortal'
 
 export interface ParsedAppResourceLocation {
   readonly identity: AppResourceIdentity
+  readonly identifierWasExplicit: boolean
   readonly location: AppResourceLocation
   readonly routePath: string
   readonly search: string
@@ -86,6 +87,7 @@ export function parseAppResourceLocation(
     throw new Error('The app resource name is required.')
   }
   const name = validateSegment(decodeSegment(rawName).trim(), 'App resource name')
+  const identifierWasExplicit = rawSegments.length > 0
   const rawIdentifier = rawSegments.shift() ?? 'default'
   const identifier = validateSegment(decodeSegment(rawIdentifier).trim(), 'App resource identifier')
   const routeSegments = rawSegments.map((segment) =>
@@ -104,6 +106,7 @@ export function parseAppResourceLocation(
 
   return Object.freeze({
     identity: Object.freeze(identity),
+    identifierWasExplicit,
     location,
     routePath,
     search: parsed.search,

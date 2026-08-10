@@ -96,6 +96,7 @@ for (const requiredChannel of [
   'home-v2-nodes:setCustomUrl',
   'home-v2-nodes:readIdentity',
   'home-v2-nodes:readAvatar',
+  'home-v2-nodes:listAppResources',
   'home-v2-accounts:list',
   'home-v2-shell:getState',
   'home-v2-shell:saveState',

@@ -30,6 +30,11 @@ import {
   readHomeV2ShellState,
   writeHomeV2ShellState,
 } from './home-v2-shell-store.js'
+import {
+  buildHomeV2AppResourceSearchPath,
+  normalizeHomeV2AppResourceName,
+  parseHomeV2AppResourceCandidates,
+} from './home-v2-app-resource-discovery.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
@@ -168,7 +173,7 @@ function normalizeAvatarReadRequest(network: NetworkId, value: unknown) {
     throw new Error('Avatar pointer metadata is invalid.')
   }
   if (network === 'qortium' && source === 'account-pointer') {
-    return { address, path: buildAccountAvatarPath(address) }
+    return { address, legacyAsync: false, path: buildAccountAvatarPath(address) }
   }
   const expectedIdentifier = network === 'qortal' ? 'qortal_avatar' : 'avatar'
   if (
@@ -180,6 +185,7 @@ function normalizeAvatarReadRequest(network: NetworkId, value: unknown) {
   }
   return {
     address,
+    legacyAsync: true,
     path: buildAvatarResourcePath({ identifier, name, service }),
   }
 }
@@ -467,6 +473,30 @@ async function readIdentity(network: NetworkId, requestValue: unknown) {
   }
 }
 
+async function listAppResources(network: NetworkId, nameValue: unknown) {
+  const name = normalizeHomeV2AppResourceName(nameValue)
+  const snapshot = await getRecentSnapshot()
+  const node = snapshot.nodes[network]
+  if (!node.capabilities.read || !node.nodeApiUrl) {
+    throw new Error(node.error ?? `${network} node is unavailable.`)
+  }
+  const response = await nodeFetch(
+    `${node.nodeApiUrl}${buildHomeV2AppResourceSearchPath(name)}`,
+    { method: 'GET', signal: AbortSignal.timeout(5_000) },
+  )
+  const text = await readBoundedText(response)
+  if (!response.ok) {
+    throw new Error(`App resource search returned HTTP ${response.status}.`)
+  }
+  let data: unknown
+  try {
+    data = text ? JSON.parse(text) : []
+  } catch {
+    throw new Error('The node returned an invalid app resource list.')
+  }
+  return parseHomeV2AppResourceCandidates(data, name)
+}
+
 async function readAvatar(network: NetworkId, requestValue: unknown) {
   let request: ReturnType<typeof normalizeAvatarReadRequest>
   try {
@@ -498,7 +528,11 @@ async function readAvatar(network: NetworkId, requestValue: unknown) {
         status: 'pending' as const,
       }
     }
-    if (response.status === 404) return { status: 'missing' as const }
+    if (response.status === 404) {
+      return request.legacyAsync
+        ? { retryAfterSeconds: 2, status: 'pending' as const }
+        : { status: 'missing' as const }
+    }
     if (!response.ok) {
       return {
         message: `Avatar request returned HTTP ${response.status}.`,
@@ -544,6 +578,13 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     assertAuthorized(event.sender)
     return getHomeV2AccountCatalogue()
   })
+  ipcMain.handle(
+    'home-v2-nodes:listAppResources',
+    (event, networkValue: unknown, nameValue: unknown) => {
+      assertAuthorized(event.sender)
+      return listAppResources(normalizeNetwork(networkValue), nameValue)
+    },
+  )
   ipcMain.handle('home-v2-shell:getState', (event) => {
     assertAuthorized(event.sender)
     return readHomeV2ShellState()

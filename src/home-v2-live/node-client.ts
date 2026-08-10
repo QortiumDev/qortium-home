@@ -17,6 +17,10 @@ export interface HomeV2NodeClient {
     request: unknown,
   ): Promise<unknown>
   listAccounts(): Promise<HomeV2AccountCatalogue>
+  listAppResources(
+    network: NetworkId,
+    name: string,
+  ): Promise<readonly HomeV2AppResourceCandidate[]>
   readAvatar(
     network: NetworkId,
     request: VisibleAvatarReadRequest,
@@ -27,6 +31,11 @@ export interface HomeV2NodeClient {
   ): Promise<HomeV2IdentityReadResponse>
   setMode(network: NetworkId, mode: NodeConnectionMode): Promise<unknown>
   setCustomUrl(network: NetworkId, customUrl: string): Promise<unknown>
+}
+
+export interface HomeV2AppResourceCandidate {
+  readonly identifier: string | null
+  readonly name: string
 }
 
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
@@ -81,6 +90,7 @@ const AVATAR_MAX_BYTES = 500 * 1024
 const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
+const APP_RESOURCE_LIMIT = 50
 export const HOME_V2_READ_ONLY_APP_ACTIONS = Object.freeze([
   'FETCH_NODE_API',
   'FETCH_QORTAL_NODE_API',
@@ -148,6 +158,76 @@ function appReadMethod(value: unknown) {
     throw new Error('Home v2 apps can only use GET or HEAD node reads.')
   }
   return method
+}
+
+function normalizedAppResourceName(value: string) {
+  const name = value.trim()
+  if (!name || name.length > 128 || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw new Error('App resource names must contain 1 to 128 visible characters.')
+  }
+  return name
+}
+
+export function buildHomeV2AppResourceSearchPath(value: string) {
+  const query = new URLSearchParams({
+    service: 'APP',
+    name: normalizedAppResourceName(value),
+    exactmatchnames: 'true',
+    mode: 'ALL',
+    includestatus: 'false',
+    includemetadata: 'false',
+    limit: String(APP_RESOURCE_LIMIT),
+  })
+  return `/arbitrary/resources/search?${query.toString()}`
+}
+
+export function parseHomeV2AppResourceCandidates(
+  value: unknown,
+  requestedName: string,
+): readonly HomeV2AppResourceCandidate[] {
+  const name = normalizedAppResourceName(requestedName)
+  if (!Array.isArray(value)) {
+    throw new Error('The node returned an invalid app resource list.')
+  }
+  const candidates = new Map<string, HomeV2AppResourceCandidate>()
+  for (const entry of value) {
+    if (!isRecord(entry)) continue
+    const candidateName = stringField(entry, 'name')
+    const service = stringField(entry, 'service')?.toUpperCase()
+    if (
+      !candidateName ||
+      candidateName.toLowerCase() !== name.toLowerCase() ||
+      service !== 'APP'
+    ) {
+      continue
+    }
+    const rawIdentifier = stringField(entry, 'identifier')
+    const identifier =
+      !rawIdentifier || rawIdentifier.toLowerCase() === 'default'
+        ? null
+        : rawIdentifier
+    const key = identifier?.toLowerCase() ?? 'default'
+    if (!candidates.has(key)) {
+      candidates.set(key, { identifier, name: candidateName })
+    }
+  }
+  return Object.freeze(
+    [...candidates.values()].sort((left, right) => {
+      if (left.identifier === null) return -1
+      if (right.identifier === null) return 1
+      return left.identifier.localeCompare(right.identifier)
+    }),
+  )
+}
+
+export function normalizeHomeV2AvatarReadResult(
+  request: VisibleAvatarReadRequest,
+  result: VisibleAvatarReadResult,
+): VisibleAvatarReadResult {
+  if (request.pointer.source === 'legacy-name' && result.status === 'missing') {
+    return { retryAfterSeconds: 2, status: 'pending' }
+  }
+  return result
 }
 
 function normalizedAvatarPointer(pointer: VisibleAvatarReadRequest['pointer']) {
@@ -624,6 +704,16 @@ export function createPortableNodeClient(
         await dependencies.getPreference(WALLET_STORE_KEY),
       )
     },
+    async listAppResources(network, name) {
+      const { nodeApiUrl } = await getReadableNode(network)
+      const response = await dependencies.requestJson(
+        `${nodeApiUrl}${buildHomeV2AppResourceSearchPath(name)}`,
+      )
+      if (!response.ok) {
+        throw new Error(`App resource search returned HTTP ${response.status}.`)
+      }
+      return parseHomeV2AppResourceCandidates(response.data, name)
+    },
     async readAvatar(network, request) {
       const settings = await readSettings(network)
       if (settings.mode === 'disabled' || settings.mode === 'local') {
@@ -649,9 +739,12 @@ export function createPortableNodeClient(
         }
       }
       try {
-        return parseHomeV2AvatarResponse(
-          await dependencies.requestBinary(
-            `${nodeApiUrl}${buildHomeV2AvatarPath(network, request)}`,
+        return normalizeHomeV2AvatarReadResult(
+          request,
+          parseHomeV2AvatarResponse(
+            await dependencies.requestBinary(
+              `${nodeApiUrl}${buildHomeV2AvatarPath(network, request)}`,
+            ),
           ),
         )
       } catch (error) {

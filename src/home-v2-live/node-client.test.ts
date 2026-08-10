@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import {
   buildHomeV2AvatarPath,
+  buildHomeV2AppResourceSearchPath,
   createPortableNodeClient,
+  normalizeHomeV2AvatarReadResult,
+  parseHomeV2AppResourceCandidates,
   parseHomeV2AvatarResponse,
   normalizePortableNodeUrl,
   type PortableNodeClientDependencies,
@@ -77,7 +80,11 @@ const dependencies: PortableNodeClientDependencies = {
       return { data: null, latencyMs: 1, ok: false, status: 503 }
     }
     return {
-      data: url.includes('/admin/status') ? syncedStatus : [],
+      data: url.includes('/admin/status')
+        ? syncedStatus
+        : url.includes('/arbitrary/resources/search') && url.includes('name=Trust')
+          ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
+          : [],
       latencyMs: latency.get(origin) ?? 1,
       ok: true,
       status: 200,
@@ -209,6 +216,21 @@ assert.throws(
     }),
   /does not match/,
 )
+assert.match(buildHomeV2AppResourceSearchPath('Trust'), /name=Trust/)
+assert.deepEqual(
+  parseHomeV2AppResourceCandidates(
+    [
+      { identifier: 'Trust', name: 'Trust', service: 'APP' },
+      { name: 'Trust', service: 'APP' },
+      { identifier: 'Ignore', name: 'Other', service: 'APP' },
+    ],
+    'trust',
+  ),
+  [
+    { identifier: null, name: 'Trust' },
+    { identifier: 'Trust', name: 'Trust' },
+  ],
+)
 
 const readyAvatar = parseHomeV2AvatarResponse({
   data: 'iVBORw0KGgo=',
@@ -244,6 +266,28 @@ assert.deepEqual(
   parseHomeV2AvatarResponse({ data: '', headers: { 'retry-after': '4' }, status: 202 }),
   { retryAfterSeconds: 4, status: 'pending' },
 )
+assert.deepEqual(
+  normalizeHomeV2AvatarReadResult(
+    avatarRequest,
+    { status: 'missing' },
+  ),
+  { retryAfterSeconds: 2, status: 'pending' },
+)
+assert.deepEqual(
+  normalizeHomeV2AvatarReadResult(
+    {
+      ...avatarRequest,
+      pointer: {
+        identifier: 'portrait',
+        name: 'Alice',
+        service: 'THUMBNAIL',
+        source: 'account-pointer',
+      },
+    },
+    { status: 'missing' },
+  ),
+  { status: 'missing' },
+)
 assert.equal(
   parseHomeV2AvatarResponse({
     data: btoa('<script>'),
@@ -254,6 +298,9 @@ assert.equal(
 )
 
 await client.setMode('qortal', 'public')
+assert.deepEqual(await client.listAppResources('qortal', 'Trust'), [
+  { identifier: 'Trust', name: 'Trust' },
+])
 const avatar = await client.readAvatar('qortal', avatarRequest)
 assert.equal(avatar.status, 'ready')
 assert.equal(normalizePortableNodeUrl('localhost:12391'), 'https://localhost:12391')

@@ -67,7 +67,10 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   account avatar pointer and otherwise reports `THUMBNAIL/<name>/avatar`.
 - Visible public avatars are fetched through those exact pointers, capped at
   500 KiB, magic-byte checked as PNG, JPEG, GIF, BMP, or WebP, and rendered from
-  a local Blob URL. Pending resource builds retry at most six times.
+  a local Blob URL. Pending resource builds retry at most twelve times, and the
+  legacy asynchronous path's initial not-found response is treated as pending
+  because it starts the fetch before data is ready. A stable initials
+  placeholder shows a small loading ring while Home waits.
 - A read-only Account dropdown lists saved addresses from the preview's own
   isolated profile, including derived addresses. Selecting one resolves its
   public Qortal and Qortium presences without changing the wallet store.
@@ -78,7 +81,11 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   `qortal://APP/<name>/<identifier>` addresses can also be entered directly in
   the browser bar with Enter or Go. Paths, query parameters, and fragments are
   preserved, and invalid or incomplete addresses produce a visible inline
-  error.
+  error. Name-only `qdn://APP/<name>` and `qortal://APP/<name>` addresses search
+  the selected network for exact `APP` resources. One result opens
+  automatically; multiple results show an identifier dropdown; no result
+  reports that the app was not found. An identifier supplied in the address is
+  always used exactly as written.
 - Desktop app content runs in a sandboxed, separately partitioned
   `WebContentsView`; Android uses its existing separate-origin HTTPS QDN render
   proxy. Both app contexts receive `qdnRequest` and `qortalRequest` as distinct
@@ -106,9 +113,10 @@ android/app/build/outputs/apk/v2Live/Qortium-Home-1.6.3-v2-live-android-v2Live.a
   chat, signing, publishing, transactions, Core control, updates, or Reticulum.
 
 The desktop shell preload exposes only node snapshot, node-mode, custom-URL, a
-sanitized read-only account list, four allowlisted public identity reads, and
-bounded pointer-aware avatar reads, isolated app-view controls, and isolated v2
-shell-state storage. App views use a separate preload that exposes only the
-read-only action list above. Identity responses are capped at 256 KiB and
-avatars at 500 KiB. The renderer cannot directly access the network, the Home
-1.x bridge, wallet files, Core control, updates, private keys, or seed material.
+sanitized read-only account list, exact `APP` name discovery, four allowlisted
+public identity reads, bounded pointer-aware avatar reads, isolated app-view
+controls, and isolated v2 shell-state storage. App views use a separate preload
+that exposes only the read-only action list above. Identity and app-discovery
+responses are capped at 256 KiB and avatars at 500 KiB. The renderer cannot
+directly access the network, the Home 1.x bridge, wallet files, Core control,
+updates, private keys, or seed material.
