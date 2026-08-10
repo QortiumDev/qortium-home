@@ -167,6 +167,29 @@ function isNativeAssetRequest(request: QdnAppRequest, defaultToNative = false) {
   return coin ? isNativeAssetAlias(coin) : defaultToNative;
 }
 
+// Resolves the assetId-or-assetName selector Core's own /assets/info accepts
+// (assetId wins if both are given - same priority Core documents). Uses
+// getOptionalNonNegativeAssetId rather than getRequestAssetId: getRequestAssetId
+// returns undefined for a numeric assetId (see the plan doc for the trace),
+// which would break every real caller since assetId is normally a number.
+function getOptionalAssetSelector(
+  request: QdnAppRequest,
+): { assetId: number; assetName?: undefined } | { assetId?: undefined; assetName: string } {
+  const assetId = getOptionalNonNegativeAssetId(request);
+
+  if (typeof assetId === 'number') {
+    return { assetId };
+  }
+
+  const assetName = getOptionalStringRequestValue(request, 'assetName');
+
+  if (!assetName) {
+    throw new Error('Supply either assetId or assetName.');
+  }
+
+  return { assetName };
+}
+
 function assertQortiumAddress(address: string, label: string) {
   if (!/^Q[1-9A-HJ-NP-Za-km-z]{20,}$/.test(address)) {
     throw new Error(`${label} must be a Qortium address.`);
@@ -459,6 +482,7 @@ export {
   getOptionalNonNegativeAssetId,
   getAccountBalancePath,
   isNativeAssetRequest,
+  getOptionalAssetSelector,
   assertQortiumAddress,
   getRequiredAddressRequestString,
   getOptionalAddressRequestString,
