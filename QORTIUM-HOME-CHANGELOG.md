@@ -6,12 +6,13 @@ easy to follow without reading code.
 
 ## What Qortium Home Is
 
-Qortium Home is a simple user interface for managing Qortium wallets,
-connecting to a configured node, browsing QDN content, and viewing chain/API
-data.
+Qortium Home is an app-focused client and trusted host for Qortium and Qortal.
+It manages identities, wallets, nodes, QDN apps, permissions, and native
+services while leaving full Chat, Wallets, Groups, Explorer, publishing, and
+similar experiences to QDN apps.
 
-The aim is to keep the application focused, understandable, and Qortium-native,
-with its own clear scope.
+The aim is to keep the application focused and understandable while supporting
+both networks through explicit compatibility and security boundaries.
 
 ## Early Goals
 
@@ -32,6 +33,28 @@ with its own clear scope.
   technical git history
 
 ## Change Entries
+
+### 2026-08-10 - Home 2.0 read-only browser shell foundation
+
+Establishes the accepted Home 2.0 direction as a warm, compact browser-style
+shell with Dashboard as its landing page and QDN apps opening in familiar tabs.
+Desktop and Android are co-primary preview targets. Qortal and Qortium have
+independent Disabled, Local, Public, and Custom node modes; Home reports local
+Core readiness, selects trusted synchronized public nodes, and keeps the active
+endpoint visible. The Dashboard can resolve shared addresses across both chains,
+show bounded public names and avatars, and enumerate saved account addresses
+without exposing wallet secrets.
+
+Complete `qdn://` and `qortal://` app addresses now open real public apps through
+separate `qdnRequest` and `qortalRequest` protocols. Desktop uses sandboxed app
+views and Android uses an isolated HTTPS proxy, with a bounded read-only action
+catalogue, response-size limits, exact app-resource discovery, persistent tabs
+and appearance settings, and the compatibility read currently needed by
+Q-Tube. Packaged preview artifacts are isolated from the production profile,
+and managed Core or i2pd processes no longer keep a closed Linux AppImage
+mounted. This foundation still performs no production-profile migration,
+account unlocking, signing, publishing, payments, private chat, or Reticulum;
+those capabilities remain gated for later reviewed tranches.
 
 ### 2026-08-10 - fix: validate QDN asset read requests consistently
 

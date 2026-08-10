@@ -1,9 +1,16 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+const homeV2Live = process.env.QORTIUM_HOME_V2_LIVE === '1';
+
 const config: CapacitorConfig = {
-  appId: 'org.qortium.home',
-  appName: 'Qortium Home',
-  webDir: 'dist',
+  appId: homeV2Live ? 'org.qortium.home.v2live' : 'org.qortium.home',
+  appName: homeV2Live ? 'Qortium Home 2 Live Preview' : 'Qortium Home',
+  webDir: homeV2Live ? 'dist-v2-live' : 'dist',
+  // Capacitor's debug logger prints complete plugin request and response
+  // objects, including large public JSON and base64 bodies. Home v2 keeps
+  // WebView debugging available for deliberate inspection without emitting
+  // those payloads to the device log.
+  loggingBehavior: homeV2Live ? 'none' : 'debug',
   backgroundColor: '#0e1312',
   android: {
     allowMixedContent: true,

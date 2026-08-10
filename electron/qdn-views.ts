@@ -10,6 +10,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
+import { isHomeV2CoreBridgeClientRequest } from './home-v2-core-bridge-client.js';
 import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
 import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
 import {
@@ -868,6 +869,14 @@ function applyViewGuards(entry: QdnViewEntry) {
     callback(false);
   });
 
+  if (process.env.QORTIUM_HOME_V2_LIVE === '1') {
+    isolatedSession.webRequest.onBeforeRequest((details, callback) => {
+      callback({
+        cancel: isHomeV2CoreBridgeClientRequest(details.url, entry.nodeOrigin),
+      });
+    });
+  }
+
   // Relax the rendered app's Content-Security-Policy so it can read cross-chain (Qortal) resources.
   // Narrow by design: only the configured Qortal node origins are added to connect-src/img-src/
   // media-src; the rest of the node-supplied policy is preserved. Responses from the Qortal node
@@ -1088,7 +1097,12 @@ function createViewEntry(
         contextIsolation: true,
         nodeIntegration: false,
         partition,
-        preload: path.join(__dirname, 'qdn-app-preload.cjs'),
+        preload: path.join(
+          __dirname,
+          process.env.QORTIUM_HOME_V2_LIVE === '1'
+            ? 'home-v2-qdn-app-preload.cjs'
+            : 'qdn-app-preload.cjs',
+        ),
         sandbox: true,
       },
     }),
@@ -1341,6 +1355,15 @@ export function registerQdnViewIpcHandlers() {
     }
 
     navigationHistory.goToIndex(request.index);
+    return true;
+  });
+
+  ipcMain.handle('qdn-views:reload', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const tabId = sanitizeTabRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(tabId);
+    if (!entry || entry.view.webContents.isDestroyed()) return false;
+    entry.view.webContents.reload();
     return true;
   });
 

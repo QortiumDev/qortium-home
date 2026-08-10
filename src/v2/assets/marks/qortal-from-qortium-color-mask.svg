@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="683" height="685" viewBox="0 0 683 685">
+  <title>Qortal color mask</title>
+  <desc>Black geometry from the Qortal mark, prepared for currentColor masking in Home.</desc>
+
+  <path
+    fill="#000"
+    fill-rule="evenodd"
+    d="M341 25 619 187 619 503 341 665 64 503 64 187ZM341 34 72 190 72 500 341 656 610 500 610 190Z"
+  />
+  <path
+    fill="#000"
+    fill-rule="evenodd"
+    d="M341 189 477 267 477 424 341 502 205 424 205 267ZM341 230 241 287 241 402 341 460 440 402 440 287Z"
+  />
+  <g fill="none" stroke="#000" stroke-width="8" stroke-linecap="butt">
+    <path d="M341 344 81 193" />
+    <path d="M341 344 601 193" />
+    <path d="M341 344V648" />
+  </g>
+  <polygon points="440,402 477,424 477,568 440,590" fill="#000" />
+</svg>

@@ -125,6 +125,11 @@ type AccountsState = {
   activeAccountId: string | null;
 };
 
+export type HomeV2AccountCatalogue = {
+  accounts: Array<Omit<AccountSummary, 'sourceFilename'>>;
+  activeAccountId: string | null;
+};
+
 type AccountProfile = {
   accountId: string;
   address: string;
@@ -386,6 +391,14 @@ function toAccountsState(store = readWalletStore()): AccountsState {
         })),
       ];
     }),
+  };
+}
+
+export function getHomeV2AccountCatalogue(): HomeV2AccountCatalogue {
+  const state = toAccountsState();
+  return {
+    activeAccountId: state.activeAccountId,
+    accounts: state.accounts.map(({ sourceFilename: _sourceFilename, ...account }) => account),
   };
 }
 

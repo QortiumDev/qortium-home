@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     private static final int REQUEST_TIMEOUT_MS = 30000;
+    static final int TRANSACTION_RESPONSE_MAX_BYTES = 512 * 1024;
     private static final String QDN_BRIDGE_QUERY_PARAM = "qdnHomeBridge";
     private static final Pattern CONTENT_RANGE_PATTERN =
         Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)$", Pattern.CASE_INSENSITIVE);
@@ -64,6 +65,20 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * passed through, so the proxy can never reach an origin Home did not choose.
      */
     private WebResourceResponse serveProxiedQdnRequest(WebResourceRequest request) {
+        if (!isAllowedProxyMethod(request.getMethod())) {
+            return forbiddenResponse();
+        }
+
+        QdnRenderProxy.RouteKind route = QdnRenderProxy.classifyProxyRoute(request.getUrl());
+
+        if (route == QdnRenderProxy.RouteKind.HOME_V2_BRIDGE_CLIENT) {
+            return emptyHomeV2BridgeClientResponse();
+        }
+
+        if (route == QdnRenderProxy.RouteKind.DENIED) {
+            return forbiddenResponse();
+        }
+
         String upstreamUrl = QdnRenderProxy.resolveUpstreamUrl(request.getUrl());
 
         if (upstreamUrl == null) {
@@ -75,10 +90,37 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // direct render request; only the origin the page loads from changed.
             String bridgeToken = request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM);
 
-            return fetchUpstream(request, upstreamUrl, bridgeToken);
+            return fetchUpstream(
+                request,
+                upstreamUrl,
+                bridgeToken,
+                route == QdnRenderProxy.RouteKind.TRANSACTION_SIGNATURE
+                    ? TRANSACTION_RESPONSE_MAX_BYTES
+                    : null
+            );
         } catch (IOException ignored) {
             return null;
         }
+    }
+
+    static boolean isAllowedProxyMethod(String method) {
+        return "GET".equalsIgnoreCase(method);
+    }
+
+    private WebResourceResponse emptyHomeV2BridgeClientResponse() {
+        Map<String, String> headers = new HashMap<>();
+
+        headers.put("Cache-Control", "no-store");
+        headers.put("X-Content-Type-Options", "nosniff");
+
+        return new WebResourceResponse(
+            "application/javascript",
+            StandardCharsets.UTF_8.name(),
+            200,
+            "OK",
+            headers,
+            new ByteArrayInputStream(new byte[0])
+        );
     }
 
     private WebResourceResponse forbiddenResponse() {
@@ -133,10 +175,20 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     }
 
     private WebResourceResponse fetchAndInjectQdnBridge(WebResourceRequest request) throws IOException {
-        return fetchUpstream(request, request.getUrl().toString(), request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM));
+        return fetchUpstream(
+            request,
+            request.getUrl().toString(),
+            request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM),
+            null
+        );
     }
 
-    private WebResourceResponse fetchUpstream(WebResourceRequest request, String upstreamUrl, String bridgeToken)
+    private WebResourceResponse fetchUpstream(
+        WebResourceRequest request,
+        String upstreamUrl,
+        String bridgeToken,
+        Integer maxBufferedBytes
+    )
         throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(upstreamUrl).openConnection();
 
@@ -181,6 +233,47 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         long responseContentLength = connection.getContentLengthLong();
         long virtualRangePrefixLength = getContentRangeStart(responseHeaders);
 
+        if (maxBufferedBytes != null) {
+            if (responseContentLength > maxBufferedBytes) {
+                try {
+                    responseStream.close();
+                } catch (IOException ignored) {
+                    // The size policy already rejected this body.
+                } finally {
+                    connection.disconnect();
+                }
+                return payloadTooLargeResponse();
+            }
+
+            byte[] responseBytes;
+
+            try {
+                responseBytes = readAllBytes(responseStream, maxBufferedBytes);
+            } catch (ResponseTooLargeException error) {
+                return payloadTooLargeResponse();
+            } finally {
+                connection.disconnect();
+            }
+
+            removeHeader(responseHeaders, "Content-Length");
+            removeHeader(responseHeaders, "Content-Encoding");
+            removeHeader(responseHeaders, "Transfer-Encoding");
+            responseHeaders.put("Cache-Control", "no-store");
+
+            if (contentType == null || contentType.trim().isEmpty()) {
+                contentType = "application/json";
+            }
+
+            return new WebResourceResponse(
+                getMimeType(contentType),
+                getResponseEncoding(contentType),
+                statusCode,
+                reasonPhrase == null ? getReasonPhrase(statusCode) : reasonPhrase,
+                responseHeaders,
+                new ByteArrayInputStream(responseBytes)
+            );
+        }
+
         if (isHtmlContentType(contentType) && bridgeToken != null && !bridgeToken.isEmpty()) {
             Charset charset = getCharset(contentType);
             byte[] responseBytes;
@@ -193,7 +286,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
             String html = new String(responseBytes, charset);
 
-            responseBytes = injectQdnBridge(html, bridgeToken).getBytes(charset);
+            boolean homeV2Bridge = "1".equals(
+                request.getUrl().getQueryParameter("homeV2Bridge")
+            );
+            responseBytes = injectQdnBridge(html, bridgeToken, homeV2Bridge).getBytes(charset);
             removeHeader(responseHeaders, "Content-Length");
             removeHeader(responseHeaders, "Content-Encoding");
             removeHeader(responseHeaders, "Transfer-Encoding");
@@ -223,6 +319,23 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
                 responseContentLength,
                 virtualRangePrefixLength
             )
+        );
+    }
+
+    private WebResourceResponse payloadTooLargeResponse() {
+        byte[] body = "Core response exceeded Home's 512 KiB transaction limit."
+            .getBytes(StandardCharsets.UTF_8);
+        Map<String, String> headers = new HashMap<>();
+
+        headers.put("Cache-Control", "no-store");
+
+        return new WebResourceResponse(
+            "text/plain",
+            StandardCharsets.UTF_8.name(),
+            413,
+            "Payload Too Large",
+            headers,
+            new ByteArrayInputStream(body)
         );
     }
 
@@ -408,17 +521,34 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
     }
 
     private byte[] readAllBytes(InputStream stream) throws IOException {
+        try {
+            return readAllBytes(stream, Integer.MAX_VALUE);
+        } catch (ResponseTooLargeException impossible) {
+            throw new IOException("Response exceeded the platform byte-array limit.", impossible);
+        }
+    }
+
+    static byte[] readAllBytes(InputStream stream, int maxBytes) throws IOException, ResponseTooLargeException {
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("maxBytes must not be negative.");
+        }
+
         try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192];
             int read;
 
             while ((read = input.read(buffer)) != -1) {
+                if (read > maxBytes - output.size()) {
+                    throw new ResponseTooLargeException();
+                }
                 output.write(buffer, 0, read);
             }
 
             return output.toByteArray();
         }
     }
+
+    static final class ResponseTooLargeException extends Exception {}
 
     private boolean isHttpScheme(String scheme) {
         return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
@@ -552,7 +682,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         return null;
     }
 
-    private String getQdnBridgeTag(String bridgeToken) {
+    static String getQdnBridgeTag(String bridgeToken, boolean homeV2Bridge) {
+        String qortalBridgeInstaller = homeV2Bridge
+            ? "Object.defineProperty(window,'qortalRequest',{configurable:false,enumerable:true,writable:false,value:function(request){return sendHomeRequest(request,'qortalRequest');}});"
+            : "";
         return "<script>" +
             "(function(){if(typeof window.qdnRequest==='function')return;" +
             "var bridgeToken='" + bridgeToken + "';" +
@@ -572,8 +705,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // receiving bookmark or notification data through postMessage.
             "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:bookmark-manager-changed'||!data.detail||!Number.isSafeInteger(data.detail.revision)||data.detail.revision<0)return;window.dispatchEvent(new CustomEvent('qortiumBookmarkManagerChanged',{detail:{revision:data.detail.revision}}));});" +
             "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:notification-manager-changed'||!data.detail||!Number.isSafeInteger(data.detail.revision)||data.detail.revision<0)return;window.dispatchEvent(new CustomEvent('qortiumNotificationManagerChanged',{detail:{revision:data.detail.revision}}));});" +
-            "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){" +
-            "return new Promise(function(resolve,reject){" +
+            "function sendHomeRequest(request,protocol){return new Promise(function(resolve,reject){" +
             "if(!window.parent||window.parent===window){reject(new Error('QDN app bridge is unavailable.'));return;}" +
             "var requestId=String(Date.now())+'-'+String(++nextRequestId);" +
             "var action=request&&typeof request==='object'?String(request.action||'').toUpperCase():'';" +
@@ -581,8 +713,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "var timeoutMs=longActions[action]?330000:30000;" +
             "var timeoutId=setTimeout(function(){delete pending[requestId];reject(new Error('QDN app request timed out.'));},timeoutMs);" +
             "pending[requestId]={resolve:resolve,reject:reject,timeoutId:timeoutId};" +
-            "window.parent.postMessage({type:'qortium:qdn-request',bridgeToken:bridgeToken,requestId:requestId,request:request},'*');" +
-            "});}});" +
+            "window.parent.postMessage({type:'qortium:qdn-request',bridgeToken:bridgeToken,requestId:requestId,protocol:protocol,request:request},'*');" +
+            "});}" +
+            "Object.defineProperty(window,'qdnRequest',{configurable:false,enumerable:true,writable:false,value:function(request){return sendHomeRequest(request,'qdnRequest');}});" +
+            qortalBridgeInstaller +
             // Forward document.title changes to the host so the app controls its
             // tab label (the desktop shell gets this from page-title-updated).
             "var lastTitle=null;" +
@@ -627,8 +761,8 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "</script>";
     }
 
-    private String injectQdnBridge(String html, String bridgeToken) {
-        String bridgeTag = getQdnBridgeTag(bridgeToken);
+    private String injectQdnBridge(String html, String bridgeToken, boolean homeV2Bridge) {
+        String bridgeTag = getQdnBridgeTag(bridgeToken, homeV2Bridge);
         String lowerHtml = html.toLowerCase(Locale.ROOT);
         int headStart = lowerHtml.indexOf("<head");
 

@@ -11,11 +11,14 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
-        registerPlugin(QdnFileSaverPlugin.class);
-        registerPlugin(QdnPublishSourcePlugin.class);
+        boolean isHomeV2Live = getPackageName().endsWith(".v2live");
         registerPlugin(QdnRenderProxyPlugin.class);
-        registerPlugin(UpdateInstallerPlugin.class);
-        registerPlugin(WalletBackupPlugin.class);
+        if (!isHomeV2Live) {
+            registerPlugin(QdnFileSaverPlugin.class);
+            registerPlugin(QdnPublishSourcePlugin.class);
+            registerPlugin(UpdateInstallerPlugin.class);
+            registerPlugin(WalletBackupPlugin.class);
+        }
         super.onCreate(savedInstanceState);
         // Opt into edge-to-edge so the safe-area plugin reports real insets.
         // Must run AFTER super.onCreate(): calling it earlier inflates the decor

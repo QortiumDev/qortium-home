@@ -25,6 +25,11 @@ import {
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
+import {
+  authorizeHomeV2NodeBridge,
+  registerHomeV2NodeBridgeIpcHandlers,
+} from './home-v2-node-bridge.js';
+import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
 import { startNotificationWatcher } from './notification-watcher.js';
 import {
@@ -49,6 +54,7 @@ const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
 const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
+const IS_HOME_V2_LIVE = process.env.QORTIUM_HOME_V2_LIVE === '1';
 
 initZoom({ sync: syncQdnViewsForWindowZoom });
 
@@ -392,6 +398,7 @@ function zoomFocusedWindow(action: (webContents: WebContents) => void) {
 const STARTUP_T0_MS = Date.now();
 let startupTimingCaptured = false;
 let startupPaintReported = false;
+let homeV2SessionConfigured = false;
 
 // Absolute epoch anchor for t0 (main-module load). Lets an external launcher diff
 // its own wall-clock launch time against t0 to measure the pre-t0 boot — process
@@ -431,15 +438,44 @@ function createWindow(options: CreateWindowOptions = {}) {
     y: windowState?.y,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
-    title: 'Qortium Home',
+    title: IS_HOME_V2_LIVE ? 'Qortium Home 2 Live Preview' : 'Qortium Home',
     icon: getWindowIconPath(),
     backgroundColor: '#121515',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(
+        __dirname,
+        IS_HOME_V2_LIVE ? 'home-v2-live-preload.cjs' : 'preload.cjs',
+      ),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: IS_HOME_V2_LIVE,
+      webviewTag: false,
+      ...(IS_HOME_V2_LIVE ? { partition: 'home-v2-live' } : {}),
     },
   });
+
+  if (IS_HOME_V2_LIVE) {
+    authorizeHomeV2NodeBridge(window.webContents);
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.on('will-attach-webview', (event) => event.preventDefault());
+    window.webContents.on('will-navigate', (event, targetUrl) => {
+      if (!targetUrl.startsWith('file:')) event.preventDefault();
+    });
+    window.webContents.on('will-redirect', (event) => event.preventDefault());
+
+    if (!homeV2SessionConfigured) {
+      homeV2SessionConfigured = true;
+      const homeV2Session = window.webContents.session;
+      homeV2Session.setPermissionCheckHandler(() => false);
+      homeV2Session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+      homeV2Session.setDevicePermissionHandler(() => false);
+      homeV2Session.on('will-download', (event) => event.preventDefault());
+      homeV2Session.webRequest.onBeforeRequest(
+        { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
+        (_details, callback) => callback({ cancel: true }),
+      );
+    }
+  }
 
   if (options.startupPayload) {
     // Capture the id now: by the time 'closed' fires the webContents is already
@@ -514,9 +550,15 @@ function createWindow(options: CreateWindowOptions = {}) {
   }
 
   if (app.isPackaged) {
-    void window.loadFile(path.join(__dirname, '../dist/index.html'));
+    void window.loadFile(
+      path.join(
+        __dirname,
+        IS_HOME_V2_LIVE ? '../dist/v2-live.html' : '../dist/index.html',
+      ),
+    );
   } else {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173');
+    const developmentUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173';
+    void window.loadURL(IS_HOME_V2_LIVE ? `${developmentUrl}/v2-live.html` : developmentUrl);
   }
 }
 
@@ -788,6 +830,18 @@ app.whenReady().then(() => {
 
   logStartupMilestone('main process ready');
   installNodeTlsForDefaultSessions();
+
+  if (IS_HOME_V2_LIVE) {
+    registerHomeV2NodeBridgeIpcHandlers();
+    registerHomeV2AppBridgeIpcHandlers();
+    registerQdnViewIpcHandlers();
+    Menu.setApplicationMenu(null);
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+    return;
+  }
   prewarmRunningCoreApiKeyCache();
   registerAccountIpcHandlers();
   registerAppUpdateIpcHandlers();

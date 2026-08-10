@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="683" height="685" viewBox="0 0 683 685">
+  <title>Qortal mark derived from the Qortium protoicon</title>
+  <desc>Original Qortium outer field and central hex geometry, with every radial extension removed except the lower-right descending leg.</desc>
+
+  <!-- Original Qortium white field and its exterior black perimeter. -->
+  <polygon points="341,25 619,187 619,503 341,665 64,503 64,187" fill="#000"/>
+  <polygon points="341,34 610,190 610,500 341,656 72,500 72,190" fill="#fff"/>
+
+  <!-- The original central hex ring. -->
+  <polygon points="341,189 477,267 477,424 341,502 205,424 205,267" fill="#000"/>
+  <polygon points="341,230 440,287 440,402 341,460 241,402 241,287" fill="#fff"/>
+
+  <!-- A three-arm Y from the exact centre.  The 8 px width matches the outer frame.
+       Each endpoint is inset from the white field boundary by the current leg's clearance. -->
+  <g fill="none" stroke="#000" stroke-width="8" stroke-linecap="butt">
+    <path d="M341 344 81 193"/>
+    <path d="M341 344 601 193"/>
+    <path d="M341 344V648"/>
+  </g>
+
+  <!-- The sole retained extension: a lower-right Q leg. -->
+  <polygon points="440,402 477,424 477,568 440,590" fill="#000"/>
+</svg>

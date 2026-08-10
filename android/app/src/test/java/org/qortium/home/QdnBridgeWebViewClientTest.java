@@ -17,6 +17,21 @@ import org.junit.Test;
 public class QdnBridgeWebViewClientTest {
 
     @Test
+    public void homeV2BridgeAddsSeparateQortalRequestWithoutChangingProductionBridge() {
+        String production = QdnBridgeWebViewClient.getQdnBridgeTag("abcdefghijklmnop", false);
+        String homeV2 = QdnBridgeWebViewClient.getQdnBridgeTag("abcdefghijklmnop", true);
+
+        assertTrue(production.contains("window,'qdnRequest'"));
+        assertFalse(production.contains("window,'qortalRequest'"));
+        assertTrue(homeV2.contains("window,'qdnRequest'"));
+        assertTrue(homeV2.contains("window,'qortalRequest'"));
+        assertTrue(homeV2.contains("protocol:protocol"));
+        assertTrue(homeV2.contains("qortium:qdn-title"));
+        assertTrue(homeV2.contains("qortium:qdn-navigation"));
+        assertTrue(homeV2.contains("qortium:qdn-navigation-command"));
+    }
+
+    @Test
     public void binaryResponsesDoNotDeclareACharacterEncoding() {
         assertNull(QdnBridgeWebViewClient.getResponseEncoding(null));
         assertNull(QdnBridgeWebViewClient.getResponseEncoding("video/webm"));
@@ -154,6 +169,34 @@ public class QdnBridgeWebViewClientTest {
         headers.put("content-range", "invalid");
 
         assertEquals(0, QdnBridgeWebViewClient.getContentRangeStart(headers));
+    }
+
+    @Test
+    public void boundedTransactionResponsesAcceptTheLimitAndRejectOneByteMore() throws Exception {
+        int limit = QdnBridgeWebViewClient.TRANSACTION_RESPONSE_MAX_BYTES;
+        byte[] accepted = new byte[limit];
+
+        assertEquals(
+            limit,
+            QdnBridgeWebViewClient.readAllBytes(new ByteArrayInputStream(accepted), limit).length
+        );
+
+        try {
+            QdnBridgeWebViewClient.readAllBytes(new ByteArrayInputStream(new byte[limit + 1]), limit);
+        } catch (QdnBridgeWebViewClient.ResponseTooLargeException expected) {
+            return;
+        }
+
+        throw new AssertionError("A transaction response above 512 KiB was accepted.");
+    }
+
+    @Test
+    public void proxyCompatibilityReadsRemainGetOnly() {
+        assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("GET"));
+        assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("get"));
+        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("HEAD"));
+        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("POST"));
+        assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod(null));
     }
 
     private static final class CloseAwareInputStream extends FilterInputStream {

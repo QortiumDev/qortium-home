@@ -1,281 +1,758 @@
-# Qortium Home Project Plan
+# Qortium Home 2.0 Project Plan
 
-Last updated: 2026-05-31
+Last updated: 2026-08-10
 
-## Purpose
+Status: accepted product direction with Phase 1 complete and desktop/Android
+Phase 2 live-node, public cross-network identity, bounded avatar, read-only
+account-catalogue, and first read-only QDN app-adapter slices implemented.
+Wallet authority, mutations, private chat, and Reticulum have not started.
 
-Qortium Home is intended to be a simple, focused, Qortium-native UI for account management and QDN browsing.
+This is the canonical product and architecture plan for Qortium Home. When an
+older issue, note, or implementation assumption conflicts with this document,
+this document controls unless a newer recorded decision explicitly supersedes
+it.
 
-## Decisions So Far
+## Product vision
 
-- Work from a single repository for the application.
-- Keep the UI simple and focused.
-- Use Vite, React, and TypeScript for the shared UI.
-- Use Electron for the desktop application shell.
-- Use `electron-builder` for desktop packaging.
-- Use Capacitor Android for the Android APK, sharing the React UI where practical.
-- Prefer Electron over Tauri for this project.
-- Start with the Linux x64 AppImage target.
-- Primary account-management features:
-  - Create a new wallet/account.
-  - Save a new wallet file.
-  - Load an existing wallet file.
-  - Track loaded wallets locally.
-  - Select between loaded wallets.
-  - Manage multiple accounts at the same time.
-  - Support loading multiple wallet files.
-  - Support switching between different loaded wallet files.
-  - Support switching between different derived addresses from the same wallet.
-  - Start with a simple account-management flow, then expand the address and wallet switching UI as the core model stabilizes.
-- The application should be structured like a simple web browser:
-  - Support session-only browser tabs.
-  - Each tab can load a different page, QDN resource, app, website, or API endpoint.
-  - Each tab has independent Back and Forward navigation history.
-  - Each tab should be associated with its own selected account.
-  - Different tabs should be able to use different accounts at the same time.
-  - The active tab should show a compact account identity chip using the account avatar, registered name, address, and saved wallet label.
-  - Future tabs should ideally isolate rendered app/web content from each other, especially when they use different accounts.
-  - Treat strict tab isolation as more important on desktop than Android when Electron `WebContentsView` support is added.
-- Primary QDN browsing features:
-  - Browse `APP` services.
-  - Browse `WEBSITE` services.
-  - Support additional QDN service types such as `IMAGE`, `AUDIO`, and other available services.
-  - Load image resources in a dedicated image viewer.
-  - Load audio-style resources in a native audio player.
-  - Load video resources in a native video player.
-  - Load text-style resources in an inline text viewer.
-  - Load file-style resources through a download/details view.
-  - Load direct API endpoint URLs so users can inspect chain data inside the UI.
-  - Support read-only direct node API endpoint viewing through the address bar.
-  - Start with read-only API `GET` requests; defer authenticated or write-style API requests until explicit permission prompts exist.
-  - Expose strict Qortium-native `qdnRequest` object requests to desktop and Android APP and WEBSITE pages for read-only node and QDN lookups.
-  - Keep `FETCH_NODE_API` path-only and read-only; do not support legacy QDN app bridge aliases.
-  - Verify QDN app bridge behavior in both development and packaged desktop builds before treating the desktop bridge as ready.
-  - Keep Android QDN APP and WEBSITE bridge injection scoped to Home-owned tokenized iframe loads.
-  - Allow desktop and Android APP and WEBSITE pages to request the selected tab account's public identity only after an explicit session-only user approval prompt.
-  - Allow desktop and Android APP and WEBSITE pages to request QDN publish/delete writes only after an explicit per-write approval prompt.
-  - Permission prompts should show the selected account/address that will be used.
-- Qortium Home should be able to manage the local Qortium Core setup:
-  - Support preinstalled or externally managed Core.
-  - Download the latest Qortium release or prerelease from GitHub on desktop
-    after explicit user action.
-  - Install a managed Java 17 runtime on desktop when Java is missing.
-  - Install or set up what is needed for the downloaded Core.
-  - Run scripts included with the Core to start and stop it.
-  - Show Core runtime log paths for launch troubleshooting.
-  - Show node status, including whether the node is connected, whether it has
-    peers, sync phase, target height, remaining blocks, and sync percent.
-- Initial node connection options:
-  - Desktop local node: `http://127.0.0.1:24891`.
-  - Previewnet network discovery, starting from seed APIs and expanding through `/peers/known`.
-  - One saved custom node address entered by the user.
-  - The selected node should persist across app restarts.
-  - Unreachable custom node URLs may still be saved, with the UI showing the node as unavailable until it can connect.
-  - Previewnet network APIs are public read-only endpoints and should not be
-    presented as a replacement for a local or user-controlled node when write
-    workflows are added.
-- Desktop defaults to the local node but can use Previewnet network discovery when no local node is running.
-- Android should connect to existing nodes only. It does not need to download, install, or run Qortium Core locally in the initial direction.
-- Android defaults to Previewnet network discovery instead of a single hardcoded node.
-- Previewnet network discovery should start from public seed APIs and
-  `/peers/known`, then probe seeds and discovered peers for public read-only QDN
-  and API access.
-- Previewnet network discovery should prefer reachable nodes that can answer
-  public QDN resource searches, while keeping write, admin, and private API
-  workflows on local or user-controlled nodes.
-- The first Android scaffold uses Capacitor, shares the React UI, and starts with node settings/status plus read-only QDN/API browsing.
-- Android can load existing encrypted wallet JSON files through the WebView file
-  picker, create new encrypted wallets after saving a backup through Android's
-  document picker, export saved encrypted wallet backups, store encrypted wallet
-  metadata in app-private Preferences storage, and keep decrypted seed material
-  in renderer memory only for the current app session.
-- Android APP and WEBSITE pages can request the selected tab account's public
-  identity after an explicit session-only user approval prompt.
-- Android can open downloaded file-style QDN resources through the native Android chooser from Home's private app data.
-- Keep Qortium Home independent from existing wallet or portal applications.
-- Target distributable builds:
-  - Linux AppImage for x64.
-  - Linux AppImage for arm64, wired as a separate electron-builder script.
-  - macOS DMG, wired as separate x64, arm64, and universal electron-builder scripts.
-  - Windows EXE.
-  - Android debug APK through Capacitor for emulator smoke tests.
-  - Android release APK and AAB packages through Capacitor, collected under
-    `dist-release/`, with release signing configured by external
-    `QORTIUM_HOME_ANDROID_*` environment variables or Gradle properties.
-- Linux, Windows, and macOS desktop builds should use the Qortium Home app icon from tracked build resources.
-- Some target artifacts will need to be built or verified on their native systems, but the repo should be set up so each target can be tackled and tested one at a time.
+Qortium Home 2.0 is an app-focused client and trusted host for Qortium and
+Qortal. It should be capable of replacing Qortal Hub for users who want a
+cleaner, more predictable experience while preserving Qortium Home's strict
+app isolation, permissions, managed services, and multi-platform foundation.
 
-## Stack Decision
+Home is not a monolithic social portal. It provides a stable Dashboard, app
+launcher and browser, unified account context, wallet custody, node and service
+management, permissions, signing mediation, notifications, downloads, and
+operating-system integration. Full Chat, Wallets, Groups, Explorer, publishing,
+trading, and similar experiences belong in QDN apps.
 
-The chosen starting stack is:
+The product remains Qortium Home and upgrades in place. There will not be a
+separate side-by-side v2 application identity or a maintained legacy renderer.
 
-- Shared UI: Vite, React, TypeScript.
-- Desktop shell: Electron.
-- Desktop packaging: `electron-builder`.
-- Desktop embedded content: start with React-managed tabs and the current iframe/resource viewers; add Electron `WebContentsView` isolation later.
-- Android shell: Capacitor Android, starting with a fallback renderer bridge for node settings/status and read-only QDN/API browsing.
-- First packaging target: Linux x64 AppImage.
+## Adopted decisions
 
-This gives the desktop app the process-control and embedded-browser primitives needed for future local core management, QDN app rendering, per-tab account context, and packaged releases.
+| Area | Decision |
+| --- | --- |
+| Product shape | Familiar global browser shell. Dashboard and internal pages occupy browser tabs; QDN apps open as peer tabs, never inside Dashboard. |
+| Landing page | Keep the name `Dashboard`. Do not create a page named Home inside Qortium Home. |
+| Startup | No login wall. Restore the last selected account; Dashboard also works with no account or a locked account. |
+| Unlock persistence | Optional secure-device unlock only; `Lock on exit` defaults on, manual lock persists, and plaintext password storage is forbidden. |
+| Connections | Qortal and Qortium independently use Disabled, Local, Public, or Custom modes. Public access is not called Previewnet. |
+| Content addressing | `qdn://` addresses Qortium QDN resources and `qortal://` addresses Qortal QDN resources. An app's source network is distinct from the network targeted by an operation. |
+| Visual language | Soft linen/warm-gray light mode and graphite dark mode with a subtle chocolate undertone. Clay is the neutral default accent, not the dominant surface color. |
+| Product marks | Use the established Home mark for shell/application identity and the established Qortal/Qortium marks beside network text. Network marks retain fixed blue/green color and never substitute for app favicons or health state. |
+| Appearance settings | Retain theme, accent, text size, page zoom, and language. Migrate legacy UI styles to one standard professional presentation. |
+| Feature ownership | Chat, Wallets, Groups, Explorer, publishing, markets, and similar full experiences are QDN apps. |
+| Account | Present one account with separately labelled Qortal and Qortium network presences; do not model the chains as separate user identities. |
+| Compact controls | Use dropdowns for in-card option selection, reserve stable card rows, and swap context actions in place so state changes do not move surrounding content. |
+| Bridges | Preserve `qdnRequest` and `qortalRequest` as separate public protocols over shared typed services where semantics match exactly. |
+| Q-App compatibility | Target the complete Q-App-facing `qortalRequest` surface, implemented and verified action by action. |
+| Licensing | Keep Home and first-party apps 0BSD wherever possible. Treat GPL Hub/HubCE code as behavioral reference, not copyable implementation. |
+| Upgrade model | Replace the current renderer in place; freeze and retire v1 rather than maintaining two interfaces. |
+| Platforms | Desktop and Android are co-primary from the first v2 contracts and fixture slice. |
+| Reticulum | Optional Home-managed subsystem, available to both Qortal and Qortium with substantially more user control than Hub. |
+| Working name | Use Qortium Home 2.0 until a different final name is explicitly chosen. |
 
-Tauri is not the preferred stack for this project because the application will eventually need browser-like tabs, predictable desktop web rendering, and straightforward process management more than it needs the smallest possible installer size.
+## Product terminology
 
-## Wallet Decision
+- **Account**: the complete seed-backed user context shown by Home, including
+  its wallet file, key set, derived addresses, owned names, and related data.
+- **Network presence**: one account's independently resolved state on Qortal or
+  Qortium, including address validity, names, avatars, groups, and activity.
+- **Wallet**: the account's encrypted seed file or, in a technical derivation
+  context, the keys and addresses derived from that seed. It is not the primary
+  product concept.
+- **Operation context**: trusted account, selected derived address where
+  applicable, backing wallet reference, target network, node, application, tab,
+  and permission information attached to one request.
+- **QDN app**: an `APP` or `WEBSITE` resource hosted by Home from Qortal or
+  Qortium QDN.
+- **Default app**: a recommended or initially pinned QDN app. Default does not
+  mean built into the renderer or impossible to remove.
+- **Trusted shell**: Home-owned code that can reach native APIs, wallet material,
+  nodes, managed services, and operating-system functions.
 
-Qortium Home should start by supporting encrypted Qortium wallet files. The initial wallet file is an encrypted seed container with fields such as `address0`, `encryptedSeed`, `salt`, `iv`, `version`, `mac`, and `kdfThreads`.
+## User experience
 
-Internally Qortium Home should not treat `address0` as the only usable account. The encrypted seed can derive multiple addresses, so Qortium Home should model derived addresses as separate selectable accounts.
+### Stable shell
 
-The internal account model should distinguish:
+The shell should be calm, app-focused, and immediately familiar as a browser:
 
-- The loaded wallet file or encrypted seed container.
-- The derived address index.
-- The derived Qortium address.
-- The public key for that derived address.
-- User metadata such as label, note, and whether the address is pinned or discovered.
+- One global tab strip and browser toolbar outside page content rather than a
+  sidebar or nested app tabs inside Dashboard.
+- Dashboard, Apps, Activity, and Settings as internal browser destinations;
+  QDN apps open as top-level peer tabs.
+- One compact context surface showing the active account, address/destination,
+  and both Qortal/Qortium node capabilities.
+- Established Home, Qortal, and Qortium marks with normalized optical sizing;
+  network marks remain labelled and health uses a separate status indicator.
+- Browser-like tabs with independent history, reliable back/forward behavior,
+  desktop context menus and shortcuts, and clear mobile equivalents.
+- User-organized apps, folders/sections, search, bookmarks, downloads, and
+  notifications.
+- Visible loading, offline, permission, node-capability, and recovery states.
+- One Settings surface; apps may own their domain preferences but must not
+  create competing Home settings centers.
+- Light/dark themes, scalable text, keyboard access, reduced-motion support,
+  screen-reader semantics, localization, and RTL considered from the component
+  foundation rather than added after feature work.
+- Concise, literal interface copy. Warmth comes from composition and materials,
+  not greetings, jokes, metaphors, or repeated guidance.
 
-The active page should refer to a selected account context, not just a global wallet. Each tab account context should identify the loaded wallet and, later, the derived address index or address. This allows one tab to use one wallet or derived address while another tab uses a different wallet file or derived address.
+### Dashboard
 
-For the initial implementation, it is acceptable to keep the UI simple:
+Dashboard is the Home landing page. It should borrow the useful clarity of a
+Hub homepage without reproducing Hub 2.x's dense operations wall.
 
-- Load one or more encrypted Qortium wallet files.
-- Require a local wallet label when loading or creating a wallet.
-- Show wallet labels in the active-wallet selector and show the selected wallet address below it.
-- Persist imported encrypted wallet JSON in Qortium Home's Electron app data.
-- Remember loaded wallets and the selected account across app restarts.
-- Keep all imported wallets locked by default when the app starts.
-- Unlock a wallet only after password verification against the encrypted wallet data.
-- Keep decrypted seed material in memory for the current application session only, never in persistent storage.
-- Remove saved wallet entries from Qortium Home without deleting the user's wallet backup file, requiring the unlocked state or password verification before removal.
-- Create new wallets from a secure random seed in the initial New flow.
-- Require saving the encrypted wallet backup file before a newly created account is added to Home.
-- Use `{wallet label}_{address}.json` as the default backup filename for newly created wallets.
-- Start the wallet backup save dialog from an absolute Documents or home path so native pickers populate the filename reliably.
-- Start newly created wallets unlocked for the current application session.
-- Defer seed phrase display, seed phrase import, and seed phrase backup until a later wallet-management pass.
-- Derive and expose additional addresses from the same wallet after the basic wallet load/unlock flow works.
-- Add richer address discovery, labeling, and per-tab switching after the scaffold is testable.
+Dashboard may contain configurable, progressively disclosed modules for:
 
-## Change Log Decision
+- Unified account summary with Qortal and Qortium names/avatars.
+- Recently used, pinned, and recommended apps.
+- Concise Qortal and Qortium node/Core status.
+- Account lock/availability summary without becoming the Wallets application.
+- Reticulum status when the optional subsystem is installed or enabled.
+- Recent relevant activity and actionable failures.
+- User-selected quick actions and contextual app handoffs.
 
-Qortium Home should maintain a human-readable change log, following the pattern used by Qortium Core.
+Dashboard must not mix every node detail, social feed, promotion, wallet
+operation, and onboarding task into the default view. Detailed diagnostics
+belong behind summaries. Promotional or AI modules are optional and removable.
 
-- The change log file is `QORTIUM-HOME-CHANGELOG.md`.
-- Every intentional commit should have one matching change log entry.
-- Each entry title should match the commit message exactly, prefixed by the entry date.
-- Entries should explain the change in plain language for non-developers.
-- The change log should be updated in the same commit as the change it describes.
+Dashboard is available without an account and never becomes a login gate. It
+shows both network connection controls before unlock. With a last-used account,
+it shows the selected account and its labelled Qortal/Qortium presences in
+either locked or unlocked state.
 
-## Product Scope
+### Startup, lock, and connection state
 
-### In Scope
+- Restore the last selected account independently of whether it is unlocked.
+- `Lock on exit` is enabled by default for each account/device pairing.
+- A user may opt into remembered unlock only through suitable OS secure storage
+  or Android Keystore-backed storage; never store a plaintext password.
+- Manual lock clears pending privileged work and persists until an explicit
+  unlock.
+- No-account and locked states retain Dashboard, public apps, and account-
+  independent node controls.
+- Each network independently exposes Disabled, Local, Public, and Custom node
+  modes. “Public” replaces the old Previewnet-facing label in Home.
 
-- Wallet/account creation, saving, loading, and selection.
-- Per-tab account selection for the active page.
-- User approval prompts for QDN app requests that require account access or QDN publish/delete writes.
-- Session-only approval prompts for QDN app requests that read the selected tab account's public identity.
-- Per-write approval prompts for QDN publish/delete requests from QDN apps.
-- Future local-node write workflows for chat send, name registration, and group join after the approval/signing model expands.
-- Local wallet list management.
-- Qortium wallet import and export.
-- Multiple loaded wallet files.
-- Multiple derived addresses per wallet.
-- Browser-style tab management for QDN pages, QDN apps/websites, and direct API endpoint views.
-- Future derived-address selection inside each tab account context.
-- QDN service browsing across common service types.
-- Dedicated QDN viewers for app, website, image, audio, video, text, and file-style resources.
-- Direct Qortium API endpoint viewing for read-only node API `GET` requests.
-- Preinstalled or externally managed core connection support.
-- Desktop local node preset for `http://127.0.0.1:24891`.
-- Android Previewnet network discovery through public seed APIs,
-  `/peers/known`, and public read-only QDN/API probing.
-- One saved custom node address configuration.
-- Displaying configured node status, connectivity, peer counts, and sync progress.
-- Desktop downloading and setting up Qortium Core from GitHub releases and prereleases.
-- Desktop starting and stopping of local Core through scripts bundled with the Core.
-- Android connection to an existing configured node.
-- First-pass Android debug APK builds through Capacitor.
-- Cross-platform packaging setup that can grow toward Linux, macOS, Windows, and Android releases.
+## Trusted shell and app boundary
 
-### Out Of Scope For The Initial Direction
+### Home owns
 
-- Rebuilding a broad portal or social client beyond Qortium Home's focused scope.
-- Large social, messaging, plugin, or multi-app portal functionality unless later chosen explicitly.
-- Complex theming or a large design system before the core workflows exist.
-- A full Qortium Core implementation inside the UI app. The UI should manage and launch the core rather than reimplement it.
-- Running Qortium Core locally inside the Android APK for the initial version.
-- Chat send, name registration, and group join in the public preview browser surface.
+- Account creation/import, encrypted wallet-file persistence and backup,
+  lock/unlock, derived-key management, and in-memory signing authority.
+- Unified account selection and cross-network identity resolution.
+- Target-network and node routing.
+- Permission prompts, grants, revocation, and request auditing.
+- Transaction review, typed intent validation, signing, and broadcast.
+- QDN content isolation and app lifecycle.
+- Navigation, tabs, downloads, viewers, notifications, and native file/OS UI.
+- Managed Qortium Core, Java, I2P, Reticulum, updates, recovery, and diagnostics.
+- Signed application updates, forward migrations, and profile recovery.
 
-## Open Questions
+### QDN apps own by default
 
-- How much of the desktop and Android UI can be shared exactly, and where will Android need platform-specific behavior?
-- Should Qortium Home export only the first encrypted Qortium wallet format at first, or also define an extended Qortium Home wallet metadata format?
-- Should wallet files be encrypted by default? Current direction: yes.
-- How many derived addresses should Qortium Home show by default for each loaded wallet?
-- Should derived addresses be discovered by scanning chain activity, generated on demand, or both?
-- How should users label derived addresses separately from wallet files?
-- Should tab account selections persist across restarts, or stay session-only with the current tabs?
-- Should account context be changeable while a QDN app or page is already loaded?
-- What exact permission prompts are needed when QDN apps request generic signing capability?
-- Which future write-style `qdnRequest` actions beyond QDN publish/delete must always require explicit user approval?
-- Should persistent qdnRequest permissions be keyed by app, tab/session, wallet, derived address, and action?
-- When should Qortium Home add multiple saved custom node addresses beyond the first single custom slot?
-- For future core management, which Qortium-specific app data folders should Home use for installs and unpacked releases?
-- How should Qortium Home discover the latest GitHub release and prerelease?
-- Should prerelease downloads be opt-in only?
-- How should downloaded core artifacts be verified before running?
-- Which core scripts need to be supported on Linux, macOS, Windows, and Android?
-- How should node start, stop, restart, and log viewing be exposed in the UI?
-- What exact node status fields should be shown?
-  - API reachable.
-  - Sync status.
-  - Current block height.
-  - Peer count.
-  - Connected peers.
-  - Core version.
-  - Startup or error state.
-- Should direct API endpoint loading be read-only only, or should authenticated/write endpoints eventually be supported?
-- How should QDN search and browsing be organized?
-  - By service type.
-  - By name.
-  - By recent or popular content.
-  - By direct name/service/identifier lookup.
-- Should QDN content render inside the app, open in an isolated webview, or open externally?
-- What security boundaries are required when rendering QDN `APP` and `WEBSITE` content?
-- When tab support is added, how should each desktop tab's `WebContentsView` session partitioning be designed?
-- When tab support is added, what practical tab isolation can be provided on Android with Capacitor?
-- When tab support is added, should tabs persist across restarts, and if so should loaded URLs restore without automatically restoring signing/account permissions?
-- What minimum OS versions and CPU architectures should be supported for each platform?
-- How should release signing/notarization credentials be acquired and managed
-  for macOS, Windows, and Android?
+- Chat and social presentation.
+- Wallet balances, history, receive/send composition, and asset presentation.
+- Groups, names, polls, profiles, trust, explorer, publishing, and markets.
+- App-specific state, filtering, layout, and domain settings.
 
-## Suggested First Implementation Milestones
+Apps never receive wallet seeds, private keys, Core API keys, unrestricted node
+access, or generic native-process authority. Sensitive work is requested through
+the host and confirmed in trusted Home UI.
 
-1. Scaffold the single repo with Vite, React, TypeScript, Electron, and Capacitor Android.
-2. Set up desktop-first development using Electron.
-3. Build the account-management shell:
-   - Empty state.
-   - Create wallet flow.
-   - Load wallet flow.
-   - Wallet switcher.
-   - Qortium wallet import/export.
-   - Initial derived-address model.
-4. Build the single active page shell:
-   - Address or endpoint bar.
-   - Selected account context for the active page.
-5. Add node connectivity configuration:
-   - Desktop local node at `http://127.0.0.1:24891`.
-   - Android Previewnet network discovery from seed APIs, `/peers/known`, and
-     public QDN/API probes.
-   - One saved custom node address.
-   - Basic node status.
-6. Add direct API endpoint viewer.
-7. Add basic QDN browser by service type.
-8. Package and test the first Linux x64 AppImage.
-9. Add first-pass tab support.
-10. Add per-tab account context.
-11. Add visible account controls for already-loaded tabs if users need to change a tab's account after navigation.
-12. Add first-pass `qdnRequest` permission and QDN write support.
-13. Add Qortium Core release/prerelease download and setup flow.
-14. Add local core start/status controls.
-15. Expand packaging targets one at a time.
+## Unified account and cross-network identity
+
+The user selects an account, not a wallet or one chain-specific persona. An
+account encompasses its seed-backed wallet file, derived keys and addresses,
+owned names, and related data. One account can contain multiple derived
+addresses. Names belong to addresses, and avatars belong to names.
+
+The user should not have to reason about two unrelated personas simply because
+Qortal and Qortium are separate chains. `IdentityRecord` remains a technical
+public-resolution projection for an address; it is not a synonym for the whole
+account.
+
+### Resolution model
+
+Given an address, Home queries both configured networks and returns one identity
+record containing independently labelled presence records:
+
+```text
+IdentityRecord
+  inputAddress
+  walletReference?       private host metadata; never returned to apps
+  qortalPresence?
+    address, publicKey?, names, primaryName?, avatar?, groups?, status
+  qortiumPresence?
+    address, publicKey?, names, primaryName?, avatar?, groups?, status
+```
+
+- Preserve differences between the two networks rather than choosing a silent
+  canonical name or avatar.
+- An unavailable node produces an explicit unknown/unavailable presence, not a
+  false absent identity.
+- Batch identity lookups must not download all avatars. Resolve metadata first
+  and fetch bounded pointer-aware avatar content only for visible identities.
+- Matching an address across networks groups the visible records but does not
+  authorize signing on either network.
+- A future link between different addresses requires cryptographic proof from
+  both keys. Matching names, avatars, or user claims are insufficient.
+
+### Operational safety
+
+The user-facing account context is unified; privileged operations are not
+network-ambiguous. Every protected request includes a trusted target network,
+account, derived address when applicable, wallet reference, node profile, app
+identity, and tab/session.
+Changing any relevant element invalidates pending approvals and affected grants.
+
+## App hosting and cross-network apps
+
+Home may host QDN apps sourced from Qortal or Qortium. Resource name equality is
+not code identity.
+
+- Track source network, service, name, identifier, version, and content hash.
+- Existing Qortal Q-Apps receive compatible `qortalRequest` behavior.
+- Existing Qortium apps retain strict object-form `qdnRequest` behavior.
+- A cross-network app may receive both facades only through explicit host
+  capability policy; the two facades do not collapse into one ambiguous API.
+- First-party default apps may publish reviewed equivalent bundles to both QDN
+  networks, but Home verifies exact identity and content rather than trusting
+  matching names.
+- A future typed Home SDK may orchestrate both facades for new apps. It must not
+  replace or silently modify either compatibility protocol.
+
+Desktop continues using isolated `WebContentsView` content with separate
+sessions and denied native Chromium permissions. Android uses Home-owned,
+tokenized Capacitor/WebView hosting with exact-origin, source-window, token, and
+freshness validation. The security guarantees should match even when the native
+implementations differ.
+
+## Bridge architecture
+
+```text
+Qortal Q-App  -> qortalRequest --+
+                                  +-> protocol adapters
+Qortium app  -> qdnRequest -------+          |
+                                             v
+                              trusted operation context
+                                             |
+                              capability and permission policy
+                                             |
+                     +-----------------------+-----------------------+
+                     |                                               |
+              Qortal services                                Qortium services
+                     |                                               |
+              configured node                                configured Core
+```
+
+### Public protocol rules
+
+- `qortalRequest` and `qdnRequest` keep their own action names, payloads,
+  results, error envelopes, timeouts, and transport behavior.
+- A matching action name is not evidence that semantics match.
+- Share an internal handler only when request meaning, security policy, and
+  transaction intent can be represented losslessly. Adapt the public result at
+  the protocol edge.
+- Network comes from trusted view/capability context, never an untrusted payload
+  field alone.
+- Public/network nodes expose only bounded public reads and operations that can
+  safely complete without a private/admin API. Local or trusted custom nodes are
+  required for protected node operations.
+- `SHOW_ACTIONS` reports what can actually succeed for that app, platform,
+  identity, network, node mode, and current capability state.
+- Account, network, node, URL/navigation, or app-identity changes revalidate
+  capabilities and pending approvals.
+
+### Complete `qortalRequest` compatibility
+
+The target is complete support for Q-Apps, not a permanent subset. Compatibility
+is versioned against the pinned Hub v3 contract and refreshed when upstream
+changes.
+
+Maintain an action ledger with, at minimum:
+
+- Action and aliases.
+- Request schema and defaults.
+- Result and error shape.
+- Timeout/cancellation behavior.
+- Required identity, node mode, unlock, and network capability.
+- Permission prompt and grant lifetime.
+- Desktop and Android handler/transport.
+- Shared internal service or Qortal-specific implementation.
+- Positive, denial, unavailable, stale-context, and malformed fixtures.
+
+Implement action families in increasing risk order:
+
+1. Host discovery, identity, public node reads, navigation, and QDN resources.
+2. Lists, names, groups, polls, and classic public chat.
+3. QDN writes, group/name mutations, and typed QORT payments.
+4. Private chat and encryption/decryption families.
+5. Foreign wallets, trade orders, AT deployment, and system/admin operations.
+6. Raw/generic signing only if a narrow reviewed contract cannot satisfy the
+   compatibility requirement safely.
+
+During implementation, individual actions may be advertised as they pass their
+gates. “Complete Q-App compatibility” may be claimed only when every promised
+action passes the ledger on its supported contexts. Home may use stricter,
+clearer confirmation than Hub without exposing keys or reproducing unsafe broad
+session grants.
+
+### `qdnRequest` evolution
+
+Keep the current strict Qortium contract and its public/trusted-node separation.
+New cross-network helpers should not duplicate `qortalRequest`; they should add
+genuinely Qortium- or Home-specific behavior. Existing Qortal-prefixed
+`qdnRequest` helpers may remain for compatibility, but new unified apps should
+prefer the native facade for each network.
+
+Desktop and Android bridge handlers remain platform adapters, not duplicated
+domain implementations. Move validation, schemas, permission decisions, typed
+intents, and pure response mapping into runtime-free shared modules with parity
+tests guarding both native paths.
+
+## Permissions and signing
+
+- Seeds and private keys remain in trusted native memory only while unlocked.
+- Apps request typed intent, never arbitrary key access.
+- Transaction confirmations show network, identity, address, asset, amount,
+  recipient, fee, app, and node route as applicable.
+- Mutations default to per-request confirmation. Session/durable grants require
+  a specific low-risk design and remain scoped by app, identity, network, and
+  capability.
+- Raw signing, private decryption, administration, trading, and server-control
+  actions receive dedicated threat models before implementation.
+- A grant from v1 is never migrated into v2.
+- Pending approvals fail closed after navigation, account, node, network,
+  capability, or lock-state changes.
+- Generic node fetches remain bounded and protected against cross-origin access,
+  SSRF, API-key disclosure, oversized responses, and write-method escalation.
+
+Wallet and signing code remains explicitly pre-production until it has a
+replacement-grade security review and controlled funded acceptance.
+
+## Optional Home-managed Reticulum
+
+Reticulum is a Home-managed communication subsystem analogous to managed I2P,
+but it is optional, separately controlled, and usable for both Qortal and
+Qortium namespaces.
+
+### Responsibility split
+
+- A chain-neutral engine owns Reticulum transport, signed-event storage,
+  replication/repair, attachments, and quotas.
+- Qortal and Qortium adapters resolve addresses, names, membership, admin
+  authority, and network-specific authorization through configured nodes.
+- Home owns install/update verification, lifecycle, health, permissions, wallet
+  signing mediation, diagnostics, and recovery.
+- The Chat QDN app owns presentation, combined/separate network views, search,
+  unread state, calls, and user workflows.
+
+### Required user controls
+
+Reticulum is disabled until explicitly enabled or accepted during onboarding.
+Home exposes:
+
+- Install/uninstall and master enable/disable.
+- Start automatically with Home or start manually.
+- Qortal only, Qortium only, or both namespaces.
+- Bootstrap peers/hubs and advanced transport configuration.
+- Connection, peer, sync/repair, and health status.
+- Storage location, quota, retention, and cleanup policy.
+- Attachment download, voice/call, and presence controls.
+- Desktop background behavior and Android battery/mobile-data/background policy.
+- Diagnostic logs and safe export.
+- Reticulum identity backup, import, and deliberate reset.
+- Immediate stop/disable without deleting identity or history.
+- Separate confirmations for destructive history, resource, or identity removal.
+
+No shared mesh credential is treated as user authorization. Authorization comes
+from signed identities and current network-specific membership/admin rules.
+Private local content, at-rest encryption, group encryption, metadata leakage,
+and retention require an explicit threat-model decision rather than assumptions
+based on Reticulum link encryption.
+
+### Portability and interoperability
+
+The event model, canonical serialization/signing vectors, database migrations,
+repair algorithm, authorization interfaces, and resource limits are shared
+across platforms. Electron may supervise a native service; Android uses a
+native/background-service adapter. Do not adopt an Electron-only Python plus
+`better-sqlite3` design and defer mobile as a rewrite.
+
+Hub interoperability requires clean implementation or separately licensed
+code. Do not claim compatibility until current Hub v3 and Home exchange events
+bidirectionally and pass restart/offline repair, gaps, metadata, edits/deletes,
+mentions/read state, channels, attachments/resources, DMs, multi-device,
+authorization, replay, malformed-input, quotas, migration/recovery, discovery,
+and packaged desktop/Android tests. A handshake or one exchanged message is not
+sufficient.
+
+## Target architecture
+
+The first implementation adds boundaries without forcing a monorepo conversion:
+
+```text
+renderer-v2/
+  shell/                 Dashboard, launcher, tabs, navigation and context
+  builtins/              vault/recovery, nodes, permissions and app management
+  design-system/         tokens, primitives, responsive and accessibility rules
+
+platform/
+  contracts/             runtime-free identity/network/host contracts
+  product-model/         tabs, routes, workspaces and active context
+  app-host/              app identity, lifecycle and events
+  permissions/           capabilities, grants, prompts and audit records
+  navigation/            typed intents, links, downloads and viewers
+  notifications/         subscriptions, badges and click routing
+
+identity/
+  resolver/              Qortal and Qortium presence aggregation
+
+chains/
+  qortal/                node, QDN, transactions and authorization adapters
+  qortium/               Core, QDN, assets, trust and transaction adapters
+
+bridges/
+  qortal-request/        exact compatibility adapter and conformance fixtures
+  qdn-request/           strict Qortium adapter and contract fixtures
+
+communications/
+  reticulum/             portable event, storage, repair and transport boundary
+  authorization/         network-specific signer/member/admin validation
+
+hosts/
+  desktop/               Electron, WebContentsView, native services and OS UI
+  android/               Capacitor/WebView, native plugins/background services
+  vault/                 encrypted catalogue and in-memory unlock/signing
+  managed-services/      Core, Java, I2P and Reticulum lifecycle
+  release/               signed updates, backup, migration and recovery
+
+test-kit/
+  fixtures/              identities, nodes, apps, permissions and events
+  hosts/                 throwing fake host plus desktop/Android contract fakes
+```
+
+`src/App.tsx`, `src/platform.ts`, `electron/qdn.ts`, `src/styles.css`, and
+`electron/core-manager.ts` are migration sources, not target architecture.
+Extract contracts incrementally and move behavior only after focused fixtures
+exist.
+
+## Retained foundations
+
+Preserve and adapt rather than rewrite casually:
+
+- Electron `WebContentsView` isolation and sandboxed preloads.
+- Android tokenized WebView bridge validation.
+- Encrypted Hub-compatible wallet files, multiple loaded wallets, derived
+  addresses, and in-memory unlocked seeds.
+- Managed Core, Java, I2P, release verification, update, recovery, and node
+  capability logic.
+- QDN browser, viewers, downloads, tabs, bookmarks, notifications, app
+  assignments, and QAVS support.
+- Existing strict `qdnRequest` actions, typed wallet capabilities, and parity
+  tests.
+- Linux, macOS, Windows, and Android packaging/signing workflows.
+
+Freeze the v1 renderer. Do not spend v2 time cosmetically redesigning it. Remove
+replaced paths as the v2 shell gains required host capabilities; do not ship a
+user-selectable dual-renderer product.
+
+## Desktop and mobile platform policy
+
+Desktop and Android are co-primary product targets:
+
+- Shared product, identity, bridge, permission, and communications contracts.
+- Shared fixture scenarios and responsive UI acceptance.
+- Platform-specific host adapters where native capabilities genuinely differ.
+- No Electron-only domain rules hidden in renderer components.
+- No Android reimplementation of transaction, permission, or protocol policy in
+  `src/platform.ts` after shared services exist.
+- Every retained or new privileged contract identifies desktop and Android
+  implementation and test coverage before it is considered complete.
+- Real connected-phone acceptance is a routine gate when runtime testing is in
+  scope, alongside desktop packaged-app acceptance.
+
+Android connects to configured nodes rather than embedding blockchain Core.
+Mobile Reticulum requires a native/background service and explicit battery,
+data, and notification behavior. iOS should remain architecturally possible,
+but Android is the current mobile release and local-device acceptance target;
+an iOS release schedule remains a separate decision.
+
+## Upgrade and migration policy
+
+- Qortium Home v2 uses the existing application identity and data location.
+- Use versioned, forward-only migrations with a preview/validation stage where
+  practical.
+- Create a pre-migration profile backup and provide recovery tooling.
+- Migrate encrypted wallet catalogues, wallet labels, node profiles, apps/pins,
+  bookmarks, and compatible user settings.
+- Never migrate unlocked state, decrypted secrets, pending approvals, or old
+  app permission grants.
+- Preserve explicit network/source identity for migrated QDN apps and links.
+- Explain one-way migrations and compatibility changes before applying them.
+- Do not maintain the old UI as a fallback product. Source history and profile
+  recovery are engineering safeguards, not a second supported experience.
+
+## Licensing and provenance
+
+Home and first-party v2 QDN apps remain 0BSD wherever possible.
+
+- Maintain a provenance and dependency-license ledger for imported libraries,
+  protocol inputs, generated assets, and adapted components.
+- Use Qortal Hub and HubCE GPL source to understand observable behavior and
+  interoperability requirements; do not copy implementation into 0BSD code.
+- Treat archived projects without explicit licenses as conceptual references.
+- For RCHAT, prefer a compatible independently licensed engine, separately
+  granted permission, or clean implementation from a frozen protocol plus
+  golden vectors.
+- Pin exact dependency versions, commits, artifact hashes, and build inputs for
+  managed/native components.
+- A future request to incorporate differently licensed code requires a recorded
+  policy decision before implementation or distribution.
+
+This is an engineering provenance policy, not legal advice.
+
+## Delivery phases
+
+### Phase 0: planning and preservation
+
+- Keep this document canonical.
+- Preserve exact Hub `v1.0.1`, `v2.0.1`, and `v3.0.0` reference commits.
+- Preserve dirty/staged archive references before any cleanup.
+- Freeze v1 feature/UI expansion except security, migration, or release-critical
+  fixes.
+- Establish the provenance/license ledger and versioned compatibility ledgers.
+
+### Phase 1: fixture-only v2 foundation
+
+- Add runtime-free identity, network, operation-context, capability,
+  permission, host, and product-model contracts.
+- Add `MockHost`; network, filesystem, vault, signing, and native-service calls
+  throw by default.
+- Build Dashboard, launcher, tabs, unified identity presentation, and permission
+  dialogs from synthetic data.
+- Include at least one mock `qdnRequest`, one mock `qortalRequest`, and one
+  deliberate wrong-network rejection.
+- Run the same fixtures at desktop and phone layouts through Electron and
+  Android host fakes.
+
+No real wallet, address, API key, Core, network, or QDN resource is reachable in
+this phase.
+
+Status on 2026-08-08: complete. The runtime-free product model preserves app tabs
+across Dashboard navigation and keeps separate, visibly labelled Qortal and
+Qortium contexts. Fixture-only `qdnRequest/PUBLISH_QDN_RESOURCE` and
+`qortalRequest/GET_USER_ACCOUNT` adapters feed an account-, app-, network-,
+node-, and tab-scoped permission broker and responsive dialogs. The Qortal
+account fixture deliberately grants no implicit extra capabilities. Explicit
+Electron and Android host fakes run the same model and throw on every privileged
+capability. A separately packaged preview AppImage uses a minimal Electron main
+process and isolated staging tree, with no production Home dependencies or live
+host reachability. Its global browser chrome starts with Dashboard only, opens
+QDN apps as peer tabs, exercises no-account/locked/unlocked startup states,
+independent four-mode Qortal/Qortium connection controls, and warm neutral light
+and dark themes at desktop and phone widths. The Appearance fixture preserves
+theme, accent, six text sizes, page zoom, and supported-language contracts while
+mapping legacy UI styles to one standard v2 presentation. Phase 1 ended without
+authorizing a live host adapter; the separately reviewed Phase 2 slice below is
+the first exception.
+
+### Phase 2: retained host adapters and read-only slice
+
+- Wrap existing Electron and Android host APIs behind the new contracts.
+- Connect app catalogue, app assignments, bookmarks, tabs, downloads, and node
+  status one service at a time.
+- Add batched Qortal/Qortium identity resolution and pointer-aware visible
+  avatars.
+- Connect read-only bridge families and capability reporting.
+- Preserve app isolation and immutable operation context.
+
+Status on 2026-08-08: the first desktop and Android slice is implemented as
+separate live-preview artifacts. Both networks support exact Disabled, Local,
+Public, and Custom modes without cross-mode fallback; public candidates must
+pass synchronization and read-capability checks. Desktop uses a sender-gated
+preload and reports running, installed-but-stopped, or undetected local Cores.
+Android uses a narrow Capacitor HTTP/preferences adapter, visibly reports Local
+as unsupported, and is packaged under a temporary `.v2live` application ID.
+The Dashboard displays live node status while account authority, QDN resource
+loading, signing, writes, Core control, Reticulum, and the production Home
+profile remain inaccessible.
+
+The next read-only slice added a compact Dashboard account lookup without
+requiring a selected or unlocked wallet account. One shared resolver accepts a
+name or address on desktop and Android, independently queries both configured
+networks, and groups results only by an identical owner address. The same name
+at different addresses produces an explicit conflict. Qortal legacy avatar
+resources and Qortium account-pointer or legacy resources are returned as
+metadata descriptors. Visible results now load pointer-aware avatars through a
+500 KiB, recognized-raster-only boundary. The desktop host accepts only
+allowlisted identity reads, caps metadata responses at 256 KiB, and sender-gates
+the IPC alongside the existing node adapter.
+
+A sanitized read-only catalogue now lists base and derived addresses from the
+preview profile and feeds the compact Account dropdown. Selection resolves one
+address across both networks but does not mutate the wallet store. Encrypted
+wallet material, filenames, production-profile migration, unlock, signing, and
+QDN app execution were still later gates at the end of the 2026-08-08 slice.
+
+Status on 2026-08-10: read-only QDN app execution has now started in the
+isolated Home 2.0 profile. Desktop `WebContentsView` apps and Android hosted apps
+share one runtime-free, protocol-specific action catalogue and validator while
+retaining separate `qdnRequest` and `qortalRequest` facades. The first slice
+covers bounded public node reads, QDN resource list/search/fetch/status/metadata/
+properties/URL operations, public identity/account reads, pointer-aware account
+avatars, and new-tab `qdn://`/`qortal://`/`home://` navigation. Selected-account
+reads require trusted Home UI consent with once or tab-session scope, and Home
+rechecks immutable app/tab/account context after approval. Signing, publishing,
+wallet secrets, private chat, broader viewer/file APIs, and production-profile
+migration remain inaccessible. The exact implemented and deferred surfaces are
+tracked in `docs/HOME_V2_BRIDGE_COMPATIBILITY.md`.
+
+Android phone acceptance on 2026-08-10 confirmed that active Q-Apps can mirror
+their document title and same-origin navigation history into Home. Back and
+Forward remain visible at phone width and drive an unchanged Help app through a
+detail/list/detail round trip. The isolated v2 APK also disables Capacitor's
+unbounded debug bridge logger while retaining deliberate WebView inspection.
+Q-Tube's current `MediaInfoModule.wasm` returned `200 application/wasm` and its
+public feed rendered. Home now owns the embedded bridge on both platforms by
+neutralizing only Core's exact `/apps/q-apps.js` client inside Home 2.0 app
+views. Android additionally permits only Q-Tube's observed, query-free
+`GET /transactions/signature/{signature}` relative read with strict Base58
+validation and a 512 KiB response cap. Broader transaction searches, writes,
+and other Core API families remain denied. Packaged desktop and phone acceptance
+on 2026-08-10 confirmed Home's 21-action catalogue, Q-Tube's live feed, and a
+real transaction lookup. Android additionally confirmed an empty local bridge
+client response plus `403` for transaction search and POST. Trust and Help
+loaded live data on both platforms afterward.
+
+### Phase 3: app-first default experiences
+
+- Define exact cross-network identities and publish/release process for default
+  Dashboard-linked apps.
+- Adapt/build cross-network Chat and Wallets QDN apps against host-mediated
+  capabilities.
+- Add typed cross-app intents such as Profile -> Trust and Core -> Minting.
+- Prove notification, unread, deep-link, download, and context routing on
+  desktop and Android.
+
+### Phase 4: complete Qortal compatibility
+
+- Implement and fixture every promised `qortalRequest` action family.
+- Share internal services with `qdnRequest` only after lossless-contract proof.
+- Complete node-mode, permission, denial, timeout, stale-context, and malformed
+  behavior.
+- Validate representative unchanged Q-Apps on desktop and Android.
+- Do not expose raw signing or private-key access as a shortcut to parity.
+
+### Phase 5: wallet and mutation hardening
+
+- Complete the wallet/signing threat model and independent review plan.
+- Connect typed Qortal and Qortium transaction intents.
+- Validate backup, lock/unlock, identity selection, fees, approval, signing,
+  broadcast, retry, and failure recovery.
+- Perform controlled funded acceptance only through a separately approved plan.
+
+### Phase 6: optional cross-network Reticulum
+
+- Freeze a licensed protocol/engine path and golden vectors.
+- Implement Home-managed lifecycle and all required user controls.
+- Implement shared event/storage/repair contracts with desktop and Android
+  adapters.
+- Integrate Qortal and Qortium authorization namespaces.
+- Connect the cross-network Chat QDN app.
+- Complete interoperability, privacy, quota, corruption, recovery, malformed
+  peer, and multi-device gates.
+
+### Phase 7: in-place migration and release acceptance
+
+- Implement profile backup and forward migration.
+- Remove replaced v1 renderer paths.
+- Validate unchanged wallets, node profiles, apps, bookmarks, and settings.
+- Complete packaged Linux, macOS, Windows, and signed Android acceptance.
+- Publish only after explicit release approval; no task in this plan implies
+  permission to sign, push, publish, or move funds automatically.
+
+## Acceptance gates
+
+### Shell and apps
+
+- Dashboard is useful without becoming an operations wall.
+- No nested Home destination exists.
+- Chat and Wallets work as replaceable/default QDN apps.
+- Navigation, context menus, keyboard behavior, responsive layouts, text scale,
+  reduced motion, localization, and RTL have explicit acceptance coverage.
+
+### Identity
+
+- Address lookup distinguishes unavailable, absent, and present on each network.
+- Names and avatars from both networks are visible and labelled.
+- Cross-address linking cannot occur without proof from both keys.
+- No signing or grant authority is inferred from visual identity matching.
+
+### Bridges
+
+- Every advertised action has payload, result, error, timeout, permission,
+  node-mode, and desktop/Android fixtures.
+- Wrong-network requests fail before any adapter/node call.
+- `SHOW_ACTIONS` is truthful for current runtime capability.
+- App, navigation, identity, network, node, and lock changes invalidate affected
+  approvals and grants.
+- Existing Qortal Q-Apps and Qortium apps run without protocol rewrites within
+  the declared compatibility version.
+
+### Reticulum
+
+- Optional means no daemon, background use, presence, call, or network activity
+  without explicit enablement.
+- Users can stop transport without deleting identity/history.
+- Qortal and Qortium namespaces can run separately or together.
+- Desktop and Android share protocol vectors and interoperate.
+- Hub compatibility is demonstrated through complete event and repair behavior,
+  not a handshake or single message.
+
+### Release
+
+- Current v1 data migrates in place with a verified backup.
+- Wallet secrets and permissions do not migrate unsafely.
+- Linux, macOS, Windows, and Android packages pass platform task acceptance.
+- Artifact provenance, hashes, signing state, update behavior, and recovery are
+  explicit and verified.
+
+## Open questions
+
+- Final product name beyond the working Qortium Home 2.0 label.
+- Exact configurable Dashboard module set beyond Connections, Account, and
+  Pinned Apps.
+- Exact portable Reticulum engine/language and compatible dependency set.
+- Whether at-rest encryption is mandatory for all Reticulum databases or only
+  private/direct content, and how keys are recovered across devices.
+- Qortal Hub compatibility versioning policy after the pinned v3 baseline.
+- Which advanced Q-App actions, if any, need a narrowly compatible deviation
+  because Hub's permission behavior is too broad.
+- When iOS becomes an active release target rather than architecture-only
+  compatibility.
+- Production code-signing/notarization policy for Linux, macOS, Windows, and
+  Android.
+
+## Completed foundation tranche
+
+After this planning commit is accepted:
+
+1. Add a v2 architecture decision record and provenance ledger template.
+2. Add the minimal runtime-free identity/network/operation-context contracts.
+3. Add a throwing `MockHost` and synthetic fixtures.
+4. Scaffold Dashboard and launcher against those fixtures only.
+5. Add desktop and phone-layout contract tests before connecting real services.
+
+Stop before real wallet, node, Reticulum, or signing integration and review the
+fixture shell and contracts as a separate checkpoint.
+
+Status on 2026-08-08: this tranche and the remaining Phase 1 tab, mock bridge,
+permission, Electron-host-fake, Android-host-fake, and isolated preview-package
+work are implemented on the dedicated `codex/home-v2` branch. Phase 2 now has
+desktop/Android node parity, a public read-only cross-network address/name
+resolver, bounded pointer-aware visible avatars, and a sanitized preview-profile
+account catalogue. Wallet authority, production-profile migration, signing,
+and QDN app execution remain later gates.

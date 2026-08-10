@@ -40,7 +40,8 @@ final class QdnRenderProxy {
     static final String PROXY_HOST_SUFFIX = ".qdn.androidplatform.net";
     static final String PROXY_MIME_QUERY_PARAM = "qdnHomeMime";
 
-    private static final Map<String, String> AUTHORIZED_ORIGINS = new ConcurrentHashMap<>();
+    private static final Map<String, AuthorizedOrigin> AUTHORIZED_ORIGINS = new ConcurrentHashMap<>();
+    private static final String BASE58_SIGNATURE_PATTERN = "^[1-9A-HJ-NP-Za-km-z]{64,88}$";
     private static final Set<String> ALLOWED_RENDER_SERVICES = new HashSet<>(Arrays.asList(
         // Browser archives keep their existing isolated-host path.
         "APP",
@@ -68,7 +69,29 @@ final class QdnRenderProxy {
     /**
      * @return the proxy origin for a node, or null when the node origin is unusable.
      */
+    enum RouteKind {
+        RENDER,
+        PUBLIC_ARBITRARY,
+        HOME_V2_BRIDGE_CLIENT,
+        TRANSACTION_SIGNATURE,
+        DENIED
+    }
+
+    private static final class AuthorizedOrigin {
+        final String origin;
+        final boolean homeV2;
+
+        AuthorizedOrigin(String origin, boolean homeV2) {
+            this.origin = origin;
+            this.homeV2 = homeV2;
+        }
+    }
+
     static String authorize(String origin) {
+        return authorize(origin, false);
+    }
+
+    static String authorize(String origin, boolean homeV2) {
         String normalizedOrigin = normalizeOrigin(origin);
 
         if (normalizedOrigin == null) {
@@ -77,7 +100,7 @@ final class QdnRenderProxy {
 
         String label = getLabel(normalizedOrigin);
 
-        AUTHORIZED_ORIGINS.put(label, normalizedOrigin);
+        AUTHORIZED_ORIGINS.put(label, new AuthorizedOrigin(normalizedOrigin, homeV2));
 
         return "https://" + label + PROXY_HOST_SUFFIX;
     }
@@ -111,27 +134,21 @@ final class QdnRenderProxy {
 
         String host = url.getHost().toLowerCase(Locale.ROOT);
         String label = host.substring(0, host.length() - PROXY_HOST_SUFFIX.length());
-        String origin = AUTHORIZED_ORIGINS.get(label);
+        AuthorizedOrigin authorization = AUTHORIZED_ORIGINS.get(label);
 
-        if (origin == null) {
+        if (authorization == null) {
             return null;
         }
 
-        java.util.List<String> segments = url.getPathSegments();
+        RouteKind route = classifyProxyRoute(url);
 
-        if (segments.size() < 3 || !"render".equals(segments.get(0))) {
+        if (route == RouteKind.DENIED || route == RouteKind.HOME_V2_BRIDGE_CLIENT) {
             return null;
         }
 
-        String service = segments.get(1).toUpperCase(Locale.ROOT);
+        StringBuilder upstream = new StringBuilder(authorization.origin);
 
-        if (!ALLOWED_RENDER_SERVICES.contains(service)) {
-            return null;
-        }
-
-        StringBuilder upstream = new StringBuilder(origin);
-
-        for (String segment : segments) {
+        for (String segment : url.getPathSegments()) {
             upstream.append('/').append(Uri.encode(segment));
         }
 
@@ -148,6 +165,78 @@ final class QdnRenderProxy {
         }
 
         return upstream.toString();
+    }
+
+    static RouteKind classifyProxyRoute(Uri url) {
+        AuthorizedOrigin authorization = getAuthorization(url);
+
+        if (authorization == null) {
+            return RouteKind.DENIED;
+        }
+
+        return classifyProxyPath(url.getPathSegments(), url.getEncodedQuery(), authorization.homeV2);
+    }
+
+    static RouteKind classifyProxyPath(
+        java.util.List<String> segments,
+        String encodedQuery,
+        boolean homeV2
+    ) {
+
+        if (segments == null || segments.size() < 2) {
+            return RouteKind.DENIED;
+        }
+
+        for (String segment : segments) {
+            if (".".equals(segment) || "..".equals(segment)) {
+                return RouteKind.DENIED;
+            }
+        }
+
+        if ("arbitrary".equals(segments.get(0))) {
+            return RouteKind.PUBLIC_ARBITRARY;
+        }
+
+        if (
+            segments.size() >= 3 &&
+            "render".equals(segments.get(0)) &&
+            ALLOWED_RENDER_SERVICES.contains(segments.get(1).toUpperCase(Locale.ROOT))
+        ) {
+            return RouteKind.RENDER;
+        }
+
+        if (
+            homeV2 &&
+            segments.size() == 2 &&
+            "apps".equals(segments.get(0)) &&
+            "q-apps.js".equals(segments.get(1))
+        ) {
+            return RouteKind.HOME_V2_BRIDGE_CLIENT;
+        }
+
+        if (
+            homeV2 &&
+            segments.size() == 3 &&
+            "transactions".equals(segments.get(0)) &&
+            "signature".equals(segments.get(1)) &&
+            segments.get(2).matches(BASE58_SIGNATURE_PATTERN) &&
+            (encodedQuery == null || encodedQuery.isEmpty())
+        ) {
+            return RouteKind.TRANSACTION_SIGNATURE;
+        }
+
+        return RouteKind.DENIED;
+    }
+
+    private static AuthorizedOrigin getAuthorization(Uri url) {
+        if (!isProxyUrl(url)) {
+            return null;
+        }
+
+        String host = url.getHost().toLowerCase(Locale.ROOT);
+        String label = host.substring(0, host.length() - PROXY_HOST_SUFFIX.length());
+
+        return AUTHORIZED_ORIGINS.get(label);
     }
 
     /**
