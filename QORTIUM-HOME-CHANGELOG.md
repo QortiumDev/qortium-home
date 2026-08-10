@@ -33,6 +33,16 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-10 - fix: validate QDN asset read requests consistently
+
+Makes the new asset-information, balance, and transfer reads use one shared
+request-to-Core path contract on desktop and Android. A malformed or negative
+asset ID is now rejected explicitly instead of being ignored and accidentally
+broadening an address-balance query. Behavioral fixtures exercise the exact
+Core paths and query values while parity checks keep both Home bridges on the
+same validated implementation. No asset transfer, signing, or approval behavior
+changes.
+
 ### 2026-08-10 - build(deps): refresh Home dependencies and CodeQL
 
 Updates Home's icon library and WebSocket development tooling, and aligns the

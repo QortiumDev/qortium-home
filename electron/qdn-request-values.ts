@@ -170,8 +170,8 @@ function isNativeAssetRequest(request: QdnAppRequest, defaultToNative = false) {
 // Resolves the assetId-or-assetName selector Core's own /assets/info accepts
 // (assetId wins if both are given - same priority Core documents). Uses
 // getOptionalNonNegativeAssetId rather than getRequestAssetId: getRequestAssetId
-// returns undefined for a numeric assetId (see the plan doc for the trace),
-// which would break every real caller since assetId is normally a number.
+// returns undefined for a numeric assetId because its string-presence check
+// treats non-string values as empty.
 function getOptionalAssetSelector(
   request: QdnAppRequest,
 ): { assetId: number; assetName?: undefined } | { assetId?: undefined; assetName: string } {
@@ -188,6 +188,52 @@ function getOptionalAssetSelector(
   }
 
   return { assetName };
+}
+
+function getAssetInfoPath(request: QdnAppRequest) {
+  const selector = getOptionalAssetSelector(request);
+  const query = typeof selector.assetId === 'number'
+    ? `assetId=${selector.assetId}`
+    : `assetName=${encodeURIComponent(selector.assetName)}`;
+
+  return `/assets/info?${query}`;
+}
+
+function getAssetBalancesPath(request: QdnAppRequest) {
+  const address = getOptionalAddressRequestString(request, 'Address', 'address');
+  const assetId = getOptionalNonNegativeAssetId(request);
+
+  if (!address && typeof assetId === 'undefined') {
+    throw new Error('Supply either an address or an assetId.');
+  }
+
+  const params = new URLSearchParams();
+  if (address) params.set('address', address);
+  if (typeof assetId === 'number') params.set('assetid', String(assetId));
+  const excludeZero = getOptionalBooleanRequestValue(request, 'excludeZero');
+  if (typeof excludeZero === 'boolean') params.set('excludeZero', String(excludeZero));
+  const limit = getOptionalIntegerRequestValue(request, 0, 'limit');
+  if (typeof limit === 'number') params.set('limit', String(limit));
+
+  return `/assets/balances?${params.toString()}`;
+}
+
+function getAssetTransfersPath(request: QdnAppRequest) {
+  const assetId = getOptionalNonNegativeAssetId(request);
+  if (typeof assetId === 'undefined') {
+    throw new Error('Asset id is required.');
+  }
+
+  const address = getOptionalAddressRequestString(request, 'Address', 'address');
+  const params = new URLSearchParams();
+  if (address) params.set('address', address);
+  const limit = getOptionalIntegerRequestValue(request, 0, 'limit');
+  if (typeof limit === 'number') params.set('limit', String(limit));
+  const reverse = getOptionalBooleanRequestValue(request, 'reverse');
+  if (typeof reverse === 'boolean') params.set('reverse', String(reverse));
+  const query = params.toString();
+
+  return `/assets/transfers/${assetId}${query ? `?${query}` : ''}`;
 }
 
 function assertQortiumAddress(address: string, label: string) {
@@ -483,6 +529,9 @@ export {
   getAccountBalancePath,
   isNativeAssetRequest,
   getOptionalAssetSelector,
+  getAssetInfoPath,
+  getAssetBalancesPath,
+  getAssetTransfersPath,
   assertQortiumAddress,
   getRequiredAddressRequestString,
   getOptionalAddressRequestString,

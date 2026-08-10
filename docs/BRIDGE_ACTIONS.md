@@ -324,6 +324,10 @@ const balances = await qdnRequest({
 });
 ```
 
+When `assetId` is present it must be a non-negative safe integer. Home rejects
+malformed or negative values instead of dropping the filter and returning a
+broader address-balance result.
+
 `GET_ASSET_TRANSFERS` takes a required `assetId`, plus optional `address`,
 `limit`, and `reverse`:
 
