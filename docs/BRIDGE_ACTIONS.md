@@ -19,7 +19,8 @@ Supported read-only actions are `FETCH_NODE_API`, `FETCH_ACCOUNT_AVATAR`, `FETCH
 `SEARCH_QORTAL_TRANSACTIONS`, `GET_NODE_INFO`,
 `GET_NODE_STATUS`, `GET_ACCOUNT_DATA`, `GET_ACCOUNT_GROUPS`,
 `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_NAMES`, `GET_ACTIVE_CHATS`,
-`GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_BALANCE`, `GET_GROUP`,
+`GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ASSET_INFO`, `GET_ASSET_BALANCES`,
+`GET_ASSET_TRANSFERS`, `GET_BALANCE`, `GET_GROUP`,
 `GET_GROUP_JOIN_REQUESTS`, `GET_GROUP_MEMBERS`, `GET_MINTING_STATUS`,
 `GET_NAME_DATA`, `LIST_GROUPS`, `SEARCH_GROUPS`, `SEARCH_CHAT_MESSAGES`,
 `GET_QDN_RESOURCE_METADATA`,
@@ -295,6 +296,55 @@ endpoints that have no dedicated `GET_QORTAL_*`/`SEARCH_QORTAL_*` action.
 Both passthrough actions return the node-API result envelope
 (`{ ok, status, data, body, ... }`), not the bare response body — apps should
 check `ok` and read `data`.
+
+## Asset reads (`GET_ASSET_INFO`, `GET_ASSET_BALANCES`, `GET_ASSET_TRANSFERS`)
+
+These wrap Core's `/assets/info`, `/assets/balances`, and `/assets/transfers/{id}`
+read endpoints directly - same shapes Core returns, no envelope. They are plain
+reads and work on a public/network Qortium node.
+
+`GET_ASSET_INFO` takes `assetId` or `assetName` (at least one required; `assetId`
+wins if both are given, matching Core):
+
+```js
+const info = await qdnRequest({ action: 'GET_ASSET_INFO', assetId: 5 });
+// or
+const info = await qdnRequest({ action: 'GET_ASSET_INFO', assetName: 'MYASSET' });
+```
+
+`GET_ASSET_BALANCES` takes `address` and/or `assetId` (at least one required),
+plus optional `excludeZero` and `limit`:
+
+```js
+const balances = await qdnRequest({
+  action: 'GET_ASSET_BALANCES',
+  address: 'Qxyz...',
+  excludeZero: true,
+  limit: 0,
+});
+```
+
+When `assetId` is present it must be a non-negative safe integer. Home rejects
+malformed or negative values instead of dropping the filter and returning a
+broader address-balance result.
+
+`GET_ASSET_TRANSFERS` takes a required `assetId`, plus optional `address`,
+`limit`, and `reverse`:
+
+```js
+const transfers = await qdnRequest({
+  action: 'GET_ASSET_TRANSFERS',
+  assetId: 5,
+  address: 'Qxyz...',
+  limit: 20,
+  reverse: true,
+});
+```
+
+`TRANSFER_ASSET` additionally rejects a fractional `amount` when the target
+asset's `isDivisible` is `false`, before requesting write approval - the same
+rule the wallet's own send form already enforces client-side, now also
+enforced at the bridge for every app that calls `TRANSFER_ASSET`.
 
 ## `SEARCH_QORTAL_TRANSACTIONS`
 

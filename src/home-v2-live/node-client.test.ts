@@ -313,6 +313,33 @@ assert.equal(
 
 await client.setMode('qortal', 'public')
 await client.setMode('qortium', 'public')
+assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_ASSET_BALANCES'), true)
+assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_ASSET_BALANCES'), false)
+assert.deepEqual(
+  await client.requestApp('qdnRequest', {
+    action: 'GET_ASSET_BALANCES',
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    assetId: 5,
+    excludeZero: true,
+  }),
+  [],
+)
+assert.equal(
+  `${new URL(lastRequestedUrl).pathname}${new URL(lastRequestedUrl).search}`,
+  '/assets/balances?address=QH143K2qjVdn864NSY7aNESo88ao1ZnALH&assetid=5&excludeZero=true',
+)
+await assert.rejects(
+  () => client.requestApp('qdnRequest', {
+    action: 'GET_ASSET_BALANCES',
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    assetId: 'invalid',
+  }),
+  /non-negative safe integer/,
+)
+await assert.rejects(
+  () => client.requestApp('qortalRequest', { action: 'GET_ASSET_INFO', assetId: 5 }),
+  /not available in Home v2 read-only mode/,
+)
 const appContext = {
   resourceLocation: 'qdn://APP/Trust/Trust',
   selectedAccountId: 'wallet:one:2',

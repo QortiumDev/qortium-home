@@ -8,6 +8,7 @@ import type {
 } from '../v2/contracts'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import {
+  buildHomeV2AssetReadPath,
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
@@ -690,6 +691,17 @@ export function createPortableNodeClient(
         return (await requestData(
           network,
           path,
+          normalizeHomeV2ResponseMaxBytes(request.maxBytes),
+        )).data
+      }
+      if (
+        action === 'GET_ASSET_INFO' ||
+        action === 'GET_ASSET_BALANCES' ||
+        action === 'GET_ASSET_TRANSFERS'
+      ) {
+        return (await requestData(
+          network,
+          buildHomeV2AssetReadPath(action, request),
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )).data
       }

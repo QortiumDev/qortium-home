@@ -1,3 +1,9 @@
+import {
+  getAssetBalancesPath,
+  getAssetInfoPath,
+  getAssetTransfersPath,
+} from './qdn-request-values.js'
+
 export type HomeV2AppBridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type HomeV2AppNetwork = 'qortal' | 'qortium'
 
@@ -24,6 +30,9 @@ const QDN_ACTIONS = [
   'FETCH_QDN_RESOURCE',
   'FETCH_QORTAL_NODE_API',
   'GET_ACCOUNT_NAMES',
+  'GET_ASSET_BALANCES',
+  'GET_ASSET_INFO',
+  'GET_ASSET_TRANSFERS',
   'GET_NAME_DATA',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
@@ -352,6 +361,13 @@ export function buildHomeV2NamePath(action: string, request: Record<string, unkn
     return `/names/primary/${encodeURIComponent(normalizeHomeV2Address(request.address))}`
   }
   throw new Error(`${action} is not a supported identity read.`)
+}
+
+export function buildHomeV2AssetReadPath(action: string, request: Record<string, unknown>) {
+  if (action === 'GET_ASSET_INFO') return getAssetInfoPath(request)
+  if (action === 'GET_ASSET_BALANCES') return getAssetBalancesPath(request)
+  if (action === 'GET_ASSET_TRANSFERS') return getAssetTransfersPath(request)
+  throw new Error(`${action} is not a supported asset read.`)
 }
 
 export function normalizeHomeV2OpenAddress(request: Record<string, unknown>) {

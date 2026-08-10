@@ -12,6 +12,7 @@ import {
 } from './qdn-views.js'
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js'
 import {
+  buildHomeV2AssetReadPath,
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
@@ -397,6 +398,19 @@ async function handleRequest(
     const { result } = await fetchRead(
       network,
       path,
+      'GET',
+      normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
+    )
+    return responseDataOrThrow(result, `${action} request`)
+  }
+  if (
+    action === 'GET_ASSET_INFO' ||
+    action === 'GET_ASSET_BALANCES' ||
+    action === 'GET_ASSET_TRANSFERS'
+  ) {
+    const { result } = await fetchRead(
+      network,
+      buildHomeV2AssetReadPath(action, requestValue),
       'GET',
       normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
     )

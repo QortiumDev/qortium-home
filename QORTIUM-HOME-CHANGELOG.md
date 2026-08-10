@@ -34,201 +34,47 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
-### 2026-08-10 - fix: detach managed services from AppImage mounts
+### 2026-08-10 - Home 2.0 read-only browser shell foundation
 
-Prevents a closed Linux AppImage from lingering as an invisible FUSE helper
-while its managed Qortium Core or i2pd service continues running. Home now
-removes AppImage-only variables and temporary mount paths from managed-service
-environments before launch. Linux Core scripts and i2pd also close inherited
-Electron descriptors, including the AppImage runtime control pipe, before
-starting their managed processes. Core and i2pd can continue running after Home
-closes, as designed, without keeping that particular AppImage mounted or
-appearing as a hidden Home instance.
+Establishes the accepted Home 2.0 direction as a warm, compact browser-style
+shell with Dashboard as its landing page and QDN apps opening in familiar tabs.
+Desktop and Android are co-primary preview targets. Qortal and Qortium have
+independent Disabled, Local, Public, and Custom node modes; Home reports local
+Core readiness, selects trusted synchronized public nodes, and keeps the active
+endpoint visible. The Dashboard can resolve shared addresses across both chains,
+show bounded public names and avatars, and enumerate saved account addresses
+without exposing wallet secrets.
 
-### 2026-08-10 - fix: wire Home v2 Android app tab navigation
+Complete `qdn://` and `qortal://` app addresses now open real public apps through
+separate `qdnRequest` and `qortalRequest` protocols. Desktop uses sandboxed app
+views and Android uses an isolated HTTPS proxy, with a bounded read-only action
+catalogue, response-size limits, exact app-resource discovery, persistent tabs
+and appearance settings, and the compatibility read currently needed by
+Q-Tube. Packaged preview artifacts are isolated from the production profile,
+and managed Core or i2pd processes no longer keep a closed Linux AppImage
+mounted. This foundation still performs no production-profile migration,
+account unlocking, signing, publishing, payments, private chat, or Reticulum;
+those capabilities remain gated for later reviewed tranches.
 
-Connects Android Q-Apps to Home 2.0's browser tabs and navigation controls.
-An app's document title can now update its tab label after Home removes control
-characters, normalizes whitespace, and applies the existing length limit.
-Android app history now enables Back and Forward and accepts navigation commands
-through the app iframe's existing private bridge token. Home accepts these
-signals only from the active frame and its selected same-origin QDN proxy, caps
-the mirrored history, and rejects duplicate indexes, oversized URLs, missing
-active entries, and cross-origin destinations. The bridge's Qortium/Qortal
-protocol and read-only permission boundaries are unchanged.
+### 2026-08-10 - fix: validate QDN asset read requests consistently
 
-### 2026-08-10 - fix: complete Home v2 Android public Q-App reads
+Makes the new asset-information, balance, and transfer reads use one shared
+request-to-Core path contract on desktop and Android. A malformed or negative
+asset ID is now rejected explicitly instead of being ignored and accidentally
+broadening an address-balance query. Behavioral fixtures exercise the exact
+Core paths and query values while parity checks keep both Home bridges on the
+same validated implementation. No asset transfer, signing, or approval behavior
+changes.
 
-Completes the first Android public-reading acceptance pass for Qortium and
-Qortal apps in Home 2.0. Android app requests now keep their response headers,
-allow up to 30 seconds for larger public reads, and support the established
-5 MiB maximum when an app requests it. The isolated Android app origin also
-forwards GET-only `/arbitrary/...` reads to the node Home already selected while
-continuing to block other Core API families and non-read methods. The browser
-reload control now reloads Android app frames. Together these changes let Help
-and Trust load current Qortium data and let Q-Tube load its Qortal feed and
-images without widening Home's read-only bridge into signing, publishing,
-transactions, account secrets, or unrestricted node access.
+### 2026-08-10 - build(deps): refresh Home dependencies and CodeQL
 
-### 2026-08-10 - fix: resolve name-only apps and pending avatars
-
-Makes name-only app addresses behave consistently across Qortium and Qortal.
-When an address omits its identifier, Home now asks the selected network for
-exact `APP` resources under that name: one result opens automatically, no
-results produce a visible error, and multiple results produce a compact
-identifier selector instead of guessing. Explicit identifiers remain exact.
-The Dashboard avatar loader now also recognizes the legacy asynchronous
-resource path's initial not-found response as pending, keeps a stable loading
-placeholder, and retries bounded pending or transient responses automatically.
-
-### 2026-08-09 - fix: make Home v2 address navigation explicit
-
-Fixes the Home 2.0 browser bar so Enter or the new Go button opens complete
-`qdn://` and `qortal://` app addresses. Routed app links now preserve path,
-query, and fragment components. Invalid or incomplete addresses display a
-visible inline explanation instead of failing behind the current app view.
-
-### 2026-08-09 - feat: add Home v2 persistent shell and read-only QDN apps
-
-Turns the Home 2.0 live preview into a usable first browser slice on desktop and
-Android. Appearance, selected account, open source-qualified app tabs, active
-tab, and Home destination now persist in the isolated v2 profile. Chat and Help
-open as real Qortium QDN apps, and complete `qdn://` or `qortal://` app addresses
-can be entered directly. Desktop uses sandboxed isolated app views; Android uses
-the separate-origin HTTPS QDN proxy. Both expose distinct `qdnRequest` and
-`qortalRequest` functions, but only a small allowlisted read-only action set with
-GET/HEAD and 2 MiB response limits. No account secrets, signing, publishing,
-transactions, Core control, updates, or production-profile migration are added.
-
-### 2026-08-08 - feat: add Home v2 bounded avatars and account catalogue
-
-Adds visible public avatars and the first read-only account selector to the
-Home 2.0 live preview on desktop and Android. Avatar content is fetched only
-for visible resolved identities, follows Qortal legacy and Qortium
-account-pointer rules, retries bounded pending builds, accepts only recognized
-raster formats, and never renders more than 500 KiB. The Account dropdown can
-enumerate the preview profile's saved addresses, including derived addresses,
-and resolve the selected address across both networks without exposing wallet
-files or encrypted key material. Selection remains non-mutating and account
-creation, import, unlocking, signing, QDN execution, and production-profile
-migration remain outside this slice.
-
-### 2026-08-08 - feat: add Home v2 dual-network account lookup
-
-Adds the first public account lookup to the Home 2.0 live preview on desktop and
-Android. Users can enter an address or name and see separately labelled Qortal
-and Qortium names, primary names, addresses, and avatar resource descriptors.
-Addresses are treated as the shared public key-derived identity; a name is
-grouped across networks only when its owner address agrees, while conflicting
-owners are shown clearly and never merged. Disabled or unavailable nodes remain
-explicit instead of appearing as missing accounts. The narrow host adapters
-allow only four bounded, read-only identity queries and still expose no wallet,
-unlock, signing, generic node, or write access. Device testing also keeps the
-custom-node dialog inside the themed shell so it renders correctly in packaged
-desktop and Android builds.
-
-### 2026-08-08 - feat: add Home v2 desktop and Android node readiness
-
-Extends the Home 2.0 live preview to Android and completes the first practical
-connection controls on both platforms. Qortal and Qortium can independently use
-Disabled, Local, Public, or Custom modes without silently changing modes when a
-node fails. Public nodes must be synchronized and support public reads, healthy
-choices stay stable until failure, and the selected hostname remains visible.
-Desktop now distinguishes a running local Core, an installed but stopped Core,
-and no detected installation; Android clearly reports that a local Core is not
-available. A compact editor accepts HTTPS custom nodes, while a separate debug
-APK identity and restricted desktop bridge keep account, wallet, signing, QDN,
-Core-control, update, and Reticulum capabilities out of this preview slice.
-
-### 2026-08-08 - feat: refine Home v2 appearance settings
-
-Softens the offline Home 2.0 preview from strongly brown surfaces to linen and
-warm gray in light mode and graphite in dark mode, leaving clay as a restrained
-default accent. Dashboard and account copy is shorter, literal, and more
-professional. Settings now contains functional synthetic controls for system,
-light, and dark themes; ten accents; six text sizes; 50–200% page zoom; and the
-full current language list. A pure migration contract preserves valid Home 1.x
-display values while mapping the old classic, modern, and fun modes to one
-standard v2 presentation. No profile, preference store, QDN app, node, wallet,
-or live service is connected.
-
-### 2026-08-08 - feat: reshape Home v2 as a warm browser shell
-
-Reworks the disconnected Home 2.0 preview around a familiar, global browser
-frame instead of a dashboard containing app tabs. Dashboard starts as the only
-tab; Chat, Wallets, and other QDN apps open beside it. The fixture adds a warm
-tan/parchment light theme and chocolate-gray dark theme, responsive desktop and
-phone layouts, no-account/locked/unlocked startup states without a login wall,
-secure-unlock and default-on lock-on-exit preference models, and independent
-Disabled, Local, Public, and Custom modes for both Qortal and Qortium. Public
-node access is no longer labelled Previewnet. All controls remain synthetic and
-offline; no profile, password, wallet, node, Core, QDN, or Reticulum service is
-connected.
-
-### 2026-08-08 - fix: load packaged Home v2 fixture assets
-
-Fixes the Home 2.0 preview AppImage opening to a plain white window. The first
-package disabled Electron's file-protocol asset privileges even though its
-trusted, static renderer loads bundled JavaScript and CSS through `file://`.
-The preview now enables that required packaged-asset behavior while retaining
-its offline session, external-request denial, strict Content Security Policy,
-minimal dependency-free archive, and fail-closed host fakes. The initial HTML
-also contains a visible boot-error message so another renderer-load failure is
-diagnosable instead of appearing as an empty application.
-
-### 2026-08-08 - feat: package isolated Home v2 fixture preview
-
-Makes the Home 2.0 foundation available as a stateful Linux AppImage checkpoint
-without connecting it to current Home data or services. The fixture can switch
-between desktop and phone layouts, exercise labelled Qortal/Qortium app tabs,
-and walk through separate `qdnRequest` and `qortalRequest` permission prompts.
-Electron and Android host fakes throw on all privileged capabilities. A minimal
-Electron entry, separate build outputs, dependency-free staging package,
-network-denying policy, and distinct preview app identity keep production
-wallet, Core, QDN, updater, Reticulum, and profile code out of the artifact.
-This temporary preview target supports visual review only; Qortium Home v2 still
-replaces v1 in place once retained host capabilities are migrated and accepted.
-
-### 2026-08-08 - feat: model Home v2 tabs and bridge permissions
-
-Extends the disconnected Home 2.0 fixture with an immutable tab and navigation
-model, including separately labelled Qortal and Qortium instances of the same
-app. Adds independent mock `qdnRequest` and `qortalRequest` adapters rather than
-aliasing their overlapping actions. Their permission prompts bind the exact
-protocol, action, app, identity, wallet, network, node, and tab; QDN publishing
-is one-request-only, while Qortal account sharing clearly identifies the
-address/public-key disclosure and grants no hidden extra permissions. Session
-and durable grants have explicit invalidation behavior, and responsive fixture
-dialogs exercise both bridge protocols without connecting either bridge, a
-wallet, node, QDN resource, or native service.
-
-### 2026-08-08 - feat: scaffold fixture-only Home v2 foundation
-
-Creates the first additive Home 2.0 implementation without changing the
-current application or connecting the prototype to it. An architecture
-decision fixes the
-same-repository renderer replacement, a provenance ledger protects the
-0BSD-first clean-implementation boundary, and runtime-free contracts make
-identity, wallet, app, tab, node, and target network context explicit. A
-synthetic Dashboard and app launcher demonstrate the shared Qortal/Qortium
-identity view and responsive desktop/phone layouts. The injected fixture host
-throws on every network, filesystem, vault, signing, and native-service request,
-while contract tests prove wrong-network work is rejected before an adapter can
-run. No live account, node, QDN app, wallet, Core, or Reticulum service is
-connected.
-
-### 2026-08-08 - docs: establish Qortium Home v2 product plan
-
-Replaces the obsolete Qortium-only, desktop-first project plan with the adopted
-Qortium Home 2.0 direction. Dashboard remains the landing page; Chat, Wallets,
-and similar experiences remain QDN apps; identities show labelled Qortal and
-Qortium presences; Home targets complete `qortalRequest` compatibility while
-preserving strict `qdnRequest`; desktop and Android are co-primary; Reticulum is
-an optional Home-managed cross-network subsystem with explicit user controls;
-and Home plus first-party apps remain 0BSD-first through clean implementation.
-The plan freezes the old renderer, defines in-place migration and security
-gates, and stops the first code tranche at a fixture-only shell with no real
-wallet, node, signing, or Reticulum access.
+Updates Home's icon library and WebSocket development tooling, and aligns the
+Capacitor Android and command-line packages with the existing Capacitor 8.5.0
+runtime. Home also pins the command-line tool's transitive UUID helper to its
+patched compatible release. The CodeQL workflow moves to its latest compatible
+patch release. These are maintenance updates only; they do not intentionally
+change Home's features, account handling, network permissions, or release
+behavior.
 
 ### 2026-08-06 - fix: make foreign wallet read failures actionable
 

@@ -97,6 +97,9 @@
     "test:foreign-wallets": "node scripts/ensure-electron-build.mjs && node dist-electron/foreign-wallets.test.js",
     "test:foreign-wallet-read-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/foreign-wallet-read-contract.test.js",
     "test:qdn-public-services": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-public-services.test.js",
+    "test:qdn-request-values": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-request-values.test.js",
+    "test:qdn-asset-actions-parity": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-asset-actions-parity.test.js",
+    "test:qdn-transfer-asset-divisibility": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-transfer-asset-divisibility.test.js",
     "test:qdn-resource-viewer-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-resource-viewer-contract.test.js",
     "test:qdn-browser-archive-services": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-browser-archive-services.test.js",
     "test:qdn-services-drift": "node scripts/ensure-electron-build.mjs && node scripts/test-qdn-services-drift.mjs",
@@ -158,7 +161,7 @@
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
-    "@capacitor/android": "^8.4.2",
+    "@capacitor/android": "^8.5.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.5.0",
     "@capacitor/filesystem": "^8.1.2",
@@ -173,7 +176,7 @@
     "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",
     "jszip": "^3.10.1",
-    "lucide-react": "^1.25.0",
+    "lucide-react": "^1.30.0",
     "marked": "^14.1.4",
     "node-unrar-js": "^2.0.2",
     "pdfjs-dist": "^4.10.38",
@@ -183,7 +186,7 @@
     "tweetnacl": "1.0.3"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.4.2",
+    "@capacitor/cli": "^8.5.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -194,13 +197,16 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "wait-on": "^9.1.0",
-    "ws": "^8.21.1"
+    "ws": "^8.21.3"
   },
   "overrides": {
     "epubjs": {
       "@xmldom/xmldom": "0.8.13"
     },
-    "tmp": "0.2.7"
+    "tmp": "0.2.7",
+    "xcode": {
+      "uuid": "11.1.1"
+    }
   },
   "build": {
     "appId": "org.qortium.home",
