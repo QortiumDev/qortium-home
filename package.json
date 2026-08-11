@@ -19,12 +19,13 @@
     "build:v2-fixture:electron": "tsc -p electron/tsconfig.v2-fixture.json",
     "build:v2-fixture:stage": "node scripts/stage-home-v2-fixture.mjs",
     "build:v2-fixture": "npm run clean:v2-fixture && npm run build:v2-fixture:renderer && npm run build:v2-fixture:electron && npm run build:v2-fixture:stage",
+    "check:linux:appimage": "node scripts/check-linux-appimage-artifact.mjs",
     "check:v2-fixture:artifact": "node scripts/check-home-v2-fixture-artifact.mjs",
     "chmod:linux:appimages": "node scripts/chmod-linux-appimages.mjs",
     "chmod:linux:v2-fixture-appimages": "node scripts/chmod-linux-appimages.mjs --v2-fixture",
-    "dist:linux:x64": "npm run build && electron-builder --linux AppImage --x64 && npm run chmod:linux:appimages",
-    "dist:linux:arm64": "npm run build && electron-builder --linux AppImage --arm64 && npm run chmod:linux:appimages",
-    "dist:linux:all": "npm run build && electron-builder --linux AppImage --x64 --arm64 && npm run chmod:linux:appimages",
+    "dist:linux:x64": "npm run build && electron-builder --linux AppImage --x64 && npm run chmod:linux:appimages && npm run check:linux:appimage -- --arch=x64",
+    "dist:linux:arm64": "npm run build && electron-builder --linux AppImage --arm64 && npm run chmod:linux:appimages && npm run check:linux:appimage -- --arch=arm64",
+    "dist:linux:all": "npm run build && electron-builder --linux AppImage --x64 --arm64 && npm run chmod:linux:appimages && npm run check:linux:appimage -- --arch=x64 && npm run check:linux:appimage -- --arch=arm64",
     "dist:linux:x64:v2-fixture": "npm run build:v2-fixture && electron-builder --projectDir .v2-fixture-package --config electron-builder.json --linux AppImage --x64 --publish never && npm run chmod:linux:v2-fixture-appimages && npm run check:v2-fixture:artifact",
     "dist:mac:x64": "npm run build && electron-builder --mac dmg --x64 --publish never",
     "dist:mac:arm64": "npm run build && electron-builder --mac dmg --arm64 --publish never",
@@ -208,6 +209,13 @@
     "productName": "Qortium Home",
     "artifactName": "Qortium-Home-${version}-${arch}.${ext}",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": true
+    },
     "directories": {
       "output": "dist-release",
       "buildResources": "build"
@@ -224,7 +232,10 @@
         "from": "dist-electron",
         "to": "dist-electron",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.test.js",
+          "!.tsbuildinfo",
+          "!v2-fixture-main.js"
         ]
       },
       "package.json",

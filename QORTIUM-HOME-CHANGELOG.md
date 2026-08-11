@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-10 - build: harden Home 2.0 production AppImages
+
+Applies the proven Home 2.0 fixture security policy to normal Linux AppImages:
+Electron can no longer run as Node or accept Node/inspector command-line
+overrides, and the application loads only from its packaged ASAR. Production
+archives also omit compiled tests and the offline fixture entrypoint. Every
+Linux AppImage build now checks these fuses, the Home 2.0 package entrypoint,
+required renderer and preload files, and the absence of test/fixture content
+before it can complete successfully.
+
 ### 2026-08-10 - feat: make Home 2.0 the production account shell
 
 Makes the browser-style Home 2.0 interface the normal Qortium Home application
