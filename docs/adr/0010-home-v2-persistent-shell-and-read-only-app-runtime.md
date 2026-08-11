@@ -2,7 +2,8 @@
 
 Date: 2026-08-09
 
-Status: accepted and implemented in the live preview
+Status: superseded for production identity and profile handling by ADR 0011;
+the app-runtime boundary remains accepted
 
 ## Decision
 

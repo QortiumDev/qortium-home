@@ -11,6 +11,7 @@ import {
 import {
   createPermissionPrompt,
   createPermissionState,
+  invalidatePermissionState,
   queuePermissionPrompt,
   resolvePermissionPrompt,
   type PermissionDecision,
@@ -23,6 +24,7 @@ import type {
   HomeV2AccountCatalogue,
   HomeV2AccountCatalogueEntry,
   HomeV2Snapshot,
+  HomeV2VaultState,
   IdentityId,
   NetworkId,
   NodeConnectionMode,
@@ -35,6 +37,12 @@ import type {
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import type { HomeV2AccountManageAction } from '../v2/shell/HomeV2Prototype'
+import {
+  AccountDialog,
+  type AccountDialogMode,
+  type AccountDialogSubmission,
+} from '../v2/shell/AccountDialog'
 import type { AddressOpenResult } from '../v2/shell/BrowserChrome'
 import type {
   AppTabNavigationController,
@@ -45,6 +53,7 @@ import type {
   HomeV2AppRequestContext,
   HomeV2NodeClient,
 } from './node-client'
+import type { HomeV2VaultClient } from './vault-client'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -189,6 +198,33 @@ const emptyAccountCatalogue: HomeV2AccountCatalogue = Object.freeze({
   activeAccountId: null,
 })
 
+const emptyVaultState: HomeV2VaultState = Object.freeze({
+  accounts: Object.freeze([]),
+  readiness: 'ready',
+  recoveryMessage: null,
+  secureStorageAvailable: false,
+  selectedAccountId: null,
+  selectedAddressId: null,
+  version: 2,
+})
+
+function vaultCatalogue(vault: HomeV2VaultState): HomeV2AccountCatalogue {
+  return {
+    activeAccountId: vault.selectedAddressId,
+    accounts: vault.accounts.flatMap((account) =>
+      account.addresses.map((address) => ({
+        address: address.address,
+        addressIndex: address.index,
+        id: address.id,
+        isUnlocked: account.isUnlocked,
+        label: address.index === 0 ? account.label : `${account.label} · ${address.index}`,
+        supportsDerivedAddresses: account.supportsDerivedAddresses,
+        walletId: account.id,
+      })),
+    ),
+  }
+}
+
 function accountIdentity(
   account: HomeV2AccountCatalogueEntry,
   result?: DualIdentityLookupResult,
@@ -325,6 +361,15 @@ export function HomeV2LiveApp() {
   const [identityLookupBusy, setIdentityLookupBusy] = useState(false)
   const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
   const [shellNotice, setShellNotice] = useState<string | null>(null)
+  const [accountDialog, setAccountDialog] = useState<{
+    mode: AccountDialogMode
+    accountId?: string
+    pendingToken?: string
+    permissionRequestId?: string
+    suggestedLabel?: string
+  } | null>(null)
+  const [accountDialogBusy, setAccountDialogBusy] = useState(false)
+  const [accountDialogError, setAccountDialogError] = useState<string | null>(null)
   const [appNavigation, setAppNavigation] = useState<
     Readonly<Record<string, AppTabNavigationSnapshot>>
   >({})
@@ -332,12 +377,19 @@ export function HomeV2LiveApp() {
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
   )
+  const [vaultClient, setVaultClient] = useState<HomeV2VaultClient | null>(
+    () => window.homeV2Vault ?? null,
+  )
+  const [vaultState, setVaultState] = useState<HomeV2VaultState>(emptyVaultState)
   const [accountCatalogue, setAccountCatalogue] =
     useState<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [accountCatalogueReady, setAccountCatalogueReady] = useState(false)
   const accountCatalogueRef = useRef<HomeV2AccountCatalogue>(emptyAccountCatalogue)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [restoredAccountId, setRestoredAccountId] = useState<
+    string | null | undefined
+  >(undefined)
+  const [restoredAddressId, setRestoredAddressId] = useState<
     string | null | undefined
   >(undefined)
   const [shellStateReady, setShellStateReady] = useState(false)
@@ -350,11 +402,27 @@ export function HomeV2LiveApp() {
     PermissionRequestId,
     (decision: PermissionDecision) => void
   >())
+  const androidUnlockResolvers = useRef(new Map<
+    string,
+    {
+      complete: (state: HomeV2VaultState) => Promise<void>
+      reject: (error: Error) => void
+    }
+  >())
   const androidSessionAccountGrants = useRef(new Set<string>())
   const androidNavigationControllers = useRef(
     new Map<string, AppTabNavigationController>(),
   )
   const tabSequence = useRef(0)
+
+  const applyVaultState = useCallback((state: HomeV2VaultState) => {
+    const catalogue = vaultCatalogue(state)
+    setVaultState(state)
+    accountCatalogueRef.current = catalogue
+    setAccountCatalogue(catalogue)
+    setAccountCatalogueReady(true)
+    return catalogue
+  }, [])
 
   const handleAppNavigationChanged = useCallback(
     (tabId: TabId, navigation: AppTabNavigationSnapshot) => {
@@ -420,6 +488,7 @@ export function HomeV2LiveApp() {
     async (
       accountId: string | null,
       catalogue: HomeV2AccountCatalogue = accountCatalogueRef.current,
+      currentVault: HomeV2VaultState = vaultState,
     ) => {
       const epoch = accountSelectionEpoch.current + 1
       accountSelectionEpoch.current = epoch
@@ -436,12 +505,17 @@ export function HomeV2LiveApp() {
       }
       const account = catalogue.accounts.find((entry) => entry.id === accountId)
       if (!account || !nodeClient) return
+      const vaultAccount = currentVault.accounts.find((entry) => entry.id === account.walletId)
       setSnapshot((current) => ({
         ...current,
         account: {
           ...current.account,
           state: account.isUnlocked ? 'unlocked' : 'locked',
           selectedIdentityId: brand<IdentityId>(`home-v2:identity:${account.id}`),
+          rememberUnlock: vaultAccount?.security.rememberUnlock ?? false,
+          lockOnExit: vaultAccount?.security.lockOnExit ?? true,
+          manuallyLocked: vaultAccount?.security.manuallyLocked ?? false,
+          secureStorageAvailable: currentVault.secureStorageAvailable,
         },
         identity: accountIdentity(account),
       }))
@@ -455,15 +529,18 @@ export function HomeV2LiveApp() {
         identity: accountIdentity(account, result),
       }))
     },
-    [nodeClient],
+    [nodeClient, vaultState],
   )
 
   useEffect(() => {
     if (nodeClient) return
     let cancelled = false
-    void import('./android-node-client')
-      .then(({ createAndroidHomeV2NodeClient }) => {
-        if (!cancelled) setNodeClient(createAndroidHomeV2NodeClient())
+    void Promise.all([import('./android-node-client'), import('./android-vault-client')])
+      .then(([{ createAndroidHomeV2NodeClient }, { createAndroidHomeV2VaultClient }]) => {
+        if (!cancelled) {
+          setNodeClient(createAndroidHomeV2NodeClient())
+          setVaultClient(createAndroidHomeV2VaultClient())
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -498,12 +575,14 @@ export function HomeV2LiveApp() {
         }))
         dispatchProduct({ type: 'restore', state: restored.product })
         setRestoredAccountId(restored.selectedAccountId)
+        setRestoredAddressId(restored.selectedAddressId)
         setUseCatalogueActiveAccount(rawState === null || rawState === undefined)
         setShellStateReady(true)
       })
       .catch(() => {
         if (!cancelled) {
           setRestoredAccountId(null)
+          setRestoredAddressId(null)
           setShellStateReady(true)
         }
       })
@@ -513,15 +592,13 @@ export function HomeV2LiveApp() {
   }, [nodeClient])
 
   useEffect(() => {
-    if (!nodeClient) return
+    if (!nodeClient || !vaultClient) return
     let cancelled = false
-    void nodeClient
-      .listAccounts()
-      .then((catalogue) => {
+    void vaultClient
+      .getState()
+      .then((state) => {
         if (cancelled) return
-        accountCatalogueRef.current = catalogue
-        setAccountCatalogue(catalogue)
-        setAccountCatalogueReady(true)
+        applyVaultState(state)
       })
       .catch(() => {
         if (!cancelled) {
@@ -533,16 +610,16 @@ export function HomeV2LiveApp() {
     return () => {
       cancelled = true
     }
-  }, [nodeClient, selectAccount])
+  }, [applyVaultState, nodeClient, vaultClient])
 
   useEffect(() => {
-    if (!nodeClient || restoredAccountId === undefined) return
-    const requestedAccountId = useCatalogueActiveAccount
-      ? accountCatalogue.activeAccountId
-      : restoredAccountId
-    const selected = requestedAccountId
-      ? accountCatalogue.accounts.some((account) => account.id === requestedAccountId)
-        ? requestedAccountId
+    if (!nodeClient || restoredAccountId === undefined || restoredAddressId === undefined) return
+    const requestedAddressId = useCatalogueActiveAccount
+      ? vaultState.selectedAddressId
+      : restoredAddressId
+    const selected = requestedAddressId
+      ? accountCatalogue.accounts.some((account) => account.id === requestedAddressId)
+        ? requestedAddressId
         : null
       : null
     void selectAccount(selected, accountCatalogue)
@@ -550,8 +627,10 @@ export function HomeV2LiveApp() {
     accountCatalogue,
     nodeClient,
     restoredAccountId,
+    restoredAddressId,
     selectAccount,
     useCatalogueActiveAccount,
+    vaultState.selectedAddressId,
   ])
 
   useEffect(() => {
@@ -559,9 +638,11 @@ export function HomeV2LiveApp() {
     const timeout = window.setTimeout(() => {
       void nodeClient.saveShellState(
         serializeHomeV2ShellState({
-          version: 1,
+          version: 2,
           appearance: snapshot.appearance,
-          selectedAccountId,
+          selectedAccountId:
+            accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
+          selectedAddressId: selectedAccountId,
           product: productState,
         }),
       )
@@ -729,7 +810,9 @@ export function HomeV2LiveApp() {
         !isRecord(value) ||
         typeof value.requestId !== 'string' ||
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
-        (value.action !== 'GET_SELECTED_ACCOUNT' && value.action !== 'GET_USER_ACCOUNT') ||
+        (value.action !== 'GET_SELECTED_ACCOUNT' &&
+          value.action !== 'GET_USER_ACCOUNT' &&
+          value.action !== 'UNLOCK_SELECTED_ACCOUNT') ||
         typeof value.accountId !== 'string' ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium')
@@ -739,6 +822,23 @@ export function HomeV2LiveApp() {
       const account = accountCatalogueRef.current.accounts.find(
         (candidate) => candidate.id === value.accountId,
       )
+      if (value.action === 'UNLOCK_SELECTED_ACCOUNT') {
+        if (!account || value.protocol !== 'qdnRequest') {
+          window.homeV2Apps?.resolvePermission({
+            approved: false,
+            requestId: value.requestId,
+            scope: null,
+          })
+          return
+        }
+        setAccountDialogError(null)
+        setAccountDialog({
+          accountId: account.walletId,
+          mode: 'unlock',
+          permissionRequestId: value.requestId,
+        })
+        return
+      }
       const appIdentityKey =
         typeof value.appIdentityKey === 'string' && value.appIdentityKey
           ? value.appIdentityKey
@@ -821,6 +921,68 @@ export function HomeV2LiveApp() {
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
+      if (action === 'UNLOCK_SELECTED_ACCOUNT') {
+        if (protocol !== 'qdnRequest') throw new Error('UNLOCK_SELECTED_ACCOUNT is only available to Qortium apps.')
+        if (!vaultClient || !context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === context.selectedAccountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot()).qortium
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
+        const requestId = `android-unlock:${globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
+        setAccountDialogError(null)
+        setAccountDialog({
+          accountId: account.walletId,
+          mode: 'unlock',
+          permissionRequestId: requestId,
+        })
+        return new Promise<unknown>((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            androidUnlockResolvers.current.delete(requestId)
+            setAccountDialog((current) =>
+              current?.permissionRequestId === requestId ? null : current,
+            )
+            reject(new Error('Account unlock request timed out.'))
+          }, 60_000)
+          androidUnlockResolvers.current.set(requestId, {
+            reject: (error) => {
+              window.clearTimeout(timeout)
+              reject(error)
+            },
+            complete: async (state) => {
+              window.clearTimeout(timeout)
+              const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
+              const freshAccount = vaultCatalogue(state).accounts.find(
+                (candidate) => candidate.id === context.selectedAccountId,
+              )
+              const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot()).qortium
+              if (
+                !freshTab ||
+                freshTab.context.resourceLocation !== context.resourceLocation ||
+                !freshAccount?.isUnlocked ||
+                `${nodeAfter.mode}|${nodeAfter.nodeApiUrl ?? ''}` !== nodeRoute
+              ) {
+                reject(new Error('Account unlock context changed before approval completed.'))
+                return
+              }
+              const identity = await resolveDualIdentity(freshAccount.address, (network, request) =>
+                nodeClient.readIdentity(network, request),
+              ).catch(() => null)
+              resolve({
+                address: freshAccount.address,
+                avatarContract: 'pointer-aware-account-avatar-v1',
+                avatarUrl: null,
+                isUnlocked: true,
+                name:
+                  identity?.networks.qortium.primaryName ??
+                  identity?.networks.qortal.primaryName ??
+                  null,
+              })
+            },
+          })
+        })
+      }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
         return nodeClient.requestApp(protocol, requestValue, context)
       }
@@ -902,9 +1064,28 @@ export function HomeV2LiveApp() {
           throw new Error('Account access context changed before approval completed.')
         }
       }
+      if (action === 'GET_SELECTED_ACCOUNT') {
+        const current = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === context.selectedAccountId,
+        )
+        if (!current) throw new Error('The selected account is no longer available.')
+        const identity = await resolveDualIdentity(current.address, (network, request) =>
+          nodeClient.readIdentity(network, request),
+        ).catch(() => null)
+        return {
+          address: current.address,
+          avatarContract: 'pointer-aware-account-avatar-v1',
+          avatarUrl: null,
+          isUnlocked: current.isUnlocked,
+          name:
+            identity?.networks.qortium.primaryName ??
+            identity?.networks.qortal.primaryName ??
+            null,
+        }
+      }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [nodeClient, productState.tabs, selectedAccountId, snapshot.nodes],
+    [nodeClient, productState.tabs, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const refresh = useCallback(async () => {
@@ -1009,6 +1190,172 @@ export function HomeV2LiveApp() {
     }
   }
 
+  const selectedVaultAccount = vaultState.accounts.find(
+    (account) => account.id === vaultState.selectedAccountId,
+  )
+  const dialogVaultAccount = vaultState.accounts.find(
+    (account) => account.id === accountDialog?.accountId,
+  ) ?? selectedVaultAccount
+
+  const commitVaultState = async (state: HomeV2VaultState) => {
+    const catalogue = applyVaultState(state)
+    setRestoredAccountId(state.selectedAccountId)
+    setRestoredAddressId(state.selectedAddressId)
+    await selectAccount(state.selectedAddressId, catalogue, state)
+  }
+
+  const runVaultOperation = async (operation: () => Promise<HomeV2VaultState>) => {
+    setAccountDialogBusy(true)
+    setAccountDialogError(null)
+    try {
+      await commitVaultState(await operation())
+      setAccountDialog(null)
+    } catch (error) {
+      setAccountDialogError(error instanceof Error ? error.message : 'Account operation failed.')
+    } finally {
+      setAccountDialogBusy(false)
+    }
+  }
+
+  const submitAccountDialog = (value: AccountDialogSubmission) => {
+    if (!accountDialog || !vaultClient) return
+    const accountId = accountDialog.accountId ?? selectedVaultAccount?.id
+    switch (accountDialog.mode) {
+      case 'create':
+        void runVaultOperation(async () => {
+          const result = await vaultClient.create({
+            label: value.label ?? '',
+            password: value.password ?? '',
+            passwordConfirmation: value.passwordConfirmation ?? '',
+          })
+          if (result.canceled) throw new Error('Account creation was canceled before the wallet backup was saved.')
+          return result.state
+        })
+        return
+      case 'import-wallet-label':
+        if (!accountDialog.pendingToken) return
+        void runVaultOperation(() =>
+          vaultClient.saveLoadedWallet({
+            label: value.label ?? '',
+            token: accountDialog.pendingToken as string,
+          }),
+        )
+        return
+      case 'import-private-key':
+        void runVaultOperation(async () => {
+          const result = await vaultClient.importPrivateKey({
+            label: value.label ?? '',
+            password: value.password ?? '',
+            passwordConfirmation: value.passwordConfirmation ?? '',
+            privateKey: value.privateKey ?? '',
+          })
+          if (result.canceled) throw new Error('Private-key import was canceled before the wallet backup was saved.')
+          return result.state
+        })
+        return
+      case 'rename':
+        if (accountId) void runVaultOperation(() => vaultClient.rename({ accountId, label: value.label ?? '' }))
+        return
+      case 'remove-account':
+        if (accountId) void runVaultOperation(() => vaultClient.removeAccount({ accountId, password: value.password || undefined }))
+        return
+      case 'unlock':
+        if (accountId) {
+          setAccountDialogBusy(true)
+          setAccountDialogError(null)
+          void vaultClient.unlock({
+            accountId,
+            password: value.useRememberedUnlock ? undefined : value.password,
+            useRememberedUnlock: value.useRememberedUnlock,
+          }).then(async (state) => {
+            await commitVaultState(state)
+            for (const tab of productState.tabs) {
+              const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')
+              if (boundId === accountId || boundId.startsWith(`${accountId}:`)) {
+                void window.homeV2Apps?.updateAccountState({
+                  accountId: boundId,
+                  isUnlocked: true,
+                  tabId: tab.id,
+                })
+              }
+            }
+            const androidResolver = accountDialog.permissionRequestId
+              ? androidUnlockResolvers.current.get(accountDialog.permissionRequestId)
+              : undefined
+            if (androidResolver && accountDialog.permissionRequestId) {
+              androidUnlockResolvers.current.delete(accountDialog.permissionRequestId)
+              await androidResolver.complete(state)
+            } else if (accountDialog.permissionRequestId) {
+              window.homeV2Apps?.resolvePermission({
+                approved: true,
+                requestId: accountDialog.permissionRequestId,
+                scope: 'single-request',
+              })
+            }
+            setAccountDialog(null)
+          }).catch((error: unknown) => {
+            setAccountDialogError(error instanceof Error ? error.message : 'Unable to unlock the account.')
+          }).finally(() => setAccountDialogBusy(false))
+        }
+        return
+      case 'enable-remember':
+        if (accountId) {
+          void runVaultOperation(() =>
+            vaultClient.updateSecurity({
+              accountId,
+              password: value.password,
+              rememberUnlock: true,
+            }),
+          )
+        }
+    }
+  }
+
+  const openWalletImport = async () => {
+    if (!vaultClient) return
+    setAccountDialogError(null)
+    try {
+      const selection = await vaultClient.selectWalletFile()
+      if (!selection.canceled) {
+        setAccountDialog({
+          mode: 'import-wallet-label',
+          pendingToken: selection.token,
+          suggestedLabel: selection.suggestedName,
+        })
+      }
+    } catch (error) {
+      setShellNotice(error instanceof Error ? error.message : 'Unable to open the wallet file.')
+    }
+  }
+
+  const manageAccount = (action: HomeV2AccountManageAction) => {
+    if (!vaultClient) return
+    setAccountDialogError(null)
+    if (action === 'import-private-key') {
+      setAccountDialog({ mode: action })
+      return
+    }
+    if (!selectedVaultAccount) return
+    if (action === 'rename' || action === 'remove-account') {
+      setAccountDialog({ mode: action })
+      return
+    }
+    if (action === 'export') {
+      void vaultClient.exportAccount(selectedVaultAccount.id).then((result) => {
+        if (!result.canceled) setShellNotice(`Wallet backup saved as ${result.fileName ?? 'JSON file'}.`)
+      }).catch((error: unknown) => setShellNotice(error instanceof Error ? error.message : 'Unable to export the wallet backup.'))
+      return
+    }
+    if (action === 'add-address') {
+      void runVaultOperation(() => vaultClient.addAddress(selectedVaultAccount.id))
+      return
+    }
+    const addressId = vaultState.selectedAddressId
+    if (action === 'remove-address' && addressId && window.confirm('Remove this derived address from Home? It can be derived again later.')) {
+      void runVaultOperation(() => vaultClient.removeAddress(addressId))
+    }
+  }
+
   const customNodeDialog = customNetwork ? (
     <div className="home-v2-dialog-backdrop" role="presentation">
       <section
@@ -1064,6 +1411,41 @@ export function HomeV2LiveApp() {
     </div>
   ) : null
 
+  const accountDialogOverlay = accountDialog ? (
+    <AccountDialog
+      accountLabel={dialogVaultAccount?.label}
+      busy={accountDialogBusy}
+      error={accountDialogError}
+      mode={accountDialog.mode}
+      rememberedUnlockAvailable={
+        dialogVaultAccount?.security.rememberUnlock === true &&
+        dialogVaultAccount.security.manuallyLocked === false
+      }
+      suggestedLabel={accountDialog.suggestedLabel}
+      onCancel={() => {
+        if (accountDialog.pendingToken) {
+          void vaultClient?.discardLoadedWallet(accountDialog.pendingToken)
+        }
+        if (accountDialog.permissionRequestId) {
+          const androidResolver = androidUnlockResolvers.current.get(accountDialog.permissionRequestId)
+          if (androidResolver) {
+            androidUnlockResolvers.current.delete(accountDialog.permissionRequestId)
+            androidResolver.reject(new Error('Account unlock was denied.'))
+          } else {
+            window.homeV2Apps?.resolvePermission({
+              approved: false,
+              requestId: accountDialog.permissionRequestId,
+              scope: null,
+            })
+          }
+        }
+        setAccountDialog(null)
+        setAccountDialogError(null)
+      }}
+      onSubmit={submitAccountDialog}
+    />
+  ) : null
+
   const activeNavigation = productState.activeTabId
     ? appNavigation[productState.activeTabId]
     : undefined
@@ -1098,15 +1480,16 @@ export function HomeV2LiveApp() {
       surfaceNotice={
         busyNetwork
           ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
-          : shellNotice ?? 'Live nodes, accounts, and read-only QDN apps'
+          : shellNotice ?? 'Accounts, connections, and QDN apps'
       }
-      overlay={customNodeDialog}
+      overlay={customNodeDialog ?? accountDialogOverlay}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}
       identityLookupInput={identityInput}
       loadVisibleAvatar={loadVisibleAvatar}
       accountCatalogue={accountCatalogue}
+      vaultState={vaultState}
       selectedAccountId={selectedAccountId}
       selectedAccountLookup={selectedAccountLookup}
       appReloadVersion={appReloadVersion}
@@ -1141,9 +1524,74 @@ export function HomeV2LiveApp() {
       }}
       onIdentityLookupSubmit={() => void runIdentityLookup()}
       onSelectAccount={(accountId) => {
+        if (!vaultClient) return
         setUseCatalogueActiveAccount(false)
-        setRestoredAccountId(accountId)
-        void selectAccount(accountId)
+        const account = vaultState.accounts.find((candidate) => candidate.id === accountId)
+        void runVaultOperation(() =>
+          vaultClient.select({
+            accountId,
+            addressId: accountId ? account?.addresses[0]?.id ?? accountId : null,
+          }),
+        )
+      }}
+      onSelectAddress={(addressId) => {
+        if (!vaultClient || !vaultState.selectedAccountId) return
+        void runVaultOperation(() =>
+          vaultClient.select({
+            accountId: vaultState.selectedAccountId,
+            addressId,
+          }),
+        )
+      }}
+      onCreateAccount={() => {
+        setAccountDialogError(null)
+        setAccountDialog({ mode: 'create' })
+      }}
+      onImportAccount={() => void openWalletImport()}
+      onUnlockAccount={() => {
+        setAccountDialogError(null)
+        setAccountDialog({ mode: 'unlock' })
+      }}
+      onLockAccount={() => {
+        if (!vaultClient || !selectedVaultAccount) return
+        setPermissionState((current) => invalidatePermissionState(current, { kind: 'locked' }))
+        androidSessionAccountGrants.current.clear()
+        window.homeV2Apps?.accountLocked()
+        for (const tab of productState.tabs) {
+          const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')
+          if (boundId.startsWith(`${selectedVaultAccount.id}`)) {
+            void window.homeV2Apps?.updateAccountState({
+              accountId: boundId,
+              isUnlocked: false,
+              tabId: tab.id,
+            })
+          }
+        }
+        void runVaultOperation(() => vaultClient.lock(selectedVaultAccount.id))
+      }}
+      onAccountManage={manageAccount}
+      onToggleRememberUnlock={() => {
+        if (!vaultClient || !selectedVaultAccount) return
+        if (selectedVaultAccount.security.rememberUnlock) {
+          void runVaultOperation(() =>
+            vaultClient.updateSecurity({
+              accountId: selectedVaultAccount.id,
+              rememberUnlock: false,
+            }),
+          )
+        } else {
+          setAccountDialogError(null)
+          setAccountDialog({ mode: 'enable-remember' })
+        }
+      }}
+      onToggleLockOnExit={() => {
+        if (!vaultClient || !selectedVaultAccount) return
+        void runVaultOperation(() =>
+          vaultClient.updateSecurity({
+            accountId: selectedVaultAccount.id,
+            lockOnExit: !selectedVaultAccount.security.lockOnExit,
+          }),
+        )
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}

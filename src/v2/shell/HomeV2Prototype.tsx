@@ -11,6 +11,7 @@ import type {
   DualIdentityLookupResult,
   HomeV2AccountCatalogue,
   HomeV2Snapshot,
+  HomeV2VaultState,
   NetworkId,
   NodeConnectionMode,
   VisibleAvatarLoader,
@@ -39,7 +40,14 @@ import type {
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
-export type HomeV2AccountSelection = 'none' | 'current' | 'create' | 'import' | `account:${string}`
+export type HomeV2AccountSelection = 'none' | 'current' | 'create' | 'import' | 'private' | `account:${string}`
+export type HomeV2AccountManageAction =
+  | 'add-address'
+  | 'export'
+  | 'import-private-key'
+  | 'remove-account'
+  | 'remove-address'
+  | 'rename'
 
 export interface HomeV2PrototypeProps {
   readonly snapshot: HomeV2Snapshot
@@ -54,6 +62,7 @@ export interface HomeV2PrototypeProps {
   readonly identityLookupInput?: string
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly accountCatalogue?: HomeV2AccountCatalogue
+  readonly vaultState?: HomeV2VaultState
   readonly selectedAccountId?: string | null
   readonly appReloadVersion?: number
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
@@ -102,6 +111,8 @@ export interface HomeV2PrototypeProps {
   readonly onUnlockAccount?: () => void
   readonly onLockAccount?: () => void
   readonly onSelectAccount?: (accountId: string | null) => void
+  readonly onSelectAddress?: (addressId: string) => void
+  readonly onAccountManage?: (action: HomeV2AccountManageAction) => void
   readonly onCreateAccount?: () => void
   readonly onImportAccount?: () => void
   readonly onToggleRememberUnlock?: () => void
@@ -380,9 +391,12 @@ function AccountCard({
   onCreateAccount,
   onImportAccount,
   accountCatalogue,
+  vaultState,
   selectedAccountId,
   selectedAccountLookup,
   loadVisibleAvatar,
+  onSelectAddress,
+  onAccountManage,
 }: Pick<
   HomeV2PrototypeProps,
   | 'snapshot'
@@ -392,9 +406,12 @@ function AccountCard({
   | 'onCreateAccount'
   | 'onImportAccount'
   | 'accountCatalogue'
+  | 'vaultState'
   | 'selectedAccountId'
   | 'selectedAccountLookup'
   | 'loadVisibleAvatar'
+  | 'onSelectAddress'
+  | 'onAccountManage'
 >) {
   const hasAccount = snapshot.account.state !== 'none'
   const isLocked = snapshot.account.state === 'locked'
@@ -407,6 +424,10 @@ function AccountCard({
       onImportAccount?.()
       return
     }
+    if (selection === 'private') {
+      onAccountManage?.('import-private-key')
+      return
+    }
     if (selection === 'none') {
       onSelectAccount?.(null)
       return
@@ -415,10 +436,13 @@ function AccountCard({
       onSelectAccount?.(selection.slice('account:'.length))
     }
   }
-  const accountOptions = accountCatalogue?.accounts ?? []
-  const selectedValue = accountCatalogue
-    ? selectedAccountId
-      ? `account:${selectedAccountId}`
+  const accountOptions = vaultState?.accounts ?? []
+  const selectedVaultAccount = accountOptions.find(
+    (account) => account.id === vaultState?.selectedAccountId,
+  )
+  const selectedValue = vaultState
+    ? vaultState.selectedAccountId
+      ? `account:${vaultState.selectedAccountId}`
       : 'none'
     : hasAccount
       ? 'current'
@@ -448,10 +472,10 @@ function AccountCard({
           >
             <optgroup label="Accounts">
               <option value="none">No account selected</option>
-              {accountCatalogue ? (
+              {vaultState ? (
                 accountOptions.map((account) => (
                   <option value={`account:${account.id}`} key={account.id}>
-                    {account.label} · {account.address.slice(0, 8)}…
+                    {account.label} · {account.addresses[0]?.address.slice(0, 8)}…
                   </option>
                 ))
               ) : (
@@ -461,6 +485,7 @@ function AccountCard({
             <optgroup label="Account actions">
               <option value="create" disabled={!onCreateAccount}>Create account…</option>
               <option value="import" disabled={!onImportAccount}>Import account…</option>
+              <option value="private" disabled={!onAccountManage}>Import private key…</option>
             </optgroup>
           </select>
         </label>
@@ -489,6 +514,68 @@ function AccountCard({
               : 'Lock account'}
         </button>
       </div>
+      {selectedVaultAccount && selectedVaultAccount.addresses.length > 1 ? (
+        <div className="home-v2-account-secondary-row">
+          <label className="home-v2-account-select">
+            <span>Selected address</span>
+            <select
+              aria-label="Selected address"
+              value={vaultState?.selectedAddressId ?? selectedVaultAccount.addresses[0].id}
+              onChange={(event) => onSelectAddress?.(event.target.value)}
+            >
+              {selectedVaultAccount.addresses.map((address) => (
+                <option key={address.id} value={address.id}>
+                  {address.label} · {address.address.slice(0, 8)}…
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="home-v2-account-select">
+            <span>Manage</span>
+            <select
+              aria-label="Manage account"
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
+                event.target.value = ''
+              }}
+            >
+              <option value="" disabled>Choose an action…</option>
+              <option value="rename">Rename account…</option>
+              <option value="export">Export wallet backup…</option>
+              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>Add address</option>
+              <option value="remove-address" disabled={(vaultState?.selectedAddressId ?? selectedVaultAccount.id) === selectedVaultAccount.id}>Remove selected address…</option>
+              <option value="import-private-key">Import private key…</option>
+              <option value="remove-account">Remove account…</option>
+            </select>
+          </label>
+        </div>
+      ) : selectedVaultAccount ? (
+        <div className="home-v2-account-secondary-row home-v2-account-secondary-row--single">
+          <span className="home-v2-account-address">{selectedVaultAccount.addresses[0]?.address}</span>
+          <label className="home-v2-account-select">
+            <span>Manage</span>
+            <select
+              aria-label="Manage account"
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
+                event.target.value = ''
+              }}
+            >
+              <option value="" disabled>Choose an action…</option>
+              <option value="rename">Rename account…</option>
+              <option value="export">Export wallet backup…</option>
+              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>Add address</option>
+              <option value="import-private-key">Import private key…</option>
+              <option value="remove-account">Remove account…</option>
+            </select>
+          </label>
+        </div>
+      ) : null}
+      {vaultState?.readiness === 'recovery' ? (
+        <p className="home-v2-account-recovery" role="alert">{vaultState.recoveryMessage ?? 'Account changes are unavailable until profile recovery is complete.'}</p>
+      ) : null}
       <div className="home-v2-account-content">
         {hasAccount ? (
           <div className="home-v2-presence-list">

@@ -753,6 +753,124 @@
   gap: 9px;
 }
 
+.home-v2-dialog {
+  display: grid;
+  width: min(460px, 100%);
+  max-block-size: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  gap: 18px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 16px;
+  padding: 22px;
+  color: var(--v2-ink);
+  background: var(--v2-surface);
+  box-shadow: 0 24px 72px rgb(0 0 0 / 26%);
+}
+
+.home-v2-dialog > header,
+.home-v2-dialog footer,
+.home-v2-account-secondary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-v2-dialog h2,
+.home-v2-dialog p {
+  margin: 0;
+}
+
+.home-v2-dialog form,
+.home-v2-dialog form > label {
+  display: grid;
+  gap: 8px;
+}
+
+.home-v2-dialog form {
+  gap: 14px;
+}
+
+.home-v2-dialog form > label > span {
+  color: var(--v2-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.home-v2-dialog input,
+.home-v2-dialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 9px;
+  padding: 10px 11px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  font: inherit;
+  resize: vertical;
+}
+
+.home-v2-dialog-close {
+  border: 0;
+  padding: 4px 8px;
+  color: var(--v2-muted);
+  background: transparent;
+  font-size: 24px;
+}
+
+.home-v2-dialog footer {
+  justify-content: flex-end;
+}
+
+.home-v2-dialog-error,
+.home-v2-account-recovery {
+  color: var(--v2-danger, #a54232);
+  font-size: 12px;
+}
+
+.home-v2-danger-button {
+  border: 1px solid #934337;
+  border-radius: 9px;
+  padding: 9px 13px;
+  color: #fff;
+  background: #934337;
+  font: inherit;
+  font-weight: 750;
+}
+
+.home-v2-checkbox-row {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.home-v2-checkbox-row input {
+  width: auto;
+}
+
+.home-v2-account-secondary-row {
+  min-block-size: 58px;
+  align-items: end;
+  margin-block-start: 10px;
+}
+
+.home-v2-account-secondary-row > * {
+  min-width: 0;
+  flex: 1;
+}
+
+.home-v2-account-secondary-row--single {
+  align-items: center;
+}
+
+.home-v2-account-address {
+  overflow: hidden;
+  color: var(--v2-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .home-v2-node-detail span,
 .home-v2-node-detail small {
   overflow: hidden;

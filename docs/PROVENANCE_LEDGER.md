@@ -33,6 +33,8 @@ implementation. It is an engineering record, not legal advice.
 | QortDEX archive | `bb673a77479e28e252702c65726621f794ad6d67` | No confirmed repo-level license | Wallet/trading concept reference | No | Concept only |
 | Reticulum/RCHAT engine | Hub v3 reference above; packaged dependency provenance not yet frozen | GPL Hub code plus dependency license review required | Optional cross-network native subsystem after protocol and licensing gates | No | Blocked from implementation |
 | Fixture Home v2 foundation | This repository, dedicated `codex/home-v2` commits recorded in the changelog | 0BSD | Runtime-free types, policy, host fakes, Dashboard, launcher, and isolated AppImage preview | Original work | Approved Phase 1 foundation |
+| Production Home 2.0 account shell | This repository, `feat/home-v2-production-account-shell` branch pending review | Repository `LICENSE`: 0BSD | Existing Home wallet format and cryptography behind new grouped account, secure-unlock, recovery, desktop, and Android adapters | Existing project code plus original work | Implemented for review; no GPL implementation copied |
+| yauzl ZIP reader | npm `yauzl@2.10.0`, integrity `sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==` | MIT in package metadata | Existing Core JAR identity reader; now declared as a direct runtime dependency so packaged Home includes it | Existing dependency/API use | Approved and pinned |
 
 ## Addition template
 

@@ -240,6 +240,7 @@ export function AppearanceSettingsPage({
               <input
                 type="checkbox"
                 checked={account.lockOnExit}
+                disabled={!account.rememberUnlock}
                 readOnly={!onToggleLockOnExit}
                 onChange={onToggleLockOnExit}
               />

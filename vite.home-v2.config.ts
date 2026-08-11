@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-const androidBuild = process.env.QORTIUM_HOME_V2_LIVE_ANDROID === '1'
+const androidBuild = process.env.QORTIUM_HOME_ANDROID === '1'
 
 export default defineConfig({
   base: './',
@@ -13,7 +13,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 800,
     emptyOutDir: true,
     modulePreload: { polyfill: false },
-    outDir: resolve(import.meta.dirname, 'dist-v2-live'),
+    outDir: resolve(import.meta.dirname, 'dist'),
     rollupOptions: {
       input: androidBuild
         ? resolve(import.meta.dirname, 'src/home-v2-live/android/index.html')

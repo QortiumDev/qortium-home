@@ -11,7 +11,7 @@ import {
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registerAccountIpcHandlers } from './accounts.js';
+import { autoUnlockHomeV2SelectedAccount, registerAccountIpcHandlers } from './accounts.js';
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import {
   isManagedCoreRuntimeRunning,
@@ -42,6 +42,7 @@ import { registerQdnManagerPermissionStoreIpcHandlers } from './qdn-manager-perm
 import { installNodeTlsForDefaultSessions } from './node-tls.js';
 import { registerSystemIpcHandlers } from './system.js';
 import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
+import { ensureHomeV2ProfileBackup, restoreHomeV2ProfileIfRequested } from './home-v2-profile-recovery.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WINDOW_WIDTH = 1100;
@@ -54,7 +55,7 @@ const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
 const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
-const IS_HOME_V2_LIVE = process.env.QORTIUM_HOME_V2_LIVE === '1';
+const IS_HOME_V2 = process.env.QORTIUM_HOME_V2 === '1';
 
 initZoom({ sync: syncQdnViewsForWindowZoom });
 
@@ -87,6 +88,14 @@ if (USER_DATA_DIR_OVERRIDE) {
 
   migrateUserDataPath(legacyUserDataPath, homeUserDataPath);
   app.setPath('userData', homeUserDataPath);
+}
+
+if (IS_HOME_V2) {
+  try {
+    restoreHomeV2ProfileIfRequested();
+  } catch (error) {
+    console.error('Unable to restore the requested Home profile backup.', error);
+  }
 }
 
 type WindowState = {
@@ -438,23 +447,22 @@ function createWindow(options: CreateWindowOptions = {}) {
     y: windowState?.y,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
-    title: IS_HOME_V2_LIVE ? 'Qortium Home 2 Live Preview' : 'Qortium Home',
+    title: 'Qortium Home',
     icon: getWindowIconPath(),
     backgroundColor: '#121515',
     webPreferences: {
       preload: path.join(
         __dirname,
-        IS_HOME_V2_LIVE ? 'home-v2-live-preload.cjs' : 'preload.cjs',
+        IS_HOME_V2 ? 'home-v2-live-preload.cjs' : 'preload.cjs',
       ),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: IS_HOME_V2_LIVE,
+      sandbox: IS_HOME_V2,
       webviewTag: false,
-      ...(IS_HOME_V2_LIVE ? { partition: 'home-v2-live' } : {}),
     },
   });
 
-  if (IS_HOME_V2_LIVE) {
+  if (IS_HOME_V2) {
     authorizeHomeV2NodeBridge(window.webContents);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-attach-webview', (event) => event.preventDefault());
@@ -553,12 +561,12 @@ function createWindow(options: CreateWindowOptions = {}) {
     void window.loadFile(
       path.join(
         __dirname,
-        IS_HOME_V2_LIVE ? '../dist/v2-live.html' : '../dist/index.html',
+        IS_HOME_V2 ? '../dist/v2-live.html' : '../dist/index.html',
       ),
     );
   } else {
     const developmentUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173';
-    void window.loadURL(IS_HOME_V2_LIVE ? `${developmentUrl}/v2-live.html` : developmentUrl);
+    void window.loadURL(IS_HOME_V2 ? `${developmentUrl}/v2-live.html` : developmentUrl);
   }
 }
 
@@ -831,11 +839,18 @@ app.whenReady().then(() => {
   logStartupMilestone('main process ready');
   installNodeTlsForDefaultSessions();
 
-  if (IS_HOME_V2_LIVE) {
+  if (IS_HOME_V2) {
+    registerAccountIpcHandlers();
     registerHomeV2NodeBridgeIpcHandlers();
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);
+    try {
+      ensureHomeV2ProfileBackup();
+      autoUnlockHomeV2SelectedAccount();
+    } catch (error) {
+      console.error('Home 2.0 profile backup or account auto-unlock was unavailable.', error);
+    }
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

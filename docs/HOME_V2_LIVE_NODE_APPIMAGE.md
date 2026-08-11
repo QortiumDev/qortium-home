@@ -1,5 +1,11 @@
 # Home 2.0 Live Node Preview
 
+> Historical note (2026-08-10): this document describes the retired isolated
+> live-preview artifacts. Home 2.0 now builds through the normal Qortium Home
+> desktop and Android product identities. See ADR 0011 and `docs/PROJECT_PLAN.md`
+> for the production account-shell boundary. The commands and artifact names
+> below are retained only as an acceptance record and no longer exist.
+
 This desktop and Android preview connects the Home v2 Dashboard to real Qortal and Qortium
 node status. It is the first reviewed live-data slice, not a production Home
 replacement.

@@ -240,10 +240,14 @@ import {
   type QdnDisplaySettings,
 } from './qdn';
 import { loadDisplaySettings } from './displaySettings';
+import type { HomeV2VaultClient } from './home-v2-live/vault-client';
+import type { HomeV2VaultState } from './v2/contracts';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
 const NODE_DISCOVERY_CACHE_KEY = 'qortium-home-node-discovery-cache';
 const WALLET_STORE_KEY = 'qortium-home-wallet-store';
+const HOME_V2_ACCOUNT_SECURITY_KEY = 'qortium-home-v2-account-security';
+const MAX_WALLET_IMPORT_BYTES = 1024 * 1024;
 const UPDATE_DOWNLOADS_DIR = 'app-updates';
 const QDN_DOWNLOADS_DIR = 'qdn-downloads';
 const DESKTOP_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
@@ -419,6 +423,18 @@ type QdnFileSaverPlugin = {
 
 type WalletBackupPlugin = {
   saveWallet: (request: { content: string; fileName: string }) => Promise<QortiumWalletBackupResult>;
+};
+
+type HomeV2SecureStoragePlugin = {
+  isAvailable: () => Promise<{ available: boolean }>;
+  remove: (request: { accountId: string }) => Promise<void>;
+  unwrap: (request: { accountId: string }) => Promise<{ value: string | null }>;
+  wrap: (request: { accountId: string; value: string }) => Promise<void>;
+};
+
+type HomeV2ProfileRecoveryPlugin = {
+  ensureBackup: () => Promise<{ createdAtEpochMs: number; ready: boolean }>;
+  requestRestore: () => Promise<void>;
 };
 
 type QdnPublishSourcePlugin = {
@@ -660,6 +676,8 @@ const QORTAL_PUBLIC_NODE_BLOCKCHAIN_INFO: SupportedBlockchainInfo = {
 const UpdateInstaller = registerPlugin<UpdateInstallerPlugin>('UpdateInstaller');
 const QdnFileSaver = registerPlugin<QdnFileSaverPlugin>('QdnFileSaver');
 const WalletBackup = registerPlugin<WalletBackupPlugin>('WalletBackup');
+const HomeV2SecureStorage = registerPlugin<HomeV2SecureStoragePlugin>('HomeV2SecureStorage');
+const HomeV2ProfileRecovery = registerPlugin<HomeV2ProfileRecoveryPlugin>('HomeV2ProfileRecovery');
 const QdnPublishSource = registerPlugin<QdnPublishSourcePlugin>('QdnPublishSource');
 const QdnRenderProxy = registerPlugin<QdnRenderProxyPlugin>('QdnRenderProxy');
 const unlockedWalletSeeds = new Map<string, Uint8Array>();
@@ -1534,18 +1552,26 @@ function normalizeWalletStore(store: WalletStore): WalletStore {
   return {
     version: WALLET_STORE_VERSION,
     wallets: store.wallets,
-    activeAccountId: activeAccount ? store.activeAccountId : store.wallets[0]?.id ?? null,
+    activeAccountId: activeAccount ? store.activeAccountId : null,
   };
 }
 
 function parseWalletStore(value: unknown): WalletStore {
   if (!isRecord(value) || !Array.isArray(value.wallets)) {
-    return createEmptyWalletStore();
+    throw new Error('The saved account store has an invalid structure.');
+  }
+
+  if (value.version !== WALLET_STORE_VERSION) {
+    throw new Error('The saved account store version is not supported.');
+  }
+
+  if (!value.wallets.every(isStoredWallet)) {
+    throw new Error('A saved account is incomplete or invalid.');
   }
 
   return normalizeWalletStore({
     version: WALLET_STORE_VERSION,
-    wallets: value.wallets.filter(isStoredWallet).map((wallet) => ({
+    wallets: value.wallets.map((wallet) => ({
       ...wallet,
       derivedAddresses: sanitizeDerivedAddresses((wallet as Record<string, unknown>).derivedAddresses),
     })),
@@ -1554,13 +1580,15 @@ function parseWalletStore(value: unknown): WalletStore {
 }
 
 async function readWalletStore() {
+  const rawStore = await getStoredValue(WALLET_STORE_KEY);
+  if (!rawStore) return createEmptyWalletStore();
+  let parsed: unknown;
   try {
-    const rawStore = await getStoredValue(WALLET_STORE_KEY);
-
-    return rawStore ? parseWalletStore(JSON.parse(rawStore) as unknown) : createEmptyWalletStore();
+    parsed = JSON.parse(rawStore) as unknown;
   } catch {
-    return createEmptyWalletStore();
+    throw new Error('The saved account store is not valid JSON.');
   }
+  return parseWalletStore(parsed);
 }
 
 async function accountExists(accountId: string) {
@@ -1923,23 +1951,21 @@ function decodePrivateKeyInput(privateKey58: string) {
 
 async function getAddressFromPrivateKey(privateKey58: string) {
   const privateKey = decodePrivateKeyInput(privateKey58);
-  const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
-
-  return publicKeyToAddress(keyPair.publicKey);
+  try {
+    const keyPair = nacl.sign.keyPair.fromSeed(privateKey);
+    return publicKeyToAddress(keyPair.publicKey);
+  } finally {
+    privateKey.fill(0);
+  }
 }
 
-async function decryptWalletSeed(password: string, wallet: EncryptedWallet) {
-  if (!password) {
-    throw new Error('Enter the wallet password.');
-  }
-
+function decryptWalletWithKey(key: Uint8Array, wallet: EncryptedWallet) {
   try {
     const encryptedSeed = base58Decode(wallet.encryptedSeed);
     const iv = base58Decode(wallet.iv);
 
     base58Decode(wallet.salt);
 
-    const key = await deriveWalletKey(password);
     const encryptionKey = key.slice(0, 32);
     const macKey = key.slice(32, 63);
     const mac = new HmacSha512(macKey).process(encryptedSeed).finish().result;
@@ -1961,6 +1987,16 @@ async function decryptWalletSeed(password: string, wallet: EncryptedWallet) {
     }
 
     throw new Error('Unable to unlock wallet.');
+  }
+}
+
+async function decryptWalletSeed(password: string, wallet: EncryptedWallet) {
+  if (!password) throw new Error('Enter the wallet password.');
+  const key = await deriveWalletKey(password);
+  try {
+    return decryptWalletWithKey(key, wallet);
+  } finally {
+    key.fill(0);
   }
 }
 
@@ -2050,6 +2086,11 @@ async function selectJsonFile() {
         return;
       }
 
+      if (file.size > MAX_WALLET_IMPORT_BYTES) {
+        fail(new Error('Wallet files must be 1 MiB or smaller.'));
+        return;
+      }
+
       file
         .text()
         .then((text) => settle({ filename: file.name || 'wallet.json', text }))
@@ -2083,7 +2124,9 @@ async function selectWalletFile(): Promise<QortiumSelectWalletResult> {
     throw new Error('Unable to read the selected wallet file.');
   }
 
-  const encryptedWallet = assertEncryptedWallet(parsedWallet);
+  const encryptedWallet = assertEncryptedWallet(
+    isRecord(parsedWallet) && 'wallet' in parsedWallet ? parsedWallet.wallet : parsedWallet,
+  );
   const id = getWalletId(encryptedWallet);
   const existingWallet = (await readWalletStore()).wallets.find((wallet) => wallet.id === id);
   const token = createToken();
@@ -2259,6 +2302,8 @@ async function importPrivateKeyWallet(
   }
 
   const privateKey = decodePrivateKeyInput(privateKey58);
+  let retainPrivateKey = false;
+  try {
   const address0 = await getAddressFromPrivateKey(privateKey58);
   const encryptedWallet = await encryptWalletPayload(
     privateKey,
@@ -2272,6 +2317,7 @@ async function importPrivateKeyWallet(
   );
 
   if (backupResult.canceled) {
+    privateKey.fill(0);
     return {
       canceled: true,
       ...toAccountsState(await readWalletStore()),
@@ -2303,12 +2349,16 @@ async function importPrivateKeyWallet(
 
   store.activeAccountId = id;
   unlockedWalletSeeds.set(id, privateKey);
+  retainPrivateKey = true;
   await writeWalletStore(store);
 
   return {
     canceled: false,
     ...toAccountsState(store),
   };
+  } finally {
+    if (!retainPrivateKey) privateKey.fill(0);
+  }
 }
 
 async function exportWallet(accountId: string) {
@@ -2327,6 +2377,22 @@ async function setActiveAccount(accountId: string) {
   store.activeAccountId = accountId;
   await writeWalletStore(store);
 
+  return toAccountsState(store);
+}
+
+async function clearActiveAccount() {
+  const store = await readWalletStore();
+  store.activeAccountId = null;
+  await writeWalletStore(store);
+  return toAccountsState(store);
+}
+
+async function renameAccount(accountId: string, label: string) {
+  const store = await readWalletStore();
+  const { wallet } = requireWalletAccount(store, accountId);
+  wallet.label = assertValidWalletName(label, store, wallet.id);
+  wallet.updatedAt = new Date().toISOString();
+  await writeWalletStore(store);
   return toAccountsState(store);
 }
 
@@ -7296,6 +7362,8 @@ function createStoredAccountsApi(): PlatformApi['accounts'] {
     importPrivateKeyWallet,
     exportWallet,
     setActiveAccount,
+    clearActiveAccount,
+    renameAccount,
     addDerivedAddress,
     unlockWallet,
     lockWallet,
@@ -11952,6 +12020,314 @@ function createFallbackApi(): PlatformApi {
 
         await QdnFileSaver.openSavedFile({ uri: request.uri, mimeType: request.mimeType });
       },
+    },
+  };
+}
+
+type AndroidHomeV2Security = {
+  lockOnExit: boolean;
+  manuallyLocked: boolean;
+  rememberUnlock: boolean;
+};
+
+type AndroidHomeV2SecurityStore = {
+  accounts: Record<string, AndroidHomeV2Security>;
+  version: 1;
+};
+
+const DEFAULT_ANDROID_HOME_V2_SECURITY: AndroidHomeV2Security = {
+  lockOnExit: true,
+  manuallyLocked: false,
+  rememberUnlock: false,
+};
+
+async function readAndroidHomeV2SecurityStore(): Promise<AndroidHomeV2SecurityStore> {
+  try {
+    const raw = await getStoredValue(HOME_V2_ACCOUNT_SECURITY_KEY);
+    if (!raw) return { accounts: {}, version: 1 };
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value) || !isRecord(value.accounts)) return { accounts: {}, version: 1 };
+    const accounts: Record<string, AndroidHomeV2Security> = {};
+    for (const [accountId, candidate] of Object.entries(value.accounts)) {
+      if (!isRecord(candidate)) continue;
+      accounts[accountId] = {
+        lockOnExit: candidate.lockOnExit !== false,
+        manuallyLocked: candidate.manuallyLocked === true,
+        rememberUnlock: candidate.rememberUnlock === true,
+      };
+    }
+    return { accounts, version: 1 };
+  } catch {
+    return { accounts: {}, version: 1 };
+  }
+}
+
+async function writeAndroidHomeV2SecurityStore(store: AndroidHomeV2SecurityStore) {
+  await setStoredValue(HOME_V2_ACCOUNT_SECURITY_KEY, JSON.stringify(store));
+}
+
+function androidHomeV2Security(store: AndroidHomeV2SecurityStore, accountId: string) {
+  return store.accounts[accountId] ?? { ...DEFAULT_ANDROID_HOME_V2_SECURITY };
+}
+
+let androidHomeV2RecoveryMessage: string | null = null;
+
+async function buildAndroidHomeV2VaultState(): Promise<HomeV2VaultState> {
+  if (androidHomeV2RecoveryMessage) {
+    return {
+      accounts: [],
+      readiness: 'recovery',
+      recoveryMessage: androidHomeV2RecoveryMessage,
+      secureStorageAvailable: false,
+      selectedAccountId: null,
+      selectedAddressId: null,
+      version: 2,
+    };
+  }
+  try {
+    const [store, securityStore, storage] = await Promise.all([
+      readWalletStore(),
+      readAndroidHomeV2SecurityStore(),
+      HomeV2SecureStorage.isAvailable().catch(() => ({ available: false })),
+    ]);
+    const selected = store.activeAccountId
+      ? resolveWalletAccount(store.wallets, store.activeAccountId)
+      : null;
+    return {
+      accounts: store.wallets.map((wallet) => ({
+        addresses: [
+          { address: wallet.address, id: wallet.id, index: 0, label: 'Primary address' },
+          ...wallet.derivedAddresses.map((derived) => ({
+            address: derived.address,
+            id: getDerivedAccountId(wallet.id, derived.index),
+            index: derived.index,
+            label: `Address ${derived.index + 1}`,
+          })),
+        ],
+        id: wallet.id,
+        isUnlocked: unlockedWalletSeeds.has(wallet.id),
+        label: wallet.label,
+        security: androidHomeV2Security(securityStore, wallet.id),
+        supportsDerivedAddresses: !isPrivateKeyWallet(wallet.encryptedWallet),
+      })),
+      readiness: 'ready',
+      recoveryMessage: null,
+      secureStorageAvailable: storage.available === true,
+      selectedAccountId: selected?.wallet.id ?? null,
+      selectedAddressId: store.activeAccountId,
+      version: 2,
+    };
+  } catch (error) {
+    return {
+      accounts: [],
+      readiness: 'recovery',
+      recoveryMessage: error instanceof Error ? error.message : 'Home could not validate the saved account store.',
+      secureStorageAvailable: false,
+      selectedAccountId: null,
+      selectedAddressId: null,
+      version: 2,
+    };
+  }
+}
+
+let androidHomeV2AutoUnlockAttempted = false;
+
+export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
+  const prepareMutation = async () => {
+    try {
+      await HomeV2ProfileRecovery.ensureBackup();
+      androidHomeV2RecoveryMessage = null;
+    } catch (error) {
+      androidHomeV2RecoveryMessage = error instanceof Error
+        ? error.message
+        : 'Home could not create or verify its profile backup.';
+      throw error;
+    }
+    const state = await buildAndroidHomeV2VaultState();
+    if (state.readiness !== 'ready') throw new Error('Account changes are unavailable until profile recovery is complete.');
+  };
+  const unlockWithRequest = async (request: {
+    accountId: string;
+    password?: string;
+    useRememberedUnlock?: boolean;
+  }) => {
+    await prepareMutation();
+    const store = await readWalletStore();
+    const { wallet } = requireWalletAccount(store, request.accountId);
+    let key: Uint8Array | null = null;
+    let seed: Uint8Array | null = null;
+    try {
+      if (request.password) {
+        key = await deriveWalletKey(request.password);
+      } else if (request.useRememberedUnlock) {
+        const result = await HomeV2SecureStorage.unwrap({ accountId: wallet.id });
+        if (result.value) {
+          key = base64ToBytes(result.value);
+        } else {
+          const securityStore = await readAndroidHomeV2SecurityStore();
+          const security = androidHomeV2Security(securityStore, wallet.id);
+          security.rememberUnlock = false;
+          security.lockOnExit = true;
+          securityStore.accounts[wallet.id] = security;
+          await writeAndroidHomeV2SecurityStore(securityStore);
+        }
+      }
+      if (!key || key.byteLength !== 64) throw new Error('Enter the account password.');
+      seed = decryptWalletWithKey(key, wallet.encryptedWallet);
+      forgetUnlockedWalletSeed(wallet.id);
+      unlockedWalletSeeds.set(wallet.id, seed);
+      seed = null;
+      const securityStore = await readAndroidHomeV2SecurityStore();
+      const security = androidHomeV2Security(securityStore, wallet.id);
+      security.manuallyLocked = false;
+      securityStore.accounts[wallet.id] = security;
+      if (request.password && security.rememberUnlock) {
+        await HomeV2SecureStorage.wrap({ accountId: wallet.id, value: bytesToBase64(key) });
+      }
+      await writeAndroidHomeV2SecurityStore(securityStore);
+      return buildAndroidHomeV2VaultState();
+    } finally {
+      key?.fill(0);
+      seed?.fill(0);
+    }
+  };
+  return {
+    async getState() {
+      if (!androidHomeV2AutoUnlockAttempted) {
+        androidHomeV2AutoUnlockAttempted = true;
+        try {
+          await HomeV2ProfileRecovery.ensureBackup();
+          androidHomeV2RecoveryMessage = null;
+        } catch (error) {
+          androidHomeV2RecoveryMessage = error instanceof Error
+            ? error.message
+            : 'Home could not create or verify its profile backup.';
+        }
+        if (!androidHomeV2RecoveryMessage) {
+          try {
+          const store = await readWalletStore();
+          const selected = store.activeAccountId ? resolveWalletAccount(store.wallets, store.activeAccountId) : null;
+          if (selected) {
+            const securityStore = await readAndroidHomeV2SecurityStore();
+            const security = androidHomeV2Security(securityStore, selected.wallet.id);
+            if (security.rememberUnlock && !security.lockOnExit && !security.manuallyLocked) {
+              await unlockWithRequest({ accountId: selected.wallet.id, useRememberedUnlock: true });
+            }
+          }
+          } catch {
+            // A missing or invalid remembered key falls back to password unlock.
+          }
+        }
+      }
+      return buildAndroidHomeV2VaultState();
+    },
+    async select({ accountId, addressId }) {
+      await prepareMutation();
+      const store = await readWalletStore();
+      if (accountId === null) {
+        if (addressId !== null) throw new Error('An address cannot be selected without an account.');
+        store.activeAccountId = null;
+      } else {
+        const account = store.wallets.find((wallet) => wallet.id === accountId);
+        if (!account) throw new Error('Selected account is not saved.');
+        const selectedAddressId = addressId ?? account.id;
+        const selected = requireWalletAccount(store, selectedAddressId);
+        if (selected.wallet.id !== account.id) throw new Error('Selected address does not belong to the selected account.');
+        store.activeAccountId = selectedAddressId;
+      }
+      await writeWalletStore(store);
+      return buildAndroidHomeV2VaultState();
+    },
+    selectWalletFile,
+    discardLoadedWallet: async (token) => discardLoadedWallet(token),
+    async saveLoadedWallet({ label, token }) {
+      await prepareMutation();
+      await saveLoadedWallet(token, label);
+      return buildAndroidHomeV2VaultState();
+    },
+    async create(request) {
+      if (!request.password || request.password !== request.passwordConfirmation) throw new Error('Passwords do not match.');
+      await prepareMutation();
+      const result = await createWallet(request.label, request.password);
+      return { canceled: result.canceled, state: await buildAndroidHomeV2VaultState() };
+    },
+    getPrivateKeyAddress: getAddressFromPrivateKey,
+    async importPrivateKey(request) {
+      if (!request.password || request.password !== request.passwordConfirmation) throw new Error('Passwords do not match.');
+      await prepareMutation();
+      const result = await importPrivateKeyWallet(request.label, request.privateKey, request.password);
+      return { canceled: result.canceled, state: await buildAndroidHomeV2VaultState() };
+    },
+    exportAccount: exportWallet,
+    async rename({ accountId, label }) {
+      await prepareMutation();
+      await renameAccount(accountId, label);
+      return buildAndroidHomeV2VaultState();
+    },
+    async addAddress(accountId) {
+      await prepareMutation();
+      await addDerivedAddress(accountId);
+      return buildAndroidHomeV2VaultState();
+    },
+    async removeAddress(addressId) {
+      await prepareMutation();
+      await removeWallet(addressId);
+      return buildAndroidHomeV2VaultState();
+    },
+    async removeAccount({ accountId, password }) {
+      await prepareMutation();
+      await removeWallet(accountId, password);
+      await HomeV2SecureStorage.remove({ accountId }).catch(() => undefined);
+      const securityStore = await readAndroidHomeV2SecurityStore();
+      delete securityStore.accounts[accountId];
+      await writeAndroidHomeV2SecurityStore(securityStore);
+      return buildAndroidHomeV2VaultState();
+    },
+    unlock: unlockWithRequest,
+    async lock(accountId) {
+      await prepareMutation();
+      const store = await readWalletStore();
+      const { wallet } = requireWalletAccount(store, accountId);
+      forgetUnlockedWalletSeed(wallet.id);
+      const securityStore = await readAndroidHomeV2SecurityStore();
+      const security = androidHomeV2Security(securityStore, wallet.id);
+      security.manuallyLocked = true;
+      securityStore.accounts[wallet.id] = security;
+      await writeAndroidHomeV2SecurityStore(securityStore);
+      return buildAndroidHomeV2VaultState();
+    },
+    async updateSecurity(request) {
+      await prepareMutation();
+      const store = await readWalletStore();
+      const { wallet } = requireWalletAccount(store, request.accountId);
+      const securityStore = await readAndroidHomeV2SecurityStore();
+      const security = androidHomeV2Security(securityStore, wallet.id);
+      let key: Uint8Array | null = null;
+      try {
+        if (request.rememberUnlock === true) {
+          if (!request.password) throw new Error('Enter the account password to enable remembered unlock.');
+          key = await deriveWalletKey(request.password);
+          const seed = decryptWalletWithKey(key, wallet.encryptedWallet);
+          seed.fill(0);
+          await HomeV2SecureStorage.wrap({ accountId: wallet.id, value: bytesToBase64(key) });
+          security.rememberUnlock = true;
+          security.manuallyLocked = false;
+        } else if (request.rememberUnlock === false) {
+          await HomeV2SecureStorage.remove({ accountId: wallet.id });
+          security.rememberUnlock = false;
+          security.lockOnExit = true;
+        }
+        if (typeof request.lockOnExit === 'boolean') security.lockOnExit = request.lockOnExit;
+        securityStore.accounts[wallet.id] = security;
+        await writeAndroidHomeV2SecurityStore(securityStore);
+        return buildAndroidHomeV2VaultState();
+      } finally {
+        key?.fill(0);
+      }
+    },
+    async requestRestore() {
+      await HomeV2ProfileRecovery.requestRestore();
+      return { restartRequired: true };
     },
   };
 }

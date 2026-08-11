@@ -35,11 +35,41 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
 })
 
+contextBridge.exposeInMainWorld('homeV2Vault', {
+  addAddress: (accountId: string) => ipcRenderer.invoke('home-v2-vault:addAddress', accountId),
+  create: (request: unknown) => ipcRenderer.invoke('home-v2-vault:create', request),
+  discardLoadedWallet: (token: string) =>
+    ipcRenderer.invoke('home-v2-vault:discardLoadedWallet', token),
+  exportAccount: (accountId: string) => ipcRenderer.invoke('home-v2-vault:export', accountId),
+  getPrivateKeyAddress: (privateKey: string) =>
+    ipcRenderer.invoke('home-v2-vault:getPrivateKeyAddress', privateKey),
+  getState: () => ipcRenderer.invoke('home-v2-vault:getState'),
+  importPrivateKey: (request: unknown) =>
+    ipcRenderer.invoke('home-v2-vault:importPrivateKey', request),
+  lock: (accountId: string) => ipcRenderer.invoke('home-v2-vault:lock', accountId),
+  removeAccount: (request: unknown) =>
+    ipcRenderer.invoke('home-v2-vault:removeAccount', request),
+  removeAddress: (addressId: string) =>
+    ipcRenderer.invoke('home-v2-vault:removeAddress', addressId),
+  rename: (request: unknown) => ipcRenderer.invoke('home-v2-vault:rename', request),
+  requestRestore: () => ipcRenderer.invoke('home-v2-vault:requestRestore'),
+  saveLoadedWallet: (request: unknown) =>
+    ipcRenderer.invoke('home-v2-vault:saveLoadedWallet', request),
+  select: (request: unknown) => ipcRenderer.invoke('home-v2-vault:select', request),
+  selectWalletFile: () => ipcRenderer.invoke('home-v2-vault:selectWalletFile'),
+  unlock: (request: unknown) => ipcRenderer.invoke('home-v2-vault:unlock', request),
+  updateSecurity: (request: unknown) =>
+    ipcRenderer.invoke('home-v2-vault:updateSecurity', request),
+})
+
 contextBridge.exposeInMainWorld('homeV2Apps', {
+  accountLocked: () => ipcRenderer.send('home-v2-app:account-locked'),
   destroy: (request: unknown) => ipcRenderer.invoke('qdn-views:destroy', request),
   hide: (request: unknown) => ipcRenderer.invoke('qdn-views:hide', request),
   navigate: (request: unknown) => ipcRenderer.invoke('qdn-views:navigate', request),
   reload: (request: unknown) => ipcRenderer.invoke('qdn-views:reload', request),
+  updateAccountState: (request: unknown) =>
+    ipcRenderer.invoke('qdn-views:updateAccountState', request),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
   resolvePermission: (request: unknown) =>
     ipcRenderer.send('home-v2-app:permission-resolve', request),

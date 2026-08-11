@@ -84,6 +84,68 @@ export interface HomeV2AccountCatalogue {
   readonly activeAccountId: string | null
 }
 
+export type HomeV2VaultReadiness = 'ready' | 'recovery'
+
+export interface HomeV2VaultAddressSummary {
+  readonly address: string
+  readonly id: string
+  readonly index: number
+  readonly label: string
+}
+
+export interface HomeV2AccountSecuritySummary {
+  readonly lockOnExit: boolean
+  readonly manuallyLocked: boolean
+  readonly rememberUnlock: boolean
+}
+
+export interface HomeV2VaultAccountSummary {
+  readonly addresses: readonly HomeV2VaultAddressSummary[]
+  readonly id: string
+  readonly isUnlocked: boolean
+  readonly label: string
+  readonly security: HomeV2AccountSecuritySummary
+  readonly supportsDerivedAddresses: boolean
+}
+
+/**
+ * Sanitized account state exposed to the Home renderer. Encrypted wallet data,
+ * source filenames, passwords, KDF output, seeds, and private keys must never
+ * be added to this contract.
+ */
+export interface HomeV2VaultState {
+  readonly accounts: readonly HomeV2VaultAccountSummary[]
+  readonly recoveryMessage: string | null
+  readonly readiness: HomeV2VaultReadiness
+  readonly secureStorageAvailable: boolean
+  readonly selectedAccountId: string | null
+  readonly selectedAddressId: string | null
+  readonly version: 2
+}
+
+export interface HomeV2CreateAccountRequest {
+  readonly label: string
+  readonly password: string
+  readonly passwordConfirmation: string
+}
+
+export interface HomeV2ImportPrivateKeyRequest
+  extends HomeV2CreateAccountRequest {
+  readonly privateKey: string
+}
+
+export interface HomeV2UnlockAccountRequest {
+  readonly accountId: string
+  readonly password?: string
+  readonly useRememberedUnlock?: boolean
+}
+
+export interface HomeV2AccountSecurityUpdate {
+  readonly accountId: string
+  readonly lockOnExit?: boolean
+  readonly rememberUnlock?: boolean
+}
+
 export interface NetworkIdentityLookup {
   readonly address: string | null
   readonly avatar: IdentityAvatarPointer | null
