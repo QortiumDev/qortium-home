@@ -25,7 +25,25 @@ import {
   getGroupAvatarRetryAfterSeconds,
   GROUP_AVATAR_MAX_BYTES,
 } from './qdn-group-avatar-input.js'
-import { getHomeV2AccountCatalogue } from './accounts.js'
+import {
+  addDerivedAddress,
+  createWallet,
+  discardLoadedWallet,
+  exportWallet,
+  getAddressFromPrivateKey,
+  getHomeV2AccountCatalogue,
+  getHomeV2VaultState,
+  importPrivateKeyWallet,
+  lockHomeV2Account,
+  removeWallet,
+  renameHomeV2Account,
+  saveLoadedWallet,
+  selectHomeV2Account,
+  selectWalletFile,
+  unlockHomeV2Account,
+  updateHomeV2SecuritySettings,
+} from './accounts.js'
+import { ensureHomeV2ProfileBackup, requestHomeV2ProfileRestore } from './home-v2-profile-recovery.js'
 import {
   readHomeV2ShellState,
   writeHomeV2ShellState,
@@ -72,6 +90,31 @@ function booleanField(value: unknown, key: string) {
 function assertAuthorized(sender: WebContents) {
   if (!authorizedSenderIds.has(sender.id)) {
     throw new Error('Home v2 node data is only available to an authorized Home v2 window.')
+  }
+}
+
+function requiredString(value: unknown, field: string, maxLength = 240) {
+  if (typeof value !== 'string' || !value.trim() || value.length > maxLength) {
+    throw new Error(`${field} is required.`)
+  }
+  return value.trim()
+}
+
+function nullableId(value: unknown, field: string) {
+  if (value === null) return null
+  return requiredString(value, field)
+}
+
+function assertMatchingPasswords(password: unknown, confirmation: unknown) {
+  const nextPassword = requiredString(password, 'Password', 1_000)
+  if (nextPassword !== confirmation) throw new Error('Passwords do not match.')
+  return nextPassword
+}
+
+function prepareAccountMutation() {
+  ensureHomeV2ProfileBackup()
+  if (getHomeV2VaultState().readiness !== 'ready') {
+    throw new Error('Account changes are unavailable until profile recovery is complete.')
   }
 }
 
@@ -577,6 +620,128 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle('home-v2-accounts:list', (event) => {
     assertAuthorized(event.sender)
     return getHomeV2AccountCatalogue()
+  })
+  ipcMain.handle('home-v2-vault:getState', (event) => {
+    assertAuthorized(event.sender)
+    return getHomeV2VaultState()
+  })
+  ipcMain.handle('home-v2-vault:select', (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Account selection is required.')
+    prepareAccountMutation()
+    return selectHomeV2Account(
+      nullableId(value.accountId, 'Account'),
+      nullableId(value.addressId, 'Address'),
+    )
+  })
+  ipcMain.handle('home-v2-vault:selectWalletFile', (event) => {
+    assertAuthorized(event.sender)
+    return selectWalletFile(event)
+  })
+  ipcMain.handle('home-v2-vault:discardLoadedWallet', (event, token: unknown) => {
+    assertAuthorized(event.sender)
+    discardLoadedWallet(requiredString(token, 'Import token'))
+  })
+  ipcMain.handle('home-v2-vault:saveLoadedWallet', (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Wallet import details are required.')
+    prepareAccountMutation()
+    saveLoadedWallet(
+      requiredString(value.token, 'Import token'),
+      requiredString(value.label, 'Account label', 120),
+    )
+    return getHomeV2VaultState()
+  })
+  ipcMain.handle('home-v2-vault:create', async (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('New account details are required.')
+    const password = assertMatchingPasswords(value.password, value.passwordConfirmation)
+    prepareAccountMutation()
+    const result = await createWallet(event, requiredString(value.label, 'Account label', 120), password)
+    return { canceled: result.canceled, state: getHomeV2VaultState() }
+  })
+  ipcMain.handle('home-v2-vault:getPrivateKeyAddress', (event, privateKey: unknown) => {
+    assertAuthorized(event.sender)
+    return getAddressFromPrivateKey(requiredString(privateKey, 'Private key', 256))
+  })
+  ipcMain.handle('home-v2-vault:importPrivateKey', async (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Private-key import details are required.')
+    const password = assertMatchingPasswords(value.password, value.passwordConfirmation)
+    prepareAccountMutation()
+    const result = await importPrivateKeyWallet(
+      event,
+      requiredString(value.label, 'Account label', 120),
+      requiredString(value.privateKey, 'Private key', 256),
+      password,
+    )
+    return { canceled: result.canceled, state: getHomeV2VaultState() }
+  })
+  ipcMain.handle('home-v2-vault:export', async (event, accountId: unknown) => {
+    assertAuthorized(event.sender)
+    return exportWallet(event, requiredString(accountId, 'Account'))
+  })
+  ipcMain.handle('home-v2-vault:rename', (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Account rename details are required.')
+    prepareAccountMutation()
+    return renameHomeV2Account(
+      requiredString(value.accountId, 'Account'),
+      requiredString(value.label, 'Account label', 120),
+    )
+  })
+  ipcMain.handle('home-v2-vault:addAddress', (event, accountId: unknown) => {
+    assertAuthorized(event.sender)
+    prepareAccountMutation()
+    addDerivedAddress(requiredString(accountId, 'Account'))
+    return getHomeV2VaultState()
+  })
+  ipcMain.handle('home-v2-vault:removeAddress', async (event, addressId: unknown) => {
+    assertAuthorized(event.sender)
+    prepareAccountMutation()
+    await removeWallet(requiredString(addressId, 'Address'))
+    return getHomeV2VaultState()
+  })
+  ipcMain.handle('home-v2-vault:removeAccount', async (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Account removal details are required.')
+    prepareAccountMutation()
+    await removeWallet(
+      requiredString(value.accountId, 'Account'),
+      typeof value.password === 'string' ? value.password : undefined,
+    )
+    return getHomeV2VaultState()
+  })
+  ipcMain.handle('home-v2-vault:unlock', async (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Account unlock details are required.')
+    prepareAccountMutation()
+    return unlockHomeV2Account({
+      accountId: requiredString(value.accountId, 'Account'),
+      password: typeof value.password === 'string' ? value.password : undefined,
+      useRememberedUnlock: value.useRememberedUnlock === true,
+    })
+  })
+  ipcMain.handle('home-v2-vault:lock', (event, accountId: unknown) => {
+    assertAuthorized(event.sender)
+    prepareAccountMutation()
+    return lockHomeV2Account(requiredString(accountId, 'Account'), true)
+  })
+  ipcMain.handle('home-v2-vault:updateSecurity', async (event, value: unknown) => {
+    assertAuthorized(event.sender)
+    if (!isRecord(value)) throw new Error('Account security settings are required.')
+    prepareAccountMutation()
+    return updateHomeV2SecuritySettings({
+      accountId: requiredString(value.accountId, 'Account'),
+      lockOnExit: typeof value.lockOnExit === 'boolean' ? value.lockOnExit : undefined,
+      password: typeof value.password === 'string' ? value.password : undefined,
+      rememberUnlock: typeof value.rememberUnlock === 'boolean' ? value.rememberUnlock : undefined,
+    })
+  })
+  ipcMain.handle('home-v2-vault:requestRestore', (event) => {
+    assertAuthorized(event.sender)
+    requestHomeV2ProfileRestore()
+    return { restartRequired: true }
   })
   ipcMain.handle(
     'home-v2-nodes:listAppResources',

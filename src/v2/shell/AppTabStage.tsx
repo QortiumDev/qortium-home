@@ -165,9 +165,13 @@ function AndroidAppStage(props: AppTabStageProps) {
 
       if (data.type !== 'qortium:qdn-request' || typeof data.requestId !== 'string') return
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
+      const identityId = String(resolved?.tab.context.identityId ?? '')
+      const launchAccountId = identityId.startsWith('home-v2:identity:')
+        ? identityId.slice('home-v2:identity:'.length)
+        : null
       const context: HomeV2AppRequestContext = {
         resourceLocation: resolved?.tab.context.resourceLocation ?? '',
-        selectedAccountId: props.selectedAccountId ?? null,
+        selectedAccountId: launchAccountId === 'none' ? null : launchAccountId,
         tabId: resolved?.tab.id ?? '',
       }
       const request = props.requestApp
@@ -203,7 +207,6 @@ function AndroidAppStage(props: AppTabStageProps) {
     props.onOpenAddress,
     props.onTitleChanged,
     props.requestApp,
-    props.selectedAccountId,
     resolved,
     source,
     token,
@@ -284,10 +287,12 @@ export function AppTabStage(props: AppTabStageProps) {
 declare global {
   interface Window {
     homeV2Apps?: {
+      accountLocked(): void
       destroy(request: { tabId: string }): Promise<void>
       hide(request: { tabId: string }): Promise<void>
       navigate(request: { index: number; tabId: string }): Promise<boolean>
       reload(request: { tabId: string }): Promise<boolean>
+      updateAccountState(request: { accountId: string; isUnlocked: boolean; tabId: string }): Promise<void>
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void

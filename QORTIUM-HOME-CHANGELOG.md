@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-10 - feat: make Home 2.0 the production account shell
+
+Makes the browser-style Home 2.0 interface the normal Qortium Home application
+on desktop and Android, upgrading under the existing product IDs rather than
+installing a separate preview. Accounts are now shown as one encrypted wallet
+with a separate address selector, and Home can create, import, export, rename,
+unlock, lock, derive, and remove accounts or addresses through trusted Home UI.
+An optional remembered unlock stores only device-wrapped key material; lock on
+exit remains the default, and a manual lock always requires an explicit unlock.
+
+Before Home 2.0 changes account state, it creates and verifies a curated profile
+backup. Invalid stores or failed backup verification put account controls into
+read-only recovery mode, with restoration applied on restart. Qortium apps may
+request `UNLOCK_SELECTED_ACCOUNT`, but Home owns the visible password prompt,
+rechecks the exact app, tab, account, and route before completing it, and never
+returns private key material. Qortal apps do not receive this Qortium-specific
+action. Signing, payments, publishing, broader bridge actions, Core lifecycle
+UI, notifications, downloads, Reticulum, and release publication remain outside
+this change. Packaged acceptance exercised a cloned production profile, strict
+malformed-store recovery, the real desktop profile backup, and an in-place
+Android code-36 to code-37 upgrade with a separately preserved pre-upgrade
+preferences archive.
+
 ### 2026-08-10 - Home 2.0 read-only browser shell foundation
 
 Establishes the accepted Home 2.0 direction as a warm, compact browser-style

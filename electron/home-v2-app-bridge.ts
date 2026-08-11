@@ -36,7 +36,7 @@ import { getAccountProfile, isAccountUnlocked } from './accounts.js'
 
 export { getHomeV2AppActions as getHomeV2ReadOnlyAppActions }
 
-type AccountReadAction = 'GET_SELECTED_ACCOUNT' | 'GET_USER_ACCOUNT'
+type AccountReadAction = 'GET_SELECTED_ACCOUNT' | 'GET_USER_ACCOUNT' | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'session' | 'single-request' | null
@@ -128,7 +128,11 @@ async function requireAccountReadPermission(
   if (!freshContext || !sameViewContext(context, freshContext)) {
     throw new Error('Account access context changed before approval completed.')
   }
-  if (isAccountUnlocked(context.accountId) !== accountUnlocked) {
+  if (action === 'UNLOCK_SELECTED_ACCOUNT') {
+    if (!isAccountUnlocked(context.accountId)) {
+      throw new Error('The account was not unlocked.')
+    }
+  } else if (isAccountUnlocked(context.accountId) !== accountUnlocked) {
     throw new Error('Account lock state changed before approval completed.')
   }
   const nodeAfter = await getHomeV2ReadableNode(targetNetwork)
@@ -344,7 +348,7 @@ async function handleRequest(
       hostName: 'qortium-home',
       hostVersion: app.getVersion(),
       platform: 'desktop',
-      platformVersion: '2.0-preview',
+      platformVersion: '2.0',
     }
   }
   const network = getHomeV2AppNetwork(protocol, action)
@@ -382,6 +386,17 @@ async function handleRequest(
       avatarContract: 'pointer-aware-account-avatar-v1',
       avatarUrl: null,
       isUnlocked: isAccountUnlocked(context.accountId as string),
+      name: profile.name,
+    }
+  }
+  if (action === 'UNLOCK_SELECTED_ACCOUNT') {
+    await requireAccountReadPermission(sender, context, protocol, action)
+    const profile = await getAccountProfile(context.accountId as string)
+    return {
+      address: profile.address,
+      avatarContract: 'pointer-aware-account-avatar-v1',
+      avatarUrl: null,
+      isUnlocked: true,
       name: profile.name,
     }
   }
@@ -468,6 +483,15 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  ipcMain.on('home-v2-app:account-locked', (event) => {
+    sessionAccountReadGrants.clear()
+    for (const [requestId, pending] of pendingAccountReads) {
+      if (pending.hostWebContentsId !== event.sender.id) continue
+      pendingAccountReads.delete(requestId)
+      clearTimeout(pending.timeout)
+      pending.resolve({ approved: false, scope: null })
+    }
+  })
   ipcMain.on('home-v2-app:permission-resolve', (event, value: unknown) => {
     if (!isHomeV2AppRecord(value) || typeof value.requestId !== 'string') return
     const pending = pendingAccountReads.get(value.requestId)

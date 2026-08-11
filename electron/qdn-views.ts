@@ -869,7 +869,7 @@ function applyViewGuards(entry: QdnViewEntry) {
     callback(false);
   });
 
-  if (process.env.QORTIUM_HOME_V2_LIVE === '1') {
+  if (process.env.QORTIUM_HOME_V2 === '1') {
     isolatedSession.webRequest.onBeforeRequest((details, callback) => {
       callback({
         cancel: isHomeV2CoreBridgeClientRequest(details.url, entry.nodeOrigin),
@@ -1099,7 +1099,7 @@ function createViewEntry(
         partition,
         preload: path.join(
           __dirname,
-          process.env.QORTIUM_HOME_V2_LIVE === '1'
+          process.env.QORTIUM_HOME_V2 === '1'
             ? 'home-v2-qdn-app-preload.cjs'
             : 'qdn-app-preload.cjs',
         ),

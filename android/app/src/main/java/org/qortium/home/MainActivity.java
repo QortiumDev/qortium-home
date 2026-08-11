@@ -10,15 +10,16 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        HomeV2ProfileRecoveryPlugin.restoreIfRequested(this);
+        HomeV2ProfileRecoveryPlugin.ensureBackupBeforeRenderer(this);
         WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
-        boolean isHomeV2Live = getPackageName().endsWith(".v2live");
         registerPlugin(QdnRenderProxyPlugin.class);
-        if (!isHomeV2Live) {
-            registerPlugin(QdnFileSaverPlugin.class);
-            registerPlugin(QdnPublishSourcePlugin.class);
-            registerPlugin(UpdateInstallerPlugin.class);
-            registerPlugin(WalletBackupPlugin.class);
-        }
+        registerPlugin(HomeV2SecureStoragePlugin.class);
+        registerPlugin(HomeV2ProfileRecoveryPlugin.class);
+        registerPlugin(QdnFileSaverPlugin.class);
+        registerPlugin(QdnPublishSourcePlugin.class);
+        registerPlugin(UpdateInstallerPlugin.class);
+        registerPlugin(WalletBackupPlugin.class);
         super.onCreate(savedInstanceState);
         // Opt into edge-to-edge so the safe-area plugin reports real insets.
         // Must run AFTER super.onCreate(): calling it earlier inflates the decor

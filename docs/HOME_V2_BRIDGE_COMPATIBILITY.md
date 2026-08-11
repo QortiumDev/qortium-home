@@ -50,6 +50,7 @@ pages and Home 1.x retain Core's injected bridge client.
 | `GET_QDN_RESOURCE_METADATA`, `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`, `GET_QDN_RESOURCE_URL` | both | Bare JSON or render URL | Source protocol selects chain | yes | yes |
 | `GET_SELECTED_ACCOUNT` | `qdnRequest` | Address, public name, lock state, avatar contract | Trusted Home prompt; once or tab-session grant | yes | yes |
 | `GET_USER_ACCOUNT` | `qortalRequest` | Address and public key when available from Qortal | Trusted Home prompt; once or tab-session grant | yes | yes |
+| `UNLOCK_SELECTED_ACCOUNT` | `qdnRequest` | Sanitized address, public name, and unlocked state | Visible Home-owned prompt; exact app/tab/account/route recheck; no private material | yes | yes |
 | `OPEN_NEW_TAB` | both | `true` | Only `qdn://`, `qortal://`, or `home://`; Home owns navigation | yes | yes |
 
 Q-Apps may also make an unchanged same-origin
@@ -62,14 +63,15 @@ action.
 
 Account prompts are scoped by protocol, action, app resource identity, selected
 account, and tab. Home rechecks the live tab/account/resource context after the
-decision. Home 2.0 does not migrate v1 grants and this preview offers no durable
+decision. Home 2.0 does not migrate v1 grants and this production account
+tranche offers no durable
 `always` grant.
 
 ## Current Q-App baseline status
 
 | App/workflow | Current state | Remaining boundary |
 | --- | --- | --- |
-| Qortium Trust public browsing | Public ratings, names, identity batches, and visible avatars have bridge coverage | `RATE_ACCOUNT`, unlock, and other mutations remain deferred |
+| Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
 | Chat | Public generic reads are possible only through the bounded allowlist | classic chat actions, private chat, encryption, signing, and Reticulum remain deferred |
@@ -109,7 +111,7 @@ The complete retained Home 1.x action-name source remains
 above is deferred and unadvertised in Home 2.0. In particular this includes
 publishing/deletion, account/group/name/poll/rating mutations, payments,
 foreign wallets, private chat, Home/node settings writes, bookmarks,
-notifications, downloads/viewers, unlock, minting, and Qortal-prefixed legacy
+notifications, downloads/viewers, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
 
@@ -138,5 +140,9 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - Only new-tab navigation is advertised. Current-tab replacement, viewers,
   downloads, native file access, and external web URLs are not silently mapped
   onto it.
-- The account catalogue is still the isolated Home 2.0 preview profile. No
-  production profile migration is authorized by this tranche.
+- Home 2.0 now uses the existing production profile and strict encrypted wallet
+  format. A verified curated backup gates account mutations; malformed data or
+  backup verification failure produces read-only recovery state.
+- `UNLOCK_SELECTED_ACCOUNT` is Qortium-specific. Qortal apps receive no matching
+  shortcut, and no app receives passwords, derived key bytes, seeds, or private
+  keys from the result.

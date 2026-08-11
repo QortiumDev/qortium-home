@@ -808,6 +808,8 @@ interface Window {
       ) => Promise<QortiumCreateWalletResult>;
       exportWallet: (accountId: string) => Promise<QortiumWalletBackupResult>;
       setActiveAccount: (accountId: string) => Promise<QortiumAccountsState>;
+      clearActiveAccount?: () => Promise<QortiumAccountsState>;
+      renameAccount?: (accountId: string, label: string) => Promise<QortiumAccountsState>;
       addDerivedAddress: (accountId: string) => Promise<QortiumAccountsState>;
       unlockWallet: (accountId: string, password: string) => Promise<QortiumAccountsState>;
       lockWallet: (accountId: string) => Promise<QortiumAccountsState>;

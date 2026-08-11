@@ -2,10 +2,11 @@
 
 Last updated: 2026-08-10
 
-Status: accepted product direction with Phase 1 complete and desktop/Android
-Phase 2 live-node, public cross-network identity, bounded avatar, read-only
-account-catalogue, and first read-only QDN app-adapter slices implemented.
-Wallet authority, mutations, private chat, and Reticulum have not started.
+Status: accepted product direction with Phase 1 complete, the desktop/Android
+Phase 2 read-only host and QDN-app slices implemented, and the production
+account-shell cutover implemented for review. Account custody and secure unlock
+are active behind recovery backups; transaction signing, payments, publishing,
+private chat, broader host actions, and Reticulum remain deferred.
 
 This is the canonical product and architecture plan for Qortium Home. When an
 older issue, note, or implementation assumption conflicts with this document,
@@ -329,8 +330,10 @@ tests guarding both native paths.
 - Generic node fetches remain bounded and protected against cross-origin access,
   SSRF, API-key disclosure, oversized responses, and write-method escalation.
 
-Wallet and signing code remains explicitly pre-production until it has a
-replacement-grade security review and controlled funded acceptance.
+Account custody and unlock may ship independently after replacement-grade
+profile-migration and secure-storage review. Transaction signing and funds
+movement remain explicitly pre-production until their own threat model, review,
+and controlled funded acceptance are complete.
 
 ## Optional Home-managed Reticulum
 
@@ -627,6 +630,50 @@ real transaction lookup. Android additionally confirmed an empty local bridge
 client response plus `403` for transaction search and POST. Trust and Help
 loaded live data on both platforms afterward.
 
+### Phase 2.5: production account shell
+
+- Upgrade the existing desktop and Android product identities in place to Home
+  2.0; do not retain a side-by-side live-preview flavor or maintained v1 shell.
+- Preserve the established encrypted wallet format while presenting one
+  account with a separate base/derived address selector.
+- Provide create, wallet-file import/export, private-key import, rename,
+  selection, derived-address creation/removal, account removal, lock, and unlock
+  through trusted Home UI.
+- Create and verify a curated profile backup before the first Home 2.0 account
+  write. Malformed account data or failed backup verification enters read-only
+  recovery rather than silently replacing data.
+- Store remembered unlock material only through Electron suitable secure
+  storage or Android Keystore. `Lock on exit` defaults on, and manual lock
+  overrides remembered unlock until the user explicitly unlocks again.
+- Expose only the Qortium `qdnRequest/UNLOCK_SELECTED_ACCOUNT` bridge action in
+  this tranche. Home owns the prompt and rechecks app, tab, account, and route
+  context before resolving it.
+
+Status on 2026-08-10: implemented for review in the normal Linux and Android
+build paths at version 2.0.0 (Android version code 37). Desktop retains the
+existing Electron profile and Android retains `org.qortium.home`; both take a
+verified internal recovery snapshot before account-state mutation. The offline
+fixture remains available, while the separate live-preview package identity,
+Gradle flavor, and build scripts are retired. Android retains the existing
+trusted top-level JavaScript wallet implementation for this account-only
+tranche, with remembered key material wrapped by a non-exportable Android
+Keystore key. Moving wallet authority into a narrower native service remains a
+future hardening boundary.
+
+This phase does not authorize transaction signing, payment or chain writes,
+QDN publishing, Core install/start/update controls, notifications, bookmarks,
+downloads/viewers, Reticulum, or the remaining broad `qdnRequest` and
+`qortalRequest` families.
+
+Packaged acceptance on 2026-08-10 verified the Linux AppImage against both a
+clone and the real existing desktop profile, independently checked its recovery
+manifest, and confirmed malformed cloned wallet data produces visible read-only
+recovery. Android debug acceptance upgraded the connected phone in place from
+code 36 to code 37 after preserving its pre-upgrade preferences, verified the
+native recovery manifest, loaded the existing account/address controls, and
+confirmed Android Keystore secure storage is available. No account was
+unlocked, created, renamed, derived, or removed during this acceptance.
+
 ### Phase 3: app-first default experiences
 
 - Define exact cross-network identities and publish/release process for default
@@ -650,8 +697,9 @@ loaded live data on both platforms afterward.
 
 - Complete the wallet/signing threat model and independent review plan.
 - Connect typed Qortal and Qortium transaction intents.
-- Validate backup, lock/unlock, identity selection, fees, approval, signing,
-  broadcast, retry, and failure recovery.
+- Retain the completed account backup, lock/unlock, and identity-selection
+  boundary; independently validate fees, approvals, signing, broadcast, retry,
+  and failure recovery.
 - Perform controlled funded acceptance only through a separately approved plan.
 
 ### Phase 6: optional cross-network Reticulum
@@ -667,8 +715,9 @@ loaded live data on both platforms afterward.
 
 ### Phase 7: in-place migration and release acceptance
 
-- Implement profile backup and forward migration.
-- Remove replaced v1 renderer paths.
+- Maintain the implemented profile backup and forward shell-state migration.
+- Remove or archive replaced v1 renderer paths after production acceptance;
+  they are no longer the normal application entry point.
 - Validate unchanged wallets, node profiles, apps, bookmarks, and settings.
 - Complete packaged Linux, macOS, Windows, and signed Android acceptance.
 - Publish only after explicit release approval; no task in this plan implies
@@ -754,5 +803,7 @@ permission, Electron-host-fake, Android-host-fake, and isolated preview-package
 work are implemented on the dedicated `codex/home-v2` branch. Phase 2 now has
 desktop/Android node parity, a public read-only cross-network address/name
 resolver, bounded pointer-aware visible avatars, and a sanitized preview-profile
-account catalogue. Wallet authority, production-profile migration, signing,
-and QDN app execution remain later gates.
+account catalogue. That historical checkpoint was superseded on 2026-08-10 by
+the Phase 2.5 production account-shell implementation. QDN app execution,
+production profile backup/migration, and account custody/unlock are now present;
+transaction signing and chain mutations remain later gates.

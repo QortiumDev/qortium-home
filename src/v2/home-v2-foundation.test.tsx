@@ -40,6 +40,10 @@ import {
 } from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
+import {
+  parseHomeV2ShellState,
+  serializeHomeV2ShellState,
+} from '../home-v2-live/shell-state'
 import type { DualIdentityLookupResult } from './contracts'
 import {
   createAndroidFixtureHost,
@@ -829,6 +833,27 @@ function testStartupStatesAndAppearance(): void {
           },
         ],
       }}
+      vaultState={{
+        accounts: [{
+          addresses: [{
+            address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+            id: 'wallet:main',
+            index: 0,
+            label: 'Primary address',
+          }],
+          id: 'wallet:main',
+          isUnlocked: false,
+          label: 'Main account',
+          security: { lockOnExit: true, manuallyLocked: false, rememberUnlock: false },
+          supportsDerivedAddresses: true,
+        }],
+        readiness: 'ready',
+        recoveryMessage: null,
+        secureStorageAvailable: true,
+        selectedAccountId: 'wallet:main',
+        selectedAddressId: 'wallet:main',
+        version: 2,
+      }}
       selectedAccountId="wallet:main"
       onSelectAccount={() => undefined}
     />,
@@ -1117,7 +1142,6 @@ function testRendererSourceHasNoRuntimeEscapeHatches(): void {
     'XMLHttpRequest',
     'WebSocket',
     '../electron',
-    'privateKey',
     'seedPhrase',
   ]
 
@@ -1142,27 +1166,22 @@ function testFixtureHtmlHasVisibleBootFallback(): void {
   assert.doesNotMatch(html, /src="\.\/assets\//)
 }
 
-function testLiveNodeEntryIsCapabilityScoped(): void {
+function testProductionHomeV2EntryIsCapabilityScoped(): void {
   const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
   const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
-  const bootstrap = readFileSync('electron/v2-live-main.ts', 'utf8')
+  const bootstrap = readFileSync('electron/home-v2-main.ts', 'utf8')
   const main = readFileSync('electron/main.ts', 'utf8')
+  const platform = readFileSync('src/platform.ts', 'utf8')
   const html = readFileSync('v2-live.html', 'utf8')
-  const config = JSON.parse(
-    readFileSync('electron-builder.v2-live.json', 'utf8'),
-  ) as {
-    appId: string
-    directories: { output: string }
-    extraMetadata: { main: string }
-  }
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    build: { appId: string }
+    main: string
     scripts: Readonly<Record<string, string>>
   }
 
-  assert.equal(config.appId, 'org.qortium.home.v2live')
-  assert.equal(config.directories.output, 'dist-release-v2-live')
-  assert.equal(config.extraMetadata.main, 'dist-electron/v2-live-main.js')
-  assert.match(packageJson.scripts['dist:linux:x64:v2-live'], /--publish never/)
+  assert.equal(packageJson.build.appId, 'org.qortium.home')
+  assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
+  assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
   assert.match(preload, /exposeInMainWorld\('homeV2Nodes'/)
   assert.match(preload, /home-v2-nodes:getSnapshot/)
   assert.match(preload, /home-v2-nodes:setMode/)
@@ -1170,10 +1189,11 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-nodes:readAvatar/)
   assert.match(preload, /home-v2-nodes:listAppResources/)
   assert.match(preload, /home-v2-accounts:list/)
-  assert.doesNotMatch(preload, /qortiumHome|qdn:|core:|sign|wallet/i)
+  assert.match(preload, /exposeInMainWorld\('homeV2Vault'/)
+  assert.doesNotMatch(preload, /qortiumHome|core:|sign/i)
   assert.doesNotMatch(preload, /ipcRenderer\.invoke\('accounts:/)
   assert.equal((preload.match(/require\(/g) ?? []).length, 1)
-  assert.doesNotMatch(bridge, /apiKey|privateKey|password|seedPhrase|sourceFilename/)
+  assert.doesNotMatch(bridge, /apiKey|seedPhrase|sourceFilename/)
   assert.match(bridge, /authorizedSenderIds/)
   assert.match(bridge, /IDENTITY_RESPONSE_LIMIT/)
   assert.match(bridge, /GROUP_AVATAR_MAX_BYTES/)
@@ -1181,9 +1201,10 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
   assert.match(bridge, /assertAuthorized\(event\.sender\)/)
   assert.match(bridge, /function endpointHost/)
   assert.match(bridge, /mode === 'public' && nodeApiUrl/)
-  assert.match(bootstrap, /qortium-home-v2-live/)
+  assert.match(bootstrap, /QORTIUM_HOME_V2/)
   assert.match(main, /home-v2-live-preload\.cjs/)
   assert.match(main, /authorizeHomeV2NodeBridge/)
+  assert.match(platform, /getPrivateKeyAddress:\s*getAddressFromPrivateKey/)
   assert.match(html, /connect-src 'none'/)
   assert.match(html, /img-src 'self' data: blob:/)
   assert.match(html, /src="\/src\/home-v2-live\/main\.tsx"/)
@@ -1196,13 +1217,44 @@ function testLiveNodeEntryIsCapabilityScoped(): void {
       'fetch(',
       'XMLHttpRequest',
       'WebSocket',
-      '../platform',
-      'privateKey',
       'seedPhrase',
     ]) {
       assert.equal(source.includes(forbidden), false, `${path} must not contain ${forbidden}`)
     }
   }
+}
+
+function testShellStateMigratesAddressSelection(): void {
+  const legacy = parseHomeV2ShellState(
+    {
+      version: 1,
+      appearance: {},
+      selectedAccountId: 'wallet:Qprimary:2',
+      product: createProductState(),
+    },
+    'light',
+    'en',
+  )
+  assert.equal(legacy.version, 2)
+  assert.equal(legacy.selectedAccountId, 'wallet:Qprimary')
+  assert.equal(legacy.selectedAddressId, 'wallet:Qprimary:2')
+  assert.deepEqual(serializeHomeV2ShellState(legacy), {
+    version: 2,
+    appearance: {
+      accent: legacy.appearance.accent,
+      appZoom: legacy.appearance.appZoom,
+      language: legacy.appearance.language,
+      textSize: legacy.appearance.textSize,
+      theme: legacy.appearance.theme,
+    },
+    selectedAccountId: 'wallet:Qprimary',
+    selectedAddressId: 'wallet:Qprimary:2',
+    product: {
+      activeTabId: legacy.product.activeTabId,
+      destination: legacy.product.destination,
+      tabs: legacy.product.tabs,
+    },
+  })
 }
 
 await testMockHostFailsClosed()
@@ -1222,7 +1274,8 @@ testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()
 testFixtureElectronEntryIsIsolated()
 testFixtureHtmlHasVisibleBootFallback()
-testLiveNodeEntryIsCapabilityScoped()
+testProductionHomeV2EntryIsCapabilityScoped()
+testShellStateMigratesAddressSelection()
 testRendererSourceHasNoRuntimeEscapeHatches()
 
 console.log('home v2 foundation contract tests passed')
