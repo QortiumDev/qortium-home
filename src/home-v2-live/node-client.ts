@@ -16,6 +16,7 @@ import {
   getHomeV2AppActions,
   getHomeV2AppNetwork,
   isHomeV2AppRecord,
+  isHomeV2ChainReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
   normalizeHomeV2AvatarMaxBytes,
@@ -706,13 +707,7 @@ export function createPortableNodeClient(
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )).data
       }
-      if (
-        action === 'SEARCH_NAMES' ||
-        action === 'LIST_GROUPS' ||
-        action === 'GET_AT' ||
-        action === 'GET_AT_DATA' ||
-        action === 'LIST_ATS'
-      ) {
+      if (isHomeV2ChainReadAction(action)) {
         const { data } = await requestData(
           network,
           buildHomeV2ChainReadPath(action, request),

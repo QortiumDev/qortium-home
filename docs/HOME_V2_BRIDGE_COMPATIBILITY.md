@@ -43,6 +43,9 @@ pages and Home 1.x retain Core's injected bridge client.
 | `GET_NAME_DATA`, `GET_ACCOUNT_NAMES` | both | Bare Core JSON | Explicit public identity read | yes | yes |
 | `SEARCH_NAMES`, `LIST_GROUPS` | both | Bare Core JSON array | Required query for name search; strict integer pagination and real booleans only | yes | yes |
 | `GET_AT`, `GET_AT_DATA`, `LIST_ATS` | both | Bare Core JSON, or the documented `AT not found.` error for a valid absent AT | Strict AT address and 32-byte Base58 code-hash validation; Core's 100-entry page cap enforced before the request | yes | yes |
+| `FETCH_BLOCK`, `FETCH_BLOCK_RANGE` | both | Bare Core JSON | Exactly one of signature or height required for a single block; strict Base58 signature shape; Home-side 100-block range cap because Core has none | yes | yes |
+| `SEARCH_TRANSACTIONS` | both | Bare polymorphic Core JSON array (transaction-type fields are fork-specific) | `confirmationStatus` required explicitly because the forks default differently; Core's txType/address/limit<=20 precondition and a 100-entry limit cap enforced before the request | yes | yes |
+| `GET_DAY_SUMMARY`, `GET_PRICE` | `qortalRequest` | Bare Core JSON; price is a bare fixed-point integer | Qortal-only: Qortium Previewnet public seeds do not expose these routes. Price blockchain restricted to Qortal's supported foreign chains; a public node may still deny `/admin/summary` by its own policy | yes | yes |
 | `GET_PRIMARY_NAME` | `qortalRequest` | Bare Core JSON | Explicit Qortal identity read | yes | yes |
 | `GET_ACCOUNT_DATA`, `GET_BALANCE` | `qortalRequest` | Bare Core JSON | Explicit Qortal address read | yes | yes |
 | `RESOLVE_IDENTITIES` | `qdnRequest` | Address/name/avatar-hint array | Qortium metadata only; at most 500 unique addresses | yes | yes |
@@ -96,7 +99,7 @@ and Android fixtures pass.
 
 | Risk family | Deferred pinned actions |
 | --- | --- |
-| More public reads/search | `FETCH_BLOCK`, `FETCH_BLOCK_RANGE`, `GET_DAY_SUMMARY`, `GET_PRICE`, `GET_TX_ACTIVITY_SUMMARY`, `LINK_TO_QDN_RESOURCE`, `SEARCH_CHAT_MESSAGES`, `SEARCH_TRANSACTIONS` |
+| More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family), `SEARCH_CHAT_MESSAGES` (awaiting the encrypted-direct-message boundary decision) |
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
 | Names, groups, polls | `ADD_GROUP_ADMIN`, `BAN_FROM_GROUP`, `BUY_NAME`, `CANCEL_GROUP_BAN`, `CANCEL_GROUP_INVITE`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `KICK_FROM_GROUP`, `LEAVE_GROUP`, `REGISTER_NAME`, `REMOVE_GROUP_ADMIN`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |

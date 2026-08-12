@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-11 - feat: add block, transaction-search, and Qortal summary/price reads
+
+The app bridge gains the remaining bounded public chain reads. FETCH_BLOCK
+returns one block by exactly one selector (signature or height) instead of
+the legacy behavior of silently preferring one or hanging on none.
+FETCH_BLOCK_RANGE requires an explicit count and caps it at 100 blocks
+because the node itself has no ceiling. SEARCH_TRANSACTIONS requires the
+confirmation status to be spelled out (Qortal and Qortium default it
+differently), validates transaction-type names and addresses, and enforces
+the node's own search precondition before any request is sent. Qortal apps
+additionally get GET_DAY_SUMMARY (24-hour chain activity) and GET_PRICE
+(recent-trade price for a supported foreign blockchain); these two stay
+Qortal-only because Qortium Previewnet public nodes do not expose their
+routes. All results return the node's own JSON.
+
 ### 2026-08-11 - feat: add name-search, group, and AT public reads to the app bridge
 
 QDN apps on both bridge protocols can now search registered names, list

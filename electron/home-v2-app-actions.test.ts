@@ -28,10 +28,120 @@ assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('FETCH_QDN_RESOURCE'), true)
 assert.equal(qortalActions.includes('GET_ASSET_INFO'), false)
 
-for (const chainReadAction of ['SEARCH_NAMES', 'LIST_GROUPS', 'GET_AT', 'GET_AT_DATA', 'LIST_ATS']) {
+for (const chainReadAction of [
+  'SEARCH_NAMES',
+  'LIST_GROUPS',
+  'GET_AT',
+  'GET_AT_DATA',
+  'LIST_ATS',
+  'FETCH_BLOCK',
+  'FETCH_BLOCK_RANGE',
+  'SEARCH_TRANSACTIONS',
+]) {
   assert.equal(qdnActions.includes(chainReadAction), true)
   assert.equal(qortalActions.includes(chainReadAction), true)
 }
+// Qortal-only by public-node policy: Qortium Previewnet seeds do not expose
+// /admin/summary or /crosschain/price, so these stay off the qdnRequest facade.
+for (const qortalOnlyAction of ['GET_DAY_SUMMARY', 'GET_PRICE']) {
+  assert.equal(qdnActions.includes(qortalOnlyAction), false)
+  assert.equal(qortalActions.includes(qortalOnlyAction), true)
+}
+
+const blockSignature =
+  '2MTZ5KAvVnJENW7hMX9AenMasoVuYQhi1RYEQcGrY6zQWoHAMVv6ZQKbMfzznBf39B7iiKG2U1TMfpfygzDW8yxqp7XfSq6EWsMaN3C26JUPLmD3JSdSC9PgX81x1nMz6RqRFpZwtH9J8ZBNaTaiHbYQprgH69i9Qjj6Y4SPkWMZrEN'
+assert.equal(
+  buildHomeV2ChainReadPath('FETCH_BLOCK', { height: 1_000_000 }),
+  '/blocks/byheight/1000000',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('FETCH_BLOCK', {
+    includeOnlineSignatures: false,
+    signature: blockSignature,
+  }),
+  `/blocks/signature/${blockSignature}?includeOnlineSignatures=false`,
+)
+// Hub silently prefers signature when both are given and hangs on neither;
+// Home requires exactly one selector.
+assert.throws(
+  () => buildHomeV2ChainReadPath('FETCH_BLOCK', {}),
+  /exactly one of signature or height/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('FETCH_BLOCK', { height: 5, signature: blockSignature }),
+  /exactly one of signature or height/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('FETCH_BLOCK', { signature: 'l0IO' }),
+  /Block signature is invalid/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('FETCH_BLOCK_RANGE', { count: 10, height: 500, reverse: true }),
+  '/blocks/range/500?count=10&reverse=true',
+)
+// Core has no server-side count cap; Home enforces one before the request.
+assert.throws(
+  () => buildHomeV2ChainReadPath('FETCH_BLOCK_RANGE', { count: 101, height: 500 }),
+  /between 1 and 100/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('FETCH_BLOCK_RANGE', { height: 500 }),
+  /count must be/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_TRANSACTIONS', {
+    confirmationStatus: 'confirmed',
+    limit: 5,
+    reverse: true,
+    txType: ['register_name', 'PAYMENT'],
+  }),
+  '/transactions/search?txType=REGISTER_NAME&txType=PAYMENT&confirmationStatus=CONFIRMED&limit=5&reverse=true',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_TRANSACTIONS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    confirmationStatus: 'BOTH',
+  }),
+  '/transactions/search?address=QH143K2qjVdn864NSY7aNESo88ao1ZnALH&confirmationStatus=BOTH',
+)
+// The forks default confirmationStatus differently (Qortal null, Qortium
+// CONFIRMED); Home requires it explicitly.
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_TRANSACTIONS', { limit: 5, txType: ['PAYMENT'] }),
+  /confirmationStatus must be/,
+)
+// Core rejects unconstrained searches (needs txType, address, or limit <= 20).
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_TRANSACTIONS', { confirmationStatus: 'CONFIRMED' }),
+  /txType, address, or a limit of at most 20/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_TRANSACTIONS', {
+    confirmationStatus: 'UNCONFIRMED',
+    limit: 20,
+  }),
+  '/transactions/search?confirmationStatus=UNCONFIRMED&limit=20',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_TRANSACTIONS', {
+    confirmationStatus: 'CONFIRMED',
+    txType: 'PAYMENT',
+  }),
+  /must be an array/,
+)
+assert.equal(buildHomeV2ChainReadPath('GET_DAY_SUMMARY', {}), '/admin/summary')
+assert.equal(
+  buildHomeV2ChainReadPath('GET_PRICE', { blockchain: 'litecoin', inverse: true, maxtrades: 5 }),
+  '/crosschain/price/LITECOIN?maxtrades=5&inverse=true',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_PRICE', { blockchain: 'MONERO' }),
+  /supported Qortal foreign blockchain/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_PRICE', { blockchain: 'LITECOIN', maxtrades: 0 }),
+  /maxtrades must be/,
+)
 
 assert.equal(
   buildHomeV2ChainReadPath('SEARCH_NAMES', {
