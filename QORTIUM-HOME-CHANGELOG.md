@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-12 - docs: adopt the Chat 2.0 plan
+
+Records the plan for the next-generation Chat experience that gates the Home
+2.0 release: one Chat app working with Qortium, Qortal, or both, in every
+node connection mode, with messages signed inside Home (private keys never
+sent to any node), visible pending-then-confirmed message states, and file
+sharing that can link an already-published resource instead of forcing a
+republish. Documents why modern Qortal has no general chat channel and how
+group chats and direct messages remain supported there. Plan only - no
+application behavior changes.
+
 ### 2026-08-11 - feat: add block, transaction-search, and Qortal summary/price reads
 
 The app bridge gains the remaining bounded public chain reads. FETCH_BLOCK
