@@ -24,8 +24,9 @@ Android should continue to use existing nodes and Previewnet network discovery.
   script.
 - Keep Core database, QDN data, logs, PID, and API-key files under a stable
   `qortium-core/runtime` folder outside extracted release folders.
-- When the Home-created Core starts and `http://127.0.0.1:24891/admin/status` is
-  reachable, switch Qortium Home's node mode to the local node.
+- When the Home-created Core starts and its loopback status endpoint is
+  reachable, switch Qortium Home's node mode to the verified local HTTPS
+  endpoint at `https://127.0.0.1:24891`.
 - Show the expected preview log paths in the UI and include them in launch
   errors when start or stop commands fail.
 

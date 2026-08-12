@@ -53,6 +53,7 @@ const WINDOW_STATE_FILE = 'window-state.json';
 const WINDOW_STATE_SAVE_DELAY_MS = 250;
 const WINDOW_ICON_FILE = 'icon.png';
 const NEW_WINDOW_OFFSET_PX = 32;
+const HOME_V2_SHELL_PARTITION = 'persist:home-v2-shell';
 const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
 const IS_HOME_V2 = process.env.QORTIUM_HOME_V2 === '1';
@@ -459,6 +460,7 @@ function createWindow(options: CreateWindowOptions = {}) {
       nodeIntegration: false,
       sandbox: IS_HOME_V2,
       webviewTag: false,
+      ...(IS_HOME_V2 ? { partition: HOME_V2_SHELL_PARTITION } : {}),
     },
   });
 

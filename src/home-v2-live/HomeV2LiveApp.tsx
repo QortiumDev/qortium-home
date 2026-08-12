@@ -366,6 +366,7 @@ export function HomeV2LiveApp() {
     accountId?: string
     pendingToken?: string
     permissionRequestId?: string
+    requestTabId?: string
     suggestedLabel?: string
   } | null>(null)
   const [accountDialogBusy, setAccountDialogBusy] = useState(false)
@@ -836,6 +837,7 @@ export function HomeV2LiveApp() {
           accountId: account.walletId,
           mode: 'unlock',
           permissionRequestId: value.requestId,
+          requestTabId: value.tabId,
         })
         return
       }
@@ -1411,7 +1413,16 @@ export function HomeV2LiveApp() {
     </div>
   ) : null
 
-  const accountDialogOverlay = accountDialog ? (
+  const permissionPromptTabId = permissionState.pending[0]?.context.tabId ?? null
+  const accountPromptTabId = accountDialog?.permissionRequestId
+    ? accountDialog.requestTabId ?? null
+    : null
+  const appOverlayTabId = accountPromptTabId ?? permissionPromptTabId
+  const accountDialogVisible =
+    !!accountDialog &&
+    (!accountPromptTabId || productState.activeTabId === accountPromptTabId)
+
+  const accountDialogOverlay = accountDialog && accountDialogVisible ? (
     <AccountDialog
       accountLabel={dialogVaultAccount?.label}
       busy={accountDialogBusy}
@@ -1445,6 +1456,20 @@ export function HomeV2LiveApp() {
       onSubmit={submitAccountDialog}
     />
   ) : null
+
+  useEffect(() => {
+    if (
+      !appOverlayTabId ||
+      productState.activeTabId === appOverlayTabId ||
+      !productState.tabs.some((tab) => tab.id === appOverlayTabId)
+    ) {
+      return
+    }
+    dispatchProduct({
+      type: 'activate-tab',
+      tabId: brand<TabId>(appOverlayTabId),
+    })
+  }, [appOverlayTabId, productState.activeTabId, productState.tabs])
 
   const activeNavigation = productState.activeTabId
     ? appNavigation[productState.activeTabId]
@@ -1483,6 +1508,7 @@ export function HomeV2LiveApp() {
           : shellNotice ?? 'Accounts, connections, and QDN apps'
       }
       overlay={customNodeDialog ?? accountDialogOverlay}
+      appOverlayTabId={appOverlayTabId ? brand<TabId>(appOverlayTabId) : null}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}

@@ -56,6 +56,7 @@ export interface HomeV2PrototypeProps {
   readonly layout: HomeV2Layout
   readonly surfaceNotice?: string
   readonly overlay?: ReactNode
+  readonly appOverlayTabId?: ProductState['tabs'][number]['id'] | null
   readonly identityLookup?: DualIdentityLookupResult | null
   readonly identityLookupBusy?: boolean
   readonly identityLookupError?: string | null
@@ -748,6 +749,25 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const activeTab = productState.tabs.find(
     (tab) => tab.id === productState.activeTabId,
   )
+  const permissionOverlayTabId = permissionState.pending[0]?.context.tabId
+  const appOverlayActive =
+    !!activeTab &&
+    (permissionOverlayTabId === activeTab.id ||
+      props.appOverlayTabId === activeTab.id)
+  // While a prompt owns a still-open tab, navigation away is refused up front
+  // rather than repaired afterwards: a transient deactivation unmounts the
+  // Android app iframe, which is a full reload that kills the pending request.
+  const rawOverlayTabId = permissionOverlayTabId ?? props.appOverlayTabId ?? null
+  const overlayOwnerTabId =
+    rawOverlayTabId && productState.tabs.some((tab) => tab.id === rawOverlayTabId)
+      ? rawOverlayTabId
+      : null
+  const guardedActivateTab = overlayOwnerTabId
+    ? (tabId: ProductState['tabs'][number]['id']) => {
+        if (tabId === overlayOwnerTabId) onActivateTab?.(tabId)
+      }
+    : onActivateTab
+  const guardedNavigate = overlayOwnerTabId ? () => undefined : onNavigate
 
   return (
     <div
@@ -774,9 +794,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       <BrowserChrome
         snapshot={snapshot}
         productState={productState}
-        onActivateTab={onActivateTab}
+        onActivateTab={guardedActivateTab}
         onCloseTab={onCloseTab}
-        onNavigate={onNavigate}
+        onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
         canGoBack={props.canGoBack}
         canGoForward={props.canGoForward}
@@ -787,6 +807,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       <main
         className="home-v2-page-viewport"
         data-app-active={activeTab ? 'true' : 'false'}
+        data-app-overlay-active={appOverlayActive ? 'true' : 'false'}
       >
         {activeTab ? (
           <AppTabStage
@@ -795,6 +816,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             nodeClient={props.nodeClient}
             selectedAccountId={props.selectedAccountId}
             reloadVersion={props.appReloadVersion}
+            suspended={appOverlayActive}
             onNavigationChanged={props.onAppNavigationChanged}
             onNavigationControllerChange={props.onAppNavigationControllerChange}
             onOpenAddress={props.onOpenAddress}
@@ -822,6 +844,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       </main>
       {props.overlay}
       <PermissionDialog
+        activeTabId={activeTab?.id ?? null}
         permissionState={permissionState}
         onResolvePermission={onResolvePermission}
       />

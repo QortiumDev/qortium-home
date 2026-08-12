@@ -468,11 +468,13 @@ and private closed-group chat reads after approval when the user has a local
 selected node, an unlocked selected account, and the local node API key saved in
 app-private node settings.
 
-Desktop still defaults to a local node at `http://127.0.0.1:24891`, but users
-without a local node can also choose Previewnet network discovery from the node
-settings menu. Local node mode keeps using the local API key for authorization
-calls; network discovery is intended for public read-only browsing and direct
-inspection of public `GET` endpoints.
+Desktop Home 2.0 defaults to the local Qortium Core at
+`https://127.0.0.1:24891` and the local Qortal Core at
+`https://127.0.0.1:12391`. Because local Cores use private certificate
+authorities, Home learns and stores each authority through the Core's loopback
+bootstrap endpoint before trusting the HTTPS connection. Local mode keeps using
+the local API key for authorized calls. Public mode selects synchronized named
+HTTPS nodes for read-only browsing without calling that access Previewnet.
 
 Desktop can also manage a local Qortium Core Previewnet install from the node
 settings menu. The first Core management flow checks `QortiumDev/qortium-core`

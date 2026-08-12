@@ -9,6 +9,46 @@ import {
   rankQortiumPublicNodes,
   type QortiumPublicNodeCandidate,
 } from './qortium-public-node-policy.js';
+import { chooseResolvedLocalSettingsWrite } from './node-settings-write-policy.js';
+
+const staleLocalSettings = {
+  apiKey: 'old-key',
+  customUrl: '',
+  mode: 'local',
+};
+const refreshedLocalSettings = { ...staleLocalSettings, apiKey: 'new-key' };
+const publicSettings = { apiKey: '', customUrl: '', mode: 'network' };
+
+assert.equal(
+  chooseResolvedLocalSettingsWrite(
+    staleLocalSettings,
+    staleLocalSettings,
+    refreshedLocalSettings,
+  ),
+  refreshedLocalSettings,
+);
+assert.equal(
+  chooseResolvedLocalSettingsWrite(
+    publicSettings,
+    staleLocalSettings,
+    refreshedLocalSettings,
+  ),
+  publicSettings,
+);
+
+// A refresh must pass the true pre-refresh settings as its expectation. A
+// caller that passes its cleared working copy instead makes the policy refuse
+// the legitimate key replacement, leaving the dead key on disk.
+const clearedLocalSettings = { ...staleLocalSettings, apiKey: '' };
+
+assert.equal(
+  chooseResolvedLocalSettingsWrite(
+    staleLocalSettings,
+    clearedLocalSettings,
+    refreshedLocalSettings,
+  ),
+  staleLocalSettings,
+);
 
 assert.equal(
   isFullySyncedQortiumStatus({
