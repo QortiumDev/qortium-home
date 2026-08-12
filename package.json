@@ -56,6 +56,7 @@
     "smoke:desktop:browser-chrome": "node scripts/smoke-desktop-browser-chrome.mjs",
     "smoke:desktop:core-runtime": "node scripts/smoke-desktop-core-runtime.mjs",
     "smoke:desktop:home-v2-nodes": "node scripts/smoke-desktop-home-v2-nodes.mjs",
+    "smoke:desktop:home-v2-prompt": "node scripts/smoke-desktop-home-v2-prompt.mjs",
     "smoke:desktop:qdn-api": "node scripts/smoke-desktop-qdn-api.mjs",
     "smoke:desktop:qdn-game": "node scripts/smoke-desktop-qdn-game.mjs",
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",

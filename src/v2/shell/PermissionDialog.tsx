@@ -7,6 +7,7 @@ import type {
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 
 export interface PermissionDialogProps {
+  readonly activeTabId?: string | null
   readonly permissionState: PermissionState
   readonly onResolvePermission?: (
     requestId: PermissionRequestId,
@@ -21,11 +22,12 @@ const permissionScopeLabels: Readonly<Record<PermissionScope, string>> = {
 }
 
 export function PermissionDialog({
+  activeTabId,
   permissionState,
   onResolvePermission,
 }: PermissionDialogProps) {
   const prompt = permissionState.pending[0]
-  if (!prompt) return null
+  if (!prompt || prompt.context.tabId !== activeTabId) return null
 
   return (
     <div className="home-v2-permission-backdrop">
@@ -67,6 +69,7 @@ export function PermissionDialog({
           <button
             type="button"
             className="home-v2-permission-deny"
+            autoFocus
             onClick={() =>
               onResolvePermission?.(prompt.id, { approved: false })
             }

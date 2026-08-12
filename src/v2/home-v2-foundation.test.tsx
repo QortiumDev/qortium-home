@@ -40,6 +40,7 @@ import {
 } from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
+import { PermissionDialog } from './shell/PermissionDialog'
 import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
@@ -1012,13 +1013,31 @@ function testPermissionDialogsOnDesktopAndPhone(): void {
       | typeof qortalPermissionStateFixture,
   ) =>
     renderToStaticMarkup(
-      <HomeV2Prototype
-        snapshot={homeV2Fixture}
-        productState={homeV2ProductFixture}
-        permissionState={permissionState}
-        layout={layout}
-      />,
+      <div data-layout={layout}>
+        <PermissionDialog
+          activeTabId={permissionState.pending[0]?.context.tabId ?? null}
+          permissionState={permissionState}
+        />
+      </div>,
     )
+
+  const hiddenOnWrongTab = renderToStaticMarkup(
+    <PermissionDialog
+      activeTabId={fixtureIds.tab}
+      permissionState={qdnPermissionStateFixture}
+    />,
+  )
+  assert.doesNotMatch(hiddenOnWrongTab, /role="dialog"/)
+
+  const hiddenOnDashboard = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={homeV2ProductFixture}
+      permissionState={qdnPermissionStateFixture}
+      layout="desktop"
+    />,
+  )
+  assert.doesNotMatch(hiddenOnDashboard, /role="dialog"/)
 
   for (const layout of ['desktop', 'phone'] as const) {
     const qdn = render(layout, qdnPermissionStateFixture)
@@ -1169,8 +1188,11 @@ function testFixtureHtmlHasVisibleBootFallback(): void {
 function testProductionHomeV2EntryIsCapabilityScoped(): void {
   const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
   const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
+  const appStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
   const bootstrap = readFileSync('electron/home-v2-main.ts', 'utf8')
   const main = readFileSync('electron/main.ts', 'utf8')
+  const qortalNodeSettings = readFileSync('electron/qortal-node-settings.ts', 'utf8')
+  const qortiumNodeSettings = readFileSync('electron/node-settings.ts', 'utf8')
   const platform = readFileSync('src/platform.ts', 'utf8')
   const html = readFileSync('v2-live.html', 'utf8')
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
@@ -1188,6 +1210,7 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-nodes:readIdentity/)
   assert.match(preload, /home-v2-nodes:readAvatar/)
   assert.match(preload, /home-v2-nodes:listAppResources/)
+  assert.match(preload, /qdn-views:capture/)
   assert.match(preload, /home-v2-accounts:list/)
   assert.match(preload, /exposeInMainWorld\('homeV2Vault'/)
   assert.doesNotMatch(preload, /qortiumHome|core:|sign/i)
@@ -1204,6 +1227,46 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(bootstrap, /QORTIUM_HOME_V2/)
   assert.match(main, /home-v2-live-preload\.cjs/)
   assert.match(main, /authorizeHomeV2NodeBridge/)
+  assert.match(main, /HOME_V2_SHELL_PARTITION/)
+  assert.match(main, /partition: HOME_V2_SHELL_PARTITION/)
+  assert.match(appStage, /capture\(\{ tabId: resolved\.tab\.id \}\)/)
+  assert.match(appStage, /suspendedRef/)
+  assert.match(appStage, /home-v2-app-stage__snapshot/)
+  // Cleanup may skip hiding the native view only when the SAME tab is
+  // suspending; a departing tab must still be hidden or it paints over the
+  // trusted prompt when a background tab's request force-activates it.
+  assert.match(appStage, /resolvedTabIdRef/)
+  assert.match(appStage, /sameTabSuspending/)
+  // While a prompt owns a still-open tab, tab-away navigation must be refused
+  // synchronously: repairing it afterwards unmounts and reloads the Android
+  // app iframe, killing the pending request.
+  const prototypeSource = readFileSync('src/v2/shell/HomeV2Prototype.tsx', 'utf8')
+  assert.match(prototypeSource, /overlayOwnerTabId/)
+  assert.match(prototypeSource, /onActivateTab=\{guardedActivateTab\}/)
+  assert.match(prototypeSource, /onNavigate=\{guardedNavigate\}/)
+  assert.match(
+    qortalNodeSettings,
+    /DEFAULT_LOCAL_URL = 'https:\/\/127\.0\.0\.1:12391'/,
+  )
+  assert.match(qortalNodeSettings, /ensureNodeCa\(nodeApiUrl, null\)/)
+  assert.match(
+    qortiumNodeSettings,
+    /DEFAULT_LOCAL_NODE_API_URL = 'https:\/\/127\.0\.0\.1:24891'/,
+  )
+  assert.match(qortiumNodeSettings, /chooseResolvedLocalSettingsWrite/)
+  // The API-key refresh clears its working copy but must present the true
+  // pre-refresh settings as the compare-and-swap expectation, and its stale
+  // no-key write must go through the same policy rather than writeNodeSettings.
+  assert.match(qortiumNodeSettings, /expected: NodeSettings = settings/)
+  assert.match(
+    qortiumNodeSettings,
+    /writeResolvedLocalApiKey\(expected, resolvedSettings\)/,
+  )
+  assert.match(
+    qortiumNodeSettings,
+    /return writeResolvedLocalApiKey\(settings, refreshedSettings\)/,
+  )
+  assert.doesNotMatch(qortiumNodeSettings, /writeNodeSettings\(refreshedSettings\)/)
   assert.match(platform, /getPrivateKeyAddress:\s*getAddressFromPrivateKey/)
   assert.match(html, /connect-src 'none'/)
   assert.match(html, /img-src 'self' data: blob:/)

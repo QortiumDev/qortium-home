@@ -34,6 +34,32 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-11 - fix: restore Home 2.0 node connectivity over verified HTTPS
+
+Separates Home's offline renderer session from the privileged main-process node
+bridge so the renderer still cannot contact the network directly without also
+blocking every local and public node request. Desktop Local mode now connects
+to Qortium and Qortal over HTTPS and safely learns each local Core's private
+certificate authority over loopback before trusting it. Public connections
+continue to use the named HTTPS endpoints, node errors retain their underlying
+network detail, and an in-flight local API-key refresh can no longer overwrite
+a newly selected connection mode while still adopting the replacement key after
+a local Core restarts with a new one. A packaged AppImage smoke now verifies local
+Qortium, public Qortium, public Qortal, the HTTPS endpoint display, and local CA
+pinning through the production bridge.
+
+Account-access and app-requested unlock prompts now stay attached to the QDN
+app tab that requested them. On desktop, Home captures the isolated app view,
+hides that native view only after the snapshot is painted, and shows the prompt
+over the captured app rather than beneath it or on Dashboard. The requesting
+tab remains active until the decision is made, then the live app view resumes
+without reloading. When a background tab's app raises the request, the tab the
+user was viewing is hidden correctly as Home switches to the requesting tab, so
+the prompt is never covered by another app's native view. Switching pages or
+tabs while a prompt is pending is refused up front instead of snapped back
+afterwards, which on Android previously reloaded the requesting app's hosted
+view and silently killed its pending request.
+
 ### 2026-08-10 - build: harden Home 2.0 production AppImages
 
 Applies the proven Home 2.0 fixture security policy to normal Linux AppImages:

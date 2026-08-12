@@ -12,6 +12,19 @@ import type {
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
 
+function waitForAnimationFrames(count: number) {
+  return new Promise<void>((resolve) => {
+    const next = (remaining: number) => {
+      if (remaining <= 0) {
+        resolve()
+        return
+      }
+      window.requestAnimationFrame(() => next(remaining - 1))
+    }
+    next(count)
+  })
+}
+
 function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
   if (!tab) throw new Error('No active app tab was selected.')
@@ -39,7 +52,10 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
 
 function DesktopAppStage(props: AppTabStageProps) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const suspendedRef = useRef(props.suspended === true)
+  const resolvedTabIdRef = useRef<string | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const [snapshotUrl, setSnapshotUrl] = useState('')
   const resolution = useMemo(() => {
     try {
       return { error: null, value: resolveRender(props.productState, props.snapshot) }
@@ -52,10 +68,42 @@ function DesktopAppStage(props: AppTabStageProps) {
   }, [props.productState, props.snapshot])
   const resolved = resolution.value
 
+  suspendedRef.current = props.suspended === true
+  resolvedTabIdRef.current = resolved ? String(resolved.tab.id) : null
+
   useEffect(() => {
     const host = hostRef.current
     const bridge = window.homeV2Apps
     if (!host || !bridge || !resolved) return
+
+    if (props.suspended) {
+      let cancelled = false
+      const suspend = async () => {
+        const snapshot = await bridge
+          .capture({ tabId: resolved.tab.id })
+          .catch(() => null)
+        if (cancelled) return
+        if (snapshot) {
+          try {
+            const image = new Image()
+            image.src = snapshot
+            await image.decode()
+          } catch {
+            // Decoding only pre-warms the paint; the snapshot remains usable.
+          }
+          if (cancelled) return
+          setSnapshotUrl(snapshot)
+          await waitForAnimationFrames(2)
+          if (cancelled) return
+        }
+        await bridge.hide({ tabId: resolved.tab.id })
+      }
+      void suspend()
+      return () => {
+        cancelled = true
+      }
+    }
+
     let cancelled = false
     const show = () => {
       const bounds = host.getBoundingClientRect()
@@ -78,9 +126,16 @@ function DesktopAppStage(props: AppTabStageProps) {
         renderUrl: resolved.url,
         resourceUrl: resolved.tab.context.resourceLocation,
         tabId: resolved.tab.id,
-      }).catch((cause: unknown) => {
-        if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : 'Unable to load this app.')
       })
+        .then(async () => {
+          if (cancelled) return
+          setRuntimeError(null)
+          await waitForAnimationFrames(2)
+          if (!cancelled) setSnapshotUrl('')
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : 'Unable to load this app.')
+        })
     }
     show()
     const observer = new ResizeObserver(show)
@@ -90,12 +145,20 @@ function DesktopAppStage(props: AppTabStageProps) {
       cancelled = true
       observer.disconnect()
       window.removeEventListener('resize', show)
-      void bridge.hide({ tabId: resolved.tab.id })
+      // Suspension hides this view itself, after the snapshot paints — but only
+      // for the tab that is suspending. A different departing tab must still be
+      // hidden here, or its native view stays painted over the trusted prompt.
+      const sameTabSuspending =
+        suspendedRef.current && resolvedTabIdRef.current === String(resolved.tab.id)
+      if (!sameTabSuspending) {
+        void bridge.hide({ tabId: resolved.tab.id })
+      }
     }
-  }, [props.snapshot.appearance, resolved])
+  }, [props.snapshot.appearance, props.suspended, resolved])
 
   return <section className="home-v2-app-stage home-v2-app-stage--live">
     <div ref={hostRef} className="home-v2-app-view-host" />
+    {snapshotUrl ? <img className="home-v2-app-stage__snapshot" src={snapshotUrl} alt="" /> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }
@@ -260,6 +323,7 @@ export interface AppTabStageProps {
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null
   readonly reloadVersion?: number
+  readonly suspended?: boolean
   readonly onNavigationChanged?: (
     tabId: ProductState['tabs'][number]['id'],
     snapshot: AppTabNavigationSnapshot,
@@ -288,6 +352,7 @@ declare global {
   interface Window {
     homeV2Apps?: {
       accountLocked(): void
+      capture(request: { tabId: string }): Promise<string | null>
       destroy(request: { tabId: string }): Promise<void>
       hide(request: { tabId: string }): Promise<void>
       navigate(request: { index: number; tabId: string }): Promise<boolean>
