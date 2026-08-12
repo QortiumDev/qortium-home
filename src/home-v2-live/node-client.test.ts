@@ -87,7 +87,11 @@ const dependencies: PortableNodeClientDependencies = {
         ? syncedStatus
         : url.includes('/arbitrary/resources/search') && url.includes('name=Trust')
           ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
-          : [],
+          : url.includes('/at/AbsntbeMZM7VQjaX5PSuTf2fQxUeMWLPbV')
+            ? null
+            : url.endsWith('/at/AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV')
+              ? { atAddress: 'AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV', version: 2 }
+              : [],
       latencyMs: latency.get(origin) ?? 1,
       headers: { 'x-total-count': '7' },
       ok: true,
@@ -143,6 +147,49 @@ assert.match(lastRequestedUrl, /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.l
 await assert.rejects(
   () => client.requestApp('qdnRequest', { action: 'FETCH_NODE_API', path: '/admin/stop' }),
   /outside Home v2 read-only scope/,
+)
+
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'GET_AT',
+    atAddress: 'AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV',
+  }),
+  { atAddress: 'AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV', version: 2 },
+)
+assert.match(
+  lastRequestedUrl,
+  /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/at\/AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV$/,
+)
+// A valid-but-absent AT answers with an empty 2xx body on both cores; the
+// bridge must normalize that to one documented error instead of returning ''.
+await assert.rejects(
+  () => client.requestApp('qortalRequest', {
+    action: 'GET_AT_DATA',
+    atAddress: 'AbsntbeMZM7VQjaX5PSuTf2fQxUeMWLPbV',
+  }),
+  /AT not found/,
+)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'SEARCH_NAMES',
+    limit: 5,
+    query: 'Ali',
+  }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/names\/search\?query=Ali&limit=5$/)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', { action: 'LIST_GROUPS', limit: 0 }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/groups\?limit=0$/)
+await assert.rejects(
+  () => client.requestApp('qortalRequest', { action: 'LIST_ATS', codeHash58: 'bad' }),
+  /codeHash58/,
+)
+await assert.rejects(
+  () => client.requestApp('qortalRequest', { action: 'SEARCH_NAMES', prefix: 'true', query: 'Ali' }),
+  /must be true or false/,
 )
 
 const catalogue = await client.listAccounts()

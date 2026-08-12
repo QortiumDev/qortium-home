@@ -13,6 +13,7 @@ import {
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js'
 import {
   buildHomeV2AssetReadPath,
+  buildHomeV2ChainReadPath,
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
@@ -429,6 +430,31 @@ async function handleRequest(
       'GET',
       normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
     )
+    return responseDataOrThrow(result, `${action} request`)
+  }
+  if (
+    action === 'SEARCH_NAMES' ||
+    action === 'LIST_GROUPS' ||
+    action === 'GET_AT' ||
+    action === 'GET_AT_DATA' ||
+    action === 'LIST_ATS'
+  ) {
+    const path = buildHomeV2ChainReadPath(action, requestValue)
+    const { result } = await fetchRead(
+      network,
+      path,
+      'GET',
+      normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes),
+    )
+    // Both cores answer a valid-but-absent AT with an empty 2xx body (Qortal
+    // 204s); normalize that to one documented error instead of returning ''.
+    if (
+      (action === 'GET_AT' || action === 'GET_AT_DATA') &&
+      result.ok &&
+      (result.status === 204 || result.data === '' || result.data === null)
+    ) {
+      throw new Error('AT not found.')
+    }
     return responseDataOrThrow(result, `${action} request`)
   }
   if (action === 'RESOLVE_IDENTITIES') return resolveIdentities(requestValue)

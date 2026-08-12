@@ -53,6 +53,20 @@ resolves it with the account payload; and no dialog appears once nothing is
 pending. The smoke never installs, uninstalls, or reboots anything, and never
 touches any package other than the one under test.
 
+### 2026-08-11 - feat: add name-search, group, and AT public reads to the app bridge
+
+QDN apps on both bridge protocols can now search registered names, list
+groups, and read automated-transaction (AT) records through five new
+read-only actions: SEARCH_NAMES, LIST_GROUPS, GET_AT, GET_AT_DATA, and
+LIST_ATS. Each request is strictly validated before it reaches a node -
+booleans must be real booleans (the legacy bridge accepted the string
+"false" as true), pagination must use safe non-negative integers, AT
+addresses and code hashes must be well formed, and the AT listing enforces
+the node's own 100-entry page cap up front. A valid address whose AT does
+not exist answers with one documented "AT not found." error on desktop and
+Android alike instead of an ambiguous empty response. Results are returned
+as the node's own JSON so existing Qortal apps see the shapes they expect.
+
 ### 2026-08-11 - chore: clean the last two strict TypeScript errors
 
 Removes a stray duplicate React import in the browser chrome and copies the
