@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import {
   buildHomeV2AssetReadPath,
+  buildHomeV2ChainReadPath,
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
@@ -26,6 +27,75 @@ assert.equal(qortalActions.includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('FETCH_QDN_RESOURCE'), true)
 assert.equal(qortalActions.includes('GET_ASSET_INFO'), false)
+
+for (const chainReadAction of ['SEARCH_NAMES', 'LIST_GROUPS', 'GET_AT', 'GET_AT_DATA', 'LIST_ATS']) {
+  assert.equal(qdnActions.includes(chainReadAction), true)
+  assert.equal(qortalActions.includes(chainReadAction), true)
+}
+
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_NAMES', {
+    limit: 10,
+    prefix: true,
+    query: 'Ali ce/One',
+  }),
+  '/names/search?query=Ali+ce%2FOne&prefix=true&limit=10',
+)
+assert.equal(buildHomeV2ChainReadPath('LIST_GROUPS', {}), '/groups')
+assert.equal(
+  buildHomeV2ChainReadPath('LIST_GROUPS', { limit: 0, offset: 5, reverse: false }),
+  '/groups?limit=0&offset=5&reverse=false',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_AT', { atAddress: 'AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV' }),
+  '/at/AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_AT_DATA', { atAddress: 'AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV' }),
+  '/at/AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV/data',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('LIST_ATS', {
+    codeHash58: 'E3vfBDpuTdrwmzZzJgLbeDBRzeUHkJPNCvbbeMZM7VQ',
+    isExecutable: true,
+    limit: 100,
+  }),
+  '/at/byfunction/E3vfBDpuTdrwmzZzJgLbeDBRzeUHkJPNCvbbeMZM7VQ?isExecutable=true&limit=100',
+)
+// A name search without a query is a guaranteed Core INVALID_CRITERIA.
+assert.throws(() => buildHomeV2ChainReadPath('SEARCH_NAMES', {}), /query is required/i)
+// Hub's legacy `new Boolean("false")` coercion made string booleans truthy;
+// Home rejects non-boolean flags outright.
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_NAMES', { prefix: 'false', query: 'Alice' }),
+  /must be true or false/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('LIST_GROUPS', { reverse: 'true' }),
+  /must be true or false/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('LIST_GROUPS', { limit: -1 }),
+  /non-negative safe integer/,
+)
+// Q addresses are not AT addresses.
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_AT', { atAddress: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH' }),
+  /AT address is invalid/,
+)
+assert.throws(() => buildHomeV2ChainReadPath('GET_AT_DATA', {}), /AT address is required/)
+assert.throws(
+  () => buildHomeV2ChainReadPath('LIST_ATS', { codeHash58: 'not-base58!' }),
+  /codeHash58/,
+)
+// Both cores reject byfunction pages above 100; fail before the request.
+assert.throws(
+  () => buildHomeV2ChainReadPath('LIST_ATS', {
+    codeHash58: 'E3vfBDpuTdrwmzZzJgLbeDBRzeUHkJPNCvbbeMZM7VQ',
+    limit: 101,
+  }),
+  /between 0 and 100/,
+)
 
 assert.equal(
   buildHomeV2AssetReadPath('GET_ASSET_INFO', { assetName: 'MY ASSET/ONE' }),
@@ -65,6 +135,14 @@ for (const [name, source] of [
   assert(
     source.includes('buildHomeV2AssetReadPath(action,'),
     `${name} must dispatch asset reads through the shared Home v2 builder.`,
+  )
+  assert(
+    source.includes('buildHomeV2ChainReadPath(action,'),
+    `${name} must dispatch chain reads through the shared Home v2 builder.`,
+  )
+  assert(
+    source.includes("throw new Error('AT not found.')"),
+    `${name} must normalize valid-but-absent AT reads to the documented error.`,
   )
 }
 
