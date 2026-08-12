@@ -443,7 +443,7 @@ async function seedFixtureAccount(client) {
     ],
   };
   await waitForCapacitorPreferences(client);
-  log(`Seeding disposable fixture account ${fixtureAccountAddress} into ${WALLET_STORE_KEY}.`);
+  log(`Seeding a disposable fixture account into ${WALLET_STORE_KEY}.`);
   await setPreference(client, WALLET_STORE_KEY, JSON.stringify(walletStore));
   // Drop any leftover shell-state so the wallet store's activeAccountId
   // governs selection instead of a stale selectedAddressId from an
@@ -674,7 +674,7 @@ async function main() {
         fail('Seeded a fixture account but it still did not resolve as the selected account after restart.');
       }
     }
-    log(`Selected account for this run: ${account.address}${account.walletId === fixtureWalletId ? ' (seeded fixture)' : ' (pre-existing on device)'}.`);
+    log(`Selected account for this run: ${account.walletId === fixtureWalletId ? 'the seeded fixture account' : 'a pre-existing on-device account'}.`);
 
     log(`Opening fixture tab 1: ${fixtureAddress}`);
     await navigateToAddress(client, fixtureAddress, 'the fixture APP tab');
