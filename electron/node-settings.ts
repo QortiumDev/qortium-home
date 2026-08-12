@@ -27,11 +27,12 @@ import {
   getNodeCertificateStatus,
 } from './node-cert-confirmation.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
+import { chooseResolvedLocalSettingsWrite } from './node-settings-write-policy.js';
 import { assertShellWindowSender } from './shell-window-sender.js';
 
 const CERTIFICATE_SENDER_REFUSAL =
   'Node certificate requests are only accepted from a Home window.';
-const DEFAULT_LOCAL_NODE_API_URL = 'http://127.0.0.1:24891';
+const DEFAULT_LOCAL_NODE_API_URL = 'https://127.0.0.1:24891';
 const NODE_DISCOVERY_CACHE_FILE = 'node-discovery-cache.json';
 const NODE_SETTINGS_FILE = 'node-settings.json';
 const nodeSettingsChangeListeners = new Set<() => void>();
@@ -251,6 +252,24 @@ function writeNodeSettings(settings: NodeSettings) {
   selectedPublicNodeApiUrl = null;
 }
 
+function writeResolvedLocalApiKey(
+  expected: NodeSettings,
+  resolved: NodeSettings,
+) {
+  const current = readNodeSettings();
+  const selected = chooseResolvedLocalSettingsWrite(
+    current,
+    expected,
+    resolved,
+  );
+
+  if (selected === resolved) {
+    writeNodeSettings(resolved);
+  }
+
+  return selected;
+}
+
 function expandHomePath(value: string) {
   const trimmedValue = value.trim();
 
@@ -323,7 +342,10 @@ function assertNodeCertificateConfirmed(nodeApiUrl: string) {
   }
 }
 
-async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings> {
+async function resolveLocalApiKey(
+  settings: NodeSettings,
+  expected: NodeSettings = settings,
+): Promise<NodeSettings> {
   if (settings.mode !== 'local' || hasExplicitLocalNodeApiUrl()) {
     return settings;
   }
@@ -343,9 +365,7 @@ async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings>
         apiKey: runningCoreApiKey.apiKey,
       };
 
-      writeNodeSettings(resolvedSettings);
-
-      return resolvedSettings;
+      return writeResolvedLocalApiKey(expected, resolvedSettings);
     }
 
     if (managedRuntimeRunning && managedCoreApiKey && managedCoreApiKey.apiKey !== settings.apiKey) {
@@ -354,9 +374,7 @@ async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings>
         apiKey: managedCoreApiKey.apiKey,
       };
 
-      writeNodeSettings(resolvedSettings);
-
-      return resolvedSettings;
+      return writeResolvedLocalApiKey(expected, resolvedSettings);
     }
 
     if (
@@ -369,9 +387,7 @@ async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings>
         apiKey: '',
       };
 
-      writeNodeSettings(resolvedSettings);
-
-      return resolvedSettings;
+      return writeResolvedLocalApiKey(expected, resolvedSettings);
     }
 
     return settings;
@@ -383,9 +399,7 @@ async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings>
       apiKey: runningCoreApiKey.apiKey,
     };
 
-    writeNodeSettings(resolvedSettings);
-
-    return resolvedSettings;
+    return writeResolvedLocalApiKey(expected, resolvedSettings);
   }
 
   if (!runtimePath || !managedRuntimeRunning || !managedCoreApiKey?.apiKey) {
@@ -397,9 +411,7 @@ async function resolveLocalApiKey(settings: NodeSettings): Promise<NodeSettings>
     apiKey: managedCoreApiKey.apiKey,
   };
 
-  writeNodeSettings(resolvedSettings);
-
-  return resolvedSettings;
+  return writeResolvedLocalApiKey(expected, resolvedSettings);
 }
 
 function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings {
@@ -854,13 +866,16 @@ async function refreshLocalApiKey(settings: NodeSettings) {
     return settings;
   }
 
-  const refreshedSettings = await resolveLocalApiKey({
-    ...settings,
-    apiKey: '',
-  });
+  const refreshedSettings = await resolveLocalApiKey(
+    {
+      ...settings,
+      apiKey: '',
+    },
+    settings,
+  );
 
   if (!refreshedSettings.apiKey && settings.apiKey) {
-    writeNodeSettings(refreshedSettings);
+    return writeResolvedLocalApiKey(settings, refreshedSettings);
   }
 
   return refreshedSettings;
@@ -917,8 +932,12 @@ async function fetchProtectedNodeResponse(
       },
       body,
     });
-  } catch {
-    throw new Error(`Qortium node is unavailable at ${nodeApiUrl}.`);
+  } catch (error) {
+    const detail =
+      error instanceof Error && error.message.trim()
+        ? `: ${error.message}`
+        : '';
+    throw new Error(`Qortium node is unavailable at ${nodeApiUrl}${detail}.`);
   }
 
   return {
@@ -968,8 +987,12 @@ async function fetchNodeStatus(nodeApiUrl: string, apiKey: string | null = null)
 
   try {
     response = await nodeFetch(`${nodeApiUrl}/admin/status`);
-  } catch {
-    throw new Error(`Qortium node is unavailable at ${nodeApiUrl}.`);
+  } catch (error) {
+    const detail =
+      error instanceof Error && error.message.trim()
+        ? `: ${error.message}`
+        : '';
+    throw new Error(`Qortium node is unavailable at ${nodeApiUrl}${detail}.`);
   }
 
   const text = await response.text();

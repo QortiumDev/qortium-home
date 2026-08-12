@@ -5,7 +5,7 @@ import {
   isNodeApiKeyTransportSafe,
   normalizeNodeApiUrl,
 } from './node-api-url.js'
-import { nodeFetch } from './node-tls.js'
+import { ensureNodeCa, nodeFetch } from './node-tls.js'
 import { assertShellWindowSender } from './shell-window-sender.js'
 import {
   isFullySyncedQortalStatus,
@@ -20,7 +20,7 @@ import {
 
 export type { QortalNodeSettings, QortalNodeSettingsMode } from './qortal-node-policy.js'
 
-const DEFAULT_LOCAL_URL = 'http://127.0.0.1:12391'
+const DEFAULT_LOCAL_URL = 'https://127.0.0.1:12391'
 const PUBLIC_READ_PROBE_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false'
 const SETTINGS_FILE = 'qortal-node-settings.json'
@@ -135,6 +135,7 @@ async function fetchWithTimeout(url: string) {
 }
 
 async function readStatus(nodeApiUrl: string) {
+  await ensureNodeCa(nodeApiUrl, null)
   const response = await fetchWithTimeout(`${nodeApiUrl}/admin/status`)
   if (!response.ok) throw new Error(`Qortal status returned HTTP ${response.status}.`)
   return response.json() as Promise<unknown>

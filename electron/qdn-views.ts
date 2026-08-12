@@ -37,6 +37,7 @@ const UI_VALUES = new Set(['classic', 'modern', 'fun']);
 // strips the CSP entirely; on desktop we relax it narrowly to just these origins.
 const QORTAL_RENDER_ALLOWED_ORIGINS = [
   'http://127.0.0.1:12391',
+  'https://127.0.0.1:12391',
   'https://ext-node.qortal.link',
   'https://api.qortal.org',
 ];
