@@ -191,6 +191,46 @@ await assert.rejects(
   () => client.requestApp('qortalRequest', { action: 'SEARCH_NAMES', prefix: 'true', query: 'Ali' }),
   /must be true or false/,
 )
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'FETCH_BLOCK',
+    height: 42,
+  }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/blocks\/byheight\/42$/)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'SEARCH_TRANSACTIONS',
+    confirmationStatus: 'CONFIRMED',
+    limit: 10,
+    txType: ['PAYMENT'],
+  }),
+  [],
+)
+assert.match(
+  lastRequestedUrl,
+  /\/transactions\/search\?txType=PAYMENT&confirmationStatus=CONFIRMED&limit=10$/,
+)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', { action: 'GET_DAY_SUMMARY' }),
+  [],
+)
+assert.match(lastRequestedUrl, /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/admin\/summary$/)
+// GET_DAY_SUMMARY and GET_PRICE are qortalRequest-only: Qortium Previewnet
+// public seeds do not expose their routes.
+await assert.rejects(
+  () => client.requestApp('qdnRequest', { action: 'GET_PRICE', blockchain: 'LITECOIN' }),
+  /not available in Home v2 read-only mode/,
+)
+await assert.rejects(
+  () => client.requestApp('qortalRequest', {
+    action: 'FETCH_BLOCK_RANGE',
+    count: 101,
+    height: 5,
+  }),
+  /between 1 and 100/,
+)
 
 const catalogue = await client.listAccounts()
 assert.equal(catalogue.activeAccountId, 'wallet:one:2')

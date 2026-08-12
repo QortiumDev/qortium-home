@@ -21,6 +21,7 @@ import {
   getHomeV2AppNetwork,
   HOME_V2_APP_LIMITS,
   isHomeV2AppRecord,
+  isHomeV2ChainReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
@@ -432,13 +433,7 @@ async function handleRequest(
     )
     return responseDataOrThrow(result, `${action} request`)
   }
-  if (
-    action === 'SEARCH_NAMES' ||
-    action === 'LIST_GROUPS' ||
-    action === 'GET_AT' ||
-    action === 'GET_AT_DATA' ||
-    action === 'LIST_ATS'
-  ) {
+  if (isHomeV2ChainReadAction(action)) {
     const path = buildHomeV2ChainReadPath(action, requestValue)
     const { result } = await fetchRead(
       network,

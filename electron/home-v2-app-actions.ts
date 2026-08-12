@@ -27,6 +27,8 @@ const COMMON_ACTIONS = [
 const QDN_ACTIONS = [
   ...COMMON_ACTIONS,
   'FETCH_ACCOUNT_AVATAR',
+  'FETCH_BLOCK',
+  'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
   'FETCH_QORTAL_NODE_API',
   'GET_ACCOUNT_NAMES',
@@ -47,18 +49,23 @@ const QDN_ACTIONS = [
   'RESOLVE_IDENTITIES',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
+  'SEARCH_TRANSACTIONS',
   'UNLOCK_SELECTED_ACCOUNT',
 ] as const
 
 const QORTAL_ACTIONS = [
   ...COMMON_ACTIONS,
+  'FETCH_BLOCK',
+  'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
   'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_NAMES',
   'GET_AT',
   'GET_AT_DATA',
   'GET_BALANCE',
+  'GET_DAY_SUMMARY',
   'GET_NAME_DATA',
+  'GET_PRICE',
   'GET_PRIMARY_NAME',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
@@ -70,6 +77,7 @@ const QORTAL_ACTIONS = [
   'LIST_QDN_RESOURCES',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
+  'SEARCH_TRANSACTIONS',
 ] as const
 
 const READ_PREFIXES = [
@@ -425,6 +433,49 @@ export function normalizeHomeV2AtAddress(value: unknown) {
 
 // Both cores reject /at/byfunction pages larger than 100 entries.
 const LIST_ATS_LIMIT_MAX = 100
+// Core has no server-side cap on /blocks/range or /transactions/search page
+// sizes, so Home imposes conservative ones before the request goes out.
+const BLOCK_RANGE_COUNT_MAX = 100
+const TRANSACTION_SEARCH_LIMIT_MAX = 100
+// Qortal's SupportedBlockchain enum; /crosschain/price rejects anything else.
+const QORTAL_PRICE_BLOCKCHAINS = new Set([
+  'BITCOIN',
+  'DIGIBYTE',
+  'DOGECOIN',
+  'LITECOIN',
+  'PIRATECHAIN',
+  'RAVENCOIN',
+])
+const TRANSACTION_CONFIRMATION_STATUSES = new Set(['BOTH', 'CONFIRMED', 'UNCONFIRMED'])
+
+const CHAIN_READ_ACTIONS = new Set([
+  'FETCH_BLOCK',
+  'FETCH_BLOCK_RANGE',
+  'GET_AT',
+  'GET_AT_DATA',
+  'GET_DAY_SUMMARY',
+  'GET_PRICE',
+  'LIST_ATS',
+  'LIST_GROUPS',
+  'SEARCH_NAMES',
+  'SEARCH_TRANSACTIONS',
+])
+
+export function isHomeV2ChainReadAction(action: string) {
+  return CHAIN_READ_ACTIONS.has(action)
+}
+
+function requiredPositiveInteger(value: unknown, key: string, max?: number) {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || (max !== undefined && parsed > max)) {
+    throw new Error(
+      max !== undefined
+        ? `${key} must be an integer between 1 and ${max}.`
+        : `${key} must be a positive safe integer.`,
+    )
+  }
+  return parsed
+}
 
 export function buildHomeV2ChainReadPath(action: string, request: Record<string, unknown>) {
   if (action === 'SEARCH_NAMES') {
@@ -456,6 +507,107 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
     if (isExecutable !== undefined) query.set('isExecutable', String(isExecutable))
     appendPageQuery(query, request, LIST_ATS_LIMIT_MAX)
     return `/at/byfunction/${encodeURIComponent(codeHash)}${query.size ? `?${query.toString()}` : ''}`
+  }
+  if (action === 'FETCH_BLOCK') {
+    const hasSignature = request.signature !== undefined && request.signature !== null
+    const hasHeight = request.height !== undefined && request.height !== null
+    // Hub silently prefers signature when both selectors are present and
+    // times out when neither is; Home requires exactly one.
+    if (hasSignature === hasHeight) {
+      throw new Error('FETCH_BLOCK requires exactly one of signature or height.')
+    }
+    const query = new URLSearchParams()
+    const includeOnlineSignatures = optionalStrictBoolean(request, 'includeOnlineSignatures')
+    if (includeOnlineSignatures !== undefined) {
+      query.set('includeOnlineSignatures', String(includeOnlineSignatures))
+    }
+    const suffix = query.size ? `?${query.toString()}` : ''
+    if (hasSignature) {
+      const signature = typeof request.signature === 'string' ? request.signature.trim() : ''
+      if (!/^[1-9A-HJ-NP-Za-km-z]{80,200}$/.test(signature)) {
+        throw new Error('Block signature is invalid.')
+      }
+      return `/blocks/signature/${encodeURIComponent(signature)}${suffix}`
+    }
+    return `/blocks/byheight/${requiredPositiveInteger(request.height, 'height')}${suffix}`
+  }
+  if (action === 'FETCH_BLOCK_RANGE') {
+    const height = requiredPositiveInteger(request.height, 'height')
+    const query = new URLSearchParams()
+    query.set('count', String(requiredPositiveInteger(request.count, 'count', BLOCK_RANGE_COUNT_MAX)))
+    const reverse = optionalStrictBoolean(request, 'reverse')
+    if (reverse !== undefined) query.set('reverse', String(reverse))
+    const includeOnlineSignatures = optionalStrictBoolean(request, 'includeOnlineSignatures')
+    if (includeOnlineSignatures !== undefined) {
+      query.set('includeOnlineSignatures', String(includeOnlineSignatures))
+    }
+    return `/blocks/range/${height}?${query.toString()}`
+  }
+  if (action === 'SEARCH_TRANSACTIONS') {
+    const query = new URLSearchParams()
+    const startBlock = optionalPageInteger(request, 'startBlock')
+    const blockLimit = optionalPageInteger(request, 'blockLimit')
+    const txGroupId = optionalPageInteger(request, 'txGroupId')
+    if (startBlock !== undefined) query.set('startBlock', String(startBlock))
+    if (blockLimit !== undefined) query.set('blockLimit', String(blockLimit))
+    if (txGroupId !== undefined) query.set('txGroupId', String(txGroupId))
+    const txTypes: string[] = []
+    if (request.txType !== undefined && request.txType !== null) {
+      if (!Array.isArray(request.txType)) {
+        throw new Error('txType must be an array of transaction type names.')
+      }
+      for (const value of request.txType) {
+        const txType = typeof value === 'string' ? value.trim().toUpperCase() : ''
+        if (!/^[A-Z][A-Z0-9_]{1,64}$/.test(txType)) {
+          throw new Error('txType entries must be transaction type names.')
+        }
+        txTypes.push(txType)
+        query.append('txType', txType)
+      }
+    }
+    const hasAddress = request.address !== undefined && request.address !== null && request.address !== ''
+    if (hasAddress) query.set('address', normalizeHomeV2Address(request.address))
+    // The forks disagree on the default (Qortal null, Qortium CONFIRMED), so
+    // Home requires the status explicitly for deterministic behavior.
+    const status = typeof request.confirmationStatus === 'string'
+      ? request.confirmationStatus.trim().toUpperCase()
+      : ''
+    if (!TRANSACTION_CONFIRMATION_STATUSES.has(status)) {
+      throw new Error('confirmationStatus must be CONFIRMED, UNCONFIRMED, or BOTH.')
+    }
+    query.set('confirmationStatus', status)
+    const limit = optionalPageInteger(request, 'limit', TRANSACTION_SEARCH_LIMIT_MAX)
+    if (limit !== undefined) query.set('limit', String(limit))
+    const offset = optionalPageInteger(request, 'offset')
+    if (offset !== undefined) query.set('offset', String(offset))
+    const reverse = optionalStrictBoolean(request, 'reverse')
+    if (reverse !== undefined) query.set('reverse', String(reverse))
+    // Core rejects unconstrained searches; fail before the request instead.
+    if (!txTypes.length && !hasAddress && (limit === undefined || limit === 0 || limit > 20)) {
+      throw new Error(
+        'SEARCH_TRANSACTIONS requires txType, address, or a limit of at most 20.',
+      )
+    }
+    return `/transactions/search?${query.toString()}`
+  }
+  if (action === 'GET_DAY_SUMMARY') {
+    return '/admin/summary'
+  }
+  if (action === 'GET_PRICE') {
+    const blockchain = typeof request.blockchain === 'string'
+      ? request.blockchain.trim().toUpperCase()
+      : ''
+    if (!QORTAL_PRICE_BLOCKCHAINS.has(blockchain)) {
+      throw new Error('blockchain must be a supported Qortal foreign blockchain.')
+    }
+    const query = new URLSearchParams()
+    const maxTradesValue = request.maxtrades ?? request.maxTrades
+    if (maxTradesValue !== undefined && maxTradesValue !== null && maxTradesValue !== '') {
+      query.set('maxtrades', String(requiredPositiveInteger(maxTradesValue, 'maxtrades', 100)))
+    }
+    const inverse = optionalStrictBoolean(request, 'inverse')
+    if (inverse !== undefined) query.set('inverse', String(inverse))
+    return `/crosschain/price/${blockchain}${query.size ? `?${query.toString()}` : ''}`
   }
   throw new Error(`${action} is not a supported chain read.`)
 }
