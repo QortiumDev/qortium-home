@@ -165,9 +165,13 @@ for (const [label, source] of [
 }
 
 for (const relativePath of [
+  // smoke-android-qdn-bridge.mjs is no longer in this list: it now drives the
+  // Home 2.0 shell bridge, which intentionally does not advertise the v1
+  // bookmark/notification manager actions (see the deferred Qortium surface in
+  // docs/HOME_V2_BRIDGE_COMPATIBILITY.md), so requiring these names there
+  // would contradict the app's real SHOW_ACTIONS result.
   'scripts/smoke-desktop-qdn-api.mjs',
   'scripts/smoke-desktop-qdn-write.mjs',
-  'scripts/smoke-android-qdn-bridge.mjs',
 ]) {
   const source = readFileSync(path.join(repoRoot, relativePath), 'utf8');
   for (const action of managerActions) {
