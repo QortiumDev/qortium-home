@@ -1,6 +1,6 @@
 # Home 2.0 bridge compatibility ledger
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -41,6 +41,8 @@ pages and Home 1.x retain Core's injected bridge client.
 | `FETCH_QORTAL_NODE_API` | `qdnRequest` | Bounded response envelope | Explicit Qortal GET/HEAD allowlist | yes | yes |
 | `GET_ASSET_INFO`, `GET_ASSET_BALANCES`, `GET_ASSET_TRANSFERS` | `qdnRequest` | Bare Qortium Core JSON | Shared strict asset selector/path validation; bounded public read | yes | yes |
 | `GET_NAME_DATA`, `GET_ACCOUNT_NAMES` | both | Bare Core JSON | Explicit public identity read | yes | yes |
+| `SEARCH_NAMES`, `LIST_GROUPS` | both | Bare Core JSON array | Required query for name search; strict integer pagination and real booleans only | yes | yes |
+| `GET_AT`, `GET_AT_DATA`, `LIST_ATS` | both | Bare Core JSON, or the documented `AT not found.` error for a valid absent AT | Strict AT address and 32-byte Base58 code-hash validation; Core's 100-entry page cap enforced before the request | yes | yes |
 | `GET_PRIMARY_NAME` | `qortalRequest` | Bare Core JSON | Explicit Qortal identity read | yes | yes |
 | `GET_ACCOUNT_DATA`, `GET_BALANCE` | `qortalRequest` | Bare Core JSON | Explicit Qortal address read | yes | yes |
 | `RESOLVE_IDENTITIES` | `qdnRequest` | Address/name/avatar-hint array | Qortium metadata only; at most 500 unique addresses | yes | yes |
@@ -94,7 +96,7 @@ and Android fixtures pass.
 
 | Risk family | Deferred pinned actions |
 | --- | --- |
-| More public reads/search | `FETCH_BLOCK`, `FETCH_BLOCK_RANGE`, `GET_AT`, `GET_AT_DATA`, `GET_DAY_SUMMARY`, `GET_PRICE`, `GET_TX_ACTIVITY_SUMMARY`, `LINK_TO_QDN_RESOURCE`, `LIST_ATS`, `LIST_GROUPS`, `SEARCH_CHAT_MESSAGES`, `SEARCH_NAMES`, `SEARCH_TRANSACTIONS` |
+| More public reads/search | `FETCH_BLOCK`, `FETCH_BLOCK_RANGE`, `GET_DAY_SUMMARY`, `GET_PRICE`, `GET_TX_ACTIVITY_SUMMARY`, `LINK_TO_QDN_RESOURCE`, `SEARCH_CHAT_MESSAGES`, `SEARCH_TRANSACTIONS` |
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
 | Names, groups, polls | `ADD_GROUP_ADMIN`, `BAN_FROM_GROUP`, `BUY_NAME`, `CANCEL_GROUP_BAN`, `CANCEL_GROUP_INVITE`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `KICK_FROM_GROUP`, `LEAVE_GROUP`, `REGISTER_NAME`, `REMOVE_GROUP_ADMIN`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |

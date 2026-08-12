@@ -9,6 +9,7 @@ import type {
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import {
   buildHomeV2AssetReadPath,
+  buildHomeV2ChainReadPath,
   buildHomeV2NamePath,
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
@@ -704,6 +705,28 @@ export function createPortableNodeClient(
           buildHomeV2AssetReadPath(action, request),
           normalizeHomeV2ResponseMaxBytes(request.maxBytes),
         )).data
+      }
+      if (
+        action === 'SEARCH_NAMES' ||
+        action === 'LIST_GROUPS' ||
+        action === 'GET_AT' ||
+        action === 'GET_AT_DATA' ||
+        action === 'LIST_ATS'
+      ) {
+        const { data } = await requestData(
+          network,
+          buildHomeV2ChainReadPath(action, request),
+          normalizeHomeV2ResponseMaxBytes(request.maxBytes),
+        )
+        // Both cores answer a valid-but-absent AT with an empty 2xx body;
+        // normalize that to the same documented error the desktop bridge uses.
+        if (
+          (action === 'GET_AT' || action === 'GET_AT_DATA') &&
+          (data === null || data === undefined || data === '')
+        ) {
+          throw new Error('AT not found.')
+        }
+        return data
       }
       if (action === 'RESOLVE_IDENTITIES') {
         const addresses = normalizeHomeV2IdentityAddresses(request.addresses)

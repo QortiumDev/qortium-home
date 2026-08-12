@@ -33,14 +33,19 @@ const QDN_ACTIONS = [
   'GET_ASSET_BALANCES',
   'GET_ASSET_INFO',
   'GET_ASSET_TRANSFERS',
+  'GET_AT',
+  'GET_AT_DATA',
   'GET_NAME_DATA',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
   'GET_QDN_RESOURCE_URL',
   'GET_SELECTED_ACCOUNT',
+  'LIST_ATS',
+  'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
   'RESOLVE_IDENTITIES',
+  'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'UNLOCK_SELECTED_ACCOUNT',
 ] as const
@@ -50,6 +55,8 @@ const QORTAL_ACTIONS = [
   'FETCH_QDN_RESOURCE',
   'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_NAMES',
+  'GET_AT',
+  'GET_AT_DATA',
   'GET_BALANCE',
   'GET_NAME_DATA',
   'GET_PRIMARY_NAME',
@@ -58,7 +65,10 @@ const QORTAL_ACTIONS = [
   'GET_QDN_RESOURCE_STATUS',
   'GET_QDN_RESOURCE_URL',
   'GET_USER_ACCOUNT',
+  'LIST_ATS',
+  'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
+  'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
 ] as const
 
@@ -362,6 +372,92 @@ export function buildHomeV2NamePath(action: string, request: Record<string, unkn
     return `/names/primary/${encodeURIComponent(normalizeHomeV2Address(request.address))}`
   }
   throw new Error(`${action} is not a supported identity read.`)
+}
+
+// Hub's legacy q-apps mapping coerces these with `new Boolean(value)`, which
+// turns the string "false" truthy. Home requires real booleans instead.
+function optionalStrictBoolean(request: Record<string, unknown>, key: string) {
+  const value = request[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'boolean') throw new Error(`${key} must be true or false.`)
+  return value
+}
+
+function optionalPageInteger(
+  request: Record<string, unknown>,
+  key: string,
+  max?: number,
+) {
+  const value = request[key]
+  if (value === undefined || value === null || value === '') return undefined
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || (max !== undefined && parsed > max)) {
+    throw new Error(
+      max !== undefined
+        ? `${key} must be an integer between 0 and ${max}.`
+        : `${key} must be a non-negative safe integer.`,
+    )
+  }
+  return parsed
+}
+
+function appendPageQuery(
+  query: URLSearchParams,
+  request: Record<string, unknown>,
+  limitMax?: number,
+) {
+  const limit = optionalPageInteger(request, 'limit', limitMax)
+  const offset = optionalPageInteger(request, 'offset')
+  const reverse = optionalStrictBoolean(request, 'reverse')
+  if (limit !== undefined) query.set('limit', String(limit))
+  if (offset !== undefined) query.set('offset', String(offset))
+  if (reverse !== undefined) query.set('reverse', String(reverse))
+}
+
+export function normalizeHomeV2AtAddress(value: unknown) {
+  if (typeof value !== 'string') throw new Error('AT address is required.')
+  const address = value.trim()
+  if (!/^A[1-9A-HJ-NP-Za-km-z]{20,80}$/.test(address)) {
+    throw new Error('AT address is invalid.')
+  }
+  return address
+}
+
+// Both cores reject /at/byfunction pages larger than 100 entries.
+const LIST_ATS_LIMIT_MAX = 100
+
+export function buildHomeV2ChainReadPath(action: string, request: Record<string, unknown>) {
+  if (action === 'SEARCH_NAMES') {
+    const query = new URLSearchParams()
+    query.set('query', requestString(request, 'query', 'Name search query', 256))
+    const prefix = optionalStrictBoolean(request, 'prefix')
+    if (prefix !== undefined) query.set('prefix', String(prefix))
+    appendPageQuery(query, request)
+    return `/names/search?${query.toString()}`
+  }
+  if (action === 'LIST_GROUPS') {
+    const query = new URLSearchParams()
+    appendPageQuery(query, request)
+    return `/groups${query.size ? `?${query.toString()}` : ''}`
+  }
+  if (action === 'GET_AT') {
+    return `/at/${encodeURIComponent(normalizeHomeV2AtAddress(request.atAddress))}`
+  }
+  if (action === 'GET_AT_DATA') {
+    return `/at/${encodeURIComponent(normalizeHomeV2AtAddress(request.atAddress))}/data`
+  }
+  if (action === 'LIST_ATS') {
+    const codeHash = typeof request.codeHash58 === 'string' ? request.codeHash58.trim() : ''
+    if (!/^[1-9A-HJ-NP-Za-km-z]{40,50}$/.test(codeHash)) {
+      throw new Error('codeHash58 must be the Base58 hash of 32 bytes of AT code.')
+    }
+    const query = new URLSearchParams()
+    const isExecutable = optionalStrictBoolean(request, 'isExecutable')
+    if (isExecutable !== undefined) query.set('isExecutable', String(isExecutable))
+    appendPageQuery(query, request, LIST_ATS_LIMIT_MAX)
+    return `/at/byfunction/${encodeURIComponent(codeHash)}${query.size ? `?${query.toString()}` : ''}`
+  }
+  throw new Error(`${action} is not a supported chain read.`)
 }
 
 export function buildHomeV2AssetReadPath(action: string, request: Record<string, unknown>) {
