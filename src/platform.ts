@@ -1338,7 +1338,7 @@ async function getNodeSettingsSnapshot(settings: StoredNodeSettings): Promise<Qo
     ...settings,
     localUrl: getLocalNodeApiUrl(),
     networkModeAvailable: true,
-    networkSeedUrls: QORTIUM_PUBLIC_NODE_API_URLS,
+    networkSeedUrls: [...QORTIUM_PUBLIC_NODE_API_URLS],
     nodeApiUrl,
   };
 }

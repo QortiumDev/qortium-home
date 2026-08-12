@@ -34,6 +34,13 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-11 - chore: clean the last two strict TypeScript errors
+
+Removes a stray duplicate React import in the browser chrome and copies the
+fixed public-node list into the mutable settings field it feeds, so the full
+strict TypeScript project check now passes with no errors. No behavior
+changes.
+
 ### 2026-08-11 - fix: restore Home 2.0 node connectivity over verified HTTPS
 
 Separates Home's offline renderer session from the privileged main-process node
