@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-11 - test: restore the Android QDN bridge smoke for the Home 2.0 shell
+
+The Android real-device smoke had gone stale: it still looked for the old
+Home 1.x address bar and account-request dialog, which the unified Home 2.0
+shell replaced. It is rewritten to drive an already-installed build over adb
+and Chrome DevTools Protocol the same way the desktop tab-bound permission
+prompt smoke does, adapted for Android's differences -- accounts live only in
+on-device app storage (there is no desktop-style vault bridge to call), and a
+QDN app renders as a plain iframe with no snapshot capture step. It reuses an
+already-selected test account when one is present, and only ever seeds a
+disposable fixture account when explicitly told to, so it can never overwrite
+a real profile by accident. It proves: the permission dialog binds to the
+requesting app tab and marks the page with an overlay flag; switching to
+Dashboard or to another open app tab is blocked while a request is pending,
+with no reload of the requesting tab; Deny rejects the request; Allow-once
+resolves it with the account payload; and no dialog appears once nothing is
+pending. The smoke never installs, uninstalls, or reboots anything, and never
+touches any package other than the one under test.
+
 ### 2026-08-11 - feat: add name-search, group, and AT public reads to the app bridge
 
 QDN apps on both bridge protocols can now search registered names, list
