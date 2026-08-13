@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-13 - feat: add Home v2 group and active-chats reads
+
+The app bridge gains a group-browsing read family, unblocking group chat
+browsing in the Chat 2.0 app. Apps can look up a single group, list a group's
+members (optionally admins only), list the groups an address belongs to
+(optionally owned or admin-only groups), and see a group's pending join
+requests - by group, by the requesting address, or by an admin address. Apps
+can also list an address's active chats (which groups and direct
+conversations currently have messages). All of these are anonymous, no-key,
+no-prompt public reads, the same as the existing name and asset lookups.
+Group search (finding groups by name or description) ships on Qortium only,
+because Qortal's node software has no matching search endpoint - this is a
+genuine gap between the two networks, not a Home restriction, and Home
+advertises the action only where it actually works.
+
 ### 2026-08-12 - feat: add Home v2 chat reads and send (Chat 2.0 Phase 1)
 
 The app bridge gains its first chat family, on both Qortium and Qortal.
