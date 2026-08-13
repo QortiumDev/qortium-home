@@ -37,6 +37,8 @@ for (const chainReadAction of [
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
   'SEARCH_TRANSACTIONS',
+  'SEARCH_CHAT_MESSAGES',
+  'GET_CHAT_MESSAGE',
 ]) {
   assert.equal(qdnActions.includes(chainReadAction), true)
   assert.equal(qortalActions.includes(chainReadAction), true)
@@ -205,6 +207,65 @@ assert.throws(
     limit: 101,
   }),
   /between 0 and 100/,
+)
+
+const chatSignature =
+  '3H1KRfxLcJgxUAvBWKB4Y9x2K2sYKvzeXKrRGqYnDvxNQoNo8czEEs1uYYzMg2xKGz7Cx1xoY7YSasfF8LtcvRcE'
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', { txGroupId: 0 }),
+  '/chat/messages?txGroupId=0&encoding=BASE64',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', {
+    after: 1_700_000_000_000,
+    before: 1_800_000_000_000,
+    encoding: 'base58',
+    limit: 10,
+    offset: 5,
+    reverse: true,
+    txGroupId: 5,
+  }),
+  '/chat/messages?txGroupId=5&before=1800000000000&after=1700000000000&limit=10&offset=5&reverse=true&encoding=BASE58',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', {}),
+  /txGroupId is required/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', { involving: 'QAbc', txGroupId: 0 }),
+  /groups-only in this release/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', { sender: 'QAbc', txGroupId: 0 }),
+  /groups-only in this release/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', { recipient: 'QAbc', txGroupId: 0 }),
+  /groups-only in this release/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', { before: 1, txGroupId: 0 }),
+  /no earlier than 1500000000000/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_CHAT_MESSAGES', { limit: 101, txGroupId: 0 }),
+  /between 0 and 100/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_CHAT_MESSAGE', { signature: chatSignature }),
+  `/chat/message/${chatSignature}?encoding=BASE64`,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_CHAT_MESSAGE', { encoding: 'BASE58', signature: chatSignature }),
+  `/chat/message/${chatSignature}?encoding=BASE58`,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_CHAT_MESSAGE', { signature: 'not-base58!' }),
+  /signature is invalid/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_CHAT_MESSAGE', { signature: chatSignature, encoding: 'HEX' }),
+  /encoding must be BASE58 or BASE64/,
 )
 
 assert.equal(
