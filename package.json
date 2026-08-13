@@ -157,7 +157,8 @@
     "test:home-v2-profile-recovery": "npm run build:electron && node scripts/test-home-v2-profile-recovery.mjs",
     "test:widget-manifest": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-manifest.test.js",
     "test:widget-region": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-region.test.js",
-    "test:widget-hit-testing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-hit-testing.test.js"
+    "test:widget-hit-testing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-hit-testing.test.js",
+    "test:widget-discovery": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-discovery.test.js"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
