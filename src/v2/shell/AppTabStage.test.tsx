@@ -16,6 +16,9 @@ import { createRoot } from 'react-dom/client'
 import { AppTabStage, androidAppStageKey } from './AppTabStage'
 import { createProductState, reduceProductState } from '../product-model'
 import type { ProductState } from '../product-model'
+import { buildAppResourceLocation } from '../resource-location'
+import type { AppResourceLocation } from '../contracts'
+import { recordedAuthorizeCalls } from '../test-kit/fake-capacitor-core'
 import {
   fixtureApp,
   fixtureIds,
@@ -241,9 +244,82 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
   container.remove()
 }
 
+// Round 7 (Sol round-6 re-review, bug 3): an initial `qdn://APP/name#/route`
+// deep link's fragment used to be silently dropped when the proxied iframe
+// `source` was built from `authorizedDocument.pathname`/`.search` alone (see
+// AppTabStage.tsx's AndroidAppStage effect) — an app opened straight into a
+// deep sub-route would instead land on its root route. The fix carries the
+// hash into the iframe `src`, but (see the second half of this test) the
+// hash must never reach the native authorize() registration: a fragment is
+// a client-only concept that is never sent to the server, so it can never
+// legitimately participate in QdnRenderProxy.isExactAuthorizedRenderDocument's
+// server-side match — only the client-side iframe navigation.
+async function testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt(): Promise<void> {
+  const chat = fixtureApp(fixtureIds.chatApp)
+  const hashLocation = `${buildAppResourceLocation(chat.sourceNetwork, chat.resourceIdentity)}#/settings` as AppResourceLocation
+
+  let state = createProductState()
+  state = reduceProductState(state, {
+    type: 'open-app',
+    app: chat,
+    context: { ...fixtureTabContext(chat, fixtureIds.chatTab), resourceLocation: hashLocation },
+    tabId: fixtureIds.chatTab,
+  })
+  state = reduceProductState(state, { type: 'activate-tab', tabId: fixtureIds.chatTab })
+
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const priorAuthorizeCallCount = recordedAuthorizeCalls.length
+
+  act(() => {
+    root.render(
+      React.createElement(AppTabStage, {
+        productState: state,
+        snapshot: homeV2Fixture,
+        requestApp: async () => null,
+        onOpenAddress: async () => undefined,
+      }),
+    )
+  })
+  await act(async () => {
+    await flushAsync()
+  })
+
+  const iframe = container.querySelector('iframe.home-v2-app-frame')
+  assert.equal(iframe !== null, true, 'the app tab should have a loaded iframe')
+  const src = String(iframe?.getAttribute('src'))
+  assert.equal(
+    new URL(src).hash,
+    '#/settings',
+    'an initial hash deep link must be carried into the iframe src, not dropped',
+  )
+
+  const newCalls = recordedAuthorizeCalls.slice(priorAuthorizeCallCount)
+  assert.equal(newCalls.length, 1, 'exactly one native authorize() call should have been made')
+  const registeredUrl = String(newCalls[0]?.authorizedDocumentUrl)
+  assert.doesNotMatch(
+    registeredUrl,
+    /#/,
+    'the document URL registered with the native proxy must never carry the hash fragment — it ' +
+      'never reaches the server and must not participate in the exact-URL match',
+  )
+  assert.match(
+    registeredUrl,
+    /fixture-chat/,
+    "sanity check: the registered document is still this tab's Chat resource",
+  )
+
+  await act(async () => {
+    root.unmount()
+  })
+  container.remove()
+}
+
 async function main(): Promise<void> {
   testAndroidAppStageKeyChangesExactlyOnTabIdentityChange()
   await testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext()
+  await testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt()
   console.log('AppTabStage.test.tsx passed')
 }
 

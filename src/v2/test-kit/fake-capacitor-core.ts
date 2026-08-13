@@ -14,9 +14,18 @@
 // all (see QdnRenderProxyTest.java for that); it only unblocks the JS/React
 // side under test.
 
+// Round 7 (Sol round-6 re-review, bug 3): every authorize() call this fake
+// receives is recorded here so a test can inspect exactly what AppTabStage
+// handed the native layer — in particular, that an initial hash deep link
+// never appears in the registered authorizedDocumentUrl (see
+// AppTabStage.test.tsx's hash test), which no assertion on the iframe's own
+// `src` alone could prove.
+export const recordedAuthorizeCalls: { authorizedDocumentUrl?: string | null; homeV2?: boolean; origin?: string }[] = []
+
 export function registerPlugin(_name: string) {
   return {
-    async authorize(_options: unknown) {
+    async authorize(options: { authorizedDocumentUrl?: string | null; homeV2?: boolean; origin?: string }) {
+      recordedAuthorizeCalls.push(options)
       // A single fixed origin: production also authorizes ONE proxy origin
       // per node regardless of which app tab is active (see
       // QdnRenderProxy.java's class doc comment on why the proxy host label

@@ -208,7 +208,7 @@ final class QdnRenderProxy {
         }
 
         String label = getLabel(normalizedOrigin);
-        AuthorizedDocument authorizedDocument = parseAuthorizedDocument(authorizedDocumentUrl);
+        AuthorizedDocument authorizedDocument = parseAuthorizedDocument(normalizedOrigin, authorizedDocumentUrl);
 
         AUTHORIZED_ORIGINS.put(label, new AuthorizedOrigin(normalizedOrigin, homeV2, authorizedDocument));
 
@@ -447,23 +447,64 @@ final class QdnRenderProxy {
 
     /**
      * Production ({@code Uri}/String-typed) entry point for {@link
-     * #buildAuthorizedDocument}, used by {@link #authorize}. Returns null for
-     * a blank/unparseable URL, or one whose OWN origin does not match the
-     * origin being authorized — a caller bug passing a document URL for a
-     * DIFFERENT node than the one it is registering against must never
-     * silently authorize the wrong node's content; failing closed (no
-     * authorized document at all, so {@link #isExactAuthorizedRenderDocument}
-     * and {@link #isAuthorizedAppResource} both refuse everything) is safer
-     * than trusting either value alone.
+     * #buildAuthorizedDocumentIfOriginMatches}, used by {@link #authorize}.
+     * Returns null for a blank/unparseable URL; see that method for the
+     * origin check this delegates to.
      */
-    private static AuthorizedDocument parseAuthorizedDocument(String authorizedDocumentUrl) {
+    static AuthorizedDocument parseAuthorizedDocument(String expectedOrigin, String authorizedDocumentUrl) {
         if (authorizedDocumentUrl == null || authorizedDocumentUrl.trim().isEmpty()) {
             return null;
         }
 
         Uri parsed = Uri.parse(authorizedDocumentUrl.trim());
 
-        return buildAuthorizedDocument(parsed.getPathSegments(), parsed.getEncodedQuery());
+        return buildAuthorizedDocumentIfOriginMatches(
+            expectedOrigin,
+            parsed.getScheme(),
+            parsed.getHost(),
+            parsed.getPort(),
+            parsed.getPathSegments(),
+            parsed.getEncodedQuery()
+        );
+    }
+
+    /**
+     * Round 7 (Sol round-6 re-review, bug 2): the origin-check half of
+     * {@link #parseAuthorizedDocument}, split out — like {@link
+     * #buildAuthorizedDocument} is split from it for the same reason — so it
+     * is directly unit testable without {@code android.net.Uri} (unusable in
+     * this plain-JVM test environment; see {@link #buildAuthorizedDocument}'s
+     * doc comment). Returns null when the document's OWN origin (built from
+     * {@code documentScheme}/{@code documentHost}/{@code documentPort} via
+     * the SAME {@link #canonicalizeOrigin} canonicalization {@link
+     * #normalizeOrigin} applies to the origin being authorized) does not
+     * equal {@code expectedOrigin} — a caller bug passing a document URL for
+     * a DIFFERENT node than the one it is registering against must never
+     * silently authorize the wrong node's content; failing closed (no
+     * authorized document at all, so {@link #isExactAuthorizedRenderDocument}
+     * and {@link #isAuthorizedAppResource} both refuse everything) is safer
+     * than trusting either value alone.
+     *
+     * <p>This class's doc comments previously claimed this check without
+     * actually performing it — the document URL was parsed and used
+     * unconditionally, so any caller bug (or a document URL for a different
+     * node entirely) was silently trusted.
+     */
+    static AuthorizedDocument buildAuthorizedDocumentIfOriginMatches(
+        String expectedOrigin,
+        String documentScheme,
+        String documentHost,
+        int documentPort,
+        List<String> segments,
+        String encodedQuery
+    ) {
+        String documentOrigin = canonicalizeOrigin(documentScheme, documentHost, documentPort);
+
+        if (expectedOrigin == null || documentOrigin == null || !documentOrigin.equals(expectedOrigin)) {
+            return null;
+        }
+
+        return buildAuthorizedDocument(segments, encodedQuery);
     }
 
     /**
@@ -502,22 +543,38 @@ final class QdnRenderProxy {
     }
 
     /**
-     * Round 6: the query half of the normalized document identity — a
-     * canonical, sorted {@code "key=value&key=value"} string built from a raw
-     * (percent-encoded) query, decoding every key/value exactly once via
-     * {@link #percentDecode} and dropping {@link #IGNORED_DOCUMENT_QUERY_PARAMS}.
-     * Sorting makes the comparison independent of the (irrelevant) order two
-     * otherwise-identical query strings list their params in; a repeated key
-     * is kept as multiple sorted entries rather than collapsed, so a smuggled
-     * duplicate still shows up as a difference if the registered URL never
-     * had one.
+     * Round 7 (Sol round-6 re-review, bug 1): the query half of the
+     * normalized document identity — a canonical, sorted {@code
+     * "key=value&key=value"} string built from a raw (percent-encoded)
+     * query, WITHOUT decoding any retained key or value into the delimiter
+     * space ({@code '&'}/{@code '='}). Only the KEY of each pair is decoded,
+     * and only transiently, to decide whether that pair is one of {@link
+     * #IGNORED_DOCUMENT_QUERY_PARAMS} — the pair itself (raw key AND raw
+     * value, exactly as it appeared in the original query string) is what
+     * gets kept, sorted, and rejoined.
+     *
+     * <p>The previous revision decoded every retained value too and rejoined
+     * with a literal {@code '&'}/{@code '='}, which was not injective: a
+     * single param {@code a=1%26b%3D2} (one pair, value {@code "1&b=2"})
+     * decoded and rejoined to the exact same string, {@code "a=1&b=2"}, as
+     * the genuinely two-param query {@code a=1&b=2}. Two different candidate
+     * URLs must never normalize equal — that would let a candidate whose raw
+     * query differs from the registered one still pass the exact-URL gate.
+     * Keeping retained pairs raw (undecoded) means a percent-encoded
+     * delimiter byte in a value can never masquerade as a real delimiter in
+     * the canonical string, so this collision cannot occur; sorting the raw
+     * pairs (rather than decoded key=value strings) keeps the comparison
+     * order-independent while preserving that same guarantee. A repeated raw
+     * key is still kept as multiple sorted entries rather than collapsed, so
+     * a smuggled duplicate still shows up as a difference if the registered
+     * URL never had one.
      */
     private static String normalizeQuery(String encodedQuery) {
         if (encodedQuery == null || encodedQuery.isEmpty()) {
             return "";
         }
 
-        List<String> entries = new ArrayList<>();
+        List<String> rawPairs = new ArrayList<>();
 
         for (String pair : encodedQuery.split("&")) {
             if (pair.isEmpty()) {
@@ -532,14 +589,16 @@ final class QdnRenderProxy {
                 continue;
             }
 
-            String rawValue = separator >= 0 ? pair.substring(separator + 1) : "";
-
-            entries.add(key + "=" + percentDecode(rawValue));
+            // The pair is kept EXACTLY as it appeared in the raw query — no
+            // decoding of the retained key or value — so encoded delimiter
+            // bytes (%26/%3D) stay distinct from literal &/= in the
+            // canonical string built below.
+            rawPairs.add(pair);
         }
 
-        Collections.sort(entries);
+        Collections.sort(rawPairs);
 
-        return String.join("&", entries);
+        return String.join("&", rawPairs);
     }
 
     /** Round 6: decodes a single raw query key or value out of an encoded query string. */
@@ -781,9 +840,20 @@ final class QdnRenderProxy {
         }
 
         Uri parsed = Uri.parse(origin.trim());
-        String scheme = parsed.getScheme();
-        String host = parsed.getHost();
 
+        return canonicalizeOrigin(parsed.getScheme(), parsed.getHost(), parsed.getPort());
+    }
+
+    /**
+     * Round 7 (Sol round-6 re-review, bug 2): the pure scheme/host/port
+     * canonicalization {@link #normalizeOrigin} (the origin being
+     * authorized) and {@link #buildAuthorizedDocumentIfOriginMatches} (the
+     * authorized document's OWN origin) both build their comparable origin
+     * string from — kept as one function so the two can never drift apart on
+     * what "the same origin" means (a lowercase scheme/host, explicit port
+     * only when one was present).
+     */
+    private static String canonicalizeOrigin(String scheme, String host, int port) {
         if (scheme == null || host == null) {
             return null;
         }
@@ -794,6 +864,6 @@ final class QdnRenderProxy {
 
         String normalized = scheme.toLowerCase(Locale.ROOT) + "://" + host.toLowerCase(Locale.ROOT);
 
-        return parsed.getPort() == -1 ? normalized : normalized + ":" + parsed.getPort();
+        return port == -1 ? normalized : normalized + ":" + port;
     }
 }

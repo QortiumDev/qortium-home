@@ -188,3 +188,26 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   is open before broadcasting, since private-group encryption is not
   implemented yet and Home will not send plaintext into a group it cannot
   verify is public.
+- **Android within-principal residual (known limitation, accepted, tracked
+  separately):** Android's QDN render proxy serves every app tab on one node
+  from a single shared `https://<label>.qdn.androidplatform.net` origin (see
+  `QdnRenderProxy.java`'s class doc comment for why — a per-tab origin would
+  wipe QDN apps' own local storage between visits). The round-6/7 exact-URL
+  gate (`QdnRenderProxy.isExactAuthorizedRenderDocument`) closes cross-app
+  grant theft: an app tab can never obtain a bridge token, script injection,
+  or a stripped CSP for any document other than the one exact resource Home
+  itself launched it against, enforced by per-tab tokens, one-iframe-at-a-time
+  rendering, and this exact-URL match. What it does **not**, and cannot,
+  prevent on Android: because the tab's own already-authorized document can
+  itself load non-APP `/arbitrary` HTML — attacker-controlled content
+  published under the SAME app/identifier the tab was legitimately launched
+  for — that content runs same-origin with, and can navigate/manipulate, the
+  tab's own already-granted document. This is content running under the
+  app's **own** grant, not a different app's — the shared-origin + URL-token
+  model gives Home no way to distinguish "this app's own trusted document" from
+  "this app's own attacker-supplied data" once both are same-origin. Full
+  per-document integrity would require either a distinct origin per app (in
+  tension with the local-storage continuity above) or a non-URL token
+  handshake between the app document and Home. Neither is in scope for this
+  hardening pass; this residual is owner-accepted and tracked separately from
+  the cross-app grant-theft closure above.

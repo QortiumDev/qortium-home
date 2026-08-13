@@ -317,6 +317,165 @@ public class QdnRenderProxyTest {
         assertFalse(isExactAuthorizedRenderDocument(parts("render", "APP", "Trusted"), null, null));
     }
 
+    // Round 7 (Sol round-6 re-review, bug 1): the exact-URL query
+    // canonicalizer must be injective — two different candidate queries must
+    // never normalize to the same canonical string, or a candidate whose raw
+    // query genuinely differs from the registered one could still pass the
+    // exact-URL gate. See QdnRenderProxy.normalizeQuery's doc comment for
+    // the percent-decode-into-the-delimiter-space bug this closes.
+    @Test
+    public void exactUrlQueryNormalizationIsInjectiveOnRawDelimiters() {
+        QdnRenderProxy.AuthorizedDocument oneParamEncodedDelimiters =
+            authorizedDocument(parts("render", "APP", "Trusted"), "a=1%26b%3D2");
+        QdnRenderProxy.AuthorizedDocument twoRealParams =
+            authorizedDocument(parts("render", "APP", "Trusted"), "a=1&b=2");
+
+        // The bug this closes: percent-decoding a retained value into the
+        // delimiter space made a single param whose VALUE contains an
+        // encoded "&"/"=" normalize identically to a genuinely different
+        // two-param query. Neither direction may match.
+        assertFalse(
+            "a=1%26b%3D2 (one param, value \"1&b=2\") must not match the two-param a=1&b=2",
+            isExactAuthorizedRenderDocument(parts("render", "APP", "Trusted"), "a=1&b=2", oneParamEncodedDelimiters)
+        );
+        assertFalse(
+            "the reverse direction must also fail: a=1&b=2 must not match a=1%26b%3D2",
+            isExactAuthorizedRenderDocument(parts("render", "APP", "Trusted"), "a=1%26b%3D2", twoRealParams)
+        );
+
+        // A second (duplicated) qdnHomeBridge param must never let an
+        // otherwise-mismatched URL match — dropping the ignored param must
+        // not absorb or otherwise hide a genuinely different, non-ignored
+        // param sitting alongside it.
+        QdnRenderProxy.AuthorizedDocument themeOnly =
+            authorizedDocument(parts("render", "APP", "Trusted"), "theme=dark");
+        assertFalse(
+            "a duplicated qdnHomeBridge param must not let an extra real param slip past unnoticed",
+            isExactAuthorizedRenderDocument(
+                parts("render", "APP", "Trusted"),
+                "theme=dark&qdnHomeBridge=x&qdnHomeBridge=y&surprise=1",
+                themeOnly
+            )
+        );
+        // ...but with nothing else different, a duplicated ignored param
+        // alone still matches (this is intended — see
+        // IGNORED_DOCUMENT_QUERY_PARAMS's doc comment).
+        assertTrue(
+            "a duplicated qdnHomeBridge param with nothing else different still matches",
+            isExactAuthorizedRenderDocument(
+                parts("render", "APP", "Trusted"),
+                "theme=dark&qdnHomeBridge=x&qdnHomeBridge=y",
+                themeOnly
+            )
+        );
+
+        // Display-param-only differences still match.
+        assertTrue(
+            "display-param-only differences (including entirely different values) still match",
+            isExactAuthorizedRenderDocument(parts("render", "APP", "Trusted"), "theme=light&lang=en", themeOnly)
+        );
+
+        // Param order differences still match.
+        QdnRenderProxy.AuthorizedDocument abOrdered =
+            authorizedDocument(parts("render", "APP", "Trusted"), "a=1&b=2");
+        assertTrue(
+            "param order differences still match",
+            isExactAuthorizedRenderDocument(parts("render", "APP", "Trusted"), "b=2&a=1", abOrdered)
+        );
+
+        // An extra unexpected param fails to match.
+        assertFalse(
+            "an extra unexpected param fails to match",
+            isExactAuthorizedRenderDocument(parts("render", "APP", "Trusted"), "a=1&b=2&c=3", abOrdered)
+        );
+    }
+
+    // Round 7 (Sol round-6 re-review, bug 2): parseAuthorizedDocument claimed
+    // (in its doc comment) to reject a document URL whose own origin does
+    // not match the origin being authorized, but never actually performed
+    // that check — any authorizedDocumentUrl was parsed and trusted
+    // unconditionally. A caller bug (or a document URL for a completely
+    // different node) must fail closed: no authorized document registered
+    // at all, not the wrong node's content silently accepted.
+    //
+    // Exercises QdnRenderProxy.buildAuthorizedDocumentIfOriginMatches — the
+    // pure scheme/host/port half of parseAuthorizedDocument, split out
+    // (mirroring buildAuthorizedDocument's own split from parseAuthorizedDocument)
+    // so this is directly testable without android.net.Uri, unusable in this
+    // plain-JVM environment (see buildAuthorizedDocument's doc comment) —
+    // parseAuthorizedDocument itself is the thin Uri-typed production
+    // wrapper around it.
+    @Test
+    public void authorizedDocumentIsRejectedWhenItsOwnOriginDoesNotMatch() {
+        QdnRenderProxy.AuthorizedDocument matching = QdnRenderProxy.buildAuthorizedDocumentIfOriginMatches(
+            "https://node.example:12391",
+            "https",
+            "node.example",
+            12391,
+            parts("render", "APP", "Trusted"),
+            "theme=dark"
+        );
+        assertEquals("a matching origin still builds the document normally", "Trusted", matching.name);
+
+        assertNull(
+            "a document URL for a DIFFERENT host than the origin being authorized must be rejected",
+            QdnRenderProxy.buildAuthorizedDocumentIfOriginMatches(
+                "https://node.example:12391",
+                "https",
+                "evil.example",
+                12391,
+                parts("render", "APP", "Trusted"),
+                "theme=dark"
+            )
+        );
+        assertNull(
+            "a document URL for a DIFFERENT port on the SAME host must be rejected",
+            QdnRenderProxy.buildAuthorizedDocumentIfOriginMatches(
+                "https://node.example:12391",
+                "https",
+                "node.example",
+                9999,
+                parts("render", "APP", "Trusted"),
+                "theme=dark"
+            )
+        );
+        assertNull(
+            "a document URL for a DIFFERENT scheme on the SAME host/port must be rejected",
+            QdnRenderProxy.buildAuthorizedDocumentIfOriginMatches(
+                "http://node.example:12391",
+                "https",
+                "node.example",
+                12391,
+                parts("render", "APP", "Trusted"),
+                "theme=dark"
+            )
+        );
+        assertNull(
+            "a null expectedOrigin (authorize() called with an unusable node origin) fails closed too",
+            QdnRenderProxy.buildAuthorizedDocumentIfOriginMatches(
+                null,
+                "https",
+                "node.example",
+                12391,
+                parts("render", "APP", "Trusted"),
+                "theme=dark"
+            )
+        );
+    }
+
+    // Round 7 (Sol round-6 re-review, bug 2): the production Uri-typed
+    // parseAuthorizedDocument wrapper still returns null for a blank/
+    // unparseable authorizedDocumentUrl — this one input shape does not
+    // require constructing/inspecting an android.net.Uri (the string is
+    // rejected before Uri.parse is ever reached), so it stays safe to call
+    // directly in this plain-JVM environment.
+    @Test
+    public void parseAuthorizedDocumentRejectsBlankInputWithoutTouchingUri() {
+        assertNull(QdnRenderProxy.parseAuthorizedDocument("https://node.example:12391", null));
+        assertNull(QdnRenderProxy.parseAuthorizedDocument("https://node.example:12391", "   "));
+        assertNull(QdnRenderProxy.parseAuthorizedDocument("https://node.example:12391", ""));
+    }
+
     // Round 6: the "qdn://APP/Trusted/default/evil launch confusion path"
     // prove-it vector — the served "evil" document is not token-eligible
     // UNLESS the shell authorized exactly it, in which case the recorded

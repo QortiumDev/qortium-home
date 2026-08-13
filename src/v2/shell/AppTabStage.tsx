@@ -228,8 +228,26 @@ function AndroidAppStage(props: AppTabStageProps) {
     // QdnRenderProxy.IGNORED_DOCUMENT_QUERY_PARAMS's doc comment). The live
     // bridge token itself is deliberately NOT included — it is random per
     // tab and explicitly excluded from that same comparison.
+    //
+    // Round 7 (Sol round-6 re-review, bug 3): an initial `#/route` deep link
+    // (resolved.url may carry one — see resolveRender's use of
+    // resource.hash) is captured here and reattached ONLY to the iframe's
+    // own `source` below, never to the URL handed to the native authorize()
+    // registration. A fragment is a client-only concept — it is never sent
+    // in an HTTP request, so it never reaches Core or this proxy, cannot
+    // change the bytes served, and must not participate in the server-side
+    // exact-URL match (QdnRenderProxy.isExactAuthorizedRenderDocument only
+    // ever compares pathname + filtered query; giving it a hash to
+    // (deliberately) ignore is not the same guarantee as it never being
+    // asked to carry one at all).
+    const initialHash = new URL(resolved.url).hash
     const authorizedDocument = new URL(resolved.url)
     authorizedDocument.searchParams.set('homeV2Bridge', '1')
+    // The fragment is cleared AFTER homeV2Bridge is folded in (not before —
+    // see the comment above): what matters for the exact-URL gate is only
+    // that no hash reaches authorize() below, not the order these two
+    // mutations happen in.
+    authorizedDocument.hash = ''
     void import('../../home-v2-live/android-app-host')
       .then(({ authorizeHomeV2AndroidAppOrigin }) =>
         // Registers this EXACT document natively BEFORE the iframe is
@@ -245,6 +263,12 @@ function AndroidAppStage(props: AppTabStageProps) {
           proxyOrigin,
         )
         proxied.searchParams.set('qdnHomeBridge', token)
+        // The hash is appended last, and directly (not via a `new URL(...,
+        // base)` third argument, which would have to survive the
+        // searchParams mutation above) — URL.hash is independent of
+        // .search, so setting it after qdnHomeBridge is added still
+        // serializes as `...?query#hash`, matching a normal deep link.
+        proxied.hash = initialHash
         setSource(proxied.toString())
       })
       .catch((cause: unknown) => {
