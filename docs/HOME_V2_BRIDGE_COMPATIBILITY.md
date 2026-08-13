@@ -59,7 +59,7 @@ pages and Home 1.x retain Core's injected bridge client.
 | `OPEN_NEW_TAB` | both | `true` | Only `qdn://`, `qortal://`, or `home://`; Home owns navigation | yes | yes |
 | `SEARCH_CHAT_MESSAGES` | both | Bare Core JSON | Groups-only in this release (documented Hub deviation, see below); required non-negative `txGroupId`; `before`/`after` pre-validated against Core's floor; `limit` capped at 100 | yes | yes |
 | `GET_CHAT_MESSAGE` | both | Bare Core JSON | Base58 signature shape validated before the request | yes | yes |
-| `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
+| `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; per-tab/account ceiling of one send per 1.5 seconds and 20 per minute; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
 | `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 
@@ -84,7 +84,7 @@ tranche offers no durable
 | Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
-| Chat | Chat 2.0 Phase 1 (docs/CHAT_2_0_PLAN.md): open/group reads (`SEARCH_CHAT_MESSAGES` groups-only, `GET_CHAT_MESSAGE`) and open/group send (`SEND_CHAT_MESSAGE`, both networks, client-side signed) have bridge coverage; the group/chat-active read family (`GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, the three join-request reads, `GET_ACTIVE_CHATS`, plus Qortium-only `SEARCH_GROUPS`) unblocks group browsing | DM search/send, private-group encryption, and Reticulum remain deferred to Phase 2+ |
+| Chat | The on-chain Chat 2.0 foundation (docs/CHAT_2_0_PLAN.md) has open/group reads (`SEARCH_CHAT_MESSAGES` groups-only, `GET_CHAT_MESSAGE`) and open/group send (`SEND_CHAT_MESSAGE`, both networks, client-side signed) bridge coverage; the group/chat-active read family (`GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, the three join-request reads, `GET_ACTIVE_CHATS`, plus Qortium-only `SEARCH_GROUPS`) unblocks group browsing | DM search/send and private-group encryption remain deferred to Phase 2+. Chat 2.0 is not complete or releasable until Home also supplies the distinct Qortal RCHAT source/action family; the on-chain actions here cannot read off-chain RCHAT history. |
 
 On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
 slice in packaged desktop and Android previews: its feed rendered, Home's
@@ -194,20 +194,28 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   `QdnRenderProxy.java`'s class doc comment for why — a per-tab origin would
   wipe QDN apps' own local storage between visits). The round-6/7 exact-URL
   gate (`QdnRenderProxy.isExactAuthorizedRenderDocument`) closes cross-app
-  grant theft: an app tab can never obtain a bridge token, script injection,
-  or a stripped CSP for any document other than the one exact resource Home
-  itself launched it against, enforced by per-tab tokens, one-iframe-at-a-time
-  rendering, and this exact-URL match. What it does **not**, and cannot,
-  prevent on Android: because the tab's own already-authorized document can
-  itself load non-APP `/arbitrary` HTML — attacker-controlled content
-  published under the SAME app/identifier the tab was legitimately launched
-  for — that content runs same-origin with, and can navigate/manipulate, the
-  tab's own already-granted document. This is content running under the
-  app's **own** grant, not a different app's — the shared-origin + URL-token
-  model gives Home no way to distinguish "this app's own trusted document" from
-  "this app's own attacker-supplied data" once both are same-origin. Full
-  per-document integrity would require either a distinct origin per app (in
-  tension with the local-storage continuity above) or a non-URL token
+  grant theft: the native proxy never supplies a fresh bridge token, script
+  injection, or a stripped CSP to any document other than the one exact
+  resource Home itself launched, enforced by per-tab tokens,
+  one-iframe-at-a-time rendering, and this exact-URL match. What it does
+  **not**, and cannot,
+  prevent on Android: the tab's own already-authorized document can load
+  non-APP `/arbitrary` HTML from **any** non-APP service/name/identifier, not
+  only content published under the app resource Home launched. That loaded
+  content shares the tab's proxy origin and can therefore manipulate the
+  already-granted document if the load/navigation preserves a token-bearing
+  same-origin context. The non-APP document does not independently pass the
+  exact-authorized-URL gate or receive a new bridge token, injection, or grant;
+  a full navigation gains no bridge authority only when it neither carries nor
+  recovers the already-visible `qdnHomeBridge` token. If it preserves or
+  recovers that token while becoming the tab's live iframe, it can reuse that
+  tab's **existing** principal and grant. It is not direct cross-tab or
+  cross-app grant theft: another tab's per-tab token, registered document, and
+  live frame are still unavailable. The shared-origin + URL-token model gives
+  Home no way to distinguish trusted app code from other non-APP HTML once the
+  authorized document deliberately brings both into that same-origin context.
+  Full per-document integrity would require either a distinct origin per app
+  (in tension with the local-storage continuity above) or a non-URL token
   handshake between the app document and Home. Neither is in scope for this
   hardening pass; this residual is owner-accepted and tracked separately from
   the cross-app grant-theft closure above.

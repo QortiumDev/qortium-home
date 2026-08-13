@@ -1,20 +1,24 @@
 # Chat 2.0 plan
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
-Status: proposed for owner review. Chat 2.0 is **release-gating for Home 2.0**:
-the current production Home 1.x bridge is what makes chat work today, and the
-Home 2.0 shell must not ship to users until an equivalent (better) chat path
-exists through its own bridge.
+Status: accepted and in progress. The implemented on-chain open/group work is
+the foundation, not a complete or releasable Chat 2.0. Chat 2.0 remains
+**release-gating for Home 2.0** and must not ship under that name until Home
+also provides the separate Qortal RCHAT/Reticulum source described below.
 
-This plan consolidates three verified investigations (2026-08-12): the Android
-custom-node posting failure, the Qortal legacy-CHAT status, and the proven
-client-side signing paths already in production.
+This plan consolidates the 2026-08-12 investigations into the Android
+custom-node posting failure, Qortal legacy-CHAT status, and proven client-side
+signing paths, plus the 2026-08-13 finding that the community's Reticulum chat
+is a separate custom off-chain RCHAT protocol.
 
 ## Product goals
 
 - One Chat app that works with **Qortium, Qortal, or both**, depending on
   which networks the user has connected.
+- Qortal conversations include the current off-chain **RCHAT** source as well
+  as legacy on-chain CHAT. RCHAT stays visibly source-qualified rather than
+  being folded into the on-chain transaction history.
 - Works in **every node mode** — Local, Custom, and Public — on both chains.
   No feature silently requires a local node when a client-side path exists.
 - Explicit **pending → confirmed** message states (mempow latency currently
@@ -76,6 +80,14 @@ Real-time delivery starts as **polling** through these reads (the app polls
 until its own signature appears → confirmed). A host subscription/websocket
 contract is a later, separate tranche.
 
+These actions cover only on-chain CHAT transactions. Qortal RCHAT is a custom
+off-chain Hub protocol: it is not LXMF and not legacy CHAT transported over a
+different network. `/chat/messages`, `SEARCH_CHAT_MESSAGES`, and
+`SEND_CHAT_MESSAGE` therefore cannot expose or create RCHAT history. Home must
+provide RCHAT through a distinct source and action family, and Chat must retain
+that source identity when it normalizes messages for display. This work belongs
+to Home's Phase 6 integration; Core changes are outside this plan.
+
 ### Message format compatibility
 
 - Qortal messages use the Hub-compatible JSON schema (`messageText`, `images`,
@@ -101,7 +113,7 @@ naming the missing endpoint when it does not.
 
 ## Phases
 
-1. **Phase 1 — open/group chat parity (release gate).** v2 bridge family
+1. **Phase 1 — open/group on-chain foundation.** v2 bridge family
    above; Chat app ported to the v2 bridge with dual-chain accounts/groups,
    pending states, and clear node-capability errors. Fixture matrix per
    action (payload/result/error/timeout/permission/node-mode/stale-context/
@@ -136,20 +148,26 @@ naming the missing endpoint when it does not.
 3. **Phase 3 — file sharing upgrade.** Attach-by-link of existing publishes,
    attachment browsing, and the publish-attach flow reworked on the v2 write
    family (QDN publish actions are their own ledger tranche and gate this).
-4. **Later** — host subscription contract (replace polling), Reticulum
-   transport (Phase 6 of the product plan; Qortal's FreeChat interop lives
-   there).
+4. **Later** — host subscription contract to replace polling.
 
-## Decisions (owner, 2026-08-12)
+**Release gate:** Phases 1–3 remain useful foundations, but none makes Chat
+2.0 complete or releasable by itself. Release additionally requires Home's
+Phase 6 Qortal RCHAT integration: a distinct trusted source/action family that
+can recover current RCHAT history and exchange plain-text messages with the
+current community client while leaving the legacy CHAT actions unchanged.
+
+## Decisions (owner, 2026-08-12; release gate corrected 2026-08-13)
 
 1. **`SEARCH_CHAT_MESSAGES` is groups-only in Phase 1.** The advertised action
    accepts group selectors only; DM-involving searches are rejected with a
    clear error until the Phase 2 DM family lands. This is a documented
    deviation from full Hub compatibility and is recorded as such in the
    compatibility ledger.
-2. **No interim Home 1.x chat patch.** Everyone moves in one update: the 2.0
-   release, gated on Chat 2.0 Phase 1. The custom-node posting failure class
-   is fixed by the client-side sign/broadcast architecture, not patched twice.
+2. **No interim Home 1.x chat patch.** The custom-node posting failure class is
+   fixed by the client-side sign/broadcast architecture, not patched twice.
+   Phase 1 is preserved as the on-chain foundation, but it is no longer
+   sufficient for the Chat 2.0 release gate: release waits for the separate
+   Home-managed Qortal RCHAT integration above.
 3. **Qortal DMs are in scope and required — with app-visible decryption on
    every node mode.** Qortal users matter, and Qortal never exposed DM
    decryption to apps (no qortalRequest for it; Hub decrypts only in its own

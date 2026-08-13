@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-13 - Harden Home v2 app-grant identity binding + add chat-send rate limit
+
+Home now binds an app tab's account and chat-send authority to the exact QDN
+document that Home launched, closing the path where another app or resource
+could try to reuse that grant. Chat sending also has the same safety ceiling on
+desktop and Android: one send per tab and account every 1.5 seconds, with at
+most 20 sends per minute, so an already-approved app cannot consume unbounded
+proof-of-work or flood the network. One Android limitation is accepted and
+tracked separately: an authorized document can load non-APP `/arbitrary` HTML
+from other resources on its shared proxy origin, and that content can affect
+the existing granted document when the navigation preserves its token-bearing
+same-origin context. The other content receives no new token or grant, and it
+cannot directly steal another app tab's grant.
+
 ### 2026-08-13 - feat: add Home v2 group and active-chats reads
 
 The app bridge gains a group-browsing read family, unblocking group chat
