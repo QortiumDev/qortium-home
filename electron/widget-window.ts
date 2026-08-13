@@ -1,0 +1,114 @@
+import { app, BrowserWindow, screen } from 'electron'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { shouldIgnoreMouse } from './widget-hit-testing.js'
+import type { WidgetManifest } from './widget-manifest.js'
+import { getWidgetByWindowId, unregisterWidget } from './widget-registry.js'
+
+// package.json sets "type": "module", so this compiles to ESM and __dirname is
+// not defined. electron/main.ts derives it the same way.
+const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
+
+const HIT_TEST_INTERVAL_MS = 16
+
+export type CreateWidgetWindowOptions = {
+  readonly widgetId: string
+  readonly manifest: WidgetManifest
+  readonly renderUrl: string
+  readonly resourceUrl: string
+  readonly nodeOrigin: string
+  readonly accountId: string | null
+}
+
+function centreOnCursorDisplay(width: number, height: number) {
+  const cursor = screen.getCursorScreenPoint()
+  const area = screen.getDisplayNearestPoint(cursor).workArea
+  return {
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+  }
+}
+
+export function createWidgetWindow(options: CreateWidgetWindowOptions): BrowserWindow {
+  const { width, height } = options.manifest.defaultSize
+  const position = centreOnCursorDisplay(width, height)
+
+  const window = new BrowserWindow({
+    width,
+    height,
+    x: position.x,
+    y: position.y,
+    minWidth: options.manifest.minSize.width,
+    minHeight: options.manifest.minSize.height,
+    maxWidth: options.manifest.maxSize.width,
+    maxHeight: options.manifest.maxSize.height,
+    resizable: options.manifest.resizable !== 'none',
+    frame: false,
+    transparent: true,
+    // A native shadow follows the window rectangle, not the shape the app
+    // paints, so it would render a rectangular halo around an irregular widget.
+    hasShadow: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(currentDirectory, 'home-v2-live-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  window.setAlwaysOnTop(true, 'floating')
+  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  // Start transparent to clicks. The hit-test loop turns this off the moment
+  // the cursor enters the widget's declared region. `forward` keeps mouse-move
+  // events arriving while the window is ignoring clicks, which is what makes
+  // the loop able to notice the cursor arriving at all.
+  window.setIgnoreMouseEvents(true, { forward: true })
+
+  const query = new URLSearchParams({
+    widgetId: options.widgetId,
+    renderUrl: options.renderUrl,
+    resourceUrl: options.resourceUrl,
+    nodeOrigin: options.nodeOrigin,
+  })
+  if (options.accountId) query.set('accountId', options.accountId)
+
+  if (app.isPackaged) {
+    void window.loadFile(path.join(currentDirectory, '../dist/widget.html'), {
+      search: query.toString(),
+    })
+  } else {
+    const base = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173'
+    void window.loadURL(`${base}/widget.html?${query.toString()}`)
+  }
+
+  window.once('ready-to-show', () => window.show())
+  startHitTesting(window)
+
+  window.on('closed', () => unregisterWidget(options.widgetId))
+
+  return window
+}
+
+// Polling rather than a global mouse hook: Electron exposes no cross-platform
+// hook, and reading the cursor once a frame is cheap and predictable.
+function startHitTesting(window: BrowserWindow) {
+  let ignoring = true
+  const timer = setInterval(() => {
+    if (window.isDestroyed()) {
+      clearInterval(timer)
+      return
+    }
+    const record = getWidgetByWindowId(window.id)
+    const next = shouldIgnoreMouse(
+      window.getBounds(),
+      record?.region ?? null,
+      screen.getCursorScreenPoint(),
+    )
+    if (next === ignoring) return
+    ignoring = next
+    window.setIgnoreMouseEvents(next, { forward: true })
+  }, HIT_TEST_INTERVAL_MS)
+
+  window.on('closed', () => clearInterval(timer))
+}
