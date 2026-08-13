@@ -227,7 +227,8 @@ import {
   buildQortalAccountGroupsPath,
   buildQortalGroupChatPayload,
   buildUnsignedQortalGroupChatTransactionBytes,
-  QORTAL_CHAT_POW_DIFFICULTY,
+  qortalChatPowDifficultyForBalance,
+  QORTAL_CHAT_POW_DIFFICULTY_BELOW,
   stampQortalGroupChatNonce,
 } from '../electron/qortal-chat';
 import { signChatTransaction } from './chatSign';
@@ -3715,6 +3716,13 @@ async function postLocalNodeText(
   apiKey: string,
   fallbackMessage: string,
   contentType = 'text/plain',
+  // Optional post-download size ceiling for signing-path callers (chat
+  // build/process). Capacitor's native HTTP bridge has no partial-read/abort
+  // API — it always downloads the full response before handing it back — so
+  // this cannot bound memory used *during* the download; it only refuses to
+  // let an oversized/hostile body be decoded, signed, or trusted further.
+  // Existing callers that omit maxBytes keep their prior unbounded behavior.
+  maxBytes?: number,
 ) {
   let response: HttpResponse;
 
@@ -3736,6 +3744,10 @@ async function postLocalNodeText(
   }
 
   const responseBody = stringifyResponseData(response.data).trim();
+
+  if (typeof maxBytes === 'number' && new TextEncoder().encode(responseBody).length > maxBytes) {
+    throw new Error('Node API response exceeded the requested size limit.');
+  }
 
   if (response.status < 200 || response.status >= 300) {
     throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
@@ -4198,9 +4210,21 @@ async function signAndProcessKeylessStandardTransaction(
   };
 }
 
-async function fetchLocalNodeApiPayload(nodeApiUrl: string, apiPath: string, fallbackMessage: string) {
+async function fetchLocalNodeApiPayload(
+  nodeApiUrl: string,
+  apiPath: string,
+  fallbackMessage: string,
+  // See postLocalNodeText: Capacitor downloads the full body before we see
+  // it, so this only refuses to trust/parse an oversized response, applied
+  // only where the caller opts in. Existing callers keep prior behavior.
+  maxBytes?: number,
+) {
   const response = await requestNode(nodeApiUrl, apiPath, 'text');
   const body = stringifyResponseData(response.data);
+
+  if (typeof maxBytes === 'number' && new TextEncoder().encode(body).length > maxBytes) {
+    throw new Error('Node API response exceeded the requested size limit.');
+  }
 
   if (response.status < 200 || response.status >= 300) {
     throw new Error(readableNodeErrorMessage(body, fallbackMessage));
@@ -4209,7 +4233,12 @@ async function fetchLocalNodeApiPayload(nodeApiUrl: string, apiPath: string, fal
   return parseResponseData(body, getContentType(response));
 }
 
-async function getGroupDataForChat(nodeApiUrl: string, groupId: number) {
+// A few hundred KB is ample for group metadata. Used explicitly (opt-in) by
+// signing-path callers; the many existing getGroupDataForChat call sites
+// below that don't pass maxBytes keep their prior unbounded behavior.
+const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024;
+
+async function getGroupDataForChat(nodeApiUrl: string, groupId: number, maxBytes?: number) {
   if (groupId === 0) {
     return null;
   }
@@ -4218,6 +4247,7 @@ async function getGroupDataForChat(nodeApiUrl: string, groupId: number) {
     nodeApiUrl,
     `/groups/${encodeURIComponent(String(groupId))}`,
     'Group lookup failed.',
+    maxBytes,
   );
 }
 
@@ -9468,6 +9498,18 @@ async function fetchSendQortBalanceAtomic(address: string) {
   return parseQortalBalanceAtomic(result.data ?? result.body);
 }
 
+// Qortal CHAT PoW difficulty depends on the sender's confirmed QORT balance
+// (electron/qortal-chat.ts). If the balance fetch fails for any reason, fall
+// back to the safer, higher difficulty rather than failing the send outright
+// — a slower send beats one Core rejects for insufficient proof-of-work.
+async function resolveQortalChatPowDifficulty(address: string) {
+  try {
+    return qortalChatPowDifficultyForBalance(await fetchSendQortBalanceAtomic(address));
+  } catch {
+    return QORTAL_CHAT_POW_DIFFICULTY_BELOW;
+  }
+}
+
 async function fetchSendQortLastReference(address: string) {
   const result = await fetchQortalNodeApi(`/addresses/lastreference/${encodeURIComponent(address)}`, 2048);
   const lastReference = result.body.trim();
@@ -9746,7 +9788,8 @@ async function sendQortalGroupChatForApp(request: QdnAppRequest, context: QdnApp
     timestamp: Date.now(),
     txGroupId: sendRequest.txGroupId,
   });
-  const nonce = await computeChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY);
+  const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
+  const nonce = await computeChatNonce(unsignedBytes, difficulty);
   const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
@@ -12138,11 +12181,20 @@ async function buildAndroidHomeV2VaultState(): Promise<HomeV2VaultState> {
 // {signature, timestamp} contract instead of the raw processed-transaction
 // payload. They reuse the same module-level memory-pow worker, CHAT_POW_DIFFICULTY,
 // and shared electron/ builders/validators as the v1 functions above.
+//
+// isStillValid mirrors the desktop bridge's recheck (electron/home-v2-app-bridge.ts
+// sendHomeV2ChatMessage's isStillValid closure): same tab/account/resource
+// context, account still unlocked, and same node route. It is threaded into
+// computeChatNonce (polled every 500ms during the — potentially tens-of-
+// seconds — memory-pow) and rechecked once more immediately before signing,
+// so a context change mid-PoW cancels the send instead of silently signing
+// and broadcasting under a stale account/node/tab.
 async function sendHomeV2QortiumChatMessage(
   nodeApiUrl: string,
   txGroupId: number,
   message: string,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
 ) {
   const timestamp = Date.now();
   const data = encodeChatTextData(message);
@@ -12161,6 +12213,7 @@ async function sendHomeV2QortiumChatMessage(
     '',
     'Chat transaction build failed.',
     'application/json',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
   );
 
   const unsignedBytes = base58Decode(unsignedTransaction.body);
@@ -12172,7 +12225,10 @@ async function sendHomeV2QortiumChatMessage(
     timestamp,
     txGroupId,
   });
-  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY);
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isStillValid);
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.');
+  }
   const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey);
 
   await postLocalNodeText(
@@ -12181,6 +12237,8 @@ async function sendHomeV2QortiumChatMessage(
     base58Encode(signedBytes),
     '',
     'Chat transaction processing failed.',
+    'text/plain',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
   );
 
   return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp };
@@ -12191,13 +12249,14 @@ async function sendHomeV2QortalChatMessage(
   txGroupId: number,
   message: string,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
 ) {
   // Home does not implement Qortal private-group encryption yet
   // (docs/CHAT_2_0_PLAN.md); refuse to broadcast plaintext into a group that
   // is not verifiably open, the same guard v1's Qortal group send applies.
   let groupData: unknown = null;
   try {
-    groupData = await getGroupDataForChat(nodeApiUrl, txGroupId);
+    groupData = await getGroupDataForChat(nodeApiUrl, txGroupId, CHAT_SIGNING_RESPONSE_MAX_BYTES);
   } catch {
     groupData = null;
   }
@@ -12211,7 +12270,11 @@ async function sendHomeV2QortalChatMessage(
     timestamp,
     txGroupId,
   });
-  const nonce = await computeChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY);
+  const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.');
+  }
   const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
@@ -12222,6 +12285,8 @@ async function sendHomeV2QortalChatMessage(
     base58Encode(signedBytes),
     '',
     'Qortal chat message broadcast failed.',
+    'text/plain',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
   );
 
   return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp };
@@ -12428,9 +12493,15 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     },
     async sendChatMessage(request) {
       const signingKey = await getAccountSecretKey(request.accountId);
+      // isStillValid is optional on the contract (older callers), but Home's
+      // own Android dispatcher (HomeV2LiveApp.tsx) always supplies one; treat
+      // a missing predicate as "always valid" rather than throwing, since
+      // that only ever loosens an already-optional recheck, never weakens a
+      // check that was actually being enforced.
+      const isStillValid = request.isStillValid ?? (() => true);
       return request.network === 'qortium'
-        ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey)
-        : sendHomeV2QortalChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey);
+        ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey, isStillValid)
+        : sendHomeV2QortalChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey, isStillValid);
     },
   };
 }

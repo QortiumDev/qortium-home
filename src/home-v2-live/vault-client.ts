@@ -17,6 +17,15 @@ export type HomeV2WalletFileSelection =
 
 export interface HomeV2SendChatMessageRequest {
   readonly accountId: string
+  // Rechecked immediately before signing and polled during the (potentially
+  // tens-of-seconds) memory-pow computation, mirroring the desktop bridge's
+  // isStillValid recheck (electron/home-v2-app-bridge.ts sendHomeV2ChatMessage):
+  // same tab/account/resource context, account still unlocked, same node
+  // route. Optional only because this is an in-process (non-IPC) call on
+  // Android, where the caller always has a live closure to pass; a caller
+  // that omits it gets no mid-flight cancellation, so every real caller
+  // should supply one.
+  readonly isStillValid?: () => boolean | Promise<boolean>
   readonly message: string
   readonly network: 'qortal' | 'qortium'
   readonly nodeApiUrl: string

@@ -44,7 +44,8 @@ import { assertPublicChatTransaction } from './public-transaction-validation.js'
 import {
   assertOpenQortalGroupMetadata,
   buildUnsignedQortalGroupChatTransactionBytes,
-  QORTAL_CHAT_POW_DIFFICULTY,
+  qortalChatPowDifficultyForBalanceResponse,
+  QORTAL_CHAT_POW_DIFFICULTY_BELOW,
   stampQortalGroupChatNonce,
 } from './qortal-chat.js'
 import {
@@ -59,6 +60,11 @@ export { getHomeV2AppActions as getHomeV2ReadOnlyAppActions }
 // Core enforces this value server-side).
 const QORTIUM_CHAT_POW_DIFFICULTY = 8
 const CHAT_WRITE_TIMEOUT_MS = 30_000
+// A few hundred KB is ample for a CHAT build/group-metadata/process/error
+// response — bounds the signing-path node calls below (FIX #4, security
+// review) using the same bounded-read approach as the rest of this file's
+// read-only actions (readBoundedResponse / HOME_V2_APP_LIMITS.responseBytes).
+const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024
 
 type AccountReadAction =
   | 'GET_SELECTED_ACCOUNT'
@@ -138,6 +144,15 @@ async function requireAccountReadPermission(
     const timeout = setTimeout(() => {
       pendingAccountReads.delete(requestId)
       resolve({ approved: false, scope: null })
+      // The renderer's permission-prompt UI (queuePermissionPrompt) is only
+      // told about approval/denial via home-v2-app:permission-resolve, which
+      // normally originates FROM the renderer when the user clicks a button.
+      // On this main-process-initiated auto-deny, tell it explicitly so the
+      // prompt does not stay stuck on screen after the request has already
+      // been denied here (FIX #3, security review).
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
     }, 60_000)
     pendingAccountReads.set(requestId, {
       hostWebContentsId: hostWindow.webContents.id,
@@ -382,9 +397,16 @@ async function postHomeV2ChatText(
     body,
     signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
   })
-  const text = (await response.text()).trim()
-  if (!response.ok) {
-    throw new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${response.status}.`))
+  // Bounded like the read-only actions below (FIX #4, security review): a
+  // hostile or misbehaving node answering /chat/public/build or
+  // /transactions/process with an unbounded body previously had to be read
+  // to completion before Home could react. 'GET' here only tells
+  // readBoundedResponse to read the body (this is a POST); it does not
+  // change the HTTP method actually sent above.
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  const text = result.body.trim()
+  if (!result.ok) {
+    throw new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`))
   }
   return text
 }
@@ -445,6 +467,26 @@ async function sendHomeV2QortiumChatMessage(
   return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp }
 }
 
+// Qortal CHAT PoW difficulty depends on the sender's confirmed QORT balance
+// (electron/qortal-chat.ts qortalChatPowDifficultyForBalanceResponse). If the
+// balance fetch fails for any reason (network error, non-2xx, malformed
+// body), fall back to the safer, higher difficulty rather than failing the
+// send outright — a slower send beats one Core rejects for insufficient
+// proof-of-work.
+async function resolveHomeV2QortalChatPowDifficulty(nodeApiUrl: string, address: string) {
+  try {
+    const response = await nodeFetch(`${nodeApiUrl}/addresses/balance/${encodeURIComponent(address)}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15_000),
+    })
+    const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+    if (!result.ok) throw new Error(`Balance lookup returned HTTP ${result.status}.`)
+    return qortalChatPowDifficultyForBalanceResponse(result.data)
+  } catch {
+    return QORTAL_CHAT_POW_DIFFICULTY_BELOW
+  }
+}
+
 // Fully client-side Qortal group chat send: transaction bytes are built here
 // (no node build call), the memory-pow nonce is computed locally, and the
 // account key signs locally. Mirrors electron/qdn.ts's v1
@@ -465,16 +507,8 @@ async function sendHomeV2QortalChatMessage(
     method: 'GET',
     signal: AbortSignal.timeout(15_000),
   })
-  const groupText = (await groupResponse.text()).trim()
-  let groupData: unknown = null
-  if (groupText) {
-    try {
-      groupData = JSON.parse(groupText)
-    } catch {
-      groupData = null
-    }
-  }
-  assertOpenQortalGroupMetadata(groupResponse.ok ? groupData : null, txGroupId)
+  const groupResult = await readBoundedResponse(groupResponse, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  assertOpenQortalGroupMetadata(groupResult.ok ? groupResult.data : null, txGroupId)
 
   const timestamp = Date.now()
   const unsignedBytes = buildUnsignedQortalGroupChatTransactionBytes({
@@ -484,7 +518,8 @@ async function sendHomeV2QortalChatMessage(
     timestamp,
     txGroupId,
   })
-  const nonce = await computeHomeV2ChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY, isStillValid)
+  const difficulty = await resolveHomeV2QortalChatPowDifficulty(nodeApiUrl, signingKey.address)
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
   if (!(await isStillValid())) {
     throw new Error('The signing context changed before the chat message could be submitted.')
   }
