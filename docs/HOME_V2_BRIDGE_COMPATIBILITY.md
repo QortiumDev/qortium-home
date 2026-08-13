@@ -161,7 +161,19 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   signing remain behind Phase 5. `SEARCH_CHAT_MESSAGES` is **groups-only**:
   `involving`/`sender`/`recipient` selectors are rejected with a specific
   error naming the deferred DM family (decided 2026-08-12, a documented
-  deviation from full Hub compatibility). On `qortalRequest`, `txGroupId: 0`
+  deviation from full Hub compatibility). **This is not a confidentiality
+  boundary.** DM transactions (Qortium and Qortal alike) are ordinary
+  on-chain transactions; their ciphertext is public regardless of which
+  bridge action reads it, and `/chat/messages` — including DM-involving
+  queries — remains fully reachable through `FETCH_NODE_API` today, exactly
+  as it is through any other Qortium/Qortal API client. The `SEARCH_CHAT_MESSAGES`
+  restriction exists only because returning ciphertext Home cannot yet
+  decrypt is not useful to an app; it protects nothing an app could not
+  already read another way. DM results start returning through
+  `SEARCH_CHAT_MESSAGES` once Home-side decryption lands (Phase 2,
+  docs/CHAT_2_0_PLAN.md), at which point the action starts doing useful work
+  instead of handing back opaque bytes — not once some access-control gate
+  opens. On `qortalRequest`, `txGroupId: 0`
   (Qortal's retired general chat) is rejected with a specific error; on
   `qdnRequest`, group 0 is Qortium's open general chat and stays allowed. The
   selected account must already be unlocked before `SEND_CHAT_MESSAGE` is
