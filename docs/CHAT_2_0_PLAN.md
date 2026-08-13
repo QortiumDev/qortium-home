@@ -117,12 +117,24 @@ naming the missing endpoint when it does not.
    transport (Phase 6 of the product plan; Qortal's FreeChat interop lives
    there).
 
-## Open decisions (owner)
+## Decisions (owner, 2026-08-12)
 
-1. `SEARCH_CHAT_MESSAGES` encrypted-DM boundary (defer / group-only / full
-   passthrough) — previously raised, still open; needed by Phase 1 reads.
-2. Whether a minimal Home 1.x patch ships in the meantime (route custom
-   non-local open-group chat down the existing keyless path + clearer error)
-   so current-production users with own nodes can post before 2.0 releases.
-3. Qortal DM interop priority: Phase 2 as scheduled, or pulled earlier if
-   Qortal-side users matter sooner.
+1. **`SEARCH_CHAT_MESSAGES` is groups-only in Phase 1.** The advertised action
+   accepts group selectors only; DM-involving searches are rejected with a
+   clear error until the Phase 2 DM family lands. This is a documented
+   deviation from full Hub compatibility and is recorded as such in the
+   compatibility ledger.
+2. **No interim Home 1.x chat patch.** Everyone moves in one update: the 2.0
+   release, gated on Chat 2.0 Phase 1. The custom-node posting failure class
+   is fixed by the client-side sign/broadcast architecture, not patched twice.
+3. **Qortal DMs are in scope and required — with app-visible decryption on
+   every node mode.** Qortal users matter, and Qortal never exposed DM
+   decryption to apps (no qortalRequest for it; Hub decrypts only in its own
+   UI). Qortium Core does decrypt DMs server-side for the local account
+   (ChatResource direct/private-group endpoints, plus q-apps.js DECRYPT_DATA),
+   but that inherently works only against a local node. Phase 2 therefore
+   implements **Home-side DM/private-group decryption in the trusted layer**
+   so DMs work identically on local, custom, and public nodes on both chains,
+   exposed to apps through bridge actions; Qortium's Core-managed server-side
+   path remains a local-node convenience, and the two must interoperate on the
+   same wire format.
