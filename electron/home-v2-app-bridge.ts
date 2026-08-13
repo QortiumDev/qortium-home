@@ -35,7 +35,7 @@ import {
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
 import { getAccountProfile, isAccountUnlocked } from './accounts.js'
-import { discoverWidgetManifest } from './widget-discovery.js'
+import { buildWidgetRenderUrl, discoverWidgetManifest } from './widget-discovery.js'
 import { normalizeRegion } from './widget-region.js'
 import {
   allocateWidgetId,
@@ -431,7 +431,7 @@ async function handleOpenAsWidget(
   const window = createWidgetWindow({
     widgetId,
     manifest,
-    renderUrl: new URL(manifest.entry, `${context.resourceUrl}/`).toString(),
+    renderUrl: buildWidgetRenderUrl(context.nodeOrigin, appName, manifest.entry),
     resourceUrl: context.resourceUrl,
     nodeOrigin: context.nodeOrigin,
     accountId: context.accountId,

@@ -1,5 +1,30 @@
 import assert from 'node:assert/strict'
-import { buildWidgetManifestPath, discoverWidgetManifest } from './widget-discovery.js'
+import {
+  buildWidgetManifestPath,
+  buildWidgetRenderUrl,
+  discoverWidgetManifest,
+} from './widget-discovery.js'
+
+// qdn-views.ts only accepts a render URL shaped /render/<SERVICE>/<name>/...
+// on the node's own origin. Anything else is refused and the widget opens
+// empty, so the exact shape matters.
+assert.equal(
+  buildWidgetRenderUrl('http://127.0.0.1:24891', 'Q-Player', 'widget.html'),
+  'http://127.0.0.1:24891/render/APP/Q-Player/widget.html',
+)
+assert.equal(
+  buildWidgetRenderUrl('http://127.0.0.1:24891', 'My App', 'sub/dir/player.html'),
+  'http://127.0.0.1:24891/render/APP/My%20App/sub/dir/player.html',
+)
+// A trailing slash on the origin must not produce a doubled slash, which would
+// shift every path segment and fail validation.
+assert.equal(
+  buildWidgetRenderUrl('http://127.0.0.1:24891/', 'Q-Player', 'widget.html'),
+  'http://127.0.0.1:24891/render/APP/Q-Player/widget.html',
+)
+assert.throws(() => buildWidgetRenderUrl('', 'Q-Player', 'widget.html'), Error)
+assert.throws(() => buildWidgetRenderUrl('http://127.0.0.1:24891', '', 'widget.html'), Error)
+assert.throws(() => buildWidgetRenderUrl('http://127.0.0.1:24891', 'Q-Player', ''), Error)
 
 // The manifest lives beside the app's other published files.
 assert.equal(

@@ -20,6 +20,31 @@ export function buildWidgetManifestPath(appName: unknown): string {
   return `/arbitrary/APP/${encodeURIComponent(name)}/widget.json`
 }
 
+// qdn-views.ts refuses any render URL that is not on the node's own origin and
+// shaped /render/<SERVICE>/<name>/..., so the URL has to be built rather than
+// derived by appending to the app's resource URL, which is an opaque string.
+export function buildWidgetRenderUrl(
+  nodeOrigin: unknown,
+  appName: unknown,
+  entry: unknown,
+): string {
+  const origin = typeof nodeOrigin === 'string' ? nodeOrigin.trim().replace(/\/+$/, '') : ''
+  if (!origin) throw new Error('A widget render URL needs the node origin.')
+
+  const name = typeof appName === 'string' ? appName.trim() : ''
+  if (!name) throw new Error('A widget render URL needs the app name.')
+
+  const path = typeof entry === 'string' ? entry.trim() : ''
+  const encodedEntry = path
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+  if (!encodedEntry) throw new Error('A widget render URL needs an entry path.')
+
+  return `${origin}/render/APP/${encodeURIComponent(name)}/${encodedEntry}`
+}
+
 // Resolves to null when the app simply has no widget face. Throws when a
 // manifest exists but cannot be trusted, so a bad manifest is visible rather
 // than silently downgraded to "no widget".
