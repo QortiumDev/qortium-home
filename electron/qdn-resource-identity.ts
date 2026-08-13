@@ -16,9 +16,28 @@
 // The identity used is (service, name, identifier): the QDN name is a
 // registered, single-owner resource, so "different name" is the real
 // cross-publisher/cross-app boundary; "different explicit identifier" under
-// the same name is a distinct published resource and is blocked too. Deeper
-// path/query/hash segments (SPA routes, sub-pages) are never inspected, so
-// legitimate in-app navigation is always allowed.
+// the same name is a distinct published resource and is blocked too.
+//
+// The identifier itself is resolved the way Core's RenderResource.
+// getPathByName resolves it (qortium-core .../restricted/resource/
+// RenderResource.java): an explicit `?identifier=` query wins outright when
+// non-blank; otherwise a non-"default" first path segment after the name is
+// a POSSIBLE identifier. Core additionally verifies that segment is a REAL
+// published identifier (isRealIdentifier) before treating it as one and NOT
+// part of the app's own path — this module cannot make that call from the
+// client, so for this security predicate ANY non-default first segment is
+// treated as an identifier and must match the launch identifier, fail
+// closed. That can reject a legitimate deep link whose first segment merely
+// looks like an identifier; that is the safe direction. Real apps launched
+// at an explicit identifier keep that identifier in their base href (Core's
+// HTMLParser only folds a non-default identifier into <base href>), so their
+// own routing lives BELOW it — deeper path/query/hash segments there are
+// never inspected and are always allowed as in-app routing. A default
+// (omitted) launch identifier has no such prefix to route below, so it only
+// tolerates query/hash-based in-app routing here, not a further path
+// segment. Hash-addressed resources (/render/hash/<hash>/...) have no
+// identifier concept at all (Core's getPathByHash never parses one), so any
+// further path segment there is always in-app routing.
 //
 // This module is deliberately free of node/electron-only imports (managed-
 // archive `file://` identity needs Electron's `app.getPath`, so that piece is
@@ -56,10 +75,10 @@ export type QdnResourcePathIdentity = {
   readonly name: string;
   // The raw path segment right after `name`. It MAY be an explicit resource
   // identifier, or it may just be the app's own first in-app route segment —
-  // the render URL format is genuinely ambiguous between the two when the
-  // launch identity's identifier is the default/omitted one, which is why
-  // isQdnRenderUrlSameAppResource only pins this against an *explicit*
-  // launch identifier.
+  // the render URL format is genuinely ambiguous between the two, which Core
+  // resolves with a real-identifier lookup this client cannot replicate. See
+  // resolveCandidateIdentifier and this module's header comment for how
+  // isQdnRenderUrlSameAppResource resolves that ambiguity (fail closed).
   readonly nextSegment: string | null;
 };
 
@@ -98,7 +117,11 @@ export function parseRenderPathIdentity(pathname: string): QdnResourcePathIdenti
     try {
       nextSegment = decodeURIComponent(segments[4]);
     } catch {
-      nextSegment = null;
+      // Fail closed: a segment that cannot even be decoded must not be
+      // silently treated as "no identifier" (null), which would wrongly
+      // ALLOW a default-launch candidate through. Invalidate the whole parse
+      // instead, matching src/v2/shell/render-path-identity.ts.
+      return null;
     }
   }
 
@@ -189,12 +212,36 @@ function getLaunchIdentity(ref: QdnResourceLaunchRef, archive: QdnArchiveIdentit
 
   try {
     const parsedPath = parseRenderPathIdentity(new URL(ref.requestedUrl).pathname);
-    // No declared resourceUrl to pin an identifier against: treat any next
-    // segment as in-app routing rather than a different resource.
+    // No declared resourceUrl to pin an identifier against: treat this view
+    // as launched with a default (null) identifier. Per the header comment,
+    // a null launch identifier only tolerates a candidate that ALSO resolves
+    // to null/default — this is the fail-closed direction, not a "next
+    // segment is always in-app routing" exemption.
     return parsedPath ? { kind: 'render', service: parsedPath.service, name: parsedPath.name, identifier: null } : null;
   } catch {
     return null;
   }
+}
+
+// Resolves the candidate identifier for a parsed render URL exactly the way
+// Core's RenderResource.getPathByName resolves it: an explicit `?identifier=`
+// query wins outright when non-blank; otherwise a non-"default" (case-
+// insensitive) first path segment after the name is treated as the
+// identifier. See this module's header comment for why the client treats
+// ANY such segment as a possible identifier rather than trying to guess
+// whether it is a real one.
+function resolveCandidateIdentifier(url: URL, parsedPath: QdnResourcePathIdentity): string | null {
+  const queryIdentifier = url.searchParams.get('identifier');
+
+  if (queryIdentifier !== null && queryIdentifier.trim() !== '') {
+    return queryIdentifier;
+  }
+
+  if (parsedPath.nextSegment !== null && parsedPath.nextSegment.toLowerCase() !== 'default') {
+    return parsedPath.nextSegment;
+  }
+
+  return null;
 }
 
 // Whether `candidateUrl` still points at the SAME app resource `ref` was
@@ -243,8 +290,22 @@ export function isQdnRenderUrlSameAppResource(
     return false;
   }
 
-  // An explicit launch identifier must be preserved exactly; a default
-  // (omitted) launch identifier leaves the next segment free for the app's
-  // own routing (see the ambiguity note on QdnResourcePathIdentity).
-  return launch.identifier === null || parsedPath.nextSegment === launch.identifier;
+  // Hash-addressed resources have no identifier concept — see this module's
+  // header comment — so once service+name (the hash) match, any further path
+  // segment is always in-app routing.
+  if (parsedPath.service === 'HASH') {
+    return true;
+  }
+
+  const candidateIdentifier = resolveCandidateIdentifier(url, parsedPath);
+
+  // Mirrors Core's identifier resolution exactly: an explicit launch
+  // identifier must equal the candidate's resolved identifier exactly; a
+  // null (default/omitted) launch identifier requires the candidate to ALSO
+  // resolve to null/default — a non-default first segment or an explicit
+  // `?identifier=` reaches a genuinely different resource under Core's real
+  // resolution and must be blocked, fail closed (see header comment).
+  return launch.identifier === null
+    ? candidateIdentifier === null
+    : candidateIdentifier === launch.identifier;
 }

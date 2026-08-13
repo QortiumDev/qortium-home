@@ -90,8 +90,14 @@ const sessionAccountReadGrants = new Set<string>()
 // src/home-v2-live/HomeV2LiveApp.tsx).
 const chatSendRateLimiter = createHomeV2SendRateLimiter()
 
-function chatSendRateLimitKey(context: QdnViewContext) {
-  return `${context.tabId}|${context.accountId ?? 'none'}`
+// Fix 5 (Sol re-review #6): includes the sender's own WebContents id and its
+// host window id, the same sender/window identity accountGrantKey below
+// keys permission grants off of — a bare tabId|accountId key let a restored
+// or duplicate tab id in a DIFFERENT window (or a different, unrelated
+// WebContents that happened to reuse a tab id string) share — and so
+// throttle — the SAME rate-limit bucket as this one.
+function chatSendRateLimitKey(sender: WebContents, context: QdnViewContext) {
+  return [sender.id, context.windowId, context.tabId, context.accountId ?? 'none'].join('|')
 }
 
 function accountGrantKey(
@@ -130,10 +136,15 @@ function sameViewContext(left: QdnViewContext, right: QdnViewContext) {
 // different app. With electron/qdn-views.ts's isAllowedInViewNavigation now
 // constraining in-view navigation to the same resource, this should be
 // unreachable — this check closes the gap regardless, and specifically
-// refuses to honor a stale session grant when the two disagree. `resourceUrl`
-// or `currentUrl` being absent is not itself suspicious (e.g. before the
-// first load completes), so this only refuses when both are present and
-// disagree.
+// refuses to honor a stale session grant when the two disagree.
+//
+// Fix 3 (Sol re-review #3): `context.currentUrl` (getQdnViewContextForWebContents,
+// electron/qdn-views.ts) is the TRUSTED live URL — sourced directly from
+// webContents.getURL() at the moment of this call, not from a field that
+// could have gone stale — so this recheck fails closed against what the view
+// actually has loaded right now, not a best-case snapshot. `resourceUrl` or
+// `currentUrl` being absent is not itself suspicious (e.g. before the first
+// load completes), so this only refuses when both are present and disagree.
 function liveResourceMatchesGrant(context: QdnViewContext): boolean {
   if (!context.resourceUrl || !context.currentUrl) return true
   return isQdnRenderUrlSameAppResource(context.currentUrl, {
@@ -608,7 +619,7 @@ async function sendHomeV2ChatMessage(
   // the single-in-flight-PoW guard (isStillValid below) already prevents
   // overlap, but nothing previously bounded how many sends a granted tab
   // could queue back-to-back.
-  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(context))
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
   if (!rateLimitDecision.allowed) {
     throw new Error(rateLimitDecision.message)
   }

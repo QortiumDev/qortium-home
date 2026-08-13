@@ -1,15 +1,17 @@
 // Fix A (finding 1), Android side: whether a rendered QDN URL's path still
 // identifies the SAME app resource a tab was launched for. Mirrors the
 // electron-side qdn-resource-identity module's identifier handling exactly
-// (an explicit launch identifier must be preserved; a default/omitted one
-// leaves the next path segment free for the app's own routing) — duplicated
-// as a small, dependency-free module rather than imported, since the
-// electron folder pulls in node/electron-only code the renderer cannot
-// bundle (see the home-v2-foundation source-contract pin forbidding a
-// relative import out to that folder from src/v2). Used by AppTabStage.tsx's
-// AndroidAppStage to detect when the iframe's live location has drifted from
-// its launch resource — see that file for the full residual/threat-model
-// writeup.
+// (Core's RenderResource.getPathByName resolution: an explicit ?identifier=
+// query wins when non-blank, else a non-"default" first path segment is a
+// POSSIBLE identifier that must match the launch identifier, fail closed —
+// this client cannot verify a segment is a REAL published identifier the way
+// Core's isRealIdentifier does) — duplicated as a small, dependency-free
+// module rather than imported, since the electron folder pulls in
+// node/electron-only code the renderer cannot bundle (see the
+// home-v2-foundation source-contract pin forbidding a relative import out to
+// that folder from src/v2). Used by AppTabStage.tsx's AndroidAppStage to
+// detect when the iframe's live location has drifted from its launch
+// resource — see that file for the full residual/threat-model writeup.
 
 export type QdnRenderPathIdentity = {
   readonly service: string
@@ -40,13 +42,33 @@ export function parseRenderPathIdentity(pathname: string): QdnRenderPathIdentity
   }
 }
 
-// Whether `candidatePathname` still identifies the same APP resource
-// `launch` was resolved for.
+// Resolves the candidate identifier for a parsed render path exactly the way
+// Core's RenderResource.getPathByName resolves it — see this module's header
+// comment. Mirrors electron/qdn-resource-identity.ts's
+// resolveCandidateIdentifier.
+function resolveCandidateIdentifier(queryIdentifier: string | null, parsed: QdnRenderPathIdentity): string | null {
+  if (queryIdentifier !== null && queryIdentifier.trim() !== '') return queryIdentifier
+  if (parsed.nextSegment !== null && parsed.nextSegment.toLowerCase() !== 'default') return parsed.nextSegment
+  return null
+}
+
+// Whether `candidateUrl` (a full render URL, so an `?identifier=` query can
+// be inspected too — not just its pathname) still identifies the same APP
+// resource `launch` was resolved for.
 export function isSameRenderResourcePath(
-  candidatePathname: string,
+  candidateUrl: string,
   launch: { readonly name: string; readonly identifier: string | null },
 ): boolean {
-  const parsed = parseRenderPathIdentity(candidatePathname)
+  let url: URL
+  try {
+    url = new URL(candidateUrl)
+  } catch {
+    return false
+  }
+  const parsed = parseRenderPathIdentity(url.pathname)
   if (!parsed || parsed.service !== 'APP' || parsed.name !== launch.name) return false
-  return launch.identifier === null || parsed.nextSegment === launch.identifier
+  const candidateIdentifier = resolveCandidateIdentifier(url.searchParams.get('identifier'), parsed)
+  return launch.identifier === null
+    ? candidateIdentifier === null
+    : candidateIdentifier === launch.identifier
 }

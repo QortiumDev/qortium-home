@@ -1,7 +1,9 @@
 package org.qortium.home;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
@@ -84,6 +86,131 @@ public class QdnRenderProxyTest {
             false,
             QdnRenderProxy.RouteKind.DENIED
         );
+    }
+
+    // Fix 2 (Sol re-review #2): isSameActiveAppTabResource is the trusted-
+    // layer replacement for AppTabStage.tsx's app-controlled self-report
+    // backstop. These mirror electron/qdn-resource-identity.test.ts and
+    // src/v2/shell/render-path-identity.test.ts's bypass-list tests exactly,
+    // adapted to this class's plain (segments, path, queryIdentifier) shape.
+    @Test
+    public void activeAppTabIdentityBlocksThePreviouslyPassingBypasses() {
+        QdnRenderProxy.AppIdentity defaultChat = new QdnRenderProxy.AppIdentity("Chat", null, "/render/APP/Chat");
+
+        // Same resource: allowed.
+        assertTrue(sameActiveResource(parts("render", "APP", "Chat"), null, defaultChat));
+        assertTrue(sameActiveResource(parts("render", "APP", "Chat"), "", defaultChat));
+
+        // A default (omitted) launch identifier does NOT free the first path
+        // segment for in-app routing — this proxy cannot verify "evil" is
+        // not a real published identifier, so it fails closed.
+        assertFalse(sameActiveResource(parts("render", "APP", "Chat", "evil"), null, defaultChat));
+        // The previously-passing bypass: ?identifier= override on a default launch.
+        assertFalse(sameActiveResource(parts("render", "APP", "Chat"), "evil", defaultChat));
+        // A literal (case-insensitive) "default" first segment is never an identifier.
+        assertTrue(sameActiveResource(parts("render", "APP", "Chat", "DEFAULT", "settings"), null, defaultChat));
+
+        QdnRenderProxy.AppIdentity docsMyApp = new QdnRenderProxy.AppIdentity("MyApp", "docs", "/render/APP/MyApp/docs");
+
+        assertTrue(sameActiveResource(parts("render", "APP", "MyApp", "docs"), null, docsMyApp));
+        assertTrue(sameActiveResource(parts("render", "APP", "MyApp", "docs", "page-2"), null, docsMyApp));
+        assertFalse(sameActiveResource(parts("render", "APP", "MyApp", "otherIdentifier"), null, docsMyApp));
+        assertFalse(sameActiveResource(parts("render", "APP", "MyApp"), null, docsMyApp));
+        // The previously-passing bypass: ?identifier= override on an explicit launch identifier.
+        assertFalse(sameActiveResource(parts("render", "APP", "MyApp", "docs"), "evil", docsMyApp));
+
+        // A different app name, or the SAME name under a proxy origin with no
+        // registered identity at all, is blocked (fail closed).
+        assertFalse(sameActiveResource(parts("render", "APP", "OtherApp"), null, defaultChat));
+        assertFalse(sameActiveResource(parts("render", "APP", "Chat"), null, null));
+
+        // WEBSITE/GAME/HASH render paths carry no per-tab identity to check —
+        // always left alone (matches classifyProxyPath's existing scoping).
+        assertTrue(sameActiveResource(parts("render", "WEBSITE", "Anything"), null, defaultChat));
+        assertTrue(sameActiveResource(parts("render", "HASH", "abc123", "evil"), null, defaultChat));
+
+        // Non-RENDER paths (too few segments, or not APP/WEBSITE/GAME/HASH at
+        // this layer) are also left alone; classifyProxyRoute only calls this
+        // for a RouteKind.RENDER result in the first place.
+        assertTrue(sameActiveResource(parts("render", "APP"), null, defaultChat));
+    }
+
+    // Fix 2 follow-up: a legitimate OPEN_NEW_TAB deep link into a DEFAULT-
+    // identity app's specific sub-page (e.g. qdn://APP/Trust/default/settings)
+    // produces a first render request whose first path segment ("settings")
+    // is otherwise indistinguishable from a spoofed identifier. The tab's own
+    // registered initialPathname must be allowed regardless, but that
+    // exception must NOT extend to any OTHER path — only the exact
+    // registered one.
+    @Test
+    public void initialPathnameExemptsOnlyTheExactTrustedFirstRequest() {
+        QdnRenderProxy.AppIdentity deepLinkedTrust =
+            new QdnRenderProxy.AppIdentity("Trust", null, "/render/APP/Trust/settings");
+
+        assertTrue(
+            "the tab's own trusted initial deep-linked path must be allowed even though its " +
+                "first segment looks like a spoofed identifier",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Trust", "settings"),
+                "/render/APP/Trust/settings",
+                null,
+                deepLinkedTrust
+            )
+        );
+        assertFalse(
+            "a DIFFERENT path must still go through the normal identity check, even though the " +
+                "tab has an initialPathname exception registered",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Trust", "evil"),
+                "/render/APP/Trust/evil",
+                null,
+                deepLinkedTrust
+            )
+        );
+        assertFalse(
+            "the initial-path exception is on the PATH only, not the query/hash — mismatched " +
+                "pathname is not the registered exact request",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Trust", "settings", "sub"),
+                "/render/APP/Trust/settings/sub",
+                null,
+                deepLinkedTrust
+            )
+        );
+
+        QdnRenderProxy.AppIdentity noDeepLink = new QdnRenderProxy.AppIdentity("Chat", null, null);
+
+        assertFalse(
+            "with no initialPathname registered, the normal identity check applies to everything",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Chat", "settings"),
+                "/render/APP/Chat/settings",
+                null,
+                noDeepLink
+            )
+        );
+    }
+
+    private static boolean sameActiveResource(List<String> segments, String queryIdentifier, QdnRenderProxy.AppIdentity active) {
+        return QdnRenderProxy.isSameActiveAppTabResource(segments, null, queryIdentifier, active);
+    }
+
+    @Test
+    public void resolveCandidateIdentifierPrefersQueryOverPathSegment() {
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), "  "));
+        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), "evil"));
+        assertEquals(
+            "evil",
+            QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "docs"), "evil")
+        );
+        assertEquals(
+            "docs",
+            QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "docs"), null)
+        );
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "default"), null));
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "DEFAULT"), null));
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
     }
 
     private static void assertRoute(

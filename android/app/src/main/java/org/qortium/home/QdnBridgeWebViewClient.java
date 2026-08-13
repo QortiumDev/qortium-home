@@ -148,7 +148,18 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         Uri url = request.getUrl();
 
         if (QdnRenderProxy.isProxyUrl(url)) {
-            return false;
+            // Fix 2 (Sol re-review #2): cancel a subframe navigation this
+            // proxy would refuse to serve anyway — classifyProxyRoute now
+            // also checks a Home v2 app tab's registered launch identity for
+            // APP-service RENDER paths (see
+            // QdnRenderProxy.isSameActiveAppTabResource) — so the tab's
+            // iframe never even starts loading a different app's content.
+            // shouldInterceptRequest below independently enforces the same
+            // check for every request this navigation check does not catch
+            // (fetch/XHR/redirects/etc.), so this is a UX improvement (stay
+            // on the current app instead of showing a blocked-request page)
+            // layered on top of, not a substitute for, that enforcement.
+            return QdnRenderProxy.classifyProxyRoute(url) == QdnRenderProxy.RouteKind.DENIED;
         }
 
         if (!isHttpScheme(url.getScheme())) {

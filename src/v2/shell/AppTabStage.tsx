@@ -45,6 +45,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   query.set('uiStyle', 'classic')
   const queryString = query.toString()
   return {
+    identity: resource.identity,
     nodeApiUrl: node.nodeApiUrl,
     tab,
     url: `${node.nodeApiUrl}/render/APP/${encodeURIComponent(name)}${suffix}${resource.routePath}${queryString ? `?${queryString}` : ''}${resource.hash}`,
@@ -187,21 +188,26 @@ function AndroidAppStage(props: AppTabStageProps) {
   // Fix A (finding 1) live-resource tracking: on Android every app on a node
   // shares one proxy origin (QdnRenderProxy.java's per-view isolation would
   // wipe QDN apps' own local storage between visits, so it deliberately keys
-  // the proxy by node origin only — see that file's class doc comment), and
-  // QdnBridgeWebViewClient's shouldOverrideUrlLoading has no way to tell
-  // which tab's iframe a subframe navigation belongs to, so it cannot itself
-  // refuse a same-origin navigation to a DIFFERENT app's render URL. That is
-  // a documented residual of the shared-origin design, not something fixed
-  // here. This ref is the request-time backstop instead: it tracks the
-  // iframe's own self-reported location (the qortium:qdn-navigation bridge
-  // message added below), and a qortium:qdn-request is refused below when
-  // that location has drifted from the resource this tab was launched for —
-  // mirroring desktop's requireAccountReadPermission live-resource recheck
-  // (electron/home-v2-app-bridge.ts).
+  // the proxy by node origin only — see that file's class doc comment).
+  //
+  // Fix 2 (Sol re-review #2): QdnBridgeWebViewClient/QdnRenderProxy now ALSO
+  // enforce, at the trusted native layer, that this tab's iframe can never
+  // load a different app's render bytes in the first place (see
+  // QdnRenderProxy.isSameActiveAppTabResource and the authorize() call
+  // below, which registers this tab's launch identity before the iframe is
+  // created — the native side can do this safely because Android renders at
+  // most ONE app tab's iframe at a time: React unmounts/remounts a fresh
+  // iframe, keyed by tab id, on every tab switch, so "the currently
+  // registered identity" is always this tab's). That closes the real gap:
+  // the self-report below is app-controlled (an app can simply not send an
+  // honest qortium:qdn-navigation, or send a stale/forged one) and was
+  // proven bypassable, so it is kept ONLY as a redundant, defense-in-depth
+  // signal — the actual enforcement is now the native layer refusing to
+  // serve mismatched render bytes to this WebView at all.
   const liveResourcePathRef = useRef<string | null>(null)
 
   useEffect(() => {
-    liveResourcePathRef.current = resolved ? new URL(resolved.url).pathname : null
+    liveResourcePathRef.current = resolved ? resolved.url : null
   }, [resolved, source])
 
   useEffect(() => {
@@ -209,7 +215,21 @@ function AndroidAppStage(props: AppTabStageProps) {
     let cancelled = false
     setRuntimeError(null)
     void import('../../home-v2-live/android-app-host')
-      .then(({ authorizeHomeV2AndroidAppOrigin }) => authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl))
+      .then(({ authorizeHomeV2AndroidAppOrigin }) =>
+        // Fix 2: registers this tab's launch identity natively BEFORE the
+        // iframe is created below, so QdnBridgeWebViewClient can refuse to
+        // serve a different resource into it from the very first request.
+        // The exact pathname is passed too so a legitimate deep link into a
+        // default-identity app's specific sub-page (its first path segment
+        // otherwise looking exactly like a spoofed identifier) is not itself
+        // blocked — see QdnRenderProxy.AppIdentity's doc comment.
+        authorizeHomeV2AndroidAppOrigin(
+          resolved.nodeApiUrl,
+          resolved.identity.name,
+          resolved.identity.identifier,
+          new URL(resolved.url).pathname,
+        ),
+      )
       .then((proxyOrigin) => {
         if (cancelled) return
         const direct = new URL(resolved.url)
@@ -248,7 +268,7 @@ function AndroidAppStage(props: AppTabStageProps) {
         )
         if (activeEntry) {
           try {
-            liveResourcePathRef.current = new URL(activeEntry.url).pathname
+            liveResourcePathRef.current = new URL(activeEntry.url).toString()
           } catch {
             liveResourcePathRef.current = null
           }
@@ -259,8 +279,10 @@ function AndroidAppStage(props: AppTabStageProps) {
 
       if (data.type !== 'qortium:qdn-request' || typeof data.requestId !== 'string') return
 
-      // Fix A (finding 1): refuse a request from an iframe whose live
-      // location no longer matches the resource this tab was launched for.
+      // Fix A (finding 1) / Fix 2 defense in depth: refuse a request from an
+      // iframe whose (app-controlled, so not fully trusted — see the
+      // liveResourcePathRef comment above) self-reported live location no
+      // longer matches the resource this tab was launched for.
       const launchIdentity = (() => {
         if (!resolved) return null
         try {
