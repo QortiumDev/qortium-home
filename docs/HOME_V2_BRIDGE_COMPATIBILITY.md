@@ -99,7 +99,7 @@ and Android fixtures pass.
 
 | Risk family | Deferred pinned actions |
 | --- | --- |
-| More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family), `SEARCH_CHAT_MESSAGES` (awaiting the encrypted-direct-message boundary decision) |
+| More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family), `SEARCH_CHAT_MESSAGES` (decided 2026-08-12: ships groups-only with Chat 2.0 Phase 1 — a documented deviation from Hub compatibility; DM-involving searches return with the Phase 2 Home-side DM decryption family, see docs/CHAT_2_0_PLAN.md) |
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
 | Names, groups, polls | `ADD_GROUP_ADMIN`, `BAN_FROM_GROUP`, `BUY_NAME`, `CANCEL_GROUP_BAN`, `CANCEL_GROUP_INVITE`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `KICK_FROM_GROUP`, `LEAVE_GROUP`, `REGISTER_NAME`, `REMOVE_GROUP_ADMIN`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
