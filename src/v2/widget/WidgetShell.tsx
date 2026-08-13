@@ -52,7 +52,9 @@ export function WidgetShell() {
             textSize: 'medium',
             theme: 'dark',
           },
-          nodeOrigin: params.nodeOrigin,
+          // qdn-views reads nodeApiUrl and derives the origin itself. Sending
+          // nodeOrigin instead leaves it undefined and the show is rejected.
+          nodeApiUrl: params.nodeOrigin,
           renderUrl: params.renderUrl,
           resourceUrl: params.resourceUrl,
           tabId,

@@ -159,7 +159,8 @@
     "test:widget-region": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-region.test.js",
     "test:widget-hit-testing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-hit-testing.test.js",
     "test:widget-discovery": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-discovery.test.js",
-    "test:widget-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-launch.test.js"
+    "test:widget-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-launch.test.js",
+    "test:widget-shell-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-shell-contract.test.js"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
