@@ -35,7 +35,11 @@ import {
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
 import { getAccountProfile, isAccountUnlocked } from './accounts.js'
-import { buildWidgetRenderUrl, discoverWidgetManifest } from './widget-discovery.js'
+import {
+  buildWidgetRenderUrl,
+  discoverWidgetManifest,
+  parseWidgetResourceIdentity,
+} from './widget-discovery.js'
 import { normalizeRegion } from './widget-region.js'
 import {
   allocateWidgetId,
@@ -388,22 +392,7 @@ async function requireWidgetPermission(sender: WebContents, context: QdnViewCont
   widgetGrants.add(grantKey)
 }
 
-// The app may name itself explicitly; otherwise fall back to the last path
-// segment of its resource URL, which is the published APP name.
-function readWidgetAppName(request: unknown, resourceUrl: string): string {
-  if (isHomeV2AppRecord(request) && typeof request.name === 'string' && request.name.trim()) {
-    return request.name.trim()
-  }
-  const segments = new URL(resourceUrl).pathname.split('/').filter(Boolean)
-  const name = segments[segments.length - 1]
-  if (!name) throw new Error('Unable to determine the app name for this widget.')
-  return decodeURIComponent(name)
-}
-
-async function handleOpenAsWidget(
-  context: QdnViewContext,
-  request: unknown,
-): Promise<{ widgetId: string }> {
+async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: string }> {
   if (isWidgetTabId(context.tabId)) {
     throw new Error('A widget cannot open another widget.')
   }
@@ -411,10 +400,13 @@ async function handleOpenAsWidget(
     throw new Error('Only a published app can be opened as a widget.')
   }
 
-  const appName = readWidgetAppName(request, context.resourceUrl)
+  // Identity comes from the resource address rather than anything the app
+  // sends, so an app cannot ask for a widget pointed at someone else's resource.
+  const identity = parseWidgetResourceIdentity(context.resourceUrl)
+  const appName = identity.identifier ? `${identity.name}/${identity.identifier}` : identity.name
   assertWidgetCapacity(appName)
 
-  const manifest = await discoverWidgetManifest(appName, async (routePath) => {
+  const manifest = await discoverWidgetManifest(identity, async (routePath) => {
     const response = await nodeFetch(`${context.nodeOrigin}${routePath}`, {
       method: 'GET',
       signal: AbortSignal.timeout(15_000),
@@ -431,7 +423,7 @@ async function handleOpenAsWidget(
   const window = createWidgetWindow({
     widgetId,
     manifest,
-    renderUrl: buildWidgetRenderUrl(context.nodeOrigin, appName, manifest.entry),
+    renderUrl: buildWidgetRenderUrl(context.nodeOrigin, identity, manifest.entry),
     resourceUrl: context.resourceUrl,
     nodeOrigin: context.nodeOrigin,
     accountId: context.accountId,
@@ -489,7 +481,7 @@ async function handleRequest(
   }
   if (action === 'OPEN_AS_WIDGET') {
     await requireWidgetPermission(sender, context)
-    return handleOpenAsWidget(context, requestValue)
+    return handleOpenAsWidget(context)
   }
   if (action === 'WIDGET_CLOSE') {
     return handleWidgetClose(context)
