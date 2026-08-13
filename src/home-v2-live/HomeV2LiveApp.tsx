@@ -813,8 +813,11 @@ export function HomeV2LiveApp() {
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
         (value.action !== 'GET_SELECTED_ACCOUNT' &&
           value.action !== 'GET_USER_ACCOUNT' &&
-          value.action !== 'UNLOCK_SELECTED_ACCOUNT') ||
-        typeof value.accountId !== 'string' ||
+          value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
+          value.action !== 'OPEN_AS_WIDGET') ||
+        // A widget prompt is about a window, not an account, so it is the one
+        // request here that can arrive with no account selected.
+        (value.action !== 'OPEN_AS_WIDGET' && typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium')
       ) {
@@ -853,17 +856,43 @@ export function HomeV2LiveApp() {
           return 'QDN app'
         }
       })()
+      const isWidgetPrompt = value.action === 'OPEN_AS_WIDGET'
+      const promptCopy = isWidgetPrompt
+        ? {
+            title: 'Allow a floating window?',
+            summary:
+              `${appTitle} wants to open a floating window that stays on top of ` +
+              'other applications, not just Qortium.',
+            details: [
+              { label: 'App', value: appTitle },
+              {
+                label: 'Window',
+                value: 'Frameless, always on top, and drawn entirely by the app',
+              },
+            ],
+          }
+        : {
+            title: 'Allow account access?',
+            summary: `${appTitle} wants to read the selected account address and public identity data.`,
+            details: [
+              { label: 'Account', value: account?.label ?? String(value.accountId) },
+              {
+                label: 'Data',
+                value: 'Address, public key when available, lock state, and public name',
+              },
+            ],
+          }
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: 'account.public.read',
+        capability: isWidgetPrompt ? 'window.widget.open' : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
         context: {
           appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
-          identityId: brand<IdentityId>(`home-v2:identity:${value.accountId}`),
+          identityId: brand<IdentityId>(`home-v2:identity:${value.accountId ?? 'none'}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
           tabId: brand<TabId>(value.tabId),
           targetNetwork: value.targetNetwork,
@@ -871,12 +900,9 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: 'Allow account access?',
-        summary: `${appTitle} wants to read the selected account address and public identity data.`,
-        details: [
-          { label: 'Account', value: account?.label ?? value.accountId },
-          { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
-        ],
+        title: promptCopy.title,
+        summary: promptCopy.summary,
+        details: promptCopy.details,
         allowedScopes: ['single-request', 'session'],
       })
       setPermissionState((current) => {

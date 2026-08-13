@@ -17,6 +17,7 @@ export type PermissionCapability =
   | 'qdn.publish'
   | 'qortal.account.read'
   | 'account.unlock'
+  | 'window.widget.open'
 
 export interface PermissionDetail {
   readonly label: string
@@ -31,6 +32,7 @@ export interface PermissionPrompt {
     | 'GET_USER_ACCOUNT'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
+    | 'OPEN_AS_WIDGET'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string
