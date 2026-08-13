@@ -15,6 +15,19 @@ export type HomeV2WalletFileSelection =
       token: string
     }
 
+export interface HomeV2SendChatMessageRequest {
+  readonly accountId: string
+  readonly message: string
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly txGroupId: number
+}
+
+export interface HomeV2SendChatMessageResult {
+  readonly signature: string
+  readonly timestamp: number
+}
+
 export interface HomeV2VaultClient {
   addAddress(accountId: string): Promise<HomeV2VaultState>
   create(request: HomeV2CreateAccountRequest): Promise<{ canceled: boolean; state: HomeV2VaultState }>
@@ -33,6 +46,13 @@ export interface HomeV2VaultClient {
   saveLoadedWallet(request: { label: string; token: string }): Promise<HomeV2VaultState>
   select(request: { accountId: string | null; addressId: string | null }): Promise<HomeV2VaultState>
   selectWalletFile(): Promise<HomeV2WalletFileSelection>
+  // The trusted-layer chat send primitive (Chat 2.0 Phase 1,
+  // docs/CHAT_2_0_PLAN.md): builds, memory-pows, signs, and broadcasts a CHAT
+  // transaction entirely inside this module. Optional because it currently
+  // has only one caller — the Android app-frame dispatcher in
+  // HomeV2LiveApp.tsx, which never receives requests on desktop (desktop's
+  // SEND_CHAT_MESSAGE is handled by electron/home-v2-app-bridge.ts directly).
+  sendChatMessage?(request: HomeV2SendChatMessageRequest): Promise<HomeV2SendChatMessageResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
   updateSecurity(request: {
     accountId: string

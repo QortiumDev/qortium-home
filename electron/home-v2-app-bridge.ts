@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import {
   getHomeV2ReadableNode,
   readHomeV2Avatar,
@@ -26,19 +26,45 @@ import {
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
   normalizeHomeV2AvatarMaxBytes,
+  normalizeHomeV2ChatMessageText,
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
+  normalizeHomeV2SendTxGroupId,
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
-import { getAccountProfile, isAccountUnlocked } from './accounts.js'
+import { getAccountProfile, getAccountSecretKey, isAccountUnlocked, signChatTransaction, signDetached } from './accounts.js'
+import { base58Decode, base58Encode } from './base58.js'
+import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
+import { readableNodeErrorMessage } from './node-error-body.js'
+import { assertPublicChatTransaction } from './public-transaction-validation.js'
+import {
+  assertOpenQortalGroupMetadata,
+  buildUnsignedQortalGroupChatTransactionBytes,
+  QORTAL_CHAT_POW_DIFFICULTY,
+  stampQortalGroupChatNonce,
+} from './qortal-chat.js'
+import {
+  appendSignatureToTransactionBytes,
+  getSignatureFromSignedTransactionBytes,
+} from './qortal-payment.js'
 
 export { getHomeV2AppActions as getHomeV2ReadOnlyAppActions }
 
-type AccountReadAction = 'GET_SELECTED_ACCOUNT' | 'GET_USER_ACCOUNT' | 'UNLOCK_SELECTED_ACCOUNT'
+// The Qortium CHAT memory-pow difficulty. Mirrors the private CHAT_POW_DIFFICULTY
+// constant in electron/qdn.ts and src/platform.ts (all three must stay equal;
+// Core enforces this value server-side).
+const QORTIUM_CHAT_POW_DIFFICULTY = 8
+const CHAT_WRITE_TIMEOUT_MS = 30_000
+
+type AccountReadAction =
+  | 'GET_SELECTED_ACCOUNT'
+  | 'GET_USER_ACCOUNT'
+  | 'SEND_CHAT_MESSAGE'
+  | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'session' | 'single-request' | null
@@ -83,6 +109,11 @@ async function requireAccountReadPermission(
   context: QdnViewContext,
   protocol: HomeV2AppBridgeProtocol,
   action: AccountReadAction,
+  chatDetails?: {
+    readonly targetChainLabel: string
+    readonly groupId: number
+    readonly messagePreview: string
+  },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
@@ -123,6 +154,13 @@ async function requireAccountReadPermission(
       resourceUrl: context.resourceUrl,
       tabId: context.tabId,
       targetNetwork,
+      ...(chatDetails
+        ? {
+            chatGroupId: chatDetails.groupId,
+            chatMessagePreview: chatDetails.messagePreview,
+            chatTargetChainLabel: chatDetails.targetChainLabel,
+          }
+        : {}),
     })
   })
   if (!decision.approved) throw new Error('Account access was denied.')
@@ -331,6 +369,185 @@ async function fetchAccountAvatar(request: Record<string, unknown>) {
   )
 }
 
+async function postHomeV2ChatText(
+  nodeApiUrl: string,
+  path: string,
+  body: string,
+  contentType: string,
+  fallbackMessage: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body,
+    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+  })
+  const text = (await response.text()).trim()
+  if (!response.ok) {
+    throw new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${response.status}.`))
+  }
+  return text
+}
+
+type HomeV2ChatSigningKey = { address: string; publicKey58: string; secretKey: Uint8Array }
+
+// Keyless open-group chat send for the Qortium network. Builds the unsigned
+// CHAT bytes via the keyless /chat/public/build endpoint (no API key, no
+// private key ever leaves this process), validates the node's response
+// against what we asked it to build, computes the memory-pow nonce locally,
+// signs locally, then broadcasts. Mirrors src/platform.ts
+// sendKeylessPublicGroupChatMessage and electron/qdn.ts's v1 equivalent.
+async function sendHomeV2QortiumChatMessage(
+  nodeApiUrl: string,
+  txGroupId: number,
+  message: string,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+) {
+  const timestamp = Date.now()
+  const data = base58Encode(new TextEncoder().encode(message))
+  const buildBody = await postHomeV2ChatText(
+    nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify({
+      data,
+      fee: 0,
+      isEncrypted: false,
+      isText: true,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+      txGroupId,
+    }),
+    'application/json',
+    'Chat transaction build failed.',
+  )
+  const unsignedBytes = base58Decode(buildBody)
+  // Never sign node-provided bytes without checking they encode exactly the
+  // sender/group/message/timestamp we asked for.
+  assertPublicChatTransaction(unsignedBytes, {
+    data: base58Decode(data),
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId,
+  })
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, QORTIUM_CHAT_POW_DIFFICULTY, isStillValid)
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey)
+  await postHomeV2ChatText(
+    nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    'text/plain',
+    'Chat transaction processing failed.',
+  )
+  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp }
+}
+
+// Fully client-side Qortal group chat send: transaction bytes are built here
+// (no node build call), the memory-pow nonce is computed locally, and the
+// account key signs locally. Mirrors electron/qdn.ts's v1
+// sendQortalGroupChatForApp / src/platform.ts's equivalent, minus the
+// Hub-shaped payload construction (v2's message is already the app's opaque,
+// fully-formed payload).
+async function sendHomeV2QortalChatMessage(
+  nodeApiUrl: string,
+  txGroupId: number,
+  message: string,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+) {
+  // Home does not implement Qortal private-group encryption yet
+  // (docs/CHAT_2_0_PLAN.md); refuse to broadcast plaintext into a group that
+  // is not verifiably open, the same guard v1's Qortal group send applies.
+  const groupResponse = await nodeFetch(`${nodeApiUrl}/groups/${encodeURIComponent(String(txGroupId))}`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const groupText = (await groupResponse.text()).trim()
+  let groupData: unknown = null
+  if (groupText) {
+    try {
+      groupData = JSON.parse(groupText)
+    } catch {
+      groupData = null
+    }
+  }
+  assertOpenQortalGroupMetadata(groupResponse.ok ? groupData : null, txGroupId)
+
+  const timestamp = Date.now()
+  const unsignedBytes = buildUnsignedQortalGroupChatTransactionBytes({
+    lastReference: new Uint8Array(randomBytes(64)),
+    message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+    txGroupId,
+  })
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY, isStillValid)
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce)
+  const signatureBytes = signDetached(stampedBytes, signingKey.secretKey)
+  const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes)
+  await postHomeV2ChatText(
+    nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    'text/plain',
+    'Qortal chat message broadcast failed.',
+  )
+  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp }
+}
+
+async function sendHomeV2ChatMessage(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const txGroupId = normalizeHomeV2SendTxGroupId(protocol, requestValue.txGroupId)
+  const message = normalizeHomeV2ChatMessageText(requestValue.message)
+  // The Chat app is expected to drive UNLOCK_SELECTED_ACCOUNT first on
+  // qdnRequest; a pure-Qortal app cannot unlock in Phase 1 (documented
+  // limitation, docs/HOME_V2_BRIDGE_COMPATIBILITY.md). Failing fast here also
+  // avoids prompting the user for a send that cannot possibly proceed.
+  if (!isAccountUnlocked(accountId)) {
+    throw new Error('The selected account is locked.')
+  }
+  const targetChainLabel = network === 'qortal' ? 'Qortal' : 'Qortium'
+  const groupLabel = txGroupId === 0 ? 'General chat' : `Group ${txGroupId}`
+  await requireAccountReadPermission(sender, context, protocol, 'SEND_CHAT_MESSAGE', {
+    groupId: txGroupId,
+    messagePreview: message.slice(0, 180),
+    targetChainLabel: `${targetChainLabel} · ${groupLabel}`,
+  })
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    throw new Error('Selected account signing key does not match the saved account address.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!nodeNow && `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute
+  }
+  if (!(await isStillValid())) {
+    throw new Error('Account access context changed before approval completed.')
+  }
+  return network === 'qortium'
+    ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, txGroupId, message, signingKey, isStillValid)
+    : sendHomeV2QortalChatMessage(node.nodeApiUrl, txGroupId, message, signingKey, isStillValid)
+}
+
 async function handleRequest(
   sender: WebContents,
   context: QdnViewContext,
@@ -401,6 +618,9 @@ async function handleRequest(
       isUnlocked: true,
       name: profile.name,
     }
+  }
+  if (action === 'SEND_CHAT_MESSAGE') {
+    return sendHomeV2ChatMessage(sender, context, protocol, network, requestValue)
   }
   if (action === 'GET_NAME_DATA' || action === 'GET_ACCOUNT_NAMES' || action === 'GET_PRIMARY_NAME') {
     const path = buildHomeV2NamePath(action, requestValue)

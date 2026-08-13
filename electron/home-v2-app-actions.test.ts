@@ -7,9 +7,11 @@ import {
   buildHomeV2ResourcePath,
   buildHomeV2ResourceRenderPath,
   getHomeV2AppActions,
+  normalizeHomeV2ChatMessageText,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
+  normalizeHomeV2SendTxGroupId,
 } from './home-v2-app-actions.js'
 
 const qdnActions = getHomeV2AppActions('qdnRequest')
@@ -27,6 +29,35 @@ assert.equal(qortalActions.includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('FETCH_QDN_RESOURCE'), true)
 assert.equal(qortalActions.includes('GET_ASSET_INFO'), false)
+// SEND_CHAT_MESSAGE ships on both protocols (Chat 2.0 Phase 1,
+// docs/CHAT_2_0_PLAN.md); the desktop and Android send flows share this one
+// catalogue entry.
+assert.equal(qdnActions.includes('SEND_CHAT_MESSAGE'), true)
+assert.equal(qortalActions.includes('SEND_CHAT_MESSAGE'), true)
+
+assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 0), 0)
+assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 5), 5)
+assert.equal(normalizeHomeV2SendTxGroupId('qortalRequest', 1), 1)
+assert.throws(
+  () => normalizeHomeV2SendTxGroupId('qortalRequest', 0),
+  /Qortal no longer accepts general-chat transactions/,
+)
+assert.throws(
+  () => normalizeHomeV2SendTxGroupId('qdnRequest', -1),
+  /non-negative safe integer/,
+)
+assert.throws(
+  () => normalizeHomeV2SendTxGroupId('qdnRequest', 'not-a-number'),
+  /non-negative safe integer/,
+)
+assert.equal(normalizeHomeV2ChatMessageText('hello'), 'hello')
+assert.equal(normalizeHomeV2ChatMessageText('x'.repeat(4000)), 'x'.repeat(4000))
+assert.throws(() => normalizeHomeV2ChatMessageText(''), /between 1 and 4000 bytes/)
+assert.throws(() => normalizeHomeV2ChatMessageText('x'.repeat(4001)), /between 1 and 4000 bytes/)
+assert.throws(() => normalizeHomeV2ChatMessageText(42), /message is required/)
+// Home does not parse or rewrite the opaque app payload — leading/trailing
+// whitespace and JSON-looking content pass through byte-for-byte.
+assert.equal(normalizeHomeV2ChatMessageText('  {"messageText":"hi"}  '), '  {"messageText":"hi"}  ')
 
 for (const chainReadAction of [
   'SEARCH_NAMES',

@@ -54,6 +54,10 @@ import type {
   HomeV2NodeClient,
 } from './node-client'
 import type { HomeV2VaultClient } from './vault-client'
+import {
+  normalizeHomeV2ChatMessageText,
+  normalizeHomeV2SendTxGroupId,
+} from '../../electron/home-v2-app-actions'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -813,10 +817,15 @@ export function HomeV2LiveApp() {
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
         (value.action !== 'GET_SELECTED_ACCOUNT' &&
           value.action !== 'GET_USER_ACCOUNT' &&
-          value.action !== 'UNLOCK_SELECTED_ACCOUNT') ||
+          value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
+          value.action !== 'SEND_CHAT_MESSAGE') ||
         typeof value.accountId !== 'string' ||
         typeof value.tabId !== 'string' ||
-        (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium')
+        (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
+        (value.action === 'SEND_CHAT_MESSAGE' &&
+          (typeof value.chatGroupId !== 'number' ||
+            typeof value.chatMessagePreview !== 'string' ||
+            typeof value.chatTargetChainLabel !== 'string'))
       ) {
         return
       }
@@ -853,11 +862,12 @@ export function HomeV2LiveApp() {
           return 'QDN app'
         }
       })()
+      const isSendChatMessage = value.action === 'SEND_CHAT_MESSAGE'
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: 'account.public.read',
+        capability: isSendChatMessage ? 'chat.send' : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
@@ -871,12 +881,20 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: 'Allow account access?',
-        summary: `${appTitle} wants to read the selected account address and public identity data.`,
-        details: [
-          { label: 'Account', value: account?.label ?? value.accountId },
-          { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
-        ],
+        title: isSendChatMessage ? 'Allow sending a chat message?' : 'Allow account access?',
+        summary: isSendChatMessage
+          ? `${appTitle} wants to send a chat message as the selected account.`
+          : `${appTitle} wants to read the selected account address and public identity data.`,
+        details: isSendChatMessage
+          ? [
+              { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Chain', value: String(value.chatTargetChainLabel) },
+              { label: 'Message', value: String(value.chatMessagePreview) },
+            ]
+          : [
+              { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
+            ],
         allowedScopes: ['single-request', 'session'],
       })
       setPermissionState((current) => {
@@ -983,6 +1001,124 @@ export function HomeV2LiveApp() {
               })
             },
           })
+        })
+      }
+      if (action === 'SEND_CHAT_MESSAGE') {
+        if (!vaultClient?.sendChatMessage) throw new Error('Chat sending is unavailable on this platform.')
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const sendRequest = isRecord(requestValue) ? requestValue : {}
+        const txGroupId = normalizeHomeV2SendTxGroupId(protocol, sendRequest.txGroupId)
+        const message = normalizeHomeV2ChatMessageText(sendRequest.message)
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        // The Chat app is expected to drive UNLOCK_SELECTED_ACCOUNT first on
+        // qdnRequest; a pure-Qortal app cannot unlock in Phase 1 (documented
+        // limitation, docs/HOME_V2_BRIDGE_COMPATIBILITY.md). Failing fast here
+        // also avoids prompting for a send that cannot possibly proceed.
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+        const groupLabel = txGroupId === 0 ? 'General chat' : `Group ${txGroupId}`
+        const grantKey = [
+          context.tabId,
+          context.resourceLocation,
+          accountId,
+          protocol,
+          action,
+          account.isUnlocked,
+          nodeRoute,
+        ].join('|')
+        if (!androidSessionAccountGrants.current.has(grantKey)) {
+          const requestId = brand<PermissionRequestId>(
+            globalThis.crypto.randomUUID?.() ??
+              `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          )
+          const appTitle = (() => {
+            try {
+              return parseAppResourceLocation(context.resourceLocation).identity.name
+            } catch {
+              return 'QDN app'
+            }
+          })()
+          const appIdentityKey = context.resourceLocation || `home-v2-tab:${context.tabId}`
+          const appId = brand<AppId>(`home-v2:permission-app:${appIdentityKey}`)
+          const prompt = createPermissionPrompt({
+            id: requestId,
+            protocol,
+            action: 'SEND_CHAT_MESSAGE',
+            capability: 'chat.send',
+            appId,
+            appIdentityKey,
+            appTitle,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: 'Allow sending a chat message?',
+            summary: `${appTitle} wants to send a chat message as the selected account.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Chain', value: `${targetChainLabel} · ${groupLabel}` },
+              { label: 'Message', value: message.slice(0, 180) },
+            ],
+            allowedScopes: ['single-request', 'session'],
+          })
+          setPermissionState((current) => queuePermissionPrompt(current, prompt))
+          const decision = await new Promise<PermissionDecision>((resolve) => {
+            androidPermissionResolvers.current.set(requestId, resolve)
+          })
+          if (!decision.approved) throw new Error('Account access was denied.')
+          if (decision.scope === 'session') androidSessionAccountGrants.current.add(grantKey)
+          const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === accountId,
+          )
+          const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            freshAccount?.isUnlocked !== account.isUnlocked ||
+            `${nodeAfter.mode}|${nodeAfter.nodeApiUrl ?? ''}` !== nodeRoute
+          ) {
+            throw new Error('Account access context changed before approval completed.')
+          }
+        }
+        // Re-verify immediately before the (potentially tens-of-seconds)
+        // memory-pow+sign step, mirroring the desktop bridge's isStillValid
+        // recheck at the same point.
+        const freshTabBeforeSend = productState.tabs.find((tab) => tab.id === context.tabId)
+        const freshAccountBeforeSend = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        const nodeBeforeSend = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (
+          !freshTabBeforeSend ||
+          freshTabBeforeSend.context.resourceLocation !== context.resourceLocation ||
+          !freshAccountBeforeSend?.isUnlocked ||
+          !nodeBeforeSend.nodeApiUrl ||
+          `${nodeBeforeSend.mode}|${nodeBeforeSend.nodeApiUrl}` !== nodeRoute
+        ) {
+          throw new Error('Account access context changed before approval completed.')
+        }
+        return vaultClient.sendChatMessage({
+          accountId,
+          message,
+          network: targetNetwork,
+          nodeApiUrl: nodeBeforeSend.nodeApiUrl,
+          txGroupId,
         })
       }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {

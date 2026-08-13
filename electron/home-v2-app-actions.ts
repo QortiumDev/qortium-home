@@ -52,6 +52,7 @@ const QDN_ACTIONS = [
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_MESSAGE',
   'UNLOCK_SELECTED_ACCOUNT',
 ] as const
 
@@ -82,6 +83,7 @@ const QORTAL_ACTIONS = [
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_MESSAGE',
 ] as const
 
 const READ_PREFIXES = [
@@ -489,6 +491,32 @@ function normalizeHomeV2ChatEncoding(value: unknown) {
     throw new Error('encoding must be BASE58 or BASE64.')
   }
   return encoding
+}
+
+// SEND_CHAT_MESSAGE's txGroupId rule (docs/CHAT_2_0_PLAN.md): Qortium's
+// general chat is group 0 and stays open; modern Qortal rejects group-0 CHAT
+// transactions at the API, so Home requires a positive group id there.
+export function normalizeHomeV2SendTxGroupId(protocol: HomeV2AppBridgeProtocol, value: unknown) {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error('txGroupId must be a non-negative safe integer.')
+  }
+  if (protocol === 'qortalRequest' && parsed === 0) {
+    throw new Error('Qortal no longer accepts general-chat transactions; send to a group instead.')
+  }
+  return parsed
+}
+
+// `message` is an opaque, app-owned payload (qortium-chat JSON on qdnRequest,
+// Hub-compatible JSON on qortalRequest). Home only enforces the byte bound
+// Core's CHAT transaction validates; it never parses or rewrites the content.
+export function normalizeHomeV2ChatMessageText(value: unknown) {
+  if (typeof value !== 'string') throw new Error('message is required.')
+  const byteLength = new TextEncoder().encode(value).byteLength
+  if (byteLength < 1 || byteLength > 4000) {
+    throw new Error('message must be between 1 and 4000 bytes after UTF-8 encoding.')
+  }
+  return value
 }
 
 export function isHomeV2ChainReadAction(action: string) {

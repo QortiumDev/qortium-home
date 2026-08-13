@@ -12130,6 +12130,103 @@ async function buildAndroidHomeV2VaultState(): Promise<HomeV2VaultState> {
   }
 }
 
+// Home v2 SEND_CHAT_MESSAGE (Chat 2.0 Phase 1, docs/CHAT_2_0_PLAN.md). These
+// mirror sendKeylessPublicGroupChatMessage / sendQortalGroupChatForApp above,
+// but take an explicit v2-resolved nodeApiUrl (v2's Android node client has
+// its own node settings, separate from v1's), send no API key at all (not
+// even the empty-when-unsafe fallback those v1 paths use), and return v2's
+// {signature, timestamp} contract instead of the raw processed-transaction
+// payload. They reuse the same module-level memory-pow worker, CHAT_POW_DIFFICULTY,
+// and shared electron/ builders/validators as the v1 functions above.
+async function sendHomeV2QortiumChatMessage(
+  nodeApiUrl: string,
+  txGroupId: number,
+  message: string,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const timestamp = Date.now();
+  const data = encodeChatTextData(message);
+  const unsignedTransaction = await postLocalNodeText(
+    nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify({
+      senderPublicKey: signingKey.publicKey58,
+      data,
+      isText: true,
+      isEncrypted: false,
+      txGroupId,
+      timestamp,
+      fee: 0,
+    }),
+    '',
+    'Chat transaction build failed.',
+    'application/json',
+  );
+
+  const unsignedBytes = base58Decode(unsignedTransaction.body);
+  // Never sign node-provided bytes without checking they encode exactly the
+  // sender/group/message/timestamp we asked for.
+  assertPublicChatTransaction(unsignedBytes, {
+    data: base58Decode(data),
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY);
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey);
+
+  await postLocalNodeText(
+    nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    '',
+    'Chat transaction processing failed.',
+  );
+
+  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp };
+}
+
+async function sendHomeV2QortalChatMessage(
+  nodeApiUrl: string,
+  txGroupId: number,
+  message: string,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  // Home does not implement Qortal private-group encryption yet
+  // (docs/CHAT_2_0_PLAN.md); refuse to broadcast plaintext into a group that
+  // is not verifiably open, the same guard v1's Qortal group send applies.
+  let groupData: unknown = null;
+  try {
+    groupData = await getGroupDataForChat(nodeApiUrl, txGroupId);
+  } catch {
+    groupData = null;
+  }
+  assertOpenQortalGroupMetadata(groupData, txGroupId);
+
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortalGroupChatTransactionBytes({
+    lastReference: getRandomQortalReference(),
+    message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+    txGroupId,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY);
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
+  const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
+  const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
+
+  await postLocalNodeText(
+    nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    '',
+    'Qortal chat message broadcast failed.',
+  );
+
+  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp };
+}
+
 let androidHomeV2AutoUnlockAttempted = false;
 
 export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
@@ -12328,6 +12425,12 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     async requestRestore() {
       await HomeV2ProfileRecovery.requestRestore();
       return { restartRequired: true };
+    },
+    async sendChatMessage(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      return request.network === 'qortium'
+        ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey)
+        : sendHomeV2QortalChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey);
     },
   };
 }
