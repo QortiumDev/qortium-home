@@ -190,20 +190,23 @@ function AndroidAppStage(props: AppTabStageProps) {
   // wipe QDN apps' own local storage between visits, so it deliberately keys
   // the proxy by node origin only — see that file's class doc comment).
   //
-  // Fix 2 (Sol re-review #2): QdnBridgeWebViewClient/QdnRenderProxy now ALSO
-  // enforce, at the trusted native layer, that this tab's iframe can never
-  // load a different app's render bytes in the first place (see
-  // QdnRenderProxy.isSameActiveAppTabResource and the authorize() call
-  // below, which registers this tab's launch identity before the iframe is
+  // Round 6 (owner-directed redesign, ending the round-2/4/5
+  // identifier-confusion class): QdnBridgeWebViewClient/QdnRenderProxy now
+  // gate the live bridge token / injection / CSP-strip on an EXACT match
+  // against this tab's registered authorized document URL (see
+  // QdnRenderProxy.isExactAuthorizedRenderDocument and the authorize() call
+  // below, which registers that EXACT trusted URL before the iframe is
   // created — the native side can do this safely because Android renders at
   // most ONE app tab's iframe at a time: React unmounts/remounts a fresh
   // iframe, keyed by tab id, on every tab switch, so "the currently
-  // registered identity" is always this tab's). That closes the real gap:
-  // the self-report below is app-controlled (an app can simply not send an
-  // honest qortium:qdn-navigation, or send a stale/forged one) and was
-  // proven bypassable, so it is kept ONLY as a redundant, defense-in-depth
-  // signal — the actual enforcement is now the native layer refusing to
-  // serve mismatched render bytes to this WebView at all.
+  // registered document" is always this tab's own). Given that exact-URL
+  // gate, the self-report below can no longer grant a mismatched document
+  // ANY bridge capability to begin with (a non-matching document was never
+  // given a working token or injection at the byte-serving layer) — it is
+  // kept ONLY as a UX/consistency signal (refuse to relay a request while
+  // the visibly-loaded page has drifted from the launch resource), NOT a
+  // security boundary of its own; see shouldCarryBridgeToken's doc comment
+  // in QdnBridgeWebViewClient.java for the layer that actually is one.
   const liveResourcePathRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -214,35 +217,34 @@ function AndroidAppStage(props: AppTabStageProps) {
     if (!resolved) return
     let cancelled = false
     setRuntimeError(null)
+    // Round 6: the EXACT URL this effect is about to load into the iframe
+    // (see below) is built ONCE here and used, verbatim, for BOTH the native
+    // authorize() registration AND the iframe's own `source` — so the
+    // registered document and the requested document can never independently
+    // drift apart. `homeV2Bridge` is set now (not just when building
+    // `source`) because it is a constant marker every homeV2 app-tab
+    // document request carries; including it here means the exact-URL
+    // comparison never needs to special-case it (see
+    // QdnRenderProxy.IGNORED_DOCUMENT_QUERY_PARAMS's doc comment). The live
+    // bridge token itself is deliberately NOT included — it is random per
+    // tab and explicitly excluded from that same comparison.
+    const authorizedDocument = new URL(resolved.url)
+    authorizedDocument.searchParams.set('homeV2Bridge', '1')
     void import('../../home-v2-live/android-app-host')
       .then(({ authorizeHomeV2AndroidAppOrigin }) =>
-        // Fix 2: registers this tab's launch identity natively BEFORE the
-        // iframe is created below, so QdnBridgeWebViewClient can refuse to
-        // serve a different resource into it from the very first request.
-        // The exact pathname is passed too so a legitimate deep link into a
-        // default-identity app's specific sub-page (its first path segment
-        // otherwise looking exactly like a spoofed identifier) is not itself
-        // blocked — see QdnRenderProxy.AppIdentity's doc comment.
-        //
-        // Fix 3 (Sol round-3, Defect B): the registered identifier is
-        // resolved from the FULL first request (query wins), not just
-        // resolved.identity's path-based value — see
-        // render-path-identity.ts's resolveLaunchIdentifier doc comment for
-        // why a smuggled `?identifier=` query would otherwise register the
-        // wrong (too-permissive) launch identity.
-        authorizeHomeV2AndroidAppOrigin(
-          resolved.nodeApiUrl,
-          resolved.identity.name,
-          resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
-          new URL(resolved.url).pathname,
-        ),
+        // Registers this EXACT document natively BEFORE the iframe is
+        // created below, so QdnBridgeWebViewClient can refuse the bridge
+        // token / injection / CSP-strip to anything else from the very
+        // first request — see QdnRenderProxy.authorize's doc comment.
+        authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl, authorizedDocument.toString()),
       )
       .then((proxyOrigin) => {
         if (cancelled) return
-        const direct = new URL(resolved.url)
-        const proxied = new URL(`${direct.pathname}${direct.search}`, proxyOrigin)
+        const proxied = new URL(
+          `${authorizedDocument.pathname}${authorizedDocument.search}`,
+          proxyOrigin,
+        )
         proxied.searchParams.set('qdnHomeBridge', token)
-        proxied.searchParams.set('homeV2Bridge', '1')
         setSource(proxied.toString())
       })
       .catch((cause: unknown) => {
@@ -286,15 +288,21 @@ function AndroidAppStage(props: AppTabStageProps) {
 
       if (data.type !== 'qortium:qdn-request' || typeof data.requestId !== 'string') return
 
-      // Fix A (finding 1) / Fix 2 defense in depth: refuse a request from an
-      // iframe whose (app-controlled, so not fully trusted — see the
-      // liveResourcePathRef comment above) self-reported live location no
-      // longer matches the resource this tab was launched for.
-      // Fix 3 (Sol round-3, Defect B): fold the query the same way the
-      // native authorize() registration now does (resolveLaunchIdentifier),
-      // reusing resolved.identity rather than re-parsing
-      // resourceLocation — a second, independent parse of the same address
-      // could otherwise drift from what was actually registered natively.
+      // Round 6: refuse to relay a request from an iframe whose (app-
+      // controlled, so not fully trusted — see the liveResourcePathRef
+      // comment above) self-reported live location no longer matches the
+      // resource this tab was launched for. This is UX/consistency
+      // defense-in-depth, NOT the security boundary — see this file's
+      // liveResourcePathRef doc comment: the native exact-URL gate
+      // (QdnRenderProxy.isExactAuthorizedRenderDocument) already means a
+      // mismatched document was never given a working bridge token or
+      // injection to relay a request WITH in the first place. Kept, rather
+      // than removed, because it still catches the case where the app itself
+      // drifted (accidentally or otherwise) and honestly reports it — a
+      // cleaner failure than acting on a request the loaded page has no
+      // business making. Folds the query the same way the (now-removed)
+      // native authorize() identifier registration used to (resolveLaunchIdentifier),
+      // reusing resolved.identity rather than re-parsing resourceLocation.
       const launchIdentity = resolved
         ? {
             name: resolved.identity.name,

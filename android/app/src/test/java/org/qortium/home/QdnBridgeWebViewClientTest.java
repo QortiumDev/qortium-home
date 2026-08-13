@@ -201,76 +201,103 @@ public class QdnBridgeWebViewClientTest {
     // it were this tab's own authorized document. Before this fix,
     // shouldCarryBridgeToken did not exist and the token flowed for every
     // route; after, it flows ONLY for RENDER.
+    //
+    // Round 6 (owner-directed redesign, ending the round-2/4/5
+    // identifier-confusion class): for a homeV2 RENDER route, "may this carry
+    // the token" no longer asks about service or identifier at all — it asks
+    // whether the request's normalized URL EXACTLY equals the registered
+    // AuthorizedDocument (see QdnRenderProxy.isExactAuthorizedRenderDocument).
     @Test
-    public void bridgeTokenOnlyCarriesForRenderRoutes() {
+    public void bridgeTokenOnlyCarriesForTheExactAuthorizedRenderDocument() {
+        QdnRenderProxy.AuthorizedDocument chat = QdnRenderProxy.buildAuthorizedDocument(appSegments(), null);
+
         assertTrue(
             "the tab's own authorized top-level APP render document may carry the bridge token",
-            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, appSegments())
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, appSegments(), null, chat)
         );
         assertTrue(
-            "a v1 (non-homeV2) origin has no per-tab identity to protect, so any RENDER "
-                + "service keeps carrying the token exactly as it always has",
-            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, false, websiteSegments())
+            "a v1 (non-homeV2) origin has no per-tab document to protect, so any RENDER "
+                + "service keeps carrying the token exactly as it always has, with no authorized "
+                + "document registered at all",
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, false, websiteSegments(), null, null)
         );
         assertFalse(
-            "Round 5, Defect C: a homeV2 origin's non-APP RENDER service (WEBSITE here) must "
-                + "never carry the bridge token, even though the route itself remains servable "
-                + "as plain data",
-            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, websiteSegments())
+            "a homeV2 origin's non-APP RENDER service (WEBSITE here) must never carry the bridge "
+                + "token, even though the route itself remains servable as plain data (round-5 case "
+                + "stays closed)",
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, websiteSegments(), null, chat)
         );
         assertFalse(
             "same closure for GAME",
-            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, gameSegments())
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, gameSegments(), null, chat)
         );
         assertFalse(
             "same closure for HASH",
-            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, hashSegments())
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER, true, hashSegments(), null, chat)
         );
         assertFalse(
             "a /arbitrary DATA read must never carry the live signing/account-read bridge token, "
                 + "even for the tab's own resource, or its response could be armed as a "
                 + "bridge-connected document",
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.PUBLIC_ARBITRARY, true, appSegments(), null, chat)
+        );
+        assertFalse(
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.TRANSACTION_SIGNATURE, true, appSegments(), null, chat)
+        );
+        assertFalse(
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.HOME_V2_BRIDGE_CLIENT, true, appSegments(), null, chat)
+        );
+        assertFalse(
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.DENIED, true, appSegments(), null, chat)
+        );
+
+        // Round-5 blocker, now closed at this layer too: the SAME origin, a
+        // DIFFERENT identifier — via PATH or QUERY — never carries the token.
+        assertFalse(
+            "a different identifier via PATH than what was authorized must never carry the token",
             QdnBridgeWebViewClient.shouldCarryBridgeToken(
-                QdnRenderProxy.RouteKind.PUBLIC_ARBITRARY,
-                true,
-                appSegments()
+                QdnRenderProxy.RouteKind.RENDER, true, Arrays.asList("render", "APP", "Chat", "evil"), null, chat
             )
         );
         assertFalse(
+            "a different identifier via QUERY than what was authorized must never carry the token",
             QdnBridgeWebViewClient.shouldCarryBridgeToken(
-                QdnRenderProxy.RouteKind.TRANSACTION_SIGNATURE,
-                true,
-                appSegments()
+                QdnRenderProxy.RouteKind.RENDER, true, appSegments(), "identifier=evil", chat
             )
         );
-        assertFalse(
+
+        // Display-param-only differences remain token-eligible.
+        assertTrue(
+            "a display-param-only difference from the authorized URL is still token-eligible",
             QdnBridgeWebViewClient.shouldCarryBridgeToken(
-                QdnRenderProxy.RouteKind.HOME_V2_BRIDGE_CLIENT,
-                true,
-                appSegments()
+                QdnRenderProxy.RouteKind.RENDER, true, appSegments(), "theme=dark&lang=en", chat
             )
         );
+
+        // An unexpected extra query param fails closed.
         assertFalse(
-            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.DENIED, true, appSegments())
+            "an unexpected extra query param not present on the authorized URL fails closed",
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(
+                QdnRenderProxy.RouteKind.RENDER, true, appSegments(), "surprise=1", chat
+            )
         );
     }
 
-    // Round 5, Defect C (Sol round-4 re-review): the FULL composition Sol's
-    // review said the unit tests never exercised — classifyProxyPath (the
-    // pure twin classifyProxyRoute delegates to) -> isSameActiveAppTabResource
-    // (the identity check classifyProxyRoute applies for RENDER/
-    // PUBLIC_ARBITRARY on a homeV2 origin) -> shouldCarryBridgeToken -> the
-    // injection decision fetchUpstream makes from that token. Uri/
-    // HttpURLConnection plumbing itself is not exercised (android.net.Uri is
-    // unusable in this plain-JVM unit test environment — see
-    // QdnRenderProxy.isBridgeEligibleRenderService's doc comment); every
-    // method this composes is the exact production method the Uri-typed
-    // wrappers (classifyProxyRoute, serveProxiedQdnRequest,
-    // shouldOverrideUrlLoading) delegate to.
+    // Round 5, Defect C (Sol round-4 re-review), redesigned round 6: the FULL
+    // composition Sol's review said the unit tests never exercised —
+    // classifyProxyPath (the pure twin classifyProxyRoute delegates to) ->
+    // isAuthorizedAppResource (the containment classifyProxyRoute applies for
+    // RENDER/PUBLIC_ARBITRARY on a homeV2 origin) -> shouldCarryBridgeToken
+    // (now the exact-URL gate) -> the injection decision fetchUpstream makes
+    // from that token. Uri/HttpURLConnection plumbing itself is not exercised
+    // (android.net.Uri is unusable in this plain-JVM unit test environment —
+    // see QdnRenderProxy.isHomeV2Origin's doc comment); every method this
+    // composes is the exact production method the Uri-typed wrappers
+    // (classifyProxyRoute, serveProxiedQdnRequest, shouldOverrideUrlLoading)
+    // delegate to.
     @Test
-    public void appTabNavigationToAnotherServiceNeverBecomesTheBridgedDocument() {
-        QdnRenderProxy.AppIdentity chatIdentity =
-            new QdnRenderProxy.AppIdentity("Chat", null, "/render/APP/Chat");
+    public void appTabNavigationToAnotherDocumentNeverBecomesTheBridgedPrincipal() {
+        QdnRenderProxy.AuthorizedDocument chatAuthorization = QdnRenderProxy.buildAuthorizedDocument(appSegments(), null);
         String bridgeToken = "0123456789abcdef";
         String html = "<html><head><title>x</title></head><body>hi</body></html>";
 
@@ -278,39 +305,35 @@ public class QdnBridgeWebViewClientTest {
         assertComposedDecision(
             "the authorized APP's own render still gets the token and works",
             appSegments(),
-            "/render/APP/Chat",
             null,
-            chatIdentity,
+            chatAuthorization,
             true,
             bridgeToken,
             html,
             true
         );
 
-        // Before round 5 (the vulnerable predicate this fix replaced): ANY
-        // RouteKind.RENDER response carried the token, so this exact WEBSITE/
-        // GAME/HASH navigation from the SAME authorized iframe (its own
-        // location already carries the token in the query — no cooperation
-        // from the app needed to bring it along) was armed with the live
-        // bridge and a stripped CSP under the still-authorized Chat identity.
-        boolean vulnerablePredicate = QdnRenderProxy.RouteKind.RENDER
-            == classify(websiteSegments(), null, true, chatIdentity, "/render/WEBSITE/attacker/index.html");
+        // Documents the closed round-5 vulnerability class: the route alone
+        // (ignoring identifier/service) was RENDER, so a predicate that only
+        // checked RouteKind.RENDER would have returned true for a same-service
+        // navigation to a DIFFERENT resource on this same shared origin.
+        boolean routeAloneIsRender = QdnRenderProxy.RouteKind.RENDER
+            == classify(websiteSegments(), null, true, chatAuthorization);
         assertTrue(
-            "documents the closed vulnerability: the route alone (ignoring service) was RENDER, "
-                + "so the OLD one-argument shouldCarryBridgeToken(route) would have returned true here",
-            vulnerablePredicate
+            "documents the closed vulnerability: the route alone was RENDER, so a route-only "
+                + "predicate would have returned true here",
+            routeAloneIsRender
         );
 
-        // After round 5: an APP-tab navigation to WEBSITE/GAME/HASH on the same
+        // Round 6: an APP-tab navigation to WEBSITE/GAME/HASH on the same
         // shared origin yields NO bridge token and is not served as the app's
-        // bridged document, even though the route itself remains RENDER (servable
-        // as plain, non-bridged data — see isBridgeEligibleRenderService).
+        // bridged document, even though the route itself remains RENDER
+        // (servable as plain data).
         assertComposedDecision(
             "APP-tab navigation to /render/WEBSITE/<other>/... yields NO bridge token",
             websiteSegments(),
-            "/render/WEBSITE/attacker/index.html",
             null,
-            chatIdentity,
+            chatAuthorization,
             true,
             bridgeToken,
             html,
@@ -319,9 +342,8 @@ public class QdnBridgeWebViewClientTest {
         assertComposedDecision(
             "same closure for GAME",
             gameSegments(),
-            "/render/GAME/attacker/index.html",
             null,
-            chatIdentity,
+            chatAuthorization,
             true,
             bridgeToken,
             html,
@@ -330,9 +352,34 @@ public class QdnBridgeWebViewClientTest {
         assertComposedDecision(
             "same closure for HASH",
             hashSegments(),
-            "/render/HASH/attacker/index.html",
             null,
-            chatIdentity,
+            chatAuthorization,
+            true,
+            bridgeToken,
+            html,
+            false
+        );
+
+        // Round 6, the round-5 blocker this round exists to close: the SAME
+        // service (APP) with a DIFFERENT identifier via PATH is refused
+        // outright by classifyProxyRoute's containment (never even served as
+        // data), and so is never bridge-eligible either.
+        assertComposedDecision(
+            "same origin, different identifier via PATH (the round-5 blocker): DENIED, no token",
+            Arrays.asList("render", "APP", "Chat", "evil"),
+            null,
+            chatAuthorization,
+            true,
+            bridgeToken,
+            html,
+            false
+        );
+        // ...and via QUERY.
+        assertComposedDecision(
+            "same origin, different identifier via ?identifier=: DENIED, no token",
+            appSegments(),
+            "identifier=evil",
+            chatAuthorization,
             true,
             bridgeToken,
             html,
@@ -344,19 +391,20 @@ public class QdnBridgeWebViewClientTest {
         // defeat injectQdnBridge's naive "<head" locator (a decoy comment
         // lands any injected script inside an HTML comment, where it never
         // executes and the self-report never fires), the composed decision
-        // never reaches injection at all for this route/service — there is no
-        // bridge principal to obtain regardless of the comment trick.
+        // never reaches injection at all for this route/document — there is
+        // no bridge principal to obtain regardless of the comment trick.
         String commentSuppressedHtml =
             "<!-- fake <head> marker --><html><head><title>x</title></head><body>hi</body></html>";
-        QdnRenderProxy.RouteKind websiteRoute =
-            classify(websiteSegments(), null, true, chatIdentity, "/render/WEBSITE/attacker/index.html");
+        QdnRenderProxy.RouteKind websiteRoute = classify(websiteSegments(), null, true, chatAuthorization);
         boolean websiteCarriesToken = QdnBridgeWebViewClient.shouldCarryBridgeToken(
             websiteRoute,
             true,
-            websiteSegments()
+            websiteSegments(),
+            null,
+            chatAuthorization
         );
         assertFalse("the comment-suppressed attacker page never becomes bridge-eligible", websiteCarriesToken);
-        // Documents WHY the comment trick would have mattered under the old,
+        // Documents WHY the comment trick would have mattered under a
         // vulnerable predicate: injectQdnBridge's own locator lands the bridge
         // tag inside the decoy comment, so even the injected script itself
         // would never have run — the app would have had to hand-roll the raw
@@ -377,16 +425,15 @@ public class QdnBridgeWebViewClientTest {
     private void assertComposedDecision(
         String message,
         List<String> segments,
-        String candidatePathname,
-        String queryIdentifier,
-        QdnRenderProxy.AppIdentity active,
+        String encodedQuery,
+        QdnRenderProxy.AuthorizedDocument authorized,
         boolean homeV2,
         String bridgeToken,
         String html,
         boolean expectBridged
     ) {
-        QdnRenderProxy.RouteKind route = classify(segments, queryIdentifier, homeV2, active, candidatePathname);
-        boolean carriesToken = QdnBridgeWebViewClient.shouldCarryBridgeToken(route, homeV2, segments);
+        QdnRenderProxy.RouteKind route = classify(segments, encodedQuery, homeV2, authorized);
+        boolean carriesToken = QdnBridgeWebViewClient.shouldCarryBridgeToken(route, homeV2, segments, encodedQuery, authorized);
 
         assertEquals(message + " (token carriage)", expectBridged, carriesToken);
 
@@ -403,28 +450,46 @@ public class QdnBridgeWebViewClientTest {
         }
     }
 
-    // Mirrors QdnRenderProxy.classifyProxyRoute's own composition (classifyProxyPath,
-    // then isSameActiveAppTabResource for RENDER/PUBLIC_ARBITRARY on a homeV2 origin)
-    // using the pure static twins directly, since android.net.Uri cannot be
-    // constructed in this plain-JVM unit test environment.
+    // Mirrors QdnRenderProxy.classifyProxyRoute's own composition
+    // (classifyProxyPath, then isAuthorizedAppResource for RENDER/
+    // PUBLIC_ARBITRARY on a homeV2 origin) using the pure static twins
+    // directly, since android.net.Uri cannot be constructed in this plain-JVM
+    // unit test environment. The identifier query, where present, is read out
+    // of the SAME raw encodedQuery classifyProxyPath and
+    // shouldCarryBridgeToken also see — a real request has exactly one query
+    // string, never two independently-derived ones.
     private static QdnRenderProxy.RouteKind classify(
         List<String> segments,
-        String queryIdentifier,
+        String encodedQuery,
         boolean homeV2,
-        QdnRenderProxy.AppIdentity active,
-        String candidatePathname
+        QdnRenderProxy.AuthorizedDocument authorized
     ) {
-        QdnRenderProxy.RouteKind route = QdnRenderProxy.classifyProxyPath(segments, null, homeV2);
+        QdnRenderProxy.RouteKind route = QdnRenderProxy.classifyProxyPath(segments, encodedQuery, homeV2);
 
         if (
             (route == QdnRenderProxy.RouteKind.RENDER || route == QdnRenderProxy.RouteKind.PUBLIC_ARBITRARY)
                 && homeV2
-                && !QdnRenderProxy.isSameActiveAppTabResource(segments, candidatePathname, queryIdentifier, active)
+                && !QdnRenderProxy.isAuthorizedAppResource(segments, queryIdentifierOf(encodedQuery), authorized)
         ) {
             return QdnRenderProxy.RouteKind.DENIED;
         }
 
         return route;
+    }
+
+    /** Test-only stand-in for {@code Uri.getQueryParameter("identifier")}. */
+    private static String queryIdentifierOf(String encodedQuery) {
+        if (encodedQuery == null || encodedQuery.isEmpty()) {
+            return null;
+        }
+
+        for (String pair : encodedQuery.split("&")) {
+            if (pair.startsWith("identifier=")) {
+                return pair.substring("identifier=".length());
+            }
+        }
+
+        return null;
     }
 
     private static List<String> appSegments() {

@@ -26,7 +26,11 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     private static final int REQUEST_TIMEOUT_MS = 30000;
     static final int TRANSACTION_RESPONSE_MAX_BYTES = 512 * 1024;
-    private static final String QDN_BRIDGE_QUERY_PARAM = "qdnHomeBridge";
+    // Round 6: moved to QdnRenderProxy so its exact-URL document-identity
+    // normalization (which must ignore this exact param) and this class's own
+    // use of it as the actual carried credential can never drift apart — see
+    // QdnRenderProxy.QDN_BRIDGE_TOKEN_QUERY_PARAM's doc comment.
+    private static final String QDN_BRIDGE_QUERY_PARAM = QdnRenderProxy.QDN_BRIDGE_TOKEN_QUERY_PARAM;
     private static final Pattern CONTENT_RANGE_PATTERN =
         Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)$", Pattern.CASE_INSENSITIVE);
 
@@ -96,14 +100,17 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             // QdnRenderProxy.classifyProxyRoute has already scoped that request to
             // this tab's own resource.
             //
-            // Round 5, Defect C (Sol round-4 re-review): a RENDER route alone is no
-            // longer enough — see shouldCarryBridgeToken's doc comment for why the
-            // request's service must ALSO be checked.
+            // Round 6 (Sol round-5 re-review, ending the identifier-confusion class):
+            // shouldCarryBridgeToken no longer compares identifiers at all for a homeV2
+            // origin — see its doc comment for why the EXACT registered document URL is
+            // now the whole gate.
             Uri requestUrl = request.getUrl();
             String bridgeToken = shouldCarryBridgeToken(
                 route,
                 QdnRenderProxy.isHomeV2Origin(requestUrl),
-                requestUrl.getPathSegments()
+                requestUrl.getPathSegments(),
+                requestUrl.getEncodedQuery(),
+                QdnRenderProxy.getAuthorizedDocument(requestUrl)
             )
                 ? requestUrl.getQueryParameter(QDN_BRIDGE_QUERY_PARAM)
                 : null;
@@ -143,23 +150,39 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * RouteKind.RENDER} alone was still not enough — it covers WEBSITE,
      * GAME, HASH, and the streamable media services exactly as it covers
      * APP (see {@code QdnRenderProxy.ALLOWED_RENDER_SERVICES} /
-     * classifyProxyPath), and {@code QdnRenderProxy.isSameActiveAppTabResource}
-     * deliberately does not gate those non-APP services by tab identity
-     * (see its doc comment — they are legitimate non-bridged sub-resource
-     * reads). So a Home v2 app tab's iframe could self-navigate to
+     * classifyProxyPath), and none of those legitimately carry a per-tab
+     * identity to check (they are non-bridged sub-resource reads/embeds).
+     * So a Home v2 app tab's iframe could self-navigate to
      * `/render/WEBSITE/<attacker>/...` (or GAME, or HASH) on this same
      * shared proxy origin — its own current location already carries the
      * token in the query, visible to page JS via {@code location.href}, so
-     * no cooperation from the app was needed to bring it along — and this
-     * method would still return {@code true} for that RouteKind.RENDER
-     * route, arming the attacker's response with the live signing/
-     * account-read bridge AND stripping its Content-Security-Policy (both
-     * live in {@code fetchUpstream}'s same {@code bridgeToken != null}
-     * branch), under the still-authorized APP identity. See
-     * {@code QdnRenderProxy.isBridgeEligibleRenderService}'s doc comment for
-     * why restricting this to the APP service cannot break a legitimate
-     * embed or data read, and why a v1 (non-homeV2) origin is deliberately
-     * excluded from this restriction.
+     * no cooperation from the app was needed to bring it along — and (before
+     * round 5) this method would still return {@code true} for that
+     * RouteKind.RENDER route, arming the attacker's response with the live
+     * signing/account-read bridge AND stripping its Content-Security-Policy
+     * (both live in {@code fetchUpstream}'s same {@code bridgeToken != null}
+     * branch), under the still-authorized APP identity.
+     *
+     * <p>Round 6 (owner-directed redesign, ending the round-2/4/5
+     * identifier-confusion class): for a homeV2 origin, this no longer asks
+     * "is the service APP" (round 5) or "does the name/identifier match"
+     * (round 4/2) at all — both were approximations of "is this the tab's
+     * own document" that a client-side identifier resolution can never make
+     * perfectly (Core's {@code isRealIdentifier} is server-only). Instead it
+     * asks the only question that actually matters: does this request's
+     * normalized URL EQUAL the EXACT document the shell authorized (see
+     * {@code QdnRenderProxy.isExactAuthorizedRenderDocument} and {@code
+     * QdnRenderProxy.AuthorizedDocument}'s doc comments)? A WEBSITE/GAME/HASH
+     * render, a different app, a different identifier via path OR query, or
+     * even the SAME app/identifier's own deeper in-app sub-route reached by a
+     * hard navigation, all fail this exact comparison and get neither the
+     * token nor injection nor a stripped CSP — regardless of how "close" they
+     * look. A v1 (non-{@code homeV2}) origin has no shared, per-tab document
+     * to protect this way at all (see {@code QdnRenderProxy.authorize}'s
+     * {@code authorizedDocumentUrl} parameter doc comment: each v1 proxy
+     * origin is dedicated to the ONE resource the user explicitly opened), so
+     * it keeps carrying the token for any RENDER service exactly as it always
+     * has — unchanged by this fix.
      *
      * <p>Do not rely on the app's self-reported navigation (AppTabStage.tsx's
      * {@code liveResourcePathRef}/{@code isSameRenderResourcePath} check)
@@ -173,11 +196,23 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * protocol itself — it needs no help from the injected script, only the
      * token (already visible to it) and this method having wrongly said the
      * response might be bridged. This method, and the CSP it therefore keeps
-     * intact for a route it refuses, is the actual enforcement.
+     * intact for a route it refuses, is the actual enforcement — see
+     * AppTabStage.tsx's liveResourcePathRef doc comment for why, given this
+     * gate, that self-report is now UX/consistency defense-in-depth rather
+     * than a security boundary of its own.
      */
-    static boolean shouldCarryBridgeToken(QdnRenderProxy.RouteKind route, boolean homeV2, List<String> segments) {
-        return route == QdnRenderProxy.RouteKind.RENDER
-            && QdnRenderProxy.isBridgeEligibleRenderService(homeV2, segments);
+    static boolean shouldCarryBridgeToken(
+        QdnRenderProxy.RouteKind route,
+        boolean homeV2,
+        List<String> segments,
+        String encodedQuery,
+        QdnRenderProxy.AuthorizedDocument authorizedDocument
+    ) {
+        if (route != QdnRenderProxy.RouteKind.RENDER) {
+            return false;
+        }
+
+        return !homeV2 || QdnRenderProxy.isExactAuthorizedRenderDocument(segments, encodedQuery, authorizedDocument);
     }
 
     static boolean isAllowedProxyMethod(String method) {
@@ -226,11 +261,11 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         if (QdnRenderProxy.isProxyUrl(url)) {
             // Fix 2 (Sol re-review #2): cancel a subframe navigation this
-            // proxy would refuse to serve anyway — classifyProxyRoute now
-            // also checks a Home v2 app tab's registered launch identity for
-            // APP-service RENDER paths (see
-            // QdnRenderProxy.isSameActiveAppTabResource) — so the tab's
-            // iframe never even starts loading a different app's content.
+            // proxy would refuse to serve anyway — classifyProxyRoute checks
+            // a Home v2 app tab's registered authorized app resource for
+            // APP-service RENDER/PUBLIC_ARBITRARY paths (see
+            // QdnRenderProxy.isAuthorizedAppResource) — so the tab's iframe
+            // never even starts loading a different app's content.
             // shouldInterceptRequest below independently enforces the same
             // check for every request this navigation check does not catch
             // (fetch/XHR/redirects/etc.), so this is a UX improvement (stay
@@ -242,24 +277,29 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
                 return true;
             }
 
-            // Round 5, Defect C (Sol round-4 re-review): also cancel a frame
+            // Round 5/6, Defect C (Sol round-4/5 re-review): also cancel a frame
             // navigation this origin would serve as DATA but never as this
             // tab's bridged principal — see shouldCarryBridgeToken's doc
             // comment for the full exploit (a homeV2 app tab's iframe
-            // self-navigating to a different RENDER service on this same
-            // shared origin) and QdnRenderProxy.isBridgeEligibleRenderService
-            // for why this cannot break a legitimate embed or data read.
-            // shouldInterceptRequest's own use of shouldCarryBridgeToken
+            // self-navigating to a different RENDER document on this same
+            // shared origin) and for why round 6's exact-URL match cannot
+            // break a legitimate embed, data read, or the tab's own initial
+            // load. shouldInterceptRequest's own use of shouldCarryBridgeToken
             // already refuses the bridge/CSP-removal for this response even
             // without this check (that is the real enforcement — see this
             // class's shouldCarryBridgeToken doc comment for why the app's
             // own self-report can never be relied on instead); this is the
             // same "don't even start the doomed load" UX improvement as the
-            // DENIED case above, layered on top of it.
+            // DENIED case above, layered on top of it. Reuses
+            // shouldCarryBridgeToken directly rather than duplicating its
+            // decision inline, so the two call sites can never drift apart.
             return route == QdnRenderProxy.RouteKind.RENDER
-                && !QdnRenderProxy.isBridgeEligibleRenderService(
+                && !shouldCarryBridgeToken(
+                    route,
                     QdnRenderProxy.isHomeV2Origin(url),
-                    url.getPathSegments()
+                    url.getPathSegments(),
+                    url.getEncodedQuery(),
+                    QdnRenderProxy.getAuthorizedDocument(url)
                 );
         }
 

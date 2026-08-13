@@ -17,21 +17,20 @@ public class QdnRenderProxyPlugin extends Plugin {
     @PluginMethod
     public void authorize(PluginCall call) {
         boolean homeV2 = Boolean.TRUE.equals(call.getBoolean("homeV2"));
-        // Fix 2 (Sol re-review #2): a Home v2 app tab's launch identity,
-        // registered here, is what QdnRenderProxy/QdnBridgeWebViewClient use
-        // to refuse serving a different app's render content into this
-        // origin's WebView — see QdnRenderProxy.isSameActiveAppTabResource.
-        // Both are absent (null) for non-app-tab callers (v1's own use of
-        // this plugin), which enforces no per-tab identity, unchanged.
-        String appName = call.getString("appName");
-        String appIdentifier = call.getString("appIdentifier");
-        String initialPathname = call.getString("initialPathname");
+        // Round 6 (owner-directed redesign): a Home v2 app tab's registered
+        // authorized document, registered here from the SHELL's own trusted
+        // render URL (AppTabStage.tsx's resolved.url, never anything the app
+        // itself reports), is what QdnRenderProxy/QdnBridgeWebViewClient use
+        // to gate both the live bridge token (exact-URL match — see
+        // QdnRenderProxy.isExactAuthorizedRenderDocument) and data-read
+        // containment (see QdnRenderProxy.isAuthorizedAppResource). Absent
+        // (null) for non-app-tab callers (v1's own use of this plugin), which
+        // enforces neither, unchanged.
+        String authorizedDocumentUrl = call.getString("authorizedDocumentUrl");
         String proxyOrigin = QdnRenderProxy.authorize(
             call.getString("origin"),
             homeV2,
-            appName,
-            appIdentifier,
-            initialPathname
+            authorizedDocumentUrl
         );
 
         if (proxyOrigin == null) {

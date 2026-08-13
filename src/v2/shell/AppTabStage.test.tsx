@@ -122,6 +122,19 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
   const frameAWindow = (iframeAfterA as HTMLIFrameElement | null)?.contentWindow ?? null
   assert.equal(frameAWindow !== null, true, "tab A's iframe must have a contentWindow to retain a reference to")
 
+  // Round 6: extract tab A's ACTUAL qdnHomeBridge token from its own iframe
+  // src, rather than fabricating an arbitrary string for the forged message
+  // below. A fabricated token would be rejected by the OUTER `data.bridgeToken
+  // !== token` guard in AndroidAppStage's message handler regardless of
+  // whether A's listener was actually cleaned up — proving nothing about the
+  // cleanup this test exists to pin. Using A's real token means the ONLY
+  // thing that can still reject the forged message is the listener/source
+  // check this test is actually about.
+  const frameASrc = String(iframeAfterA?.getAttribute('src'))
+  const frameAToken = new URL(frameASrc).searchParams.get('qdnHomeBridge')
+  assert.equal(typeof frameAToken, 'string', "tab A's iframe src must carry its own qdnHomeBridge token")
+  assert.ok(frameAToken && frameAToken.length >= 16, "tab A's extracted token must be a real bridge token")
+
   // Switch to tab B (Trust) — this is the exact moment the round-3 finding
   // describes: `resolved` flips to B synchronously (it's derived via
   // useMemo), while B's own native-proxy authorization is only just
@@ -182,11 +195,14 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
   // last captured).
   assert.equal(requestAppCalls.length, 0)
 
-  // Round 5, Minor 2 (Sol round-4 re-review): the assertion above only
-  // proves nothing HAPPENED to be sent during the switch — it does not
-  // prove tab A's own message listener is actually gone. Post a REAL
-  // message now, claiming to come from tab A's retained (and, post-switch,
-  // stale) frame reference, and confirm it is rejected — either because
+  // Round 5, Minor 2 (Sol round-4 re-review), fixed round 6: the assertion
+  // above only proves nothing HAPPENED to be sent during the switch — it
+  // does not prove tab A's own message listener is actually gone. Post a
+  // REAL message now, claiming to come from tab A's retained (and,
+  // post-switch, stale) frame reference AND carrying A's own real token
+  // (extracted above, not fabricated — a fabricated token would be rejected
+  // by the outer bridgeToken check regardless of whether the listener is
+  // gone, proving nothing), and confirm it is rejected — either because
   // React's unmount genuinely removed A's `window.addEventListener('message',
   // ...)` listener (see AppTabStage.tsx's AndroidAppStage effect cleanup),
   // or because B's current listener correctly rejects a source that is not
@@ -200,7 +216,7 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
       new MessageEvent('message', {
         data: {
           type: 'qortium:qdn-request',
-          bridgeToken: 'stale-frame-a-forged-token',
+          bridgeToken: frameAToken,
           requestId: 'stale-frame-a-request',
           protocol: 'qdnRequest',
           request: { action: 'GET_ACCOUNT_DATA' },

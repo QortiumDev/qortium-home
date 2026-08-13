@@ -1,10 +1,14 @@
 package org.qortium.home;
 
 import android.net.Uri;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -40,6 +44,44 @@ final class QdnRenderProxy {
     /** Reserved for in-app content; it never resolves through DNS. */
     static final String PROXY_HOST_SUFFIX = ".qdn.androidplatform.net";
     static final String PROXY_MIME_QUERY_PARAM = "qdnHomeMime";
+
+    /**
+     * Round 6: shared with {@link QdnBridgeWebViewClient}, which reads the live
+     * signing/account-read bridge token off this query param on every proxied
+     * request. Defined here (not duplicated) because it is now also one of the
+     * two query params {@link #normalizeQuery} ignores when comparing a
+     * candidate request's document identity against the registered {@link
+     * AuthorizedDocument} — a single source of truth removes any chance of the
+     * ignore-list and the actual token param name drifting apart.
+     */
+    static final String QDN_BRIDGE_TOKEN_QUERY_PARAM = "qdnHomeBridge";
+
+    /**
+     * Round 6: the ONLY query params the exact-URL document identity check
+     * (see {@link #normalizeQuery}, {@link #isExactAuthorizedRenderDocument})
+     * ignores — everything else participates in the comparison and, if
+     * different from what was registered, causes a mismatch (fail closed; see
+     * that method's doc comment). These are display-only params AppTabStage.tsx's
+     * resolveRender always sets on every request regardless of which app is
+     * open (see that function), so they can never distinguish one app resource
+     * from another, plus the live bridge token itself (random per tab, and
+     * explicitly excluded from the identity comparison by design — see the
+     * round-6 spec's normalization rule). {@code homeV2Bridge} — the OTHER
+     * marker AndroidAppStage.tsx adds — is deliberately NOT in this list: it is
+     * a constant ("1") added identically to both the registered authorized URL
+     * and every actual request for a homeV2 app tab (see AppTabStage.tsx), so
+     * it already compares equal without needing a special case, and leaving it
+     * as an ordinary compared param avoids growing this ignore-list beyond
+     * what the spec explicitly calls for.
+     */
+    private static final Set<String> IGNORED_DOCUMENT_QUERY_PARAMS = new HashSet<>(Arrays.asList(
+        "theme",
+        "lang",
+        "textSize",
+        "accent",
+        "uiStyle",
+        QDN_BRIDGE_TOKEN_QUERY_PARAM
+    ));
 
     private static final Map<String, AuthorizedOrigin> AUTHORIZED_ORIGINS = new ConcurrentHashMap<>();
     private static final String BASE58_SIGNATURE_PATTERN = "^[1-9A-HJ-NP-Za-km-z]{64,88}$";
@@ -79,78 +121,86 @@ final class QdnRenderProxy {
     }
 
     /**
-     * A Home v2 app tab's launch resource (Fix 2, Sol re-review #2): the
-     * identity {@link #isSameActiveAppTabResource} requires an APP-service
-     * RENDER request to resolve to, for the origin it is registered against.
-     * {@code identifier} is {@code null} for a default/omitted identifier.
+     * Round 6 (owner-directed redesign, ending the round-2/4/5 "identifier
+     * confusion" bug class): the identity resolved from a Home v2 app tab's
+     * registered launch resource — the SHELL-computed, trusted render document
+     * URL (AppTabStage.tsx's {@code resolved.url}, before the per-tab bridge
+     * token is appended) passed into {@link #authorize(String, boolean,
+     * String)} — never anything the app itself reports.
      *
-     * <p>{@code initialPathname} is the exact path of this tab's OWN first
-     * render request — computed by trusted React code
-     * (AppTabStage.tsx resolveRender) from the tab's resourceLocation, not
-     * from anything the app itself controls — and is always allowed
-     * regardless of the identifier check below. This matters because a
-     * legitimate OPEN_NEW_TAB deep link into a DEFAULT-identity app's
-     * specific sub-page (e.g. a `qdn://APP/Trust/default/settings` address)
-     * produces a first render request like {@code /render/APP/Trust/settings}
-     * — a non-default first path segment that is otherwise indistinguishable
-     * from the identifier-spoofing bypass this fix closes. Desktop has the
-     * equivalent asymmetry: qdn-views.ts only runs the strict identity
-     * predicate (isAllowedInViewNavigation) on IN-VIEW navigation, never on
-     * the initial trusted qdn-views:show load. Re-registered on every
-     * authorize() call, so it always reflects the CURRENT tab state, never a
-     * stale exception an app could navigate back to later.
+     * <p>Two independent things are derived from that ONE registered URL, by
+     * ONE parser ({@link #buildAuthorizedDocument}), instead of the caller
+     * separately computing and passing each one (round 4's Defect B was
+     * exactly this kind of drift: a caller-computed identifier disagreeing
+     * with what the URL itself would resolve to):
+     *
+     * <ul>
+     *   <li>{@code pathname}/{@code query} — the normalized (see {@link
+     *       #normalizePathnameFromSegments}, {@link #normalizeQuery}) exact
+     *       document identity {@link #isExactAuthorizedRenderDocument} checks
+     *       a RENDER document request against. This is the round-6 security
+     *       gate: the live signing/account-read bridge token is carried, and
+     *       the response is injected/CSP-stripped, ONLY for a request whose
+     *       normalized URL equals this exactly.</li>
+     *   <li>{@code name}/{@code identifier} — the coarser app-resource
+     *       identity {@link #isAuthorizedAppResource} still checks for
+     *       PUBLIC_ARBITRARY (data) reads, preserving round 4's containment
+     *       (an authorized tab cannot enumerate another app's, or another
+     *       identifier's, files via {@code /arbitrary}) — unaffected by round
+     *       6, since /arbitrary requests have a different query shape
+     *       ({@code filepath=...}, not this proxy's reserved display params)
+     *       that exact-URL equality was never meant to apply to.</li>
+     * </ul>
+     *
+     * <p>{@code name}/{@code identifier} are {@code null} when the registered
+     * URL is not a {@code /render/APP/<name>...} path at all (authorize() was
+     * called with no per-tab document, e.g. v1's own non-Home-v2 QDN viewing)
+     * — both checks above fail closed in that case.
      */
-    static final class AppIdentity {
+    static final class AuthorizedDocument {
+        final String pathname;
+        final String query;
         final String name;
         final String identifier;
-        final String initialPathname;
 
-        AppIdentity(String name, String identifier, String initialPathname) {
+        AuthorizedDocument(String pathname, String query, String name, String identifier) {
+            this.pathname = pathname;
+            this.query = query;
             this.name = name;
             this.identifier = identifier;
-            this.initialPathname = initialPathname;
         }
     }
 
     private static final class AuthorizedOrigin {
         final String origin;
         final boolean homeV2;
-        final AppIdentity activeAppIdentity;
+        final AuthorizedDocument authorizedDocument;
 
-        AuthorizedOrigin(String origin, boolean homeV2, AppIdentity activeAppIdentity) {
+        AuthorizedOrigin(String origin, boolean homeV2, AuthorizedDocument authorizedDocument) {
             this.origin = origin;
             this.homeV2 = homeV2;
-            this.activeAppIdentity = activeAppIdentity;
+            this.authorizedDocument = authorizedDocument;
         }
     }
 
     static String authorize(String origin) {
-        return authorize(origin, false, null, null, null);
+        return authorize(origin, false, null);
     }
 
     static String authorize(String origin, boolean homeV2) {
-        return authorize(origin, homeV2, null, null, null);
+        return authorize(origin, homeV2, null);
     }
 
     /**
-     * @param appName the launch resource's app name, or null/blank when this
-     *     authorization carries no per-tab identity to enforce (v1's own
-     *     non-Home-v2 QDN viewing, or a homeV2 origin authorized outside an
-     *     app tab's launch — {@link #isSameActiveAppTabResource} then fails
-     *     closed for APP-service RENDER routes on a homeV2 origin).
-     * @param appIdentifier the launch resource's identifier, or null/blank
-     *     for a default/omitted one.
-     * @param initialPathname the exact path of this tab's own first render
-     *     request (see {@link AppIdentity#initialPathname}), or null/blank
-     *     to register no such exception.
+     * @param authorizedDocumentUrl the tab's SHELL-computed, trusted render
+     *     document URL (AppTabStage.tsx's {@code resolved.url}) — the sole
+     *     document this origin will ever carry the live bridge token / inject
+     *     / CSP-strip for (see {@link AuthorizedDocument}) — or null/blank
+     *     when this authorization carries no per-tab document to enforce (v1's
+     *     own non-Home-v2 QDN viewing, or a homeV2 origin authorized outside an
+     *     app tab's launch — every check below then fails closed).
      */
-    static String authorize(
-        String origin,
-        boolean homeV2,
-        String appName,
-        String appIdentifier,
-        String initialPathname
-    ) {
+    static String authorize(String origin, boolean homeV2, String authorizedDocumentUrl) {
         String normalizedOrigin = normalizeOrigin(origin);
 
         if (normalizedOrigin == null) {
@@ -158,15 +208,9 @@ final class QdnRenderProxy {
         }
 
         String label = getLabel(normalizedOrigin);
-        AppIdentity activeAppIdentity = (appName == null || appName.isEmpty())
-            ? null
-            : new AppIdentity(
-                appName,
-                (appIdentifier == null || appIdentifier.isEmpty()) ? null : appIdentifier,
-                (initialPathname == null || initialPathname.isEmpty()) ? null : initialPathname
-            );
+        AuthorizedDocument authorizedDocument = parseAuthorizedDocument(authorizedDocumentUrl);
 
-        AUTHORIZED_ORIGINS.put(label, new AuthorizedOrigin(normalizedOrigin, homeV2, activeAppIdentity));
+        AUTHORIZED_ORIGINS.put(label, new AuthorizedOrigin(normalizedOrigin, homeV2, authorizedDocument));
 
         return "https://" + label + PROXY_HOST_SUFFIX;
     }
@@ -240,35 +284,25 @@ final class QdnRenderProxy {
             return RouteKind.DENIED;
         }
 
-        RouteKind route = classifyProxyPath(url.getPathSegments(), url.getEncodedQuery(), authorization.homeV2);
+        List<String> segments = url.getPathSegments();
+        RouteKind route = classifyProxyPath(segments, url.getEncodedQuery(), authorization.homeV2);
 
-        // Fix 2 (Sol re-review #2): a Home v2 app tab's launch identity, once
-        // registered (see authorize() and AppTabStage.tsx), is the ONLY
-        // resource this proxy will serve APP-service render content for on
-        // this origin — see isSameActiveAppTabResource's doc comment for why
-        // this is a real, trusted-layer fix and not the app-controlled
-        // self-report backstop it supersedes.
-        //
-        // Round 4, Defect C (Sol round-3 re-review): PUBLIC_ARBITRARY is
-        // checked here too, not just RENDER — /arbitrary/APP/<name>/... can
+        // Round 4/6: a Home v2 app tab's registered authorized document (see
+        // authorize() and AppTabStage.tsx) is the ONLY resource this proxy will
+        // serve APP-service RENDER or PUBLIC_ARBITRARY content for on this
+        // origin — see isAuthorizedAppResource's doc comment. PUBLIC_ARBITRARY
+        // is checked here too, not just RENDER — /arbitrary/APP/<name>/... can
         // return a full HTML document exactly like /render/... can (see
         // QdnBridgeWebViewClient.fetchUpstream's HTML-content-type bridge
         // injection), so without this an authorized tab could load ANOTHER
-        // app's resource through /arbitrary and have it treated as data,
-        // even though isSameActiveAppTabResource's own segment indexing
-        // (segments[1]=service, segments[2]=name, segments[3]=identifier) is
-        // identical for both route prefixes. QdnBridgeWebViewClient
-        // additionally never attaches the live bridge token to a
-        // PUBLIC_ARBITRARY response at all (see its shouldCarryBridgeToken),
-        // so this is defense in depth, not the only barrier.
+        // app's resource through /arbitrary and have it treated as data.
         if (
             (route == RouteKind.RENDER || route == RouteKind.PUBLIC_ARBITRARY)
                 && authorization.homeV2
-                && !isSameActiveAppTabResource(
-                    url.getPathSegments(),
-                    url.getPath(),
+                && !isAuthorizedAppResource(
+                    segments,
                     url.getQueryParameter("identifier"),
-                    authorization.activeAppIdentity
+                    authorization.authorizedDocument
                 )
         ) {
             return RouteKind.DENIED;
@@ -278,190 +312,292 @@ final class QdnRenderProxy {
     }
 
     /**
-     * Fix 2 (Sol re-review #2): whether an APP-service RENDER request
-     * resolves to the SAME resource as the origin's registered active app
-     * tab identity.
+     * Round 4 (Sol re-review #2), unchanged in shape by round 6: whether an
+     * APP-service RENDER or PUBLIC_ARBITRARY request resolves to the SAME app
+     * resource (name + identifier) as the origin's registered {@link
+     * AuthorizedDocument} — the containment that keeps an authorized tab from
+     * loading, or reading via {@code /arbitrary}, another app's (or another
+     * identifier's) files.
      *
-     * <p>Android's Home v2 app tabs share one https proxy origin per node by
-     * design (see this class's header comment), so origin alone cannot bound
-     * a request to "this tab's app" the way a distinct origin would. The
-     * previous defense (AppTabStage.tsx's AndroidAppStage tracking the
-     * iframe's self-reported {@code qortium:qdn-navigation} location) is
-     * app-controlled: a malicious app can simply not report an honest
-     * location, or report a stale/forged one, and {@code
-     * window.postMessage} is a native browser API available to ANY loaded
-     * content regardless of whether Home's bridge script was injected into
-     * it — so that check alone cannot be trusted to gate account-read/
-     * signing requests.
+     * <p>Round 6: this is no longer the security gate for whether a RENDER
+     * document may carry the live signing/account-read bridge token — see
+     * {@link #isExactAuthorizedRenderDocument} for that, which classifyProxyRoute
+     * ALSO applies (independently — see that method) before a RENDER document
+     * response is even served. This method now only decides the coarser
+     * question "may this be served as DATA on this origin at all", which is
+     * why it stays a name/identifier match rather than the full exact-URL
+     * match: {@code /arbitrary} requests carry a completely different query
+     * shape ({@code filepath=...}, not this proxy's reserved display params)
+     * that exact-URL equality was never meant to apply to, and a RENDER
+     * request for a deeper in-app sub-path of the SAME authorized app/
+     * identifier (e.g. a hard, non-SPA navigation the app itself makes) is
+     * still legitimately servable as plain, non-bridged content — it simply
+     * will not equal the exact authorized document and so will never be
+     * bridge-eligible (see isExactAuthorizedRenderDocument).
      *
-     * <p>This check instead sits where the render BYTES are actually served
-     * (both {@code shouldInterceptRequest} for network requests — the source
-     * of truth for what content can ever reach the WebView, including
-     * navigations, XHR/fetch, and any other resource load — and {@code
-     * shouldOverrideUrlLoading}, which cancels a doomed navigation before it
-     * is even attempted). It works safely without per-frame/tab identity
-     * (which the WebView APIs do not expose — see AppTabStage.tsx's
-     * liveResourcePathRef comment) because Android renders at most ONE Home
-     * v2 app tab's iframe at a time: switching tabs always destroys and
-     * recreates the iframe (see AppTabStage.tsx), and {@code authorize()} is
-     * always called with the newly active tab's identity BEFORE that new
-     * iframe is created, so "the registered identity for this origin" is
-     * always the currently displayed tab's — there is no window where two
-     * live app tabs' identities could be confused.
-     *
-     * <p>{@code candidatePathname} is separately checked against {@link
-     * AppIdentity#initialPathname} first — see that field's doc comment —
-     * before falling through to the identifier check below. Round 4 (Sol
-     * round-3 re-review, Defect B): that pathname exemption now applies ONLY
-     * when the candidate carries no EXPLICIT {@code ?identifier=} query.
-     * A path segment's identifier-vs-route meaning is genuinely ambiguous to
-     * this proxy (see {@link #resolveCandidateIdentifier}'s doc comment),
-     * which is what the exemption exists to paper over for the tab's own
-     * trusted first request. An explicit query parameter has no such
-     * ambiguity — Core (and this proxy) always treat it as the identifier —
-     * so it must always be checked, even against the exempted pathname:
-     * without this, a launch address that smuggles a different identifier
-     * past its own declared path (e.g. a `.../default?identifier=evil`
-     * OPEN_NEW_TAB address, whose render URL keeps that query — see
-     * AppTabStage.tsx's resolveRender) would register {@code
-     * initialPathname="/render/APP/Chat"} and then have its OWN first
-     * request — carrying {@code ?identifier=evil} — wave itself through via
-     * the pathname match, never reaching the identifier comparison at all.
-     * (AppTabStage.tsx's authorize() call now also resolves the registered
-     * {@code appIdentifier} itself from that same query, via
-     * render-path-identity.ts's resolveLaunchIdentifier, so a correctly
-     * wired caller registers "evil" as the launch identifier up front and
-     * this check is consistent either way — but it must not rely on that
-     * alone.)
+     * <p>Round 6 ALSO deletes the old {@code initialPathname} exemption this
+     * method used to carry: it existed only to paper over the ambiguity
+     * between "a legitimate deep-linked sub-page" and "a spoofed identifier"
+     * for the tab's own FIRST request, under the old identifier-only
+     * comparison. The exact-URL match has no such ambiguity — the tab's own
+     * first request's URL is, by construction, exactly the URL that was
+     * registered (both are built from AppTabStage.tsx's {@code resolved.url})
+     * — so the exemption is simply unnecessary now, not replaced by anything.
      */
-    static boolean isSameActiveAppTabResource(
+    static boolean isAuthorizedAppResource(
         List<String> segments,
-        String candidatePathname,
         String queryIdentifier,
-        AppIdentity active
+        AuthorizedDocument authorized
     ) {
         // segments = [render|arbitrary, service, name, identifierOrPathSegment, ...].
-        //
-        // Round 5, Defect C (Sol round-4 re-review): this method's job is
-        // narrower than its old comment here claimed — it decides whether a
-        // request may be SERVED AS DATA on this origin, not whether it may
-        // become a bridged principal. WEBSITE/GAME/HASH render paths (and
-        // the streamable media services — IMAGE/AUDIO/VIDEO/etc, which also
-        // classify as RouteKind.RENDER) legitimately reference resources
-        // that are NOT this tab's own app (an avatar, a linked preview, a
-        // media file another publisher hosts), so they have no per-tab
-        // launch identity to check here and are left exactly as
-        // classifyProxyPath already scoped them. This does NOT mean they
-        // may carry the live signing/account-read bridge token — see
-        // isBridgeEligibleRenderService, which QdnBridgeWebViewClient's
-        // shouldCarryBridgeToken uses to restrict token carriage (and, via
-        // shouldOverrideUrlLoading, frame navigation) to this tab's own
-        // APP-service document, regardless of what this route check allows
-        // to be fetched as plain bytes. Before round 5, no such restriction
-        // existed: shouldCarryBridgeToken forwarded the token for ANY
-        // RouteKind.RENDER response, so a tab could navigate itself to
-        // `/render/WEBSITE/<attacker>/...` on this same origin, keep the
-        // token (visible to the page via its own location.href/search — the
-        // proxy origin is per-NODE, not per-resource, so this bypass a
-        // same-origin navigation ever needed), and receive bridge injection
-        // with CSP stripped under the still-authorized APP identity.
         if (segments == null || segments.size() < 3 || !"APP".equalsIgnoreCase(segments.get(1))) {
             return true;
         }
 
         // Fail closed: a homeV2 origin serving APP render/arbitrary content
-        // with no registered tab identity (authorize() was never called with
-        // one, or the tab has not fully launched yet) has nothing to check
-        // against.
-        if (active == null) {
+        // with no registered authorized document (authorize() was never
+        // called with one, or the tab has not fully launched yet) has nothing
+        // to check against.
+        if (authorized == null || authorized.name == null) {
             return false;
         }
 
-        boolean hasExplicitQueryIdentifier = queryIdentifier != null && !queryIdentifier.trim().isEmpty();
-
-        // The tab's own trusted initial request is allowed even though its
-        // first path segment may be indistinguishable from a spoofed
-        // identifier — see AppIdentity#initialPathname's doc comment — but
-        // ONLY for that ambiguous, no-query case. See this method's doc
-        // comment for why an explicit query identifier is never covered by
-        // this exemption.
-        if (
-            !hasExplicitQueryIdentifier
-                && active.initialPathname != null
-                && active.initialPathname.equals(candidatePathname)
-        ) {
-            return true;
-        }
-
-        if (!active.name.equals(segments.get(2))) {
+        if (!authorized.name.equals(segments.get(2))) {
             return false;
         }
 
         String candidateIdentifier = resolveCandidateIdentifier(segments, queryIdentifier);
 
-        return active.identifier == null
+        return authorized.identifier == null
             ? candidateIdentifier == null
-            : active.identifier.equals(candidateIdentifier);
+            : authorized.identifier.equals(candidateIdentifier);
     }
 
     /**
-     * Round 5, Defect C (Sol round-4 re-review): whether a {@code
-     * RouteKind.RENDER} request may ever carry, or receive, the live
-     * signing/account-read bridge token — the actual enforcement boundary
+     * Round 6: the actual security gate for the live signing/account-read
+     * bridge token, script injection, and Content-Security-Policy removal —
      * {@link org.qortium.home.QdnBridgeWebViewClient#shouldCarryBridgeToken}
-     * applies (which also gates {@code fetchUpstream}'s bridge-script
-     * injection and Content-Security-Policy removal, since both live inside
-     * the same {@code bridgeToken != null} branch — see that method), and
-     * that {@code QdnBridgeWebViewClient#shouldOverrideUrlLoading} uses to
-     * refuse the doomed navigation outright so it never even loads.
+     * uses this directly (and {@code shouldOverrideUrlLoading} uses it to
+     * refuse the doomed navigation outright so it never even loads).
      *
-     * <p>A {@code homeV2} origin serves every one of a node's Home v2 app
-     * tabs from one shared origin (see this class's header comment), so
-     * "APP" is the only service this proxy issues a per-tab identity for —
-     * see {@link #isSameActiveAppTabResource}. That method deliberately
-     * stays permissive for WEBSITE/GAME/HASH and the streamable media
-     * services (see its doc comment): those remain fetchable as plain,
-     * non-bridged bytes — an app's own image/media references, or a linked
-     * preview, are not necessarily the app's own resource, and Core's
-     * QDN_RESOURCE_VIEWER_ACTIONS contract (see
-     * electron/qdn-resource-viewer-contract.ts) confirms APP/WEBSITE/GAME
-     * are never legitimately embedded as another resource's own document —
-     * they require {@code OPEN_NEW_TAB}/{@code OPEN_CURRENT_TAB} instead.
-     * So restricting bridge eligibility to APP here cannot break a
-     * legitimate sub-resource read (images, FETCH_QDN_RESOURCE, which use
-     * {@code filepath} as a query param rather than navigating a frame) or
-     * a legitimate embed, only the exploit: a tab's iframe self-navigating
-     * (its own location carries the token, visible to page JS, so it needs
-     * no help smuggling it along) to a different service's render document
-     * on this same shared origin and being treated as this tab's bridged
-     * principal.
+     * <p>Ends the identifier-confusion class rounds 2-5 kept re-surfacing
+     * variants of (a client-side {@code isRealIdentifier} approximation can
+     * never be made perfect — Core's is server-only): a RENDER document
+     * request is bridge-eligible if, and ONLY if, its normalized (pathname,
+     * filtered-and-sorted query) exactly equals the registered {@link
+     * AuthorizedDocument}'s. There is no separate name/identifier comparison,
+     * no path-segment-vs-query ambiguity, and no initial-request exemption to
+     * get wrong — the tab's own legitimate first load passes trivially
+     * because both sides are built from the SAME trusted {@code resolved.url}
+     * (see AppTabStage.tsx), and ANY other document — a different identifier
+     * via path or query, a different app entirely, a non-APP service, or the
+     * SAME app/identifier's own deeper in-app sub-route reached by a hard
+     * (non-SPA) navigation — fails the comparison and gets neither the token
+     * nor injection nor a stripped CSP, regardless of how "close" it looks to
+     * the authorized resource.
      *
-     * <p>A non-{@code homeV2} (v1) origin has no shared, per-tab identity to
-     * protect this way at all — see {@link #authorize(String, boolean,
-     * String, String, String)}'s {@code appName} parameter doc comment: each
-     * v1 proxy origin is dedicated to the ONE resource the user explicitly
-     * opened (QdnViewer.tsx / platform.ts's own {@code authorize()} calls
-     * never pass an app identity), so it keeps carrying the token for any
-     * RENDER service exactly as it always has — unchanged by this fix.
+     * <p>{@link #normalizeQuery} ignores exactly the query params that can
+     * never distinguish one app resource from another (this proxy's own
+     * reserved display params, and the bridge token param itself) and nothing
+     * else — an unexpected extra query param the registered URL does not have
+     * fails the match (fail closed), even if this proxy cannot prove that
+     * param actually changes what Core serves.
      */
-    static boolean isBridgeEligibleRenderService(boolean homeV2, List<String> segments) {
-        if (!homeV2) {
-            return true;
+    static boolean isExactAuthorizedRenderDocument(
+        List<String> segments,
+        String encodedQuery,
+        AuthorizedDocument authorized
+    ) {
+        if (authorized == null || authorized.name == null) {
+            return false;
         }
 
-        return segments != null && segments.size() >= 2 && "APP".equalsIgnoreCase(segments.get(1));
+        return authorized.pathname.equals(normalizePathnameFromSegments(segments))
+            && authorized.query.equals(normalizeQuery(encodedQuery));
     }
 
     /**
-     * Round 5, Defect C: thin {@link Uri}-typed accessor to the registered
-     * origin's {@code homeV2} flag, for {@link
+     * Round 6: builds an {@link AuthorizedDocument} from a render path's
+     * segments and raw (percent-encoded) query — the SAME shape {@link
+     * #classifyProxyPath} and {@link #resolveCandidateIdentifier} already take,
+     * kept dependency-free of {@code android.net.Uri} so it is directly unit
+     * testable in this plain-JVM test environment (see
+     * QdnRenderProxyTest — {@code android.net.Uri} throws at runtime there; no
+     * Robolectric is configured). {@link #parseAuthorizedDocument} is the
+     * {@code Uri}/String-typed production wrapper used by {@link #authorize}.
+     */
+    static AuthorizedDocument buildAuthorizedDocument(List<String> segments, String encodedQuery) {
+        String pathname = normalizePathnameFromSegments(segments);
+        String query = normalizeQuery(encodedQuery);
+        String name = null;
+        String identifier = null;
+
+        if (
+            segments != null &&
+                segments.size() >= 3 &&
+                "render".equals(segments.get(0)) &&
+                "APP".equalsIgnoreCase(segments.get(1))
+        ) {
+            name = segments.get(2);
+            identifier = resolveCandidateIdentifier(segments, extractQueryParam(encodedQuery, "identifier"));
+        }
+
+        return new AuthorizedDocument(pathname, query, name, identifier);
+    }
+
+    /**
+     * Production ({@code Uri}/String-typed) entry point for {@link
+     * #buildAuthorizedDocument}, used by {@link #authorize}. Returns null for
+     * a blank/unparseable URL, or one whose OWN origin does not match the
+     * origin being authorized — a caller bug passing a document URL for a
+     * DIFFERENT node than the one it is registering against must never
+     * silently authorize the wrong node's content; failing closed (no
+     * authorized document at all, so {@link #isExactAuthorizedRenderDocument}
+     * and {@link #isAuthorizedAppResource} both refuse everything) is safer
+     * than trusting either value alone.
+     */
+    private static AuthorizedDocument parseAuthorizedDocument(String authorizedDocumentUrl) {
+        if (authorizedDocumentUrl == null || authorizedDocumentUrl.trim().isEmpty()) {
+            return null;
+        }
+
+        Uri parsed = Uri.parse(authorizedDocumentUrl.trim());
+
+        return buildAuthorizedDocument(parsed.getPathSegments(), parsed.getEncodedQuery());
+    }
+
+    /**
+     * Round 6: thin {@link Uri}-typed accessor to the registered origin's
+     * {@link AuthorizedDocument}, for {@link
      * org.qortium.home.QdnBridgeWebViewClient} call sites that only have the
-     * request URL — the pure decision itself lives in {@link
-     * #isBridgeEligibleRenderService}, which takes the flag directly so it
-     * stays unit-testable without an {@link Uri} (this environment's plain
-     * JVM unit tests cannot construct a working {@code android.net.Uri} —
-     * see this class's other {@code List<String> segments}-based methods,
-     * all deliberately shaped the same way).
+     * request URL — mirrors {@link #isHomeV2Origin}'s existing pattern.
+     */
+    static AuthorizedDocument getAuthorizedDocument(Uri url) {
+        AuthorizedOrigin authorization = getAuthorization(url);
+
+        return authorization == null ? null : authorization.authorizedDocument;
+    }
+
+    /**
+     * Round 6: builds the pathname half of the normalized document identity
+     * from already-decoded path segments — {@code android.net.Uri.getPathSegments()}
+     * (production requests) and this class's own test literals both hand this
+     * function already-decoded strings, so no further decoding happens here;
+     * joining them back with {@code '/'} is what gives "treat a trailing
+     * slash consistently" for free (a trailing slash never produces a
+     * trailing empty segment either side).
+     */
+    private static String normalizePathnameFromSegments(List<String> segments) {
+        if (segments == null || segments.isEmpty()) {
+            return "/";
+        }
+
+        StringBuilder pathname = new StringBuilder();
+
+        for (String segment : segments) {
+            pathname.append('/').append(segment);
+        }
+
+        return pathname.toString();
+    }
+
+    /**
+     * Round 6: the query half of the normalized document identity — a
+     * canonical, sorted {@code "key=value&key=value"} string built from a raw
+     * (percent-encoded) query, decoding every key/value exactly once via
+     * {@link #percentDecode} and dropping {@link #IGNORED_DOCUMENT_QUERY_PARAMS}.
+     * Sorting makes the comparison independent of the (irrelevant) order two
+     * otherwise-identical query strings list their params in; a repeated key
+     * is kept as multiple sorted entries rather than collapsed, so a smuggled
+     * duplicate still shows up as a difference if the registered URL never
+     * had one.
+     */
+    private static String normalizeQuery(String encodedQuery) {
+        if (encodedQuery == null || encodedQuery.isEmpty()) {
+            return "";
+        }
+
+        List<String> entries = new ArrayList<>();
+
+        for (String pair : encodedQuery.split("&")) {
+            if (pair.isEmpty()) {
+                continue;
+            }
+
+            int separator = pair.indexOf('=');
+            String rawKey = separator >= 0 ? pair.substring(0, separator) : pair;
+            String key = percentDecode(rawKey);
+
+            if (IGNORED_DOCUMENT_QUERY_PARAMS.contains(key)) {
+                continue;
+            }
+
+            String rawValue = separator >= 0 ? pair.substring(separator + 1) : "";
+
+            entries.add(key + "=" + percentDecode(rawValue));
+        }
+
+        Collections.sort(entries);
+
+        return String.join("&", entries);
+    }
+
+    /** Round 6: decodes a single raw query key or value out of an encoded query string. */
+    private static String extractQueryParam(String encodedQuery, String targetKey) {
+        if (encodedQuery == null || encodedQuery.isEmpty()) {
+            return null;
+        }
+
+        for (String pair : encodedQuery.split("&")) {
+            if (pair.isEmpty()) {
+                continue;
+            }
+
+            int separator = pair.indexOf('=');
+            String rawKey = separator >= 0 ? pair.substring(0, separator) : pair;
+
+            if (!targetKey.equals(percentDecode(rawKey))) {
+                continue;
+            }
+
+            String rawValue = separator >= 0 ? pair.substring(separator + 1) : "";
+
+            return percentDecode(rawValue);
+        }
+
+        return null;
+    }
+
+    /**
+     * Round 6: the ONE decode function used for both sides of the exact-URL
+     * comparison (the registered authorized URL, parsed via {@code
+     * android.net.Uri}, and every actual proxied request, also via {@code
+     * android.net.Uri}) — {@code URLDecoder} (form/query decoding, where
+     * {@code '+'} is a space) rather than raw percent-decoding, because
+     * AppTabStage.tsx's resolveRender builds this proxy's query strings with
+     * {@code URLSearchParams#toString()}, which encodes a literal space as
+     * {@code '+'}. What matters for this comparison is that BOTH sides decode
+     * identically, not which encoding standard is "more correct" in general.
+     */
+    private static String percentDecode(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException | IllegalArgumentException ignored) {
+            return value;
+        }
+    }
+
+    /**
+     * Round 6: thin {@link Uri}-typed accessor to the registered origin's
+     * {@code homeV2} flag, for {@link
+     * org.qortium.home.QdnBridgeWebViewClient} call sites that only have the
+     * request URL — the pure decisions themselves live in {@link
+     * #isExactAuthorizedRenderDocument} and {@link #isAuthorizedAppResource},
+     * which take the flag directly so they stay unit-testable without a
+     * {@link Uri} (this environment's plain JVM unit tests cannot construct a
+     * working {@code android.net.Uri} — see this class's other {@code
+     * List<String> segments}-based methods, all deliberately shaped the same
+     * way).
      */
     static boolean isHomeV2Origin(Uri url) {
         AuthorizedOrigin authorization = getAuthorization(url);
