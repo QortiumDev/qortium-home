@@ -142,6 +142,9 @@ assert.throws(() => assertPublicChatTransaction(buildChatBytes({ type: 19 }), ch
 assert.throws(() => assertPublicChatTransaction(buildChatBytes({ ts: timestamp + 1 }), chatExpected), /timestamp/);
 assert.throws(() => assertPublicChatTransaction(buildChatBytes({ group: 10 }), chatExpected), /transaction group ID/);
 assert.throws(() => assertPublicChatTransaction(buildChatBytes({ key: sequence(32, 2) }), chatExpected), /account public key/);
+// The unsigned build bytes must carry a zero nonce; the validator rejects any
+// preset nonce so a node cannot smuggle in pre-computed work.
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ nonce: 1 }), chatExpected), /nonce/);
 assert.throws(() => assertPublicChatTransaction(buildChatBytes({ data: encoder.encode('other') }), chatExpected), /message/);
 assert.throws(() => assertPublicChatTransaction(buildChatBytes({ encrypted: 1 }), chatExpected), /encrypted flag/);
 assert.throws(() => assertPublicChatTransaction(buildChatBytes({ text: 0 }), chatExpected), /text flag/);

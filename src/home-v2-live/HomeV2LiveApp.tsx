@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -367,6 +367,12 @@ export function HomeV2LiveApp() {
     undefined,
     createProductState,
   )
+  // Live mirror of productState so long-running async work (e.g. the chat-send
+  // context recheck that spans a tens-of-seconds memory-pow) sees the CURRENT
+  // tab set, not the snapshot captured when the request started. Without this
+  // a tab closed mid-PoW stays invisible to the recheck (FIX #2, review 2).
+  const productStateRef = useRef(productState)
+  productStateRef.current = productState
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [busyNetwork, setBusyNetwork] = useState<NetworkId | null>(null)
   const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
@@ -1115,7 +1121,18 @@ export function HomeV2LiveApp() {
               return 'QDN app'
             }
           })()
-          const appIdentityKey = context.resourceLocation || `home-v2-tab:${context.tabId}`
+          // Canonicalize to the app's identity (network + service/name/
+          // identifier), dropping route/query/hash, so one app cannot mint
+          // separate per-app prompt-cap buckets by opening URL variants
+          // (FIX #4, review 2). Falls back to the raw location, then the tab.
+          const appIdentityKey = (() => {
+            try {
+              const parsed = parseAppResourceLocation(context.resourceLocation)
+              return buildAppResourceLocation(parsed.sourceNetwork, parsed.identity)
+            } catch {
+              return context.resourceLocation || `home-v2-tab:${context.tabId}`
+            }
+          })()
           const appId = brand<AppId>(`home-v2:permission-app:${appIdentityKey}`)
           const prompt = createPermissionPrompt({
             id: requestId,
@@ -1171,7 +1188,7 @@ export function HomeV2LiveApp() {
         // even starts (FIX #2, security review: Android previously had no
         // recheck once PoW was underway).
         const checkChatSendStillValid = async () => {
-          const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const freshAccount = accountCatalogueRef.current.accounts.find(
             (candidate) => candidate.id === accountId,
           )
