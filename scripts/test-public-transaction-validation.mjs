@@ -104,6 +104,60 @@ const chatExpected = { chatReference, data: message, publicKey, timestamp, txGro
 assert.doesNotThrow(() => assertPublicChatTransaction(chatBytes, chatExpected));
 assert.throws(() => assertPublicChatTransaction(chatBytes, { ...chatExpected, data: encoder.encode('other') }), /message/);
 
+// FIX #9 (security review): mutate EACH field of an otherwise-valid CHAT
+// build response and confirm assertPublicChatTransaction rejects it. This is
+// the signing-boundary guard that stops Home from ever signing bytes a node
+// build response tampered with — every field the node controls must be
+// independently checked, not just the ones covered above.
+function buildChatBytes({
+  type = 18,
+  ts = timestamp,
+  group = 9,
+  key = publicKey,
+  nonce = 0,
+  hasRecipient = 0,
+  data = message,
+  encrypted = 0,
+  text = 1,
+  fee = 0n,
+  hasReference = 1,
+  reference = chatReference,
+  trailing = new Uint8Array(0),
+} = {}) {
+  return concat(
+    int32(type), int64(ts), int32(group), key, int32(nonce),
+    new Uint8Array([hasRecipient]), int32(data.length), data,
+    new Uint8Array([encrypted, text]), int64(fee),
+    new Uint8Array([hasReference]),
+    ...(hasReference ? [reference] : []),
+    trailing,
+  );
+}
+// The helper's defaults must reproduce the known-good fixture bytes exactly,
+// or the mutation tests below would be exercising a different transaction
+// shape than the one actually pinned above.
+assert.deepEqual(buildChatBytes(), chatBytes);
+
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ type: 19 }), chatExpected), /transaction type/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ ts: timestamp + 1 }), chatExpected), /timestamp/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ group: 10 }), chatExpected), /transaction group ID/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ key: sequence(32, 2) }), chatExpected), /account public key/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ data: encoder.encode('other') }), chatExpected), /message/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ encrypted: 1 }), chatExpected), /encrypted flag/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ text: 0 }), chatExpected), /text flag/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ fee: 1n }), chatExpected), /fee/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ hasRecipient: 1 }), chatExpected), /recipient/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ hasReference: 0 }), chatExpected), /chat reference/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ reference: sequence(64, 200) }), chatExpected), /chat reference/);
+assert.throws(() => assertPublicChatTransaction(buildChatBytes({ trailing: new Uint8Array([9]) }), chatExpected), /trailing bytes/);
+// A message claiming no chat reference, checked against an expectation that
+// doesn't require one, must still succeed (hasReference:0 is legitimate on
+// its own — only a MISMATCH against `expected` is rejected).
+assert.doesNotThrow(() => assertPublicChatTransaction(
+  buildChatBytes({ hasReference: 0 }),
+  { ...chatExpected, chatReference: undefined },
+));
+
 function arbitraryBytes({ method = 0, payments = 0, deleteShape = false } = {}) {
   const data = deleteShape ? new Uint8Array(0) : sequence(32, 33);
   return concat(
