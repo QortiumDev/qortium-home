@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import {
   isSameRenderResourcePath,
   parseRenderPathIdentity,
+  resolveCandidateIdentifier,
   resolveLaunchIdentifier,
 } from './render-path-identity.js'
+import candidateIdentifierVectors from '../../shared-fixtures/qdn-render-candidate-identifier-vectors.json'
 
 assert.deepEqual(
   parseRenderPathIdentity('/render/APP/Chat/default/settings'),
@@ -110,6 +112,31 @@ const ORIGIN = 'https://n0123456789abcdef.qdn.androidplatform.net'
     resolveLaunchIdentifier('docs', 'not a url'),
     'docs',
     'an unparseable render URL fails back to the path-based identifier rather than throwing',
+  )
+}
+
+// Round 5, Minor 2 (Sol round-4 re-review): resolveCandidateIdentifier's
+// parity with QdnRenderProxy.java's Java twin of the same name used to be a
+// hand-copied/translated vector list on the Java side (QdnRenderProxyTest's
+// resolveCandidateIdentifierMatchesTheTypeScriptTwinVectors), which could
+// silently drift from this file without either test going red. Both sides
+// now drive the SAME literal vectors from
+// src/shared-fixtures/qdn-render-candidate-identifier-vectors.json, so a
+// future edit to either rule's behavior — without updating the shared
+// fixture — fails on whichever side no longer matches it.
+assert.equal(
+  candidateIdentifierVectors.length,
+  10,
+  'sanity check: the shared fixture is expected to have exactly 10 vectors — update this ' +
+    'alongside QdnRenderProxyTest.java\'s own count check if the fixture grows or shrinks',
+)
+for (const vector of candidateIdentifierVectors) {
+  const parsed = parseRenderPathIdentity(vector.path)
+  assert.ok(parsed, `${vector.description}: expected ${vector.path} to parse as a render path`)
+  assert.equal(
+    resolveCandidateIdentifier(vector.queryIdentifier, parsed as NonNullable<typeof parsed>),
+    vector.expected,
+    vector.description,
   )
 }
 

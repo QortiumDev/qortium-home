@@ -115,6 +115,12 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
     /fixture-chat/,
     "tab A's iframe must point at Chat's render URL",
   )
+  // Round 5, Minor 2 (Sol round-4 re-review): retained BEFORE the switch, so
+  // the stale-listener check below posts from a real, live reference to tab
+  // A's own frame — not a placeholder that could never have matched
+  // anything regardless of whether A's listener actually got cleaned up.
+  const frameAWindow = (iframeAfterA as HTMLIFrameElement | null)?.contentWindow ?? null
+  assert.equal(frameAWindow !== null, true, "tab A's iframe must have a contentWindow to retain a reference to")
 
   // Switch to tab B (Trust) — this is the exact moment the round-3 finding
   // describes: `resolved` flips to B synchronously (it's derived via
@@ -175,6 +181,43 @@ async function testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext(): Pr
   // firing into props.requestApp using whichever `resolved` closure it
   // last captured).
   assert.equal(requestAppCalls.length, 0)
+
+  // Round 5, Minor 2 (Sol round-4 re-review): the assertion above only
+  // proves nothing HAPPENED to be sent during the switch — it does not
+  // prove tab A's own message listener is actually gone. Post a REAL
+  // message now, claiming to come from tab A's retained (and, post-switch,
+  // stale) frame reference, and confirm it is rejected — either because
+  // React's unmount genuinely removed A's `window.addEventListener('message',
+  // ...)` listener (see AppTabStage.tsx's AndroidAppStage effect cleanup),
+  // or because B's current listener correctly rejects a source that is not
+  // its own `frameRef.current?.contentWindow` (see that effect's
+  // `event.source !== frameRef.current?.contentWindow` check) — either way,
+  // this proves the source-mismatch rejection genuinely fires for a live,
+  // retained stale reference, not merely that no message happened to be
+  // sent in this scenario.
+  await act(async () => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'qortium:qdn-request',
+          bridgeToken: 'stale-frame-a-forged-token',
+          requestId: 'stale-frame-a-request',
+          protocol: 'qdnRequest',
+          request: { action: 'GET_ACCOUNT_DATA' },
+        },
+        origin: 'https://fixture-proxy.qdn.androidplatform.net',
+        source: frameAWindow as unknown as MessageEventSource,
+      }),
+    )
+    await flushAsync()
+  })
+  assert.equal(
+    requestAppCalls.length,
+    0,
+    "a message whose event.source is tab A's retained (now-stale) frame reference must never be " +
+      'honored once B is the active tab — proves the cleanup/source-mismatch rejection actually ' +
+      'fires for a real stale reference',
+  )
 
   await act(async () => {
     root.unmount()

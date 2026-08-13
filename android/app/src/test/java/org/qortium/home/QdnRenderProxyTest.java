@@ -5,8 +5,15 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.Test;
 
@@ -424,41 +431,167 @@ public class QdnRenderProxyTest {
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
     }
 
-    // Round 4 (Sol round-3 re-review): pins parity between this class's
-    // resolveCandidateIdentifier and src/v2/shell/render-path-identity.ts's
-    // twin (resolveCandidateIdentifier there, exercised indirectly through
-    // isSameRenderResourcePath) — the SAME literal vectors, translated from
-    // that file's render-path-identity.test.ts URL forms into this class's
-    // (segments, queryIdentifier) shape, so a future edit to either rule
-    // cannot silently drift from the other without a red test on both sides.
+    // Round 5, Minor 2 (Sol round-4 re-review): this used to be a hand-copied,
+    // hand-translated vector list (this class's (segments, queryIdentifier)
+    // shape has no 1:1 textual match with render-path-identity.test.ts's URL
+    // forms), which could silently drift from the TypeScript side without
+    // either test going red. Both sides now read the SAME literal vectors
+    // from src/shared-fixtures/qdn-render-candidate-identifier-vectors.json
+    // — see render-path-identity.test.ts's twin of this test, which drives
+    // the exported TypeScript resolveCandidateIdentifier from the identical
+    // file — so a future edit to either rule's behavior fails on whichever
+    // side no longer matches the shared fixture.
     @Test
-    public void resolveCandidateIdentifierMatchesTheTypeScriptTwinVectors() {
-        // render-path-identity.test.ts: `${ORIGIN}/render/APP/Chat` against
-        // {name:'Chat', identifier:null} → same resource (candidate null).
-        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
-        // `${ORIGIN}/render/APP/Chat/settings` → candidate 'settings' (blocked
-        // against a default launch — the ambiguous path-segment case).
-        assertEquals("settings", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "settings"), null));
-        // `${ORIGIN}/render/APP/Chat/evil` → candidate 'evil'.
-        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "evil"), null));
-        // `${ORIGIN}/render/APP/Chat?identifier=evil` → candidate 'evil' (query wins).
-        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), "evil"));
-        // `${ORIGIN}/render/APP/Chat/default/settings` → candidate null (a
-        // literal "default" first segment is never an identifier).
-        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "default", "settings"), null));
-        // `${ORIGIN}/render/APP/MyApp/docs` against {name:'MyApp',
-        // identifier:'docs'} → candidate 'docs'.
-        assertEquals("docs", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "docs"), null));
-        // `${ORIGIN}/render/APP/MyApp/docs/page-2` → candidate still 'docs'
-        // (routing lives BELOW an explicit identifier; deeper segments are
-        // never inspected).
-        assertEquals("docs", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "docs", "page-2"), null));
-        // `${ORIGIN}/render/APP/MyApp/otherIdentifier` → candidate 'otherIdentifier'.
-        assertEquals("otherIdentifier", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "otherIdentifier"), null));
-        // `${ORIGIN}/render/APP/MyApp` → candidate null (dropping the pinned identifier).
-        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp"), null));
-        // `${ORIGIN}/render/APP/MyApp/docs?identifier=evil` → candidate 'evil' (query still wins).
-        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "docs"), "evil"));
+    public void resolveCandidateIdentifierMatchesTheSharedFixtureVectors() throws IOException {
+        List<String[]> vectors = loadSharedCandidateIdentifierVectors();
+
+        assertEquals(
+            "sanity check: the shared fixture is expected to have exactly 10 vectors — update "
+                + "this alongside render-path-identity.test.ts's own count check if the fixture "
+                + "grows or shrinks",
+            10,
+            vectors.size()
+        );
+
+        for (String[] vector : vectors) {
+            String description = vector[0];
+            String path = vector[1];
+            String queryIdentifier = vector[2];
+            String expected = vector[3];
+
+            assertEquals(
+                description,
+                expected,
+                QdnRenderProxy.resolveCandidateIdentifier(pathSegments(path), queryIdentifier)
+            );
+        }
+    }
+
+    private static final Pattern CANDIDATE_IDENTIFIER_VECTOR_PATTERN = Pattern.compile(
+        "\\{\\s*\"description\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,"
+            + "\\s*\"path\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,"
+            + "\\s*\"queryIdentifier\"\\s*:\\s*(?:\"((?:[^\"\\\\]|\\\\.)*)\"|null)\\s*,"
+            + "\\s*\"expected\"\\s*:\\s*(?:\"((?:[^\"\\\\]|\\\\.)*)\"|null)\\s*\\}",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Deliberately NOT a general JSON parser: a narrow, hand-rolled scanner
+     * tailored to the one shared fixture's known flat shape (an array of
+     * objects with exactly these 4 string/null fields, no escape sequences
+     * in practice), so no new JSON library dependency is needed just to read
+     * it — {@code android.net.Uri} and other Android stub classes throw at
+     * runtime in this plain-JVM unit test environment (no Robolectric is
+     * configured), and the same is true of the {@code org.json} classes
+     * bundled in the Android SDK stub, so a real JSON parser is not free
+     * here the way it would be on a normal JVM classpath.
+     */
+    private static List<String[]> loadSharedCandidateIdentifierVectors() throws IOException {
+        File fixture = locateSharedFixture(
+            "src/shared-fixtures/qdn-render-candidate-identifier-vectors.json"
+        );
+        String json = new String(Files.readAllBytes(fixture.toPath()), StandardCharsets.UTF_8);
+        Matcher matcher = CANDIDATE_IDENTIFIER_VECTOR_PATTERN.matcher(json);
+        List<String[]> vectors = new ArrayList<>();
+
+        while (matcher.find()) {
+            vectors.add(new String[] {
+                matcher.group(1),
+                matcher.group(2),
+                matcher.group(3),
+                matcher.group(4),
+            });
+        }
+
+        return vectors;
+    }
+
+    /**
+     * Gradle's working directory for {@code :app:testDebugUnitTest} is not
+     * pinned by this project's build.gradle, so this walks upward from
+     * {@code user.dir} (rather than assuming repo-root or module-root) to
+     * find the fixture regardless of exactly where Gradle invoked the test
+     * from.
+     */
+    private static File locateSharedFixture(String relativePath) {
+        File dir = new File(System.getProperty("user.dir"));
+
+        for (int depth = 0; depth < 8; depth += 1) {
+            File candidate = new File(dir, relativePath);
+
+            if (candidate.isFile()) {
+                return candidate;
+            }
+
+            File parent = dir.getParentFile();
+
+            if (parent == null) {
+                break;
+            }
+
+            dir = parent;
+        }
+
+        throw new IllegalStateException(
+            "Could not locate the shared fixture \"" + relativePath + "\" walking up from "
+                + System.getProperty("user.dir")
+        );
+    }
+
+    private static List<String> pathSegments(String path) {
+        List<String> segments = new ArrayList<>();
+
+        for (String segment : path.split("/")) {
+            if (!segment.isEmpty()) {
+                segments.add(segment);
+            }
+        }
+
+        return segments;
+    }
+
+    // Round 5, Defect C (Sol round-4 re-review): the token/injection gate
+    // QdnBridgeWebViewClient.shouldCarryBridgeToken now enforces — see its
+    // doc comment for the exploit this closes (a homeV2 app tab's iframe
+    // self-navigating to a different RENDER service on the shared proxy
+    // origin, keeping the bridge token, and receiving bridge injection with
+    // CSP stripped under the still-authorized identity).
+    @Test
+    public void bridgeEligibleRenderServiceRestrictsHomeV2ToApp() {
+        assertTrue(
+            "a homeV2 origin's APP-service render is bridge-eligible",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, parts("render", "APP", "Chat"))
+        );
+        assertFalse(
+            "a homeV2 origin's WEBSITE-service render is never bridge-eligible, even though "
+                + "it remains a servable RouteKind.RENDER route",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, parts("render", "WEBSITE", "attacker"))
+        );
+        assertFalse(
+            "same closure for GAME",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, parts("render", "GAME", "attacker"))
+        );
+        assertFalse(
+            "same closure for HASH",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, parts("render", "HASH", "attacker"))
+        );
+        assertFalse(
+            "same closure for a streamable media service",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, parts("render", "IMAGE", "someone", "pic.png"))
+        );
+        assertTrue(
+            "a v1 (non-homeV2) origin has no per-tab identity to protect, so any RENDER "
+                + "service keeps carrying the token exactly as it always has",
+            QdnRenderProxy.isBridgeEligibleRenderService(false, parts("render", "WEBSITE", "someone"))
+        );
+        assertFalse(
+            "malformed/too-short segments fail closed",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, parts("render"))
+        );
+        assertFalse(
+            "null segments fail closed",
+            QdnRenderProxy.isBridgeEligibleRenderService(true, null)
+        );
     }
 
     private static void assertRoute(

@@ -45,8 +45,14 @@ export function parseRenderPathIdentity(pathname: string): QdnRenderPathIdentity
 // Resolves the candidate identifier for a parsed render path exactly the way
 // Core's RenderResource.getPathByName resolves it — see this module's header
 // comment. Mirrors electron/qdn-resource-identity.ts's
-// resolveCandidateIdentifier.
-function resolveCandidateIdentifier(queryIdentifier: string | null, parsed: QdnRenderPathIdentity): string | null {
+// resolveCandidateIdentifier AND (round 5, Minor 2 — Sol round-4 re-review)
+// QdnRenderProxy.java's Java twin of the SAME name: exported so both
+// render-path-identity.test.ts and QdnRenderProxyTest.java can drive this
+// exact function from the ONE shared vector fixture at
+// src/shared-fixtures/qdn-render-candidate-identifier-vectors.json, instead
+// of each side hand-copying/translating its own literal vectors (which can
+// silently drift from each other without either test going red).
+export function resolveCandidateIdentifier(queryIdentifier: string | null, parsed: QdnRenderPathIdentity): string | null {
   if (queryIdentifier !== null && queryIdentifier.trim() !== '') return queryIdentifier
   if (parsed.nextSegment !== null && parsed.nextSegment.toLowerCase() !== 'default') return parsed.nextSegment
   return null

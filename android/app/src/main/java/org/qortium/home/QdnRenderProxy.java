@@ -341,11 +341,30 @@ final class QdnRenderProxy {
         AppIdentity active
     ) {
         // segments = [render|arbitrary, service, name, identifierOrPathSegment, ...].
-        // WEBSITE/GAME/HASH render paths carry no Home v2 account-read/
-        // signing bridge (see AppTabStage.tsx resolveRender, which only ever
-        // builds an APP-service render URL) and have no per-tab launch
-        // identity registered against them — leave them exactly as
-        // classifyProxyPath already scoped them.
+        //
+        // Round 5, Defect C (Sol round-4 re-review): this method's job is
+        // narrower than its old comment here claimed — it decides whether a
+        // request may be SERVED AS DATA on this origin, not whether it may
+        // become a bridged principal. WEBSITE/GAME/HASH render paths (and
+        // the streamable media services — IMAGE/AUDIO/VIDEO/etc, which also
+        // classify as RouteKind.RENDER) legitimately reference resources
+        // that are NOT this tab's own app (an avatar, a linked preview, a
+        // media file another publisher hosts), so they have no per-tab
+        // launch identity to check here and are left exactly as
+        // classifyProxyPath already scoped them. This does NOT mean they
+        // may carry the live signing/account-read bridge token — see
+        // isBridgeEligibleRenderService, which QdnBridgeWebViewClient's
+        // shouldCarryBridgeToken uses to restrict token carriage (and, via
+        // shouldOverrideUrlLoading, frame navigation) to this tab's own
+        // APP-service document, regardless of what this route check allows
+        // to be fetched as plain bytes. Before round 5, no such restriction
+        // existed: shouldCarryBridgeToken forwarded the token for ANY
+        // RouteKind.RENDER response, so a tab could navigate itself to
+        // `/render/WEBSITE/<attacker>/...` on this same origin, keep the
+        // token (visible to the page via its own location.href/search — the
+        // proxy origin is per-NODE, not per-resource, so this bypass a
+        // same-origin navigation ever needed), and receive bridge injection
+        // with CSP stripped under the still-authorized APP identity.
         if (segments == null || segments.size() < 3 || !"APP".equalsIgnoreCase(segments.get(1))) {
             return true;
         }
@@ -383,6 +402,71 @@ final class QdnRenderProxy {
         return active.identifier == null
             ? candidateIdentifier == null
             : active.identifier.equals(candidateIdentifier);
+    }
+
+    /**
+     * Round 5, Defect C (Sol round-4 re-review): whether a {@code
+     * RouteKind.RENDER} request may ever carry, or receive, the live
+     * signing/account-read bridge token — the actual enforcement boundary
+     * {@link org.qortium.home.QdnBridgeWebViewClient#shouldCarryBridgeToken}
+     * applies (which also gates {@code fetchUpstream}'s bridge-script
+     * injection and Content-Security-Policy removal, since both live inside
+     * the same {@code bridgeToken != null} branch — see that method), and
+     * that {@code QdnBridgeWebViewClient#shouldOverrideUrlLoading} uses to
+     * refuse the doomed navigation outright so it never even loads.
+     *
+     * <p>A {@code homeV2} origin serves every one of a node's Home v2 app
+     * tabs from one shared origin (see this class's header comment), so
+     * "APP" is the only service this proxy issues a per-tab identity for —
+     * see {@link #isSameActiveAppTabResource}. That method deliberately
+     * stays permissive for WEBSITE/GAME/HASH and the streamable media
+     * services (see its doc comment): those remain fetchable as plain,
+     * non-bridged bytes — an app's own image/media references, or a linked
+     * preview, are not necessarily the app's own resource, and Core's
+     * QDN_RESOURCE_VIEWER_ACTIONS contract (see
+     * electron/qdn-resource-viewer-contract.ts) confirms APP/WEBSITE/GAME
+     * are never legitimately embedded as another resource's own document —
+     * they require {@code OPEN_NEW_TAB}/{@code OPEN_CURRENT_TAB} instead.
+     * So restricting bridge eligibility to APP here cannot break a
+     * legitimate sub-resource read (images, FETCH_QDN_RESOURCE, which use
+     * {@code filepath} as a query param rather than navigating a frame) or
+     * a legitimate embed, only the exploit: a tab's iframe self-navigating
+     * (its own location carries the token, visible to page JS, so it needs
+     * no help smuggling it along) to a different service's render document
+     * on this same shared origin and being treated as this tab's bridged
+     * principal.
+     *
+     * <p>A non-{@code homeV2} (v1) origin has no shared, per-tab identity to
+     * protect this way at all — see {@link #authorize(String, boolean,
+     * String, String, String)}'s {@code appName} parameter doc comment: each
+     * v1 proxy origin is dedicated to the ONE resource the user explicitly
+     * opened (QdnViewer.tsx / platform.ts's own {@code authorize()} calls
+     * never pass an app identity), so it keeps carrying the token for any
+     * RENDER service exactly as it always has — unchanged by this fix.
+     */
+    static boolean isBridgeEligibleRenderService(boolean homeV2, List<String> segments) {
+        if (!homeV2) {
+            return true;
+        }
+
+        return segments != null && segments.size() >= 2 && "APP".equalsIgnoreCase(segments.get(1));
+    }
+
+    /**
+     * Round 5, Defect C: thin {@link Uri}-typed accessor to the registered
+     * origin's {@code homeV2} flag, for {@link
+     * org.qortium.home.QdnBridgeWebViewClient} call sites that only have the
+     * request URL — the pure decision itself lives in {@link
+     * #isBridgeEligibleRenderService}, which takes the flag directly so it
+     * stays unit-testable without an {@link Uri} (this environment's plain
+     * JVM unit tests cannot construct a working {@code android.net.Uri} —
+     * see this class's other {@code List<String> segments}-based methods,
+     * all deliberately shaped the same way).
+     */
+    static boolean isHomeV2Origin(Uri url) {
+        AuthorizedOrigin authorization = getAuthorization(url);
+
+        return authorization != null && authorization.homeV2;
     }
 
     /**

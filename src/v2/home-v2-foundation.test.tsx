@@ -1453,7 +1453,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   )
   assert.match(
     qdnBridgeWebViewClient,
-    /QdnRenderProxy\.isProxyUrl\(url\)\) \{[\s\S]{0,1200}classifyProxyRoute\(url\) == QdnRenderProxy\.RouteKind\.DENIED/,
+    /QdnRenderProxy\.isProxyUrl\(url\)\) \{[\s\S]{0,1200}classifyProxyRoute\(url\)[\s\S]{0,80}route == QdnRenderProxy\.RouteKind\.DENIED\) \{[\s\S]{0,40}return true;/,
     'shouldOverrideUrlLoading must cancel a subframe navigation classifyProxyRoute would deny',
   )
   // Round 4, Defect C part 2: even a request classifyProxyRoute allows (same
@@ -1462,14 +1462,41 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // this, an app's own (or, before the check above, another resource's)
   // HTML reachable via /arbitrary would be armed with a live bridge exactly
   // as if it were the tab's launched document.
-  assert.match(qdnBridgeWebViewClient, /static boolean shouldCarryBridgeToken\(QdnRenderProxy\.RouteKind route\)/)
-  assert.match(qdnBridgeWebViewClient, /return route == QdnRenderProxy\.RouteKind\.RENDER;/)
+  //
+  // Round 5, Defect C (Sol round-4 re-review): RouteKind.RENDER alone still
+  // covered WEBSITE/GAME/HASH (and streamable media) exactly as it covered
+  // APP — a homeV2 app tab's iframe could self-navigate to a different
+  // RENDER service on the same shared proxy origin (its own location
+  // already carries the token) and still receive bridge injection with CSP
+  // stripped. shouldCarryBridgeToken must now also require the request's
+  // service to be APP on a homeV2 origin (isBridgeEligibleRenderService); a
+  // v1 (non-homeV2) origin is unaffected. shouldOverrideUrlLoading must
+  // refuse that doomed navigation outright too, not just withhold the token.
   assert.match(
     qdnBridgeWebViewClient,
-    /String bridgeToken = shouldCarryBridgeToken\(route\)[\s\S]{0,120}QDN_BRIDGE_QUERY_PARAM\)[\s\S]{0,20}: null;/,
-    'serveProxiedQdnRequest must gate the bridge token on shouldCarryBridgeToken, not forward it ' +
-      'for every route',
+    /static boolean shouldCarryBridgeToken\(QdnRenderProxy\.RouteKind route, boolean homeV2, List<String> segments\)/,
   )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /return route == QdnRenderProxy\.RouteKind\.RENDER\s*&&\s*QdnRenderProxy\.isBridgeEligibleRenderService\(homeV2, segments\);/,
+  )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /String bridgeToken = shouldCarryBridgeToken\(\s*route,\s*QdnRenderProxy\.isHomeV2Origin\(requestUrl\),\s*requestUrl\.getPathSegments\(\)\s*\)[\s\S]{0,150}: null;/,
+    'serveProxiedQdnRequest must gate the bridge token on the service-aware shouldCarryBridgeToken, ' +
+      'not forward it for every RENDER route regardless of service',
+  )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /route == QdnRenderProxy\.RouteKind\.RENDER\s*&&\s*!QdnRenderProxy\.isBridgeEligibleRenderService\(\s*QdnRenderProxy\.isHomeV2Origin\(url\),\s*url\.getPathSegments\(\)\s*\);/,
+    'shouldOverrideUrlLoading must also cancel a frame navigation to a RENDER route that would ' +
+      'never be bridge-eligible, so the doomed cross-service navigation never even loads',
+  )
+  assert.match(
+    qdnRenderProxy,
+    /static boolean isBridgeEligibleRenderService\(boolean homeV2, List<String> segments\)/,
+  )
+  assert.match(qdnRenderProxy, /static boolean isHomeV2Origin\(Uri url\)/)
 
   // Round 4, Defect A: the Android app stage is keyed by the active tab id
   // (+ resourceLocation) so React fully unmounts App A's iframe/token/
