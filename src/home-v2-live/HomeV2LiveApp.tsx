@@ -58,6 +58,7 @@ import {
   normalizeHomeV2ChatMessageText,
   normalizeHomeV2SendTxGroupId,
 } from '../../electron/home-v2-app-actions'
+import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -441,6 +442,10 @@ export function HomeV2LiveApp() {
     }
   >())
   const androidSessionAccountGrants = useRef(new Set<string>())
+  // Fix B (security review finding 8): bounds how often an already-granted
+  // tab can broadcast chat sends. Shares its constants/algorithm with
+  // desktop's electron/home-v2-app-bridge.ts via home-v2-send-rate-limiter.ts.
+  const androidChatSendRateLimiter = useRef(createHomeV2SendRateLimiter())
   const androidNavigationControllers = useRef(
     new Map<string, AppTabNavigationController>(),
   )
@@ -1177,6 +1182,15 @@ export function HomeV2LiveApp() {
             throw new Error('Account access context changed before approval completed.')
           }
         }
+        // Fix B: reject an excessive send BEFORE any node call or proof-of-
+        // work — mirrors electron/home-v2-app-bridge.ts sendHomeV2ChatMessage
+        // (same shared rate-limiter module/constants).
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(
+          `${context.tabId}|${accountId}`,
+        )
+        if (!rateLimitDecision.allowed) {
+          throw new Error(rateLimitDecision.message)
+        }
         // Re-verify immediately before the (potentially tens-of-seconds)
         // memory-pow+sign step, mirroring the desktop bridge's isStillValid
         // recheck at the same point (electron/home-v2-app-bridge.ts
@@ -1817,6 +1831,7 @@ export function HomeV2LiveApp() {
         if (!vaultClient || !selectedVaultAccount) return
         setPermissionState((current) => invalidatePermissionState(current, { kind: 'locked' }))
         androidSessionAccountGrants.current.clear()
+        androidChatSendRateLimiter.current.reset()
         window.homeV2Apps?.accountLocked()
         for (const tab of productState.tabs) {
           const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')

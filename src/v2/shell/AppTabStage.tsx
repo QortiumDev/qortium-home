@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
+import { isSameRenderResourcePath } from './render-path-identity'
 import {
   readHomeV2AppNavigationMessage,
   readHomeV2AppTitleMessage,
@@ -183,6 +184,26 @@ function AndroidAppStage(props: AppTabStageProps) {
   }, [props.productState, props.snapshot])
   const resolved = resolution.value
 
+  // Fix A (finding 1) live-resource tracking: on Android every app on a node
+  // shares one proxy origin (QdnRenderProxy.java's per-view isolation would
+  // wipe QDN apps' own local storage between visits, so it deliberately keys
+  // the proxy by node origin only — see that file's class doc comment), and
+  // QdnBridgeWebViewClient's shouldOverrideUrlLoading has no way to tell
+  // which tab's iframe a subframe navigation belongs to, so it cannot itself
+  // refuse a same-origin navigation to a DIFFERENT app's render URL. That is
+  // a documented residual of the shared-origin design, not something fixed
+  // here. This ref is the request-time backstop instead: it tracks the
+  // iframe's own self-reported location (the qortium:qdn-navigation bridge
+  // message added below), and a qortium:qdn-request is refused below when
+  // that location has drifted from the resource this tab was launched for —
+  // mirroring desktop's requireAccountReadPermission live-resource recheck
+  // (electron/home-v2-app-bridge.ts).
+  const liveResourcePathRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    liveResourcePathRef.current = resolved ? new URL(resolved.url).pathname : null
+  }, [resolved, source])
+
   useEffect(() => {
     if (!resolved) return
     let cancelled = false
@@ -222,11 +243,45 @@ function AndroidAppStage(props: AppTabStageProps) {
 
       const navigationMessage = readHomeV2AppNavigationMessage(data, token, source)
       if (navigationMessage) {
+        const activeEntry = navigationMessage.entries.find(
+          (entry) => entry.index === navigationMessage.activeIndex,
+        )
+        if (activeEntry) {
+          try {
+            liveResourcePathRef.current = new URL(activeEntry.url).pathname
+          } catch {
+            liveResourcePathRef.current = null
+          }
+        }
         if (resolved) props.onNavigationChanged?.(resolved.tab.id, navigationMessage)
         return
       }
 
       if (data.type !== 'qortium:qdn-request' || typeof data.requestId !== 'string') return
+
+      // Fix A (finding 1): refuse a request from an iframe whose live
+      // location no longer matches the resource this tab was launched for.
+      const launchIdentity = (() => {
+        if (!resolved) return null
+        try {
+          return parseAppResourceLocation(resolved.tab.context.resourceLocation).identity
+        } catch {
+          return null
+        }
+      })()
+      const liveResourcePath = liveResourcePathRef.current
+      if (
+        !launchIdentity ||
+        !liveResourcePath ||
+        !isSameRenderResourcePath(liveResourcePath, launchIdentity)
+      ) {
+        ;(event.source as Window | null)?.postMessage({
+          type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
+          error: { message: 'The app view navigated away from its launch resource.' },
+        }, '*')
+        return
+      }
+
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
       const identityId = String(resolved?.tab.context.identityId ?? '')
       const launchAccountId = identityId.startsWith('home-v2:identity:')

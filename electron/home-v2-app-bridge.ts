@@ -8,6 +8,7 @@ import {
 import { nodeFetch } from './node-tls.js'
 import {
   getQdnViewContextForWebContents,
+  isQdnRenderUrlSameAppResource,
   type QdnViewContext,
 } from './qdn-views.js'
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js'
@@ -37,6 +38,7 @@ import {
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
 import { getAccountProfile, getAccountSecretKey, isAccountUnlocked, signChatTransaction, signDetached } from './accounts.js'
+import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { base58Decode, base58Encode } from './base58.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
@@ -82,6 +84,15 @@ const pendingAccountReads = new Map<string, {
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
 const sessionAccountReadGrants = new Set<string>()
+// Fix B (security review finding 8): bounds how often an already-granted tab
+// can broadcast chat sends. See home-v2-send-rate-limiter.ts for the shared
+// constants/algorithm (also used by Android's requestApp in
+// src/home-v2-live/HomeV2LiveApp.tsx).
+const chatSendRateLimiter = createHomeV2SendRateLimiter()
+
+function chatSendRateLimitKey(context: QdnViewContext) {
+  return `${context.tabId}|${context.accountId ?? 'none'}`
+}
 
 function accountGrantKey(
   sender: WebContents,
@@ -110,6 +121,28 @@ function sameViewContext(left: QdnViewContext, right: QdnViewContext) {
     left.windowId === right.windowId
 }
 
+// Fix A defense-in-depth (finding 1): a session grant and the permission
+// prompt itself are keyed off `context.resourceUrl`, the identity Home's
+// trusted top-level UI attached at launch — but that field is never updated
+// by in-view navigation, so if a nav-guard path were ever missed,
+// `resourceUrl` could keep pointing at the app that was originally granted
+// while `currentUrl` (what the view actually has loaded) had drifted to a
+// different app. With electron/qdn-views.ts's isAllowedInViewNavigation now
+// constraining in-view navigation to the same resource, this should be
+// unreachable — this check closes the gap regardless, and specifically
+// refuses to honor a stale session grant when the two disagree. `resourceUrl`
+// or `currentUrl` being absent is not itself suspicious (e.g. before the
+// first load completes), so this only refuses when both are present and
+// disagree.
+function liveResourceMatchesGrant(context: QdnViewContext): boolean {
+  if (!context.resourceUrl || !context.currentUrl) return true
+  return isQdnRenderUrlSameAppResource(context.currentUrl, {
+    nodeOrigin: context.nodeOrigin,
+    requestedUrl: null,
+    resourceUrl: context.resourceUrl,
+  })
+}
+
 async function requireAccountReadPermission(
   sender: WebContents,
   context: QdnViewContext,
@@ -122,6 +155,12 @@ async function requireAccountReadPermission(
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
+  // Fix A defense-in-depth: refuse before even consulting the session-grant
+  // map when the view's live resource has drifted from what it was granted
+  // for — a stale grant for a different, now-loaded app must never be honored.
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Account access context changed before approval completed.')
+  }
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
   const nodeBefore = await getHomeV2ReadableNode(targetNetwork)
   const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
@@ -180,7 +219,11 @@ async function requireAccountReadPermission(
   })
   if (!decision.approved) throw new Error('Account access was denied.')
   const freshContext = getQdnViewContextForWebContents(sender)
-  if (!freshContext || !sameViewContext(context, freshContext)) {
+  if (
+    !freshContext ||
+    !sameViewContext(context, freshContext) ||
+    !liveResourceMatchesGrant(freshContext)
+  ) {
     throw new Error('Account access context changed before approval completed.')
   }
   if (action === 'UNLOCK_SELECTED_ACCOUNT') {
@@ -561,6 +604,14 @@ async function sendHomeV2ChatMessage(
     messagePreview: message.slice(0, 180),
     targetChainLabel: `${targetChainLabel} · ${groupLabel}`,
   })
+  // Fix B: reject an excessive send BEFORE any node call or proof-of-work —
+  // the single-in-flight-PoW guard (isStillValid below) already prevents
+  // overlap, but nothing previously bounded how many sends a granted tab
+  // could queue back-to-back.
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(context))
+  if (!rateLimitDecision.allowed) {
+    throw new Error(rateLimitDecision.message)
+  }
   const node = await getHomeV2ReadableNode(network)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
@@ -571,6 +622,7 @@ async function sendHomeV2ChatMessage(
   const isStillValid = async () => {
     const freshContext = getQdnViewContextForWebContents(sender)
     if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext)) return false
     if (!isAccountUnlocked(accountId)) return false
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
     return !!nodeNow && `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute
@@ -761,6 +813,7 @@ async function handleRequest(
 export function registerHomeV2AppBridgeIpcHandlers() {
   ipcMain.on('home-v2-app:account-locked', (event) => {
     sessionAccountReadGrants.clear()
+    chatSendRateLimiter.reset()
     for (const [requestId, pending] of pendingAccountReads) {
       if (pending.hostWebContentsId !== event.sender.id) continue
       pendingAccountReads.delete(requestId)

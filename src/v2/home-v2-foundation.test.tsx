@@ -1287,6 +1287,69 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   }
 }
 
+// Pins the Home v2 permission-hardening fixes (security review findings 1
+// and 8): Fix A binds a loaded app view's in-view navigation, and its
+// permission grants, to the resource it was launched for; Fix B bounds how
+// often a granted tab can broadcast chat sends. Regression risk on either is
+// high (they harden an already-shipped signing/account-read model), so this
+// locks the wiring in place rather than only the underlying pure-function
+// unit tests (electron/qdn-resource-identity.test.ts,
+// electron/home-v2-send-rate-limiter.test.ts, and
+// src/v2/shell/render-path-identity.test.ts already cover the algorithms).
+function testGrantIdentityAndSendRateLimitHardening(): void {
+  const resourceIdentity = readFileSync('electron/qdn-resource-identity.ts', 'utf8')
+  const qdnViews = readFileSync('electron/qdn-views.ts', 'utf8')
+  const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
+  const rateLimiter = readFileSync('electron/home-v2-send-rate-limiter.ts', 'utf8')
+  const appTabStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
+  const renderPathIdentity = readFileSync('src/v2/shell/render-path-identity.ts', 'utf8')
+  const liveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+
+  // Fix A, desktop primary defense: in-view navigation is bound to the
+  // launch resource identity, not just the node origin/service allowlist.
+  assert.match(resourceIdentity, /export function isQdnRenderUrlSameAppResource/)
+  assert.match(qdnViews, /function isAllowedInViewNavigation/)
+  for (const handler of ['will-navigate', 'will-frame-navigate', 'will-redirect']) {
+    const eventBlock = new RegExp(
+      `on\\('${handler}',[\\s\\S]{0,220}?isAllowedInViewNavigation`,
+    )
+    assert.match(qdnViews, eventBlock, `${handler} must gate through isAllowedInViewNavigation`)
+  }
+  assert.match(qdnViews, /updateCurrentUrl[\s\S]{0,80}isAllowedInViewNavigation/)
+  assert.match(qdnViews, /qdn-views:navigate'[\s\S]{0,600}isAllowedInViewNavigation/)
+
+  // Fix A, desktop defense-in-depth: the live currentUrl must resolve to the
+  // same app resource as the granted resourceUrl, checked BEFORE a session
+  // grant is honored and again after the permission decision.
+  assert.match(appBridge, /function liveResourceMatchesGrant/)
+  assert.match(
+    appBridge,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,700}sessionAccountReadGrants\.has\(grantKey\)/,
+  )
+  assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
+
+  // Fix A, Android: the requestApp dispatcher tracks the iframe's live
+  // navigation location and refuses a request once it has drifted from the
+  // tab's launch resource — the documented backstop for the shared-proxy-
+  // origin residual (QdnRenderProxy.java has no per-tab identity to gate on).
+  assert.match(appTabStage, /liveResourcePathRef/)
+  assert.match(appTabStage, /isSameRenderResourcePath/)
+  assert.match(appTabStage, /navigated away from its launch resource/)
+  assert.match(renderPathIdentity, /export function isSameRenderResourcePath/)
+
+  // Fix B: a shared rate limiter bounds SEND_CHAT_MESSAGE on both platforms,
+  // enforced before any node call or proof-of-work.
+  assert.match(rateLimiter, /export function createHomeV2SendRateLimiter/)
+  assert.match(rateLimiter, /HOME_V2_CHAT_SEND_MIN_INTERVAL_MS/)
+  assert.match(rateLimiter, /HOME_V2_CHAT_SEND_WINDOW_MS/)
+  assert.match(rateLimiter, /HOME_V2_CHAT_SEND_MAX_PER_WINDOW/)
+  assert.match(appBridge, /chatSendRateLimiter\.checkAndRecordSend/)
+  assert.match(appBridge, /chatSendRateLimiter\.reset\(\)/)
+  assert.match(liveApp, /androidChatSendRateLimiter[\s\S]{0,40}createHomeV2SendRateLimiter/)
+  assert.match(liveApp, /androidChatSendRateLimiter\.current\.checkAndRecordSend/)
+  assert.match(liveApp, /androidChatSendRateLimiter\.current\.reset\(\)/)
+}
+
 function testShellStateMigratesAddressSelection(): void {
   const legacy = parseHomeV2ShellState(
     {
@@ -1340,5 +1403,6 @@ testFixtureHtmlHasVisibleBootFallback()
 testProductionHomeV2EntryIsCapabilityScoped()
 testShellStateMigratesAddressSelection()
 testRendererSourceHasNoRuntimeEscapeHatches()
+testGrantIdentityAndSendRateLimitHardening()
 
 console.log('home v2 foundation contract tests passed')
