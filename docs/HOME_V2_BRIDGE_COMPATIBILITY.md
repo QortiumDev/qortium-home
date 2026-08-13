@@ -1,6 +1,6 @@
 # Home 2.0 bridge compatibility ledger
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -60,6 +60,8 @@ pages and Home 1.x retain Core's injected bridge client.
 | `SEARCH_CHAT_MESSAGES` | both | Bare Core JSON | Groups-only in this release (documented Hub deviation, see below); required non-negative `txGroupId`; `before`/`after` pre-validated against Core's floor; `limit` capped at 100 | yes | yes |
 | `GET_CHAT_MESSAGE` | both | Bare Core JSON | Base58 signature shape validated before the request | yes | yes |
 | `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
+| `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
+| `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 
 Q-Apps may also make an unchanged same-origin
 `GET /transactions/signature/{signature}` read. On Android this route requires
@@ -82,7 +84,7 @@ tranche offers no durable
 | Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
-| Chat | Chat 2.0 Phase 1 (docs/CHAT_2_0_PLAN.md): open/group reads (`SEARCH_CHAT_MESSAGES` groups-only, `GET_CHAT_MESSAGE`) and open/group send (`SEND_CHAT_MESSAGE`, both networks, client-side signed) have bridge coverage | DM search/send, private-group encryption, and Reticulum remain deferred to Phase 2+ |
+| Chat | Chat 2.0 Phase 1 (docs/CHAT_2_0_PLAN.md): open/group reads (`SEARCH_CHAT_MESSAGES` groups-only, `GET_CHAT_MESSAGE`) and open/group send (`SEND_CHAT_MESSAGE`, both networks, client-side signed) have bridge coverage; the group/chat-active read family (`GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, the three join-request reads, `GET_ACTIVE_CHATS`, plus Qortium-only `SEARCH_GROUPS`) unblocks group browsing | DM search/send, private-group encryption, and Reticulum remain deferred to Phase 2+ |
 
 On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
 slice in packaged desktop and Android previews: its feed rendered, Home's

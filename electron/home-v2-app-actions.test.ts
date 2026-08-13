@@ -70,6 +70,13 @@ for (const chainReadAction of [
   'SEARCH_TRANSACTIONS',
   'SEARCH_CHAT_MESSAGES',
   'GET_CHAT_MESSAGE',
+  'GET_GROUP',
+  'GET_ACCOUNT_GROUPS',
+  'GET_GROUP_MEMBERS',
+  'GET_GROUP_JOIN_REQUESTS',
+  'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
+  'GET_ADMIN_GROUP_JOIN_REQUESTS',
+  'GET_ACTIVE_CHATS',
 ]) {
   assert.equal(qdnActions.includes(chainReadAction), true)
   assert.equal(qortalActions.includes(chainReadAction), true)
@@ -80,6 +87,10 @@ for (const qortalOnlyAction of ['GET_DAY_SUMMARY', 'GET_PRICE']) {
   assert.equal(qdnActions.includes(qortalOnlyAction), false)
   assert.equal(qortalActions.includes(qortalOnlyAction), true)
 }
+// Qortium-only: /groups/search does not exist on Qortal (verified against
+// both the Qortal master and develop checkouts' GroupsResource.java).
+assert.equal(qdnActions.includes('SEARCH_GROUPS'), true)
+assert.equal(qortalActions.includes('SEARCH_GROUPS'), false)
 
 const blockSignature =
   '2MTZ5KAvVnJENW7hMX9AenMasoVuYQhi1RYEQcGrY6zQWoHAMVv6ZQKbMfzznBf39B7iiKG2U1TMfpfygzDW8yxqp7XfSq6EWsMaN3C26JUPLmD3JSdSC9PgX81x1nMz6RqRFpZwtH9J8ZBNaTaiHbYQprgH69i9Qjj6Y4SPkWMZrEN'
@@ -189,6 +200,126 @@ assert.equal(
   buildHomeV2ChainReadPath('LIST_GROUPS', { limit: 0, offset: 5, reverse: false }),
   '/groups?limit=0&offset=5&reverse=false',
 )
+
+// Group/chat-active read family (unblocks Chat 2.0 group browsing).
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_GROUPS', { query: 'Chess Club' }),
+  '/groups/search?query=Chess+Club',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('SEARCH_GROUPS', {
+    limit: 10,
+    prefixOnly: true,
+    query: 'Chess',
+    visibility: 'open',
+  }),
+  '/groups/search?query=Chess&visibility=OPEN&prefixOnly=true&limit=10',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_GROUPS', {}),
+  /Group search query is required/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_GROUPS', { query: 'Chess', visibility: 'PUBLIC' }),
+  /visibility must be ALL, OPEN, or CLOSED/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_GROUPS', { prefixOnly: 'true', query: 'Chess' }),
+  /must be true or false/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('SEARCH_GROUPS', { limit: 101, query: 'Chess' }),
+  /between 0 and 100/,
+)
+assert.equal(buildHomeV2ChainReadPath('GET_GROUP', { groupId: 1 }), '/groups/1')
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_GROUP', { groupId: 0 }),
+  /groupId must be a positive safe integer/,
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_GROUP', {}),
+  /groupId must be a positive safe integer/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_ACCOUNT_GROUPS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  }),
+  '/groups/member/QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_ACCOUNT_GROUPS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    adminOnly: true,
+    ownerOnly: false,
+  }),
+  '/groups/member/QH143K2qjVdn864NSY7aNESo88ao1ZnALH?adminOnly=true&ownerOnly=false',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_ACCOUNT_GROUPS', { address: 'not-an-address' }),
+  /Address is invalid/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4 }),
+  '/groups/members/4',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit: 20, onlyAdmins: true }),
+  '/groups/members/4?onlyAdmins=true&limit=20',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_GROUP_MEMBERS', { groupId: 4, limit: 101 }),
+  /between 0 and 100/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_GROUP_JOIN_REQUESTS', { groupId: 7 }),
+  '/groups/joinrequests/7',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_GROUP_JOIN_REQUESTS', { groupId: -1 }),
+  /groupId must be a positive safe integer/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_ACCOUNT_GROUP_JOIN_REQUESTS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  }),
+  '/groups/joinrequests/address/QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_ACCOUNT_GROUP_JOIN_REQUESTS', {}),
+  /Address is required/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_ADMIN_GROUP_JOIN_REQUESTS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  }),
+  '/groups/joinrequests/admin/QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_ADMIN_GROUP_JOIN_REQUESTS', { address: 'not-an-address' }),
+  /Address is invalid/,
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_ACTIVE_CHATS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  }),
+  '/chat/active/QH143K2qjVdn864NSY7aNESo88ao1ZnALH?encoding=BASE64',
+)
+assert.equal(
+  buildHomeV2ChainReadPath('GET_ACTIVE_CHATS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    encoding: 'base58',
+    hasChatReference: true,
+  }),
+  '/chat/active/QH143K2qjVdn864NSY7aNESo88ao1ZnALH?encoding=BASE58&haschatreference=true',
+)
+assert.throws(
+  () => buildHomeV2ChainReadPath('GET_ACTIVE_CHATS', {
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    hasChatReference: 'true',
+  }),
+  /must be true or false/,
+)
+
 assert.equal(
   buildHomeV2ChainReadPath('GET_AT', { atAddress: 'AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV' }),
   '/at/AaVzcbeMZM7VQjaX5PSuTf2fQxUeMWLPbV',

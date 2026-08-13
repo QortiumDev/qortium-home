@@ -31,13 +31,20 @@ const QDN_ACTIONS = [
   'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
   'FETCH_QORTAL_NODE_API',
+  'GET_ACCOUNT_GROUPS',
+  'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
+  'GET_ACTIVE_CHATS',
+  'GET_ADMIN_GROUP_JOIN_REQUESTS',
   'GET_ASSET_BALANCES',
   'GET_ASSET_INFO',
   'GET_ASSET_TRANSFERS',
   'GET_AT',
   'GET_AT_DATA',
   'GET_CHAT_MESSAGE',
+  'GET_GROUP',
+  'GET_GROUP_JOIN_REQUESTS',
+  'GET_GROUP_MEMBERS',
   'GET_NAME_DATA',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
@@ -49,6 +56,7 @@ const QDN_ACTIONS = [
   'LIST_QDN_RESOURCES',
   'RESOLVE_IDENTITIES',
   'SEARCH_CHAT_MESSAGES',
+  'SEARCH_GROUPS',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
@@ -62,12 +70,19 @@ const QORTAL_ACTIONS = [
   'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
   'GET_ACCOUNT_DATA',
+  'GET_ACCOUNT_GROUPS',
+  'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
+  'GET_ACTIVE_CHATS',
+  'GET_ADMIN_GROUP_JOIN_REQUESTS',
   'GET_AT',
   'GET_AT_DATA',
   'GET_BALANCE',
   'GET_CHAT_MESSAGE',
   'GET_DAY_SUMMARY',
+  'GET_GROUP',
+  'GET_GROUP_JOIN_REQUESTS',
+  'GET_GROUP_MEMBERS',
   'GET_NAME_DATA',
   'GET_PRICE',
   'GET_PRIMARY_NAME',
@@ -85,6 +100,13 @@ const QORTAL_ACTIONS = [
   'SEARCH_TRANSACTIONS',
   'SEND_CHAT_MESSAGE',
 ] as const
+// SEARCH_GROUPS (Qortium-only): /groups/search does not exist on Qortal
+// (verified absent from both the Qortal master 6.1.5 and develop checkouts'
+// GroupsResource.java) — it is a Qortium Core addition. Home therefore
+// advertises it only on qdnRequest, the same asymmetric pattern already used
+// for GET_DAY_SUMMARY/GET_PRICE (qortalRequest-only) and
+// RESOLVE_IDENTITIES/FETCH_ACCOUNT_AVATAR/FETCH_QORTAL_NODE_API
+// (qdnRequest-only).
 
 const READ_PREFIXES = [
   '/account-ratings',
@@ -453,18 +475,33 @@ const QORTAL_PRICE_BLOCKCHAINS = new Set([
   'RAVENCOIN',
 ])
 const TRANSACTION_CONFIRMATION_STATUSES = new Set(['BOTH', 'CONFIRMED', 'UNCONFIRMED'])
+// Core's GroupsResource#GroupSearchVisibility enum (both forks, identical):
+// ALL, OPEN, CLOSED. Not the Hub-facing PUBLIC/PRIVATE terminology.
+const GROUP_SEARCH_VISIBILITIES = new Set(['ALL', 'OPEN', 'CLOSED'])
+// Core has no server-side cap on /groups/search or /groups/members page
+// sizes; Home imposes the same conservative cap used by the other new-page
+// families above before the request goes out.
+const GROUP_LIST_LIMIT_MAX = 100
 
 const CHAIN_READ_ACTIONS = new Set([
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
+  'GET_ACCOUNT_GROUPS',
+  'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
+  'GET_ACTIVE_CHATS',
+  'GET_ADMIN_GROUP_JOIN_REQUESTS',
   'GET_AT',
   'GET_AT_DATA',
   'GET_CHAT_MESSAGE',
   'GET_DAY_SUMMARY',
+  'GET_GROUP',
+  'GET_GROUP_JOIN_REQUESTS',
+  'GET_GROUP_MEMBERS',
   'GET_PRICE',
   'LIST_ATS',
   'LIST_GROUPS',
   'SEARCH_CHAT_MESSAGES',
+  'SEARCH_GROUPS',
   'SEARCH_NAMES',
   'SEARCH_TRANSACTIONS',
 ])
@@ -548,6 +585,54 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
     const query = new URLSearchParams()
     appendPageQuery(query, request)
     return `/groups${query.size ? `?${query.toString()}` : ''}`
+  }
+  // SEARCH_GROUPS is Qortium-only (see QDN_ACTIONS/QORTAL_ACTIONS above):
+  // /groups/search does not exist on Qortal.
+  if (action === 'SEARCH_GROUPS') {
+    const query = new URLSearchParams()
+    query.set('query', requestString(request, 'query', 'Group search query', 256))
+    const visibility = typeof request.visibility === 'string'
+      ? request.visibility.trim().toUpperCase()
+      : ''
+    if (visibility) {
+      if (!GROUP_SEARCH_VISIBILITIES.has(visibility)) {
+        throw new Error('visibility must be ALL, OPEN, or CLOSED.')
+      }
+      query.set('visibility', visibility)
+    }
+    const prefixOnly = optionalStrictBoolean(request, 'prefixOnly')
+    if (prefixOnly !== undefined) query.set('prefixOnly', String(prefixOnly))
+    appendPageQuery(query, request, GROUP_LIST_LIMIT_MAX)
+    return `/groups/search?${query.toString()}`
+  }
+  if (action === 'GET_GROUP') {
+    return `/groups/${requiredPositiveInteger(request.groupId, 'groupId')}`
+  }
+  if (action === 'GET_ACCOUNT_GROUPS') {
+    const address = normalizeHomeV2Address(request.address)
+    const query = new URLSearchParams()
+    const adminOnly = optionalStrictBoolean(request, 'adminOnly')
+    if (adminOnly !== undefined) query.set('adminOnly', String(adminOnly))
+    const ownerOnly = optionalStrictBoolean(request, 'ownerOnly')
+    if (ownerOnly !== undefined) query.set('ownerOnly', String(ownerOnly))
+    return `/groups/member/${encodeURIComponent(address)}${query.size ? `?${query.toString()}` : ''}`
+  }
+  if (action === 'GET_GROUP_MEMBERS') {
+    const groupId = requiredPositiveInteger(request.groupId, 'groupId')
+    const query = new URLSearchParams()
+    const onlyAdmins = optionalStrictBoolean(request, 'onlyAdmins')
+    if (onlyAdmins !== undefined) query.set('onlyAdmins', String(onlyAdmins))
+    appendPageQuery(query, request, GROUP_LIST_LIMIT_MAX)
+    return `/groups/members/${groupId}${query.size ? `?${query.toString()}` : ''}`
+  }
+  if (action === 'GET_GROUP_JOIN_REQUESTS') {
+    return `/groups/joinrequests/${requiredPositiveInteger(request.groupId, 'groupId')}`
+  }
+  if (action === 'GET_ACCOUNT_GROUP_JOIN_REQUESTS') {
+    return `/groups/joinrequests/address/${encodeURIComponent(normalizeHomeV2Address(request.address))}`
+  }
+  if (action === 'GET_ADMIN_GROUP_JOIN_REQUESTS') {
+    return `/groups/joinrequests/admin/${encodeURIComponent(normalizeHomeV2Address(request.address))}`
   }
   if (action === 'GET_AT') {
     return `/at/${encodeURIComponent(normalizeHomeV2AtAddress(request.atAddress))}`
@@ -702,6 +787,14 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
     const query = new URLSearchParams()
     query.set('encoding', normalizeHomeV2ChatEncoding(request.encoding))
     return `/chat/message/${encodeURIComponent(signature)}?${query.toString()}`
+  }
+  if (action === 'GET_ACTIVE_CHATS') {
+    const address = normalizeHomeV2Address(request.address)
+    const query = new URLSearchParams()
+    query.set('encoding', normalizeHomeV2ChatEncoding(request.encoding))
+    const hasChatReference = optionalStrictBoolean(request, 'hasChatReference')
+    if (hasChatReference !== undefined) query.set('haschatreference', String(hasChatReference))
+    return `/chat/active/${encodeURIComponent(address)}?${query.toString()}`
   }
   throw new Error(`${action} is not a supported chain read.`)
 }
