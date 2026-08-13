@@ -897,6 +897,11 @@ app.on('will-quit', () => {
 });
 
 app.on('window-all-closed', () => {
+  // A widget is a real BrowserWindow, so this does not fire while one is open.
+  // That is deliberate: widgets outlive main Home windows, which is what keeps
+  // a floating player running after you close Home. It also means Home can sit
+  // running with no main window, a state it never had before. The tray icon
+  // that makes that state visible is still to come.
   if (process.platform !== 'darwin') {
     app.quit();
   }
