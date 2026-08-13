@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -54,6 +54,10 @@ import type {
   HomeV2NodeClient,
 } from './node-client'
 import type { HomeV2VaultClient } from './vault-client'
+import {
+  normalizeHomeV2ChatMessageText,
+  normalizeHomeV2SendTxGroupId,
+} from '../../electron/home-v2-app-actions'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -79,6 +83,19 @@ function nullableString(value: unknown) {
 function nullableNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
+
+// Android permission-prompt machinery (FIX #3, security review): desktop's
+// main process already auto-denies a pending account/chat-send permission
+// request after 60s (electron/home-v2-app-bridge.ts requireAccountReadPermission).
+// Android's inline prompts (requestApp below) previously had no timeout at
+// all, so a prompt the user never answered — or a tab that closed while one
+// was pending — left the awaiting promise (and the Chat app's SEND_CHAT_MESSAGE
+// call) hanging indefinitely. These mirror the desktop timeout and add a
+// small queue cap so a misbehaving/malicious app cannot pile up unbounded
+// pending prompts.
+const ANDROID_PERMISSION_PROMPT_TIMEOUT_MS = 60_000
+const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_PER_APP = 3
+const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_GLOBAL = 20
 
 const plannedApps: readonly AppDescriptor[] = [
   {
@@ -350,6 +367,12 @@ export function HomeV2LiveApp() {
     undefined,
     createProductState,
   )
+  // Live mirror of productState so long-running async work (e.g. the chat-send
+  // context recheck that spans a tens-of-seconds memory-pow) sees the CURRENT
+  // tab set, not the snapshot captured when the request started. Without this
+  // a tab closed mid-PoW stays invisible to the recheck (FIX #2, review 2).
+  const productStateRef = useRef(productState)
+  productStateRef.current = productState
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [busyNetwork, setBusyNetwork] = useState<NetworkId | null>(null)
   const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
@@ -401,7 +424,14 @@ export function HomeV2LiveApp() {
   const [permissionState, setPermissionState] = useState(createPermissionState)
   const androidPermissionResolvers = useRef(new Map<
     PermissionRequestId,
-    (decision: PermissionDecision) => void
+    { resolve: (decision: PermissionDecision) => void; timeout: number }
+  >())
+  // Tracks which tab/app each pending Android permission prompt belongs to,
+  // for the per-app/global queue cap and for resolving (denying) all of a
+  // tab's pending prompts when that tab closes (FIX #3, security review).
+  const androidPendingPermissionMeta = useRef(new Map<
+    PermissionRequestId,
+    { appIdentityKey: string; tabId: string }
   >())
   const androidUnlockResolvers = useRef(new Map<
     string,
@@ -813,10 +843,15 @@ export function HomeV2LiveApp() {
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
         (value.action !== 'GET_SELECTED_ACCOUNT' &&
           value.action !== 'GET_USER_ACCOUNT' &&
-          value.action !== 'UNLOCK_SELECTED_ACCOUNT') ||
+          value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
+          value.action !== 'SEND_CHAT_MESSAGE') ||
         typeof value.accountId !== 'string' ||
         typeof value.tabId !== 'string' ||
-        (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium')
+        (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
+        (value.action === 'SEND_CHAT_MESSAGE' &&
+          (typeof value.chatGroupId !== 'number' ||
+            typeof value.chatMessagePreview !== 'string' ||
+            typeof value.chatTargetChainLabel !== 'string'))
       ) {
         return
       }
@@ -853,11 +888,12 @@ export function HomeV2LiveApp() {
           return 'QDN app'
         }
       })()
+      const isSendChatMessage = value.action === 'SEND_CHAT_MESSAGE'
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: 'account.public.read',
+        capability: isSendChatMessage ? 'chat.send' : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
@@ -871,12 +907,20 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: 'Allow account access?',
-        summary: `${appTitle} wants to read the selected account address and public identity data.`,
-        details: [
-          { label: 'Account', value: account?.label ?? value.accountId },
-          { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
-        ],
+        title: isSendChatMessage ? 'Allow sending a chat message?' : 'Allow account access?',
+        summary: isSendChatMessage
+          ? `${appTitle} wants to send a chat message as the selected account.`
+          : `${appTitle} wants to read the selected account address and public identity data.`,
+        details: isSendChatMessage
+          ? [
+              { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Chain', value: String(value.chatTargetChainLabel) },
+              { label: 'Message', value: String(value.chatMessagePreview) },
+            ]
+          : [
+              { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
+            ],
         allowedScopes: ['single-request', 'session'],
       })
       setPermissionState((current) => {
@@ -898,10 +942,12 @@ export function HomeV2LiveApp() {
           return current
         }
       })
+      androidPendingPermissionMeta.current.delete(requestId)
       const androidResolver = androidPermissionResolvers.current.get(requestId)
       if (androidResolver) {
         androidPermissionResolvers.current.delete(requestId)
-        androidResolver(decision)
+        window.clearTimeout(androidResolver.timeout)
+        androidResolver.resolve(decision)
       } else {
         window.homeV2Apps?.resolvePermission({
           approved: decision.approved,
@@ -911,6 +957,51 @@ export function HomeV2LiveApp() {
       }
     },
     [],
+  )
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    return bridge.onPermissionTimeout((value) => {
+      if (!isRecord(value) || typeof value.requestId !== 'string') return
+      // The main process (electron/home-v2-app-bridge.ts requireAccountReadPermission)
+      // already auto-denied this request after its own 60s timeout; this
+      // only clears the now-stale React prompt so it does not sit on screen
+      // after the request has already been denied (FIX #3, security review).
+      // resolveAccountPermission's IPC round-trip back to main is a harmless
+      // no-op here since main already removed its own pending entry.
+      resolveAccountPermission(brand<PermissionRequestId>(value.requestId), { approved: false })
+    })
+  }, [resolveAccountPermission])
+
+  // Queues an Android-originated permission prompt (SEND_CHAT_MESSAGE and
+  // GET_SELECTED_ACCOUNT/GET_USER_ACCOUNT below) with a per-app and global
+  // pending cap and a 60s auto-deny, matching desktop's main-process timeout
+  // (FIX #3, security review). Auto-deny and manual resolution both flow
+  // through resolveAccountPermission above, so the permission-state entry is
+  // always cleared the same way the prompt was queued.
+  const queueAndroidPermissionPrompt = useCallback(
+    (prompt: Parameters<typeof queuePermissionPrompt>[1], tabId: string) => {
+      const pendingMeta = androidPendingPermissionMeta.current
+      const pendingForApp = Array.from(pendingMeta.values()).filter(
+        (meta) => meta.appIdentityKey === prompt.appIdentityKey,
+      ).length
+      if (pendingForApp >= MAX_PENDING_ANDROID_PERMISSION_PROMPTS_PER_APP) {
+        throw new Error('Too many pending permission requests for this app. Wait for the existing prompt to resolve.')
+      }
+      if (pendingMeta.size >= MAX_PENDING_ANDROID_PERMISSION_PROMPTS_GLOBAL) {
+        throw new Error('Too many pending permission requests. Wait for the existing prompts to resolve.')
+      }
+      pendingMeta.set(prompt.id, { appIdentityKey: prompt.appIdentityKey, tabId })
+      setPermissionState((current) => queuePermissionPrompt(current, prompt))
+      return new Promise<PermissionDecision>((resolve) => {
+        const timeout = window.setTimeout(() => {
+          resolveAccountPermission(prompt.id, { approved: false })
+        }, ANDROID_PERMISSION_PROMPT_TIMEOUT_MS)
+        androidPermissionResolvers.current.set(prompt.id, { resolve, timeout })
+      })
+    },
+    [resolveAccountPermission],
   )
 
   const requestApp = useCallback(
@@ -985,6 +1076,146 @@ export function HomeV2LiveApp() {
           })
         })
       }
+      if (action === 'SEND_CHAT_MESSAGE') {
+        if (!vaultClient?.sendChatMessage) throw new Error('Chat sending is unavailable on this platform.')
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const sendRequest = isRecord(requestValue) ? requestValue : {}
+        const txGroupId = normalizeHomeV2SendTxGroupId(protocol, sendRequest.txGroupId)
+        const message = normalizeHomeV2ChatMessageText(sendRequest.message)
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        // The Chat app is expected to drive UNLOCK_SELECTED_ACCOUNT first on
+        // qdnRequest; a pure-Qortal app cannot unlock in Phase 1 (documented
+        // limitation, docs/HOME_V2_BRIDGE_COMPATIBILITY.md). Failing fast here
+        // also avoids prompting for a send that cannot possibly proceed.
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+        const groupLabel = txGroupId === 0 ? 'General chat' : `Group ${txGroupId}`
+        const grantKey = [
+          context.tabId,
+          context.resourceLocation,
+          accountId,
+          protocol,
+          action,
+          account.isUnlocked,
+          nodeRoute,
+        ].join('|')
+        if (!androidSessionAccountGrants.current.has(grantKey)) {
+          const requestId = brand<PermissionRequestId>(
+            globalThis.crypto.randomUUID?.() ??
+              `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          )
+          const appTitle = (() => {
+            try {
+              return parseAppResourceLocation(context.resourceLocation).identity.name
+            } catch {
+              return 'QDN app'
+            }
+          })()
+          // Canonicalize to the app's identity (network + service/name/
+          // identifier), dropping route/query/hash, so one app cannot mint
+          // separate per-app prompt-cap buckets by opening URL variants
+          // (FIX #4, review 2). Falls back to the raw location, then the tab.
+          const appIdentityKey = (() => {
+            try {
+              const parsed = parseAppResourceLocation(context.resourceLocation)
+              return buildAppResourceLocation(parsed.sourceNetwork, parsed.identity)
+            } catch {
+              return context.resourceLocation || `home-v2-tab:${context.tabId}`
+            }
+          })()
+          const appId = brand<AppId>(`home-v2:permission-app:${appIdentityKey}`)
+          const prompt = createPermissionPrompt({
+            id: requestId,
+            protocol,
+            action: 'SEND_CHAT_MESSAGE',
+            capability: 'chat.send',
+            appId,
+            appIdentityKey,
+            appTitle,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: 'Allow sending a chat message?',
+            summary: `${appTitle} wants to send a chat message as the selected account.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Chain', value: `${targetChainLabel} · ${groupLabel}` },
+              { label: 'Message', value: message.slice(0, 180) },
+            ],
+            allowedScopes: ['single-request', 'session'],
+          })
+          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          if (!decision.approved) throw new Error('Account access was denied.')
+          if (decision.scope === 'session') androidSessionAccountGrants.current.add(grantKey)
+          const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === accountId,
+          )
+          const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            freshAccount?.isUnlocked !== account.isUnlocked ||
+            `${nodeAfter.mode}|${nodeAfter.nodeApiUrl ?? ''}` !== nodeRoute
+          ) {
+            throw new Error('Account access context changed before approval completed.')
+          }
+        }
+        // Re-verify immediately before the (potentially tens-of-seconds)
+        // memory-pow+sign step, mirroring the desktop bridge's isStillValid
+        // recheck at the same point (electron/home-v2-app-bridge.ts
+        // sendHomeV2ChatMessage's isStillValid closure: same tab/account/
+        // resource context, still unlocked, same node route). This same
+        // predicate is threaded into vaultClient.sendChatMessage, which polls
+        // it during the memory-pow computation and rechecks it once more
+        // immediately before signing/broadcast — not just here, before PoW
+        // even starts (FIX #2, security review: Android previously had no
+        // recheck once PoW was underway).
+        const checkChatSendStillValid = async () => {
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === accountId,
+          )
+          if (
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            !freshAccount?.isUnlocked
+          ) {
+            return false
+          }
+          const nodeNow = await nodeClient.getSnapshot().then(parseNodesSnapshot).catch(() => null)
+          const nodeSummary = nodeNow?.[targetNetwork]
+          return !!nodeSummary?.nodeApiUrl && `${nodeSummary.mode}|${nodeSummary.nodeApiUrl}` === nodeRoute
+        }
+        const nodeBeforeSend = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBeforeSend.nodeApiUrl || !(await checkChatSendStillValid())) {
+          throw new Error('Account access context changed before approval completed.')
+        }
+        return vaultClient.sendChatMessage({
+          accountId,
+          isStillValid: checkChatSendStillValid,
+          message,
+          network: targetNetwork,
+          nodeApiUrl: nodeBeforeSend.nodeApiUrl,
+          txGroupId,
+        })
+      }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
         return nodeClient.requestApp(protocol, requestValue, context)
       }
@@ -1045,10 +1276,7 @@ export function HomeV2LiveApp() {
           ],
           allowedScopes: ['single-request', 'session'],
         })
-        setPermissionState((current) => queuePermissionPrompt(current, prompt))
-        const decision = await new Promise<PermissionDecision>((resolve) => {
-          androidPermissionResolvers.current.set(requestId, resolve)
-        })
+        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
         if (!decision.approved) throw new Error('Account access was denied.')
         if (decision.scope === 'session') androidSessionAccountGrants.current.add(grantKey)
         const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
@@ -1087,7 +1315,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [nodeClient, productState.tabs, selectedAccountId, snapshot.nodes, vaultClient],
+    [nodeClient, productState.tabs, queueAndroidPermissionPrompt, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const refresh = useCallback(async () => {
@@ -1533,6 +1761,13 @@ export function HomeV2LiveApp() {
           delete next[tabId]
           return next
         })
+        // Deny (rather than leave hanging) any Android permission prompt
+        // still pending for this tab — closing the tab that requested it
+        // means the app frame that would have received the result is gone
+        // (FIX #3, security review).
+        for (const [requestId, meta] of androidPendingPermissionMeta.current) {
+          if (meta.tabId === tabId) resolveAccountPermission(requestId, { approved: false })
+        }
         dispatchProduct({ type: 'close-tab', tabId })
       }}
       onAppNavigationChanged={handleAppNavigationChanged}

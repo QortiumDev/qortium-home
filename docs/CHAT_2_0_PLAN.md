@@ -109,7 +109,30 @@ naming the missing endpoint when it does not.
    on Previewnet.
 2. **Phase 2 — DMs and private groups.** Client-side encryption/key handling
    design (replaces v1's key-posting endpoints), both chains; includes the
-   `SEARCH_CHAT_MESSAGES` encrypted-result decision.
+   `SEARCH_CHAT_MESSAGES` encrypted-result decision. Plan text only below —
+   nothing in this bullet is implemented yet:
+   - **Home-side DM decryption, in the trusted layer, for both chains.** For
+     a DM transaction the selected account sent or received, Home derives an
+     ECDH shared secret from the selected account's private key and the
+     counterparty's public key (the counterparty is read from the
+     transaction: recipient's public key for a sent message, sender's public
+     key for a received one), and uses that shared secret to AES-decrypt the
+     transaction's ciphertext payload — entirely inside Home's trusted layer
+     (Electron main process / Android shell), never inside the app frame.
+     This mirrors Qortium Core's own local-account decryption path
+     (`ChatResource` direct/private-group endpoints, `q-apps.js DECRYPT_DATA`)
+     but runs in Home regardless of node mode, so it works identically
+     against a local, custom, or public node — decision 3 below.
+   - **`SEARCH_CHAT_MESSAGES` gains an opt-in "decrypt mine" mode.** A new
+     request flag (name TBD at implementation time) that, when set, allows
+     `involving`/`sender`/`recipient` selectors scoped to the *selected
+     account only* and returns those DM results already decrypted using the
+     mechanism above. This does not lift the general DM restriction —
+     `SEARCH_CHAT_MESSAGES` still cannot be used to read DMs the selected
+     account is not a party to (Home has no shared secret to decrypt them
+     with, so there is nothing useful to return); it only replaces the
+     current "reject with a specific error" behavior for the account's own
+     DMs with real, decrypted results.
 3. **Phase 3 — file sharing upgrade.** Attach-by-link of existing publishes,
    attachment browsing, and the publish-attach flow reworked on the v2 write
    family (QDN publish actions are their own ledger tranche and gate this).
@@ -137,4 +160,5 @@ naming the missing endpoint when it does not.
    so DMs work identically on local, custom, and public nodes on both chains,
    exposed to apps through bridge actions; Qortium's Core-managed server-side
    path remains a local-node convenience, and the two must interoperate on the
-   same wire format.
+   same wire format. Mechanism and the `SEARCH_CHAT_MESSAGES` "decrypt mine"
+   mode are specified under Phase 2 above.

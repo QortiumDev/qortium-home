@@ -169,7 +169,8 @@ import {
   buildQortalAccountGroupsPath,
   buildQortalGroupChatPayload,
   buildUnsignedQortalGroupChatTransactionBytes,
-  QORTAL_CHAT_POW_DIFFICULTY,
+  qortalChatPowDifficultyForBalance,
+  QORTAL_CHAT_POW_DIFFICULTY_BELOW,
   stampQortalGroupChatNonce,
 } from './qortal-chat.js';
 import {
@@ -3561,6 +3562,18 @@ async function fetchSendQortBalanceAtomic(address: string) {
   return parseQortalBalanceAtomic(result.data ?? result.body);
 }
 
+// Qortal CHAT PoW difficulty depends on the sender's confirmed QORT balance
+// (electron/qortal-chat.ts). If the balance fetch fails for any reason, fall
+// back to the safer, higher difficulty rather than failing the send outright
+// — a slower send beats one Core rejects for insufficient proof-of-work.
+async function resolveQortalChatPowDifficulty(address: string) {
+  try {
+    return qortalChatPowDifficultyForBalance(await fetchSendQortBalanceAtomic(address));
+  } catch {
+    return QORTAL_CHAT_POW_DIFFICULTY_BELOW;
+  }
+}
+
 async function fetchSendQortLastReference(address: string) {
   const result = await fetchQortalNodeApi(`/addresses/lastreference/${encodeURIComponent(address)}`, 2048);
   const lastReference = result.body.trim();
@@ -3845,7 +3858,8 @@ async function sendQortalGroupChatForApp(
     timestamp: Date.now(),
     txGroupId: sendRequest.txGroupId,
   });
-  const nonce = await computeChatNonce(unsignedBytes, QORTAL_CHAT_POW_DIFFICULTY);
+  const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
+  const nonce = await computeChatNonce(unsignedBytes, difficulty);
   const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);

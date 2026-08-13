@@ -37,6 +37,7 @@ const QDN_ACTIONS = [
   'GET_ASSET_TRANSFERS',
   'GET_AT',
   'GET_AT_DATA',
+  'GET_CHAT_MESSAGE',
   'GET_NAME_DATA',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
@@ -47,9 +48,11 @@ const QDN_ACTIONS = [
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
   'RESOLVE_IDENTITIES',
+  'SEARCH_CHAT_MESSAGES',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_MESSAGE',
   'UNLOCK_SELECTED_ACCOUNT',
 ] as const
 
@@ -63,6 +66,7 @@ const QORTAL_ACTIONS = [
   'GET_AT',
   'GET_AT_DATA',
   'GET_BALANCE',
+  'GET_CHAT_MESSAGE',
   'GET_DAY_SUMMARY',
   'GET_NAME_DATA',
   'GET_PRICE',
@@ -75,9 +79,11 @@ const QORTAL_ACTIONS = [
   'LIST_ATS',
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
+  'SEARCH_CHAT_MESSAGES',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_MESSAGE',
 ] as const
 
 const READ_PREFIXES = [
@@ -453,13 +459,65 @@ const CHAIN_READ_ACTIONS = new Set([
   'FETCH_BLOCK_RANGE',
   'GET_AT',
   'GET_AT_DATA',
+  'GET_CHAT_MESSAGE',
   'GET_DAY_SUMMARY',
   'GET_PRICE',
   'LIST_ATS',
   'LIST_GROUPS',
+  'SEARCH_CHAT_MESSAGES',
   'SEARCH_NAMES',
   'SEARCH_TRANSACTIONS',
 ])
+
+// Core rejects /chat/messages before/after bounds earlier than this
+// (a pre-2018 millisecond timestamp); Home pre-validates the same floor.
+const CHAT_SEARCH_TIME_FLOOR_MS = 1_500_000_000_000
+const CHAT_SEARCH_LIMIT_MAX = 100
+
+function optionalChatTimeBound(request: Record<string, unknown>, key: string) {
+  const value = request[key]
+  if (value === undefined || value === null || value === '') return undefined
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < CHAT_SEARCH_TIME_FLOOR_MS) {
+    throw new Error(`${key} must be a millisecond timestamp no earlier than ${CHAT_SEARCH_TIME_FLOOR_MS}.`)
+  }
+  return parsed
+}
+
+function normalizeHomeV2ChatEncoding(value: unknown) {
+  if (value === undefined || value === null || value === '') return 'BASE64'
+  const encoding = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  if (encoding !== 'BASE58' && encoding !== 'BASE64') {
+    throw new Error('encoding must be BASE58 or BASE64.')
+  }
+  return encoding
+}
+
+// SEND_CHAT_MESSAGE's txGroupId rule (docs/CHAT_2_0_PLAN.md): Qortium's
+// general chat is group 0 and stays open; modern Qortal rejects group-0 CHAT
+// transactions at the API, so Home requires a positive group id there.
+export function normalizeHomeV2SendTxGroupId(protocol: HomeV2AppBridgeProtocol, value: unknown) {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error('txGroupId must be a non-negative safe integer.')
+  }
+  if (protocol === 'qortalRequest' && parsed === 0) {
+    throw new Error('Qortal no longer accepts general-chat transactions; send to a group instead.')
+  }
+  return parsed
+}
+
+// `message` is an opaque, app-owned payload (qortium-chat JSON on qdnRequest,
+// Hub-compatible JSON on qortalRequest). Home only enforces the byte bound
+// Core's CHAT transaction validates; it never parses or rewrites the content.
+export function normalizeHomeV2ChatMessageText(value: unknown) {
+  if (typeof value !== 'string') throw new Error('message is required.')
+  const byteLength = new TextEncoder().encode(value).byteLength
+  if (byteLength < 1 || byteLength > 4000) {
+    throw new Error('message must be between 1 and 4000 bytes after UTF-8 encoding.')
+  }
+  return value
+}
 
 export function isHomeV2ChainReadAction(action: string) {
   return CHAIN_READ_ACTIONS.has(action)
@@ -608,6 +666,42 @@ export function buildHomeV2ChainReadPath(action: string, request: Record<string,
     const inverse = optionalStrictBoolean(request, 'inverse')
     if (inverse !== undefined) query.set('inverse', String(inverse))
     return `/crosschain/price/${blockchain}${query.size ? `?${query.toString()}` : ''}`
+  }
+  if (action === 'SEARCH_CHAT_MESSAGES') {
+    // Decided 2026-08-12 (docs/CHAT_2_0_PLAN.md): DM-involving search is
+    // deferred to the Phase 2 DM family. Reject it with a specific error
+    // instead of silently dropping the selector.
+    if (
+      (request.involving !== undefined && request.involving !== null) ||
+      (request.sender !== undefined && request.sender !== null) ||
+      (request.recipient !== undefined && request.recipient !== null)
+    ) {
+      throw new Error(
+        'Chat search is groups-only in this release; direct-message search arrives with the DM family.',
+      )
+    }
+    const txGroupId = optionalPageInteger(request, 'txGroupId')
+    if (txGroupId === undefined) {
+      throw new Error('txGroupId is required.')
+    }
+    const query = new URLSearchParams()
+    query.set('txGroupId', String(txGroupId))
+    const before = optionalChatTimeBound(request, 'before')
+    if (before !== undefined) query.set('before', String(before))
+    const after = optionalChatTimeBound(request, 'after')
+    if (after !== undefined) query.set('after', String(after))
+    appendPageQuery(query, request, CHAT_SEARCH_LIMIT_MAX)
+    query.set('encoding', normalizeHomeV2ChatEncoding(request.encoding))
+    return `/chat/messages?${query.toString()}`
+  }
+  if (action === 'GET_CHAT_MESSAGE') {
+    const signature = typeof request.signature === 'string' ? request.signature.trim() : ''
+    if (!/^[1-9A-HJ-NP-Za-km-z]{64,128}$/.test(signature)) {
+      throw new Error('Chat message signature is invalid.')
+    }
+    const query = new URLSearchParams()
+    query.set('encoding', normalizeHomeV2ChatEncoding(request.encoding))
+    return `/chat/message/${encodeURIComponent(signature)}?${query.toString()}`
   }
   throw new Error(`${action} is not a supported chain read.`)
 }

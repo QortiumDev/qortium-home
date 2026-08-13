@@ -1027,6 +1027,25 @@ export function signChatTransaction(
   return signed;
 }
 
+// Generic detached ed25519 signature over bytes that have already had their
+// nonce stamped by the caller (e.g. the Qortal CHAT builder in
+// electron/qortal-chat.ts, whose nonce offset differs from Qortium's CHAT
+// transaction). Keeps every ed25519 signing call in this one trusted module
+// instead of importing tweetnacl elsewhere.
+export function signDetached(bytes: Uint8Array, secretKey64: Uint8Array): Uint8Array {
+  if (secretKey64.length !== ED25519_SECRET_KEY_LENGTH) {
+    throw new Error('ed25519 secret key must be 64 bytes.');
+  }
+
+  const signature = nacl.sign.detached(bytes, secretKey64);
+
+  if (signature.length !== CHAT_SIGNATURE_LENGTH) {
+    throw new Error('ed25519 signature was not 64 bytes.');
+  }
+
+  return signature;
+}
+
 export function stampTransactionNonce(unsignedTransactionBytes: Uint8Array, nonce: number): Uint8Array {
   if (!Number.isInteger(nonce) || nonce < 0 || nonce > 0xffffffff) {
     throw new Error('Transaction nonce must be a uint32.');
