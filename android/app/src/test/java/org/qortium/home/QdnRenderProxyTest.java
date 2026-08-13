@@ -88,6 +88,17 @@ public class QdnRenderProxyTest {
         );
     }
 
+    // Round 4 (Sol round-3 re-review): sameActiveResource used to hardcode
+    // candidatePathname=null, which DISABLES the initialPathname exemption
+    // for every call below (a non-null initialPathname can never .equals(null))
+    // — meaning none of these assertions ever actually exercised the
+    // exemption/identifier interaction the class comment claims to cover; they
+    // only exercised the tail identifier-comparison branch. Real requests
+    // always carry the request's own real pathname (see QdnBridgeWebViewClient
+    // serveProxiedQdnRequest, which passes url.getPath()), so this derives one
+    // from the segments exactly the way a real request would, making these
+    // vectors PRODUCTION-shaped again.
+    //
     // Fix 2 (Sol re-review #2): isSameActiveAppTabResource is the trusted-
     // layer replacement for AppTabStage.tsx's app-controlled self-report
     // backstop. These mirror electron/qdn-resource-identity.test.ts and
@@ -178,6 +189,18 @@ public class QdnRenderProxyTest {
             )
         );
 
+        assertFalse(
+            "Round 4 (Sol round-3 re-review): an explicit ?identifier= query is never exempted by a "
+                + "matching initial pathname — the exemption only covers the ambiguous no-query "
+                + "path-segment case, never an unambiguous explicit query identifier",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Trust", "settings"),
+                "/render/APP/Trust/settings",
+                "evil",
+                deepLinkedTrust
+            )
+        );
+
         QdnRenderProxy.AppIdentity noDeepLink = new QdnRenderProxy.AppIdentity("Chat", null, null);
 
         assertFalse(
@@ -192,7 +215,195 @@ public class QdnRenderProxyTest {
     }
 
     private static boolean sameActiveResource(List<String> segments, String queryIdentifier, QdnRenderProxy.AppIdentity active) {
-        return QdnRenderProxy.isSameActiveAppTabResource(segments, null, queryIdentifier, active);
+        // The real candidate pathname for these segments (see
+        // QdnBridgeWebViewClient.serveProxiedQdnRequest, which always passes
+        // request.getUrl().getPath()) — never null, unlike the bug this test
+        // fixes. Passing the REAL derived pathname (rather than null) means
+        // any of these vectors that happen to equal an AppIdentity's
+        // initialPathname now actually exercise the exemption branch, not just
+        // the tail identifier comparison.
+        return QdnRenderProxy.isSameActiveAppTabResource(segments, "/" + String.join("/", segments), queryIdentifier, active);
+    }
+
+    // Round 4, Defect B (Sol round-3 re-review): the exact exploit the invalid
+    // null-pathname helper above was masking. An OPEN_NEW_TAB address like
+    // `qdn://APP/Chat/default?identifier=evil` (node-client.ts does no
+    // identity validation on it) makes AppTabStage.tsx resolve a render URL
+    // whose PATH has no identifier segment at all (`/render/APP/Chat`, since
+    // Home's own address parsing says the identifier is "default") but whose
+    // QUERY carries `identifier=evil` straight through. The OLD code
+    // registered initialPathname="/render/APP/Chat" and let that pathname
+    // match short-circuit the identifier check entirely — so the tab's own
+    // first (and only) request, which carries `?identifier=evil`, sailed
+    // through as if it were the registered default launch. These vectors
+    // pin the fix: an explicit query identifier is NEVER covered by the
+    // initialPathname exemption, only the ambiguous no-query path-segment
+    // case is.
+    @Test
+    public void openNewTabQueryIdentifierCannotSmuggleItselfPastTheInitialPathExemption() {
+        QdnRenderProxy.AppIdentity registeredAsDefault =
+            new QdnRenderProxy.AppIdentity("Chat", null, "/render/APP/Chat");
+
+        // BEFORE this fix, this returned true (the exploit): a same-pathname,
+        // different-query request was waved through by the exemption without
+        // ever reaching the identifier comparison below.
+        assertFalse(
+            "?identifier=evil against a registered Chat/default initial path must be REFUSED, "
+                + "even though its pathname matches the registered initial request exactly",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Chat"),
+                "/render/APP/Chat",
+                "evil",
+                registeredAsDefault
+            )
+        );
+
+        // A path-segment identifier spoof on the SAME registered pathname —
+        // impossible to construct without changing the path, but the
+        // equivalent path-segment attack surface is covered by
+        // initialPathnameExemptsOnlyTheExactTrustedFirstRequest below
+        // (".../Trust/evil" against a ".../Trust/settings" registration).
+
+        // Once AppTabStage.tsx registers the CORRECTLY resolved launch
+        // identifier (resolveLaunchIdentifier folds the query in — see
+        // render-path-identity.ts), the SAME first request is consistently
+        // ALLOWED, because the declared identity now honestly says "evil"
+        // rather than "default" — the app really IS evil, consistently, not
+        // a "default" launch quietly serving different content.
+        QdnRenderProxy.AppIdentity registeredAsEvil =
+            new QdnRenderProxy.AppIdentity("Chat", "evil", "/render/APP/Chat");
+        assertTrue(
+            "with the launch identity correctly resolved from the query up front, the tab's own "
+                + "first request is consistently allowed",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Chat"),
+                "/render/APP/Chat",
+                "evil",
+                registeredAsEvil
+            )
+        );
+
+        // A LATER request from this SAME authorized tab pivoting to a
+        // DIFFERENT identifier (e.g. the app's own JS issuing
+        // fetch('/render/APP/Chat?identifier=somethingElse') well after
+        // launch) must still be refused — the pathname match alone must never
+        // stand in for the identity check, for the FIRST request or any
+        // other.
+        assertFalse(
+            "a later same-pathname request for a DIFFERENT identifier is refused",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Chat"),
+                "/render/APP/Chat",
+                "somethingElse",
+                registeredAsEvil
+            )
+        );
+
+        // /default/evil: an explicit "default" identifier PATH segment
+        // followed by a smuggled route segment does not change the resolved
+        // candidate identifier (segments[3] is what resolveCandidateIdentifier
+        // inspects; "default" there resolves to null) — included here as the
+        // spec's literal second vector, confirming it is refused against an
+        // "evil" launch identity exactly like any other mismatch.
+        assertFalse(
+            "/default/evil resolves to identifier=null (a literal default segment), which does not "
+                + "match a registered evil launch identity",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Chat", "default", "evil"),
+                "/render/APP/Chat/default/evil",
+                null,
+                registeredAsEvil
+            )
+        );
+
+        // A matching identifier's own deeper route IS allowed.
+        assertTrue(
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("render", "APP", "Chat", "evil", "settings"),
+                "/render/APP/Chat/evil/settings",
+                null,
+                registeredAsEvil
+            )
+        );
+    }
+
+    // Round 4, Defect C (Sol round-3 re-review): /arbitrary/APP/<name>/... must
+    // be bound to the SAME active app tab identity as /render/... — otherwise
+    // an authorized tab could load ANOTHER app's (or the same app's OTHER
+    // identifier's) HTML document via /arbitrary, which
+    // QdnBridgeWebViewClientTest's shouldCarryBridgeToken test shows would
+    // previously have been armed with the live bridge token exactly like the
+    // tab's own document. isSameActiveAppTabResource's segment indexing
+    // (segments[1]=service, segments[2]=name, segments[3]=identifier) is
+    // identical for "render" and "arbitrary" prefixes, so this proves the
+    // SAME function correctly refuses/allows arbitrary-shaped paths once
+    // QdnRenderProxy.classifyProxyRoute is wired to call it for
+    // PUBLIC_ARBITRARY too (see that method).
+    @Test
+    public void arbitraryAppRoutesAreBoundToTheSameActiveTabIdentity() {
+        QdnRenderProxy.AppIdentity chatEvil = new QdnRenderProxy.AppIdentity("Chat", "evil", "/render/APP/Chat");
+
+        assertFalse(
+            "an authorized Chat/evil tab must not be able to load ANOTHER app's resource as an "
+                + "/arbitrary \"data\" read",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("arbitrary", "APP", "OtherApp", "evil.html"),
+                "/arbitrary/APP/OtherApp/evil.html",
+                null,
+                chatEvil
+            )
+        );
+        assertFalse(
+            "the SAME app under a DIFFERENT identifier is refused too",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("arbitrary", "APP", "Chat", "notEvil"),
+                "/arbitrary/APP/Chat/notEvil",
+                null,
+                chatEvil
+            )
+        );
+        assertTrue(
+            "a legitimate same-resource data fetch (electron/home-v2-app-actions.ts's "
+                + "buildHomeV2ResourcePath always puts the identifier at this position and the file "
+                + "path in a `filepath` QUERY param, never as a further path segment) is allowed",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("arbitrary", "APP", "Chat", "evil"),
+                "/arbitrary/APP/Chat/evil",
+                null,
+                chatEvil
+            )
+        );
+
+        QdnRenderProxy.AppIdentity defaultTrust = new QdnRenderProxy.AppIdentity("Trust", null, "/render/APP/Trust");
+        assertTrue(
+            "a default-identity app's own arbitrary data read (no identifier segment at all) is allowed",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("arbitrary", "APP", "Trust"),
+                "/arbitrary/APP/Trust",
+                null,
+                defaultTrust
+            )
+        );
+        assertTrue(
+            "non-APP arbitrary services (images/attachments/etc, e.g. "
+                + "GET_QDN_RESOURCE_STREAM_URL reads) are never gated by app-tab identity",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("arbitrary", "IMAGE", "SomeoneElse", "pic.png"),
+                "/arbitrary/IMAGE/SomeoneElse/pic.png",
+                null,
+                chatEvil
+            )
+        );
+        assertTrue(
+            "the generic /arbitrary/resources listing route (no service/name shape at all) is "
+                + "unaffected",
+            QdnRenderProxy.isSameActiveAppTabResource(
+                parts("arbitrary", "resources"),
+                "/arbitrary/resources",
+                null,
+                chatEvil
+            )
+        );
     }
 
     @Test
@@ -211,6 +422,43 @@ public class QdnRenderProxyTest {
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "default"), null));
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "DEFAULT"), null));
         assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
+    }
+
+    // Round 4 (Sol round-3 re-review): pins parity between this class's
+    // resolveCandidateIdentifier and src/v2/shell/render-path-identity.ts's
+    // twin (resolveCandidateIdentifier there, exercised indirectly through
+    // isSameRenderResourcePath) — the SAME literal vectors, translated from
+    // that file's render-path-identity.test.ts URL forms into this class's
+    // (segments, queryIdentifier) shape, so a future edit to either rule
+    // cannot silently drift from the other without a red test on both sides.
+    @Test
+    public void resolveCandidateIdentifierMatchesTheTypeScriptTwinVectors() {
+        // render-path-identity.test.ts: `${ORIGIN}/render/APP/Chat` against
+        // {name:'Chat', identifier:null} → same resource (candidate null).
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), null));
+        // `${ORIGIN}/render/APP/Chat/settings` → candidate 'settings' (blocked
+        // against a default launch — the ambiguous path-segment case).
+        assertEquals("settings", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "settings"), null));
+        // `${ORIGIN}/render/APP/Chat/evil` → candidate 'evil'.
+        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "evil"), null));
+        // `${ORIGIN}/render/APP/Chat?identifier=evil` → candidate 'evil' (query wins).
+        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat"), "evil"));
+        // `${ORIGIN}/render/APP/Chat/default/settings` → candidate null (a
+        // literal "default" first segment is never an identifier).
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "Chat", "default", "settings"), null));
+        // `${ORIGIN}/render/APP/MyApp/docs` against {name:'MyApp',
+        // identifier:'docs'} → candidate 'docs'.
+        assertEquals("docs", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "docs"), null));
+        // `${ORIGIN}/render/APP/MyApp/docs/page-2` → candidate still 'docs'
+        // (routing lives BELOW an explicit identifier; deeper segments are
+        // never inspected).
+        assertEquals("docs", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "docs", "page-2"), null));
+        // `${ORIGIN}/render/APP/MyApp/otherIdentifier` → candidate 'otherIdentifier'.
+        assertEquals("otherIdentifier", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "otherIdentifier"), null));
+        // `${ORIGIN}/render/APP/MyApp` → candidate null (dropping the pinned identifier).
+        assertNull(QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp"), null));
+        // `${ORIGIN}/render/APP/MyApp/docs?identifier=evil` → candidate 'evil' (query still wins).
+        assertEquals("evil", QdnRenderProxy.resolveCandidateIdentifier(parts("render", "APP", "MyApp", "docs"), "evil"));
     }
 
     private static void assertRoute(

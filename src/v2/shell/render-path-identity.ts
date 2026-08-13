@@ -72,3 +72,47 @@ export function isSameRenderResourcePath(
     ? candidateIdentifier === null
     : candidateIdentifier === launch.identifier
 }
+
+// Round 4, Defect B (Sol round-3 re-review): the app tab's TRUE launch
+// identifier, resolved from the FULL first render request Home itself is
+// about to issue for this tab — including any `?identifier=` query — not
+// just the app-resource address's PATH-based identifier position.
+//
+// AppTabStage.tsx's resolveRender builds `resolved.url` from the tab's
+// `resourceLocation` (a Home-owned `qdn://APP/name/identifier/route...`
+// address, whose identifier POSITION is unambiguous — see
+// resource-location.ts). But `parseAppResourceLocation` never inspects that
+// address's `?identifier=` query for identity purposes, only its path — so
+// an address like `qdn://APP/Chat/default?identifier=evil` is parsed as
+// identity {name:'Chat', identifier:null} even though resolveRender's own
+// URL-building carries the raw query (including `identifier=evil`) straight
+// through into `resolved.url`. Core resolves an explicit `?identifier=`
+// query as the identifier OUTRIGHT (it wins over any path position, no
+// "is this a real identifier" check needed the way a bare path segment
+// requires) — so the content Core actually serves for `resolved.url` IS the
+// "evil" resource, while Home's own bookkeeping (the tab title, the native
+// proxy's registered launch identity, permission-grant lookups) would keep
+// calling it "Chat/default": a real resource ends up running with a
+// different resource's declared identity.
+//
+// Folding the query in here — used at the Android proxy-authorization and
+// live-resource-check call sites in AppTabStage.tsx — makes the declared
+// launch identity match what will actually be loaded: opening
+// `.../default?identifier=evil` is treated, consistently everywhere, as a
+// launch of Chat/evil (a real, if attacker-chosen, resource) rather than a
+// mislabeled Chat/default launch that quietly serves different content.
+//
+// This does not need to (and must not) touch `pathIdentifier` when NO query
+// identifier is present: `pathIdentifier` already comes from Home's own
+// unambiguous `qdn://` address parsing (parseAppResourceLocation), which is
+// authoritative for the path case — unlike a raw `/render/...` path segment,
+// there is no ambiguity to resolve there.
+export function resolveLaunchIdentifier(pathIdentifier: string | null, renderUrl: string): string | null {
+  let query: string | null = null
+  try {
+    query = new URL(renderUrl).searchParams.get('identifier')
+  } catch {
+    return pathIdentifier
+  }
+  return query !== null && query.trim() !== '' ? query : pathIdentifier
+}

@@ -88,7 +88,16 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         try {
             // The bridge token still travels in the query, exactly as it does for a
             // direct render request; only the origin the page loads from changed.
-            String bridgeToken = request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM);
+            //
+            // Round 4, Defect C (Sol round-3 re-review): only ever forwarded for a
+            // RENDER response — the tab's own authorized top-level document — see
+            // shouldCarryBridgeToken's doc comment for why a PUBLIC_ARBITRARY (or any
+            // other) route must never receive it, even when
+            // QdnRenderProxy.classifyProxyRoute has already scoped that request to
+            // this tab's own resource.
+            String bridgeToken = shouldCarryBridgeToken(route)
+                ? request.getUrl().getQueryParameter(QDN_BRIDGE_QUERY_PARAM)
+                : null;
 
             return fetchUpstream(
                 request,
@@ -101,6 +110,28 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         } catch (IOException ignored) {
             return null;
         }
+    }
+
+    /**
+     * Round 4, Defect C (Sol round-3 re-review): whether a proxied response for
+     * this route may carry the live signing/account-read bridge token — which
+     * {@link #fetchUpstream} arms into ANY text/html response it sees a non-null,
+     * non-empty token for (see its {@code isHtmlContentType} branch).
+     *
+     * <p>Only {@link QdnRenderProxy.RouteKind#RENDER} — the tab's own authorized
+     * top-level app document, already bound to this tab's launch identity by
+     * {@link QdnRenderProxy#classifyProxyRoute} — may. {@code PUBLIC_ARBITRARY} is
+     * for DATA reads (FETCH_QDN_RESOURCE, GET_QDN_RESOURCE_STREAM_URL, and
+     * similar; see electron/home-v2-app-actions.ts's buildHomeV2ResourcePath),
+     * which an app can point at HTML content — its own or, before this fix,
+     * another resource's — with no expectation that the response becomes a
+     * bridge-armed document. Without this, ANY html-typed /arbitrary response
+     * (same-resource or, before the classifyProxyRoute identity check above,
+     * cross-resource) would be injected with a live qdnRequest/qortalRequest
+     * bridge exactly as if it were this tab's own launched page.
+     */
+    static boolean shouldCarryBridgeToken(QdnRenderProxy.RouteKind route) {
+        return route == QdnRenderProxy.RouteKind.RENDER;
     }
 
     static boolean isAllowedProxyMethod(String method) {

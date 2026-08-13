@@ -248,8 +248,21 @@ final class QdnRenderProxy {
         // this origin — see isSameActiveAppTabResource's doc comment for why
         // this is a real, trusted-layer fix and not the app-controlled
         // self-report backstop it supersedes.
+        //
+        // Round 4, Defect C (Sol round-3 re-review): PUBLIC_ARBITRARY is
+        // checked here too, not just RENDER — /arbitrary/APP/<name>/... can
+        // return a full HTML document exactly like /render/... can (see
+        // QdnBridgeWebViewClient.fetchUpstream's HTML-content-type bridge
+        // injection), so without this an authorized tab could load ANOTHER
+        // app's resource through /arbitrary and have it treated as data,
+        // even though isSameActiveAppTabResource's own segment indexing
+        // (segments[1]=service, segments[2]=name, segments[3]=identifier) is
+        // identical for both route prefixes. QdnBridgeWebViewClient
+        // additionally never attaches the live bridge token to a
+        // PUBLIC_ARBITRARY response at all (see its shouldCarryBridgeToken),
+        // so this is defense in depth, not the only barrier.
         if (
-            route == RouteKind.RENDER
+            (route == RouteKind.RENDER || route == RouteKind.PUBLIC_ARBITRARY)
                 && authorization.homeV2
                 && !isSameActiveAppTabResource(
                     url.getPathSegments(),
@@ -298,7 +311,28 @@ final class QdnRenderProxy {
      *
      * <p>{@code candidatePathname} is separately checked against {@link
      * AppIdentity#initialPathname} first — see that field's doc comment —
-     * before falling through to the identifier check below.
+     * before falling through to the identifier check below. Round 4 (Sol
+     * round-3 re-review, Defect B): that pathname exemption now applies ONLY
+     * when the candidate carries no EXPLICIT {@code ?identifier=} query.
+     * A path segment's identifier-vs-route meaning is genuinely ambiguous to
+     * this proxy (see {@link #resolveCandidateIdentifier}'s doc comment),
+     * which is what the exemption exists to paper over for the tab's own
+     * trusted first request. An explicit query parameter has no such
+     * ambiguity — Core (and this proxy) always treat it as the identifier —
+     * so it must always be checked, even against the exempted pathname:
+     * without this, a launch address that smuggles a different identifier
+     * past its own declared path (e.g. a `.../default?identifier=evil`
+     * OPEN_NEW_TAB address, whose render URL keeps that query — see
+     * AppTabStage.tsx's resolveRender) would register {@code
+     * initialPathname="/render/APP/Chat"} and then have its OWN first
+     * request — carrying {@code ?identifier=evil} — wave itself through via
+     * the pathname match, never reaching the identifier comparison at all.
+     * (AppTabStage.tsx's authorize() call now also resolves the registered
+     * {@code appIdentifier} itself from that same query, via
+     * render-path-identity.ts's resolveLaunchIdentifier, so a correctly
+     * wired caller registers "evil" as the launch identifier up front and
+     * this check is consistent either way — but it must not rely on that
+     * alone.)
      */
     static boolean isSameActiveAppTabResource(
         List<String> segments,
@@ -306,7 +340,7 @@ final class QdnRenderProxy {
         String queryIdentifier,
         AppIdentity active
     ) {
-        // segments = [render, service, name, identifierOrPathSegment, ...].
+        // segments = [render|arbitrary, service, name, identifierOrPathSegment, ...].
         // WEBSITE/GAME/HASH render paths carry no Home v2 account-read/
         // signing bridge (see AppTabStage.tsx resolveRender, which only ever
         // builds an APP-service render URL) and have no per-tab launch
@@ -316,18 +350,27 @@ final class QdnRenderProxy {
             return true;
         }
 
-        // Fail closed: a homeV2 origin serving APP render content with no
-        // registered tab identity (authorize() was never called with one, or
-        // the tab has not fully launched yet) has nothing to check against.
+        // Fail closed: a homeV2 origin serving APP render/arbitrary content
+        // with no registered tab identity (authorize() was never called with
+        // one, or the tab has not fully launched yet) has nothing to check
+        // against.
         if (active == null) {
             return false;
         }
 
-        // The tab's own trusted initial request is always allowed — see
-        // AppIdentity#initialPathname's doc comment for why this is safe and
-        // necessary (a legitimate default-identity deep link's first path
-        // segment is otherwise indistinguishable from a spoofed identifier).
-        if (active.initialPathname != null && active.initialPathname.equals(candidatePathname)) {
+        boolean hasExplicitQueryIdentifier = queryIdentifier != null && !queryIdentifier.trim().isEmpty();
+
+        // The tab's own trusted initial request is allowed even though its
+        // first path segment may be indistinguishable from a spoofed
+        // identifier — see AppIdentity#initialPathname's doc comment — but
+        // ONLY for that ambiguous, no-query case. See this method's doc
+        // comment for why an explicit query identifier is never covered by
+        // this exemption.
+        if (
+            !hasExplicitQueryIdentifier
+                && active.initialPathname != null
+                && active.initialPathname.equals(candidatePathname)
+        ) {
             return true;
         }
 

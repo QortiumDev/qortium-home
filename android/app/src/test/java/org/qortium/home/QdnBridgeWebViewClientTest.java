@@ -190,6 +190,38 @@ public class QdnBridgeWebViewClientTest {
         throw new AssertionError("A transaction response above 512 KiB was accepted.");
     }
 
+    // Round 4, Defect C (Sol round-3 re-review): the exploit was that
+    // serveProxiedQdnRequest forwarded the request's bridgeToken query param
+    // to fetchUpstream REGARDLESS of route — so any HTML response reachable
+    // via /arbitrary (an app's own, or, before QdnRenderProxy's identity check
+    // was extended to PUBLIC_ARBITRARY, another resource's) got the live
+    // qdnRequest/qortalRequest signing bridge injected into it exactly as if
+    // it were this tab's own authorized document. Before this fix,
+    // shouldCarryBridgeToken did not exist and the token flowed for every
+    // route; after, it flows ONLY for RENDER.
+    @Test
+    public void bridgeTokenOnlyCarriesForRenderRoutes() {
+        assertTrue(
+            "the tab's own authorized top-level render document may carry the bridge token",
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.RENDER)
+        );
+        assertFalse(
+            "a /arbitrary DATA read must never carry the live signing/account-read bridge token, "
+                + "even for the tab's own resource, or its response could be armed as a "
+                + "bridge-connected document",
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.PUBLIC_ARBITRARY)
+        );
+        assertFalse(
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.TRANSACTION_SIGNATURE)
+        );
+        assertFalse(
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.HOME_V2_BRIDGE_CLIENT)
+        );
+        assertFalse(
+            QdnBridgeWebViewClient.shouldCarryBridgeToken(QdnRenderProxy.RouteKind.DENIED)
+        );
+    }
+
     @Test
     public void proxyCompatibilityReadsRemainGetOnly() {
         assertTrue(QdnBridgeWebViewClient.isAllowedProxyMethod("GET"));

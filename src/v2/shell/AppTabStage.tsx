@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
-import { isSameRenderResourcePath } from './render-path-identity'
+import { isSameRenderResourcePath, resolveLaunchIdentifier } from './render-path-identity'
 import {
   readHomeV2AppNavigationMessage,
   readHomeV2AppTitleMessage,
@@ -223,10 +223,17 @@ function AndroidAppStage(props: AppTabStageProps) {
         // default-identity app's specific sub-page (its first path segment
         // otherwise looking exactly like a spoofed identifier) is not itself
         // blocked — see QdnRenderProxy.AppIdentity's doc comment.
+        //
+        // Fix 3 (Sol round-3, Defect B): the registered identifier is
+        // resolved from the FULL first request (query wins), not just
+        // resolved.identity's path-based value — see
+        // render-path-identity.ts's resolveLaunchIdentifier doc comment for
+        // why a smuggled `?identifier=` query would otherwise register the
+        // wrong (too-permissive) launch identity.
         authorizeHomeV2AndroidAppOrigin(
           resolved.nodeApiUrl,
           resolved.identity.name,
-          resolved.identity.identifier,
+          resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
           new URL(resolved.url).pathname,
         ),
       )
@@ -283,14 +290,17 @@ function AndroidAppStage(props: AppTabStageProps) {
       // iframe whose (app-controlled, so not fully trusted — see the
       // liveResourcePathRef comment above) self-reported live location no
       // longer matches the resource this tab was launched for.
-      const launchIdentity = (() => {
-        if (!resolved) return null
-        try {
-          return parseAppResourceLocation(resolved.tab.context.resourceLocation).identity
-        } catch {
-          return null
-        }
-      })()
+      // Fix 3 (Sol round-3, Defect B): fold the query the same way the
+      // native authorize() registration now does (resolveLaunchIdentifier),
+      // reusing resolved.identity rather than re-parsing
+      // resourceLocation — a second, independent parse of the same address
+      // could otherwise drift from what was actually registered natively.
+      const launchIdentity = resolved
+        ? {
+            name: resolved.identity.name,
+            identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+          }
+        : null
       const liveResourcePath = liveResourcePathRef.current
       if (
         !launchIdentity ||
@@ -421,8 +431,50 @@ export interface AppTabStageProps {
   ) => Promise<unknown>
 }
 
+// Round 4, Defect A (Sol round-3 re-review): the key React unmounts/remounts
+// AndroidAppStage on. Includes both the active tab id AND its
+// resourceLocation — a tab switch always changes the id, but keying on the
+// resourceLocation too means this stays correct even if some future caller
+// ever navigated the CURRENTLY active tab's own resource in place (not
+// reachable from today's UI: openApp always mints a fresh tab id, and
+// activate-tab never touches resourceLocation — see HomeV2LiveApp.tsx).
+//
+// Without this, the SAME AndroidAppStage component instance (and its
+// `source`/`token` state, message listener, and liveResourcePathRef) is
+// reused across a tab switch: on the render where `productState.activeTabId`
+// flips from A to B, the memoized `resolved` (derived from productState via
+// useMemo, so it updates SYNCHRONOUSLY within that same render) already
+// reports tab B's context, while the iframe's `key` (`${resolved.tab.id}:…`,
+// AndroidAppStage's OWN inner key) also flips to B — causing React to
+// discard A's iframe DOM node and mount a brand-new one, but with `src` set
+// to whatever `source` state STILL holds (A's stale render URL, since the
+// effect that calls setSource(B's url) has not run yet). That freshly
+// created iframe briefly starts loading A's stale content while every other
+// signal (resolved, launchIdentity, liveResourcePathRef re-seeded from
+// resolved) already says "B" — exactly the stale-token/new-context window
+// this fix closes. liveResourcePathRef cannot be trusted to catch this
+// either: its own effect re-seeds it to resolved.url (B's URL) the instant
+// `resolved` changes, so the "does the live location match the launch" check
+// in the message handler below is comparing B's expected URL against itself,
+// not against what the iframe is actually loading.
+//
+// Keying the WHOLE AndroidAppStage instance here (not just its inner iframe)
+// makes React discard that entire component instance — and, in the SAME
+// commit, run its effect cleanups (which remove the stale message listener)
+// BEFORE the fresh instance for B ever mounts — so there is no render, and
+// no committed DOM state, in which A's iframe/token exist at the same time
+// `resolved` reports B. DesktopAppStage is deliberately NOT included in this
+// keying: it owns a persistent native WebContentsView (see its own effect,
+// which explicitly hides — rather than destroys — a departing tab's view),
+// and remounting it on every tab switch would defeat that.
+export function androidAppStageKey(productState: ProductState): string {
+  const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
+  return tab ? `${tab.id}:${tab.context.resourceLocation}` : 'none'
+}
+
 export function AppTabStage(props: AppTabStageProps) {
-  return window.homeV2Apps ? <DesktopAppStage {...props} /> : <AndroidAppStage {...props} />
+  if (window.homeV2Apps) return <DesktopAppStage {...props} />
+  return <AndroidAppStage key={androidAppStageKey(props.productState)} {...props} />
 }
 
 declare global {

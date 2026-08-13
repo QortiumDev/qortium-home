@@ -1385,10 +1385,37 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // now ALSO registered with, and enforced by, the trusted native proxy
   // layer BEFORE the iframe is ever created, so it can never load a
   // different app's render bytes in the first place.
+  //
+  // Round 4 (Sol round-3 re-review), Defect B: the registered identifier is
+  // resolved from the FULL first request (query wins over the path-based
+  // identifier), via resolveLaunchIdentifier — not resolved.identity's
+  // path-only value directly — or an OPEN_NEW_TAB address that smuggles a
+  // `?identifier=` query past its own declared path would register the
+  // WRONG (too permissive) launch identity. The SAME resolved identifier is
+  // reused for the launchIdentity self-report check below it, rather than a
+  // second independent parse of resourceLocation that could drift from what
+  // was actually registered natively.
   assert.match(
     appTabStage,
-    /authorizeHomeV2AndroidAppOrigin\(\s*resolved\.nodeApiUrl,\s*resolved\.identity\.name,\s*resolved\.identity\.identifier,\s*new URL\(resolved\.url\)\.pathname,/,
-    'the tab\'s own trusted initial pathname must be registered too (deep-link exemption)',
+    /authorizeHomeV2AndroidAppOrigin\(\s*resolved\.nodeApiUrl,\s*resolved\.identity\.name,\s*resolveLaunchIdentifier\(resolved\.identity\.identifier, resolved\.url\),\s*new URL\(resolved\.url\)\.pathname,/,
+    'the tab\'s own trusted initial pathname must be registered too (deep-link exemption), and the ' +
+      'identifier itself must be query-aware',
+  )
+  assert.match(
+    appTabStage,
+    /identifier: resolveLaunchIdentifier\(resolved\.identity\.identifier, resolved\.url\),/,
+    'the launchIdentity self-report check must use the SAME query-aware resolution as authorize()',
+  )
+  assert.match(renderPathIdentity, /export function resolveLaunchIdentifier/)
+  assert.match(
+    renderPathIdentity,
+    /searchParams\.get\('identifier'\)/,
+    'resolveLaunchIdentifier must resolve the identifier from the render URL\'s OWN query, the ' +
+      'same way Core/RenderResource and the desktop predicate do',
+  )
+  assert.match(
+    appTabStage,
+    /import \{ isSameRenderResourcePath, resolveLaunchIdentifier \} from '\.\/render-path-identity'/,
   )
   assert.match(
     androidAppHost,
@@ -1405,19 +1432,61 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   // spoofed identifier) — but ONLY that exact registered path, so this must
   // stay a narrow equality check, not a prefix/pattern match.
   assert.match(qdnRenderProxy, /final String initialPathname;/)
+  // Round 4, Defect B: that pathname exemption must NEVER cover an explicit
+  // ?identifier= query — only the genuinely ambiguous no-query path-segment
+  // case (see isSameActiveAppTabResource's doc comment). Without
+  // `!hasExplicitQueryIdentifier` gating it, a `.../default?identifier=evil`
+  // launch's own first request — its pathname matching the registered
+  // initialPathname exactly — would skip the identifier comparison
+  // entirely.
+  assert.match(qdnRenderProxy, /boolean hasExplicitQueryIdentifier =/)
   assert.match(
     qdnRenderProxy,
-    /active\.initialPathname != null && active\.initialPathname\.equals\(candidatePathname\)/,
+    /!hasExplicitQueryIdentifier\s*&&\s*active\.initialPathname != null\s*&&\s*active\.initialPathname\.equals\(candidatePathname\)/,
   )
   assert.match(
     qdnRenderProxy,
-    /route == RouteKind\.RENDER[\s\S]{0,200}authorization\.homeV2[\s\S]{0,200}isSameActiveAppTabResource/,
-    'classifyProxyRoute must enforce the active app tab identity for RENDER routes on homeV2 origins',
+    /\(route == RouteKind\.RENDER \|\| route == RouteKind\.PUBLIC_ARBITRARY\)[\s\S]{0,200}authorization\.homeV2[\s\S]{0,200}isSameActiveAppTabResource/,
+    'classifyProxyRoute must enforce the active app tab identity for RENDER AND PUBLIC_ARBITRARY ' +
+      'routes on homeV2 origins (Round 4, Defect C: /arbitrary/APP/... can return a full HTML ' +
+      'document exactly like /render/... can)',
   )
   assert.match(
     qdnBridgeWebViewClient,
     /QdnRenderProxy\.isProxyUrl\(url\)\) \{[\s\S]{0,1200}classifyProxyRoute\(url\) == QdnRenderProxy\.RouteKind\.DENIED/,
     'shouldOverrideUrlLoading must cancel a subframe navigation classifyProxyRoute would deny',
+  )
+  // Round 4, Defect C part 2: even a request classifyProxyRoute allows (same
+  // resource, PUBLIC_ARBITRARY) must never carry the live signing/account-
+  // read bridge token — only the tab's own RENDER document may. Without
+  // this, an app's own (or, before the check above, another resource's)
+  // HTML reachable via /arbitrary would be armed with a live bridge exactly
+  // as if it were the tab's launched document.
+  assert.match(qdnBridgeWebViewClient, /static boolean shouldCarryBridgeToken\(QdnRenderProxy\.RouteKind route\)/)
+  assert.match(qdnBridgeWebViewClient, /return route == QdnRenderProxy\.RouteKind\.RENDER;/)
+  assert.match(
+    qdnBridgeWebViewClient,
+    /String bridgeToken = shouldCarryBridgeToken\(route\)[\s\S]{0,120}QDN_BRIDGE_QUERY_PARAM\)[\s\S]{0,20}: null;/,
+    'serveProxiedQdnRequest must gate the bridge token on shouldCarryBridgeToken, not forward it ' +
+      'for every route',
+  )
+
+  // Round 4, Defect A: the Android app stage is keyed by the active tab id
+  // (+ resourceLocation) so React fully unmounts App A's iframe/token/
+  // message-listener before App B's fresh instance ever mounts — no render
+  // may exist in which a stale iframe/token coexists with an already-
+  // updated `resolved` reporting a DIFFERENT tab. DesktopAppStage is
+  // deliberately excluded (persistent native WebContentsView).
+  assert.match(appTabStage, /export function androidAppStageKey\(productState: ProductState\)/)
+  assert.match(
+    appTabStage,
+    /return <AndroidAppStage key=\{androidAppStageKey\(props\.productState\)\} \{\.\.\.props\} \/>/,
+    'the Android branch of AppTabStage must be keyed by androidAppStageKey; DesktopAppStage must not be',
+  )
+  assert.doesNotMatch(
+    appTabStage,
+    /return <DesktopAppStage key=/,
+    'DesktopAppStage owns a persistent native WebContentsView and must stay unkeyed',
   )
 
   // Fix B: a shared rate limiter bounds SEND_CHAT_MESSAGE on both platforms,
