@@ -23,7 +23,14 @@ const COMMON_ACTIONS = [
   'OPEN_NEW_TAB',
   'SHOW_ACTIONS',
   'WHICH_UI',
+  // The widget actions are listed for every app, but each one is rejected
+  // unless the calling view is itself a widget. A normal tab cannot reach them.
   'WIDGET_CLOSE',
+  'WIDGET_END_DRAG',
+  'WIDGET_GET_STATE',
+  'WIDGET_RESIZE',
+  'WIDGET_SET_REGIONS',
+  'WIDGET_START_DRAG',
 ] as const
 
 const QDN_ACTIONS = [

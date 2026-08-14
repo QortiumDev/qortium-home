@@ -66,7 +66,10 @@ function readEntry(value: unknown): string {
   return entry
 }
 
-function readShape(value: unknown): WidgetShape | null {
+// Exported because WIDGET_SET_REGIONS validates a runtime region update with
+// exactly these rules. An app must not be able to use the runtime path to
+// declare a shape its manifest would have been rejected for.
+export function parseWidgetShape(value: unknown): WidgetShape | null {
   if (value === undefined || value === null) return null
   if (!isRecord(value) || !Array.isArray(value.polygons)) {
     throw new Error('shape must be an object with a polygons array.')
@@ -142,6 +145,6 @@ export function parseWidgetManifest(raw: string): WidgetManifest {
     minSize,
     maxSize,
     resizable: resizable as WidgetResizable,
-    shape: readShape(value.shape),
+    shape: parseWidgetShape(value.shape),
   }
 }

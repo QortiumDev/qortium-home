@@ -40,11 +40,19 @@ import {
   discoverWidgetManifest,
   parseWidgetResourceIdentity,
 } from './widget-discovery.js'
+import {
+  endWidgetDrag,
+  getWidgetState,
+  resizeWidget,
+  setWidgetRegions,
+  startWidgetDrag,
+} from './widget-interaction.js'
 import { normalizeRegion } from './widget-region.js'
 import {
   allocateWidgetId,
   assertWidgetCapacity,
   isWidgetTabId,
+  listWidgets,
   registerWidget,
 } from './widget-registry.js'
 import { createWidgetWindow } from './widget-window.js'
@@ -450,6 +458,7 @@ async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: 
     // opaque; the hit-test loop and the tray move these from here.
     ignoringMouse: true,
     opacity: 1,
+    snappedEdges: [],
   })
 
   return { widgetId }
@@ -458,15 +467,38 @@ async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: 
 // No permission prompt: an app closing its own widget can only ever remove one
 // of its own windows.
 function handleWidgetClose(context: QdnViewContext): { closed: boolean } {
-  if (!isWidgetTabId(context.tabId)) {
-    throw new Error('WIDGET_CLOSE is only available inside a widget.')
-  }
+  requireWidgetContext(context, 'WIDGET_CLOSE')
   const window = getContextWindow(context)
   if (!window || window.isDestroyed()) {
     throw new Error('This widget no longer belongs to an open window.')
   }
   window.close()
   return { closed: true }
+}
+
+// Every widget action is scoped to the widget it was called from. The id comes
+// out of the view's own tabId, never out of the request, so an app cannot drag,
+// resize or reshape somebody else's widget.
+function requireWidgetContext(context: QdnViewContext, action: string): string {
+  if (!isWidgetTabId(context.tabId)) {
+    throw new Error(`${action} is only available inside a widget.`)
+  }
+  const widgetId = context.tabId.slice('widget:'.length)
+  if (!widgetId) throw new Error(`${action} could not identify its widget.`)
+  return widgetId
+}
+
+function handleWidgetAction(context: QdnViewContext, action: string, request: Record<string, unknown>) {
+  const widgetId = requireWidgetContext(context, action)
+  const others = listWidgets()
+
+  if (action === 'WIDGET_SET_REGIONS') return setWidgetRegions(widgetId, request.shape)
+  if (action === 'WIDGET_START_DRAG') return startWidgetDrag(widgetId, others)
+  if (action === 'WIDGET_END_DRAG') return endWidgetDrag(widgetId)
+  if (action === 'WIDGET_RESIZE') {
+    return resizeWidget(widgetId, { height: request.height, width: request.width }, others)
+  }
+  return getWidgetState(widgetId)
 }
 
 async function handleRequest(
@@ -501,6 +533,15 @@ async function handleRequest(
   }
   if (action === 'WIDGET_CLOSE') {
     return handleWidgetClose(context)
+  }
+  if (
+    action === 'WIDGET_END_DRAG' ||
+    action === 'WIDGET_GET_STATE' ||
+    action === 'WIDGET_RESIZE' ||
+    action === 'WIDGET_SET_REGIONS' ||
+    action === 'WIDGET_START_DRAG'
+  ) {
+    return handleWidgetAction(context, action, requestValue)
   }
   if (action === 'OPEN_NEW_TAB') {
     const address = normalizeHomeV2OpenAddress(requestValue)

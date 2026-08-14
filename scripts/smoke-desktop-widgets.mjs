@@ -136,6 +136,22 @@ const ALWAYS_ON_TOP_IS_REPORTED = mainRequire(`
   return reported
 `)
 
+const registryModule = JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-registry.js'))
+const interactionModule = JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-interaction.js'))
+
+// Number of polygons currently driving hit-testing. The manifest declares one
+// pentagon, so a pushed replacement is only observable in the main process.
+const READ_WIDGET_REGION = mainRequire(`
+  const [record] = require(${registryModule}).listWidgets()
+  return record && record.region ? record.region.polygons.length : null
+`)
+
+const READ_WIDGET_DRAGGING = mainRequire(`
+  const [record] = require(${registryModule}).listWidgets()
+  if (!record) return null
+  return require(${interactionModule}).isWidgetDragging(record.windowId)
+`)
+
 const CLOSE_HOME_WINDOWS = mainRequire(`
   const { BrowserWindow } = require('electron')
   const closed = BrowserWindow.getAllWindows()
@@ -284,6 +300,81 @@ async function main() {
       'Every listed widget needs a close action.',
     )
     log('tray lists the live widget by name with a close action')
+
+    // --- Widget bridge actions, driven from inside the widget itself --------
+
+    const state = await face.evaluate(widgetRequest({ action: 'WIDGET_GET_STATE' }))
+    assert.equal(state.widgetId, opened.widgetId, `WIDGET_GET_STATE failed: ${JSON.stringify(state)}`)
+    assert.equal(state.resizable, 'both')
+    assert.equal(state.opacity, 1)
+    assert.deepEqual(state.minSize, { width: 200, height: 60 })
+    assertDeclaredSize(state.bounds, { width: 280, height: 120 }, 'the reported state size')
+    log('WIDGET_GET_STATE reports the live window')
+
+    // A runtime region update is held to the manifest's own caps, so an app
+    // cannot use this path to declare a shape its manifest would have been
+    // rejected for.
+    const tooManyPoints = { polygons: [Array.from({ length: 300 }, (_, i) => [i / 300, 0])] }
+    const rejectedShape = await face.evaluate(
+      widgetRequest({ action: 'WIDGET_SET_REGIONS', shape: tooManyPoints }),
+    )
+    assert.match(
+      rejectedShape.error ?? '',
+      /at most 256 points/,
+      `An oversized region set must be rejected: ${JSON.stringify(rejectedShape)}`,
+    )
+
+    const acceptedShape = await face.evaluate(widgetRequest({
+      action: 'WIDGET_SET_REGIONS',
+      shape: { polygons: [[[0, 0], [0.5, 0], [0.5, 1], [0, 1]]] },
+    }))
+    assert.equal(acceptedShape.applied, true, `WIDGET_SET_REGIONS failed: ${JSON.stringify(acceptedShape)}`)
+    await waitUntil('the pushed region to be applied', STEP_TIMEOUT_MS, async () =>
+      await home.main.evaluate(READ_WIDGET_REGION) === 1)
+    log('WIDGET_SET_REGIONS replaced the clickable region')
+
+    // Resizing is clamped to the manifest, so a request far past maxSize stops
+    // at maxSize rather than being ignored or honoured.
+    const resized = await face.evaluate(
+      widgetRequest({ action: 'WIDGET_RESIZE', width: 9000, height: 9000 }),
+    )
+    assert.deepEqual(
+      resized,
+      { width: 560, height: 240 },
+      `WIDGET_RESIZE must clamp to the manifest maximum: ${JSON.stringify(resized)}`,
+    )
+    const afterResize = (await home.main.evaluate(DESCRIBE_WIDGETS))[0]
+    assertDeclaredSize(afterResize.bounds, { width: 560, height: 240 }, 'the clamped size')
+    log('WIDGET_RESIZE clamped to the declared maximum')
+
+    // A drag follows the cursor and ends on mouseup. The cursor does not move
+    // during a smoke, so the widget must stay where it started and the drag
+    // must be dismissable through WIDGET_END_DRAG rather than running forever.
+    const dragStarted = await face.evaluate(widgetRequest({ action: 'WIDGET_START_DRAG' }))
+    assert.equal(dragStarted.dragging, true, `WIDGET_START_DRAG failed: ${JSON.stringify(dragStarted)}`)
+    assert.equal(
+      await home.main.evaluate(READ_WIDGET_DRAGGING),
+      true,
+      'The main process must register the drag.',
+    )
+    const dragEnded = await face.evaluate(widgetRequest({ action: 'WIDGET_END_DRAG' }))
+    assert.equal(dragEnded.dragging, false, `WIDGET_END_DRAG failed: ${JSON.stringify(dragEnded)}`)
+    assert.equal(
+      await home.main.evaluate(READ_WIDGET_DRAGGING),
+      false,
+      'Ending a drag must release it.',
+    )
+    log('WIDGET_START_DRAG and WIDGET_END_DRAG round-trip')
+
+    // The same actions must be refused from a normal tab, where the calling
+    // view is not a widget at all.
+    const fromTab = await appView.evaluate(widgetRequest({ action: 'WIDGET_GET_STATE' }))
+    assert.match(
+      fromTab.error ?? '',
+      /only available inside a widget/,
+      `A normal tab must not reach widget actions: ${JSON.stringify(fromTab)}`,
+    )
+    log('widget actions are refused from a normal tab')
 
     // Widgets outlive main Home windows. This is the state Home has never had
     // before, and the tray above is what makes it navigable.

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { WidgetManifest } from './widget-manifest.js'
 import type { WidgetRegion } from './widget-region.js'
+import type { SnapEdge } from './widget-snapping.js'
 
 export const WIDGETS_PER_APP_MAX = 4
 export const WIDGETS_TOTAL_MAX = 16
@@ -16,6 +17,7 @@ export type WidgetRecord = {
   // getter for it, and WIDGET_GET_STATE has to report it.
   ignoringMouse: boolean
   opacity: number
+  snappedEdges: readonly SnapEdge[]
 }
 
 const widgets = new Map<string, WidgetRecord>()

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { shouldLoadRendererFromDist } from './renderer-entry.js'
 import { shouldIgnoreMouse } from './widget-hit-testing.js'
+import { isWidgetDragging } from './widget-interaction.js'
 import type { WidgetManifest } from './widget-manifest.js'
 import {
   getWidget,
@@ -108,6 +109,10 @@ function startHitTesting(window: BrowserWindow) {
       clearInterval(timer)
       return
     }
+    // A drag holds the pointer captured by the app view, so re-deciding
+    // ignore-mouse mid-drag would drop the gesture the moment the cursor left
+    // the declared region.
+    if (isWidgetDragging(window.id)) return
     const record = getWidgetByWindowId(window.id)
     // Content bounds, not window bounds: the declared region is normalised
     // against the area the app paints, and on Windows those two rectangles
