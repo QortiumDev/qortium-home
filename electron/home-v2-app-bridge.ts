@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, webContents, type WebContents } from 'electron'
 import { randomUUID } from 'node:crypto'
 import {
   getHomeV2ReadableNode,
@@ -50,6 +50,16 @@ import {
 import { createWidgetWindow } from './widget-window.js'
 
 export { getHomeV2AppActions as getHomeV2ReadOnlyAppActions }
+
+// QdnViewContext.windowId is the host window's *webContents* id, not its
+// BrowserWindow id (see getOrCreateEntry in qdn-views.ts). The two sequences
+// only coincide for the first window, so resolving it as a window id silently
+// yields null for every window opened after it.
+function getContextWindow(context: QdnViewContext): BrowserWindow | null {
+  const hostContents = webContents.fromId(context.windowId)
+  if (!hostContents || hostContents.isDestroyed()) return null
+  return BrowserWindow.fromWebContents(hostContents)
+}
 
 type AccountReadAction = 'GET_SELECTED_ACCOUNT' | 'GET_USER_ACCOUNT' | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
@@ -111,7 +121,7 @@ async function requireAccountReadPermission(
     nodeRoute,
   )
   if (sessionAccountReadGrants.has(grantKey)) return
-  const hostWindow = BrowserWindow.fromId(context.windowId)
+  const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
   }
@@ -353,7 +363,7 @@ async function requireWidgetPermission(sender: WebContents, context: QdnViewCont
   const grantKey = context.resourceUrl ?? `home-v2-tab:${context.tabId}`
   if (widgetGrants.has(grantKey)) return
 
-  const hostWindow = BrowserWindow.fromId(context.windowId)
+  const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
   }
@@ -447,8 +457,10 @@ function handleWidgetClose(context: QdnViewContext): { closed: boolean } {
   if (!isWidgetTabId(context.tabId)) {
     throw new Error('WIDGET_CLOSE is only available inside a widget.')
   }
-  const window = BrowserWindow.fromId(context.windowId)
-  if (!window || window.isDestroyed()) return { closed: false }
+  const window = getContextWindow(context)
+  if (!window || window.isDestroyed()) {
+    throw new Error('This widget no longer belongs to an open window.')
+  }
   window.close()
   return { closed: true }
 }
@@ -488,7 +500,7 @@ async function handleRequest(
   }
   if (action === 'OPEN_NEW_TAB') {
     const address = normalizeHomeV2OpenAddress(requestValue)
-    const hostWindow = BrowserWindow.fromId(context.windowId)
+    const hostWindow = getContextWindow(context)
     if (!hostWindow || hostWindow.isDestroyed()) {
       throw new Error('The app request does not belong to an active Home window.')
     }

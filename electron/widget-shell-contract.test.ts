@@ -52,4 +52,29 @@ assert.ok(
   'WidgetShell must not send nodeOrigin in the show request; the field is nodeApiUrl',
 )
 
+// QdnViewContext.windowId holds a webContents id, not a BrowserWindow id.
+// Resolving it with BrowserWindow.fromId works only for the very first window,
+// so it succeeds for a normal tab and returns null for a widget window. That
+// made WIDGET_CLOSE fail silently while every account prompt kept working.
+const bridgeSource = readFileSync(
+  path.join(repoRoot, 'electron/home-v2-app-bridge.ts'),
+  'utf8',
+)
+assert.ok(
+  !/BrowserWindow\.fromId\(\s*context\.windowId\s*\)/.test(bridgeSource),
+  'context.windowId is a webContents id; resolve the window with getContextWindow instead',
+)
+
+// The same trap exists wherever a view context is turned back into a window.
+assert.ok(
+  /webContents\.fromId\(context\.windowId\)/.test(bridgeSource),
+  'getContextWindow must resolve context.windowId through webContents.fromId',
+)
+
+// Diagnostics used while chasing that bug must not ship.
+assert.ok(
+  !/console\.log\(\s*[`'"]\[widget\]/.test(bridgeSource),
+  'temporary [widget] diagnostics must be removed before shipping',
+)
+
 console.log('widget-shell-contract tests passed')
