@@ -713,6 +713,20 @@ export function HomeV2LiveApp() {
     [snapshot.identity.id, snapshot.identity.selectedWallet],
   )
 
+  // Whether an app has a widget face is only knowable from the manifest it
+  // publishes, so the toolbar offers the action for any app tab and reports
+  // back here when the app turns out not to have one.
+  const openTabAsWidget = useCallback(async (tabId: string): Promise<string | null> => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return 'Widgets are only available on desktop.'
+    try {
+      const result = await bridge.openAsWidget({ tabId })
+      return result.ok ? null : result.message
+    } catch (error) {
+      return error instanceof Error ? error.message : 'This app could not be opened as a widget.'
+    }
+  }, [])
+
   const openAddress = useCallback(
     async (address: string): Promise<AddressOpenResult> => {
       try {
@@ -1647,6 +1661,7 @@ export function HomeV2LiveApp() {
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}
+      onOpenAsWidget={openTabAsWidget}
       onResolvePermission={resolveAccountPermission}
       canGoBack={activeNavigationPosition > 0}
       canGoForward={

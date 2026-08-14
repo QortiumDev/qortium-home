@@ -696,6 +696,35 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
   return null;
 }
 
+// The "Open as widget" toolbar action is issued by the Home shell rather than
+// by the app, so the request names a tab instead of arriving on the app view's
+// own webContents. The host window is verified by the caller, so a shell can
+// only ever address a tab in its own window.
+// hostWebContentsId, not a BrowserWindow id: qdnViewsByWindow is keyed by the
+// host window's webContents id, and so is the windowId this returns. The two
+// sequences only coincide for the very first window, so mixing them up works in
+// testing and fails for every window opened afterwards.
+export function getQdnViewContextForTab(
+  hostWebContentsId: number,
+  tabId: string,
+): QdnViewContext | null {
+  const entry = qdnViewsByWindow.get(hostWebContentsId)?.get(tabId);
+
+  if (!entry) {
+    return null;
+  }
+
+  return {
+    accountId: entry.accountId,
+    currentUrl: entry.currentUrl,
+    displaySettings: entry.displaySettings,
+    nodeOrigin: entry.nodeOrigin,
+    resourceUrl: entry.resourceUrl,
+    tabId: entry.tabId,
+    windowId: hostWebContentsId,
+  };
+}
+
 function getQdnViewEntryForWebContents(webContents: WebContents): QdnViewEntry | null {
   for (const windowViews of qdnViewsByWindow.values()) {
     for (const entry of windowViews.values()) {

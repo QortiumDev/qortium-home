@@ -405,6 +405,41 @@ async function main() {
     )
     log('widget actions are refused from a normal tab')
 
+    // --- The toolbar's "Open as widget" action ------------------------------
+
+    // The shell names a tab; the app view's own context is resolved in the main
+    // process, so the request cannot point at a resource the tab is not showing.
+    // The grant is already held for this app, so no second prompt is expected.
+    const viaToolbar = await shell.evaluate(`
+      window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })
+    `, STEP_TIMEOUT_MS)
+    assert.equal(viaToolbar.ok, true, `The toolbar action failed: ${JSON.stringify(viaToolbar)}`)
+    await waitUntil('a second widget from the toolbar', STEP_TIMEOUT_MS, async () =>
+      (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 2)
+
+    // A tab that is not showing an app cannot be opened as a widget.
+    const unknownTab = await shell.evaluate(`
+      window.homeV2Apps.openAsWidget({ tabId: 'not-a-real-tab' })
+    `)
+    assert.equal(unknownTab.ok, false)
+    assert.match(unknownTab.message ?? '', /not showing a published app/)
+    log('toolbar "Open as widget" opens a widget and refuses an unknown tab')
+
+    // Back to a single widget for the persistence leg below.
+    assert.equal(await home.main.evaluate(clickTray(['Close all 2 widgets'])), 'clicked')
+    await waitUntil('the tray close-all action', STEP_TIMEOUT_MS, async () =>
+      (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
+    log('tray close-all dismissed every widget')
+
+    const reopened = await shell.evaluate(`
+      window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })
+    `, STEP_TIMEOUT_MS)
+    assert.equal(reopened.ok, true, `Reopening failed: ${JSON.stringify(reopened)}`)
+    await waitUntil('the reopened widget', STEP_TIMEOUT_MS, async () => {
+      const found = await home.main.evaluate(DESCRIBE_WIDGETS)
+      return found.length === 1 && found[0].visible
+    })
+
     // Widgets outlive main Home windows. This is the state Home has never had
     // before, and the tray above is what makes it navigable.
     face.close()
@@ -447,9 +482,21 @@ async function main() {
     // chosen from the tray all have to come back.
     const before = (await home.main.evaluate(DESCRIBE_WIDGETS))[0]
     assert.equal(await home.main.evaluate(clickTray([`${APP_NAME}/${APP_IDENTIFIER}`, 'Close'])), 'clicked')
-    await waitUntil('the tray close action to take effect', STEP_TIMEOUT_MS, async () =>
-      (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
-    log('tray close action dismissed the widget')
+
+    // With no main Home window left, closing the last widget also ends the
+    // session: window-all-closed finally fires. The main process may therefore
+    // be tearing down by the time we look, so an evaluation that finds no
+    // context is just as good an answer as an empty widget list. Either way the
+    // close-time placement save has run, which is what the relaunch reads back.
+    const dismissed = await waitUntil('the tray close action', STEP_TIMEOUT_MS, async () => {
+      try {
+        return (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0
+      } catch {
+        return true
+      }
+    })
+    assert.equal(dismissed, true)
+    log('tray close action dismissed the last widget')
 
     await home.stop()
     home = await launchHome({ profileDirectory, repoRoot })

@@ -7,6 +7,7 @@ import {
 } from './home-v2-node-bridge.js'
 import { nodeFetch } from './node-tls.js'
 import {
+  getQdnViewContextForTab,
   getQdnViewContextForWebContents,
   type QdnViewContext,
 } from './qdn-views.js'
@@ -690,6 +691,29 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  // "Open as widget" in the toolbar. The shell names a tab; the app view's own
+  // context is then resolved in the main process, so the request cannot point
+  // at a resource the tab is not actually showing. The permission gate and the
+  // launch path are the same ones OPEN_AS_WIDGET uses.
+  //
+  // The result is a plain object rather than the qdn bridge envelope: that
+  // envelope exists so an app cannot forge an error back to itself, and this
+  // channel is only reachable from Home's own shell.
+  ipcMain.handle('home-v2-widgets:open', async (event, value: unknown) => {
+    try {
+      const tabId = stringField(value, 'tabId')
+      if (!tabId) throw new Error('Opening a widget needs a tab.')
+      // event.sender.id is the host window's webContents id, which is exactly
+      // what qdn-views keys its per-window view map by.
+      const context = getQdnViewContextForTab(event.sender.id, tabId)
+      if (!context) throw new Error('That tab is not showing a published app.')
+      await requireWidgetPermission(event.sender, context)
+      const { widgetId } = await handleOpenAsWidget(context)
+      return { ok: true, widgetId }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
   ipcMain.on('home-v2-app:account-locked', (event) => {
     sessionAccountReadGrants.clear()
     widgetGrants.clear()

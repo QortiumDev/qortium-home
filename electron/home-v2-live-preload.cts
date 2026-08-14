@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
   updateAccountState: (request: unknown) =>
     ipcRenderer.invoke('qdn-views:updateAccountState', request),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
+  openAsWidget: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:open', request),
   resolvePermission: (request: unknown) =>
     ipcRenderer.send('home-v2-app:permission-resolve', request),
   onOpenAddress: (listener: (event: unknown) => void) => {
