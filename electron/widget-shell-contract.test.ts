@@ -77,4 +77,107 @@ assert.ok(
   'temporary [widget] diagnostics must be removed before shipping',
 )
 
+// --- Plan 2 boundaries -------------------------------------------------------
+
+// The shell-initiated "Open as widget" resolves a view by tab. That lookup is
+// keyed by the host window's webContents id, so it must be fed event.sender.id
+// and never a BrowserWindow id.
+assert.match(
+  bridgeSource,
+  /getQdnViewContextForTab\(event\.sender\.id,/,
+  'getQdnViewContextForTab must be given the host webContents id, not a window id',
+)
+
+// A widget action must take its widget id from the calling view's own tabId.
+// Reading it from the request would let any widget drag, resize or reshape
+// another app's widget.
+const widgetActionHandler = bridgeSource.slice(
+  bridgeSource.indexOf('function handleWidgetAction'),
+)
+assert.ok(
+  widgetActionHandler.startsWith('function handleWidgetAction'),
+  'handleWidgetAction must exist in home-v2-app-bridge.ts',
+)
+assert.ok(
+  !/request\.widgetId|requestValue\.widgetId/.test(bridgeSource),
+  'a widget action must never take its widget id from the request',
+)
+
+// Every widget action has to be in the bridge catalogue, or it is rejected
+// before any of the routing above is reached.
+const actionsSource = readFileSync(
+  path.join(repoRoot, 'electron/home-v2-app-actions.ts'),
+  'utf8',
+)
+for (const action of [
+  'OPEN_AS_WIDGET',
+  'WIDGET_CLOSE',
+  'WIDGET_END_DRAG',
+  'WIDGET_GET_STATE',
+  'WIDGET_RESIZE',
+  'WIDGET_SET_REGIONS',
+  'WIDGET_START_DRAG',
+]) {
+  assert.match(
+    actionsSource,
+    new RegExp(`'${action}'`),
+    `${action} must be listed in the Home v2 app action catalogue`,
+  )
+}
+
+// The renderer's permission handler is an allowlist that silently drops
+// anything it does not recognise, so a prompt whose action is missing from
+// bridge-permissions never reaches the user and the request just times out.
+// That is precisely how OPEN_AS_WIDGET failed the first time.
+const permissionsSource = readFileSync(
+  path.join(repoRoot, 'src/v2/bridge-permissions.ts'),
+  'utf8',
+)
+assert.match(
+  permissionsSource,
+  /'OPEN_AS_WIDGET'/,
+  'OPEN_AS_WIDGET must be declared in src/v2/bridge-permissions.ts',
+)
+
+// A runtime region push must be validated by the same parser the manifest
+// uses, so an app cannot use it to declare a shape its manifest would have
+// been rejected for.
+const interactionSource = readFileSync(
+  path.join(repoRoot, 'electron/widget-interaction.ts'),
+  'utf8',
+)
+assert.match(
+  interactionSource,
+  /parseWidgetShape/,
+  'WIDGET_SET_REGIONS must validate through the manifest shape parser',
+)
+
+// Hit-testing measures the rectangle the app paints into. Window bounds and
+// content bounds differ on Windows by the invisible resize border, and mixing
+// them shifts every declared region.
+const windowSource = readFileSync(path.join(repoRoot, 'electron/widget-window.ts'), 'utf8')
+assert.match(
+  windowSource,
+  /shouldIgnoreMouse\(\s*\n?\s*window\.getContentBounds\(\)/,
+  'the hit-test loop must measure getContentBounds, not getBounds',
+)
+
+// The widget window and the main window must agree about when to load the
+// built renderer. If only one of them honours QORTIUM_HOME_LOAD_DIST, an
+// unpackaged run shows a Home window with a blank widget or the reverse.
+for (const [label, source] of [
+  ['electron/main.ts', readFileSync(path.join(repoRoot, 'electron/main.ts'), 'utf8')],
+  ['electron/widget-window.ts', windowSource],
+] as const) {
+  assert.match(
+    source,
+    /shouldLoadRendererFromDist\(\)/,
+    `${label} must decide its renderer entry through shouldLoadRendererFromDist`,
+  )
+  assert.ok(
+    !/if \(app\.isPackaged\) \{\s*\n\s*void (window|this)\.load/.test(source),
+    `${label} must not branch on app.isPackaged directly when loading the renderer`,
+  )
+}
+
 console.log('widget-shell-contract tests passed')
