@@ -11,12 +11,16 @@ import {
   setWidgetOpacity,
   unregisterWidget,
 } from './widget-registry.js'
+import { clampWidgetSize } from './widget-sizing.js'
+import { clampRectToDisplays } from './widget-snapping.js'
+import { readWidgetPlacements, saveWidgetPlacement } from './widget-store.js'
 
 // package.json sets "type": "module", so this compiles to ESM and __dirname is
 // not defined. electron/main.ts derives it the same way.
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 
 const HIT_TEST_INTERVAL_MS = 16
+const PLACEMENT_SAVE_DELAY_MS = 250
 // A widget the user cannot see is a widget the user cannot close by clicking,
 // so opacity has a floor well above invisible.
 export const WIDGET_OPACITY_MIN = 0.2
@@ -39,9 +43,62 @@ function centreOnCursorDisplay(width: number, height: number) {
   }
 }
 
+// A widget is remembered per published app, so reopening it puts it back where
+// the user left it. The stored size is still clamped to what the manifest
+// currently allows, because a republished app may have tightened its own
+// bounds since the placement was saved.
+function restoredPlacement(options: CreateWidgetWindowOptions) {
+  const stored = readWidgetPlacements()[options.resourceUrl]
+  if (!stored) return null
+
+  const size = clampWidgetSize(
+    options.manifest,
+    options.manifest.defaultSize,
+    { width: stored.width, height: stored.height },
+  )
+  // Clamped to a display that is actually connected, so a placement saved on a
+  // monitor that has since been unplugged does not strand the widget somewhere
+  // the user cannot reach it.
+  const bounds = clampRectToDisplays(
+    { x: stored.x, y: stored.y, ...size },
+    screen.getAllDisplays().map((display) => display.workArea),
+  )
+  return { ...bounds, opacity: stored.opacity }
+}
+
+// Debounced, because a drag emits a move event per frame and the store is a
+// staged write to disk each time.
+function watchPlacement(window: BrowserWindow, widgetId: string, resourceUrl: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const save = () => {
+    timer = undefined
+    if (window.isDestroyed()) return
+    const bounds = window.getContentBounds()
+    saveWidgetPlacement(resourceUrl, {
+      ...bounds,
+      opacity: getWidget(widgetId)?.opacity ?? 1,
+      updatedAt: Date.now(),
+    })
+  }
+
+  const schedule = () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(save, PLACEMENT_SAVE_DELAY_MS)
+  }
+
+  window.on('move', schedule)
+  window.on('resize', schedule)
+  window.on('close', () => {
+    if (timer) clearTimeout(timer)
+    save()
+  })
+}
+
 export function createWidgetWindow(options: CreateWidgetWindowOptions): BrowserWindow {
-  const { width, height } = options.manifest.defaultSize
-  const position = centreOnCursorDisplay(width, height)
+  const restored = restoredPlacement(options)
+  const { width, height } = restored ?? options.manifest.defaultSize
+  const position = restored ?? centreOnCursorDisplay(width, height)
 
   const window = new BrowserWindow({
     width,
@@ -92,8 +149,11 @@ export function createWidgetWindow(options: CreateWidgetWindowOptions): BrowserW
     void window.loadURL(`${base}/widget.html?${query.toString()}`)
   }
 
+  if (restored && restored.opacity < 1) window.setOpacity(restored.opacity)
+
   window.once('ready-to-show', () => window.show())
   startHitTesting(window)
+  watchPlacement(window, options.widgetId, options.resourceUrl)
 
   window.on('closed', () => unregisterWidget(options.widgetId))
 
@@ -146,10 +206,18 @@ export function closeWidget(widgetId: string): boolean {
 }
 
 export function setWidgetWindowOpacity(widgetId: string, opacity: number): boolean {
+  const record = getWidget(widgetId)
   const window = getWidgetWindow(widgetId)
-  if (!window) return false
+  if (!record || !window) return false
   const clamped = Math.min(1, Math.max(WIDGET_OPACITY_MIN, opacity))
   window.setOpacity(clamped)
   setWidgetOpacity(widgetId, clamped)
+  // Saved straight away rather than waiting for the next move: choosing an
+  // opacity is a deliberate user action and there may not be another one.
+  saveWidgetPlacement(record.resourceUrl, {
+    ...window.getContentBounds(),
+    opacity: clamped,
+    updatedAt: Date.now(),
+  })
   return true
 }

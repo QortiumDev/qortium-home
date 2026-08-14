@@ -19,7 +19,8 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { launchHome, mainRequire, waitUntil } from './lib/electron-main-driver.mjs'
 
@@ -178,62 +179,90 @@ const DESCRIBE_TRAY = mainRequire(`
   return describe(menu.items)
 `)
 
+// Invokes a tray command by label path, the same way a user picking it would.
+function clickTray(labels) {
+  return mainRequire(`
+    const menu = require(${JSON.stringify(path.join(repoRoot, 'dist-electron', 'tray.js'))}).getTrayMenu()
+    if (!menu) return 'no tray'
+    let items = menu.items
+    let target = null
+    for (const label of ${JSON.stringify(labels)}) {
+      target = items.find((item) => item.label === label)
+      if (!target) return 'missing: ' + label
+      items = target.submenu ? target.submenu.items : []
+    }
+    target.click()
+    return 'clicked'
+  `)
+}
+
+/**
+ * Walks the production launch path: attach the fixture app as a QDN view,
+ * approve the widget grant through the real IPC, and call OPEN_AS_WIDGET from
+ * inside the app. Returns the shell and app-view clients alongside the result,
+ * because the restart leg needs to do all of this a second time.
+ */
+async function openFixtureWidget(home, node) {
+  const shell = await home.renderer((url) => url.includes('/v2-live.html'), 'home shell')
+  await waitUntil('the Home shell bridge', STEP_TIMEOUT_MS, async () =>
+    await shell.evaluate('typeof window.homeV2Apps?.show === "function"') === true)
+
+  // Answer the widget grant the moment it is asked for. The dialog itself is
+  // covered by smoke-desktop-home-v2-prompt.mjs; what matters here is that
+  // OPEN_AS_WIDGET reaches the renderer at all, which it did not before the
+  // action was added to the bridge-permissions allowlist.
+  await shell.evaluate(`
+    (() => {
+      window.__widgetPrompts = []
+      window.homeV2Apps.onPermissionRequest((payload) => {
+        window.__widgetPrompts.push(payload)
+        window.homeV2Apps.resolvePermission({
+          approved: true,
+          requestId: payload.requestId,
+          scope: 'session',
+        })
+      })
+      return true
+    })()
+  `)
+
+  const shown = await shell.evaluate(`
+    window.homeV2Apps.show({
+      accountId: null,
+      bounds: { x: 0, y: 80, width: 800, height: 500 },
+      displaySettings: { accent: 'default', language: 'en', textSize: 'medium', theme: 'dark' },
+      nodeApiUrl: ${JSON.stringify(node.origin)},
+      renderUrl: ${JSON.stringify(`${node.origin}/render/APP/${APP_NAME}/${APP_IDENTIFIER}/index.html`)},
+      resourceUrl: ${JSON.stringify(RESOURCE_URL)},
+      tabId: 'smoke-app'
+    }).then(() => true, (error) => String(error && error.message || error))
+  `)
+  assert.equal(shown, true, `The fixture app view could not be attached: ${shown}`)
+
+  const appView = await home.renderer((url) => url.endsWith('/index.html'), 'fixture app')
+  await waitUntil('the fixture app bridge', STEP_TIMEOUT_MS, async () =>
+    await appView.evaluate('typeof window.qdnRequest === "function"') === true)
+
+  const opened = await appView.evaluate(widgetRequest({ action: 'OPEN_AS_WIDGET' }), STEP_TIMEOUT_MS)
+  assert.ok(opened?.widgetId, `OPEN_AS_WIDGET failed: ${JSON.stringify(opened)}`)
+  return { appView, shell, widgetId: opened.widgetId }
+}
+
 async function main() {
   const node = await startFixtureNode()
   log(`fixture node listening on ${node.origin}`)
+  // A shared profile across both launches is what makes the restart meaningful:
+  // placement persistence is exactly the thing that must survive it.
+  const profileDirectory = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-widget-smoke-'))
   let home = null
 
   try {
-    home = await launchHome({ repoRoot })
+    home = await launchHome({ profileDirectory, repoRoot })
     log('Home launched unpackaged with the main process inspector attached')
 
-    const shell = await home.renderer((url) => url.includes('/v2-live.html'), 'home shell')
-    await waitUntil('the Home shell bridge', STEP_TIMEOUT_MS, async () =>
-      await shell.evaluate('typeof window.homeV2Apps?.show === "function"') === true)
-
-    // Answer the widget grant the moment it is asked for. The dialog itself is
-    // covered by smoke-desktop-home-v2-prompt.mjs; what matters here is that
-    // OPEN_AS_WIDGET reaches the renderer at all, which it did not before the
-    // action was added to the bridge-permissions allowlist.
-    await shell.evaluate(`
-      (() => {
-        window.__widgetPrompts = []
-        window.homeV2Apps.onPermissionRequest((payload) => {
-          window.__widgetPrompts.push(payload)
-          window.homeV2Apps.resolvePermission({
-            approved: true,
-            requestId: payload.requestId,
-            scope: 'session',
-          })
-        })
-        return true
-      })()
-    `)
-
-    const shown = await shell.evaluate(`
-      window.homeV2Apps.show({
-        accountId: null,
-        bounds: { x: 0, y: 80, width: 800, height: 500 },
-        displaySettings: { accent: 'default', language: 'en', textSize: 'medium', theme: 'dark' },
-        nodeApiUrl: ${JSON.stringify(node.origin)},
-        renderUrl: ${JSON.stringify(`${node.origin}/render/APP/${APP_NAME}/${APP_IDENTIFIER}/index.html`)},
-        resourceUrl: ${JSON.stringify(RESOURCE_URL)},
-        tabId: 'smoke-app'
-      }).then(() => true, (error) => String(error && error.message || error))
-    `)
-    assert.equal(shown, true, `The fixture app view could not be attached: ${shown}`)
-    log('fixture app attached as a QDN view')
-
-    const appView = await home.renderer((url) => url.endsWith('/index.html'), 'fixture app')
-    await waitUntil('the fixture app bridge', STEP_TIMEOUT_MS, async () =>
-      await appView.evaluate('typeof window.qdnRequest === "function"') === true)
-
-    const opened = await appView.evaluate(
-      widgetRequest({ action: 'OPEN_AS_WIDGET' }),
-      STEP_TIMEOUT_MS,
-    )
-    assert.ok(opened?.widgetId, `OPEN_AS_WIDGET failed: ${JSON.stringify(opened)}`)
-    log(`widget opened: ${opened.widgetId}`)
+    const { appView, shell, widgetId } = await openFixtureWidget(home, node)
+    const opened = { widgetId }
+    log(`widget opened: ${widgetId}`)
 
     const prompts = await shell.evaluate('window.__widgetPrompts.map((p) => p.action)')
     assert.deepEqual(
@@ -394,10 +423,65 @@ async function main() {
     )
     log('widget survived closing every main Home window')
 
+    // --- Opacity, chosen from the tray -------------------------------------
+
+    assert.equal(await home.main.evaluate(clickTray([`${APP_NAME}/${APP_IDENTIFIER}`, 'Opacity', '75%'])), 'clicked')
+    await waitUntil('the widget to dim', STEP_TIMEOUT_MS, async () => {
+      const [current] = await home.main.evaluate(DESCRIBE_WIDGETS)
+      return current && Math.abs(current.opacity - 0.75) < 0.001
+    })
+    const dimmedTray = await home.main.evaluate(DESCRIBE_TRAY)
+    const opacityMenu = dimmedTray
+      .find((item) => item.label === `${APP_NAME}/${APP_IDENTIFIER}`)
+      ?.submenu?.find((item) => item.label === 'Opacity')?.submenu
+    assert.deepEqual(
+      opacityMenu?.filter((item) => item.checked).map((item) => item.label),
+      ['75%'],
+      'The tray must show which opacity step is selected.',
+    )
+    log('tray opacity applied and reflected back in the menu')
+
+    // --- Placement persistence across a real restart ------------------------
+
+    // The size it was resized to, the position it was left at, and the opacity
+    // chosen from the tray all have to come back.
+    const before = (await home.main.evaluate(DESCRIBE_WIDGETS))[0]
+    assert.equal(await home.main.evaluate(clickTray([`${APP_NAME}/${APP_IDENTIFIER}`, 'Close'])), 'clicked')
+    await waitUntil('the tray close action to take effect', STEP_TIMEOUT_MS, async () =>
+      (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
+    log('tray close action dismissed the widget')
+
+    await home.stop()
+    home = await launchHome({ profileDirectory, repoRoot })
+    log('Home relaunched against the same profile')
+
+    const restored = await openFixtureWidget(home, node)
+    const after = await waitUntil('the restored widget', STEP_TIMEOUT_MS, async () => {
+      const found = await home.main.evaluate(DESCRIBE_WIDGETS)
+      return found.length === 1 && found[0].visible ? found[0] : null
+    })
+    assert.ok(restored.widgetId, 'The widget must reopen after a restart.')
+    assert.deepEqual(
+      { x: after.bounds.x, y: after.bounds.y, width: after.bounds.width, height: after.bounds.height },
+      { x: before.bounds.x, y: before.bounds.y, width: before.bounds.width, height: before.bounds.height },
+      'A widget must reopen at the size and position it was left at.',
+    )
+    assert.ok(
+      Math.abs(after.opacity - 0.75) < 0.001,
+      `A widget must reopen at the opacity it was left at, got ${after.opacity}.`,
+    )
+    log('placement and opacity survived a restart')
+
     log('all widget host assertions passed')
   } finally {
     await home?.stop()
     node.close()
+    try {
+      rmSync(profileDirectory, { force: true, maxRetries: 5, recursive: true })
+    } catch {
+      // Windows holds the profile briefly after exit; a leftover temp directory
+      // must not fail an otherwise passing smoke.
+    }
   }
 }
 
