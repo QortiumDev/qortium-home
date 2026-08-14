@@ -156,6 +156,7 @@
     "postinstall": "node scripts/patch-local-notifications-receiver.mjs",
     "test:home-v2-account-security": "npm run build:electron && node scripts/test-home-v2-account-security.mjs",
     "test:home-v2-profile-recovery": "npm run build:electron && node scripts/test-home-v2-profile-recovery.mjs",
+    "test:tray-menu": "node scripts/ensure-electron-build.mjs && node dist-electron/tray-menu.test.js",
     "test:widget-manifest": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-manifest.test.js",
     "test:widget-region": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-region.test.js",
     "test:widget-hit-testing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-hit-testing.test.js",

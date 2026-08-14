@@ -446,6 +446,10 @@ async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: 
     manifest,
     windowId: window.id,
     region: normalizeRegion(manifest.shape),
+    // createWidgetWindow starts every widget transparent to clicks and fully
+    // opaque; the hit-test loop and the tray move these from here.
+    ignoringMouse: true,
+    opacity: 1,
   })
 
   return { widgetId }

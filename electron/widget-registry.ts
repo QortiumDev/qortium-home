@@ -12,9 +12,25 @@ export type WidgetRecord = {
   readonly manifest: WidgetManifest
   readonly windowId: number
   region: WidgetRegion | null
+  // Mirrors the last value handed to setIgnoreMouseEvents. Electron exposes no
+  // getter for it, and WIDGET_GET_STATE has to report it.
+  ignoringMouse: boolean
+  opacity: number
 }
 
 const widgets = new Map<string, WidgetRecord>()
+const changeListeners = new Set<() => void>()
+
+// The tray inventory has to track the live set exactly, because a widget
+// missing from it is a window the user may have no other way to close.
+export function onWidgetsChanged(listener: () => void) {
+  changeListeners.add(listener)
+  return () => changeListeners.delete(listener)
+}
+
+function notifyWidgetsChanged() {
+  for (const listener of changeListeners) listener()
+}
 
 export function widgetTabId(widgetId: string): string {
   return `widget:${widgetId}`
@@ -43,10 +59,20 @@ export function assertWidgetCapacity(appName: string) {
 
 export function registerWidget(record: WidgetRecord) {
   widgets.set(record.widgetId, record)
+  notifyWidgetsChanged()
 }
 
 export function unregisterWidget(widgetId: string) {
-  widgets.delete(widgetId)
+  if (widgets.delete(widgetId)) notifyWidgetsChanged()
+}
+
+// Opacity is user-controlled through the tray, so a change has to redraw the
+// menu that shows which step is selected.
+export function setWidgetOpacity(widgetId: string, opacity: number) {
+  const record = widgets.get(widgetId)
+  if (!record) return
+  record.opacity = opacity
+  notifyWidgetsChanged()
 }
 
 export function getWidget(widgetId: string): WidgetRecord | null {

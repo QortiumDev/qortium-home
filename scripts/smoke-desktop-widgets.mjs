@@ -125,6 +125,43 @@ const DESCRIBE_HOME_WINDOWS = mainRequire(`
     .map((window) => window.id)
 `)
 
+// Creates a throwaway control window that asks for always-on-top the most
+// direct way there is, and reports whether the platform admits to it. This is
+// the calibration for the widget's own always-on-top assertion.
+const ALWAYS_ON_TOP_IS_REPORTED = mainRequire(`
+  const { BrowserWindow } = require('electron')
+  const control = new BrowserWindow({ alwaysOnTop: true, height: 80, show: false, width: 120 })
+  const reported = control.isAlwaysOnTop()
+  control.destroy()
+  return reported
+`)
+
+const CLOSE_HOME_WINDOWS = mainRequire(`
+  const { BrowserWindow } = require('electron')
+  const closed = BrowserWindow.getAllWindows()
+    .filter((window) => window.webContents.getURL().includes('v2-live.html'))
+  for (const window of closed) window.close()
+  return closed.length
+`)
+
+// Reads the live tray menu rather than the model that produced it, so a
+// mis-mapped node or a menu that was never rebuilt still fails.
+//
+// require() of an ESM file shares the ESM module cache, so this is the same
+// tray.js instance the app itself loaded, not a fresh copy.
+const DESCRIBE_TRAY = mainRequire(`
+  const menu = require(${JSON.stringify(path.join(repoRoot, 'dist-electron', 'tray.js'))}).getTrayMenu()
+  if (!menu) return null
+  const describe = (items) => items.map((item) => ({
+    checked: item.checked,
+    enabled: item.enabled,
+    label: item.label,
+    submenu: item.submenu ? describe(item.submenu.items) : null,
+    type: item.type,
+  }))
+  return describe(menu.items)
+`)
+
 async function main() {
   const node = await startFixtureNode()
   log(`fixture node listening on ${node.origin}`)
@@ -199,7 +236,19 @@ async function main() {
     const widget = widgets[0]
     log(`widget window ${widget.id} at ${JSON.stringify(widget.bounds)}`)
 
-    assert.equal(widget.alwaysOnTop, true, 'A widget must float above other applications.')
+    // isAlwaysOnTop() is not dependable on every desktop session. On this
+    // Windows box it has been observed returning false even for a control
+    // window created with alwaysOnTop: true, while the window genuinely does
+    // float. So calibrate against a control window rather than trusting the
+    // getter blindly: if the platform reports it at all, the widget must match,
+    // and if it does not, say so loudly instead of passing quietly.
+    if (await home.main.evaluate(ALWAYS_ON_TOP_IS_REPORTED)) {
+      assert.equal(widget.alwaysOnTop, true, 'A widget must float above other applications.')
+      log('always-on-top confirmed')
+    } else {
+      log('WARNING: this desktop session does not report always-on-top, even for a control window; skipping that assertion')
+    }
+
     assert.equal(widget.resizable, true, 'The fixture declares resizable: both.')
     assertDeclaredSize(widget.bounds, { width: 280, height: 120 }, 'the declared default size')
 
@@ -220,10 +269,41 @@ async function main() {
     const homeWindows = await home.main.evaluate(DESCRIBE_HOME_WINDOWS)
     assert.equal(homeWindows.length, 1, 'Expected exactly one main Home window.')
 
-    log('all widget host assertions passed')
+    // The tray inventory is a correctness requirement, not polish: a widget
+    // whose app never painted is otherwise an invisible window with no route to
+    // closing it.
+    const tray = await home.main.evaluate(DESCRIBE_TRAY)
+    assert.ok(tray, 'Home must install a tray icon.')
+    const trayLabels = tray.map((item) => item.label)
+    assert.ok(trayLabels.includes('Open Qortium Home'), `Tray is missing a route back to Home: ${trayLabels}`)
+    assert.ok(trayLabels.includes('Quit Qortium Home'), `Tray is missing an explicit quit: ${trayLabels}`)
+    const listed = tray.find((item) => item.label === `${APP_NAME}/${APP_IDENTIFIER}`)
+    assert.ok(listed, `The live widget must be listed by app name in the tray: ${trayLabels}`)
+    assert.ok(
+      listed.submenu?.some((item) => item.label === 'Close'),
+      'Every listed widget needs a close action.',
+    )
+    log('tray lists the live widget by name with a close action')
+
+    // Widgets outlive main Home windows. This is the state Home has never had
+    // before, and the tray above is what makes it navigable.
+    face.close()
     shell.close()
     appView.close()
-    face.close()
+    const closedCount = await home.main.evaluate(CLOSE_HOME_WINDOWS)
+    assert.equal(closedCount, 1, 'Expected to close exactly one main Home window.')
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const survivors = await home.main.evaluate(DESCRIBE_WIDGETS)
+    assert.equal(survivors.length, 1, 'A widget must survive closing every main Home window.')
+    assert.equal(survivors[0].visible, true, 'The surviving widget must still be on screen.')
+    assert.deepEqual(
+      await home.main.evaluate(DESCRIBE_HOME_WINDOWS),
+      [],
+      'Expected no main Home window to remain.',
+    )
+    log('widget survived closing every main Home window')
+
+    log('all widget host assertions passed')
   } finally {
     await home?.stop()
     node.close()

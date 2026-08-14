@@ -4,13 +4,21 @@ import { fileURLToPath } from 'node:url'
 import { shouldLoadRendererFromDist } from './renderer-entry.js'
 import { shouldIgnoreMouse } from './widget-hit-testing.js'
 import type { WidgetManifest } from './widget-manifest.js'
-import { getWidgetByWindowId, unregisterWidget } from './widget-registry.js'
+import {
+  getWidget,
+  getWidgetByWindowId,
+  setWidgetOpacity,
+  unregisterWidget,
+} from './widget-registry.js'
 
 // package.json sets "type": "module", so this compiles to ESM and __dirname is
 // not defined. electron/main.ts derives it the same way.
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 
 const HIT_TEST_INTERVAL_MS = 16
+// A widget the user cannot see is a widget the user cannot close by clicking,
+// so opacity has a floor well above invisible.
+export const WIDGET_OPACITY_MIN = 0.2
 
 export type CreateWidgetWindowOptions = {
   readonly widgetId: string
@@ -112,7 +120,31 @@ function startHitTesting(window: BrowserWindow) {
     if (next === ignoring) return
     ignoring = next
     window.setIgnoreMouseEvents(next, { forward: true })
+    if (record) record.ignoringMouse = next
   }, HIT_TEST_INTERVAL_MS)
 
   window.on('closed', () => clearInterval(timer))
+}
+
+export function getWidgetWindow(widgetId: string): BrowserWindow | null {
+  const record = getWidget(widgetId)
+  if (!record) return null
+  const window = BrowserWindow.fromId(record.windowId)
+  return window && !window.isDestroyed() ? window : null
+}
+
+export function closeWidget(widgetId: string): boolean {
+  const window = getWidgetWindow(widgetId)
+  if (!window) return false
+  window.close()
+  return true
+}
+
+export function setWidgetWindowOpacity(widgetId: string, opacity: number): boolean {
+  const window = getWidgetWindow(widgetId)
+  if (!window) return false
+  const clamped = Math.min(1, Math.max(WIDGET_OPACITY_MIN, opacity))
+  window.setOpacity(clamped)
+  setWidgetOpacity(widgetId, clamped)
+  return true
 }
