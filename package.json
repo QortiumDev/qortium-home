@@ -62,6 +62,7 @@
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
     "smoke:desktop:qdn-media-seek": "node scripts/smoke-desktop-qdn-media-seek.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
+    "smoke:desktop:widgets": "node scripts/smoke-desktop-widgets.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",

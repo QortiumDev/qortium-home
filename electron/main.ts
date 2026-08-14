@@ -39,6 +39,7 @@ import {
 } from './qdn.js';
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
 import { registerQdnManagerPermissionStoreIpcHandlers } from './qdn-manager-permission-store.js';
+import { shouldLoadRendererFromDist } from './renderer-entry.js';
 import { installNodeTlsForDefaultSessions } from './node-tls.js';
 import { registerSystemIpcHandlers } from './system.js';
 import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
@@ -559,7 +560,7 @@ function createWindow(options: CreateWindowOptions = {}) {
     window.maximize();
   }
 
-  if (app.isPackaged) {
+  if (shouldLoadRendererFromDist()) {
     void window.loadFile(
       path.join(
         __dirname,

@@ -1,6 +1,7 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shouldLoadRendererFromDist } from './renderer-entry.js'
 import { shouldIgnoreMouse } from './widget-hit-testing.js'
 import type { WidgetManifest } from './widget-manifest.js'
 import { getWidgetByWindowId, unregisterWidget } from './widget-registry.js'
@@ -73,7 +74,7 @@ export function createWidgetWindow(options: CreateWidgetWindowOptions): BrowserW
   })
   if (options.accountId) query.set('accountId', options.accountId)
 
-  if (app.isPackaged) {
+  if (shouldLoadRendererFromDist()) {
     void window.loadFile(path.join(currentDirectory, '../dist/widget.html'), {
       search: query.toString(),
     })
@@ -100,8 +101,11 @@ function startHitTesting(window: BrowserWindow) {
       return
     }
     const record = getWidgetByWindowId(window.id)
+    // Content bounds, not window bounds: the declared region is normalised
+    // against the area the app paints, and on Windows those two rectangles
+    // differ by the invisible resize border.
     const next = shouldIgnoreMouse(
-      window.getBounds(),
+      window.getContentBounds(),
       record?.region ?? null,
       screen.getCursorScreenPoint(),
     )

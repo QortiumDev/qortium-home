@@ -20,6 +20,8 @@
     </style>
   </head>
   <body>
+    <!-- No script here either. QDN views serve app content under a CSP that
+         blocks inline script, so the smoke calls window.qdnRequest over CDP. -->
     <div class="skin">Fixture widget</div>
   </body>
 </html>
