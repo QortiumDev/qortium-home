@@ -1,0 +1,62 @@
+[
+  {
+    "description": "no next path segment, no query -> null",
+    "path": "/render/APP/Chat",
+    "queryIdentifier": null,
+    "expected": null
+  },
+  {
+    "description": "a non-default next segment ('settings') is a candidate when no query is present",
+    "path": "/render/APP/Chat/settings",
+    "queryIdentifier": null,
+    "expected": "settings"
+  },
+  {
+    "description": "a non-default next segment ('evil') is a candidate",
+    "path": "/render/APP/Chat/evil",
+    "queryIdentifier": null,
+    "expected": "evil"
+  },
+  {
+    "description": "an explicit query identifier wins even with no next segment",
+    "path": "/render/APP/Chat",
+    "queryIdentifier": "evil",
+    "expected": "evil"
+  },
+  {
+    "description": "a literal (case-insensitive) 'default' first segment is never an identifier, even followed by more path",
+    "path": "/render/APP/Chat/default/settings",
+    "queryIdentifier": null,
+    "expected": null
+  },
+  {
+    "description": "next segment 'docs' is the candidate",
+    "path": "/render/APP/MyApp/docs",
+    "queryIdentifier": null,
+    "expected": "docs"
+  },
+  {
+    "description": "deeper path segments below an explicit identifier are never inspected",
+    "path": "/render/APP/MyApp/docs/page-2",
+    "queryIdentifier": null,
+    "expected": "docs"
+  },
+  {
+    "description": "next segment 'otherIdentifier' is the candidate",
+    "path": "/render/APP/MyApp/otherIdentifier",
+    "queryIdentifier": null,
+    "expected": "otherIdentifier"
+  },
+  {
+    "description": "no next segment at all -> null (dropping a pinned identifier)",
+    "path": "/render/APP/MyApp",
+    "queryIdentifier": null,
+    "expected": null
+  },
+  {
+    "description": "an explicit query identifier wins even with a next segment present",
+    "path": "/render/APP/MyApp/docs",
+    "queryIdentifier": "evil",
+    "expected": "evil"
+  }
+]

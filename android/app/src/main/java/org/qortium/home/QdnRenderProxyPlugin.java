@@ -17,7 +17,21 @@ public class QdnRenderProxyPlugin extends Plugin {
     @PluginMethod
     public void authorize(PluginCall call) {
         boolean homeV2 = Boolean.TRUE.equals(call.getBoolean("homeV2"));
-        String proxyOrigin = QdnRenderProxy.authorize(call.getString("origin"), homeV2);
+        // Round 6 (owner-directed redesign): a Home v2 app tab's registered
+        // authorized document, registered here from the SHELL's own trusted
+        // render URL (AppTabStage.tsx's resolved.url, never anything the app
+        // itself reports), is what QdnRenderProxy/QdnBridgeWebViewClient use
+        // to gate both the live bridge token (exact-URL match — see
+        // QdnRenderProxy.isExactAuthorizedRenderDocument) and data-read
+        // containment (see QdnRenderProxy.isAuthorizedAppResource). Absent
+        // (null) for non-app-tab callers (v1's own use of this plugin), which
+        // enforces neither, unchanged.
+        String authorizedDocumentUrl = call.getString("authorizedDocumentUrl");
+        String proxyOrigin = QdnRenderProxy.authorize(
+            call.getString("origin"),
+            homeV2,
+            authorizedDocumentUrl
+        );
 
         if (proxyOrigin == null) {
             call.reject("An http(s) node origin is required to authorize the QDN render proxy.");

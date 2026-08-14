@@ -58,6 +58,7 @@ import {
   normalizeHomeV2ChatMessageText,
   normalizeHomeV2SendTxGroupId,
 } from '../../electron/home-v2-app-actions'
+import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -67,6 +68,7 @@ import {
   buildAppResourceLocation,
   parseAppResourceLocation,
 } from '../v2/resource-location'
+import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -441,6 +443,10 @@ export function HomeV2LiveApp() {
     }
   >())
   const androidSessionAccountGrants = useRef(new Set<string>())
+  // Fix B (security review finding 8): bounds how often an already-granted
+  // tab can broadcast chat sends. Shares its constants/algorithm with
+  // desktop's electron/home-v2-app-bridge.ts via home-v2-send-rate-limiter.ts.
+  const androidChatSendRateLimiter = useRef(createHomeV2SendRateLimiter())
   const androidNavigationControllers = useRef(
     new Map<string, AppTabNavigationController>(),
   )
@@ -1125,10 +1131,34 @@ export function HomeV2LiveApp() {
           // identifier), dropping route/query/hash, so one app cannot mint
           // separate per-app prompt-cap buckets by opening URL variants
           // (FIX #4, review 2). Falls back to the raw location, then the tab.
+          //
+          // Round 5, Minor 1 (Sol round-4 re-review, Defect B tail):
+          // parsed.identity.identifier is PATH-only (parseAppResourceLocation
+          // never inspects context.resourceLocation's own `?identifier=`
+          // query) — see render-path-identity.ts's resolveLaunchIdentifier
+          // doc comment for why that query always wins outright once Core
+          // resolves the actual render. Folding it in here makes the
+          // recorded/displayed principal (this appId, and the appTitle/
+          // summary the user is shown) match what native enforcement already
+          // keys on: AppTabStage.tsx's authorize() call resolves the SAME
+          // query-aware identifier for the native proxy's launch-identity
+          // registration, and the grantKey above already uses the raw
+          // resourceLocation (so the actual grant, unlike this label, was
+          // never borrowable). Without this, a `.../default?identifier=evil`
+          // launch would record/display its principal as "Chat/default" even
+          // though the account-read/signing bridge — and native enforcement
+          // — treats it as "Chat/evil".
           const appIdentityKey = (() => {
             try {
               const parsed = parseAppResourceLocation(context.resourceLocation)
-              return buildAppResourceLocation(parsed.sourceNetwork, parsed.identity)
+              const identifier = resolveLaunchIdentifier(
+                parsed.identity.identifier,
+                context.resourceLocation,
+              )
+              return buildAppResourceLocation(parsed.sourceNetwork, {
+                ...parsed.identity,
+                identifier,
+              })
             } catch {
               return context.resourceLocation || `home-v2-tab:${context.tabId}`
             }
@@ -1176,6 +1206,15 @@ export function HomeV2LiveApp() {
           ) {
             throw new Error('Account access context changed before approval completed.')
           }
+        }
+        // Fix B: reject an excessive send BEFORE any node call or proof-of-
+        // work — mirrors electron/home-v2-app-bridge.ts sendHomeV2ChatMessage
+        // (same shared rate-limiter module/constants).
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(
+          `${context.tabId}|${accountId}`,
+        )
+        if (!rateLimitDecision.allowed) {
+          throw new Error(rateLimitDecision.message)
         }
         // Re-verify immediately before the (potentially tens-of-seconds)
         // memory-pow+sign step, mirroring the desktop bridge's isStillValid
@@ -1817,6 +1856,7 @@ export function HomeV2LiveApp() {
         if (!vaultClient || !selectedVaultAccount) return
         setPermissionState((current) => invalidatePermissionState(current, { kind: 'locked' }))
         androidSessionAccountGrants.current.clear()
+        androidChatSendRateLimiter.current.reset()
         window.homeV2Apps?.accountLocked()
         for (const tab of productState.tabs) {
           const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')

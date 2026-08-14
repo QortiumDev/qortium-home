@@ -36,7 +36,17 @@ export function getQdnArchiveRenderRoot() {
   return getResolvedArchiveRenderRoot();
 }
 
-function getRealPathIfAvailable(filePath: string) {
+// Exported for electron/qdn-views.ts's getArchiveCacheDirIdentity (Fix 4,
+// Sol re-review #5): the cache-dir identity a managed-archive render URL
+// resolves to must be computed from the SAME canonicalized real path used
+// here for archive containment (isPathInsideDirectory below always compares
+// realpath'd paths), not the lexical URL path — otherwise a symlink an
+// extracted archive's own zip payload planted (e.g. pointing at a sibling
+// cache directory) would still pass the containment check (its REAL target
+// is still somewhere under the archive root) while getArchiveCacheDirIdentity
+// mislabeled it with the LEXICAL cache dir it lives under, letting one
+// resource's identity be spoofed as another's.
+export function getRealPathIfAvailable(filePath: string) {
   try {
     return realpathSync(filePath);
   } catch {
