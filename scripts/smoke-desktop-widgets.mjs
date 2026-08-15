@@ -166,6 +166,15 @@ const CLOSE_HOME_WINDOWS = mainRequire(`
 //
 // require() of an ESM file shares the ESM module cache, so this is the same
 // tray.js instance the app itself loaded, not a fresh copy.
+// An empty image still produces a working Tray object, so a wrong icon path
+// shows up as an invisible notification-area entry rather than as an error.
+// The path differs between packaged and unpackaged builds, which is exactly the
+// kind of boundary that survives a typecheck.
+const TRAY_ICON = mainRequire(`
+  const image = require(${JSON.stringify(path.join(repoRoot, 'dist-electron', 'tray.js'))}).trayIcon()
+  return { empty: image.isEmpty(), size: image.getSize() }
+`)
+
 const DESCRIBE_TRAY = mainRequire(`
   const menu = require(${JSON.stringify(path.join(repoRoot, 'dist-electron', 'tray.js'))}).getTrayMenu()
   if (!menu) return null
@@ -317,6 +326,10 @@ async function main() {
     // The tray inventory is a correctness requirement, not polish: a widget
     // whose app never painted is otherwise an invisible window with no route to
     // closing it.
+    const trayImage = await home.main.evaluate(TRAY_ICON)
+    assert.equal(trayImage.empty, false, 'The tray icon image must actually load.')
+    assert.deepEqual(trayImage.size, { height: 16, width: 16 }, 'The tray icon must be sized for the tray.')
+
     const tray = await home.main.evaluate(DESCRIBE_TRAY)
     assert.ok(tray, 'Home must install a tray icon.')
     const trayLabels = tray.map((item) => item.label)
@@ -386,6 +399,26 @@ async function main() {
       true,
       'The main process must register the drag.',
     )
+    // The drag is supposed to end when the app view reports its mouseup, and
+    // nothing else in this smoke exercises that path. If Electron did not
+    // surface input-event from a WebContentsView, the only symptom would be a
+    // widget that keeps following the cursor after the user lets go, until the
+    // two minute ceiling. So dispatch a real mouse release into the app view
+    // rather than trusting the explicit end action to stand in for it.
+    await face.send('Input.dispatchMouseEvent', {
+      button: 'left',
+      buttons: 0,
+      clickCount: 1,
+      type: 'mouseReleased',
+      x: 10,
+      y: 10,
+    })
+    await waitUntil('the drag to end on the app view mouseup', STEP_TIMEOUT_MS, async () =>
+      await home.main.evaluate(READ_WIDGET_DRAGGING) === false)
+    log('a real mouseup in the app view ended the drag')
+
+    // Ending a drag that already ended is harmless, which is what lets an app
+    // call it defensively.
     const dragEnded = await face.evaluate(widgetRequest({ action: 'WIDGET_END_DRAG' }))
     assert.equal(dragEnded.dragging, false, `WIDGET_END_DRAG failed: ${JSON.stringify(dragEnded)}`)
     assert.equal(

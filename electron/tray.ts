@@ -22,12 +22,19 @@ let tray: Tray | null = null
 let trayMenu: Menu | null = null
 let openHomeWindow: (() => void) | null = null
 
-function trayIcon() {
+// Exported so scripts/smoke-desktop-widgets.mjs can prove the icon actually
+// loaded. An empty image still produces a working Tray, so a wrong path shows
+// up as an invisible notification-area entry rather than as an error, and the
+// path differs between packaged and unpackaged builds.
+export function trayIcon() {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, TRAY_ICON_FILE)
     : path.join(currentDirectory, '..', 'build', TRAY_ICON_FILE)
   const image = nativeImage.createFromPath(iconPath)
-  if (image.isEmpty()) return image
+  if (image.isEmpty()) {
+    console.error(`The tray icon could not be loaded from ${iconPath}.`)
+    return image
+  }
   return image.resize({ height: TRAY_ICON_SIZE, width: TRAY_ICON_SIZE })
 }
 
