@@ -366,9 +366,19 @@ async function fetchAccountAvatar(request: Record<string, unknown>) {
 const widgetGrants = new Set<string>()
 
 // A widget floats above every other application, which QDN-published content
-// cannot otherwise do, so opening one needs an explicit grant. The grant is
-// remembered per app for the session rather than re-prompting on each open.
-async function requireWidgetPermission(sender: WebContents, context: QdnViewContext) {
+// cannot otherwise do, so opening one needs an explicit grant.
+//
+// `rereadContext` re-resolves the calling view once the user has answered, to
+// catch a tab that navigated or closed while the prompt was up. It is supplied
+// by the caller because the two entry points identify their view differently: an
+// app asking for itself is found by its own webContents, while the toolbar names
+// a tab and its request arrives on the Home shell's webContents, which is not a
+// QDN view at all. Looking the shell up as a view returns null every time, which
+// made the toolbar action fail for any app that did not already hold a grant.
+async function requireWidgetPermission(
+  context: QdnViewContext,
+  rereadContext: () => QdnViewContext | null,
+) {
   const grantKey = context.resourceUrl ?? `home-v2-tab:${context.tabId}`
   if (widgetGrants.has(grantKey)) return
 
@@ -403,12 +413,15 @@ async function requireWidgetPermission(sender: WebContents, context: QdnViewCont
 
   if (!decision.approved) throw new Error('Opening a widget was denied.')
 
-  const freshContext = getQdnViewContextForWebContents(sender)
+  const freshContext = rereadContext()
   if (!freshContext || !sameViewContext(context, freshContext)) {
     throw new Error('The widget request context changed before approval completed.')
   }
 
-  widgetGrants.add(grantKey)
+  // Only a session grant is remembered. "Allow once" has to mean once, or the
+  // two choices in the dialog are the same choice, and this is the capability
+  // that lets an app paint over every other application on the desktop.
+  if (decision.scope === 'session') widgetGrants.add(grantKey)
 }
 
 async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: string }> {
@@ -529,7 +542,7 @@ async function handleRequest(
     return (await getHomeV2ReadableNode(network)).mode === 'public'
   }
   if (action === 'OPEN_AS_WIDGET') {
-    await requireWidgetPermission(sender, context)
+    await requireWidgetPermission(context, () => getQdnViewContextForWebContents(sender))
     return handleOpenAsWidget(context)
   }
   if (action === 'WIDGET_CLOSE') {
@@ -707,7 +720,9 @@ export function registerHomeV2AppBridgeIpcHandlers() {
       // what qdn-views keys its per-window view map by.
       const context = getQdnViewContextForTab(event.sender.id, tabId)
       if (!context) throw new Error('That tab is not showing a published app.')
-      await requireWidgetPermission(event.sender, context)
+      // Re-read by tab, not by sender: the sender here is the Home shell, which
+      // is not a QDN view and never resolves as one.
+      await requireWidgetPermission(context, () => getQdnViewContextForTab(event.sender.id, tabId))
       const { widgetId } = await handleOpenAsWidget(context)
       return { ok: true, widgetId }
     } catch (error) {

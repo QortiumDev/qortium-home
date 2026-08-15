@@ -44,6 +44,25 @@ function widgetRequest(request) {
     .then((value) => value, (error) => ({ error: String((error && error.message) || error) }))`
 }
 
+// Answers the widget grant as soon as it is asked for, with a chosen scope, and
+// records every prompt so the smoke can tell a re-prompt from a remembered
+// grant. The dialog itself is covered by smoke-desktop-home-v2-prompt.mjs.
+function approveWidgetPrompts(scope) {
+  return `(() => {
+    window.__widgetPrompts = []
+    if (window.__widgetApprover) window.__widgetApprover()
+    window.__widgetApprover = window.homeV2Apps.onPermissionRequest((payload) => {
+      window.__widgetPrompts.push(payload)
+      window.homeV2Apps.resolvePermission({
+        approved: true,
+        requestId: payload.requestId,
+        scope: ${JSON.stringify(scope)},
+      })
+    })
+    return true
+  })()`
+}
+
 // Windows keeps an invisible resize border on a frameless resizable window and
 // reports it as part of the window rectangle, so a manifest asking for 280
 // logical pixels gets a 282 pixel window there. That border is the platform's,
@@ -179,6 +198,14 @@ const READ_WIDGET_DRAGGING = mainRequire(`
   return require(${interactionModule}).isWidgetDragging(record.windowId)
 `)
 
+const CLOSE_ALL_WIDGETS = mainRequire(`
+  const registry = require(${registryModule})
+  const { closeWidget } = require(${JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-window.js'))})
+  const live = registry.listWidgets()
+  for (const record of live) closeWidget(record.widgetId)
+  return live.length
+`)
+
 const CLOSE_HOME_WINDOWS = mainRequire(`
   const { BrowserWindow } = require('electron')
   const closed = BrowserWindow.getAllWindows()
@@ -242,24 +269,7 @@ async function openFixtureWidget(home, node) {
   await waitUntil('the Home shell bridge', STEP_TIMEOUT_MS, async () =>
     await shell.evaluate('typeof window.homeV2Apps?.show === "function"') === true)
 
-  // Answer the widget grant the moment it is asked for. The dialog itself is
-  // covered by smoke-desktop-home-v2-prompt.mjs; what matters here is that
-  // OPEN_AS_WIDGET reaches the renderer at all, which it did not before the
-  // action was added to the bridge-permissions allowlist.
-  await shell.evaluate(`
-    (() => {
-      window.__widgetPrompts = []
-      window.homeV2Apps.onPermissionRequest((payload) => {
-        window.__widgetPrompts.push(payload)
-        window.homeV2Apps.resolvePermission({
-          approved: true,
-          requestId: payload.requestId,
-          scope: 'session',
-        })
-      })
-      return true
-    })()
-  `)
+  await shell.evaluate(approveWidgetPrompts('session'))
 
   const shown = await shell.evaluate(`
     window.homeV2Apps.show({
@@ -283,6 +293,66 @@ async function openFixtureWidget(home, node) {
   return { appView, shell, widgetId: opened.widgetId }
 }
 
+// The permission gate, exercised before any grant exists.
+//
+// Both of these failed in the field and neither was caught here, because the
+// smoke only ever reached the toolbar path after an app-initiated approval had
+// already left a grant behind, and the auto-approver always answered "session".
+async function assertPermissionGate(home, node, approve) {
+  const shell = await home.renderer((url) => url.includes('/v2-live.html'), 'home shell')
+  await waitUntil('the Home shell bridge', STEP_TIMEOUT_MS, async () =>
+    await shell.evaluate('typeof window.homeV2Apps?.show === "function"') === true)
+  await shell.evaluate(approve)
+  await shell.evaluate(`
+    window.homeV2Apps.show({
+      accountId: null,
+      bounds: { x: 0, y: 80, width: 800, height: 500 },
+      displaySettings: { accent: 'default', language: 'en', textSize: 'medium', theme: 'dark' },
+      nodeApiUrl: ${JSON.stringify(node.origin)},
+      renderUrl: ${JSON.stringify(`${node.origin}/render/APP/${APP_NAME}/${APP_IDENTIFIER}/index.html`)},
+      resourceUrl: ${JSON.stringify(RESOURCE_URL)},
+      tabId: 'smoke-app'
+    })
+  `)
+
+  // The toolbar names a tab, and its request arrives on the Home shell's
+  // webContents rather than the app view's. Re-resolving the shell as a QDN
+  // view returns null, which made this throw for any app without a grant.
+  const first = await shell.evaluate(
+    "window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })",
+    STEP_TIMEOUT_MS,
+  )
+  assert.equal(
+    first.ok,
+    true,
+    `The toolbar action must work with no prior grant: ${JSON.stringify(first)}`,
+  )
+  log('toolbar "Open as widget" works before any grant exists')
+
+  // "Allow once" must mean once. If it persisted a grant the two choices in
+  // the dialog would be the same choice, for the capability that lets an app
+  // paint over every other application.
+  const promptsAfterFirst = await shell.evaluate('window.__widgetPrompts.length')
+  assert.equal(promptsAfterFirst, 1, 'The first open must have prompted exactly once.')
+
+  const second = await shell.evaluate(
+    "window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })",
+    STEP_TIMEOUT_MS,
+  )
+  assert.equal(second.ok, true, `The second open failed: ${JSON.stringify(second)}`)
+  assert.equal(
+    await shell.evaluate('window.__widgetPrompts.length'),
+    2,
+    'A single-request grant must not be remembered; the second open must prompt again.',
+  )
+  log('"Allow once" does not persist a grant')
+
+  await home.main.evaluate(CLOSE_ALL_WIDGETS)
+  await waitUntil('the gate widgets to close', STEP_TIMEOUT_MS, async () =>
+    (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
+  shell.close()
+}
+
 async function main() {
   const node = await startFixtureNode()
   log(`fixture node listening on ${node.origin}`)
@@ -294,6 +364,8 @@ async function main() {
   try {
     home = await launchHome({ profileDirectory, repoRoot })
     log('Home launched unpackaged with the main process inspector attached')
+
+    await assertPermissionGate(home, node, approveWidgetPrompts('single-request'))
 
     const { appView, shell, widgetId } = await openFixtureWidget(home, node)
     const opened = { widgetId }
