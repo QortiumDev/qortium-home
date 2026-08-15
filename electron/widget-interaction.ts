@@ -137,9 +137,12 @@ export function startWidgetDrag(
       width: start.width,
       height: start.height,
     }
-    const snapped = snapWidgetBounds(moved, workAreas(), others)
-    target.setContentBounds(snapped.bounds)
     const record = getWidget(widgetId)
+    // The edges held on the previous tick widen the distance at which they let
+    // go, so an edge the widget has taken hold of stays taken until the user
+    // pulls decisively away.
+    const snapped = snapWidgetBounds(moved, workAreas(), others, record?.snappedEdges ?? [])
+    target.setContentBounds(snapped.bounds)
     if (record) record.snappedEdges = snapped.edges
   }, DRAG_POLL_INTERVAL_MS)
 

@@ -3,6 +3,7 @@ import {
   clampRectToDisplays,
   displayForRect,
   snapWidgetBounds,
+  WIDGET_SNAP_RELEASE_PX,
   WIDGET_SNAP_THRESHOLD_PX,
 } from './widget-snapping.js'
 
@@ -86,6 +87,35 @@ assert.deepEqual(
 
 // With no displays at all nothing moves, rather than snapping to the origin.
 assert.deepEqual(snapWidgetBounds(at(600, 500), []).bounds, at(600, 500))
+
+// --- Hysteresis --------------------------------------------------------------
+//
+// Without a wider release distance a snap engages and lets go within a pixel or
+// two of mouse movement, which reads as nothing happening at all. This is the
+// difference between a magnetic edge and a seam you slide through.
+
+assert.ok(
+  WIDGET_SNAP_RELEASE_PX > WIDGET_SNAP_THRESHOLD_PX,
+  'the release distance must be wider than the engage distance',
+)
+
+// Between the two distances: too far to take hold of an edge from scratch...
+const justOutside = WIDGET_SNAP_THRESHOLD_PX + 4
+assert.equal(snapWidgetBounds(at(justOutside, 500), displays).bounds.x, justOutside)
+
+// ...but not far enough to let go of one already held.
+const held = snapWidgetBounds(at(justOutside, 500), displays, [], ['left'])
+assert.equal(held.bounds.x, 0, 'an edge already snapped must keep hold inside the release distance')
+assert.deepEqual(held.edges, ['left'])
+
+// Pull far enough and it releases.
+const released = snapWidgetBounds(at(WIDGET_SNAP_RELEASE_PX + 2, 500), displays, [], ['left'])
+assert.equal(released.bounds.x, WIDGET_SNAP_RELEASE_PX + 2)
+assert.deepEqual(released.edges, [])
+
+// Holding a vertical edge must not widen the horizontal one. The axes are
+// independent, so a widget hugging the top can still be dragged freely sideways.
+assert.equal(snapWidgetBounds(at(justOutside, 500), displays, [], ['top']).bounds.x, justOutside)
 
 // Restoring a placement onto a display that is still there leaves it alone.
 assert.deepEqual(clampRectToDisplays(at(600, 500), displays), at(600, 500))

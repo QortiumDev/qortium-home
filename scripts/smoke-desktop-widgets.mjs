@@ -147,6 +147,32 @@ const READ_WIDGET_REGION = mainRequire(`
   return record && record.region ? record.region.polygons.length : null
 `)
 
+const READ_WORK_AREA = mainRequire(`
+  const { screen } = require('electron')
+  const [record] = require(${registryModule}).listWidgets()
+  const { BrowserWindow } = require('electron')
+  const window = BrowserWindow.fromId(record.windowId)
+  return screen.getDisplayMatching(window.getContentBounds()).workArea
+`)
+
+// Parks the widget at an exact position so a snap can be provoked with the
+// physical cursor standing still.
+function placeWidget(x, y) {
+  return mainRequire(`
+    const { BrowserWindow } = require('electron')
+    const [record] = require(${registryModule}).listWidgets()
+    const window = BrowserWindow.fromId(record.windowId)
+    const bounds = window.getContentBounds()
+    window.setContentBounds({ x: ${x}, y: ${y}, width: bounds.width, height: bounds.height })
+    return window.getContentBounds()
+  `)
+}
+
+const READ_SNAPPED_EDGES = mainRequire(`
+  const [record] = require(${registryModule}).listWidgets()
+  return record ? record.snappedEdges : null
+`)
+
 const READ_WIDGET_DRAGGING = mainRequire(`
   const [record] = require(${registryModule}).listWidgets()
   if (!record) return null
@@ -416,6 +442,37 @@ async function main() {
     await waitUntil('the drag to end on the app view mouseup', STEP_TIMEOUT_MS, async () =>
       await home.main.evaluate(READ_WIDGET_DRAGGING) === false)
     log('a real mouseup in the app view ended the drag')
+
+    // Snapping, provoked without moving the physical cursor. Park the widget
+    // just inside the threshold of the left work-area edge and start a drag:
+    // with the cursor stationary the first poll tick computes no movement, so
+    // whatever the window does next is the snap and nothing else.
+    const workArea = await home.main.evaluate(READ_WORK_AREA)
+    await home.main.evaluate(placeWidget(workArea.x + 5, workArea.y + 200))
+    await face.evaluate(widgetRequest({ action: 'WIDGET_START_DRAG' }))
+    const snapped = await waitUntil('the widget to snap flush to the left edge', STEP_TIMEOUT_MS, async () => {
+      const [current] = await home.main.evaluate(DESCRIBE_WIDGETS)
+      return current && current.bounds.x === workArea.x ? current : null
+    })
+    assert.equal(snapped.bounds.x, workArea.x, 'A widget dropped near an edge must sit flush against it.')
+    assert.deepEqual(
+      await home.main.evaluate(READ_SNAPPED_EDGES),
+      ['left'],
+      'The snapped edge must be reported back through WIDGET_GET_STATE.',
+    )
+    // Hysteresis: an edge already held keeps hold past the distance at which it
+    // would never have engaged. Without this the snap is a flicker you pass
+    // through rather than something that feels magnetic, which is exactly how
+    // it read on the first manual pass.
+    await home.main.evaluate(placeWidget(workArea.x + 26, workArea.y + 200))
+    const stillHeld = await waitUntil('the held edge to keep hold', STEP_TIMEOUT_MS, async () => {
+      const [current] = await home.main.evaluate(DESCRIBE_WIDGETS)
+      return current && current.bounds.x === workArea.x ? current : null
+    })
+    assert.equal(stillHeld.bounds.x, workArea.x)
+
+    await face.evaluate(widgetRequest({ action: 'WIDGET_END_DRAG' }))
+    log('a drag near a screen edge snapped flush, reported the edge, and kept hold')
 
     // Ending a drag that already ended is harmless, which is what lets an app
     // call it defensively.

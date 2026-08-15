@@ -5,7 +5,14 @@
 // work area rather than their full bounds, so a widget snaps to the top of the
 // taskbar instead of underneath it.
 
-export const WIDGET_SNAP_THRESHOLD_PX = 12
+// Snapping engages inside WIDGET_SNAP_THRESHOLD_PX and only lets go beyond
+// WIDGET_SNAP_RELEASE_PX. That gap is what makes an edge feel magnetic instead
+// of like a seam you slide through: without it, a drag that passes near an edge
+// snaps and unsnaps within a pixel or two of mouse movement, which reads as
+// nothing happening at all. The engage distance is also generous enough to hit
+// by hand on a scaled display, where a logical pixel is not a device pixel.
+export const WIDGET_SNAP_THRESHOLD_PX = 20
+export const WIDGET_SNAP_RELEASE_PX = 36
 
 export type SnapRect = {
   readonly x: number
@@ -59,13 +66,21 @@ export function displayForRect(
 
 type Candidate = { readonly edge: SnapEdge; readonly value: number; readonly distance: number }
 
-function nearest(candidates: readonly Candidate[]): Candidate | null {
+function nearest(candidates: readonly Candidate[], limit: number): Candidate | null {
   let best: Candidate | null = null
   for (const candidate of candidates) {
-    if (candidate.distance > WIDGET_SNAP_THRESHOLD_PX) continue
+    if (candidate.distance > limit) continue
     if (!best || candidate.distance < best.distance) best = candidate
   }
   return best
+}
+
+// An axis already holding a snap gets the wider release distance, so pulling
+// away has to be deliberate.
+function limitFor(previousEdges: readonly SnapEdge[], axis: readonly SnapEdge[]) {
+  return previousEdges.some((edge) => axis.includes(edge))
+    ? WIDGET_SNAP_RELEASE_PX
+    : WIDGET_SNAP_THRESHOLD_PX
 }
 
 /**
@@ -76,11 +91,16 @@ function nearest(candidates: readonly Candidate[]): Candidate | null {
  * `others` are the rectangles of the other live widgets. A widget only snaps to
  * another widget it actually overlaps along the perpendicular axis, so two
  * widgets at opposite corners of a display never pull on each other.
+ *
+ * `previousEdges` are the edges this widget was snapped to on the last tick of
+ * the same drag. They widen the distance at which those edges let go, which is
+ * what gives the snap its hysteresis.
  */
 export function snapWidgetBounds(
   bounds: SnapRect,
   workAreas: readonly SnapRect[],
   others: readonly SnapRect[] = [],
+  previousEdges: readonly SnapEdge[] = [],
 ): SnapResult {
   const display = displayForRect(bounds, workAreas)
   if (!display || area(bounds) === 0) return { bounds, edges: [] }
@@ -133,8 +153,8 @@ export function snapWidgetBounds(
     }
   }
 
-  const snapX = nearest(horizontal)
-  const snapY = nearest(vertical)
+  const snapX = nearest(horizontal, limitFor(previousEdges, ['left', 'right']))
+  const snapY = nearest(vertical, limitFor(previousEdges, ['top', 'bottom']))
   const edges: SnapEdge[] = []
   if (snapX) edges.push(snapX.edge)
   if (snapY) edges.push(snapY.edge)
