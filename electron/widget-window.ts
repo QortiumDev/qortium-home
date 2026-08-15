@@ -68,16 +68,18 @@ function restoredPlacement(options: CreateWidgetWindowOptions) {
 
 // Debounced, because a drag emits a move event per frame and the store is a
 // staged write to disk each time.
-function watchPlacement(window: BrowserWindow, widgetId: string, resourceUrl: string) {
+function watchPlacement(window: BrowserWindow, resourceUrl: string) {
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const save = () => {
     timer = undefined
     if (window.isDestroyed()) return
-    const bounds = window.getContentBounds()
     saveWidgetPlacement(resourceUrl, {
-      ...bounds,
-      opacity: getWidget(widgetId)?.opacity ?? 1,
+      ...window.getContentBounds(),
+      // Read from the window, not from the registry record. The window is the
+      // only authoritative account of its own opacity, and a record that has
+      // drifted would otherwise write its stale value over a good stored one.
+      opacity: window.getOpacity(),
       updatedAt: Date.now(),
     })
   }
@@ -95,7 +97,18 @@ function watchPlacement(window: BrowserWindow, widgetId: string, resourceUrl: st
   })
 }
 
-export function createWidgetWindow(options: CreateWidgetWindowOptions): BrowserWindow {
+export type CreatedWidgetWindow = {
+  readonly window: BrowserWindow
+  /**
+   * The opacity the window was actually opened at, restored from the last
+   * session where there was one. The caller has to seed the registry record
+   * with this: the tray reads the record to show which step is selected, and a
+   * record left at 1 would report a dimmed widget as fully opaque.
+   */
+  readonly opacity: number
+}
+
+export function createWidgetWindow(options: CreateWidgetWindowOptions): CreatedWidgetWindow {
   const restored = restoredPlacement(options)
   const { width, height } = restored ?? options.manifest.defaultSize
   const position = restored ?? centreOnCursorDisplay(width, height)
@@ -149,15 +162,16 @@ export function createWidgetWindow(options: CreateWidgetWindowOptions): BrowserW
     void window.loadURL(`${base}/widget.html?${query.toString()}`)
   }
 
-  if (restored && restored.opacity < 1) window.setOpacity(restored.opacity)
+  const opacity = restored ? Math.min(1, Math.max(WIDGET_OPACITY_MIN, restored.opacity)) : 1
+  if (opacity < 1) window.setOpacity(opacity)
 
   window.once('ready-to-show', () => window.show())
   startHitTesting(window)
-  watchPlacement(window, options.widgetId, options.resourceUrl)
+  watchPlacement(window, options.resourceUrl)
 
   window.on('closed', () => unregisterWidget(options.widgetId))
 
-  return window
+  return { window, opacity }
 }
 
 // Polling rather than a global mouse hook: Electron exposes no cross-platform

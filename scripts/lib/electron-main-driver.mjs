@@ -103,6 +103,11 @@ class CdpClient {
         reject(new Error(`CDP connection to ${label} failed.`))
       }, { once: true })
     })
+    // A socket that errors after `ready` has settled would otherwise have no
+    // listener left, and an unhandled error event takes the whole run down with
+    // a stack that says nothing about the test. Sockets die routinely here:
+    // widget windows close, Home quits, and clients outlive both.
+    this.socket.addEventListener('error', () => {})
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data))
       if (!message.id) {

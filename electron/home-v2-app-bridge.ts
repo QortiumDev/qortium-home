@@ -452,7 +452,7 @@ async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: 
   if (!manifest) throw new Error('This app does not publish a widget.')
 
   const widgetId = allocateWidgetId()
-  const window = createWidgetWindow({
+  const { opacity, window } = createWidgetWindow({
     widgetId,
     manifest,
     renderUrl: buildWidgetRenderUrl(context.nodeOrigin, identity, manifest.entry),
@@ -468,10 +468,12 @@ async function handleOpenAsWidget(context: QdnViewContext): Promise<{ widgetId: 
     manifest,
     windowId: window.id,
     region: normalizeRegion(manifest.shape),
-    // createWidgetWindow starts every widget transparent to clicks and fully
-    // opaque; the hit-test loop and the tray move these from here.
+    // createWidgetWindow starts every widget transparent to clicks; the
+    // hit-test loop moves that from here. Opacity comes back from the window
+    // because a restored placement may have opened it already dimmed, and the
+    // tray reads this record to show which step is selected.
     ignoringMouse: true,
-    opacity: 1,
+    opacity,
     snappedEdges: [],
   })
 

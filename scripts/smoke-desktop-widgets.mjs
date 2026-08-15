@@ -664,7 +664,8 @@ async function main() {
     home = await launchHome({ profileDirectory, repoRoot })
     log('Home relaunched against the same profile')
 
-    const restored = await openFixtureWidget(home, node)
+    const { shell: shell2 } = await openFixtureWidget(home, node)
+    const restored = { widgetId: 'reopened' }
     const after = await waitUntil('the restored widget', STEP_TIMEOUT_MS, async () => {
       const found = await home.main.evaluate(DESCRIBE_WIDGETS)
       return found.length === 1 && found[0].visible ? found[0] : null
@@ -680,6 +681,43 @@ async function main() {
       `A widget must reopen at the opacity it was left at, got ${after.opacity}.`,
     )
     log('placement and opacity survived a restart')
+
+    // Surviving one restart is not enough. A restored widget has to report its
+    // own opacity honestly, or the next save writes a stale value over the
+    // stored one and the setting decays a cycle later. The tray reads the same
+    // record, so a widget restored dimmed must not show as 100%.
+    const restoredTray = await home.main.evaluate(DESCRIBE_TRAY)
+    const restoredOpacityMenu = restoredTray
+      .find((item) => item.label === `${APP_NAME}/${APP_IDENTIFIER}`)
+      ?.submenu?.find((item) => item.label === 'Opacity')?.submenu
+    assert.deepEqual(
+      restoredOpacityMenu?.filter((item) => item.checked).map((item) => item.label),
+      ['75%'],
+      'A widget restored dimmed must report that opacity, not 100%.',
+    )
+
+    // Nudge it, which is what triggers a placement save, then close and reopen.
+    // This is the cycle that silently reset opacity to fully opaque.
+    await home.main.evaluate(placeWidget(after.bounds.x + 40, after.bounds.y + 30))
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    await home.main.evaluate(CLOSE_ALL_WIDGETS)
+    await waitUntil('the widget to close', STEP_TIMEOUT_MS, async () =>
+      (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
+
+    const reopenedAgain = await shell2.evaluate(
+      "window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })",
+      STEP_TIMEOUT_MS,
+    )
+    assert.equal(reopenedAgain.ok, true, `Reopening failed: ${JSON.stringify(reopenedAgain)}`)
+    const cycled = await waitUntil('the reopened widget', STEP_TIMEOUT_MS, async () => {
+      const [current] = await home.main.evaluate(DESCRIBE_WIDGETS)
+      return current && current.visible ? current : null
+    })
+    assert.ok(
+      Math.abs(cycled.opacity - 0.75) < 0.001,
+      `Opacity must survive a move-and-reopen cycle, got ${cycled.opacity}.`,
+    )
+    log('opacity survived a second open, move and reopen cycle')
 
     log('all widget host assertions passed')
   } finally {
