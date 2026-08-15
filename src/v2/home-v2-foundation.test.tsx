@@ -1287,6 +1287,266 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   }
 }
 
+// Pins the Home v2 permission-hardening fixes (security review findings 1
+// and 8, plus the round-2 Sol re-review closing findings #1/#2/#3/#5/#6 on
+// top): Fix A binds a loaded app view's in-view navigation, and its
+// permission grants, to the resource it was launched for, with its
+// identifier resolved the way Core actually resolves it (re-review #1); on
+// Android the launch identity is now ALSO enforced at the trusted native
+// proxy layer, not just the app-controlled self-report (re-review #2); the
+// desktop live-resource recheck now reads the TRUSTED live URL, not a
+// bookkeeping field that could go stale (re-review #3); a managed-archive
+// resource's identity is computed from the same real (symlink-resolved)
+// path used for its containment check (re-review #5); Fix B bounds how
+// often a granted tab can broadcast chat sends, keyed by sender/window too
+// so a restored/duplicate tab id cannot borrow another window's budget
+// (re-review #6 covers the bypass tests, in the *.test.ts files below).
+// Regression risk on all of this is high (it hardens an already-shipped
+// signing/account-read model), so this locks the wiring in place rather than
+// only the underlying pure-function unit tests (electron/qdn-resource-
+// identity.test.ts, electron/home-v2-send-rate-limiter.test.ts,
+// src/v2/shell/render-path-identity.test.ts, and the Android
+// QdnRenderProxyTest.java/QdnBridgeWebViewClientTest.java JUnit suites
+// already cover the algorithms).
+function testGrantIdentityAndSendRateLimitHardening(): void {
+  const resourceIdentity = readFileSync('electron/qdn-resource-identity.ts', 'utf8')
+  const qdnViews = readFileSync('electron/qdn-views.ts', 'utf8')
+  const qdnArchiveRender = readFileSync('electron/qdn-archive-render.ts', 'utf8')
+  const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
+  const rateLimiter = readFileSync('electron/home-v2-send-rate-limiter.ts', 'utf8')
+  const appTabStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
+  const renderPathIdentity = readFileSync('src/v2/shell/render-path-identity.ts', 'utf8')
+  const androidAppHost = readFileSync('src/home-v2-live/android-app-host.ts', 'utf8')
+  const liveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  const qdnRenderProxy = readFileSync('android/app/src/main/java/org/qortium/home/QdnRenderProxy.java', 'utf8')
+  const qdnRenderProxyPlugin = readFileSync(
+    'android/app/src/main/java/org/qortium/home/QdnRenderProxyPlugin.java',
+    'utf8',
+  )
+  const qdnBridgeWebViewClient = readFileSync(
+    'android/app/src/main/java/org/qortium/home/QdnBridgeWebViewClient.java',
+    'utf8',
+  )
+
+  // Fix A, desktop primary defense: in-view navigation is bound to the
+  // launch resource identity, not just the node origin/service allowlist.
+  assert.match(resourceIdentity, /export function isQdnRenderUrlSameAppResource/)
+  // Re-review #1: the identifier itself must be resolved the way Core does —
+  // ?identifier= query wins, else a non-"default" first path segment.
+  assert.match(resourceIdentity, /function resolveCandidateIdentifier/)
+  assert.match(resourceIdentity, /searchParams\.get\('identifier'\)/)
+  assert.match(renderPathIdentity, /function resolveCandidateIdentifier/)
+  assert.match(qdnViews, /function isAllowedInViewNavigation/)
+  for (const handler of ['will-navigate', 'will-frame-navigate', 'will-redirect']) {
+    const eventBlock = new RegExp(
+      `on\\('${handler}',[\\s\\S]{0,220}?isAllowedInViewNavigation`,
+    )
+    assert.match(qdnViews, eventBlock, `${handler} must gate through isAllowedInViewNavigation`)
+  }
+  assert.match(
+    qdnViews,
+    /const updateCurrentUrl = \(url: string\) => \{[\s\S]{0,1000}entry\.currentUrl = url;[\s\S]{0,400}isAllowedInViewNavigation\(url, entry\)/,
+    'updateCurrentUrl must record the committed URL unconditionally (re-review #3), THEN gate ' +
+      'the nav snapshot send through isAllowedInViewNavigation',
+  )
+  assert.match(qdnViews, /qdn-views:navigate'[\s\S]{0,600}isAllowedInViewNavigation/)
+
+  // Re-review #3: the permission-time live-resource recheck must read the
+  // TRUSTED live URL (webContents.getURL()), not a bookkeeping field that a
+  // missed/misordered event could leave stale.
+  assert.match(qdnViews, /function getTrustedCurrentUrl/)
+  assert.match(qdnViews, /webContents\.getURL\(\)/)
+  assert.match(qdnViews, /currentUrl: getTrustedCurrentUrl\(entry\)/)
+
+  // Re-review #5: a managed-archive resource's cache-dir identity is derived
+  // from the same real (symlink-resolved) path its own containment check
+  // uses, not the lexical URL path.
+  assert.match(qdnArchiveRender, /export function getRealPathIfAvailable/)
+  assert.match(qdnViews, /getRealPathIfAvailable/)
+
+  // Fix A, desktop defense-in-depth: the live currentUrl must resolve to the
+  // same app resource as the granted resourceUrl, checked BEFORE a session
+  // grant is honored and again after the permission decision.
+  assert.match(appBridge, /function liveResourceMatchesGrant/)
+  assert.match(
+    appBridge,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,700}sessionAccountReadGrants\.has\(grantKey\)/,
+  )
+  assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
+
+  // Fix A, Android: the requestApp dispatcher still tracks the iframe's
+  // self-reported live navigation location, now as UX/consistency
+  // defense-in-depth rather than the security boundary (round 6 — see
+  // below).
+  assert.match(appTabStage, /liveResourcePathRef/)
+  assert.match(appTabStage, /isSameRenderResourcePath/)
+  assert.match(appTabStage, /navigated away from its launch resource/)
+  assert.match(renderPathIdentity, /export function isSameRenderResourcePath/)
+  // Round 6 (owner-directed redesign, ending the round-2/4/5
+  // identifier-confusion class): the bridge token / injection / CSP-strip
+  // gate no longer compares identifiers AT ALL — the tab's EXACT
+  // shell-computed render document URL (resolved.url, with the constant
+  // homeV2Bridge marker folded in BEFORE either the authorize() call or the
+  // iframe src is built, so the registered and requested documents can never
+  // independently drift — see AndroidAppStage's own doc comment) is
+  // registered with the trusted native proxy layer BEFORE the iframe is
+  // ever created, and only a byte-for-byte (normalized) match to it is ever
+  // bridge-eligible.
+  assert.match(
+    appTabStage,
+    /const authorizedDocument = new URL\(resolved\.url\)\s*\n\s*authorizedDocument\.searchParams\.set\('homeV2Bridge', '1'\)/,
+    'the authorized document URL registered natively must be built ONCE and reused, verbatim, for ' +
+      'the iframe src — not independently recomputed',
+  )
+  assert.match(
+    appTabStage,
+    /authorizeHomeV2AndroidAppOrigin\(resolved\.nodeApiUrl, authorizedDocument\.toString\(\)\)/,
+    'authorize() must register the EXACT shell-computed document URL, not a caller-derived ' +
+      'name/identifier pair that could drift from it',
+  )
+  assert.doesNotMatch(
+    appTabStage,
+    /resolveLaunchIdentifier\(resolved\.identity\.identifier, resolved\.url\),\s*\n\s*new URL\(resolved\.url\)\.pathname,/,
+    'the old caller-computed appName/appIdentifier/initialPathname authorize() call must be gone',
+  )
+  assert.match(
+    appTabStage,
+    /identifier: resolveLaunchIdentifier\(resolved\.identity\.identifier, resolved\.url\),/,
+    'the (now UX-only) launchIdentity self-report check may still use resolveLaunchIdentifier',
+  )
+  assert.match(renderPathIdentity, /export function resolveLaunchIdentifier/)
+  assert.match(
+    appTabStage,
+    /import \{ isSameRenderResourcePath, resolveLaunchIdentifier \} from '\.\/render-path-identity'/,
+  )
+  assert.match(
+    androidAppHost,
+    /authorizeHomeV2AndroidAppOrigin\(origin: string, authorizedDocumentUrl: string\)/,
+    'android-app-host.ts must register a single trusted document URL, not separate ' +
+      'appName/appIdentifier/initialPathname fields',
+  )
+  assert.match(qdnRenderProxyPlugin, /call\.getString\("authorizedDocumentUrl"\)/)
+  assert.doesNotMatch(qdnRenderProxyPlugin, /call\.getString\("appName"\)/)
+  assert.doesNotMatch(qdnRenderProxyPlugin, /call\.getString\("initialPathname"\)/)
+  assert.match(qdnRenderProxy, /static class AuthorizedDocument|final class AuthorizedDocument/)
+  assert.doesNotMatch(
+    qdnRenderProxy,
+    /final String initialPathname;/,
+    'round 6 deletes the initial-path pathname exemption entirely — the exact-URL match makes it ' +
+      "unnecessary (the tab's own first request IS the registered URL by construction)",
+  )
+  assert.doesNotMatch(
+    qdnRenderProxy,
+    /static boolean isSameActiveAppTabResource/,
+    'the old identifier-comparison-for-token-gating predicate must be gone, not just unused',
+  )
+  assert.doesNotMatch(
+    qdnRenderProxy,
+    /static boolean isBridgeEligibleRenderService/,
+    'round 6 supersedes the service-only bridge-eligibility check with the exact-URL match',
+  )
+  assert.match(qdnRenderProxy, /static String resolveCandidateIdentifier/)
+  assert.match(
+    qdnRenderProxy,
+    /static AuthorizedDocument buildAuthorizedDocument\(List<String> segments, String encodedQuery\)/,
+  )
+  // The round-6 security gate itself: a RENDER document request is
+  // bridge-eligible ONLY when its normalized (pathname, filtered query)
+  // exactly equals the registered AuthorizedDocument's.
+  assert.match(
+    qdnRenderProxy,
+    /static boolean isExactAuthorizedRenderDocument\(\s*List<String> segments,\s*String encodedQuery,\s*AuthorizedDocument authorized\s*\)/,
+  )
+  assert.match(
+    qdnRenderProxy,
+    /authorized\.pathname\.equals\(normalizePathnameFromSegments\(segments\)\)\s*\n\s*&&\s*authorized\.query\.equals\(normalizeQuery\(encodedQuery\)\);/,
+  )
+  // Normalization: exactly the display params + the bridge token are
+  // ignored; nothing else, so an unexpected extra query param fails closed.
+  assert.match(
+    qdnRenderProxy,
+    /"theme",\s*\n\s*"lang",\s*\n\s*"textSize",\s*\n\s*"accent",\s*\n\s*"uiStyle",\s*\n\s*QDN_BRIDGE_TOKEN_QUERY_PARAM/,
+  )
+  // Round 4's separate, coarser /arbitrary containment (name + identifier,
+  // unaffected by the round-6 redesign — /arbitrary requests have a
+  // different query shape exact-URL equality was never meant to cover) is
+  // preserved, just renamed and stripped of the deleted pathname exemption.
+  assert.match(
+    qdnRenderProxy,
+    /static boolean isAuthorizedAppResource\(\s*List<String> segments,\s*String queryIdentifier,\s*AuthorizedDocument authorized\s*\)/,
+  )
+  assert.match(
+    qdnRenderProxy,
+    /\(route == RouteKind\.RENDER \|\| route == RouteKind\.PUBLIC_ARBITRARY\)[\s\S]{0,200}authorization\.homeV2[\s\S]{0,200}isAuthorizedAppResource/,
+    'classifyProxyRoute must still enforce the authorized app resource for RENDER AND ' +
+      'PUBLIC_ARBITRARY routes on homeV2 origins (Round 4, Defect C: /arbitrary/APP/... can ' +
+      'return a full HTML document exactly like /render/... can)',
+  )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /QdnRenderProxy\.isProxyUrl\(url\)\) \{[\s\S]{0,1200}classifyProxyRoute\(url\)[\s\S]{0,80}route == QdnRenderProxy\.RouteKind\.DENIED\) \{[\s\S]{0,40}return true;/,
+    'shouldOverrideUrlLoading must cancel a subframe navigation classifyProxyRoute would deny',
+  )
+  // Round 6: shouldCarryBridgeToken is now the SINGLE definition of bridge
+  // eligibility, reused (not duplicated) by both serveProxiedQdnRequest and
+  // shouldOverrideUrlLoading, and takes the exact-URL inputs directly rather
+  // than a service-only signal.
+  assert.match(
+    qdnBridgeWebViewClient,
+    /static boolean shouldCarryBridgeToken\(\s*QdnRenderProxy\.RouteKind route,\s*boolean homeV2,\s*List<String> segments,\s*String encodedQuery,\s*QdnRenderProxy\.AuthorizedDocument authorizedDocument\s*\)/,
+  )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /return !homeV2 \|\| QdnRenderProxy\.isExactAuthorizedRenderDocument\(segments, encodedQuery, authorizedDocument\);/,
+  )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /String bridgeToken = shouldCarryBridgeToken\(\s*route,\s*QdnRenderProxy\.isHomeV2Origin\(requestUrl\),\s*requestUrl\.getPathSegments\(\),\s*requestUrl\.getEncodedQuery\(\),\s*QdnRenderProxy\.getAuthorizedDocument\(requestUrl\)\s*\)[\s\S]{0,150}: null;/,
+    'serveProxiedQdnRequest must gate the bridge token on the exact-URL-aware shouldCarryBridgeToken',
+  )
+  assert.match(
+    qdnBridgeWebViewClient,
+    /return route == QdnRenderProxy\.RouteKind\.RENDER\s*&&\s*!shouldCarryBridgeToken\(\s*route,\s*QdnRenderProxy\.isHomeV2Origin\(url\),\s*url\.getPathSegments\(\),\s*url\.getEncodedQuery\(\),\s*QdnRenderProxy\.getAuthorizedDocument\(url\)\s*\);/,
+    'shouldOverrideUrlLoading must reuse shouldCarryBridgeToken directly, not a duplicated inline check',
+  )
+  assert.match(qdnRenderProxy, /static boolean isHomeV2Origin\(Uri url\)/)
+  assert.match(qdnRenderProxy, /static AuthorizedDocument getAuthorizedDocument\(Uri url\)/)
+
+  // Round 4, Defect A: the Android app stage is keyed by the active tab id
+  // (+ resourceLocation) so React fully unmounts App A's iframe/token/
+  // message-listener before App B's fresh instance ever mounts — no render
+  // may exist in which a stale iframe/token coexists with an already-
+  // updated `resolved` reporting a DIFFERENT tab. DesktopAppStage is
+  // deliberately excluded (persistent native WebContentsView).
+  assert.match(appTabStage, /export function androidAppStageKey\(productState: ProductState\)/)
+  assert.match(
+    appTabStage,
+    /return <AndroidAppStage key=\{androidAppStageKey\(props\.productState\)\} \{\.\.\.props\} \/>/,
+    'the Android branch of AppTabStage must be keyed by androidAppStageKey; DesktopAppStage must not be',
+  )
+  assert.doesNotMatch(
+    appTabStage,
+    /return <DesktopAppStage key=/,
+    'DesktopAppStage owns a persistent native WebContentsView and must stay unkeyed',
+  )
+
+  // Fix B: a shared rate limiter bounds SEND_CHAT_MESSAGE on both platforms,
+  // enforced before any node call or proof-of-work.
+  assert.match(rateLimiter, /export function createHomeV2SendRateLimiter/)
+  assert.match(rateLimiter, /HOME_V2_CHAT_SEND_MIN_INTERVAL_MS/)
+  assert.match(rateLimiter, /HOME_V2_CHAT_SEND_WINDOW_MS/)
+  assert.match(rateLimiter, /HOME_V2_CHAT_SEND_MAX_PER_WINDOW/)
+  assert.match(appBridge, /chatSendRateLimiter\.checkAndRecordSend/)
+  assert.match(appBridge, /chatSendRateLimiter\.reset\(\)/)
+  // Re-review #6: the rate-limit key must include sender/window identity, as
+  // permission grants (accountGrantKey) already do, not just tabId|accountId.
+  assert.match(appBridge, /function chatSendRateLimitKey\(sender: WebContents, context: QdnViewContext\)/)
+  assert.match(appBridge, /chatSendRateLimitKey\(sender, context\)/)
+  assert.match(liveApp, /androidChatSendRateLimiter[\s\S]{0,40}createHomeV2SendRateLimiter/)
+  assert.match(liveApp, /androidChatSendRateLimiter\.current\.checkAndRecordSend/)
+  assert.match(liveApp, /androidChatSendRateLimiter\.current\.reset\(\)/)
+}
+
 function testShellStateMigratesAddressSelection(): void {
   const legacy = parseHomeV2ShellState(
     {
@@ -1340,5 +1600,6 @@ testFixtureHtmlHasVisibleBootFallback()
 testProductionHomeV2EntryIsCapabilityScoped()
 testShellStateMigratesAddressSelection()
 testRendererSourceHasNoRuntimeEscapeHatches()
+testGrantIdentityAndSendRateLimitHardening()
 
 console.log('home v2 foundation contract tests passed')

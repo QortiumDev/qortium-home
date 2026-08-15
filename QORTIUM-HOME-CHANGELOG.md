@@ -34,6 +34,56 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-13 - Harden Home v2 app-grant identity binding + add chat-send rate limit
+
+Home now binds an app tab's account and chat-send authority to the exact QDN
+document that Home launched, closing the path where another app or resource
+could try to reuse that grant. Chat sending also has the same safety ceiling on
+desktop and Android: one send per tab and account every 1.5 seconds, with at
+most 20 sends per minute, so an already-approved app cannot consume unbounded
+proof-of-work or flood the network. One Android limitation is accepted and
+tracked separately: an authorized document can load non-APP `/arbitrary` HTML
+from other resources on its shared proxy origin, and that content can affect
+the existing granted document when the navigation preserves its token-bearing
+same-origin context. The other content receives no new token or grant, and it
+cannot directly steal another app tab's grant.
+
+### 2026-08-13 - feat: add Home v2 group and active-chats reads
+
+The app bridge gains a group-browsing read family, unblocking group chat
+browsing in the Chat 2.0 app. Apps can look up a single group, list a group's
+members (optionally admins only), list the groups an address belongs to
+(optionally owned or admin-only groups), and see a group's pending join
+requests - by group, by the requesting address, or by an admin address. Apps
+can also list an address's active chats (which groups and direct
+conversations currently have messages). All of these are anonymous, no-key,
+no-prompt public reads, the same as the existing name and asset lookups.
+Group search (finding groups by name or description) ships on Qortium only,
+because Qortal's node software has no matching search endpoint - this is a
+genuine gap between the two networks, not a Home restriction, and Home
+advertises the action only where it actually works.
+
+### 2026-08-12 - feat: add Home v2 chat reads and send (Chat 2.0 Phase 1)
+
+The app bridge gains its first chat family, on both Qortium and Qortal.
+Reading: apps can search chat messages by group and fetch a single message by
+signature. Chat search only supports group selectors in this release -
+direct-message search is not available yet and returns a clear error instead
+of quietly doing nothing. Sending: apps can send an open or group chat
+message on either network. Home builds and signs the message entirely
+inside itself - the app never sees keys or unsigned transaction bytes, and no
+API key is sent to any node. On Qortium this reuses the existing keyless
+build-then-sign path; on Qortal the message bytes are built, proof-of-worked,
+and signed on the device, then broadcast, the same way ChibiHub's group chat
+send already works today. Sending shows a permission prompt naming the
+network, the group, and a preview of the message, with the same allow-once or
+allow-for-this-tab choices as other account prompts. Qortal no longer accepts
+general-chat transactions, so sending to group 0 there is refused with a
+specific message; Qortium's general chat (group 0) is unaffected. The
+selected account must already be unlocked to send - a Qortal-only app has no
+way to trigger an unlock yet, which is a known and documented limitation
+until direct messages and account handling catch up in a later phase.
+
 ### 2026-08-12 - docs: adopt the Chat 2.0 plan
 
 Records the plan for the next-generation Chat experience that gates the Home

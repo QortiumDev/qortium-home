@@ -1,6 +1,6 @@
 # Home 2.0 bridge compatibility ledger
 
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 
 This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -57,6 +57,11 @@ pages and Home 1.x retain Core's injected bridge client.
 | `GET_USER_ACCOUNT` | `qortalRequest` | Address and public key when available from Qortal | Trusted Home prompt; once or tab-session grant | yes | yes |
 | `UNLOCK_SELECTED_ACCOUNT` | `qdnRequest` | Sanitized address, public name, and unlocked state | Visible Home-owned prompt; exact app/tab/account/route recheck; no private material | yes | yes |
 | `OPEN_NEW_TAB` | both | `true` | Only `qdn://`, `qortal://`, or `home://`; Home owns navigation | yes | yes |
+| `SEARCH_CHAT_MESSAGES` | both | Bare Core JSON | Groups-only in this release (documented Hub deviation, see below); required non-negative `txGroupId`; `before`/`after` pre-validated against Core's floor; `limit` capped at 100 | yes | yes |
+| `GET_CHAT_MESSAGE` | both | Bare Core JSON | Base58 signature shape validated before the request | yes | yes |
+| `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; per-tab/account ceiling of one send per 1.5 seconds and 20 per minute; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
+| `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
+| `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 
 Q-Apps may also make an unchanged same-origin
 `GET /transactions/signature/{signature}` read. On Android this route requires
@@ -79,7 +84,7 @@ tranche offers no durable
 | Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
-| Chat | Public generic reads are possible only through the bounded allowlist | classic chat actions, private chat, encryption, signing, and Reticulum remain deferred |
+| Chat | The on-chain Chat 2.0 foundation (docs/CHAT_2_0_PLAN.md) has open/group reads (`SEARCH_CHAT_MESSAGES` groups-only, `GET_CHAT_MESSAGE`) and open/group send (`SEND_CHAT_MESSAGE`, both networks, client-side signed) bridge coverage; the group/chat-active read family (`GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, the three join-request reads, `GET_ACTIVE_CHATS`, plus Qortium-only `SEARCH_GROUPS`) unblocks group browsing | DM search/send and private-group encryption remain deferred to Phase 2+. Chat 2.0 is not complete or releasable until Home also supplies the distinct Qortal RCHAT source/action family; the on-chain actions here cannot read off-chain RCHAT history. |
 
 On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
 slice in packaged desktop and Android previews: its feed rendered, Home's
@@ -99,11 +104,11 @@ and Android fixtures pass.
 
 | Risk family | Deferred pinned actions |
 | --- | --- |
-| More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family), `SEARCH_CHAT_MESSAGES` (awaiting the encrypted-direct-message boundary decision) |
+| More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family) |
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
 | Names, groups, polls | `ADD_GROUP_ADMIN`, `BAN_FROM_GROUP`, `BUY_NAME`, `CANCEL_GROUP_BAN`, `CANCEL_GROUP_INVITE`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `KICK_FROM_GROUP`, `LEAVE_GROUP`, `REGISTER_NAME`, `REMOVE_GROUP_ADMIN`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
-| QDN writes and chat | `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PUBLISH_QDN_RESOURCE`, `SEND_CHAT_MESSAGE` |
+| QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PUBLISH_QDN_RESOURCE` |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` |
 | Wallets, payments, signing | `GET_USER_WALLET`, `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` |
 | Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` |
@@ -151,3 +156,66 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - `UNLOCK_SELECTED_ACCOUNT` is Qortium-specific. Qortal apps receive no matching
   shortcut, and no app receives passwords, derived key bytes, seeds, or private
   keys from the result.
+- `SEND_CHAT_MESSAGE` (Chat 2.0 Phase 1, docs/CHAT_2_0_PLAN.md) is the first
+  bridge action that signs a transaction. This is a deliberate, bounded
+  exception to the deferred-signing boundary — CHAT only (fee-less, cannot
+  move funds, bounded payload) — not a general precedent; payments/arbitrary
+  signing remain behind Phase 5. `SEARCH_CHAT_MESSAGES` is **groups-only**:
+  `involving`/`sender`/`recipient` selectors are rejected with a specific
+  error naming the deferred DM family (decided 2026-08-12, a documented
+  deviation from full Hub compatibility). **This is not a confidentiality
+  boundary.** DM transactions (Qortium and Qortal alike) are ordinary
+  on-chain transactions; their ciphertext is public regardless of which
+  bridge action reads it, and `/chat/messages` — including DM-involving
+  queries — remains fully reachable through `FETCH_NODE_API` today, exactly
+  as it is through any other Qortium/Qortal API client. The `SEARCH_CHAT_MESSAGES`
+  restriction exists only because returning ciphertext Home cannot yet
+  decrypt is not useful to an app; it protects nothing an app could not
+  already read another way. DM results start returning through
+  `SEARCH_CHAT_MESSAGES` once Home-side decryption lands (Phase 2,
+  docs/CHAT_2_0_PLAN.md), at which point the action starts doing useful work
+  instead of handing back opaque bytes — not once some access-control gate
+  opens. On `qortalRequest`, `txGroupId: 0`
+  (Qortal's retired general chat) is rejected with a specific error; on
+  `qdnRequest`, group 0 is Qortium's open general chat and stays allowed. The
+  selected account must already be unlocked before `SEND_CHAT_MESSAGE` is
+  called — a pure-Qortal app has no unlock shortcut (see above), so it cannot
+  drive an unlock itself in Phase 1 and depends on the account already being
+  unlocked by other means; this is a known limitation, not a bug. `message` is
+  an opaque, app-owned payload Home never parses or rewrites: qortium-chat
+  JSON on `qdnRequest`, Hub-compatible JSON on `qortalRequest` (the app embeds
+  `repliedTo` etc. itself). Home additionally verifies a target Qortal group
+  is open before broadcasting, since private-group encryption is not
+  implemented yet and Home will not send plaintext into a group it cannot
+  verify is public.
+- **Android within-principal residual (known limitation, accepted, tracked
+  separately):** Android's QDN render proxy serves every app tab on one node
+  from a single shared `https://<label>.qdn.androidplatform.net` origin (see
+  `QdnRenderProxy.java`'s class doc comment for why — a per-tab origin would
+  wipe QDN apps' own local storage between visits). The round-6/7 exact-URL
+  gate (`QdnRenderProxy.isExactAuthorizedRenderDocument`) closes cross-app
+  grant theft: the native proxy never supplies a fresh bridge token, script
+  injection, or a stripped CSP to any document other than the one exact
+  resource Home itself launched, enforced by per-tab tokens,
+  one-iframe-at-a-time rendering, and this exact-URL match. What it does
+  **not**, and cannot,
+  prevent on Android: the tab's own already-authorized document can load
+  non-APP `/arbitrary` HTML from **any** non-APP service/name/identifier, not
+  only content published under the app resource Home launched. That loaded
+  content shares the tab's proxy origin and can therefore manipulate the
+  already-granted document if the load/navigation preserves a token-bearing
+  same-origin context. The non-APP document does not independently pass the
+  exact-authorized-URL gate or receive a new bridge token, injection, or grant;
+  a full navigation gains no bridge authority only when it neither carries nor
+  recovers the already-visible `qdnHomeBridge` token. If it preserves or
+  recovers that token while becoming the tab's live iframe, it can reuse that
+  tab's **existing** principal and grant. It is not direct cross-tab or
+  cross-app grant theft: another tab's per-tab token, registered document, and
+  live frame are still unavailable. The shared-origin + URL-token model gives
+  Home no way to distinguish trusted app code from other non-APP HTML once the
+  authorized document deliberately brings both into that same-origin context.
+  Full per-document integrity would require either a distinct origin per app
+  (in tension with the local-storage continuity above) or a non-URL token
+  handshake between the app document and Home. Neither is in scope for this
+  hardening pass; this residual is owner-accepted and tracked separately from
+  the cross-app grant-theft closure above.

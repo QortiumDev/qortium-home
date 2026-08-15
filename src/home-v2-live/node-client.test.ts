@@ -402,6 +402,50 @@ assert.equal(
 
 await client.setMode('qortal', 'public')
 await client.setMode('qortium', 'public')
+
+// Group/chat-active read family (unblocks Chat 2.0 group browsing):
+// representative URL-routing coverage on both protocols.
+assert.deepEqual(
+  await client.requestApp('qortalRequest', { action: 'GET_GROUP', groupId: 1 }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/groups\/1$/)
+assert.deepEqual(
+  await client.requestApp('qdnRequest', {
+    action: 'GET_GROUP_MEMBERS',
+    groupId: 4,
+    onlyAdmins: true,
+  }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/groups\/members\/4\?onlyAdmins=true$/)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/groups\/joinrequests\/address\/QH143K2qjVdn864NSY7aNESo88ao1ZnALH$/)
+assert.deepEqual(
+  await client.requestApp('qdnRequest', {
+    action: 'GET_ACTIVE_CHATS',
+    address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+  }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/chat\/active\/QH143K2qjVdn864NSY7aNESo88ao1ZnALH\?encoding=BASE64$/)
+assert.deepEqual(
+  await client.requestApp('qdnRequest', { action: 'SEARCH_GROUPS', query: 'Chess' }),
+  [],
+)
+assert.match(lastRequestedUrl, /\/groups\/search\?query=Chess$/)
+// SEARCH_GROUPS is Qortium-only: /groups/search does not exist on Qortal.
+await assert.rejects(
+  () => client.requestApp('qortalRequest', { action: 'SEARCH_GROUPS', query: 'Chess' }),
+  /not available in Home v2 read-only mode/,
+)
+
 assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_ASSET_BALANCES'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_ASSET_BALANCES'), false)
 assert.deepEqual(
@@ -470,6 +514,53 @@ assert.match(lastRequestedUrl, /\/arbitrary\/resources\/search\?name=Q-Tube&serv
 assert.deepEqual(await client.listAppResources('qortal', 'Trust'), [
   { identifier: 'Trust', name: 'Trust' },
 ])
+
+const chatSignature =
+  '3H1KRfxLcJgxUAvBWKB4Y9x2K2sYKvzeXKrRGqYnDvxNQoNo8czEEs1uYYzMg2xKGz7Cx1xoY7YSasfF8LtcvRcE'
+await client.requestApp('qdnRequest', { action: 'SEARCH_CHAT_MESSAGES', txGroupId: 0 })
+assert.match(lastRequestedUrl, /\/chat\/messages\?txGroupId=0&encoding=BASE64$/)
+await client.requestApp('qortalRequest', {
+  action: 'SEARCH_CHAT_MESSAGES',
+  limit: 10,
+  txGroupId: 5,
+})
+assert.match(lastRequestedUrl, /\/chat\/messages\?txGroupId=5&limit=10&encoding=BASE64$/)
+// Decided 2026-08-12: DM-involving search is groups-only in Phase 1 on both
+// protocols, not just the one Hub is compatible with.
+await assert.rejects(
+  () => client.requestApp('qdnRequest', {
+    action: 'SEARCH_CHAT_MESSAGES',
+    involving: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    txGroupId: 0,
+  }),
+  /groups-only in this release/,
+)
+await assert.rejects(
+  () => client.requestApp('qortalRequest', {
+    action: 'SEARCH_CHAT_MESSAGES',
+    recipient: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+    txGroupId: 1,
+  }),
+  /groups-only in this release/,
+)
+await client.requestApp('qdnRequest', { action: 'GET_CHAT_MESSAGE', signature: chatSignature })
+assert.match(
+  lastRequestedUrl,
+  new RegExp(`/chat/message/${chatSignature}\\?encoding=BASE64$`),
+)
+await client.requestApp('qortalRequest', {
+  action: 'GET_CHAT_MESSAGE',
+  encoding: 'BASE58',
+  signature: chatSignature,
+})
+assert.match(
+  lastRequestedUrl,
+  new RegExp(`/chat/message/${chatSignature}\\?encoding=BASE58$`),
+)
+await assert.rejects(
+  () => client.requestApp('qdnRequest', { action: 'GET_CHAT_MESSAGE', signature: 'bad' }),
+  /signature is invalid/,
+)
 const avatar = await client.readAvatar('qortal', avatarRequest)
 assert.equal(avatar.status, 'ready')
 assert.equal(normalizePortableNodeUrl('localhost:12391'), 'https://localhost:12391')

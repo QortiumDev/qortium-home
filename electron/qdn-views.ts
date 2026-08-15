@@ -11,7 +11,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
 import { isHomeV2CoreBridgeClientRequest } from './home-v2-core-bridge-client.js';
-import { isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
+import { getQdnArchiveRenderRoot, getRealPathIfAvailable, isManagedQdnArchiveRenderUrl } from './qdn-archive-render.js';
+import {
+  isQdnRenderUrlSameAppResource as isQdnRenderUrlSameAppResourcePure,
+  type QdnArchiveIdentityResolver,
+  type QdnResourceLaunchRef,
+} from './qdn-resource-identity.js';
 import { isQdnBrowserArchiveService } from './qdn-browser-archive-services.js';
 import {
   QDN_MANAGER_EVENT_KINDS,
@@ -408,6 +413,70 @@ function isAllowedRenderUrlForOrigin(rawUrl: string, nodeOrigin: string) {
   return isQdnBrowserArchiveService(getRenderService(url));
 }
 
+// Fix A (finding 1) same-app-resource navigation binding: the pure identity
+// parsing/comparison logic lives in qdn-resource-identity.ts (no
+// node/electron-only imports, so it is plain-Node testable). The only piece
+// that needs Electron here is resolving a managed-archive `file://` URL's
+// cache-directory identity, which touches `app.getPath` via
+// getQdnArchiveRenderRoot() — that stays local to this file and is injected
+// into the pure module as a QdnArchiveIdentityResolver.
+
+// The managed-archive cache directory a `file://` render URL resolves inside
+// (qdn-archive-render.ts prepareQdnArchiveRender): unique per published
+// resource *and* content version, so directory equality means "same rendered
+// resource". isManagedQdnArchiveRenderUrl has already verified the URL
+// resolves inside the archive root before this is called.
+//
+// Fix 4 (Sol re-review #5): identity is computed from the REAL (symlink-
+// resolved) path, via the SAME getRealPathIfAvailable helper
+// qdn-archive-render.ts's own containment checks use — not the lexical URL
+// path — so an extracted archive that plants a symlink pointing at a
+// sibling cache directory is identified by where it REALLY resolves, not by
+// which cache directory it lexically appears to live under. See that
+// helper's doc comment for the full rationale.
+function getArchiveCacheDirIdentity(rawUrl: string): string | null {
+  try {
+    const filePath = fileURLToPath(new URL(rawUrl));
+    const realFilePath = getRealPathIfAvailable(filePath);
+    const realRoot = getRealPathIfAvailable(path.resolve(getQdnArchiveRenderRoot()));
+    const relative = path.relative(realRoot, realFilePath);
+
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      return null;
+    }
+
+    return relative.split(path.sep)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+const qdnArchiveIdentityResolver: QdnArchiveIdentityResolver = {
+  isArchiveUrl: isManagedQdnArchiveRenderUrl,
+  getArchiveIdentity: getArchiveCacheDirIdentity,
+};
+
+// Whether `candidateUrl` still points at the SAME app resource `ref` was
+// launched for. Exported for electron/home-v2-app-bridge.ts's defense-in-
+// depth live-resource recheck.
+export function isQdnRenderUrlSameAppResource(candidateUrl: string, ref: QdnResourceLaunchRef): boolean {
+  return isQdnRenderUrlSameAppResourcePure(candidateUrl, ref, qdnArchiveIdentityResolver);
+}
+
+// Combined gate used everywhere a loaded view's in-view navigation is
+// checked: the existing origin/service allowlist, plus Fix A's same-app-
+// resource binding.
+function isAllowedInViewNavigation(candidateUrl: string, entry: QdnViewEntry): boolean {
+  return (
+    isAllowedRenderUrlForOrigin(candidateUrl, entry.nodeOrigin) &&
+    isQdnRenderUrlSameAppResource(candidateUrl, {
+      nodeOrigin: entry.nodeOrigin,
+      requestedUrl: entry.requestedUrl,
+      resourceUrl: entry.resourceUrl,
+    })
+  );
+}
+
 function sanitizeRenderUrl(value: unknown, nodeOrigin: string) {
   if (typeof value === 'string' && isManagedQdnArchiveRenderUrl(value)) {
     return new URL(value).toString();
@@ -676,13 +745,36 @@ export function isQdnAppResourceFocused(resourceUrl: string) {
   return false;
 }
 
+// Fix 3 (Sol re-review #3): the TRUSTED live URL, sourced directly from
+// Chromium rather than from `entry.currentUrl` (a field this module updates
+// itself via navigation event listeners, so a missed/misordered event could
+// theoretically leave it stale). webContents.getURL() reflects the last
+// COMMITTED navigation regardless of our own bookkeeping, so a permission-
+// time recheck against it fails closed on the page that is actually loaded,
+// not on a best-case snapshot. Falls back to the (now always up to date, per
+// updateCurrentUrl above) bookkeeping field only once the webContents itself
+// is gone and can no longer be asked.
+function getTrustedCurrentUrl(entry: QdnViewEntry): string | null {
+  if (entry.view.webContents.isDestroyed()) {
+    return entry.currentUrl;
+  }
+
+  const liveUrl = entry.view.webContents.getURL();
+
+  // A freshly created (not-yet-navigated) webContents can report '' or
+  // 'about:blank' rather than throwing/returning undefined — both mean "no
+  // real committed URL yet", same as the null this returned before any
+  // navigation had happened.
+  return liveUrl && liveUrl !== 'about:blank' ? liveUrl : null;
+}
+
 export function getQdnViewContextForWebContents(webContents: WebContents): QdnViewContext | null {
   for (const [windowId, windowViews] of qdnViewsByWindow) {
     for (const entry of windowViews.values()) {
       if (entry.view.webContents.id === webContents.id) {
         return {
           accountId: entry.accountId,
-          currentUrl: entry.currentUrl,
+          currentUrl: getTrustedCurrentUrl(entry),
           displaySettings: entry.displaySettings,
           nodeOrigin: entry.nodeOrigin,
           resourceUrl: entry.resourceUrl,
@@ -754,7 +846,7 @@ function applyViewGuards(entry: QdnViewEntry) {
     const entries = navigationHistory
       .getAllEntries()
       .map((navigationEntry, index) => ({ index, url: navigationEntry.url }))
-      .filter((navigationEntry) => isAllowedRenderUrlForOrigin(navigationEntry.url, entry.nodeOrigin))
+      .filter((navigationEntry) => isAllowedInViewNavigation(navigationEntry.url, entry))
       .slice(-200);
 
     if (!entries.some((navigationEntry) => navigationEntry.index === activeIndex)) {
@@ -770,11 +862,22 @@ function applyViewGuards(entry: QdnViewEntry) {
   };
 
   const updateCurrentUrl = (url: string) => {
-    if (!isAllowedRenderUrlForOrigin(url, entry.nodeOrigin)) {
+    // Fix 3 (Sol re-review #3): record every committed main-frame URL
+    // unconditionally. Discarding a disallowed one here used to leave
+    // `entry.currentUrl` stale (pointing at the last ALLOWED url) even
+    // though the page had actually navigated somewhere disallowed — a
+    // permission-time consumer reading `entry.currentUrl` (via
+    // getQdnViewContextForWebContents) would then wrongly see "still on the
+    // allowed resource". getQdnViewContextForWebContents no longer trusts
+    // this field for that purpose (it reads the live webContents.getURL()
+    // instead — see below), but this field is also used as a plain
+    // bookkeeping fallback there, so it must reflect reality, not a
+    // best-case snapshot.
+    entry.currentUrl = url;
+
+    if (!isAllowedInViewNavigation(url, entry)) {
       return;
     }
-
-    entry.currentUrl = url;
 
     // A pushState can intentionally add the same URL twice. Always send the
     // engine snapshot so its stable indexes, rather than URL equality, decide
@@ -839,19 +942,19 @@ function applyViewGuards(entry: QdnViewEntry) {
   entry.view.webContents.on('will-navigate', (event, url) => {
     const navigationUrl = event.url || url;
 
-    if (!isAllowedRenderUrlForOrigin(navigationUrl, entry.nodeOrigin)) {
+    if (!isAllowedInViewNavigation(navigationUrl, entry)) {
       event.preventDefault();
     }
   });
   entry.view.webContents.on('will-frame-navigate', (event) => {
-    if (!isAllowedRenderUrlForOrigin(event.url, entry.nodeOrigin)) {
+    if (!isAllowedInViewNavigation(event.url, entry)) {
       event.preventDefault();
     }
   });
   entry.view.webContents.on('will-redirect', (event, url) => {
     const redirectUrl = event.url || url;
 
-    if (!isAllowedRenderUrlForOrigin(redirectUrl, entry.nodeOrigin)) {
+    if (!isAllowedInViewNavigation(redirectUrl, entry)) {
       event.preventDefault();
     }
   });
@@ -1380,7 +1483,7 @@ export function registerQdnViewIpcHandlers() {
     const navigationHistory = entry.view.webContents.navigationHistory;
     const target = navigationHistory.getEntryAtIndex(request.index);
 
-    if (!target || !isAllowedRenderUrlForOrigin(target.url, entry.nodeOrigin)) {
+    if (!target || !isAllowedInViewNavigation(target.url, entry)) {
       return false;
     }
 

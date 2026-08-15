@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HomeV2Snapshot } from '../contracts'
 import type { ProductState } from '../product-model'
 import { parseAppResourceLocation } from '../resource-location'
+import { isSameRenderResourcePath, resolveLaunchIdentifier } from './render-path-identity'
 import {
   readHomeV2AppNavigationMessage,
   readHomeV2AppTitleMessage,
@@ -44,6 +45,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   query.set('uiStyle', 'classic')
   const queryString = query.toString()
   return {
+    identity: resource.identity,
     nodeApiUrl: node.nodeApiUrl,
     tab,
     url: `${node.nodeApiUrl}/render/APP/${encodeURIComponent(name)}${suffix}${resource.routePath}${queryString ? `?${queryString}` : ''}${resource.hash}`,
@@ -183,18 +185,90 @@ function AndroidAppStage(props: AppTabStageProps) {
   }, [props.productState, props.snapshot])
   const resolved = resolution.value
 
+  // Fix A (finding 1) live-resource tracking: on Android every app on a node
+  // shares one proxy origin (QdnRenderProxy.java's per-view isolation would
+  // wipe QDN apps' own local storage between visits, so it deliberately keys
+  // the proxy by node origin only — see that file's class doc comment).
+  //
+  // Round 6 (owner-directed redesign, ending the round-2/4/5
+  // identifier-confusion class): QdnBridgeWebViewClient/QdnRenderProxy now
+  // gate the live bridge token / injection / CSP-strip on an EXACT match
+  // against this tab's registered authorized document URL (see
+  // QdnRenderProxy.isExactAuthorizedRenderDocument and the authorize() call
+  // below, which registers that EXACT trusted URL before the iframe is
+  // created — the native side can do this safely because Android renders at
+  // most ONE app tab's iframe at a time: React unmounts/remounts a fresh
+  // iframe, keyed by tab id, on every tab switch, so "the currently
+  // registered document" is always this tab's own). Given that exact-URL
+  // gate, the self-report below can no longer grant a mismatched document
+  // ANY bridge capability to begin with (a non-matching document was never
+  // given a working token or injection at the byte-serving layer) — it is
+  // kept ONLY as a UX/consistency signal (refuse to relay a request while
+  // the visibly-loaded page has drifted from the launch resource), NOT a
+  // security boundary of its own; see shouldCarryBridgeToken's doc comment
+  // in QdnBridgeWebViewClient.java for the layer that actually is one.
+  const liveResourcePathRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    liveResourcePathRef.current = resolved ? resolved.url : null
+  }, [resolved, source])
+
   useEffect(() => {
     if (!resolved) return
     let cancelled = false
     setRuntimeError(null)
+    // Round 6: the EXACT URL this effect is about to load into the iframe
+    // (see below) is built ONCE here and used, verbatim, for BOTH the native
+    // authorize() registration AND the iframe's own `source` — so the
+    // registered document and the requested document can never independently
+    // drift apart. `homeV2Bridge` is set now (not just when building
+    // `source`) because it is a constant marker every homeV2 app-tab
+    // document request carries; including it here means the exact-URL
+    // comparison never needs to special-case it (see
+    // QdnRenderProxy.IGNORED_DOCUMENT_QUERY_PARAMS's doc comment). The live
+    // bridge token itself is deliberately NOT included — it is random per
+    // tab and explicitly excluded from that same comparison.
+    //
+    // Round 7 (Sol round-6 re-review, bug 3): an initial `#/route` deep link
+    // (resolved.url may carry one — see resolveRender's use of
+    // resource.hash) is captured here and reattached ONLY to the iframe's
+    // own `source` below, never to the URL handed to the native authorize()
+    // registration. A fragment is a client-only concept — it is never sent
+    // in an HTTP request, so it never reaches Core or this proxy, cannot
+    // change the bytes served, and must not participate in the server-side
+    // exact-URL match (QdnRenderProxy.isExactAuthorizedRenderDocument only
+    // ever compares pathname + filtered query; giving it a hash to
+    // (deliberately) ignore is not the same guarantee as it never being
+    // asked to carry one at all).
+    const initialHash = new URL(resolved.url).hash
+    const authorizedDocument = new URL(resolved.url)
+    authorizedDocument.searchParams.set('homeV2Bridge', '1')
+    // The fragment is cleared AFTER homeV2Bridge is folded in (not before —
+    // see the comment above): what matters for the exact-URL gate is only
+    // that no hash reaches authorize() below, not the order these two
+    // mutations happen in.
+    authorizedDocument.hash = ''
     void import('../../home-v2-live/android-app-host')
-      .then(({ authorizeHomeV2AndroidAppOrigin }) => authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl))
+      .then(({ authorizeHomeV2AndroidAppOrigin }) =>
+        // Registers this EXACT document natively BEFORE the iframe is
+        // created below, so QdnBridgeWebViewClient can refuse the bridge
+        // token / injection / CSP-strip to anything else from the very
+        // first request — see QdnRenderProxy.authorize's doc comment.
+        authorizeHomeV2AndroidAppOrigin(resolved.nodeApiUrl, authorizedDocument.toString()),
+      )
       .then((proxyOrigin) => {
         if (cancelled) return
-        const direct = new URL(resolved.url)
-        const proxied = new URL(`${direct.pathname}${direct.search}`, proxyOrigin)
+        const proxied = new URL(
+          `${authorizedDocument.pathname}${authorizedDocument.search}`,
+          proxyOrigin,
+        )
         proxied.searchParams.set('qdnHomeBridge', token)
-        proxied.searchParams.set('homeV2Bridge', '1')
+        // The hash is appended last, and directly (not via a `new URL(...,
+        // base)` third argument, which would have to survive the
+        // searchParams mutation above) — URL.hash is independent of
+        // .search, so setting it after qdnHomeBridge is added still
+        // serializes as `...?query#hash`, matching a normal deep link.
+        proxied.hash = initialHash
         setSource(proxied.toString())
       })
       .catch((cause: unknown) => {
@@ -222,11 +296,56 @@ function AndroidAppStage(props: AppTabStageProps) {
 
       const navigationMessage = readHomeV2AppNavigationMessage(data, token, source)
       if (navigationMessage) {
+        const activeEntry = navigationMessage.entries.find(
+          (entry) => entry.index === navigationMessage.activeIndex,
+        )
+        if (activeEntry) {
+          try {
+            liveResourcePathRef.current = new URL(activeEntry.url).toString()
+          } catch {
+            liveResourcePathRef.current = null
+          }
+        }
         if (resolved) props.onNavigationChanged?.(resolved.tab.id, navigationMessage)
         return
       }
 
       if (data.type !== 'qortium:qdn-request' || typeof data.requestId !== 'string') return
+
+      // Round 6: refuse to relay a request from an iframe whose (app-
+      // controlled, so not fully trusted — see the liveResourcePathRef
+      // comment above) self-reported live location no longer matches the
+      // resource this tab was launched for. This is UX/consistency
+      // defense-in-depth, NOT the security boundary — see this file's
+      // liveResourcePathRef doc comment: the native exact-URL gate
+      // (QdnRenderProxy.isExactAuthorizedRenderDocument) already means a
+      // mismatched document was never given a working bridge token or
+      // injection to relay a request WITH in the first place. Kept, rather
+      // than removed, because it still catches the case where the app itself
+      // drifted (accidentally or otherwise) and honestly reports it — a
+      // cleaner failure than acting on a request the loaded page has no
+      // business making. Folds the query the same way the (now-removed)
+      // native authorize() identifier registration used to (resolveLaunchIdentifier),
+      // reusing resolved.identity rather than re-parsing resourceLocation.
+      const launchIdentity = resolved
+        ? {
+            name: resolved.identity.name,
+            identifier: resolveLaunchIdentifier(resolved.identity.identifier, resolved.url),
+          }
+        : null
+      const liveResourcePath = liveResourcePathRef.current
+      if (
+        !launchIdentity ||
+        !liveResourcePath ||
+        !isSameRenderResourcePath(liveResourcePath, launchIdentity)
+      ) {
+        ;(event.source as Window | null)?.postMessage({
+          type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
+          error: { message: 'The app view navigated away from its launch resource.' },
+        }, '*')
+        return
+      }
+
       const protocol = data.protocol === 'qortalRequest' ? 'qortalRequest' : 'qdnRequest'
       const identityId = String(resolved?.tab.context.identityId ?? '')
       const launchAccountId = identityId.startsWith('home-v2:identity:')
@@ -344,8 +463,50 @@ export interface AppTabStageProps {
   ) => Promise<unknown>
 }
 
+// Round 4, Defect A (Sol round-3 re-review): the key React unmounts/remounts
+// AndroidAppStage on. Includes both the active tab id AND its
+// resourceLocation — a tab switch always changes the id, but keying on the
+// resourceLocation too means this stays correct even if some future caller
+// ever navigated the CURRENTLY active tab's own resource in place (not
+// reachable from today's UI: openApp always mints a fresh tab id, and
+// activate-tab never touches resourceLocation — see HomeV2LiveApp.tsx).
+//
+// Without this, the SAME AndroidAppStage component instance (and its
+// `source`/`token` state, message listener, and liveResourcePathRef) is
+// reused across a tab switch: on the render where `productState.activeTabId`
+// flips from A to B, the memoized `resolved` (derived from productState via
+// useMemo, so it updates SYNCHRONOUSLY within that same render) already
+// reports tab B's context, while the iframe's `key` (`${resolved.tab.id}:…`,
+// AndroidAppStage's OWN inner key) also flips to B — causing React to
+// discard A's iframe DOM node and mount a brand-new one, but with `src` set
+// to whatever `source` state STILL holds (A's stale render URL, since the
+// effect that calls setSource(B's url) has not run yet). That freshly
+// created iframe briefly starts loading A's stale content while every other
+// signal (resolved, launchIdentity, liveResourcePathRef re-seeded from
+// resolved) already says "B" — exactly the stale-token/new-context window
+// this fix closes. liveResourcePathRef cannot be trusted to catch this
+// either: its own effect re-seeds it to resolved.url (B's URL) the instant
+// `resolved` changes, so the "does the live location match the launch" check
+// in the message handler below is comparing B's expected URL against itself,
+// not against what the iframe is actually loading.
+//
+// Keying the WHOLE AndroidAppStage instance here (not just its inner iframe)
+// makes React discard that entire component instance — and, in the SAME
+// commit, run its effect cleanups (which remove the stale message listener)
+// BEFORE the fresh instance for B ever mounts — so there is no render, and
+// no committed DOM state, in which A's iframe/token exist at the same time
+// `resolved` reports B. DesktopAppStage is deliberately NOT included in this
+// keying: it owns a persistent native WebContentsView (see its own effect,
+// which explicitly hides — rather than destroys — a departing tab's view),
+// and remounting it on every tab switch would defeat that.
+export function androidAppStageKey(productState: ProductState): string {
+  const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
+  return tab ? `${tab.id}:${tab.context.resourceLocation}` : 'none'
+}
+
 export function AppTabStage(props: AppTabStageProps) {
-  return window.homeV2Apps ? <DesktopAppStage {...props} /> : <AndroidAppStage {...props} />
+  if (window.homeV2Apps) return <DesktopAppStage {...props} />
+  return <AndroidAppStage key={androidAppStageKey(props.productState)} {...props} />
 }
 
 declare global {
@@ -365,6 +526,7 @@ declare global {
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void
       onPermissionRequest(listener: (event: unknown) => void): () => void
+      onPermissionTimeout(listener: (event: unknown) => void): () => void
       onNavigationChanged(listener: (event: unknown) => void): () => void
     }
   }

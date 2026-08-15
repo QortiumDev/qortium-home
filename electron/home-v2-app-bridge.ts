@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, webContents, type WebContents } from 'electron'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import {
   getHomeV2ReadableNode,
   readHomeV2Avatar,
@@ -9,6 +9,7 @@ import { nodeFetch } from './node-tls.js'
 import {
   getQdnViewContextForTab,
   getQdnViewContextForWebContents,
+  isQdnRenderUrlSameAppResource,
   type QdnViewContext,
 } from './qdn-views.js'
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js'
@@ -27,15 +28,34 @@ import {
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
   normalizeHomeV2AvatarMaxBytes,
+  normalizeHomeV2ChatMessageText,
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
+  normalizeHomeV2SendTxGroupId,
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
-import { getAccountProfile, isAccountUnlocked } from './accounts.js'
+import { getAccountProfile, getAccountSecretKey, isAccountUnlocked, signChatTransaction, signDetached } from './accounts.js'
+import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
+import { base58Decode, base58Encode } from './base58.js'
+import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
+import { readableNodeErrorMessage } from './node-error-body.js'
+import { assertPublicChatTransaction } from './public-transaction-validation.js'
+import {
+  assertOpenQortalGroupMetadata,
+  buildUnsignedQortalGroupChatTransactionBytes,
+  qortalChatPowDifficultyForBalanceResponse,
+  QORTAL_CHAT_POW_DIFFICULTY_BELOW,
+  stampQortalGroupChatNonce,
+} from './qortal-chat.js'
+import {
+  appendSignatureToTransactionBytes,
+  getSignatureFromSignedTransactionBytes,
+} from './qortal-payment.js'
+
 import {
   buildWidgetRenderUrl,
   discoverWidgetManifest,
@@ -70,7 +90,22 @@ function getContextWindow(context: QdnViewContext): BrowserWindow | null {
   return BrowserWindow.fromWebContents(hostContents)
 }
 
-type AccountReadAction = 'GET_SELECTED_ACCOUNT' | 'GET_USER_ACCOUNT' | 'UNLOCK_SELECTED_ACCOUNT'
+// The Qortium CHAT memory-pow difficulty. Mirrors the private CHAT_POW_DIFFICULTY
+// constant in electron/qdn.ts and src/platform.ts (all three must stay equal;
+// Core enforces this value server-side).
+const QORTIUM_CHAT_POW_DIFFICULTY = 8
+const CHAT_WRITE_TIMEOUT_MS = 30_000
+// A few hundred KB is ample for a CHAT build/group-metadata/process/error
+// response — bounds the signing-path node calls below (FIX #4, security
+// review) using the same bounded-read approach as the rest of this file's
+// read-only actions (readBoundedResponse / HOME_V2_APP_LIMITS.responseBytes).
+const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024
+
+type AccountReadAction =
+  | 'GET_SELECTED_ACCOUNT'
+  | 'GET_USER_ACCOUNT'
+  | 'SEND_CHAT_MESSAGE'
+  | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
   readonly scope: 'session' | 'single-request' | null
@@ -82,6 +117,21 @@ const pendingAccountReads = new Map<string, {
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
 const sessionAccountReadGrants = new Set<string>()
+// Fix B (security review finding 8): bounds how often an already-granted tab
+// can broadcast chat sends. See home-v2-send-rate-limiter.ts for the shared
+// constants/algorithm (also used by Android's requestApp in
+// src/home-v2-live/HomeV2LiveApp.tsx).
+const chatSendRateLimiter = createHomeV2SendRateLimiter()
+
+// Fix 5 (Sol re-review #6): includes the sender's own WebContents id and its
+// host window id, the same sender/window identity accountGrantKey below
+// keys permission grants off of — a bare tabId|accountId key let a restored
+// or duplicate tab id in a DIFFERENT window (or a different, unrelated
+// WebContents that happened to reuse a tab id string) share — and so
+// throttle — the SAME rate-limit bucket as this one.
+function chatSendRateLimitKey(sender: WebContents, context: QdnViewContext) {
+  return [sender.id, context.windowId, context.tabId, context.accountId ?? 'none'].join('|')
+}
 
 function accountGrantKey(
   sender: WebContents,
@@ -110,13 +160,51 @@ function sameViewContext(left: QdnViewContext, right: QdnViewContext) {
     left.windowId === right.windowId
 }
 
+// Fix A defense-in-depth (finding 1): a session grant and the permission
+// prompt itself are keyed off `context.resourceUrl`, the identity Home's
+// trusted top-level UI attached at launch — but that field is never updated
+// by in-view navigation, so if a nav-guard path were ever missed,
+// `resourceUrl` could keep pointing at the app that was originally granted
+// while `currentUrl` (what the view actually has loaded) had drifted to a
+// different app. With electron/qdn-views.ts's isAllowedInViewNavigation now
+// constraining in-view navigation to the same resource, this should be
+// unreachable — this check closes the gap regardless, and specifically
+// refuses to honor a stale session grant when the two disagree.
+//
+// Fix 3 (Sol re-review #3): `context.currentUrl` (getQdnViewContextForWebContents,
+// electron/qdn-views.ts) is the TRUSTED live URL — sourced directly from
+// webContents.getURL() at the moment of this call, not from a field that
+// could have gone stale — so this recheck fails closed against what the view
+// actually has loaded right now, not a best-case snapshot. `resourceUrl` or
+// `currentUrl` being absent is not itself suspicious (e.g. before the first
+// load completes), so this only refuses when both are present and disagree.
+function liveResourceMatchesGrant(context: QdnViewContext): boolean {
+  if (!context.resourceUrl || !context.currentUrl) return true
+  return isQdnRenderUrlSameAppResource(context.currentUrl, {
+    nodeOrigin: context.nodeOrigin,
+    requestedUrl: null,
+    resourceUrl: context.resourceUrl,
+  })
+}
+
 async function requireAccountReadPermission(
   sender: WebContents,
   context: QdnViewContext,
   protocol: HomeV2AppBridgeProtocol,
   action: AccountReadAction,
+  chatDetails?: {
+    readonly targetChainLabel: string
+    readonly groupId: number
+    readonly messagePreview: string
+  },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
+  // Fix A defense-in-depth: refuse before even consulting the session-grant
+  // map when the view's live resource has drifted from what it was granted
+  // for — a stale grant for a different, now-loaded app must never be honored.
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Account access context changed before approval completed.')
+  }
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
   const nodeBefore = await getHomeV2ReadableNode(targetNetwork)
   const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
@@ -139,6 +227,15 @@ async function requireAccountReadPermission(
     const timeout = setTimeout(() => {
       pendingAccountReads.delete(requestId)
       resolve({ approved: false, scope: null })
+      // The renderer's permission-prompt UI (queuePermissionPrompt) is only
+      // told about approval/denial via home-v2-app:permission-resolve, which
+      // normally originates FROM the renderer when the user clicks a button.
+      // On this main-process-initiated auto-deny, tell it explicitly so the
+      // prompt does not stay stuck on screen after the request has already
+      // been denied here (FIX #3, security review).
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
     }, 60_000)
     pendingAccountReads.set(requestId, {
       hostWebContentsId: hostWindow.webContents.id,
@@ -155,11 +252,22 @@ async function requireAccountReadPermission(
       resourceUrl: context.resourceUrl,
       tabId: context.tabId,
       targetNetwork,
+      ...(chatDetails
+        ? {
+            chatGroupId: chatDetails.groupId,
+            chatMessagePreview: chatDetails.messagePreview,
+            chatTargetChainLabel: chatDetails.targetChainLabel,
+          }
+        : {}),
     })
   })
   if (!decision.approved) throw new Error('Account access was denied.')
   const freshContext = getQdnViewContextForWebContents(sender)
-  if (!freshContext || !sameViewContext(context, freshContext)) {
+  if (
+    !freshContext ||
+    !sameViewContext(context, freshContext) ||
+    !liveResourceMatchesGrant(freshContext)
+  ) {
     throw new Error('Account access context changed before approval completed.')
   }
   if (action === 'UNLOCK_SELECTED_ACCOUNT') {
@@ -363,6 +471,214 @@ async function fetchAccountAvatar(request: Record<string, unknown>) {
   )
 }
 
+async function postHomeV2ChatText(
+  nodeApiUrl: string,
+  path: string,
+  body: string,
+  contentType: string,
+  fallbackMessage: string,
+) {
+  const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body,
+    signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
+  })
+  // Bounded like the read-only actions below (FIX #4, security review): a
+  // hostile or misbehaving node answering /chat/public/build or
+  // /transactions/process with an unbounded body previously had to be read
+  // to completion before Home could react. 'GET' here only tells
+  // readBoundedResponse to read the body (this is a POST); it does not
+  // change the HTTP method actually sent above.
+  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  const text = result.body.trim()
+  if (!result.ok) {
+    throw new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`))
+  }
+  return text
+}
+
+type HomeV2ChatSigningKey = { address: string; publicKey58: string; secretKey: Uint8Array }
+
+// Keyless open-group chat send for the Qortium network. Builds the unsigned
+// CHAT bytes via the keyless /chat/public/build endpoint (no API key, no
+// private key ever leaves this process), validates the node's response
+// against what we asked it to build, computes the memory-pow nonce locally,
+// signs locally, then broadcasts. Mirrors src/platform.ts
+// sendKeylessPublicGroupChatMessage and electron/qdn.ts's v1 equivalent.
+async function sendHomeV2QortiumChatMessage(
+  nodeApiUrl: string,
+  txGroupId: number,
+  message: string,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+) {
+  const timestamp = Date.now()
+  const data = base58Encode(new TextEncoder().encode(message))
+  const buildBody = await postHomeV2ChatText(
+    nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify({
+      data,
+      fee: 0,
+      isEncrypted: false,
+      isText: true,
+      senderPublicKey: signingKey.publicKey58,
+      timestamp,
+      txGroupId,
+    }),
+    'application/json',
+    'Chat transaction build failed.',
+  )
+  const unsignedBytes = base58Decode(buildBody)
+  // Never sign node-provided bytes without checking they encode exactly the
+  // sender/group/message/timestamp we asked for.
+  assertPublicChatTransaction(unsignedBytes, {
+    data: base58Decode(data),
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId,
+  })
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, QORTIUM_CHAT_POW_DIFFICULTY, isStillValid)
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey)
+  await postHomeV2ChatText(
+    nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    'text/plain',
+    'Chat transaction processing failed.',
+  )
+  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp }
+}
+
+// Qortal CHAT PoW difficulty depends on the sender's confirmed QORT balance
+// (electron/qortal-chat.ts qortalChatPowDifficultyForBalanceResponse). If the
+// balance fetch fails for any reason (network error, non-2xx, malformed
+// body), fall back to the safer, higher difficulty rather than failing the
+// send outright — a slower send beats one Core rejects for insufficient
+// proof-of-work.
+async function resolveHomeV2QortalChatPowDifficulty(nodeApiUrl: string, address: string) {
+  try {
+    const response = await nodeFetch(`${nodeApiUrl}/addresses/balance/${encodeURIComponent(address)}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15_000),
+    })
+    const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+    if (!result.ok) throw new Error(`Balance lookup returned HTTP ${result.status}.`)
+    return qortalChatPowDifficultyForBalanceResponse(result.data)
+  } catch {
+    return QORTAL_CHAT_POW_DIFFICULTY_BELOW
+  }
+}
+
+// Fully client-side Qortal group chat send: transaction bytes are built here
+// (no node build call), the memory-pow nonce is computed locally, and the
+// account key signs locally. Mirrors electron/qdn.ts's v1
+// sendQortalGroupChatForApp / src/platform.ts's equivalent, minus the
+// Hub-shaped payload construction (v2's message is already the app's opaque,
+// fully-formed payload).
+async function sendHomeV2QortalChatMessage(
+  nodeApiUrl: string,
+  txGroupId: number,
+  message: string,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+) {
+  // Home does not implement Qortal private-group encryption yet
+  // (docs/CHAT_2_0_PLAN.md); refuse to broadcast plaintext into a group that
+  // is not verifiably open, the same guard v1's Qortal group send applies.
+  const groupResponse = await nodeFetch(`${nodeApiUrl}/groups/${encodeURIComponent(String(txGroupId))}`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const groupResult = await readBoundedResponse(groupResponse, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  assertOpenQortalGroupMetadata(groupResult.ok ? groupResult.data : null, txGroupId)
+
+  const timestamp = Date.now()
+  const unsignedBytes = buildUnsignedQortalGroupChatTransactionBytes({
+    lastReference: new Uint8Array(randomBytes(64)),
+    message,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+    txGroupId,
+  })
+  const difficulty = await resolveHomeV2QortalChatPowDifficulty(nodeApiUrl, signingKey.address)
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.')
+  }
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce)
+  const signatureBytes = signDetached(stampedBytes, signingKey.secretKey)
+  const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes)
+  await postHomeV2ChatText(
+    nodeApiUrl,
+    '/transactions/process?apiVersion=2',
+    base58Encode(signedBytes),
+    'text/plain',
+    'Qortal chat message broadcast failed.',
+  )
+  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp }
+}
+
+async function sendHomeV2ChatMessage(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const txGroupId = normalizeHomeV2SendTxGroupId(protocol, requestValue.txGroupId)
+  const message = normalizeHomeV2ChatMessageText(requestValue.message)
+  // The Chat app is expected to drive UNLOCK_SELECTED_ACCOUNT first on
+  // qdnRequest; a pure-Qortal app cannot unlock in Phase 1 (documented
+  // limitation, docs/HOME_V2_BRIDGE_COMPATIBILITY.md). Failing fast here also
+  // avoids prompting the user for a send that cannot possibly proceed.
+  if (!isAccountUnlocked(accountId)) {
+    throw new Error('The selected account is locked.')
+  }
+  const targetChainLabel = network === 'qortal' ? 'Qortal' : 'Qortium'
+  const groupLabel = txGroupId === 0 ? 'General chat' : `Group ${txGroupId}`
+  await requireAccountReadPermission(sender, context, protocol, 'SEND_CHAT_MESSAGE', {
+    groupId: txGroupId,
+    messagePreview: message.slice(0, 180),
+    targetChainLabel: `${targetChainLabel} · ${groupLabel}`,
+  })
+  // Fix B: reject an excessive send BEFORE any node call or proof-of-work —
+  // the single-in-flight-PoW guard (isStillValid below) already prevents
+  // overlap, but nothing previously bounded how many sends a granted tab
+  // could queue back-to-back.
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) {
+    throw new Error(rateLimitDecision.message)
+  }
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    throw new Error('Selected account signing key does not match the saved account address.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext)) return false
+    if (!isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!nodeNow && `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute
+  }
+  if (!(await isStillValid())) {
+    throw new Error('Account access context changed before approval completed.')
+  }
+  return network === 'qortium'
+    ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, txGroupId, message, signingKey, isStillValid)
+    : sendHomeV2QortalChatMessage(node.nodeApiUrl, txGroupId, message, signingKey, isStillValid)
+}
+
 const widgetGrants = new Set<string>()
 
 // A widget floats above every other application, which QDN-published content
@@ -379,6 +695,16 @@ async function requireWidgetPermission(
   context: QdnViewContext,
   rereadContext: () => QdnViewContext | null,
 ) {
+  // Same defense-in-depth as requireAccountReadPermission: a widget grant is
+  // keyed off context.resourceUrl, so a view that navigated in-place to a
+  // different app's resource could otherwise open a floating window under the
+  // first app's grant. Refuse before the grant map is even consulted. This is
+  // the more privileged of the two capabilities, so it must not be the one
+  // place that skips the check.
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('The widget request context changed before approval completed.')
+  }
+
   const grantKey = context.resourceUrl ?? `home-v2-tab:${context.tabId}`
   if (widgetGrants.has(grantKey)) return
 
@@ -414,7 +740,13 @@ async function requireWidgetPermission(
   if (!decision.approved) throw new Error('Opening a widget was denied.')
 
   const freshContext = rereadContext()
-  if (!freshContext || !sameViewContext(context, freshContext)) {
+  if (
+    !freshContext ||
+    !sameViewContext(context, freshContext) ||
+    // Re-checked after the answer as well: the view had the whole time the
+    // prompt was up to navigate somewhere else.
+    !liveResourceMatchesGrant(freshContext)
+  ) {
     throw new Error('The widget request context changed before approval completed.')
   }
 
@@ -604,6 +936,9 @@ async function handleRequest(
       name: profile.name,
     }
   }
+  if (action === 'SEND_CHAT_MESSAGE') {
+    return sendHomeV2ChatMessage(sender, context, protocol, network, requestValue)
+  }
   if (action === 'GET_NAME_DATA' || action === 'GET_ACCOUNT_NAMES' || action === 'GET_PRIMARY_NAME') {
     const path = buildHomeV2NamePath(action, requestValue)
     const { result } = await fetchRead(network, path, 'GET', normalizeHomeV2ResponseMaxBytes(requestValue.maxBytes))
@@ -734,6 +1069,7 @@ export function registerHomeV2AppBridgeIpcHandlers() {
   ipcMain.on('home-v2-app:account-locked', (event) => {
     sessionAccountReadGrants.clear()
     widgetGrants.clear()
+    chatSendRateLimiter.reset()
     for (const [requestId, pending] of pendingAccountReads) {
       if (pending.hostWebContentsId !== event.sender.id) continue
       pendingAccountReads.delete(requestId)

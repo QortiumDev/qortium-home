@@ -85,6 +85,11 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
     ipcRenderer.on('home-v2-app:permission-request', handler)
     return () => ipcRenderer.removeListener('home-v2-app:permission-request', handler)
   },
+  onPermissionTimeout: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-app:permission-timeout', handler)
+    return () => ipcRenderer.removeListener('home-v2-app:permission-timeout', handler)
+  },
   onNavigationChanged: (listener: (event: unknown) => void) => {
     const handler = (_event: unknown, payload: unknown) => listener(payload)
     ipcRenderer.on('qdn-views:app-navigation-changed', handler)

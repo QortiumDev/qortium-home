@@ -17,6 +17,7 @@ export type PermissionCapability =
   | 'qdn.publish'
   | 'qortal.account.read'
   | 'account.unlock'
+  | 'chat.send'
   | 'window.widget.open'
 
 export interface PermissionDetail {
@@ -32,6 +33,7 @@ export interface PermissionPrompt {
     | 'GET_USER_ACCOUNT'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
+    | 'SEND_CHAT_MESSAGE'
     | 'OPEN_AS_WIDGET'
   readonly capability: PermissionCapability
   readonly appId: AppId

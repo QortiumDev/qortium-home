@@ -139,6 +139,26 @@ assert.match(
   'OPEN_AS_WIDGET must be declared in src/v2/bridge-permissions.ts',
 )
 
+// A widget grant is keyed off context.resourceUrl, so a view that navigated
+// in-place to another app's resource could otherwise open a floating window
+// under the first app's grant. requireAccountReadPermission guards against
+// exactly this; the widget gate is the more privileged of the two and must not
+// be the one place that skips it, before the grant map is consulted and again
+// after the user answers.
+const widgetGate = bridgeSource.slice(
+  bridgeSource.indexOf('async function requireWidgetPermission'),
+  bridgeSource.indexOf('async function handleOpenAsWidget'),
+)
+assert.ok(
+  widgetGate.length > 0,
+  'requireWidgetPermission must exist in home-v2-app-bridge.ts',
+)
+assert.equal(
+  (widgetGate.match(/liveResourceMatchesGrant\(/g) ?? []).length,
+  2,
+  'the widget gate must check the live resource before the grant map and again after approval',
+)
+
 // A runtime region push must be validated by the same parser the manifest
 // uses, so an app cannot use it to declare a shape its manifest would have
 // been rejected for.
