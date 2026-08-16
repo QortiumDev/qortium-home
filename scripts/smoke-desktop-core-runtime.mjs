@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -295,6 +296,18 @@ function writeSmokeCoreJar(filePath, { buildTimestamp, buildVersion, commit }) {
   );
 }
 
+function writeRewardIdentity(filePath, value) {
+  const identity = Buffer.alloc(32, value);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, identity, { mode: 0o600 });
+
+  if (process.platform !== 'win32') {
+    chmodSync(filePath, 0o600);
+  }
+
+  return identity;
+}
+
 function sha256File(filePath) {
   return `sha256:${createHash('sha256').update(readFileSync(filePath)).digest('hex')}`;
 }
@@ -579,6 +592,8 @@ async function runLegacyMigrationScenario() {
     installPath: legacyInstall,
     runtimePath: legacyRuntime,
   });
+  const legacyRewardIdentityPath = path.join(legacyCore.previewPath, 'reward-node', 'identity.key');
+  const legacyRewardIdentity = writeRewardIdentity(legacyRewardIdentityPath, 0x5a);
 
   createRuntimeEntries(legacyRuntime, 'legacy');
   writeJson(path.join(paths.legacyBase, 'current.json'), legacyCore);
@@ -597,6 +612,16 @@ async function runLegacyMigrationScenario() {
 
     assert(!existsSync(paths.legacyBase), 'Legacy managed-core folder was not cleaned after migration.');
     assert(existsSync(path.join(paths.coreInstall, 'qortium.jar')), 'Migrated Core jar was not found.');
+    assert(
+      readFileSync(path.join(paths.coreRuntime, 'reward-node', 'identity.key')).equals(legacyRewardIdentity),
+      'Legacy reward-node identity was not preserved in the persistent runtime.',
+    );
+    assert(
+      readFileSync(path.join(paths.coreInstall, 'preview', 'reward-node', 'identity.key')).equals(
+        legacyRewardIdentity,
+      ),
+      'Migrated install did not retain its rollback-compatible reward-node identity.',
+    );
     assertRuntimeEntriesPreserved(paths.coreRuntime, 'legacy', 'Migrated runtime');
     assert(runtimeChain.networkId === 'qortium-preview', 'Runtime chain metadata did not record the Previewnet network id.');
     assert(
