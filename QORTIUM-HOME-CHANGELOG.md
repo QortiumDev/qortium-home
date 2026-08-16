@@ -33,6 +33,22 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-16 - fix(core): self-reconcile direct and test installs
+
+Home now treats the Core files actually installed on disk as the current
+installation even when a user replaces a Home-managed release with a direct
+download or a test JAR. It retains the original release record as provenance,
+records and displays the replacement JAR's embedded build identity, and checks
+the installed Previewnet configuration again whenever Core status is refreshed.
+When a full replacement rotates Core's localhost certificate authority, Home
+also refreshes that authority over the loopback-only bootstrap path, clears
+Electron's stale certificate verdict, and retries the local connection once.
+Activation schedules no longer look like a different runtime database identity,
+so compatible upgrades such as Core 1.7.0 automatically refresh Home's runtime
+metadata and clear stale block notices without deleting data or requiring a
+manual metadata edit. Home still refuses to reuse the database when the actual
+network or chain-defining configuration is different.
+
 ### 2026-08-03 - chore(release): prepare home 1.6.3
 
 Marks the version for the next preview release. Since 1.6.2, public-node

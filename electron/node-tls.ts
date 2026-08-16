@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import {
+  canReplayNodeFetchAfterCaRefresh,
+  isExactNodeCaResponseUrl,
   isLoopbackHostname,
   normalizeHostname,
   planNodeCaBootstrap,
@@ -26,11 +28,39 @@ const GET_CA_RETRY_COUNT = 4;
 const GET_CA_RETRY_DELAY_MS = 1_000;
 const storedCaByKey = new Map<string, string>();
 const ensureCaByKey = new Map<string, Promise<boolean>>();
+const refreshCaByKey = new Map<string, Promise<boolean>>();
 const configuredNodeHosts = new Set<string>();
 const installedVerifyProcSessions = new Set<Session>();
 
-export function nodeFetch(input: string | Request, init?: NodeFetchInit): Promise<Response> {
-  return net.fetch(input, init as RequestInit);
+function getFetchUrl(input: string | Request) {
+  try {
+    return new URL(typeof input === 'string' ? input : input.url);
+  } catch {
+    return null;
+  }
+}
+
+export async function nodeFetch(input: string | Request, init?: NodeFetchInit): Promise<Response> {
+  try {
+    return await net.fetch(input, init as RequestInit);
+  } catch (error) {
+    const url = getFetchUrl(input);
+
+    if (!url || !(await refreshNodeCaAfterFetchFailure(url))) {
+      throw error;
+    }
+
+    const requestMethod = typeof input === 'string' ? undefined : input.method;
+
+    // A failed write is ambiguous: Core may have accepted it before the
+    // connection failed. Refresh the localhost CA for the next request, but do
+    // not replay chat sends, publishes, or any other mutation automatically.
+    if (!canReplayNodeFetchAfterCaRefresh(requestMethod, init?.method)) {
+      throw error;
+    }
+
+    return await net.fetch(input, init as RequestInit);
+  }
 }
 
 function delay(ms: number) {
@@ -141,12 +171,15 @@ function writeStoredCa(url: URL, caPem: string) {
 }
 
 async function fetchNodeCa(getCaUrl: string) {
-  const response = await nodeFetch(getCaUrl, {
+  // Use the raw Electron fetch here: nodeFetch itself may call this function
+  // after a loopback TLS failure, so routing through the wrapper would recurse.
+  const response = await net.fetch(getCaUrl, {
     headers: { Accept: 'text/plain' },
+    redirect: 'error',
     signal: AbortSignal.timeout(5_000),
   });
 
-  if (!response.ok) {
+  if (!response.ok || !isExactNodeCaResponseUrl(getCaUrl, response.url)) {
     return null;
   }
 
@@ -156,8 +189,9 @@ async function fetchNodeCa(getCaUrl: string) {
 }
 
 async function createNodeCa(createCaUrl: string, apiKey: string) {
-  const response = await nodeFetch(createCaUrl, {
+  const response = await net.fetch(createCaUrl, {
     method: 'POST',
+    redirect: 'error',
     headers: {
       Accept: 'text/plain',
       'X-API-KEY': apiKey,
@@ -165,7 +199,7 @@ async function createNodeCa(createCaUrl: string, apiKey: string) {
     signal: AbortSignal.timeout(5_000),
   });
 
-  return response.ok;
+  return response.ok && isExactNodeCaResponseUrl(createCaUrl, response.url);
 }
 
 async function ensureNodeCaUncached(
@@ -175,12 +209,29 @@ async function ensureNodeCaUncached(
 ) {
   try {
     const existingCa = readStoredCa(url);
+    let caPem = await fetchNodeCa(plan.getCaUrl).catch(() => null);
 
-    if (existingCa) {
+    if (caPem) {
+      if (existingCa === caPem) {
+        return true;
+      }
+
+      if (!writeStoredCa(url, caPem)) {
+        return false;
+      }
+
+      // Chromium caches certificate decisions. A CA replacement is not useful
+      // until those stale decisions and their connections are discarded.
+      await flushNodeCertificateVerdicts();
       return true;
     }
 
-    let caPem = await fetchNodeCa(plan.getCaUrl).catch(() => null);
+    // If the loopback bootstrap endpoint is temporarily unavailable, retain a
+    // previously valid authority. The following TLS request will either still
+    // work or trigger the bounded refresh-and-retry path in nodeFetch.
+    if (existingCa) {
+      return true;
+    }
 
     if (!caPem && apiKey) {
       await createNodeCa(plan.createCaUrl, apiKey).catch(() => false);
@@ -201,6 +252,28 @@ async function ensureNodeCaUncached(
   }
 }
 
+async function refreshNodeCaAfterFetchFailure(url: URL) {
+  const plan = planNodeCaBootstrap(url);
+
+  if (plan.kind !== 'plaintext') {
+    return false;
+  }
+
+  const key = getNodeCaKey(url);
+  const existingRefresh = refreshCaByKey.get(key);
+
+  if (existingRefresh) {
+    return await existingRefresh;
+  }
+
+  const refresh = ensureNodeCaUncached(url, null, plan).finally(() => {
+    refreshCaByKey.delete(key);
+  });
+  refreshCaByKey.set(key, refresh);
+
+  return await refresh;
+}
+
 export async function ensureNodeCa(nodeApiUrl: string, apiKey: string | null): Promise<boolean> {
   let url: URL;
 
@@ -219,11 +292,11 @@ export async function ensureNodeCa(nodeApiUrl: string, apiKey: string | null): P
   // Registering the host for pinning is left to readStoredCa/writeStoredCa, so
   // a host only becomes eligible once an authority has actually been obtained
   // in a way we are willing to trust.
-  if (readStoredCa(url)) {
-    return true;
-  }
-
   if (plan.kind === 'refused') {
+    if (readStoredCa(url)) {
+      return true;
+    }
+
     console.warn(plan.reason);
 
     return false;
