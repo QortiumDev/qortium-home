@@ -33,6 +33,47 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-16 - chore(release): prepare home 1.7.0
+
+Marks a focused Home 1 maintenance release for Core 1.7.0 compatibility. Home
+now recognizes compatible Home-managed updates, direct release replacements,
+and test JARs without asking users to reset or manually edit their existing
+Previewnet runtime. It preserves the original managed-release record while
+showing the build actually installed, safely refreshes a rotated localhost Core
+certificate authority without replaying writes, and retains the reward-node
+identity across managed upgrades, repairs, migrations, and downgrades. Genuine
+network or chain-configuration mismatches remain blocked. Bumped package
+metadata to 1.7.0 and Android metadata to versionCode 37 / versionName 1.7.0.
+Home 2.0 and Chat 2.0 are not included in this maintenance release.
+
+### 2026-08-16 - fix(core): preserve reward identity across managed updates
+
+Before Home replaces or relocates a managed Core installation, it now securely
+copies Core's existing reward-node identity from the replaceable Preview folder
+into the persistent runtime folder. A valid runtime identity is always kept,
+the legacy copy remains available for rollback, and unsafe, malformed, or
+unreadable identity files stop the update instead of silently rotating the
+node's reward identity. The same protection runs for same-version repair,
+running and stopped Core upgrades, and migration from Home's older managed-Core
+layout. Home also places the authoritative runtime identity into each replacement
+candidate, so a deliberate downgrade to an older Core keeps the same identity.
+
+### 2026-08-16 - fix(core): self-reconcile direct and test installs
+
+Home now treats the Core files actually installed on disk as the current
+installation even when a user replaces a Home-managed release with a direct
+download or a test JAR. It retains the original release record as provenance,
+records and displays the replacement JAR's embedded build identity, and checks
+the installed Previewnet configuration again whenever Core status is refreshed.
+When a full replacement rotates Core's localhost certificate authority, Home
+also refreshes that authority over the loopback-only bootstrap path, clears
+Electron's stale certificate verdict, and retries the local connection once.
+Activation schedules no longer look like a different runtime database identity,
+so compatible upgrades such as Core 1.7.0 automatically refresh Home's runtime
+metadata and clear stale block notices without deleting data or requiring a
+manual metadata edit. Home still refuses to reuse the database when the actual
+network or chain-defining configuration is different.
+
 ### 2026-08-03 - chore(release): prepare home 1.6.3
 
 Marks the version for the next preview release. Since 1.6.2, public-node

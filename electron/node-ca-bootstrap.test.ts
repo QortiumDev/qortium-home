@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isLoopbackHostname, planNodeCaBootstrap } from './node-ca-bootstrap.js';
+import {
+  canReplayNodeFetchAfterCaRefresh,
+  isExactNodeCaResponseUrl,
+  isLoopbackHostname,
+  planNodeCaBootstrap,
+} from './node-ca-bootstrap.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -48,6 +53,58 @@ assert.deepEqual(plan('https://localhost:24891/api?key=secret#fragment'), {
 });
 assert.equal(plan('https://[::1]:24891').kind, 'plaintext');
 
+for (const method of [undefined, '', 'GET', 'get', 'HEAD', ' head ']) {
+  assert.equal(
+    canReplayNodeFetchAfterCaRefresh(method),
+    true,
+    `${method ?? 'default'} is safe to replay once.`,
+  );
+}
+
+for (const method of ['POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS']) {
+  assert.equal(
+    canReplayNodeFetchAfterCaRefresh(method),
+    false,
+    `${method} must never be replayed after an ambiguous failure.`,
+  );
+}
+
+assert.equal(
+  canReplayNodeFetchAfterCaRefresh('POST', 'GET'),
+  true,
+  'RequestInit method overrides the Request method exactly as fetch does.',
+);
+assert.equal(
+  canReplayNodeFetchAfterCaRefresh('GET', 'POST'),
+  false,
+  'A RequestInit mutation override must prevent automatic replay.',
+);
+
+assert.equal(
+  isExactNodeCaResponseUrl(
+    'http://127.0.0.1:24891/admin/http/getca',
+    'http://127.0.0.1:24891/admin/http/getca',
+  ),
+  true,
+);
+assert.equal(
+  isExactNodeCaResponseUrl('http://127.0.0.1:24891/admin/http/getca', ''),
+  true,
+  'Electron net.fetch leaves Response.url empty when redirects are forbidden.',
+);
+for (const responseUrl of [
+  'http://127.0.0.1:24891/admin/http/other',
+  'http://192.168.1.10:24891/admin/http/getca',
+  'https://example.invalid/authority.pem',
+  'not a URL',
+]) {
+  assert.equal(
+    isExactNodeCaResponseUrl('http://127.0.0.1:24891/admin/http/getca', responseUrl),
+    false,
+    `CA bootstrap must reject response URL ${responseUrl}.`,
+  );
+}
+
 // A remote node must never be asked for its authority over plaintext: whoever
 // answered would be pinned as trusted from then on, and /admin/http/createca
 // would hand them the API key.
@@ -87,6 +144,19 @@ assert(
 assert(
   ensureNodeCaBody.includes('planNodeCaBootstrap'),
   'ensureNodeCa must decide through planNodeCaBootstrap.',
+);
+assert(
+  nodeTlsSource.includes("plan.kind !== 'plaintext'"),
+  'Automatic CA refresh after a fetch failure must remain loopback-only.',
+);
+assert(
+  nodeTlsSource.includes('refreshNodeCaAfterFetchFailure'),
+  'A stale localhost authority must be refreshable after certificate rollover.',
+);
+assert.equal(
+  nodeTlsSource.match(/redirect: 'error'/g)?.length,
+  2,
+  'Both localhost CA endpoints must refuse redirects.',
 );
 
 console.log('Node CA bootstrap tests passed.');
