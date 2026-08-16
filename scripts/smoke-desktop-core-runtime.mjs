@@ -15,6 +15,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { strToU8, zipSync } from 'fflate';
 import { createManagedProcess as createManagedProcessBase } from './lib/managed-process.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,7 @@ const cdpTimeoutMs = 90_000;
 const chainConfigHashExcludedFields = new Set([
   'checkpoints',
   'featureTriggers',
+  'featureTriggerScheduleEnforcementHeight',
   'onlineAccountsSignatureV2Height',
   'assetOrderBoundsHeight',
 ]);
@@ -293,6 +295,19 @@ function writeRewardIdentity(filePath, value) {
   return identity;
 }
 
+function writeSmokeCoreJar(filePath, { buildTimestamp, buildVersion, commit }) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(
+    filePath,
+    zipSync({
+      'build.properties': strToU8(
+        `build.version=${buildVersion}\nbuild.timestamp=${buildTimestamp}\n`,
+      ),
+      'git.properties': strToU8(`git.commit.id.full=${commit}\n`),
+    }),
+  );
+}
+
 function sha256File(filePath) {
   return `sha256:${createHash('sha256').update(readFileSync(filePath)).digest('hex')}`;
 }
@@ -341,6 +356,7 @@ function getPaths(tempRoot) {
 
 function createPreviewInstall({
   installPath,
+  jarIdentity = null,
   networkId = 'qortium-preview',
   previewChainOverrides = {},
   runtimePath,
@@ -349,7 +365,11 @@ function createPreviewInstall({
   const previewPath = path.join(installPath, 'preview');
   const jarPath = path.join(installPath, 'qortium.jar');
 
-  writeText(jarPath, 'smoke jar placeholder\n');
+  if (jarIdentity) {
+    writeSmokeCoreJar(jarPath, jarIdentity);
+  } else {
+    writeText(jarPath, 'smoke jar placeholder\n');
+  }
   writeJson(path.join(previewPath, 'previewchain.json'), {
     blockTimestampMargin: 2000,
     networkId,
@@ -367,6 +387,16 @@ function createPreviewInstall({
     htmlUrl: `https://github.com/QortiumDev/qortium-core/releases/tag/${encodeURIComponent(tagName)}`,
     installPath,
     installedAt: new Date().toISOString(),
+    ...(jarIdentity
+      ? {
+          jarBuildTimestamp: jarIdentity.buildTimestamp,
+          jarBuildVersion: jarIdentity.buildVersion,
+          jarCommit: jarIdentity.commit,
+          jarSemver: jarIdentity.buildVersion.replace(/-.+$/, ''),
+          originJarBuildVersion: jarIdentity.buildVersion,
+          originJarCommit: jarIdentity.commit,
+        }
+      : {}),
     jarPath,
     logPaths: {
       appLogPath: path.join(runtimePath, 'qortium.log'),
@@ -437,7 +467,13 @@ async function withHomeClient(tempRoot, callback) {
       return response?.ok === true;
     });
 
-    const electronLaunch = getDisplayLaunch(electronBin, [`--remote-debugging-port=${cdpPort}`, '.']);
+    // package.json now boots Home v2, whose shell intentionally has no classic
+    // core-manager preload. Launch the compiled classic main entry directly so
+    // this focused manager smoke still exercises window.qortiumHome.core.
+    const electronLaunch = getDisplayLaunch(electronBin, [
+      `--remote-debugging-port=${cdpPort}`,
+      path.join(repoRoot, 'dist-electron', 'main.js'),
+    ]);
     electronProcess = createManagedProcess(electronLaunch.command, electronLaunch.args, { env: smokeEnv });
 
     const mainTarget = await getPageTarget(
@@ -459,6 +495,16 @@ async function withHomeClient(tempRoot, callback) {
     } finally {
       mainClient.close();
     }
+  } catch (error) {
+    const processOutput = [
+      ...(viteProcess?.output ?? []),
+      ...(electronProcess?.output ?? []),
+    ].join('').trim();
+
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}` +
+        (processOutput ? `\nChild process output:\n${processOutput.slice(-8_000)}` : ''),
+    );
   } finally {
     await electronProcess?.stop();
     await viteProcess?.stop();
@@ -622,7 +668,7 @@ async function runRuntimeMismatchScenario() {
   });
   const blockedRuntimeChain = {
     coreTagName: 'vold-chain',
-    networkId: 'old-preview',
+    networkId: 'qortium-preview',
     previewChainSha256: `sha256:${'0'.repeat(64)}`,
     recordedAt: new Date().toISOString(),
     version: 1,
@@ -657,6 +703,111 @@ async function runRuntimeMismatchScenario() {
       rmSync(tempRoot, { force: true, recursive: true });
     } else {
       log(`Kept mismatch smoke data at ${tempRoot}.`);
+    }
+  }
+}
+
+async function runManualCoreReplacementScenario({ replacePreviewFiles }) {
+  const suffix = replacePreviewFiles ? 'direct-release' : 'test-jar';
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), `qortium-home-core-${suffix}-`));
+  const paths = getPaths(tempRoot);
+  const originJarIdentity = {
+    buildTimestamp: '2026-08-01T00:00:00Z',
+    buildVersion: '1.6.3-a1b2c3d',
+    commit: 'a1b2c3d4e5f6789012345678901234567890abcd',
+  };
+  const replacementJarIdentity = {
+    buildTimestamp: '2026-08-16T12:00:00Z',
+    buildVersion: '1.7.0-e56ce8b',
+    commit: 'e56ce8b249566280ba97412dec781f0c726f19d5',
+  };
+  const installedCore = createPreviewInstall({
+    installPath: paths.coreInstall,
+    jarIdentity: originJarIdentity,
+    runtimePath: paths.coreRuntime,
+    tagName: 'v1.6.3',
+  });
+  const previewChainPath = path.join(paths.coreInstall, 'preview', 'previewchain.json');
+  const originalRawHash = sha256File(previewChainPath);
+  const originalCompatibleHash = coreCompatiblePreviewChainSha256File(previewChainPath);
+
+  try {
+    createRuntimeEntries(paths.coreRuntime, suffix);
+    writeJson(path.join(paths.coreBase, 'current.json'), installedCore);
+    writeJson(path.join(paths.coreRuntime, 'runtime-chain.json'), {
+      coreTagName: installedCore.tagName,
+      networkId: 'qortium-preview',
+      previewChainSha256: originalCompatibleHash,
+      rawPreviewChainSha256: originalRawHash,
+      recordedAt: new Date().toISOString(),
+      version: 1,
+    });
+
+    if (replacePreviewFiles) {
+      writeSmokeCoreJar(installedCore.jarPath, replacementJarIdentity);
+      const replacementPreviewChain = readJson(previewChainPath);
+
+      replacementPreviewChain.featureTriggerScheduleEnforcementHeight = 99990;
+      replacementPreviewChain.featureTriggers = {
+        onlineNodeRewardBundlesPayoutHeight: 100000,
+      };
+      writeJson(previewChainPath, replacementPreviewChain);
+    }
+
+    await withHomeClient(tempRoot, async (client) => {
+      if (!replacePreviewFiles) {
+        const initialStatus = await getCoreStatus(client);
+
+        assert(
+          initialStatus?.installed?.modifiedSinceInstall !== true,
+          'Managed release was marked modified before the test jar replacement.',
+        );
+        writeSmokeCoreJar(installedCore.jarPath, replacementJarIdentity);
+      }
+
+      const status = await getCoreStatus(client);
+
+      assert(!status?.runtime?.blocked, `${suffix} replacement was incorrectly blocked.`);
+      assert(status?.installed?.tagName === 'v1.6.3', `${suffix} replacement lost its release provenance.`);
+      assert(status?.installed?.modifiedSinceInstall === true, `${suffix} replacement was not detected.`);
+      assert(
+        status?.installed?.jarBuildVersion === replacementJarIdentity.buildVersion,
+        `${suffix} replacement did not report the installed jar build.`,
+      );
+    });
+
+    const reconciledInstall = readJson(path.join(paths.coreBase, 'current.json'));
+    const reconciledRuntime = readJson(path.join(paths.coreRuntime, 'runtime-chain.json'));
+
+    assert(reconciledInstall.tagName === 'v1.6.3', `${suffix} reconciliation rewrote release provenance.`);
+    assert(
+      reconciledInstall.jarBuildVersion === replacementJarIdentity.buildVersion,
+      `${suffix} reconciliation did not persist the actual jar identity.`,
+    );
+    assert(
+      reconciledRuntime.coreTagName === `v${replacementJarIdentity.buildVersion}`,
+      `${suffix} runtime metadata retained the stale release label.`,
+    );
+    assert(
+      reconciledRuntime.previewChainSha256 === originalCompatibleHash,
+      `${suffix} replacement changed the compatible runtime identity.`,
+    );
+    assert(
+      reconciledRuntime.rawPreviewChainSha256 === sha256File(previewChainPath),
+      `${suffix} replacement did not record the installed previewchain bytes.`,
+    );
+    assertRuntimeEntriesPreserved(paths.coreRuntime, suffix, `${suffix} replacement runtime`);
+
+    log(
+      replacePreviewFiles
+        ? 'Direct Core release replacement self-reconciled compatible Previewnet files.'
+        : 'Test jar replacement self-reconciled without losing release provenance.',
+    );
+  } finally {
+    if (process.env.QORTIUM_HOME_KEEP_DESKTOP_SMOKE_DATA !== '1') {
+      rmSync(tempRoot, { force: true, recursive: true });
+    } else {
+      log(`Kept ${suffix} replacement smoke data at ${tempRoot}.`);
     }
   }
 }
@@ -744,6 +895,7 @@ async function runCompatibleChainUpdateScenario() {
             signature: 'smoke-checkpoint-signature',
           },
         ],
+        featureTriggerScheduleEnforcementHeight: 99990,
         onlineAccountsSignatureV2Height: 27000,
       },
       runtimePath: updatePaths.coreRuntime,
@@ -800,6 +952,8 @@ async function main() {
   await runLegacyMigrationScenario();
   await runRuntimeMismatchScenario();
   await runCompatibleChainUpdateScenario();
+  await runManualCoreReplacementScenario({ replacePreviewFiles: false });
+  await runManualCoreReplacementScenario({ replacePreviewFiles: true });
   log('Desktop Core runtime smoke test passed.');
 }
 

@@ -121,6 +121,7 @@ const RUNTIME_ENTRY_NAMES = [
 const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set([
   'checkpoints',
   'featureTriggers',
+  'featureTriggerScheduleEnforcementHeight',
   'onlineAccountsSignatureV2Height',
   'assetOrderBoundsHeight',
 ]);
@@ -957,7 +958,11 @@ async function ensureRuntimeChainCompatible(
       throw new Error(getRuntimeChainMismatchMessage(metadata, coreTagName, identity));
     }
 
-    if (!matchesCurrentIdentity || metadata.rawPreviewChainSha256 !== identity.rawPreviewChainSha256) {
+    if (
+      !matchesCurrentIdentity ||
+      metadata.rawPreviewChainSha256 !== identity.rawPreviewChainSha256 ||
+      metadata.coreTagName !== coreTagName
+    ) {
       await writeRuntimeChainMetadata(runtimePath, coreTagName, identity);
     }
 
@@ -978,9 +983,24 @@ async function ensureInstalledCoreRuntimeChain(
 ) {
   const identity = await readCoreRuntimeChainIdentity(installedCore.previewPath);
 
-  await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, identity, options);
+  await ensureRuntimeChainCompatible(
+    installedCore.runtimePath,
+    getInstalledCoreRuntimeLabel(installedCore),
+    identity,
+    options,
+  );
 
   return identity;
+}
+
+function getInstalledCoreRuntimeLabel(installedCore: InstalledCore) {
+  const buildVersion = installedCore.jarBuildVersion?.trim().replace(/^qortium-/i, '');
+
+  if (installedCore.modifiedSinceInstall && buildVersion) {
+    return buildVersion.startsWith('v') ? buildVersion : `v${buildVersion}`;
+  }
+
+  return installedCore.tagName;
 }
 
 function relocateChildPath(sourcePath: string, sourceBasePath: string, destinationBasePath: string) {
@@ -1608,9 +1628,12 @@ async function migrateRootRuntimeEntriesIfSafe(installedCore: InstalledCore | nu
   await moveRuntimeEntries(getCoreBasePath(), getCoreRuntimePath());
 
   if (installedCore && runtimeIdentity) {
-    await ensureRuntimeChainCompatible(installedCore.runtimePath, installedCore.tagName, runtimeIdentity, {
-      recordIfMissing: true,
-    });
+    await ensureRuntimeChainCompatible(
+      installedCore.runtimePath,
+      getInstalledCoreRuntimeLabel(installedCore),
+      runtimeIdentity,
+      { recordIfMissing: true },
+    );
   }
 }
 
@@ -2635,8 +2658,27 @@ async function getStatus(): Promise<CoreStatus> {
     }
   }
 
-  const [installed, java, runtime, updateSettings] = await Promise.all([
-    readInstalledCoreMetadata(),
+  const installed = await readInstalledCoreMetadata();
+
+  // The user can replace a managed release with a directly downloaded release
+  // or test jar while Home remains open. Re-read the actual installed files on
+  // every status refresh instead of treating the launch-time layout check as a
+  // permanent installation identity. Compatible changes self-reconcile the
+  // runtime metadata; genuinely different chain data remains blocked.
+  if (installed && !isCoreInstallActive()) {
+    try {
+      await ensureInstalledCoreRuntimeChain(installed, { recordIfMissing: true });
+      blockedRuntime = null;
+    } catch (error) {
+      blockedRuntime = await readRuntimeMigrationBlocked(installed.runtimePath);
+
+      if (!blockedRuntime) {
+        throw error;
+      }
+    }
+  }
+
+  const [java, runtime, updateSettings] = await Promise.all([
     getJavaStatus({ ensureLayout: !blockedRuntime }),
     fetchLocalCoreStatus(),
     readCoreUpdateSettings(),

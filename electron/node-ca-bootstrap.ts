@@ -37,6 +37,30 @@ export function isLoopbackHostname(hostname: string) {
   return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
 }
 
+export function canReplayNodeFetchAfterCaRefresh(
+  requestMethod?: string,
+  overrideMethod?: string,
+) {
+  const method = (overrideMethod || requestMethod || 'GET').trim().toUpperCase();
+
+  return method === 'GET' || method === 'HEAD';
+}
+
+export function isExactNodeCaResponseUrl(requestUrl: string, responseUrl: string) {
+  // Electron's net.fetch currently leaves Response.url empty even for a direct
+  // successful response. Callers must also set redirect:'error'; with redirects
+  // forbidden, an empty URL means there is no contradictory final URL to reject.
+  if (!responseUrl) {
+    return true;
+  }
+
+  try {
+    return new URL(requestUrl).toString() === new URL(responseUrl).toString();
+  } catch {
+    return false;
+  }
+}
+
 function buildHttpCaUrl(url: URL, pathname: string) {
   const caUrl = new URL(url.toString());
   const port = url.port || (url.protocol === 'https:' ? '443' : '80');
