@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-16 - fix(core): preserve reward identity across managed updates
+
+Before Home replaces or relocates a managed Core installation, it now securely
+copies Core's existing reward-node identity from the replaceable Preview folder
+into the persistent runtime folder. A valid runtime identity is always kept,
+the legacy copy remains available for rollback, and unsafe, malformed, or
+unreadable identity files stop the update instead of silently rotating the
+node's reward identity. The same protection runs for same-version repair,
+running and stopped Core upgrades, and migration from Home's older managed-Core
+layout. Home also places the authoritative runtime identity into each replacement
+candidate, so a deliberate downgrade to an older Core keeps the same identity.
+
 ### 2026-08-13 - Harden Home v2 app-grant identity binding + add chat-send rate limit
 
 Home now binds an app tab's account and chat-send authority to the exact QDN

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -11,6 +12,10 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { runCoreInstallTransaction } from './core-install-transaction.js';
+import {
+  mirrorRuntimeRewardNodeIdentityToPreview,
+  preserveLegacyRewardNodeIdentity,
+} from './core-runtime-files.js';
 import { movePath } from './filesystem-move.js';
 
 function createTransactionPaths(label: string) {
@@ -21,6 +26,7 @@ function createTransactionPaths(label: string) {
     candidate: path.join(root, '_install-staging', 'install'),
     install: path.join(root, 'install'),
     root,
+    runtime: path.join(root, 'runtime'),
   };
 }
 
@@ -31,6 +37,19 @@ function writeMarker(directory: string, marker: string) {
 
 function readMarker(directory: string) {
   return readFileSync(path.join(directory, 'marker.txt'), 'utf8');
+}
+
+function writeLegacyRewardIdentity(installPath: string, value: number) {
+  const identityPath = path.join(installPath, 'preview', 'reward-node', 'identity.key');
+  const identity = Buffer.alloc(32, value);
+  mkdirSync(path.dirname(identityPath), { recursive: true });
+  writeFileSync(identityPath, identity, { mode: 0o600 });
+
+  if (process.platform !== 'win32') {
+    chmodSync(identityPath, 0o600);
+  }
+
+  return { identity, identityPath };
 }
 
 async function withTransactionPaths(
@@ -93,6 +112,58 @@ await withTransactionPaths('core-install-activation-failure', async (paths) => {
 
   assert.equal(readMarker(paths.install), 'previous');
   assert.equal(readFileSync(metadataPath, 'utf8'), 'previous metadata');
+  assert.equal(existsSync(paths.backup), false);
+});
+
+await withTransactionPaths('core-install-reward-identity-success', async (paths) => {
+  writeMarker(paths.install, 'previous');
+  writeMarker(paths.candidate, 'candidate');
+  const legacy = writeLegacyRewardIdentity(paths.install, 0x21);
+  const runtimeIdentityPath = path.join(paths.runtime, 'reward-node', 'identity.key');
+
+  await preserveLegacyRewardNodeIdentity(path.join(paths.install, 'preview'), paths.runtime);
+  await mirrorRuntimeRewardNodeIdentityToPreview(
+    paths.runtime,
+    path.join(paths.candidate, 'preview'),
+  );
+  await runCoreInstallTransaction({
+    activateCandidate: async () => {},
+    backupPath: paths.backup,
+    candidatePath: paths.candidate,
+    installPath: paths.install,
+    restorePrevious: async () => {
+      assert.fail('Successful install unexpectedly ran the restore callback.');
+    },
+  });
+
+  assert.deepEqual(readFileSync(runtimeIdentityPath), legacy.identity);
+  assert.deepEqual(readFileSync(legacy.identityPath), legacy.identity);
+  assert.equal(existsSync(paths.backup), false);
+});
+
+await withTransactionPaths('core-install-reward-identity-rollback', async (paths) => {
+  writeMarker(paths.install, 'previous');
+  writeMarker(paths.candidate, 'candidate');
+  const legacy = writeLegacyRewardIdentity(paths.install, 0x22);
+  const runtimeIdentityPath = path.join(paths.runtime, 'reward-node', 'identity.key');
+  const activationError = new Error('candidate failed after replacement');
+
+  await preserveLegacyRewardNodeIdentity(path.join(paths.install, 'preview'), paths.runtime);
+  await assert.rejects(
+    runCoreInstallTransaction({
+      activateCandidate: async () => {
+        throw activationError;
+      },
+      backupPath: paths.backup,
+      candidatePath: paths.candidate,
+      installPath: paths.install,
+      restorePrevious: async () => {},
+    }),
+    (error) => error === activationError,
+  );
+
+  assert.deepEqual(readFileSync(runtimeIdentityPath), legacy.identity);
+  assert.deepEqual(readFileSync(legacy.identityPath), legacy.identity);
   assert.equal(existsSync(paths.backup), false);
 });
 

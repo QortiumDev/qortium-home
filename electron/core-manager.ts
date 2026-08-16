@@ -15,7 +15,11 @@ import {
   readRunningLocalCoreApiKey,
   type RunningCoreApiKeyResult,
 } from './local-api-key.js';
-import { copyLegacyInstallListsToRuntime } from './core-runtime-files.js';
+import {
+  mirrorRuntimeRewardNodeIdentityToPreview,
+  preserveLegacyCoreRuntimeFiles,
+  preserveLegacyRewardNodeIdentity,
+} from './core-runtime-files.js';
 import { readCoreJarIdentity, type CoreJarIdentity } from './core-jar-identity.js';
 import {
   isCoreInstallActive,
@@ -1548,6 +1552,14 @@ async function migrateLegacyCoreLayout() {
     return;
   }
 
+  const sourceInstallPath = legacyCore.installPath;
+  const migratedCore = relocateInstalledCore(legacyCore, sourceInstallPath);
+
+  // Preserve the reward identity before stopping or moving the legacy install.
+  // A malformed identity therefore aborts migration while the old Core is
+  // still intact and running.
+  await preserveLegacyRewardNodeIdentity(legacyCore.previewPath, migratedCore.runtimePath);
+
   const legacyRuntimePath = getRawRuntimePath(parsedLegacyCore) || legacyCore.previewPath;
   const runningCore = readRunningLocalCoreApiKey();
   const legacyRuntimePid = await readRuntimePid(legacyRuntimePath);
@@ -1559,11 +1571,10 @@ async function migrateLegacyCoreLayout() {
     await stopLegacyInstalledCore(legacyCore, legacyRuntimePath);
   }
 
-  const sourceInstallPath = legacyCore.installPath;
-  const migratedCore = relocateInstalledCore(legacyCore, sourceInstallPath);
   const runtimeIdentity = await readCoreRuntimeChainIdentity(legacyCore.previewPath);
 
   await ensureRuntimeChainCompatible(migratedCore.runtimePath, migratedCore.tagName, runtimeIdentity);
+  await preserveLegacyCoreRuntimeFiles(legacyCore.previewPath, migratedCore.runtimePath);
 
   await movePathReplacingDestination(sourceInstallPath, migratedCore.installPath);
   await ensureBootstrapPeers(migratedCore.installPath);
@@ -3304,7 +3315,7 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     !existingCore.modifiedSinceInstall &&
     !equalVersionDifferentCommit
   ) {
-    await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
+    await preserveLegacyCoreRuntimeFiles(existingCore.previewPath, existingCore.runtimePath);
     return await getStatus();
   }
 
@@ -3358,7 +3369,6 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     const runtimeIdentity = await readCoreRuntimeChainIdentity(extractedCorePaths.previewPath);
 
     await ensureRuntimeChainCompatible(getCoreRuntimePath(), release.tagName, runtimeIdentity);
-
     const installPath = getCoreInstallPath();
 
     if (restartAfterInstall && existingCore) {
@@ -3372,10 +3382,15 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
 
       await new Promise((resolve) => setTimeout(resolve, FILE_RELEASE_SETTLE_MS));
 
-      await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
+      await preserveLegacyCoreRuntimeFiles(existingCore.previewPath, existingCore.runtimePath);
     } else if (existingCore) {
-      await copyLegacyInstallListsToRuntime(existingCore.previewPath, existingCore.runtimePath);
+      await preserveLegacyCoreRuntimeFiles(existingCore.previewPath, existingCore.runtimePath);
     }
+
+    await mirrorRuntimeRewardNodeIdentityToPreview(
+      getCoreRuntimePath(),
+      extractedCorePaths.previewPath,
+    );
 
     const activateCandidate = async () => {
       await ensureBootstrapPeers(installPath);
