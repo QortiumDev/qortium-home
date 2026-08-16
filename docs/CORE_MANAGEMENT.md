@@ -48,6 +48,8 @@ Electron app data root/
         temurin-17-<version>-<platform>-<arch>/
     runtime/
       runtime-chain.json
+      reward-node/
+        identity.key
       apikey.txt
       run.pid
       run.log
@@ -59,6 +61,10 @@ Electron app data root/
 
 `current.json` should identify the selected installed release, install path,
 asset name, download URL, digest when available, install time, and runtime path.
+That release information remains provenance for the Home-managed installation.
+If a user later replaces the JAR directly, Home also records the embedded build
+identity it actually finds and marks the install modified without claiming that
+the replacement came from the recorded release URL or digest.
 
 `current.json` points at `qortium-core/install` and
 `qortium-core/runtime`. Updating Core replaces the single install folder, not
@@ -67,12 +73,22 @@ old `install/preview/lists/` entries into `runtime/lists/` without overwriting
 runtime files, so testers upgrading from older launcher builds keep block and
 follow lists that were written into the replaceable install tree.
 
+The persistent runtime also owns `reward-node/identity.key`. Before a managed
+upgrade, repair, migration, or downgrade, Home validates and preserves an
+existing reward identity, then mirrors the authoritative runtime copy into the
+replacement Preview folder for compatibility with Core releases that still read
+it there. An unsafe, malformed, or unreadable identity stops the operation
+before the active install is replaced.
+
 `runtime/runtime-chain.json` records the installed release's Previewnet
-`networkId` and Core-compatible `previewchain.json` SHA-256 identity. The
-identity uses the same effective chain-config hash as Core, so rollout-only
-fields such as checkpoints and unpinned feature-trigger heights do not force a
-database reset when Core can safely continue with the existing repository. Home
-also records the raw `previewchain.json` SHA-256 when available for diagnostics.
+`networkId` and a Core-compatible `previewchain.json` SHA-256 identity. The
+compatibility hash excludes rollout-only values such as checkpoints, feature
+triggers, and the feature-trigger schedule enforcement height, so those changes
+do not force a database reset when Core can safely continue with the existing
+repository. Home also records the raw `previewchain.json` SHA-256 when available
+for diagnostics. On an idle Core status refresh, Home re-reads the installed
+JAR and Previewnet files; compatible direct-release or test-JAR replacements
+rewrite stale runtime metadata and clear a stale block marker automatically.
 Home should refuse to reuse an existing runtime when the effective identity
 differs from the installed Core release, and should leave the runtime data in
 place for an explicit reset or manual migration decision. When that happens,
@@ -93,6 +109,8 @@ Electron app data root/
   qortium-core/
     runtime/
       runtime-chain.json
+      reward-node/
+        identity.key
       apikey.txt
       run.pid
       run.log
@@ -128,6 +146,13 @@ The Core runtime folder owns:
 - Launcher/stdout log: `qortium-core/runtime/run.log`
 - Windows stderr log: `qortium-core/runtime/run-error.log`
 - API key: `qortium-core/runtime/apikey.txt`
+- Reward-node identity: `qortium-core/runtime/reward-node/identity.key`
+
+When a full local Core replacement rotates its certificate authority, Home may
+refresh that authority only through the plaintext bootstrap endpoint on the
+exact loopback host. Redirects are refused. The failed request is replayed once
+only for `GET` or `HEAD`; writes are never replayed automatically because Core
+may already have accepted them.
 
 Qortium Home should use Eclipse Temurin / Adoptium Java 17 GA JRE archives for
 the managed runtime. Linux and macOS archives are `.tar.gz`; Windows archives

@@ -33,6 +33,19 @@ with its own clear scope.
 
 ## Change Entries
 
+### 2026-08-16 - chore(release): prepare home 1.7.0
+
+Marks a focused Home 1 maintenance release for Core 1.7.0 compatibility. Home
+now recognizes compatible Home-managed updates, direct release replacements,
+and test JARs without asking users to reset or manually edit their existing
+Previewnet runtime. It preserves the original managed-release record while
+showing the build actually installed, safely refreshes a rotated localhost Core
+certificate authority without replaying writes, and retains the reward-node
+identity across managed upgrades, repairs, migrations, and downgrades. Genuine
+network or chain-configuration mismatches remain blocked. Bumped package
+metadata to 1.7.0 and Android metadata to versionCode 37 / versionName 1.7.0.
+Home 2.0 and Chat 2.0 are not included in this maintenance release.
+
 ### 2026-08-16 - fix(core): preserve reward identity across managed updates
 
 Before Home replaces or relocates a managed Core installation, it now securely
