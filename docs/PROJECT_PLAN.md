@@ -680,6 +680,8 @@ unlocked, created, renamed, derived, or removed during this acceptance.
   Dashboard-linked apps.
 - Adapt/build cross-network Chat and Wallets QDN apps against host-mediated
   capabilities.
+- Complete the trusted dual-chain Chat bridge through the milestone tracker in
+  `docs/HOME_CHAT_PORTABILITY_ROADMAP.md` on Home 2 desktop and Android.
 - Add typed cross-app intents such as Profile -> Trust and Core -> Minting.
 - Prove notification, unread, deep-link, download, and context routing on
   desktop and Android.
