@@ -115,19 +115,35 @@ assert.deepEqual(await client.getShellState(), {
   version: 1,
   selectedAccountId: 'wallet:one:2',
 })
-assert.deepEqual(
-  await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }),
-  getHomeV2AppActions('qdnRequest'),
-)
+const disabledQortiumActions = await client.requestApp(
+  'qdnRequest',
+  { action: 'SHOW_ACTIONS' },
+) as string[]
+assert.equal(disabledQortiumActions.includes('FETCH_NODE_API'), false)
+assert.equal(disabledQortiumActions.includes('SEND_CHAT_MESSAGE'), false)
+assert.equal(disabledQortiumActions.includes('FETCH_QORTAL_NODE_API'), true)
+assert.equal(disabledQortiumActions.includes('GET_HOST_INFO'), true)
 assert.deepEqual(
   await client.requestApp('qortalRequest', { action: 'SHOW_ACTIONS' }),
   getHomeV2AppActions('qortalRequest'),
 )
+const disabledQortiumHostInfo = await client.requestApp(
+  'qdnRequest',
+  { action: 'GET_HOST_INFO' },
+) as { network: string; platform: string; protocol: string; route: Record<string, unknown> }
+assert.equal(disabledQortiumHostInfo.network, 'qortium')
+assert.equal(disabledQortiumHostInfo.platform, 'android')
+assert.equal(disabledQortiumHostInfo.protocol, 'qdnRequest')
+assert.equal(disabledQortiumHostInfo.route.configuredKind, 'disabled')
+assert.equal(disabledQortiumHostInfo.route.available, false)
+assert.equal(disabledQortiumHostInfo.route.reachable, false)
+assert.match(String(disabledQortiumHostInfo.route.revision), /^home-v2-route-v1-[0-9a-f]{8}$/)
 assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_SELECTED_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qdnRequest').includes('UNLOCK_SELECTED_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_USER_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('UNLOCK_SELECTED_ACCOUNT'), false)
+await client.setMode('qortium', 'public')
 assert.deepEqual(
   await client.requestApp('qdnRequest', {
     action: 'OPEN_NEW_TAB',
@@ -221,7 +237,10 @@ assert.match(lastRequestedUrl, /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.l
 // public seeds do not expose their routes.
 await assert.rejects(
   () => client.requestApp('qdnRequest', { action: 'GET_PRICE', blockchain: 'LITECOIN' }),
-  /not available in Home v2 read-only mode/,
+  (error: unknown) =>
+    error instanceof Error &&
+    error.message === 'GET_PRICE is not implemented for qdnRequest.' &&
+    (error as Error & { code?: string }).code === 'UNSUPPORTED_PROTOCOL',
 )
 await assert.rejects(
   () => client.requestApp('qortalRequest', {
@@ -443,7 +462,7 @@ assert.match(lastRequestedUrl, /\/groups\/search\?query=Chess$/)
 // SEARCH_GROUPS is Qortium-only: /groups/search does not exist on Qortal.
 await assert.rejects(
   () => client.requestApp('qortalRequest', { action: 'SEARCH_GROUPS', query: 'Chess' }),
-  /not available in Home v2 read-only mode/,
+  /SEARCH_GROUPS is not implemented for qortalRequest/,
 )
 
 assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_ASSET_BALANCES'), true)
@@ -471,7 +490,7 @@ await assert.rejects(
 )
 await assert.rejects(
   () => client.requestApp('qortalRequest', { action: 'GET_ASSET_INFO', assetId: 5 }),
-  /not available in Home v2 read-only mode/,
+  /GET_ASSET_INFO is not implemented for qortalRequest/,
 )
 const appContext = {
   resourceLocation: 'qdn://APP/Trust/Trust',

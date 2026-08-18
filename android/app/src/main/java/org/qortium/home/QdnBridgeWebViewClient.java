@@ -845,9 +845,13 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             "window.addEventListener('message',function(event){" +
             "var data=event.data;if(!data||data.type!=='qortium:qdn-response'||data.bridgeToken!==bridgeToken||typeof data.requestId!=='string')return;" +
             "var entry=pending[data.requestId];if(!entry)return;delete pending[data.requestId];clearTimeout(entry.timeoutId);" +
-            "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';var err=new Error(message);if(typeof data.error.code==='string'){err.code=data.error.code;}entry.reject(err);return;}" +
+            "if(data.error){var message=data.error.message||data.error.error||'QDN app request failed.';var err=new Error(message);Object.keys(data.error).forEach(function(key){if(key!=='message'&&key!=='error'){err[key]=data.error[key];}});entry.reject(err);return;}" +
             "entry.resolve(data.result);" +
             "});" +
+            // Home 2 route/account capability invalidation. The bridge token
+            // binds this parent message to the currently authorized app view;
+            // apps re-read SHOW_ACTIONS and GET_HOST_INFO after the event.
+            "window.addEventListener('message',function(event){var data=event.data;if(!data||data.type!=='qortium:bridge-state-changed'||data.bridgeToken!==bridgeToken||!data.detail)return;window.dispatchEvent(new CustomEvent('qortiumBridgeStateChanged',{detail:data.detail}));});" +
             // Home sends this additive runtime signal whenever its display settings
             // change. Re-dispatch it as a document event so QDN apps use the same
             // API on Android and desktop isolated views.

@@ -206,6 +206,7 @@ export interface NodeSummary {
   readonly state: NodeState
   readonly statusText: string
   readonly isTrusted: boolean
+  readonly customAuthenticated: boolean
   readonly customConfigured: boolean
   readonly customUrl: string | null
   readonly localCoreState: LocalCoreState

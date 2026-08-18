@@ -371,6 +371,8 @@ function normalizeNodeSummary(
     state,
     statusText,
     isTrusted: mode === 'local',
+    customAuthenticated:
+      mode === 'custom' && settings.customAuthenticated === true,
     customConfigured: !!stringField(settings, 'customUrl'),
     customUrl: stringField(settings, 'customUrl'),
     ...localCoreSummary(installState, rawLocalStatus),
@@ -466,6 +468,10 @@ async function getRecentSnapshot() {
     return cachedSnapshot.snapshot
   }
   return getSnapshot()
+}
+
+export async function getHomeV2AppNodeState(network: NetworkId) {
+  return (await getRecentSnapshot()).nodes[network]
 }
 
 export async function getHomeV2ReadableNode(network: NetworkId) {

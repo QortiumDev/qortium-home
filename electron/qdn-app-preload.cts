@@ -83,10 +83,9 @@ function installQdnRequest(errorKey: string, resultKey: string) {
           const payload = error as Record<string, unknown>;
 
           if (typeof payload.message === 'string') {
-            throw Object.assign(
-              new Error(payload.message),
-              typeof payload.code === 'string' ? { code: payload.code } : {},
-            );
+            throw Object.assign(new Error(payload.message), Object.fromEntries(
+              Object.entries(payload).filter(([key]) => key !== 'message'),
+            ));
           }
         }
 

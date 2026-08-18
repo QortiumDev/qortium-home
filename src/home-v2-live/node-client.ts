@@ -26,6 +26,13 @@ import {
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
+import {
+  createHomeV2BridgeError,
+  getHomeV2AppHostInfo,
+  getHomeV2AppRouteDescriptor,
+  getHomeV2AvailableAppActions,
+  HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
+} from '../../electron/home-v2-app-runtime'
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
@@ -444,6 +451,7 @@ function emptySummary(
     state: 'offline',
     statusText: disabled ? 'Disabled' : settings.mode === 'local' ? 'Not available' : 'Unavailable',
     isTrusted: settings.mode === 'local',
+    customAuthenticated: false,
     customConfigured: !!settings.customUrl,
     customUrl: settings.customUrl || null,
     localCoreState: 'unsupported',
@@ -620,21 +628,62 @@ export function createPortableNodeClient(
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
       const request = requestValue
       const action = normalizeHomeV2AppAction(request)
-      const availableActions = getHomeV2AppActions(protocol)
-      if (action === 'SHOW_ACTIONS') return [...availableActions]
-      if (!availableActions.includes(action)) {
-        throw new Error(`${action} is not available in Home v2 read-only mode.`)
+      const network = getHomeV2AppNetwork(protocol, action)
+      const selectedSettings = await readSettings(network)
+      const selectedNode = await summary(network, selectedSettings)
+      const hostInfo = getHomeV2AppHostInfo({
+        accountId: context?.selectedAccountId,
+        node: selectedNode,
+        platform: 'android',
+        platformVersion: '2.0',
+        protocol,
+      })
+      if (action === 'SHOW_ACTIONS') {
+        const otherNetwork: NetworkId = network === 'qortal' ? 'qortium' : 'qortal'
+        const otherSettings = await readSettings(otherNetwork)
+        const otherNode = await summary(otherNetwork, otherSettings)
+        const qortalNode = network === 'qortal' ? selectedNode : otherNode
+        const qortiumNode = network === 'qortium' ? selectedNode : otherNode
+        return [...getHomeV2AvailableAppActions(protocol, {
+          qortal: getHomeV2AppRouteDescriptor({
+            accountId: context?.selectedAccountId,
+            network: 'qortal',
+            node: qortalNode,
+            platform: 'android',
+            protocol: 'qortalRequest',
+          }),
+          qortium: getHomeV2AppRouteDescriptor({
+            accountId: context?.selectedAccountId,
+            network: 'qortium',
+            node: qortiumNode,
+            platform: 'android',
+            protocol: 'qdnRequest',
+          }),
+        })]
+      }
+      const implemented = getHomeV2AppActions(protocol).includes(action)
+      const routeIndependent = (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action)
+      if (!implemented || (!routeIndependent && !hostInfo.route.available)) {
+        throw createHomeV2BridgeError(
+          implemented
+            ? `${action} is unavailable on the configured ${hostInfo.network} route.`
+            : `${action} is not implemented for ${protocol}.`,
+          {
+            action,
+            code: implemented ? 'NODE_CAPABILITY_MISSING' : 'UNSUPPORTED_PROTOCOL',
+            network: hostInfo.network,
+            retryable: false,
+            routeRevision: hostInfo.route.revision,
+          },
+        )
       }
       if (action === 'WHICH_UI') return 'QORTIUM_HOME_ANDROID'
-      if (action === 'GET_HOST_INFO') {
-        return { hostName: 'qortium-home', platform: 'android', platformVersion: '2.0-preview' }
-      }
+      if (action === 'GET_HOST_INFO') return hostInfo
       if (action === 'OPEN_NEW_TAB') {
         return { address: normalizeHomeV2OpenAddress(request), openIn: 'new-tab' }
       }
-      const network = getHomeV2AppNetwork(protocol, action)
       if (action === 'IS_USING_PUBLIC_NODE') {
-        return (await getReadableNode(network)).settings.mode === 'public'
+        return hostInfo.route.configuredKind === 'public'
       }
       const requestData = async (targetNetwork: NetworkId, path: string, maxBytes: number) => {
         const { nodeApiUrl } = await getReadableNode(targetNetwork)
