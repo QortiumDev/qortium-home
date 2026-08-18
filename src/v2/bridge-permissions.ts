@@ -18,6 +18,8 @@ export type PermissionCapability =
   | 'qortal.account.read'
   | 'account.unlock'
   | 'chat.send'
+  | 'chat.direct.read'
+  | 'chat.direct.send'
   | 'group.membership'
   | 'group.administration'
 
@@ -50,6 +52,12 @@ export interface PermissionPrompt {
     | 'SEND_CHAT_EDIT'
     | 'SEND_CHAT_MESSAGE'
     | 'SEND_CHAT_REACTION'
+    | 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+    | 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES'
+    | 'SEND_DIRECT_CHAT_DELETE'
+    | 'SEND_DIRECT_CHAT_EDIT'
+    | 'SEND_DIRECT_CHAT_MESSAGE'
+    | 'SEND_DIRECT_CHAT_REACTION'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

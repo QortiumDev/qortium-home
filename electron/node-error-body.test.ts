@@ -136,7 +136,7 @@ const HELPER_CALL = /readableNodeErrorMessage\(/g;
 
 for (const [name, source, expectedCalls, enforceRawBodyGuard] of [
   ['electron/qdn.ts', qdnSource.join('\n'), 17, true],
-  ['src/platform.ts', platformSource.join('\n'), 18, true],
+  ['src/platform.ts', platformSource.join('\n'), 19, true],
   // core-manager also fetches GitHub archives and sends the local stop request.
   // Those non-update paths retain their own bounded/plain-text behavior, so
   // pin the two /admin/update helper calls without applying the Q-App-wide raw

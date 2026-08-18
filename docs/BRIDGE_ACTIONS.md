@@ -57,6 +57,18 @@ permission on both bridge protocols. On `qortalRequest`, stock-app names
 `GROUP_BAN` and `GROUP_KICK`; they produce the same checked transaction and do
 not create separate permission capabilities.
 
+Home 2 also exposes a portable, fine-grained direct-message family on both
+`qdnRequest` and `qortalRequest`:
+`GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`,
+`SEND_DIRECT_CHAT_MESSAGE`, `SEND_DIRECT_CHAT_EDIT`,
+`SEND_DIRECT_CHAT_DELETE`, and `SEND_DIRECT_CHAT_REACTION`. Direct reads require
+an unlocked selected account and a scoped `chat.direct.read` approval; writes
+use a single-request `chat.direct.send` approval. Home performs all QDM1 or
+Qortal legacy-v2 key agreement, decryption, encryption, proof of work, field
+attestation, signing, and broadcast inside the trusted host. Apps receive
+plaintext rows or per-row failures but never a private key, shared secret, or
+reusable decryption key.
+
 `OPEN_QDN_RESOURCE_VIEWER` and `GET_QDN_RESOURCE_STREAM_URL` are read-only and
 available in every node mode. The first opens Home's existing viewer as a
 tab-scoped overlay; the second returns a host-safe ranged URL for inline

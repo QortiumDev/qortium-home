@@ -228,6 +228,7 @@ import {
   assertValidQortalChatSignature,
   buildQortalAccountGroupsPath,
   buildQortalGroupChatPayload,
+  buildUnsignedQortalDirectChatTransactionBytes,
   buildUnsignedQortalGroupChatTransactionBytes,
   qortalChatPowDifficultyForBalance,
   QORTAL_CHAT_POW_DIFFICULTY_BELOW,
@@ -238,6 +239,15 @@ import {
   createHomeV2UnknownChatBroadcastResult,
   type HomeV2PublicChatRequest,
 } from '../electron/home-v2-chat-actions';
+import {
+  encryptQdm1Message,
+  encryptQortalDirectMessage,
+} from '../electron/home-v2-direct-chat-actions';
+import {
+  decryptHomeV2DirectChatRow,
+  directDecryptFailure,
+  type HomeV2DirectChatWriteRequest,
+} from '../electron/home-v2-direct-chat-contract';
 import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
@@ -4288,6 +4298,7 @@ async function fetchLocalNodeApiPayload(
 // signing-path callers; the many existing getGroupDataForChat call sites
 // below that don't pass maxBytes keep their prior unbounded behavior.
 const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024;
+const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 async function getGroupDataForChat(nodeApiUrl: string, groupId: number, maxBytes?: number) {
   if (groupId === 0) {
@@ -12358,6 +12369,263 @@ async function sendHomeV2QortalChatMessage(
   }
 }
 
+async function requestAndroidHomeV2DirectJson(
+  nodeApiUrl: string,
+  pathname: string,
+  apiKey = '',
+  maxBytes = CHAT_SIGNING_RESPONSE_MAX_BYTES,
+) {
+  let response: HttpResponse;
+  try {
+    response = await CapacitorHttp.request({
+      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      method: 'GET',
+      headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+  const body = stringifyResponseData(response.data);
+  if (new TextEncoder().encode(body).length > maxBytes) {
+    throw new Error('Direct-chat node response exceeded the trusted size limit.');
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(readableNodeErrorMessage(body, `Direct-chat request failed with HTTP ${response.status}.`));
+  }
+  return parseResponseData(body, getContentType(response));
+}
+
+function normalizeAndroidHomeV2DirectPublicKey(value: unknown) {
+  const publicKey = typeof value === 'string'
+    ? value.trim()
+    : isRecord(value) && typeof value.publicKey === 'string'
+      ? value.publicKey.trim()
+      : '';
+  const bytes = base58Decode(publicKey);
+  if (bytes.length !== 32 || base58Encode(bytes) !== publicKey) {
+    throw new Error('The direct-message recipient does not have a usable public key.');
+  }
+  return { bytes, value: publicKey };
+}
+
+async function readAndroidHomeV2DirectPublicKey(
+  nodeApiUrl: string,
+  otherAddress: string,
+  apiKey = '',
+) {
+  return normalizeAndroidHomeV2DirectPublicKey(await requestAndroidHomeV2DirectJson(
+    nodeApiUrl,
+    `/addresses/publickey/${encodeURIComponent(otherAddress)}`,
+    apiKey,
+  ));
+}
+
+async function sendAndroidHomeV2QortiumDirectChat(
+  nodeApiUrl: string,
+  request: HomeV2DirectChatWriteRequest,
+  peerPublicKey: Uint8Array,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the direct-message action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
+  const timestamp = Date.now();
+  const envelope = await encryptQdm1Message({
+    nonce: getRandomBytes(12),
+    plaintext: new TextEncoder().encode(request.message),
+    recipientPublicKey: peerPublicKey,
+    selectedAccountSecretKey: signingKey.secretKey,
+    senderPublicKey: base58Decode(signingKey.publicKey58),
+  });
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before direct-message construction.');
+  const buildRequest = {
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    data: base58Encode(envelope),
+    fee: 0,
+    isEncrypted: true,
+    isText: true,
+    recipient: request.otherAddress,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+    txGroupId: 0,
+  };
+  const unsigned = await postLocalNodeText(
+    nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify(buildRequest),
+    apiKey,
+    'Direct CHAT transaction build failed.',
+    'application/json',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
+  );
+  const unsignedBytes = base58Decode(unsigned.body);
+  assertPublicChatTransaction(unsignedBytes, {
+    ...(request.chatReference ? { chatReference: base58Decode(request.chatReference) } : {}),
+    data: envelope,
+    encrypted: true,
+    publicKey: base58Decode(signingKey.publicKey58),
+    recipient: base58Decode(request.otherAddress),
+    timestamp,
+    txGroupId: 0,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isRouteStillValid);
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  await validateTarget();
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey);
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      'Direct CHAT transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
+
+async function sendAndroidHomeV2QortalDirectChat(
+  nodeApiUrl: string,
+  request: HomeV2DirectChatWriteRequest,
+  peerPublicKey: Uint8Array,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const timestamp = Date.now();
+  const lastReference = getRandomBytes(64);
+  const ciphertext = await encryptQortalDirectMessage({
+    lastReference,
+    peerPublicKey,
+    plaintext: new TextEncoder().encode(request.message),
+    selectedAccountSecretKey: signingKey.secretKey,
+  });
+  const unsignedBytes = buildUnsignedQortalDirectChatTransactionBytes({
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    ciphertext,
+    lastReference,
+    recipientAddress: request.otherAddress,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
+  const signedBytes = appendSignatureToTransactionBytes(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Qortal direct-message broadcast failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
+
+async function readAndroidHomeV2DirectChats(
+  request: import('./home-v2-live/vault-client').HomeV2DirectChatReadRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const settings = request.network === 'qortium' ? await readNodeSettings() : null;
+  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  const query = new URLSearchParams();
+  query.set('encoding', 'BASE64');
+  if (request.hasChatReference !== undefined) query.set('haschatreference', String(request.hasChatReference));
+  let path: string;
+  if (request.action === 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES') {
+    if (!request.otherAddress) throw new Error('Direct-message peer is required.');
+    query.append('involving', signingKey.address);
+    query.append('involving', request.otherAddress);
+    if (request.before !== undefined) query.set('before', String(request.before));
+    query.set('limit', String(request.limit));
+    query.set('reverse', String(request.reverse));
+    path = `/chat/messages?${query.toString()}`;
+  } else {
+    path = `/chat/active/${encodeURIComponent(signingKey.address)}?${query.toString()}`;
+  }
+  const raw = await requestAndroidHomeV2DirectJson(
+    request.nodeApiUrl,
+    path,
+    apiKey,
+    DIRECT_CHAT_READ_RESPONSE_MAX_BYTES,
+  );
+  const rows = request.action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+    ? isRecord(raw) && Array.isArray(raw.direct) ? raw.direct : []
+    : Array.isArray(raw) ? raw : [];
+  const peerKeys = new Map<string, Awaited<ReturnType<typeof readAndroidHomeV2DirectPublicKey>>>();
+  const decrypted: unknown[] = [];
+  for (const value of rows.slice(0, 100)) {
+    if (!isRecord(value)) continue;
+    try {
+      const sender = getRequiredAddressRequestString({ sender: value.sender } as QdnAppRequest, 'sender', 'sender');
+      const recipient = getRequiredAddressRequestString({ recipient: value.recipient } as QdnAppRequest, 'recipient', 'recipient');
+      const otherAddress = sender === signingKey.address
+        ? recipient
+        : recipient === signingKey.address
+          ? sender
+          : '';
+      if (!otherAddress || (request.otherAddress && request.otherAddress !== otherAddress)) {
+        throw new Error('Direct chat row does not match the approved participants.');
+      }
+      let peerKey = peerKeys.get(otherAddress);
+      if (!peerKey) {
+        peerKey = await readAndroidHomeV2DirectPublicKey(request.nodeApiUrl, otherAddress, apiKey);
+        peerKeys.set(otherAddress, peerKey);
+      }
+      decrypted.push(await decryptHomeV2DirectChatRow({
+        encoding: request.encoding,
+        localAddress: signingKey.address,
+        localPublicKey: base58Decode(signingKey.publicKey58),
+        network: request.network,
+        peerAddress: otherAddress,
+        peerPublicKey: peerKey.bytes,
+        row: value,
+        selectedAccountSecretKey: signingKey.secretKey,
+      }));
+    } catch (error) {
+      decrypted.push(directDecryptFailure(value, error));
+    }
+  }
+  if (!(await (request.isStillValid?.() ?? true))) {
+    throw new Error('Direct-message read context changed before decryption completed.');
+  }
+  return decrypted;
+}
+
 function homeV2MembershipOperationLabel(action: HomeV2GroupMembershipAction) {
   return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group';
 }
@@ -13031,6 +13299,57 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
         return await (request.network === 'qortium'
           ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget)
           : sendHomeV2QortalChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async readDirectChats(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await readAndroidHomeV2DirectChats(request, signingKey);
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendDirectChat(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        const isStillValid = request.isStillValid ?? (() => true);
+        const settings = request.network === 'qortium' ? await readNodeSettings() : null;
+        const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+        const peerKey = await readAndroidHomeV2DirectPublicKey(
+          request.nodeApiUrl,
+          request.otherAddress,
+          apiKey,
+        );
+        const validateTarget = async () => {
+          const currentPeer = await readAndroidHomeV2DirectPublicKey(
+            request.nodeApiUrl,
+            request.otherAddress,
+            apiKey,
+          );
+          if (currentPeer.value !== peerKey.value) {
+            throw new Error('Recipient public key changed before signing.');
+          }
+          await request.validateTarget?.(signingKey.publicKey58, peerKey.value);
+        };
+        return await (request.network === 'qortium'
+          ? sendAndroidHomeV2QortiumDirectChat(
+              request.nodeApiUrl,
+              request,
+              peerKey.bytes,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            )
+          : sendAndroidHomeV2QortalDirectChat(
+              request.nodeApiUrl,
+              request,
+              peerKey.bytes,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            ));
       } finally {
         signingKey.secretKey.fill(0);
       }

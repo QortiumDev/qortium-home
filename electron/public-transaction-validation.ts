@@ -253,16 +253,30 @@ export function assertPublicUpdatePollTransaction(bytes: Uint8Array, expected: U
   reader.finish();
 }
 
-export type ChatExpected = CommonExpected & { chatReference?: Uint8Array; data: Uint8Array };
+export type ChatExpected = CommonExpected & {
+  chatReference?: Uint8Array;
+  data: Uint8Array;
+  encrypted?: boolean;
+  recipient?: Uint8Array;
+};
 
 export function assertPublicChatTransaction(bytes: Uint8Array, expected: ChatExpected) {
   const label = 'CHAT';
   const reader = new Reader(bytes, label);
   readCommon(reader, TYPE_CHAT, expected, label);
-  assertEqual(reader.readByte('has recipient'), 0, 'recipient', label);
+  const hasRecipient = reader.readByte('has recipient');
+  assertEqual(hasRecipient, expected.recipient ? 1 : 0, 'recipient', label);
+  if (hasRecipient) {
+    assertBytes(
+      reader.readBytes(ADDRESS_LENGTH, 'recipient'),
+      expected.recipient!,
+      'recipient',
+      label,
+    );
+  }
   const dataLength = reader.readInt32('message length');
   assertBytes(reader.readBytes(dataLength, 'message'), expected.data, 'message', label);
-  assertEqual(reader.readByte('encrypted flag'), 0, 'encrypted flag', label);
+  assertEqual(reader.readByte('encrypted flag'), expected.encrypted ? 1 : 0, 'encrypted flag', label);
   assertEqual(reader.readByte('text flag'), 1, 'text flag', label);
   assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
   const hasReference = reader.readByte('has chat reference');

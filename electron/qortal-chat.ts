@@ -61,6 +61,15 @@ export type QortalGroupChatBytesInput = {
   txGroupId: number;
 };
 
+export type QortalDirectChatBytesInput = {
+  chatReference?: string | null;
+  ciphertext: Uint8Array;
+  lastReference: string | Uint8Array;
+  recipientAddress: string | Uint8Array;
+  senderPublicKey: string | Uint8Array;
+  timestamp: number;
+};
+
 export type OpenQortalGroupMetadata = {
   groupLabel: string;
   groupName: string | null;
@@ -268,6 +277,48 @@ export function buildUnsignedQortalGroupChatTransactionBytes(input: QortalGroupC
   );
 
   if (input.timestamp < QORTAL_CHAT_REFERENCE_FEATURE_TRIGGER_TIMESTAMP) {
+    return baseBytes;
+  }
+
+  return concatBytes(
+    baseBytes,
+    new Uint8Array([chatReference ? 1 : 0]),
+    ...(chatReference ? [chatReference] : []),
+  );
+}
+
+export function buildUnsignedQortalDirectChatTransactionBytes(input: QortalDirectChatBytesInput) {
+  const timestamp = BigInt(input.timestamp);
+  const lastReference = getBytes(input.lastReference, 'Last reference', 64);
+  const senderPublicKey = getBytes(input.senderPublicKey, 'Sender public key', 32);
+  const recipientAddress = getBytes(input.recipientAddress, 'Recipient address', 25);
+  const ciphertext = new Uint8Array(input.ciphertext);
+  const chatReference = input.chatReference ? getBytes(input.chatReference, 'Chat reference', 64) : null;
+
+  if (ciphertext.length < 17 || ciphertext.length > QORTAL_CHAT_MAX_DATA_SIZE) {
+    throw new Error(`Encrypted direct message must be between 17 and ${QORTAL_CHAT_MAX_DATA_SIZE} bytes.`);
+  }
+
+  const baseBytes = concatBytes(
+    int32ToBytes(QORTAL_CHAT_TRANSACTION_TYPE),
+    int64ToBytes(timestamp, 'Timestamp'),
+    int32ToBytes(0),
+    lastReference,
+    senderPublicKey,
+    int32ToBytes(0),
+    new Uint8Array([1]),
+    recipientAddress,
+    int32ToBytes(ciphertext.length),
+    ciphertext,
+    new Uint8Array([1]),
+    new Uint8Array([1]),
+    int64ToBytes(0n, 'Fee'),
+  );
+
+  if (input.timestamp < QORTAL_CHAT_REFERENCE_FEATURE_TRIGGER_TIMESTAMP) {
+    if (chatReference) {
+      throw new Error('This Qortal transaction timestamp predates CHAT reference support.');
+    }
     return baseBytes;
   }
 

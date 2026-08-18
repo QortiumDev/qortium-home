@@ -73,6 +73,7 @@
     "test:home-v2-app-actions": "npm run build:electron && node dist-electron/home-v2-app-actions.test.js",
     "test:home-v2-avatar-actions": "npm run build:electron && node dist-electron/home-v2-avatar-actions.test.js",
     "test:home-v2-chat-actions": "npm run build:electron && node dist-electron/home-v2-chat-actions.test.js",
+    "test:home-v2-direct-chat-actions": "npm run build:electron && node dist-electron/home-v2-direct-chat-actions.test.js",
     "test:home-v2-group-actions": "npm run build:electron && node dist-electron/home-v2-group-actions.test.js",
     "test:home-v2-group-admin-actions": "npm run build:electron && node dist-electron/home-v2-group-admin-actions.test.js",
     "test:home-v2-app-runtime": "npm run build:electron && node dist-electron/home-v2-app-runtime.test.js",
@@ -180,6 +181,7 @@
     "@fontsource/fredoka": "^5.3.0",
     "asmcrypto.js": "2.3.2",
     "bcryptjs": "2.4.3",
+    "ed2curve": "0.3.0",
     "epubjs": "^0.3.93",
     "extract-zip": "^2.0.1",
     "fflate": "^0.8.3",
@@ -197,6 +199,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",
+    "@types/ed2curve": "0.2.4",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
