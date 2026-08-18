@@ -12,8 +12,12 @@ async function request(protocol: 'qdnRequest' | 'qortalRequest', value: unknown)
   if (RESULT_KEY in record) return record[RESULT_KEY]
   const payload = record[ERROR_KEY]
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-    const message = (payload as Record<string, unknown>).message
-    throw new Error(typeof message === 'string' ? message : 'Home v2 app request failed.')
+    const error = payload as Record<string, unknown>
+    const message = error.message
+    throw Object.assign(
+      new Error(typeof message === 'string' ? message : 'Home v2 app request failed.'),
+      Object.fromEntries(Object.entries(error).filter(([key]) => key !== 'message')),
+    )
   }
   throw new Error('Malformed Home v2 app bridge response.')
 }

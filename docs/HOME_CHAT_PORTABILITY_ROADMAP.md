@@ -249,7 +249,7 @@ and signing remain local even when the node is authenticated.
 
 | ID | Home milestone | Status | Depends on |
 | --- | --- | --- | --- |
-| H0 | Shared contracts, route-aware discovery, errors, and vector harness | Planned | Core C0-C5 complete |
+| H0 | Shared contracts, route-aware discovery, errors, and vector harness | In progress: H0A implemented; H0B planned | Core C0-C5 complete |
 | H1 | Public-group revisions and route-independent send parity | Planned | H0 |
 | H2 | Portable group participation and avatar/identity parity | Planned | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Planned | H0-H1; Core C0/C2 |
@@ -263,7 +263,7 @@ and signing remain local even when the node is authenticated.
 ### Home changes
 
 - Create shared pure request validators, action names, route descriptors,
-  errors, send outcomes, and stale-context guards used by all four host
+  errors, send outcomes, and stale-context guards used by both Home 2 platform
   surfaces.
 - Make `SHOW_ACTIONS` truthful for protocol, route, and platform. Replace the
   current Home 2 static lists that can imply more than the selected route
@@ -625,9 +625,9 @@ separate ceremonial acceptance phase.
 
 ## Planned Home PR sequence
 
-1. **H0A contracts and discovery:** shared action/route/error contracts,
+1. **H0A contracts and discovery — implemented:** shared action/route/error contracts,
    dynamic `SHOW_ACTIONS`, route-qualified `GET_HOST_INFO`, invalidation
-   events, and four-surface parity tests.
+   events, and desktop/Android parity tests.
 2. **H0B vector harness:** consume the Core fixture unchanged, then freeze the
    written Qortal interoperability fixtures before implementing their crypto.
 3. **H1 public revisions:** route-independent Qortium/Qortal initial sends plus
@@ -645,10 +645,10 @@ separate ceremonial acceptance phase.
 9. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-The immediate next implementation is H0A. Keep it free of message crypto and
-transaction serialization: establish one truthful route/action/error contract
-on Home 2 main first. That gives Chat a stable capability boundary while H0B
-prepares the exact cross-language fixtures used by later privileged actions.
+The immediate next implementation is H0B. H0A established one truthful
+route/action/error contract on Home 2 main without adding message crypto or
+transaction serialization. H0B now prepares the exact cross-language fixtures
+used by later privileged actions.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent

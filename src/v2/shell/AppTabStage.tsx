@@ -12,6 +12,17 @@ import type {
   HomeV2AppRequestContext,
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
+import {
+  getHomeV2AppNetwork,
+  getHomeV2BridgeStateDetails,
+  getHomeV2AppRouteDescriptor,
+  homeV2BridgeErrorPayload,
+  normalizeHomeV2BridgeError,
+} from '../../home-v2-live/app-runtime'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
 
 function waitForAnimationFrames(count: number) {
   return new Promise<void>((resolve) => {
@@ -114,9 +125,15 @@ function DesktopAppStage(props: AppTabStageProps) {
       const launchAccountId = identityId.startsWith('home-v2:identity:')
         ? identityId.slice('home-v2:identity:'.length)
         : null
+      const accountId = launchAccountId === 'none' ? null : launchAccountId
       void bridge.show({
-        accountId: launchAccountId === 'none' ? null : launchAccountId,
+        accountId,
         bounds: { height: bounds.height, width: bounds.width, x: bounds.x, y: bounds.y },
+        bridgeStates: getHomeV2BridgeStateDetails({
+          accountId,
+          nodes: props.snapshot.nodes,
+          platform: 'desktop',
+        }),
         displaySettings: {
           accent: props.snapshot.appearance.accent === 'clay' ? 'orange' : props.snapshot.appearance.accent,
           language: props.snapshot.appearance.resolvedLanguage,
@@ -208,10 +225,41 @@ function AndroidAppStage(props: AppTabStageProps) {
   // security boundary of its own; see shouldCarryBridgeToken's doc comment
   // in QdnBridgeWebViewClient.java for the layer that actually is one.
   const liveResourcePathRef = useRef<string | null>(null)
+  const deliveredBridgeStateRevisionsRef = useRef<Record<string, string> | null>(null)
 
   useEffect(() => {
     liveResourcePathRef.current = resolved ? resolved.url : null
   }, [resolved, source])
+
+  useEffect(() => {
+    const frameWindow = frameRef.current?.contentWindow
+    if (!resolved || !source || !frameWindow) {
+      deliveredBridgeStateRevisionsRef.current = null
+      return
+    }
+    const identityId = String(resolved.tab.context.identityId)
+    const launchAccountId = identityId.startsWith('home-v2:identity:')
+      ? identityId.slice('home-v2:identity:'.length)
+      : null
+    const details = getHomeV2BridgeStateDetails({
+      accountId: launchAccountId === 'none' ? null : launchAccountId,
+      nodes: props.snapshot.nodes,
+      platform: 'android',
+    })
+    const next = Object.fromEntries(details.map((detail) => [detail.protocol, detail.revision]))
+    const previous = deliveredBridgeStateRevisionsRef.current
+    deliveredBridgeStateRevisionsRef.current = next
+    if (!previous) return
+    const targetOrigin = new URL(source).origin
+    for (const detail of details) {
+      if (previous[detail.protocol] === detail.revision) continue
+      frameWindow.postMessage({
+        type: 'qortium:bridge-state-changed',
+        bridgeToken: token,
+        detail,
+      }, targetOrigin)
+    }
+  }, [props.snapshot.nodes, resolved, source, token])
 
   useEffect(() => {
     if (!resolved) return
@@ -375,9 +423,25 @@ function AndroidAppStage(props: AppTabStageProps) {
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId, result,
         }, '*')
       }).catch((cause: unknown) => {
+        const rawAction = isRecord(data.request) && typeof data.request.action === 'string'
+          ? data.request.action.trim().toUpperCase()
+          : 'UNKNOWN'
+        const network = getHomeV2AppNetwork(protocol, rawAction)
+        const route = getHomeV2AppRouteDescriptor({
+          accountId: context.selectedAccountId,
+          network,
+          node: props.snapshot.nodes[network],
+          platform: 'android',
+          protocol,
+        })
+        const error = normalizeHomeV2BridgeError(cause, {
+          action: rawAction,
+          network,
+          routeRevision: route.revision,
+        })
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
-          error: { message: cause instanceof Error ? cause.message : 'App request failed.' },
+          error: homeV2BridgeErrorPayload(error),
         }, '*')
       })
     }

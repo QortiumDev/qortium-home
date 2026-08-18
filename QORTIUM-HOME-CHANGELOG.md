@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-17 - feat(chat): add route-aware Home 2 bridge discovery
+
+Home 2 apps now receive a callable action list for their actual Qortium or
+Qortal route instead of a fixed platform list. `GET_HOST_INFO` identifies the
+invoked protocol, network, desktop or Android host, configured/effective route,
+reachability, and an opaque revision that changes with relevant route or
+account context. Desktop and Android deliver the same revision-change event so
+apps can refresh their action list, and structured errors now preserve safe
+action, network, retry, route, outcome, and target details across both bridges.
+
 ### 2026-08-17 - docs(chat): plan portable dual-chain Chat bridge
 
 Adds the implementation roadmap for making public groups, private groups,

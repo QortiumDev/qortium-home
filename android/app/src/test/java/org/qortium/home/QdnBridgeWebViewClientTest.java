@@ -31,6 +31,10 @@ public class QdnBridgeWebViewClientTest {
         assertTrue(homeV2.contains("qortium:qdn-title"));
         assertTrue(homeV2.contains("qortium:qdn-navigation"));
         assertTrue(homeV2.contains("qortium:qdn-navigation-command"));
+        assertTrue(homeV2.contains("qortium:bridge-state-changed"));
+        assertTrue(homeV2.contains("qortiumBridgeStateChanged"));
+        assertTrue(homeV2.contains("data.bridgeToken!==bridgeToken"));
+        assertTrue(homeV2.contains("Object.keys(data.error)"));
     }
 
     @Test

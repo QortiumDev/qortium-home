@@ -1,6 +1,6 @@
 # Home 2.0 bridge compatibility ledger
 
-Last updated: 2026-08-13
+Last updated: 2026-08-17
 
 This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -32,11 +32,11 @@ pages and Home 1.x retain Core's injected bridge client.
 
 | Public action | Protocol | Result contract | Permission and route | Desktop | Android |
 | --- | --- | --- | --- | --- | --- |
-| `SHOW_ACTIONS` | both | Protocol-specific string array | No prompt | yes | yes |
+| `SHOW_ACTIONS` | both | Protocol-, route-, and platform-specific callable string array | No prompt; disabled or platform-impossible routes remove node-dependent actions, while a temporary outage keeps implemented actions discoverable | yes | yes |
 | `WHICH_UI` | both | Host identifier string | No prompt | yes | yes |
-| `GET_HOST_INFO` | both | Host/platform metadata | No prompt | yes | yes |
+| `GET_HOST_INFO` | both | Host/platform metadata plus authoritative protocol, network, configured/effective route, availability, reachability, and opaque route revision | No prompt | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |
-| `IS_USING_PUBLIC_NODE` | both | Boolean | Protocol selects network | yes | yes |
+| `IS_USING_PUBLIC_NODE` | both | Boolean for the configured route | Protocol selects network; remains callable while the route is unavailable | yes | yes |
 | `FETCH_NODE_API` | both | Bounded response envelope | GET/HEAD allowlist; protocol selects network | yes | yes |
 | `FETCH_QORTAL_NODE_API` | `qdnRequest` | Bounded response envelope | Explicit Qortal GET/HEAD allowlist | yes | yes |
 | `GET_ASSET_INFO`, `GET_ASSET_BALANCES`, `GET_ASSET_TRANSFERS` | `qdnRequest` | Bare Qortium Core JSON | Shared strict asset selector/path validation; bounded public read | yes | yes |
@@ -76,6 +76,19 @@ account, and tab. Home rechecks the live tab/account/resource context after the
 decision. Home 2.0 does not migrate v1 grants and this production account
 tranche offers no durable
 `always` grant.
+
+Home emits the additive `qortiumBridgeStateChanged` document event when a
+loaded app's protocol route revision changes. Its detail contains only
+`protocol`, `network`, and the new opaque `revision`; apps then re-read
+`SHOW_ACTIONS` and `GET_HOST_INFO`. The revision changes with relevant endpoint,
+authentication class, availability/reachability, platform capability, or
+tab-bound account context. It is an invalidation token, not a credential.
+
+Bridge errors preserve a safe structured envelope across desktop and Android:
+`code`, `network`, `action`, `retryable`, optional `outcome`, optional target,
+and the applicable `routeRevision`. Unknown internal errors remain
+non-retryable. A temporary route failure does not silently select the other
+protocol or advertise a permanently reduced host implementation.
 
 ## Current Q-App baseline status
 

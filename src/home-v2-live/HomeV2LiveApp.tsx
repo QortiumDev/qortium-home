@@ -131,6 +131,7 @@ function initialNode(network: NetworkId): NodeSummary {
     state: 'unknown',
     statusText: 'Checking',
     isTrusted: true,
+    customAuthenticated: false,
     customConfigured: false,
     customUrl: null,
     localCoreState: 'not-detected',
@@ -315,6 +316,7 @@ function parseNodeSummary(value: unknown, network: NetworkId): NodeSummary {
     state,
     statusText: String(value.statusText ?? 'Unknown'),
     isTrusted: value.isTrusted === true,
+    customAuthenticated: value.customAuthenticated === true,
     customConfigured: value.customConfigured === true,
     customUrl: nullableString(value.customUrl),
     localCoreState:
@@ -1020,6 +1022,16 @@ export function HomeV2LiveApp() {
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
+      if (action === 'UNLOCK_SELECTED_ACCOUNT' || action === 'SEND_CHAT_MESSAGE') {
+        const actions = await nodeClient.requestApp(
+          protocol,
+          { action: 'SHOW_ACTIONS' },
+          context,
+        )
+        if (!Array.isArray(actions) || !actions.includes(action)) {
+          throw new Error(`${action} is unavailable on the configured route.`)
+        }
+      }
       if (action === 'UNLOCK_SELECTED_ACCOUNT') {
         if (protocol !== 'qdnRequest') throw new Error('UNLOCK_SELECTED_ACCOUNT is only available to Qortium apps.')
         if (!vaultClient || !context.selectedAccountId) throw new Error('No account is selected for this tab.')

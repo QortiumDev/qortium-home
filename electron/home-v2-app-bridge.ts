@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
 import {
+  getHomeV2AppNodeState,
   getHomeV2ReadableNode,
   readHomeV2Avatar,
   readHomeV2Identity,
@@ -37,6 +38,14 @@ import {
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
+import {
+  createHomeV2BridgeError,
+  getHomeV2AppHostInfo,
+  getHomeV2AppRouteDescriptor,
+  getHomeV2AvailableAppActions,
+  normalizeHomeV2BridgeError,
+  type HomeV2AppHostInfo,
+} from './home-v2-app-runtime.js'
 import { getAccountProfile, getAccountSecretKey, isAccountUnlocked, signChatTransaction, signDetached } from './accounts.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { base58Decode, base58Encode } from './base58.js'
@@ -646,31 +655,36 @@ async function sendHomeV2ChatMessage(
     : sendHomeV2QortalChatMessage(node.nodeApiUrl, txGroupId, message, signingKey, isStillValid)
 }
 
-async function handleRequest(
+async function handleRequestWithRuntime(
   sender: WebContents,
   context: QdnViewContext,
   protocol: HomeV2AppBridgeProtocol,
-  requestValue: unknown,
+  requestValue: Record<string, unknown>,
+  action: string,
+  hostInfo: HomeV2AppHostInfo,
+  availableActions: readonly string[],
 ) {
-  if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
-  const action = normalizeHomeV2AppAction(requestValue)
-  const availableActions = getHomeV2AppActions(protocol)
   if (action === 'SHOW_ACTIONS') return [...availableActions]
   if (!availableActions.includes(action)) {
-    throw new Error(`${action} is not available in Home v2 read-only mode.`)
+    const implemented = getHomeV2AppActions(protocol).includes(action)
+    throw createHomeV2BridgeError(
+      implemented
+        ? `${action} is unavailable on the configured ${hostInfo.network} route.`
+        : `${action} is not implemented for ${protocol}.`,
+      {
+        action,
+        code: implemented ? 'NODE_CAPABILITY_MISSING' : 'UNSUPPORTED_PROTOCOL',
+        network: hostInfo.network,
+        retryable: false,
+        routeRevision: hostInfo.route.revision,
+      },
+    )
   }
   if (action === 'WHICH_UI') return 'QORTIUM_HOME_ELECTRON'
-  if (action === 'GET_HOST_INFO') {
-    return {
-      hostName: 'qortium-home',
-      hostVersion: app.getVersion(),
-      platform: 'desktop',
-      platformVersion: '2.0',
-    }
-  }
+  if (action === 'GET_HOST_INFO') return hostInfo
   const network = getHomeV2AppNetwork(protocol, action)
   if (action === 'IS_USING_PUBLIC_NODE') {
-    return (await getHomeV2ReadableNode(network)).mode === 'public'
+    return hostInfo.route.configuredKind === 'public'
   }
   if (action === 'OPEN_NEW_TAB') {
     const address = normalizeHomeV2OpenAddress(requestValue)
@@ -819,6 +833,71 @@ async function handleRequest(
     return result.data
   }
   return result
+}
+
+async function handleRequest(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  requestValue: unknown,
+) {
+  let action = 'UNKNOWN'
+  let hostInfo: HomeV2AppHostInfo | null = null
+  try {
+    if (!isHomeV2AppRecord(requestValue)) {
+      throw createHomeV2BridgeError('App requests must be objects.', {
+        action,
+        code: 'VALIDATION_FAILED',
+        network: getHomeV2AppNetwork(protocol, action),
+        retryable: false,
+      })
+    }
+    action = normalizeHomeV2AppAction(requestValue)
+    const network = getHomeV2AppNetwork(protocol, action)
+    const [qortalNode, qortiumNode] = await Promise.all([
+      getHomeV2AppNodeState('qortal'),
+      getHomeV2AppNodeState('qortium'),
+    ])
+    hostInfo = getHomeV2AppHostInfo({
+      accountId: context.accountId,
+      hostVersion: app.getVersion(),
+      node: network === 'qortal' ? qortalNode : qortiumNode,
+      platform: 'desktop',
+      platformVersion: '2.0',
+      protocol,
+    })
+    const routes = {
+      qortal: getHomeV2AppRouteDescriptor({
+        accountId: context.accountId,
+        network: 'qortal',
+        node: qortalNode,
+        platform: 'desktop',
+        protocol: 'qortalRequest',
+      }),
+      qortium: getHomeV2AppRouteDescriptor({
+        accountId: context.accountId,
+        network: 'qortium',
+        node: qortiumNode,
+        platform: 'desktop',
+        protocol: 'qdnRequest',
+      }),
+    }
+    return await handleRequestWithRuntime(
+      sender,
+      context,
+      protocol,
+      requestValue,
+      action,
+      hostInfo,
+      getHomeV2AvailableAppActions(protocol, routes),
+    )
+  } catch (error) {
+    throw normalizeHomeV2BridgeError(error, {
+      action,
+      network: hostInfo?.network ?? getHomeV2AppNetwork(protocol, action),
+      routeRevision: hostInfo?.route.revision,
+    })
+  }
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
