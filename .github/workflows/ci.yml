@@ -23,6 +23,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # H0B consumes Core's committed chat fixture directly instead of
+      # transcribing its expected bytes into Home. Pin the source commit so a
+      # Core branch move cannot silently change the contract under this run.
+      - name: Checkout pinned Core chat vectors
+        uses: actions/checkout@v6
+        with:
+          repository: QortiumDev/qortium-core
+          ref: 0ca1965a840d02d60941510d6cddac36d3718ac6
+          path: .interop/qortium-core
+          sparse-checkout: src/test/resources/chat/interop/chat-crypto-v1.json
+          sparse-checkout-cone-mode: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -55,6 +67,7 @@ jobs:
         run: npm test
         env:
           MEMORY_POW_TEST_MODE: ${{ github.event_name == 'pull_request' && 'quick' || 'full' }}
+          QORTIUM_CORE_REPOSITORY: ${{ github.workspace }}/.interop/qortium-core
 
   android-unit-test:
     name: Android unit test

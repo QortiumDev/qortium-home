@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-17 - test(chat): add dual-chain interop vectors
+
+Home now reads Qortium Core's committed direct-message and private-group Chat
+vectors from their exact pinned Core revision instead of keeping a second copy.
+It also freezes independently generated Qortal Hub v3 fixtures for public
+revisions and reactions, encrypted direct messages, private-group keys and
+messages, group join and leave transactions, and resource descriptors. CI
+checks the provenance, framing, signed bytes, signatures, and negative-case
+definitions before later Home work adds any new Chat signing or encryption.
+
 ### 2026-08-17 - fix(android): update local notifications safely
 
 Updates Capacitor's local-notifications plugin to 8.3.0 while preserving Home's

@@ -1,0 +1,284 @@
+{
+  "format": "qortal-chat-interop-v1",
+  "description": "Deterministic Qortal chat interoperability vectors generated from the official Qortal Hub v3.0.0 release. Binary values are lowercase hexadecimal unless a field name says Base58 or Base64.",
+  "provenance": {
+    "generatedOn": "2026-08-17",
+    "generator": "isolated official Qortal Hub v3.0.0 archive with fixed test-only seeds, references, keys, and nonces",
+    "repository": "https://github.com/Qortal/Qortal-Hub.git",
+    "tag": "v3.0.0",
+    "commit": "4f1d5127eebbb8747056ae8a4b8cb060b2559820",
+    "license": "GPL-3.0",
+    "usage": "interoperability behavior evidence only; Qortium Home production implementations remain clean-room",
+    "sourceFiles": [
+      {
+        "path": "src/qdn/encryption/group-encryption.ts",
+        "sha256": "2602b228d0ab2a041b87af3461d92b0518ecd974847250c9e7b658364e91c875"
+      },
+      {
+        "path": "src/transactions/ChatTransaction.ts",
+        "sha256": "56fab3642ac3061fff43f0de5c9e3143fa31d8d8709aefbd1db0356c63cb746e"
+      },
+      {
+        "path": "src/transactions/GroupChatTransaction.ts",
+        "sha256": "fd8558d91fce12a8a7afbf939af61269447b04e3089dc237c255e70df8a5e1cd"
+      },
+      {
+        "path": "src/transactions/JoinGroupTransaction.ts",
+        "sha256": "edd170bfcf5d20a92a553417292459aa6675f57b9459d1aa3dbadf3a82932c90"
+      },
+      {
+        "path": "src/transactions/LeaveGroupTransaction.ts",
+        "sha256": "5d9e7672778d6122384cdf23777d75327d3cfaed124d26762fc811e2af9936be"
+      },
+      {
+        "path": "src/components/Chat/MiniGroupThread.tsx",
+        "sha256": "ee738f10d2042a2430c78bfaf573dbdead2a605a06129c6b9c83599045300377"
+      },
+      {
+        "path": "src/components/Chat/MiniDirectThread.tsx",
+        "sha256": "53752f44525699f4ac0f8ceb2609f4441e2873925928768cdb9ef85c45e525c8"
+      },
+      {
+        "path": "src/background/background.ts",
+        "sha256": "0027d0587ea131d8c151c50034230ae620803b7a68d75cef11e896aa8cecc38b"
+      },
+      {
+        "path": "src/components/Chat/ChatGroup.tsx",
+        "sha256": "d70fc4dc50eef285d97b2c5ad10ec2b3ae00dccf535f6e7a779f1b14d16f2915"
+      },
+      {
+        "path": "src/utils/chat.ts",
+        "sha256": "8c43f2c187b8869f7d7e573c4d37738246499db42e52353e736563bd4103a411"
+      }
+    ]
+  },
+  "accounts": {
+    "alice": {
+      "seed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "publicKey": "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+      "privateKey": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+      "publicKeyBase58": "9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj",
+      "privateKeyBase58": "2Ana1pUpv2ZbMVkwF5FXapYeBEjdxDatLn7nvJkhgTSdZd8hbDHTd21as7EAsg7ypityqfsw2pMQKJcVDVcAEsd"
+    },
+    "bob": {
+      "seed": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+      "publicKey": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0",
+      "privateKey": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0",
+      "publicKeyBase58": "GcQfK48DV9BzDuDeCyV2sShbAAY4vqmK8JSj1NBrwoVZ",
+      "privateKeyBase58": "fRTLbAQ2w1bisJQNUfEavKowvnYSoFxUawyXbBtw7cUQyoA6ghMhDVotf49MuGeWLgHYtMdxSVRpY6vAGfdEMNP"
+    }
+  },
+  "common": {
+    "timestamp": 1700000000123,
+    "groupId": 12,
+    "proofOfWorkNonce": 16909060,
+    "lastReference": "4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80",
+    "lastReferenceBase58": "2Jg87AWKEwzdrP73oiFDeFq5FgLMFeJL4q7qGG53AYmVuvQ8RztiyHfSVoJDtaMHGNyCk6iciSgCkrPv1ECjwTMZ",
+    "chatReference": "a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0",
+    "chatReferenceBase58": "4ES8QtY4rzwkEvWz7R1ApGLsAvymgBRSqZdQUGiTrrEazQCiMpmUFnyU6bwySrM7ULpH6e7frgkF17gQ7wsTy3oD",
+    "recipientAddress": "c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9",
+    "recipientAddressBase58": "2LxzEeR9Eo8CdM1HFc8qXGC1CXZgJc1ZEe4"
+  },
+  "publicGroup": {
+    "payloads": {
+      "initial": "{\"messageText\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Qortal public group interop\"}]}]},\"version\":3,\"specialId\":\"h0b-public-initial\",\"images\":[],\"repliedTo\":\"\",\"type\":\"\",\"isEdited\":false}",
+      "edit": "{\"messageText\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Qortal public group edited\"}]}]},\"version\":3,\"specialId\":\"h0b-public-edit\",\"images\":[{\"name\":\"Alice\",\"identifier\":\"grp-q-manager_1_group_12_h0b\",\"service\":\"IMAGE\",\"timestamp\":1700000000123}],\"repliedTo\":\"\",\"type\":\"edit\",\"isEdited\":true}",
+      "reaction": "{\"message\":\"\",\"specialId\":\"h0b-public-reaction\",\"type\":\"reaction\",\"content\":\"❤️\",\"contentState\":true}"
+    },
+    "initialTransaction": {
+      "unsigned": "000000120000018bcfe5687b0000000c4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640102030400000000e37b226d65737361676554657874223a7b2274797065223a22646f63222c22636f6e74656e74223a5b7b2274797065223a22706172616772617068222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a22516f7274616c207075626c69632067726f757020696e7465726f70227d5d7d5d7d2c2276657273696f6e223a332c227370656369616c4964223a226830622d7075626c69632d696e697469616c222c22696d61676573223a5b5d2c227265706c696564546f223a22222c2274797065223a22222c226973456469746564223a66616c73657d0001000000000000000000",
+      "signature": "d11cf0419dabbae87bf86d6ac3c88860b22a4c8780c0904b1fde432ee93363e0fa4e923a9349c2d19362768a43f0fdae4e0d45046fc793add84547d942055404",
+      "signed": "000000120000018bcfe5687b0000000c4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640102030400000000e37b226d65737361676554657874223a7b2274797065223a22646f63222c22636f6e74656e74223a5b7b2274797065223a22706172616772617068222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a22516f7274616c207075626c69632067726f757020696e7465726f70227d5d7d5d7d2c2276657273696f6e223a332c227370656369616c4964223a226830622d7075626c69632d696e697469616c222c22696d61676573223a5b5d2c227265706c696564546f223a22222c2274797065223a22222c226973456469746564223a66616c73657d0001000000000000000000d11cf0419dabbae87bf86d6ac3c88860b22a4c8780c0904b1fde432ee93363e0fa4e923a9349c2d19362768a43f0fdae4e0d45046fc793add84547d942055404"
+    },
+    "editTransaction": {
+      "unsigned": "000000120000018bcfe5687b0000000c4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966401020304000000014a7b226d65737361676554657874223a7b2274797065223a22646f63222c22636f6e74656e74223a5b7b2274797065223a22706172616772617068222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a22516f7274616c207075626c69632067726f757020656469746564227d5d7d5d7d2c2276657273696f6e223a332c227370656369616c4964223a226830622d7075626c69632d65646974222c22696d61676573223a5b7b226e616d65223a22416c696365222c226964656e746966696572223a226772702d712d6d616e616765725f315f67726f75705f31325f683062222c2273657276696365223a22494d414745222c2274696d657374616d70223a313730303030303030303132337d5d2c227265706c696564546f223a22222c2274797065223a2265646974222c226973456469746564223a747275657d0001000000000000000001a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0",
+      "signature": "8e969375fde1f081fd54395f6faebc30f09a6fe066fddb43c22fdcd90f9361bbcee9c5a07e7f7eb9c490bfa5a19fcf6967b6997b050aacd9d1b322560d6de506",
+      "signed": "000000120000018bcfe5687b0000000c4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966401020304000000014a7b226d65737361676554657874223a7b2274797065223a22646f63222c22636f6e74656e74223a5b7b2274797065223a22706172616772617068222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a22516f7274616c207075626c69632067726f757020656469746564227d5d7d5d7d2c2276657273696f6e223a332c227370656369616c4964223a226830622d7075626c69632d65646974222c22696d61676573223a5b7b226e616d65223a22416c696365222c226964656e746966696572223a226772702d712d6d616e616765725f315f67726f75705f31325f683062222c2273657276696365223a22494d414745222c2274696d657374616d70223a313730303030303030303132337d5d2c227265706c696564546f223a22222c2274797065223a2265646974222c226973456469746564223a747275657d0001000000000000000001a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe08e969375fde1f081fd54395f6faebc30f09a6fe066fddb43c22fdcd90f9361bbcee9c5a07e7f7eb9c490bfa5a19fcf6967b6997b050aacd9d1b322560d6de506"
+    },
+    "reactionTransaction": {
+      "unsigned": "000000120000018bcfe5687b0000000c4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640102030400000000697b226d657373616765223a22222c227370656369616c4964223a226830622d7075626c69632d7265616374696f6e222c2274797065223a227265616374696f6e222c22636f6e74656e74223a22e29da4efb88f222c22636f6e74656e745374617465223a747275657d0001000000000000000001a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0",
+      "signature": "f76e6633c7324bbf7d97f7c2679459d915b3a7d4d202aa9c7988f3c20cb2d91c35bcc30957a64cf485d8de6149829bec316a5137125bcfcd93a4ff2efff05603",
+      "signed": "000000120000018bcfe5687b0000000c4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640102030400000000697b226d657373616765223a22222c227370656369616c4964223a226830622d7075626c69632d7265616374696f6e222c2274797065223a227265616374696f6e222c22636f6e74656e74223a22e29da4efb88f222c22636f6e74656e745374617465223a747275657d0001000000000000000001a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0f76e6633c7324bbf7d97f7c2679459d915b3a7d4d202aa9c7988f3c20cb2d91c35bcc30957a64cf485d8de6149829bec316a5137125bcfcd93a4ff2efff05603"
+    }
+  },
+  "directMessage": {
+    "plaintext": "{\"message\":\"<p>Qortal direct interop</p>\",\"version\":2,\"specialId\":\"h0b-direct\",\"repliedTo\":\"\",\"type\":\"\"}",
+    "sharedSecret": "22dd9afeb5878d76b7b7eba66e349a1a00858963745f1b92b78a1741e9ccf249",
+    "encryptionKey": "ebbae2c5f41b7774e9711615aa0a1c129d6e07bf23a09198968a938931b63369",
+    "ciphertext": "1729b33dd6f3e89f7af0943a8b74d185796c7621111ef0f5edeb97006c628749626ac573b144f726dbdc690b334131d9a203ac1b4be0f136e921185a43f2ad85f01638736109fe186bb57474486131b6530a01ed557889e1ca6250d1cc50a7555180eb72e56e3d28cf4f533103eeb4f95c40399917e84a89",
+    "unsigned": "000000120000018bcfe5687b000000004142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640102030401c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9000000781729b33dd6f3e89f7af0943a8b74d185796c7621111ef0f5edeb97006c628749626ac573b144f726dbdc690b334131d9a203ac1b4be0f136e921185a43f2ad85f01638736109fe186bb57474486131b6530a01ed557889e1ca6250d1cc50a7555180eb72e56e3d28cf4f533103eeb4f95c40399917e84a890101000000000000000001a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0",
+    "signature": "202449546c687208530c54a365153ea3f3f71fb829c080df50f52f797e5bf76e978fccba4606738ba28c56bfc4a75da800ae64477d2a812e3548326c1ee1f50a",
+    "signed": "000000120000018bcfe5687b000000004142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640102030401c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9000000781729b33dd6f3e89f7af0943a8b74d185796c7621111ef0f5edeb97006c628749626ac573b144f726dbdc690b334131d9a203ac1b4be0f136e921185a43f2ad85f01638736109fe186bb57474486131b6530a01ed557889e1ca6250d1cc50a7555180eb72e56e3d28cf4f533103eeb4f95c40399917e84a890101000000000000000001a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0202449546c687208530c54a365153ea3f3f71fb829c080df50f52f797e5bf76e978fccba4606738ba28c56bfc4a75da800ae64477d2a812e3548326c1ee1f50a"
+  },
+  "privateGroup": {
+    "messageKey": "5152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f70",
+    "messageKeyBase64": "UVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3A=",
+    "bundleEncryptionKey": "3132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f50",
+    "bundleEncryptionKeyBase64": "MTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1A=",
+    "bundlePlaintext": "{\"1\":{\"messageKey\":\"UVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3A=\"}}",
+    "bundleNonce": "7172737475767778797a7b7c7d7e7f808182838485868788",
+    "keyNonce": "898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0",
+    "encryptedBundle": "cW9ydGFsR3JvdXBFbmNyeXB0ZWREYXRhcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+gebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmS+H4lM2PGTH1huSCt0jLdC21baIVUhgUmC4rId1twZ2Nxm4IJ7CKZblmCtJT4ZwEmaEP59+weeN4fkWv6TFOy4kTEUEKdEV5fvaUN1e2WJuTGyeafHFBMYHjyWSmtfco+BGYVWtMZOUartg1SZbaxysC0PHocty4Jnj0ZowxD4JBLjmxt9sDizbFpEoERBF1eXnwOrxJa7ElKH7Z3RBwo6MLAB8GzfG0zFTf05vUTMCnmm1gIAAAA=",
+    "encryptedBundleHex": "716f7274616c47726f7570456e63727970746564446174617172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664be1f894cd8f1931f586e482b748cb742db56da215521814982e2b21dd6dc19d8dc66e0827b08a65b9660ad253e19c0499a10fe7dfb079e3787e45afe9314ecb891311410a7445797ef6943757b6589b931b279a7c71413181e3c964a6b5f728f81198556b4c64e51aaed8354996dac72b02d0f1e872dcb82678f4668c310f82412e39b1b7db038b36c5a44a044411757979f03abc496bb125287ed9dd1070a3a30b001f06cdf1b4cc54dfd39bd44cc0a79a6d602000000",
+    "singlePlaintextBase64": "eyJtZXNzYWdlIjoiPHA+UW9ydGFsIHByaXZhdGUgZ3JvdXAgaW50ZXJvcDwvcD4iLCJ2ZXJzaW9uIjozLCJzcGVjaWFsSWQiOiJoMGItcHJpdmF0ZSIsImltYWdlcyI6W10sInJlcGxpZWRUbyI6IiIsInR5cGUiOiIifQ==",
+    "encryptSingle": {
+      "nonce": "a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8",
+      "typeNumber": 2,
+      "ciphertext": "MDAwMDAwMDAwMTAwMqGio6SlpqeoqaqrrK2ur7CxsrO0tba3uA9Q9hsvDXfvzvf9KzIH7VLgJOAbG2I37KVS72A2TGMeTMLaWPULiJze9AW3G/ArzQC636A/dT4mUolNMii5SWTjmAU4OPjp9K+nRy6cbHRfOnlIdMppjOEd/w7j4MITgrl+uqjjSILQz1Jepa/fgiNDGvTmAgSr8FhGjXGOuslxmxthwJRZLNLuOOVv",
+      "decodedHex": "30303030303030303031303032a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b80f50f61b2f0d77efcef7fd2b3207ed52e024e01b1b6237eca552ef60364c631e4cc2da58f50b889cdef405b71bf02bcd00badfa03f753e2652894d3228b94964e398053838f8e9f4afa7472e9c6c745f3a794874ca698ce11dff0ee3e0c21382b97ebaa8e34882d0cf525ea5afdf8223431af4e60204abf058468d718ebac9719b1b61c094592cd2ee38e56f"
+    },
+    "reaction": {
+      "nonce": "b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0",
+      "typeNumber": 102,
+      "ciphertext": "MDAwMDAwMDAwMTEwMrm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0OkoZ5ofROhOElzSP7e8M0HAlnUD46GIqLZWIqhR6GQkA3xRVtF020MDoLudwD1SfbKhB0navMoSiqYRRNuQyrpU2iCRV1jvZB+sfX4YoUZSwctkEghj0CjAayqJOmCzxg4NVaPxBKmp7gSzE6M4O4cQ55jp/uVy0OE=",
+      "decodedHex": "30303030303030303031313032b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0e928679a1f44e84e125cd23fb7bc3341c0967503e3a188a8b65622a851e86424037c5156d174db4303a0bb9dc03d527db2a10749dabcca128aa61144db90caba54da20915758ef641fac7d7e18a14652c1cb64120863d028c06b2a893a60b3c60e0d55a3f104a9a9ee04b313a3383b8710e798e9fee572d0e1"
+    },
+    "oldEncryptSingle": {
+      "nonce": "d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8",
+      "ciphertext": "MDAwMDAwMDAwMTdoSDF5clZ1bzhzUml4RzdjNmdNdWtYTVlHWEVDSU5seHFzTFh5OG9RSXZhY05pM3pYbzU5anVXMDRlaVFZV2UxMUMva3grWXF2ZGZOS29UWGp4bE1sdTZqQVdpejdyZ0loSHRFVDNDRmJlZiswdllmK3l0R0NFVWw0b0JXUXFlSVpXbk4yZlFCTTlUYXpnZ25kcDJIQzYzVDFnSmgrS2lnQmNNOHlHNkZBM1VjUTFhV2lkcitrU1hybWc9",
+      "decodedText": "00000000017hH1yrVuo8sRixG7c6gMukXMYGXECINlxqsLXy8oQIvacNi3zXo59juW04eiQYWe11C/kx+YqvdfNKoTXjxlMlu6jAWiz7rgIhHtET3CFbef+0vYf+ytGCEUl4oBWQqeIZWnN2fQBM9Tazggndp2HC63T1gJh+KigBcM8yG6FA3UcQ1aWidr+kSXrmg="
+    }
+  },
+  "groupTransactions": {
+    "join": {
+      "unsigned": "0000001f0000018bcfe5687b000000004142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640000000c00000000000186a0",
+      "signature": "2ecbd438ec2a7f9237138d47980d8de3f93231af47633b280eb689eb9380ba249a528ac8dac860ab3d94c1dc2697160be191bc19641a22a90c040dbb48f3a30f",
+      "signed": "0000001f0000018bcfe5687b000000004142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640000000c00000000000186a02ecbd438ec2a7f9237138d47980d8de3f93231af47633b280eb689eb9380ba249a528ac8dac860ab3d94c1dc2697160be191bc19641a22a90c040dbb48f3a30f"
+    },
+    "leave": {
+      "unsigned": "000000200000018bcfe5687b000000004142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640000000c00000000000186a0",
+      "signature": "ba0058204245afa0c3a598ce04228e5cf5f968f995c2998841d6ea322729e918e26c7b6fb8ef00016c7db8fac96d70075c67d333d76da662e9d9f05c9e131b0a",
+      "signed": "000000200000018bcfe5687b000000004142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496640000000c00000000000186a0ba0058204245afa0c3a598ce04228e5cf5f968f995c2998841d6ea322729e918e26c7b6fb8ef00016c7db8fac96d70075c67d333d76da662e9d9f05c9e131b0a"
+    }
+  },
+  "resourceDescriptors": {
+    "userAvatar": {
+      "service": "THUMBNAIL",
+      "name": "Alice",
+      "identifier": "qortal_avatar"
+    },
+    "groupAvatar": {
+      "service": "THUMBNAIL",
+      "name": "Alice",
+      "identifier": "qortal_group_avatar_12"
+    },
+    "publicGroupImage": {
+      "service": "IMAGE",
+      "name": "Alice",
+      "identifier": "grp-q-manager_1_group_12_h0b",
+      "timestamp": 1700000000123,
+      "embedUri": "qortal://use-embed/IMAGE?name=Alice&identifier=grp-q-manager_1_group_12_h0b&service=IMAGE&mimeType=image%2Fpng&timestamp=1700000000123"
+    },
+    "privateGroupImage": {
+      "service": "IMAGE",
+      "name": "Alice",
+      "identifier": "grp-q-manager_0_group_12_h0b",
+      "timestamp": 1700000000123,
+      "embedUri": "qortal://use-embed/IMAGE?name=Alice&identifier=grp-q-manager_0_group_12_h0b&service=IMAGE&mimeType=image%2Fpng&timestamp=1700000000123&encryptionType=group"
+    }
+  },
+  "interopCases": {
+    "positiveVariants": [
+      {
+        "id": "public-edit-with-image",
+        "source": "publicGroup.editTransaction.unsigned",
+        "expected": "Hub v3 edit with chatReference and preserved images descriptor"
+      },
+      {
+        "id": "private-reaction-type-102",
+        "source": "privateGroup.reaction.ciphertext",
+        "expected": "new encryptSingle layout with type 102"
+      }
+    ],
+    "negativeCases": [
+      {
+        "id": "public-edit-missing-reference",
+        "source": "publicGroup.editTransaction.unsigned",
+        "operation": "removeChatReference",
+        "expectedLayer": "reference presence validation"
+      },
+      {
+        "id": "direct-wrong-recipient-key",
+        "source": "directMessage.ciphertext",
+        "operation": "decryptWithWrongRecipient",
+        "expectedLayer": "secretbox authentication"
+      },
+      {
+        "id": "direct-wrong-reference-nonce",
+        "source": "common.lastReference",
+        "operation": "decryptWithMutatedLastReference",
+        "mutation": {
+          "kind": "xorByte",
+          "offset": 0,
+          "xor": 1
+        },
+        "expectedLayer": "secretbox authentication"
+      },
+      {
+        "id": "direct-bad-tag",
+        "source": "directMessage.ciphertext",
+        "operation": "decryptMutation",
+        "mutation": {
+          "kind": "xorByte",
+          "offsetFromEnd": 1,
+          "xor": 1
+        },
+        "expectedLayer": "secretbox authentication"
+      },
+      {
+        "id": "private-bundle-truncated",
+        "source": "privateGroup.encryptedBundleHex",
+        "operation": "parseBundleMutation",
+        "mutation": {
+          "kind": "truncateBytes",
+          "count": 1
+        },
+        "expectedLayer": "bundle parser"
+      },
+      {
+        "id": "private-bundle-recipient-count-overflow",
+        "source": "privateGroup.encryptedBundleHex",
+        "operation": "parseBundleMutation",
+        "mutation": {
+          "kind": "replaceUint32LittleEndianFromEnd",
+          "offsetFromEnd": 4,
+          "value": 4294967295
+        },
+        "expectedLayer": "bundle size validation"
+      },
+      {
+        "id": "encrypt-single-unknown-key-version",
+        "source": "privateGroup.encryptSingle.decodedHex",
+        "operation": "decryptSingleMutation",
+        "mutation": {
+          "kind": "replaceAscii",
+          "offset": 0,
+          "value": "0000000002"
+        },
+        "expectedLayer": "key-version lookup"
+      },
+      {
+        "id": "encrypt-single-bad-tag",
+        "source": "privateGroup.encryptSingle.decodedHex",
+        "operation": "decryptSingleMutation",
+        "mutation": {
+          "kind": "xorByte",
+          "offsetFromEnd": 1,
+          "xor": 1
+        },
+        "expectedLayer": "secretbox authentication"
+      },
+      {
+        "id": "group-join-bad-signature",
+        "source": "groupTransactions.join.signed",
+        "operation": "verifySignatureMutation",
+        "mutation": {
+          "kind": "xorByte",
+          "offsetFromEnd": 1,
+          "xor": 1
+        },
+        "expectedLayer": "Ed25519 signature validation"
+      }
+    ]
+  }
+}
