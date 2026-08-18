@@ -252,7 +252,7 @@ and signing remain local even when the node is authenticated.
 | --- | --- | --- | --- |
 | H0 | Shared contracts, route-aware discovery, errors, and vector harness | Complete: H0A and H0B implemented | Core C0-C5 complete |
 | H1 | Public-group revisions and route-independent send parity | Implemented | H0 |
-| H2 | Portable group participation and avatar/identity parity | In progress: H2A join/leave and H2B avatar reads implemented; invitation/moderation remains | H0; Core C5 |
+| H2 | Portable group participation, administration, and avatar/identity parity | Complete: H2A join/leave, H2B avatar reads, and H2C exact administration actions implemented | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Planned | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Planned | H0; Qortal publish proof |
@@ -366,8 +366,20 @@ named-thumbnail fallback. Qortal uses its established
 `qortal_avatar`/`qortal_group_avatar_<groupId>` resources on the Qortal route,
 with owner-name fallback for older/custom group responses. Results repeat the
 authoritative network, carry bounded raster-validated base64 or a pending
-state, and never expose a raw node URL. Exact invitation/moderation actions
-remain open H2 work.
+state, and never expose a raw node URL.
+
+H2C implements `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`,
+`CANCEL_GROUP_INVITE`, `ADD_GROUP_ADMIN`, `REMOVE_GROUP_ADMIN`, `GROUP_BAN`,
+`CANCEL_GROUP_BAN`, and `GROUP_KICK` on both bridge protocols and both host
+surfaces. The Qortal-only `BAN_FROM_GROUP` and `KICK_FROM_GROUP` aliases map to
+the same canonical operations for stock-app compatibility. Seven clean-room
+transaction serializers cover chain types 24 through 30. Home uses the
+Qortium nonce-bearing, zero-fee MemoryPoW layout or the Qortal
+last-reference/unit-fee layout as appropriate; a structural parser attests
+every target-critical field before signing. Home verifies owner/admin
+authority before approval and immediately before signing, never permits a
+session grant for administration, and retains signed uncertain outcomes as
+non-retryable results.
 
 ### Home changes
 
@@ -384,9 +396,9 @@ remain open H2 work.
 - Keep Qortium's optional JOIN_GROUP minting key absent in this participation
   action. Joining a chat group must not silently create minting authority;
   minting setup remains a separate explicit Home permission and operation.
-- Add invite, accept/approve, ban, kick, and admin-role actions one at a time
-  only after exact serializers and permissions are tested. Do not replace them
-  with one broad `groupMutations` capability.
+- Keep invite, accept/approve, ban, kick, and admin-role actions separately
+  advertised and approved. Do not replace them with one broad
+  `groupMutations` capability.
 - Make account and group-avatar reads explicit on both globals. Qortium uses
   current account/group avatar contracts; Qortal uses primary-name
   `THUMBNAIL/<name>/qortal_avatar` and
@@ -674,7 +686,7 @@ separate ceremonial acceptance phase.
    idempotent results.
 5. **H2B identity — implemented:** network-scoped account/group avatar reads
    with shared desktop/Android bounds and no cross-chain fallback.
-6. **H2C group administration:** exact invitation, request approval,
+6. **H2C group administration — implemented:** exact invitation, request approval,
    kick/ban, and admin-role primitives, each with its own permission contract.
 7. **H3 direct messages:** QDM1 and Qortal legacy-DM crypto/read/send/revision
    families.
@@ -687,11 +699,11 @@ separate ceremonial acceptance phase.
 11. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-The immediate next implementation after H2B is H2C's exact group invitation
-and moderation primitives. H1 added public edit, content-clearing delete, and
-reaction on both chains and both Home 2 host surfaces; H2A added portable
-join/leave and H2B added avatar-read parity. Direct-message and private-group
-crypto remain H3/H4 work.
+The immediate next implementation after H2C is H3 direct-message parity. H1
+added public edit, content-clearing delete, and reaction on both chains and
+both Home 2 host surfaces; H2A added portable join/leave, H2B added avatar-read
+parity, and H2C completed separately permissioned group administration.
+Private-group crypto remains H4 work.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent

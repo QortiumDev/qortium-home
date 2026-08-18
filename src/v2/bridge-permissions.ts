@@ -19,6 +19,7 @@ export type PermissionCapability =
   | 'account.unlock'
   | 'chat.send'
   | 'group.membership'
+  | 'group.administration'
 
 export interface PermissionDetail {
   readonly label: string
@@ -33,6 +34,16 @@ export interface PermissionPrompt {
     | 'GET_USER_ACCOUNT'
     | 'JOIN_GROUP'
     | 'LEAVE_GROUP'
+    | 'APPROVE_GROUP_JOIN_REQUEST'
+    | 'INVITE_TO_GROUP'
+    | 'CANCEL_GROUP_INVITE'
+    | 'ADD_GROUP_ADMIN'
+    | 'REMOVE_GROUP_ADMIN'
+    | 'GROUP_BAN'
+    | 'CANCEL_GROUP_BAN'
+    | 'GROUP_KICK'
+    | 'BAN_FROM_GROUP'
+    | 'KICK_FROM_GROUP'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
     | 'SEND_CHAT_DELETE'

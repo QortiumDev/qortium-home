@@ -50,6 +50,23 @@ for (const action of ['JOIN_GROUP', 'LEAVE_GROUP']) {
   assert.equal(qdnActions.includes(action), true)
   assert.equal(qortalActions.includes(action), true)
 }
+for (const action of [
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'INVITE_TO_GROUP',
+  'CANCEL_GROUP_INVITE',
+  'ADD_GROUP_ADMIN',
+  'REMOVE_GROUP_ADMIN',
+  'GROUP_BAN',
+  'CANCEL_GROUP_BAN',
+  'GROUP_KICK',
+]) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
+for (const action of ['BAN_FROM_GROUP', 'KICK_FROM_GROUP']) {
+  assert.equal(qdnActions.includes(action), false)
+  assert.equal(qortalActions.includes(action), true)
+}
 
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 0), 0)
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 5), 5)

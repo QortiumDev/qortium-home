@@ -252,6 +252,21 @@ import {
   type HomeV2GroupMembershipRequest,
   type HomeV2GroupMembershipTarget,
 } from '../electron/home-v2-group-actions';
+import {
+  appendHomeV2GroupAdminSignature,
+  assertUnsignedHomeV2GroupAdminTransaction,
+  buildUnsignedQortalGroupAdminTransactionBytes,
+  buildUnsignedQortiumGroupAdminTransactionBytes,
+  createHomeV2GroupAdminSuccess,
+  createHomeV2UnknownGroupAdminBroadcastResult,
+  encodeHomeV2GroupAdminTransaction,
+  groupAdminIdempotentResult,
+  homeV2GroupAdminOperationLabel,
+  normalizeHomeV2GroupAdminFee,
+  qortalGroupAdminFeeType,
+  type HomeV2GroupAdminRequest,
+  type HomeV2GroupAdminTarget,
+} from '../electron/home-v2-group-admin-actions';
 import { signChatTransaction } from './chatSign';
 import type { CoreTransportStatusSnapshot } from './i2p';
 import { t } from './i18n';
@@ -12600,6 +12615,194 @@ async function sendAndroidHomeV2QortalGroupMembership(
   }
 }
 
+function homeV2IdempotentGroupAdminResult(
+  request: HomeV2GroupAdminRequest,
+  error: unknown,
+  network: 'qortal' | 'qortium',
+  target: HomeV2GroupAdminTarget,
+) {
+  return groupAdminIdempotentResult(request.action, error)
+    ? createHomeV2GroupAdminSuccess({ changed: false, network, request, target })
+    : null;
+}
+
+async function sendAndroidHomeV2QortiumGroupAdmin(
+  nodeApiUrl: string,
+  request: HomeV2GroupAdminRequest,
+  target: HomeV2GroupAdminTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the group action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortiumGroupAdminTransactionBytes({
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  assertUnsignedHomeV2GroupAdminTransaction(unsignedBytes, {
+    feeAtomic: 0n,
+    network: 'qortium',
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  let difficulty: number;
+  try {
+    difficulty = homeV2MempowFeeDifficulty(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      apiKey,
+    ));
+  } catch (error) {
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the MemoryPoW capability needed for group administration.');
+    }
+    throw error;
+  }
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isRouteStillValid);
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  assertUnsignedHomeV2GroupAdminTransaction(stampedBytes, {
+    feeAtomic: 0n,
+    network: 'qortium',
+    nonce,
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const signedBytes = appendHomeV2GroupAdminSignature(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      `${homeV2GroupAdminOperationLabel(request.action)} transaction processing failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupAdminSuccess({ changed: true, network: 'qortium', request, signature, target, timestamp });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupAdminResult(request, error, 'qortium', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupAdminBroadcastResult({ error, network: 'qortium', request, signedBytes, target, timestamp });
+  }
+}
+
+async function sendAndroidHomeV2QortalGroupAdmin(
+  nodeApiUrl: string,
+  request: HomeV2GroupAdminRequest,
+  target: HomeV2GroupAdminTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const feeType = qortalGroupAdminFeeType(request);
+  const [feeValue, lastReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(feeType)}`,
+      'Qortal group transaction fee lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  const feeAtomic = normalizeHomeV2GroupAdminFee(feeValue);
+  const lastReference = typeof lastReferenceValue === 'string' ? lastReferenceValue.trim() : '';
+  if (!lastReference) {
+    throw new Error('The selected Qortal account does not have a last reference. It may need QORT before it can administer groups.');
+  }
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortalGroupAdminTransactionBytes({
+    feeAtomic,
+    lastReference,
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  assertUnsignedHomeV2GroupAdminTransaction(unsignedBytes, {
+    feeAtomic,
+    lastReference,
+    network: 'qortal',
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const [freshFeeValue, freshReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(feeType)}`,
+      'Qortal group transaction fee recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  if (
+    normalizeHomeV2GroupAdminFee(freshFeeValue) !== feeAtomic ||
+    typeof freshReferenceValue !== 'string' ||
+    freshReferenceValue.trim() !== lastReference
+  ) {
+    throw new Error('The Qortal fee or account reference changed before signing. Please try the group action again.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const signedBytes = appendHomeV2GroupAdminSignature(
+    unsignedBytes,
+    nacl.sign.detached(unsignedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      encodeHomeV2GroupAdminTransaction(signedBytes),
+      '',
+      `Qortal ${homeV2GroupAdminOperationLabel(request.action).toLowerCase()} broadcast failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupAdminSuccess({ changed: true, network: 'qortal', request, signature, target, timestamp });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupAdminResult(request, error, 'qortal', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupAdminBroadcastResult({ error, network: 'qortal', request, signedBytes, target, timestamp });
+  }
+}
+
 let androidHomeV2AutoUnlockAttempted = false;
 
 export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
@@ -12859,6 +13062,47 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
           : sendAndroidHomeV2QortalGroupMembership(
               request.nodeApiUrl,
               membershipRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            ));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendGroupAdmin(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      const isStillValid = request.isStillValid ?? (() => true);
+      const validateTarget = request.validateTarget ?? (async () => undefined);
+      const adminRequest: HomeV2GroupAdminRequest = {
+        action: request.action,
+        groupId: request.groupId,
+        memberAddress: request.memberAddress,
+        reason: request.reason,
+        timeToLive: request.timeToLive,
+        wireAction: request.action === 'APPROVE_GROUP_JOIN_REQUEST' || request.action === 'INVITE_TO_GROUP'
+          ? 'GROUP_INVITE'
+          : request.action,
+      };
+      const target: HomeV2GroupAdminTarget = {
+        groupId: request.groupId,
+        groupName: request.groupName,
+        ownerAddress: request.ownerAddress,
+      };
+      try {
+        return await (request.network === 'qortium'
+          ? sendAndroidHomeV2QortiumGroupAdmin(
+              request.nodeApiUrl,
+              adminRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            )
+          : sendAndroidHomeV2QortalGroupAdmin(
+              request.nodeApiUrl,
+              adminRequest,
               target,
               signingKey,
               isStillValid,

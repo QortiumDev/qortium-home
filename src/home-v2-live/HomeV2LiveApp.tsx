@@ -67,6 +67,15 @@ import {
   normalizeHomeV2GroupMembershipTarget,
   type HomeV2GroupMembershipAction,
 } from '../../electron/home-v2-group-actions'
+import {
+  assertHomeV2GroupAdminAuthority,
+  hasHomeV2GroupJoinRequest,
+  homeV2GroupAdminOperationLabel,
+  isHomeV2GroupAdminAction,
+  normalizeHomeV2GroupAdminAddresses,
+  normalizeHomeV2GroupAdminRequest,
+  normalizeHomeV2GroupAdminTarget,
+} from '../../electron/home-v2-group-admin-actions'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import { resolveDualIdentity } from './identity-resolver'
 import {
@@ -96,6 +105,10 @@ function publicChatOperationLabel(action: HomeV2PublicChatAction) {
 
 function groupMembershipOperationLabel(action: HomeV2GroupMembershipAction) {
   return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group'
+}
+
+function isHomeV2GroupWriteAction(action: string) {
+  return isHomeV2GroupMembershipAction(action) || isHomeV2GroupAdminAction(action)
 }
 
 function nullableString(value: unknown) {
@@ -874,18 +887,19 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
             !isHomeV2PublicChatAction(value.action) &&
-            !isHomeV2GroupMembershipAction(value.action))) ||
+            !isHomeV2GroupMembershipAction(value.action) &&
+            !isHomeV2GroupAdminAction(value.action))) ||
         typeof value.accountId !== 'string' ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
-        ((isHomeV2PublicChatAction(value.action) || isHomeV2GroupMembershipAction(value.action)) &&
+        ((isHomeV2PublicChatAction(value.action) || isHomeV2GroupWriteAction(value.action)) &&
           (typeof value.writeOperationLabel !== 'string' ||
             typeof value.writeTargetChainLabel !== 'string')) ||
         (isHomeV2PublicChatAction(value.action) &&
           (value.writeKind !== 'chat' ||
             typeof value.chatGroupId !== 'number' ||
             typeof value.chatMessagePreview !== 'string')) ||
-        (isHomeV2GroupMembershipAction(value.action) &&
+        (isHomeV2GroupWriteAction(value.action) &&
           (value.writeKind !== 'group' ||
             typeof value.groupId !== 'number' ||
             typeof value.groupName !== 'string' ||
@@ -927,13 +941,20 @@ export function HomeV2LiveApp() {
         }
       })()
       const isChatWrite = isHomeV2PublicChatAction(value.action)
-      const isGroupWrite = isHomeV2GroupMembershipAction(value.action)
+      const isGroupWrite = isHomeV2GroupWriteAction(value.action)
+      const isGroupAdminWrite = isHomeV2GroupAdminAction(value.action)
       const operationLabel = isChatWrite || isGroupWrite ? String(value.writeOperationLabel) : ''
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: isChatWrite ? 'chat.send' : isGroupWrite ? 'group.membership' : 'account.public.read',
+        capability: isChatWrite
+          ? 'chat.send'
+          : isGroupAdminWrite
+            ? 'group.administration'
+            : isGroupWrite
+              ? 'group.membership'
+              : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
@@ -968,12 +989,23 @@ export function HomeV2LiveApp() {
                 { label: 'Chain', value: String(value.writeTargetChainLabel) },
                 { label: 'Route', value: String(value.writeRouteLabel) },
                 { label: 'Group', value: String(value.groupName) },
+                ...(typeof value.writeMemberAddress === 'string'
+                  ? [{ label: 'Member', value: value.writeMemberAddress }]
+                  : []),
+                ...(typeof value.writeReason === 'string' && value.writeReason
+                  ? [{ label: 'Reason', value: value.writeReason }]
+                  : []),
+                ...(typeof value.writeTimeToLive === 'number'
+                  ? [{ label: 'Lifetime', value: value.writeTimeToLive === 0 ? 'No expiry' : `${value.writeTimeToLive} seconds` }]
+                  : []),
               ]
             : [
               { label: 'Account', value: account?.label ?? value.accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
             ],
-        allowedScopes: ['single-request', 'session'],
+        allowedScopes: value.writeSingleRequestOnly === true
+          ? ['single-request']
+          : ['single-request', 'session'],
       })
       setPermissionState((current) => {
         try {
@@ -1069,7 +1101,7 @@ export function HomeV2LiveApp() {
       if (
         action === 'UNLOCK_SELECTED_ACCOUNT' ||
         isHomeV2PublicChatAction(action) ||
-        isHomeV2GroupMembershipAction(action)
+        isHomeV2GroupWriteAction(action)
       ) {
         const actions = await nodeClient.requestApp(
           protocol,
@@ -1299,6 +1331,175 @@ export function HomeV2LiveApp() {
           validateTarget: async () => {
             await validateTarget()
           },
+        })
+      }
+      if (isHomeV2GroupAdminAction(action)) {
+        if (!vaultClient?.sendGroupAdmin) {
+          throw new Error('Group administration is unavailable on this platform.')
+        }
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const adminRequest = normalizeHomeV2GroupAdminRequest(
+          action,
+          isRecord(requestValue) ? requestValue : {},
+        )
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const readTarget = async () => {
+          const [group, admins, joinRequests] = await Promise.all([
+            nodeClient.requestApp(
+              protocol,
+              { action: 'GET_GROUP', groupId: adminRequest.groupId },
+              context,
+            ),
+            nodeClient.requestApp(
+              protocol,
+              { action: 'GET_GROUP_MEMBERS', groupId: adminRequest.groupId, limit: 0, onlyAdmins: true },
+              context,
+            ),
+            adminRequest.action === 'APPROVE_GROUP_JOIN_REQUEST'
+              ? nodeClient.requestApp(
+                  protocol,
+                  { action: 'GET_GROUP_JOIN_REQUESTS', groupId: adminRequest.groupId },
+                  context,
+                )
+              : Promise.resolve(null),
+          ])
+          const target = normalizeHomeV2GroupAdminTarget(group, adminRequest.groupId, targetNetwork)
+          const adminAddresses = normalizeHomeV2GroupAdminAddresses(admins)
+          assertHomeV2GroupAdminAuthority({
+            accountAddress: account.address,
+            action,
+            adminAddresses,
+            target,
+          })
+          if (
+            adminRequest.action === 'APPROVE_GROUP_JOIN_REQUEST' &&
+            !hasHomeV2GroupJoinRequest(joinRequests, adminRequest.groupId, adminRequest.memberAddress)
+          ) {
+            throw new Error('The selected account does not have a current join request for this group.')
+          }
+          if (
+            adminRequest.memberAddress === target.ownerAddress &&
+            (action === 'REMOVE_GROUP_ADMIN' || action === 'GROUP_BAN' || action === 'GROUP_KICK')
+          ) {
+            throw new Error('The group owner cannot be removed, banned, or kicked.')
+          }
+          return { adminAddresses, target }
+        }
+        const initial = await readTarget()
+        const validateTarget = async () => {
+          const current = await readTarget()
+          if (
+            current.target.groupName !== initial.target.groupName ||
+            current.target.ownerAddress !== initial.target.ownerAddress
+          ) {
+            throw new Error('The selected group changed before the group action could be signed.')
+          }
+        }
+        const operationLabel = homeV2GroupAdminOperationLabel(action)
+        const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+        const requestId = brand<PermissionRequestId>(
+          globalThis.crypto.randomUUID?.() ??
+            `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        )
+        const parsedApp = (() => {
+          try {
+            const parsed = parseAppResourceLocation(context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            return {
+              identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
+              title: parsed.identity.name,
+            }
+          } catch {
+            return {
+              identityKey: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+              title: 'QDN app',
+            }
+          }
+        })()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const prompt = createPermissionPrompt({
+          id: requestId,
+          protocol,
+          action,
+          capability: 'group.administration',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow ${operationLabel.toLowerCase()}?`,
+          summary: `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Operation', value: operationLabel },
+            { label: 'Chain', value: targetChainLabel },
+            { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+            { label: 'Group', value: initial.target.groupName },
+            { label: 'Member', value: adminRequest.memberAddress },
+            ...(adminRequest.reason
+              ? [{ label: 'Reason', value: adminRequest.reason }]
+              : []),
+            ...(adminRequest.action === 'APPROVE_GROUP_JOIN_REQUEST' ||
+              adminRequest.action === 'INVITE_TO_GROUP' ||
+              adminRequest.action === 'GROUP_BAN'
+              ? [{ label: 'Lifetime', value: adminRequest.timeToLive === 0 ? 'No expiry' : `${adminRequest.timeToLive} seconds` }]
+              : []),
+          ],
+          allowedScopes: ['single-request'],
+        })
+        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        if (!decision.approved) throw new Error('Account access was denied.')
+        const checkStillValid = async () => {
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === accountId,
+          )
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            !freshAccount?.isUnlocked
+          ) return false
+          const nodeNow = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          return `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await checkStillValid())) {
+          throw new Error('Account access context changed before the group action could start.')
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(
+          `${context.tabId}|${accountId}`,
+        )
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        return vaultClient.sendGroupAdmin({
+          accountId,
+          action: adminRequest.action,
+          groupId: adminRequest.groupId,
+          groupName: initial.target.groupName,
+          memberAddress: adminRequest.memberAddress,
+          ownerAddress: initial.target.ownerAddress,
+          reason: adminRequest.reason,
+          timeToLive: adminRequest.timeToLive,
+          isStillValid: checkStillValid,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          validateTarget,
         })
       }
       if (isHomeV2PublicChatAction(action)) {
