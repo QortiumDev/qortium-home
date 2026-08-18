@@ -167,6 +167,15 @@ feature-detect and call `FETCH_ACCOUNT_AVATAR` for visible avatar images. This
 keeps the 500-address identity batch from downloading and base64-encoding up to
 500 images while preserving older apps unchanged.
 
+Home 2 advertises both `FETCH_ACCOUNT_AVATAR` and `FETCH_GROUP_AVATAR` on
+`qdnRequest` and `qortalRequest`. The invoked protocol is authoritative and the
+normalized ready/pending result repeats `network: 'qortium' | 'qortal'` so a
+consumer can keep caches chain-scoped. Qortium resolves the on-chain pointer
+contract described below. Qortal has no equivalent pointer transaction, so it
+uses `THUMBNAIL/<primaryName>/qortal_avatar` for accounts and
+`THUMBNAIL/<ownerPrimaryName>/qortal_group_avatar_<groupId>` for groups. Home
+never falls back from one protocol to the other.
+
 `FETCH_GROUP_AVATAR` accepts a positive `groupId` (or `txGroupId`), while
 `FETCH_ACCOUNT_AVATAR` accepts an `address` (or uses the selected account).
 Both are read-only, public-node-safe actions. They query Core's exact-avatar

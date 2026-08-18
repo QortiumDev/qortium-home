@@ -65,6 +65,7 @@ const latency = new Map([
 const unavailable = new Set<string>()
 const requestCount = new Map<string, number>()
 let lastRequestedUrl = ''
+let lastRequestedBinaryUrl = ''
 let lastRequestedTimeoutMs: number | undefined
 
 const dependencies: PortableNodeClientDependencies = {
@@ -83,7 +84,17 @@ const dependencies: PortableNodeClientDependencies = {
       return { data: null, latencyMs: 1, ok: false, status: 503 }
     }
     return {
-      data: url.includes('/admin/status')
+      data: url.includes(`/names/primary/QH143K2qjVdn864NSY7aNESo88ao1ZnALH`)
+        ? { name: 'Qortal Alice' }
+        : url.endsWith('/addresses/QH143K2qjVdn864NSY7aNESo88ao1ZnALH/avatar/info')
+          ? { identifier: 'old-pointer', name: 'Old publisher', service: 'THUMBNAIL' }
+        : url.endsWith('/groups/12')
+          ? {
+              groupId: 12,
+              owner: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE',
+              ownerPrimaryName: 'Qortal Owner',
+            }
+          : url.includes('/admin/status')
         ? syncedStatus
         : url.includes('/arbitrary/resources/search') && url.includes('name=Trust')
           ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
@@ -98,10 +109,18 @@ const dependencies: PortableNodeClientDependencies = {
       status: 200,
     }
   },
-  async requestBinary() {
+  async requestBinary(url) {
+    lastRequestedBinaryUrl = url
     return {
       data: 'iVBORw0KGgo=',
-      headers: { 'content-type': 'application/octet-stream' },
+      headers: url.includes('/addresses/')
+        ? {
+            'content-type': 'application/octet-stream',
+            'x-qortium-avatar-identifier': 'current-pointer',
+            'x-qortium-avatar-name': 'Current publisher',
+            'x-qortium-avatar-service': 'THUMBNAIL',
+          }
+        : { 'content-type': 'application/octet-stream' },
       status: 200,
     }
   },
@@ -423,6 +442,46 @@ assert.equal(
 
 await client.setMode('qortal', 'public')
 await client.setMode('qortium', 'public')
+
+const qortiumAccountAvatar = await client.requestApp('qdnRequest', {
+  action: 'FETCH_ACCOUNT_AVATAR',
+  address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+}) as Record<string, unknown>
+assert.equal(qortiumAccountAvatar.network, 'qortium')
+assert.equal(qortiumAccountAvatar.source, 'POINTER')
+assert.deepEqual(qortiumAccountAvatar.descriptor, {
+  identifier: 'current-pointer',
+  name: 'Current publisher',
+  service: 'THUMBNAIL',
+})
+assert.match(
+  lastRequestedBinaryUrl,
+  /^https:\/\/(node1|node2)\.qortium\.app\/addresses\/QH143K2qjVdn864NSY7aNESo88ao1ZnALH\/avatar$/,
+)
+
+const qortalAccountAvatar = await client.requestApp('qortalRequest', {
+  action: 'FETCH_ACCOUNT_AVATAR',
+  address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+}) as Record<string, unknown>
+assert.equal(qortalAccountAvatar.network, 'qortal')
+assert.equal(qortalAccountAvatar.source, 'LEGACY')
+assert.equal(qortalAccountAvatar.contentType, 'image/png')
+assert.match(
+  lastRequestedBinaryUrl,
+  /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/arbitrary\/THUMBNAIL\/Qortal%20Alice\/qortal_avatar\?async=true$/,
+)
+
+const qortalGroupAvatar = await client.requestApp('qortalRequest', {
+  action: 'FETCH_GROUP_AVATAR',
+  groupId: 12,
+}) as Record<string, unknown>
+assert.equal(qortalGroupAvatar.network, 'qortal')
+assert.equal(qortalGroupAvatar.groupId, 12)
+assert.equal(qortalGroupAvatar.source, 'LEGACY')
+assert.match(
+  lastRequestedBinaryUrl,
+  /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/arbitrary\/THUMBNAIL\/Qortal%20Owner\/qortal_group_avatar_12\?async=true$/,
+)
 
 // Group/chat-active read family (unblocks Chat 2.0 group browsing):
 // representative URL-routing coverage on both protocols.

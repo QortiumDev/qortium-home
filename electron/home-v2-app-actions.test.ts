@@ -28,6 +28,10 @@ assert.equal(qortalActions.includes('GET_USER_ACCOUNT'), true)
 assert.equal(qortalActions.includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('FETCH_QDN_RESOURCE'), true)
+for (const action of ['FETCH_ACCOUNT_AVATAR', 'FETCH_GROUP_AVATAR']) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
 assert.equal(qortalActions.includes('GET_ASSET_INFO'), false)
 // SEND_CHAT_MESSAGE ships on both protocols (Chat 2.0 Phase 1,
 // docs/CHAT_2_0_PLAN.md); the desktop and Android send flows share this one
@@ -484,6 +488,10 @@ for (const [name, source] of [
   assert(
     source.includes('buildHomeV2ChainReadPath(action,'),
     `${name} must dispatch chain reads through the shared Home v2 builder.`,
+  )
+  assert(
+    source.includes('fetchHomeV2AvatarAction('),
+    `${name} must dispatch account and group avatars through the shared dual-chain action.`,
   )
   assert(
     source.includes("throw new Error('AT not found.')"),
