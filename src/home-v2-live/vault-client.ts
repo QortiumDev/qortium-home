@@ -45,6 +45,32 @@ export interface HomeV2SendChatMessageResult {
   readonly timestamp: number
 }
 
+export interface HomeV2DirectChatReadRequest {
+  readonly accountId: string
+  readonly action: 'GET_PRIVATE_DIRECT_ACTIVE_CHATS' | 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES'
+  readonly before?: number
+  readonly encoding: 'BASE58' | 'BASE64'
+  readonly hasChatReference?: boolean
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly limit: number
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly otherAddress?: string
+  readonly reverse: boolean
+}
+
+export interface HomeV2DirectChatWriteRequest {
+  readonly accountId: string
+  readonly action: 'SEND_DIRECT_CHAT_MESSAGE' | 'SEND_DIRECT_CHAT_EDIT' | 'SEND_DIRECT_CHAT_DELETE' | 'SEND_DIRECT_CHAT_REACTION'
+  readonly chatReference: string | null
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly message: string
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly otherAddress: string
+  readonly validateTarget?: (senderPublicKey: string, peerPublicKey: string) => Promise<void>
+}
+
 export interface HomeV2GroupMembershipRequest {
   readonly accountId: string
   readonly action: 'JOIN_GROUP' | 'LEAVE_GROUP'
@@ -141,6 +167,8 @@ export interface HomeV2VaultClient {
   // HomeV2LiveApp.tsx, which never receives requests on desktop (desktop's
   // public CHAT writes are handled by electron/home-v2-app-bridge.ts directly).
   sendChatMessage?(request: HomeV2SendChatMessageRequest): Promise<HomeV2SendChatMessageResult>
+  readDirectChats?(request: HomeV2DirectChatReadRequest): Promise<unknown[]>
+  sendDirectChat?(request: HomeV2DirectChatWriteRequest): Promise<HomeV2SendChatMessageResult>
   sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>

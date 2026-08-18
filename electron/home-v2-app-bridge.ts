@@ -50,6 +50,21 @@ import {
   type HomeV2PublicChatRequest,
 } from './home-v2-chat-actions.js'
 import {
+  encryptQdm1Message,
+  encryptQortalDirectMessage,
+} from './home-v2-direct-chat-actions.js'
+import {
+  assertHomeV2DirectReferenceTarget,
+  decryptHomeV2DirectChatRow,
+  directDecryptFailure,
+  isHomeV2DirectChatReadAction,
+  isHomeV2DirectChatWriteAction,
+  normalizeHomeV2DirectChatReadRequest,
+  normalizeHomeV2DirectChatWriteRequest,
+  type HomeV2DirectChatWriteAction,
+  type HomeV2DirectChatWriteRequest,
+} from './home-v2-direct-chat-contract.js'
+import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
   createHomeV2GroupMembershipSuccess,
@@ -116,6 +131,7 @@ import {
   assertPublicLeaveGroupTransaction,
 } from './public-transaction-validation.js'
 import {
+  buildUnsignedQortalDirectChatTransactionBytes,
   buildUnsignedQortalGroupChatTransactionBytes,
   qortalChatPowDifficultyForBalanceResponse,
   QORTAL_CHAT_POW_DIFFICULTY_BELOW,
@@ -138,14 +154,18 @@ const CHAT_WRITE_TIMEOUT_MS = 30_000
 // review) using the same bounded-read approach as the rest of this file's
 // read-only actions (readBoundedResponse / HOME_V2_APP_LIMITS.responseBytes).
 const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024
+const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024
 
 type AccountReadAction =
   | 'GET_SELECTED_ACCOUNT'
   | 'GET_USER_ACCOUNT'
+  | 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+  | 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES'
   | 'SEND_CHAT_DELETE'
   | 'SEND_CHAT_EDIT'
   | 'SEND_CHAT_MESSAGE'
   | 'SEND_CHAT_REACTION'
+  | HomeV2DirectChatWriteAction
   | 'JOIN_GROUP'
   | 'LEAVE_GROUP'
   | HomeV2GroupAdminAction
@@ -244,6 +264,15 @@ async function requireAccountReadPermission(
     readonly operationLabel?: string
     readonly chatReference?: string | null
   } | {
+    readonly kind: 'direct'
+    readonly targetChainLabel: string
+    readonly messagePreview?: string
+    readonly operationLabel: string
+    readonly otherAddress: string
+    readonly routeLabel: string
+    readonly singleRequestOnly?: boolean
+    readonly chatReference?: string | null
+  } | {
     readonly kind: 'group'
     readonly targetChainLabel: string
     readonly groupId: number
@@ -276,9 +305,15 @@ async function requireAccountReadPermission(
       accountUnlocked,
       nodeRoute,
     ),
-    writeDetails?.kind === 'group' ? `group:${writeDetails.groupId}` : '',
+    writeDetails?.kind === 'group'
+      ? `group:${writeDetails.groupId}`
+      : writeDetails?.kind === 'direct'
+        ? `direct:${writeDetails.otherAddress}`
+        : '',
   ].join('|')
-  const singleRequestOnly = writeDetails?.kind === 'group' && writeDetails.singleRequestOnly === true
+  const singleRequestOnly =
+    (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct') &&
+    writeDetails.singleRequestOnly === true
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
   const hostWindow = BrowserWindow.fromId(context.windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -323,7 +358,18 @@ async function requireAccountReadPermission(
             chatReference: writeDetails.chatReference ?? null,
             writeTargetChainLabel: writeDetails.targetChainLabel,
           }
-        : writeDetails?.kind === 'group'
+        : writeDetails?.kind === 'direct'
+          ? {
+              writeKind: 'direct',
+              chatMessagePreview: writeDetails.messagePreview ?? null,
+              chatReference: writeDetails.chatReference ?? null,
+              writeOperationLabel: writeDetails.operationLabel,
+              writeOtherAddress: writeDetails.otherAddress,
+              writeRouteLabel: writeDetails.routeLabel,
+              writeSingleRequestOnly: writeDetails.singleRequestOnly === true,
+              writeTargetChainLabel: writeDetails.targetChainLabel,
+            }
+          : writeDetails?.kind === 'group'
           ? {
               writeKind: 'group',
               groupId: writeDetails.groupId,
@@ -551,13 +597,19 @@ function chatOperationLabel(action: HomeV2PublicChatAction) {
   return 'Send message'
 }
 
-async function readHomeV2ChatJson(nodeApiUrl: string, path: string, label: string, apiKey = '') {
+async function readHomeV2ChatJson(
+  nodeApiUrl: string,
+  path: string,
+  label: string,
+  apiKey = '',
+  maxBytes = CHAT_SIGNING_RESPONSE_MAX_BYTES,
+) {
   const response = await nodeFetch(`${nodeApiUrl}${path}`, {
     headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
     method: 'GET',
     signal: AbortSignal.timeout(15_000),
   })
-  const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
+  const result = await readBoundedResponse(response, 'GET', maxBytes)
   if (!result.ok) {
     throw Object.assign(new Error(`${label} returned HTTP ${result.status}.`), { status: result.status })
   }
@@ -806,6 +858,415 @@ async function sendHomeV2PublicChatAction(
     return await (network === 'qortium'
       ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget, nodeApiKey)
       : sendHomeV2QortalChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget))
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
+function directChatOperationLabel(action: HomeV2DirectChatWriteAction) {
+  if (action === 'SEND_DIRECT_CHAT_EDIT') return 'Edit direct message'
+  if (action === 'SEND_DIRECT_CHAT_DELETE') return 'Clear direct message content'
+  if (action === 'SEND_DIRECT_CHAT_REACTION') return 'React to direct message'
+  return 'Send direct message'
+}
+
+function canonicalDirectPublicKey(value: unknown, network: HomeV2AppNetwork, otherAddress: string) {
+  const publicKey = typeof value === 'string'
+    ? value.trim()
+    : isHomeV2AppRecord(value) && typeof value.publicKey === 'string'
+      ? value.publicKey.trim()
+      : ''
+  try {
+    const bytes = base58Decode(publicKey)
+    if (bytes.length !== 32 || base58Encode(bytes) !== publicKey) throw new Error('invalid')
+    return { bytes, value: publicKey }
+  } catch {
+    throw createHomeV2BridgeError('The direct-message recipient does not have a usable public key.', {
+      action: 'DIRECT_CHAT',
+      code: 'MISSING_RECIPIENT_PUBLIC_KEY',
+      network,
+      retryable: false,
+      target: { kind: 'direct', otherAddress },
+    })
+  }
+}
+
+async function readHomeV2DirectPublicKey(
+  nodeApiUrl: string,
+  network: HomeV2AppNetwork,
+  otherAddress: string,
+  apiKey = '',
+) {
+  try {
+    return canonicalDirectPublicKey(
+      await readHomeV2ChatJson(
+        nodeApiUrl,
+        `/addresses/publickey/${encodeURIComponent(otherAddress)}`,
+        'Direct-message public-key lookup',
+        apiKey,
+      ),
+      network,
+      otherAddress,
+    )
+  } catch (error) {
+    if ('code' in Object(error) && (error as { code?: unknown }).code === 'MISSING_RECIPIENT_PUBLIC_KEY') throw error
+    throw createHomeV2BridgeError('The direct-message recipient does not have a usable public key.', {
+      action: 'DIRECT_CHAT',
+      code: 'MISSING_RECIPIENT_PUBLIC_KEY',
+      network,
+      retryable: false,
+      target: { kind: 'direct', otherAddress },
+    })
+  }
+}
+
+async function validateHomeV2DirectChatTarget(input: {
+  action: HomeV2DirectChatWriteAction
+  apiKey: string
+  localAddress: string
+  localPublicKey: string
+  nodeApiUrl: string
+  otherAddress: string
+  otherPublicKey: string
+  request: HomeV2DirectChatWriteRequest
+}) {
+  if (!input.request.chatReference) return
+  assertHomeV2DirectReferenceTarget(
+    await readHomeV2ChatJson(
+      input.nodeApiUrl,
+      `/chat/message/${encodeURIComponent(input.request.chatReference)}?encoding=BASE58`,
+      'Referenced direct-message lookup',
+      input.apiKey,
+    ),
+    {
+      action: input.action,
+      localAddress: input.localAddress,
+      localPublicKey: input.localPublicKey,
+      otherAddress: input.otherAddress,
+      otherPublicKey: input.otherPublicKey,
+      signature: input.request.chatReference,
+    },
+  )
+}
+
+async function sendHomeV2QortiumDirectChat(input: {
+  apiKey: string
+  isStillValid: () => boolean | Promise<boolean>
+  nodeApiUrl: string
+  peerPublicKey: Uint8Array
+  request: HomeV2DirectChatWriteRequest
+  signingKey: HomeV2ChatSigningKey
+  validateTarget: () => Promise<void>
+}) {
+  const timestamp = Date.now()
+  const envelope = await encryptQdm1Message({
+    nonce: new Uint8Array(randomBytes(12)),
+    plaintext: new TextEncoder().encode(input.request.message),
+    recipientPublicKey: input.peerPublicKey,
+    selectedAccountSecretKey: input.signingKey.secretKey,
+    senderPublicKey: base58Decode(input.signingKey.publicKey58),
+  })
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before direct-message construction.')
+  const buildRequest = {
+    ...(input.request.chatReference ? { chatReference: input.request.chatReference } : {}),
+    data: base58Encode(envelope),
+    fee: 0,
+    isEncrypted: true,
+    isText: true,
+    recipient: input.request.otherAddress,
+    senderPublicKey: input.signingKey.publicKey58,
+    timestamp,
+    txGroupId: 0,
+  }
+  const unsignedBytes = base58Decode(await postHomeV2ChatText(
+    input.nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify(buildRequest),
+    'application/json',
+    'Direct CHAT transaction build failed.',
+    input.apiKey,
+  ))
+  assertPublicChatTransaction(unsignedBytes, {
+    ...(input.request.chatReference ? { chatReference: base58Decode(input.request.chatReference) } : {}),
+    data: envelope,
+    encrypted: true,
+    publicKey: base58Decode(input.signingKey.publicKey58),
+    recipient: base58Decode(input.request.otherAddress),
+    timestamp,
+    txGroupId: 0,
+  })
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, QORTIUM_CHAT_POW_DIFFICULTY, input.isStillValid)
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.')
+  await input.validateTarget()
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.')
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, input.signingKey.secretKey)
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+  try {
+    await postHomeV2ChatText(
+      input.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      'text/plain',
+      'Direct CHAT transaction processing failed.',
+      input.apiKey,
+    )
+    return { signature, timestamp }
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+  }
+}
+
+async function sendHomeV2QortalDirectChat(input: {
+  isStillValid: () => boolean | Promise<boolean>
+  nodeApiUrl: string
+  peerPublicKey: Uint8Array
+  request: HomeV2DirectChatWriteRequest
+  signingKey: HomeV2ChatSigningKey
+  validateTarget: () => Promise<void>
+}) {
+  const timestamp = Date.now()
+  const lastReference = new Uint8Array(randomBytes(64))
+  const ciphertext = await encryptQortalDirectMessage({
+    lastReference,
+    peerPublicKey: input.peerPublicKey,
+    plaintext: new TextEncoder().encode(input.request.message),
+    selectedAccountSecretKey: input.signingKey.secretKey,
+  })
+  const unsignedBytes = buildUnsignedQortalDirectChatTransactionBytes({
+    ...(input.request.chatReference ? { chatReference: input.request.chatReference } : {}),
+    ciphertext,
+    lastReference,
+    recipientAddress: input.request.otherAddress,
+    senderPublicKey: input.signingKey.publicKey58,
+    timestamp,
+  })
+  const difficulty = await resolveHomeV2QortalChatPowDifficulty(input.nodeApiUrl, input.signingKey.address)
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, input.isStillValid)
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.')
+  await input.validateTarget()
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.')
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce)
+  const signedBytes = appendSignatureToTransactionBytes(
+    stampedBytes,
+    signDetached(stampedBytes, input.signingKey.secretKey),
+  )
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+  try {
+    await postHomeV2ChatText(
+      input.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      'text/plain',
+      'Qortal direct-message broadcast failed.',
+    )
+    return { signature, timestamp }
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+  }
+}
+
+async function sendHomeV2DirectChatAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  action: HomeV2DirectChatWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2DirectChatWriteRequest(protocol, action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    target: { kind: 'direct', otherAddress: request.otherAddress },
+  })
+  const node = await getHomeV2ReadableNode(network)
+  const apiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  if (profile.address === request.otherAddress) throw new Error('Direct-message recipient must be another account.')
+  const approvedPublicKey = getAccountSigningPublicKey(accountId)
+  const peerKey = await readHomeV2DirectPublicKey(node.nodeApiUrl, network, request.otherAddress, apiKey)
+  const validateTarget = async () => {
+    const currentPeerKey = await readHomeV2DirectPublicKey(node.nodeApiUrl, network, request.otherAddress, apiKey)
+    if (currentPeerKey.value !== peerKey.value) throw new Error('Recipient public key changed before signing.')
+    await validateHomeV2DirectChatTarget({
+      action,
+      apiKey,
+      localAddress: profile.address,
+      localPublicKey: approvedPublicKey,
+      nodeApiUrl: node.nodeApiUrl,
+      otherAddress: request.otherAddress,
+      otherPublicKey: peerKey.value,
+      request,
+    })
+  }
+  await validateTarget()
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'direct',
+    chatReference: request.chatReference,
+    messagePreview: request.message.slice(0, 180),
+    operationLabel: directChatOperationLabel(action),
+    otherAddress: request.otherAddress,
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    singleRequestOnly: true,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const signingKey = getAccountSecretKey(accountId)
+  if (
+    signingKey.address !== profile.address ||
+    signingKey.publicKey58 !== approvedPublicKey
+  ) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before the direct message could be signed.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) return false
+    if (!isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === apiKey
+  }
+  try {
+    if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+    return await (network === 'qortium'
+      ? sendHomeV2QortiumDirectChat({
+          apiKey,
+          isStillValid,
+          nodeApiUrl: node.nodeApiUrl,
+          peerPublicKey: peerKey.bytes,
+          request,
+          signingKey,
+          validateTarget,
+        })
+      : sendHomeV2QortalDirectChat({
+          isStillValid,
+          nodeApiUrl: node.nodeApiUrl,
+          peerPublicKey: peerKey.bytes,
+          request,
+          signingKey,
+          validateTarget,
+        }))
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
+async function readHomeV2DirectChatAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  action: 'GET_PRIVATE_DIRECT_ACTIVE_CHATS' | 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2DirectChatReadRequest(protocol, action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    ...(request.otherAddress ? { target: { kind: 'direct' as const, otherAddress: request.otherAddress } } : {}),
+  })
+  const node = await getHomeV2ReadableNode(network)
+  const apiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'direct',
+    operationLabel: action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+      ? 'Read active direct conversations'
+      : 'Read direct-message history',
+    otherAddress: request.otherAddress ?? 'all-direct-conversations',
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before direct-message decryption.')
+  }
+  try {
+    const query = new URLSearchParams()
+    query.set('encoding', 'BASE64')
+    if (request.hasChatReference !== undefined) {
+      query.set('haschatreference', String(request.hasChatReference))
+    }
+    let path: string
+    if (action === 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES') {
+      query.append('involving', profile.address)
+      query.append('involving', request.otherAddress as string)
+      if (request.before !== undefined) query.set('before', String(request.before))
+      query.set('limit', String(request.limit))
+      query.set('reverse', String(request.reverse))
+      path = `/chat/messages?${query.toString()}`
+    } else {
+      path = `/chat/active/${encodeURIComponent(profile.address)}?${query.toString()}`
+    }
+    const raw = await readHomeV2ChatJson(
+      node.nodeApiUrl,
+      path,
+      'Encrypted direct-chat read',
+      apiKey,
+      DIRECT_CHAT_READ_RESPONSE_MAX_BYTES,
+    )
+    const rows = action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+      ? isHomeV2AppRecord(raw) && Array.isArray(raw.direct) ? raw.direct : []
+      : Array.isArray(raw) ? raw : []
+    const peerKeys = new Map<string, Awaited<ReturnType<typeof readHomeV2DirectPublicKey>>>()
+    const decrypted = []
+    for (const value of rows.slice(0, 100)) {
+      if (!isHomeV2AppRecord(value)) continue
+      try {
+        const senderAddress = normalizeHomeV2Address(value.sender)
+        const recipientAddress = normalizeHomeV2Address(value.recipient)
+        const otherAddress = senderAddress === profile.address
+          ? recipientAddress
+          : recipientAddress === profile.address
+            ? senderAddress
+            : ''
+        if (!otherAddress || (request.otherAddress && otherAddress !== request.otherAddress)) {
+          throw new Error('Direct chat row does not match the approved participants.')
+        }
+        let peerKey = peerKeys.get(otherAddress)
+        if (!peerKey) {
+          peerKey = await readHomeV2DirectPublicKey(node.nodeApiUrl, network, otherAddress, apiKey)
+          peerKeys.set(otherAddress, peerKey)
+        }
+        decrypted.push(await decryptHomeV2DirectChatRow({
+          encoding: request.encoding,
+          localAddress: profile.address,
+          localPublicKey: base58Decode(signingKey.publicKey58),
+          network,
+          peerAddress: otherAddress,
+          peerPublicKey: peerKey.bytes,
+          row: value,
+          selectedAccountSecretKey: signingKey.secretKey,
+        }))
+      } catch (error) {
+        decrypted.push(directDecryptFailure(value, error))
+      }
+    }
+    const freshContext = getQdnViewContextForWebContents(sender)
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    if (
+      !freshContext ||
+      !sameViewContext(context, freshContext) ||
+      !liveResourceMatchesGrant(freshContext) ||
+      !isAccountUnlocked(accountId) ||
+      !nodeNow ||
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` !== nodeRoute
+    ) throw new Error('Direct-message read context changed before decryption completed.')
+    return decrypted
   } finally {
     signingKey.secretKey.fill(0)
   }
@@ -1523,6 +1984,12 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2PublicChatAction(action)) {
     return sendHomeV2PublicChatAction(sender, context, protocol, network, action, requestValue)
+  }
+  if (isHomeV2DirectChatWriteAction(action)) {
+    return sendHomeV2DirectChatAction(sender, context, protocol, network, action, requestValue)
+  }
+  if (isHomeV2DirectChatReadAction(action)) {
+    return readHomeV2DirectChatAction(sender, context, protocol, network, action, requestValue)
   }
   if (isHomeV2GroupMembershipAction(action)) {
     return sendHomeV2GroupMembershipAction(sender, context, protocol, network, action, requestValue)

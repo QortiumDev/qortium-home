@@ -62,6 +62,13 @@ import {
   type HomeV2PublicChatAction,
 } from '../../electron/home-v2-chat-actions'
 import {
+  assertHomeV2DirectReferenceTarget,
+  isHomeV2DirectChatReadAction,
+  isHomeV2DirectChatWriteAction,
+  normalizeHomeV2DirectChatReadRequest,
+  normalizeHomeV2DirectChatWriteRequest,
+} from '../../electron/home-v2-direct-chat-contract'
+import {
   isHomeV2GroupMembershipAction,
   normalizeHomeV2GroupMembershipRequest,
   normalizeHomeV2GroupMembershipTarget,
@@ -87,6 +94,7 @@ import {
   parseAppResourceLocation,
 } from '../v2/resource-location'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
+import { base58Decode, base58Encode } from '../../electron/base58'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -887,6 +895,8 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
             !isHomeV2PublicChatAction(value.action) &&
+            !isHomeV2DirectChatReadAction(value.action) &&
+            !isHomeV2DirectChatWriteAction(value.action) &&
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         typeof value.accountId !== 'string' ||
@@ -899,6 +909,12 @@ export function HomeV2LiveApp() {
           (value.writeKind !== 'chat' ||
             typeof value.chatGroupId !== 'number' ||
             typeof value.chatMessagePreview !== 'string')) ||
+        ((isHomeV2DirectChatReadAction(value.action) || isHomeV2DirectChatWriteAction(value.action)) &&
+          (value.writeKind !== 'direct' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeOtherAddress !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string')) ||
         (isHomeV2GroupWriteAction(value.action) &&
           (value.writeKind !== 'group' ||
             typeof value.groupId !== 'number' ||
@@ -941,15 +957,23 @@ export function HomeV2LiveApp() {
         }
       })()
       const isChatWrite = isHomeV2PublicChatAction(value.action)
+      const isDirectRead = isHomeV2DirectChatReadAction(value.action)
+      const isDirectWrite = isHomeV2DirectChatWriteAction(value.action)
       const isGroupWrite = isHomeV2GroupWriteAction(value.action)
       const isGroupAdminWrite = isHomeV2GroupAdminAction(value.action)
-      const operationLabel = isChatWrite || isGroupWrite ? String(value.writeOperationLabel) : ''
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isGroupWrite
+        ? String(value.writeOperationLabel)
+        : ''
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
         capability: isChatWrite
           ? 'chat.send'
+          : isDirectWrite
+            ? 'chat.direct.send'
+            : isDirectRead
+              ? 'chat.direct.read'
           : isGroupAdminWrite
             ? 'group.administration'
             : isGroupWrite
@@ -968,8 +992,10 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isChatWrite || isGroupWrite ? `Allow ${operationLabel.toLowerCase()}?` : 'Allow account access?',
-        summary: isChatWrite || isGroupWrite
+        title: isChatWrite || isDirectRead || isDirectWrite || isGroupWrite
+          ? `Allow ${operationLabel.toLowerCase()}?`
+          : 'Allow account access?',
+        summary: isChatWrite || isDirectRead || isDirectWrite || isGroupWrite
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
         details: isChatWrite
@@ -982,6 +1008,20 @@ export function HomeV2LiveApp() {
                 ? [{ label: 'Reference', value: value.chatReference }]
                 : []),
             ]
+          : isDirectRead || isDirectWrite
+            ? [
+                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Operation', value: operationLabel },
+                { label: 'Chain', value: String(value.writeTargetChainLabel) },
+                { label: 'Route', value: String(value.writeRouteLabel) },
+                { label: 'Conversation', value: String(value.writeOtherAddress) },
+                ...(isDirectWrite && typeof value.chatMessagePreview === 'string'
+                  ? [{ label: 'Message', value: value.chatMessagePreview }]
+                  : []),
+                ...(isDirectWrite && typeof value.chatReference === 'string'
+                  ? [{ label: 'Reference', value: value.chatReference }]
+                  : []),
+              ]
           : isGroupWrite
             ? [
                 { label: 'Account', value: account?.label ?? value.accountId },
@@ -1101,6 +1141,8 @@ export function HomeV2LiveApp() {
       if (
         action === 'UNLOCK_SELECTED_ACCOUNT' ||
         isHomeV2PublicChatAction(action) ||
+        isHomeV2DirectChatReadAction(action) ||
+        isHomeV2DirectChatWriteAction(action) ||
         isHomeV2GroupWriteAction(action)
       ) {
         const actions = await nodeClient.requestApp(
@@ -1500,6 +1542,216 @@ export function HomeV2LiveApp() {
           network: targetNetwork,
           nodeApiUrl: nodeBefore.nodeApiUrl,
           validateTarget,
+        })
+      }
+      if (isHomeV2DirectChatReadAction(action) || isHomeV2DirectChatWriteAction(action)) {
+        if (!vaultClient?.readDirectChats || !vaultClient.sendDirectChat || !vaultClient.getSigningPublicKey) {
+          throw new Error('Direct-message encryption is unavailable on this platform.')
+        }
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const isWrite = isHomeV2DirectChatWriteAction(action)
+        const directRequest = isWrite
+          ? normalizeHomeV2DirectChatWriteRequest(protocol, action, isRecord(requestValue) ? requestValue : {})
+          : normalizeHomeV2DirectChatReadRequest(protocol, action, isRecord(requestValue) ? requestValue : {})
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const otherAddress = directRequest.otherAddress ?? 'all-direct-conversations'
+        const readPeerPublicKey = async (peerAddress: string) => {
+          const response = await nodeClient.requestApp(
+            protocol,
+            {
+              action: 'FETCH_NODE_API',
+              maxBytes: 4096,
+              path: `/addresses/publickey/${encodeURIComponent(peerAddress)}`,
+            },
+            context,
+          )
+          const value = isRecord(response) && 'data' in response ? response.data : response
+          const publicKey = typeof value === 'string'
+            ? value.trim()
+            : isRecord(value) && typeof value.publicKey === 'string'
+              ? value.publicKey.trim()
+              : ''
+          try {
+            const bytes = base58Decode(publicKey)
+            if (bytes.length !== 32 || base58Encode(bytes) !== publicKey) throw new Error('invalid')
+            return publicKey
+          } catch {
+            throw new Error('The direct-message recipient does not have a usable public key.')
+          }
+        }
+        const approvedSenderPublicKey = isWrite
+          ? await vaultClient.getSigningPublicKey(accountId)
+          : null
+        const approvedPeerPublicKey = isWrite
+          ? await readPeerPublicKey(directRequest.otherAddress)
+          : null
+        const validateApprovedDirectTarget = async (
+          senderPublicKey = approvedSenderPublicKey,
+          peerPublicKey = approvedPeerPublicKey,
+        ) => {
+          if (!isWrite) return
+          if (
+            senderPublicKey !== approvedSenderPublicKey ||
+            peerPublicKey !== approvedPeerPublicKey ||
+            (await readPeerPublicKey(directRequest.otherAddress)) !== approvedPeerPublicKey
+          ) throw new Error('Direct-message participant identity changed before signing.')
+          if (!directRequest.chatReference) return
+          assertHomeV2DirectReferenceTarget(
+            await nodeClient.requestApp(
+              protocol,
+              {
+                action: 'GET_CHAT_MESSAGE',
+                encoding: 'BASE58',
+                signature: directRequest.chatReference,
+              },
+              context,
+            ),
+            {
+              action,
+              localAddress: account.address,
+              localPublicKey: senderPublicKey as string,
+              otherAddress: directRequest.otherAddress,
+              otherPublicKey: peerPublicKey as string,
+              signature: directRequest.chatReference,
+            },
+          )
+        }
+        if (isWrite) await validateApprovedDirectTarget()
+        const operationLabel = isWrite
+          ? action === 'SEND_DIRECT_CHAT_EDIT'
+            ? 'Edit direct message'
+            : action === 'SEND_DIRECT_CHAT_DELETE'
+              ? 'Clear direct message content'
+              : action === 'SEND_DIRECT_CHAT_REACTION'
+                ? 'React to direct message'
+                : 'Send direct message'
+          : action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+            ? 'Read active direct conversations'
+            : 'Read direct-message history'
+        const grantKey = [
+          context.tabId,
+          context.resourceLocation,
+          accountId,
+          protocol,
+          action,
+          account.isUnlocked,
+          nodeRoute,
+          `direct:${otherAddress}`,
+        ].join('|')
+        if (isWrite || !androidSessionAccountGrants.current.has(grantKey)) {
+          const requestId = brand<PermissionRequestId>(
+            globalThis.crypto.randomUUID?.() ??
+              `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          )
+          const parsedApp = (() => {
+            try {
+              const parsed = parseAppResourceLocation(context.resourceLocation)
+              const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+              return {
+                identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
+                title: parsed.identity.name,
+              }
+            } catch {
+              return {
+                identityKey: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+                title: 'QDN app',
+              }
+            }
+          })()
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const prompt = createPermissionPrompt({
+            id: requestId,
+            protocol,
+            action,
+            capability: isWrite ? 'chat.direct.send' : 'chat.direct.read',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: `Allow ${operationLabel.toLowerCase()}?`,
+            summary: `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Operation', value: operationLabel },
+              { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+              { label: 'Conversation', value: otherAddress },
+              ...(isWrite
+                ? [{ label: 'Message', value: directRequest.message.slice(0, 180) }]
+                : []),
+              ...(isWrite && directRequest.chatReference
+                ? [{ label: 'Reference', value: directRequest.chatReference }]
+                : []),
+            ],
+            allowedScopes: isWrite ? ['single-request'] : ['single-request', 'session'],
+          })
+          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          if (!decision.approved) throw new Error('Account access was denied.')
+          if (!isWrite && decision.scope === 'session') androidSessionAccountGrants.current.add(grantKey)
+        }
+        const checkDirectStillValid = async () => {
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            !freshAccount?.isUnlocked
+          ) return false
+          const nodeNow = await nodeClient.getSnapshot().then(parseNodesSnapshot).catch(() => null)
+          const summary = nodeNow?.[targetNetwork]
+          return !!summary?.nodeApiUrl && `${summary.mode}|${summary.nodeApiUrl}` === nodeRoute
+        }
+        if (!(await checkDirectStillValid())) {
+          throw new Error('Account access context changed before the direct-message action could start.')
+        }
+        if (!isWrite) {
+          return vaultClient.readDirectChats({
+            accountId,
+            action,
+            ...(directRequest.before === undefined ? {} : { before: directRequest.before }),
+            encoding: directRequest.encoding,
+            ...(directRequest.hasChatReference === undefined
+              ? {}
+              : { hasChatReference: directRequest.hasChatReference }),
+            isStillValid: checkDirectStillValid,
+            limit: directRequest.limit,
+            network: targetNetwork,
+            nodeApiUrl: nodeBefore.nodeApiUrl,
+            ...(directRequest.otherAddress ? { otherAddress: directRequest.otherAddress } : {}),
+            reverse: directRequest.reverse,
+          })
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(
+          `${context.tabId}|${accountId}`,
+        )
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        return vaultClient.sendDirectChat({
+          accountId,
+          action,
+          chatReference: directRequest.chatReference,
+          isStillValid: checkDirectStillValid,
+          message: directRequest.message,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          otherAddress: directRequest.otherAddress,
+          validateTarget: validateApprovedDirectTarget,
         })
       }
       if (isHomeV2PublicChatAction(action)) {

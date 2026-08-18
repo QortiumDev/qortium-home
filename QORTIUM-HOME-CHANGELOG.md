@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable dual-chain direct messages
+
+Home 2 now gives QDN apps separately named direct-message history, active-chat,
+send, edit, content-clearing delete, and reaction actions on both Qortium and
+Qortal. Desktop and Android keep every private key and shared secret inside
+Home, decrypt each retained message only for the selected account and exact
+peer, and return per-message failures without exposing ciphertext keys.
+Qortium uses Core's QDM1 AES-GCM envelope and public unsigned CHAT builder;
+Qortal uses the frozen legacy version-2 NaCl secretbox and transaction format.
+Both implementations share byte-exact interoperability tests, require a usable
+recipient public key, recheck the app, tab, account, peer, reference, and node
+route before signing, and preserve signed uncertain broadcasts as unsafe to
+retry. Qortal delete is explicitly a valid content-clearing edit: it does not
+claim to erase either immutable transaction.
+
 ### 2026-08-18 - feat(chat): add portable group administration
 
 Home 2 now gives QDN apps exact, separately approved invitation, join-request

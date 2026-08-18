@@ -97,7 +97,7 @@ milestones.
 | Positive-ID public group read/send | Present | Present |
 | Replies | Present in the message payload | Present for Hub-v3 open groups |
 | Public edit/delete/reaction | Edit/delete/reaction implemented | Hub-v3 edit/reaction plus content-clearing empty-edit delete implemented |
-| Direct messages | Missing | Missing |
+| Direct messages | QDM1 active/history/decrypt/send/revision actions implemented on desktop and Android | Legacy v2 active/history/decrypt/send/revision actions implemented on desktop and Android |
 | Closed/private groups | Missing | Missing |
 | Join/leave | Present | Present |
 | User/group avatar read | Dedicated pointer-aware account/group actions | Dedicated named-thumbnail account/group actions |
@@ -253,7 +253,7 @@ and signing remain local even when the node is authenticated.
 | H0 | Shared contracts, route-aware discovery, errors, and vector harness | Complete: H0A and H0B implemented | Core C0-C5 complete |
 | H1 | Public-group revisions and route-independent send parity | Implemented | H0 |
 | H2 | Portable group participation, administration, and avatar/identity parity | Complete: H2A join/leave, H2B avatar reads, and H2C exact administration actions implemented | H0; Core C5 |
-| H3 | Qortium and Qortal direct messages | Planned | H0-H1; Core C0/C2 |
+| H3 | Qortium and Qortal direct messages | Implemented in Home; end-to-end Chat integration and route matrix remain | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Planned | H0; Qortal publish proof |
 | H6 | Private attachments | Blocked/deferred | Core C6 plus Qortal DM/file vectors |
@@ -699,11 +699,13 @@ separate ceremonial acceptance phase.
 11. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-The immediate next implementation after H2C is H3 direct-message parity. H1
-added public edit, content-clearing delete, and reaction on both chains and
-both Home 2 host surfaces; H2A added portable join/leave, H2B added avatar-read
-parity, and H2C completed separately permissioned group administration.
-Private-group crypto remains H4 work.
+H3 direct-message parity is now implemented in Home on both host surfaces.
+The next Home implementation milestone is H4 private-group crypto, after the
+corresponding Chat H3 adapter consumes these actions and completes the
+end-to-end desktop/Android route matrix. H1 added public edit,
+content-clearing delete, and reaction on both chains; H2A added portable
+join/leave, H2B added avatar-read parity, and H2C completed separately
+permissioned group administration.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent
