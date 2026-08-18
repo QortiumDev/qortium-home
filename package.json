@@ -149,6 +149,7 @@
     "test:qdn-live-location": "tsc -p tsconfig.qdn-live-location-test.json && node dist-electron/qdn-live-location-test/qdn-live-location.test.js && node dist-electron/qdn-live-location-test/qdn-app-history.test.js && node dist-electron/qdn-live-location-test/qdn-fragment.test.js && esbuild src/qdn-fragment-routing.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/qdn-live-location-test/qdn-fragment-routing.test.js && node dist-electron/qdn-live-location-test/qdn-fragment-routing.test.js",
     "test:welcome-state": "node scripts/test-welcome-state.mjs",
     "test:qortal-chat-serializer": "node scripts/test-qortal-chat-serializer.mjs",
+    "test:chat-interop-vectors": "node scripts/ensure-electron-build.mjs && node scripts/test-chat-interop-vectors.mjs",
     "test:qortal-payment-serializer": "node scripts/test-qortal-payment-serializer.mjs",
     "test:qortium-at-message-serializer": "node scripts/ensure-electron-build.mjs && node scripts/test-qortium-at-message-serializer.mjs",
     "release:check": "node scripts/check-release-assets.mjs",

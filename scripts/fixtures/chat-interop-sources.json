@@ -1,0 +1,13 @@
+{
+  "format": "home-chat-interop-sources-v1",
+  "qortiumCore": {
+    "repository": "https://github.com/QortiumDev/qortium-core.git",
+    "commit": "0ca1965a840d02d60941510d6cddac36d3718ac6",
+    "path": "src/test/resources/chat/interop/chat-crypto-v1.json",
+    "sha256": "cc79c8c827e92c25a530825abd1ffc8ffb477df9cdfebe57b4986a23687a82e6"
+  },
+  "qortalFixture": {
+    "path": "scripts/fixtures/qortal-chat-interop-v1.json",
+    "sha256": "2ed1bbd6c3f4cdf2e5254bb420b5ffec2cb06cec057c986404618c7648406d29"
+  }
+}
