@@ -2,7 +2,7 @@
 
 Status: active planning and implementation tracker
 
-Home baseline: `main` at `798eeac72fa7bfcb3cccf72e8312f7387a408648`
+Home baseline: `main` at `8c9098116e699769a7bc3861af2baa81d0930ac3`
 
 Core baseline: Qortium Core `3ac275024d9256cb27cd9ba085a1e2c81f2596da`
 (C0-C5 complete)
@@ -95,7 +95,7 @@ milestones.
 | --- | --- | --- |
 | Positive-ID public group read/send | Present | Present |
 | Replies | Present in the message payload | Present for Hub-v3 open groups |
-| Edit/delete/reaction reference | Dropped | Dropped |
+| Public edit/delete/reaction | Edit/delete/reaction implemented | Hub-v3 edit/reaction plus content-clearing empty-edit delete implemented |
 | Direct messages | Missing | Missing |
 | Closed/private groups | Missing | Missing |
 | Join/leave | Reads only | Reads only |
@@ -250,7 +250,7 @@ and signing remain local even when the node is authenticated.
 | ID | Home milestone | Status | Depends on |
 | --- | --- | --- | --- |
 | H0 | Shared contracts, route-aware discovery, errors, and vector harness | Complete: H0A and H0B implemented | Core C0-C5 complete |
-| H1 | Public-group revisions and route-independent send parity | Planned | H0 |
+| H1 | Public-group revisions and route-independent send parity | Implemented | H0 |
 | H2 | Portable group participation and avatar/identity parity | Planned | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Planned | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
@@ -311,8 +311,12 @@ and signing remain local even when the node is authenticated.
 - Keep Home 2 Qortal on the same explicit local/custom/public route model.
 - Preserve and attest `chatReference` in every Home 2 desktop and Android path.
 - Add `SEND_CHAT_EDIT`, `SEND_CHAT_DELETE`, and `SEND_CHAT_REACTION` only for
-  codecs with frozen vectors. Home validates reference ownership for edits and
-  deletes; reactions may reference another sender's message.
+  bounded, validated codecs. Qortium uses its established empty-message delete
+  revision. Qortal delete is Home's one canonical empty Hub-v3 edit with no images;
+  stock Hub recognizes the edit and renders the original row as no message.
+  This is content clearing, not erasure of either immutable transaction.
+  Home validates reference ownership for edits and deletes; reactions may
+  reference another sender's message.
 - Keep reply as an ordinary initial-send payload field. Home validates the
   network-specific envelope but does not create a separate reply transaction
   action.
@@ -324,8 +328,8 @@ and signing remain local even when the node is authenticated.
 
 ### Completion gate
 
-- Initial send, reply, edit, delete, and reaction work in positive-ID public
-  groups on both chains across the full platform/route matrix.
+- Initial send, reply, edit, content-clearing delete, and reaction work in
+  positive-ID public groups across the full platform/route matrix.
 - Qortium General works; Qortal offers no native General/group-zero control.
 - Qortal messages remain Hub-compatible for every advertised operation.
 - A same-signature collision, cross-chain reference, wrong sender edit/delete,
@@ -631,8 +635,9 @@ separate ceremonial acceptance phase.
 2. **H0B vector harness — implemented:** consumes the pinned Core fixture
    unchanged and freezes independently generated Qortal interoperability
    fixtures before implementing their crypto.
-3. **H1 public revisions:** route-independent Qortium/Qortal initial sends plus
-   exact edit/delete/reaction actions and reference attestation.
+3. **H1 public revisions — implemented:** route-independent Qortium/Qortal
+   initial sends plus exact supported edit/delete/reaction actions, reference
+   attestation, ownership checks, and signed ambiguous-broadcast results.
 4. **H2 participation and identity:** portable Qortium/Qortal join/leave,
    idempotent results, exact later admin primitives, and avatar-read parity.
 5. **H3 direct messages:** QDM1 and Qortal legacy-DM crypto/read/send/revision
@@ -646,10 +651,10 @@ separate ceremonial acceptance phase.
 9. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-The immediate next implementation is H1. H0A established one truthful
-route/action/error contract on Home 2 main, and H0B added the pinned
-cross-language fixtures needed by later privileged actions. Neither tranche
-added message crypto or new transaction authority.
+The immediate next implementation is H2. H1 added public edit, content-clearing
+delete, and reaction on both chains and both Home 2 host surfaces. Qortal delete
+uses Home's canonical referenced empty Hub-v3 edit and does not claim to erase chain
+history. Direct-message and private-group crypto remain H3/H4 work.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent

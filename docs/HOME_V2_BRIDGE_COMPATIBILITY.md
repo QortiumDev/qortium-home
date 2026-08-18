@@ -60,6 +60,9 @@ pages and Home 1.x retain Core's injected bridge client.
 | `SEARCH_CHAT_MESSAGES` | both | Bare Core JSON | Groups-only in this release (documented Hub deviation, see below); required non-negative `txGroupId`; `before`/`after` pre-validated against Core's floor; `limit` capped at 100 | yes | yes |
 | `GET_CHAT_MESSAGE` | both | Bare Core JSON | Base58 signature shape validated before the request | yes | yes |
 | `SEND_CHAT_MESSAGE` | both | `{ signature, timestamp }` | Trusted Home prompt (chain, group, 180-char message preview); once or tab-session grant; account must already be unlocked; per-tab/account ceiling of one send per 1.5 seconds and 20 per minute; CHAT-only signing carve-out (fee-less, cannot move funds) — see below | yes | yes |
+| `SEND_CHAT_EDIT` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Requires a canonical 64-byte `chatReference`; exact original public message, chain, group, sender ownership, route, account, payload codec, and reference are checked before prompting and before signing | yes | yes |
+| `SEND_CHAT_DELETE` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Same ownership/reference/context checks as edit. Qortium uses its empty-message revision. Qortal accepts only Home's canonical empty Hub-v3 edit with no images; Hub renders the retained original row as no message, while both transactions remain on-chain | yes | yes |
+| `SEND_CHAT_REACTION` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Requires the exact reaction envelope and canonical reference; the target may belong to another sender, but must be the original public text message in the selected chain/group | yes | yes |
 | `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 
@@ -97,7 +100,7 @@ protocol or advertise a permanently reduced host implementation.
 | Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
-| Chat | The on-chain Chat 2.0 foundation (docs/CHAT_2_0_PLAN.md) has open/group reads (`SEARCH_CHAT_MESSAGES` groups-only, `GET_CHAT_MESSAGE`) and open/group send (`SEND_CHAT_MESSAGE`, both networks, client-side signed) bridge coverage; the group/chat-active read family (`GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, the three join-request reads, `GET_ACTIVE_CHATS`, plus Qortium-only `SEARCH_GROUPS`) unblocks group browsing | DM search/send and private-group encryption remain deferred to Phase 2+. Chat 2.0 is not complete or releasable until Home also supplies the distinct Qortal RCHAT source/action family; the on-chain actions here cannot read off-chain RCHAT history. |
+| Chat | Public group reads and initial/reply sends work on both chains. Both chains have explicit public edit, content-clearing delete, and reaction actions. Qortal delete is the strict empty Hub-v3 edit that stock Hub renders as no message. Every revision is locally signed and reference-attested on desktop and Android. The group/chat-active read family supports membership-first browsing. | Delete clears displayed content but cannot erase immutable transactions. DM/private-group crypto, group participation, full resources, and the later distinct RCHAT family remain deferred to the portability roadmap. |
 
 On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
 slice in packaged desktop and Android previews: its feed rendered, Home's
@@ -169,8 +172,8 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - `UNLOCK_SELECTED_ACCOUNT` is Qortium-specific. Qortal apps receive no matching
   shortcut, and no app receives passwords, derived key bytes, seeds, or private
   keys from the result.
-- `SEND_CHAT_MESSAGE` (Chat 2.0 Phase 1, docs/CHAT_2_0_PLAN.md) is the first
-  bridge action that signs a transaction. This is a deliberate, bounded
+- `SEND_CHAT_MESSAGE` and the explicit public revision actions are the bounded
+  bridge actions that sign transactions. This is a deliberate, bounded
   exception to the deferred-signing boundary — CHAT only (fee-less, cannot
   move funds, bounded payload) — not a general precedent; payments/arbitrary
   signing remain behind Phase 5. `SEARCH_CHAT_MESSAGES` is **groups-only**:
@@ -191,16 +194,21 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   opens. On `qortalRequest`, `txGroupId: 0`
   (Qortal's retired general chat) is rejected with a specific error; on
   `qdnRequest`, group 0 is Qortium's open general chat and stays allowed. The
-  selected account must already be unlocked before `SEND_CHAT_MESSAGE` is
-  called — a pure-Qortal app has no unlock shortcut (see above), so it cannot
+  selected account must already be unlocked before a public CHAT write is
+  requested — a pure-Qortal app has no unlock shortcut (see above), so it cannot
   drive an unlock itself in Phase 1 and depends on the account already being
-  unlocked by other means; this is a known limitation, not a bug. `message` is
-  an opaque, app-owned payload Home never parses or rewrites: qortium-chat
-  JSON on `qdnRequest`, Hub-compatible JSON on `qortalRequest` (the app embeds
-  `repliedTo` etc. itself). Home additionally verifies a target Qortal group
-  is open before broadcasting, since private-group encryption is not
-  implemented yet and Home will not send plaintext into a group it cannot
-  verify is public.
+  unlocked by other means; this is a known limitation, not a bug. The normal
+  `SEND_CHAT_MESSAGE` payload remains app-owned: qortium-chat JSON on
+  `qdnRequest`, Hub-compatible JSON on `qortalRequest` (the app embeds
+  `repliedTo` etc. itself). Explicit revision actions validate but never
+  rewrite their frozen network-specific envelopes. Updated apps use the exact
+  edit/delete/reaction action so `SHOW_ACTIONS` is truthful. For compatibility,
+  an older Qortium app's `SEND_CHAT_MESSAGE + chatReference` request is
+  classified by its validated payload and routed through the same exact
+  action; Qortal has no released equivalent alias. Home verifies every
+  positive-ID target group is
+  open before broadcasting, since private-group encryption is not implemented
+  yet and Home will not send plaintext into an unverified or closed group.
 - **Android within-principal residual (known limitation, accepted, tracked
   separately):** Android's QDN render proxy serves every app tab on one node
   from a single shared `https://<label>.qdn.androidplatform.net` origin (see

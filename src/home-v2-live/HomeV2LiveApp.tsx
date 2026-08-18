@@ -55,9 +55,12 @@ import type {
 } from './node-client'
 import type { HomeV2VaultClient } from './vault-client'
 import {
-  normalizeHomeV2ChatMessageText,
-  normalizeHomeV2SendTxGroupId,
-} from '../../electron/home-v2-app-actions'
+  assertHomeV2OpenPublicGroup,
+  isHomeV2PublicChatAction,
+  normalizeHomeV2PublicChatReferenceTarget,
+  normalizeHomeV2PublicChatRequest,
+  type HomeV2PublicChatAction,
+} from '../../electron/home-v2-chat-actions'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import { resolveDualIdentity } from './identity-resolver'
 import {
@@ -76,6 +79,13 @@ function brand<Type extends string>(value: string): Type {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function publicChatOperationLabel(action: HomeV2PublicChatAction) {
+  if (action === 'SEND_CHAT_EDIT') return 'Edit message'
+  if (action === 'SEND_CHAT_DELETE') return 'Delete message'
+  if (action === 'SEND_CHAT_REACTION') return 'React to message'
+  return 'Send message'
 }
 
 function nullableString(value: unknown) {
@@ -849,16 +859,18 @@ export function HomeV2LiveApp() {
         !isRecord(value) ||
         typeof value.requestId !== 'string' ||
         (value.protocol !== 'qdnRequest' && value.protocol !== 'qortalRequest') ||
-        (value.action !== 'GET_SELECTED_ACCOUNT' &&
-          value.action !== 'GET_USER_ACCOUNT' &&
-          value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
-          value.action !== 'SEND_CHAT_MESSAGE') ||
+        (typeof value.action !== 'string' ||
+          (value.action !== 'GET_SELECTED_ACCOUNT' &&
+            value.action !== 'GET_USER_ACCOUNT' &&
+            value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
+            !isHomeV2PublicChatAction(value.action))) ||
         typeof value.accountId !== 'string' ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
-        (value.action === 'SEND_CHAT_MESSAGE' &&
+        (isHomeV2PublicChatAction(value.action) &&
           (typeof value.chatGroupId !== 'number' ||
             typeof value.chatMessagePreview !== 'string' ||
+            typeof value.chatOperationLabel !== 'string' ||
             typeof value.chatTargetChainLabel !== 'string'))
       ) {
         return
@@ -896,12 +908,13 @@ export function HomeV2LiveApp() {
           return 'QDN app'
         }
       })()
-      const isSendChatMessage = value.action === 'SEND_CHAT_MESSAGE'
+      const isChatWrite = isHomeV2PublicChatAction(value.action)
+      const operationLabel = isChatWrite ? String(value.chatOperationLabel) : ''
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: isSendChatMessage ? 'chat.send' : 'account.public.read',
+        capability: isChatWrite ? 'chat.send' : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
@@ -915,15 +928,19 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isSendChatMessage ? 'Allow sending a chat message?' : 'Allow account access?',
-        summary: isSendChatMessage
-          ? `${appTitle} wants to send a chat message as the selected account.`
+        title: isChatWrite ? `Allow ${operationLabel.toLowerCase()}?` : 'Allow account access?',
+        summary: isChatWrite
+          ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
-        details: isSendChatMessage
+        details: isChatWrite
           ? [
               { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Operation', value: operationLabel },
               { label: 'Chain', value: String(value.chatTargetChainLabel) },
               { label: 'Message', value: String(value.chatMessagePreview) },
+              ...(typeof value.chatReference === 'string'
+                ? [{ label: 'Reference', value: value.chatReference }]
+                : []),
             ]
           : [
               { label: 'Account', value: account?.label ?? value.accountId },
@@ -1022,7 +1039,7 @@ export function HomeV2LiveApp() {
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
-      if (action === 'UNLOCK_SELECTED_ACCOUNT' || action === 'SEND_CHAT_MESSAGE') {
+      if (action === 'UNLOCK_SELECTED_ACCOUNT' || isHomeV2PublicChatAction(action)) {
         const actions = await nodeClient.requestApp(
           protocol,
           { action: 'SHOW_ACTIONS' },
@@ -1094,13 +1111,15 @@ export function HomeV2LiveApp() {
           })
         })
       }
-      if (action === 'SEND_CHAT_MESSAGE') {
-        if (!vaultClient?.sendChatMessage) throw new Error('Chat sending is unavailable on this platform.')
+      if (isHomeV2PublicChatAction(action)) {
+        if (!vaultClient?.sendChatMessage || !vaultClient.getSigningPublicKey) {
+          throw new Error('Chat sending is unavailable on this platform.')
+        }
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
         const sendRequest = isRecord(requestValue) ? requestValue : {}
-        const txGroupId = normalizeHomeV2SendTxGroupId(protocol, sendRequest.txGroupId)
-        const message = normalizeHomeV2ChatMessageText(sendRequest.message)
+        const chatRequest = normalizeHomeV2PublicChatRequest(protocol, action, sendRequest)
+        const effectiveAction = chatRequest.action
         const account = accountCatalogueRef.current.accounts.find(
           (candidate) => candidate.id === accountId,
         )
@@ -1116,14 +1135,47 @@ export function HomeV2LiveApp() {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const senderPublicKey = await vaultClient.getSigningPublicKey(accountId)
+        const validateTarget = async (expectedSenderPublicKey = senderPublicKey) => {
+          if (chatRequest.txGroupId !== 0) {
+            const group = await nodeClient.requestApp(
+              protocol,
+              { action: 'GET_GROUP', groupId: chatRequest.txGroupId },
+              context,
+            )
+            assertHomeV2OpenPublicGroup(group, chatRequest.txGroupId, targetNetwork)
+          }
+          if (!chatRequest.chatReference) return
+          normalizeHomeV2PublicChatReferenceTarget(
+            await nodeClient.requestApp(
+              protocol,
+              {
+                action: 'GET_CHAT_MESSAGE',
+                encoding: 'BASE58',
+                signature: chatRequest.chatReference,
+              },
+              context,
+            ),
+            {
+              chatReference: chatRequest.chatReference,
+              requireOriginal: true,
+              requireSenderOwnership:
+                effectiveAction === 'SEND_CHAT_EDIT' || effectiveAction === 'SEND_CHAT_DELETE',
+              senderPublicKey: expectedSenderPublicKey,
+              txGroupId: chatRequest.txGroupId,
+            },
+          )
+        }
+        await validateTarget()
         const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
-        const groupLabel = txGroupId === 0 ? 'General chat' : `Group ${txGroupId}`
+        const groupLabel = chatRequest.txGroupId === 0 ? 'General chat' : `Group ${chatRequest.txGroupId}`
+        const operationLabel = publicChatOperationLabel(effectiveAction)
         const grantKey = [
           context.tabId,
           context.resourceLocation,
           accountId,
           protocol,
-          action,
+          effectiveAction,
           account.isUnlocked,
           nodeRoute,
         ].join('|')
@@ -1179,7 +1231,7 @@ export function HomeV2LiveApp() {
           const prompt = createPermissionPrompt({
             id: requestId,
             protocol,
-            action: 'SEND_CHAT_MESSAGE',
+            action: effectiveAction,
             capability: 'chat.send',
             appId,
             appIdentityKey,
@@ -1192,12 +1244,16 @@ export function HomeV2LiveApp() {
               targetNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
-            title: 'Allow sending a chat message?',
-            summary: `${appTitle} wants to send a chat message as the selected account.`,
+            title: `Allow ${operationLabel.toLowerCase()}?`,
+            summary: `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`,
             details: [
               { label: 'Account', value: account.label },
+              { label: 'Operation', value: operationLabel },
               { label: 'Chain', value: `${targetChainLabel} · ${groupLabel}` },
-              { label: 'Message', value: message.slice(0, 180) },
+              { label: 'Message', value: chatRequest.message.slice(0, 180) },
+              ...(chatRequest.chatReference
+                ? [{ label: 'Reference', value: chatRequest.chatReference }]
+                : []),
             ],
             allowedScopes: ['single-request', 'session'],
           })
@@ -1260,11 +1316,14 @@ export function HomeV2LiveApp() {
         }
         return vaultClient.sendChatMessage({
           accountId,
+          action: effectiveAction,
+          chatReference: chatRequest.chatReference,
           isStillValid: checkChatSendStillValid,
-          message,
+          message: chatRequest.message,
           network: targetNetwork,
           nodeApiUrl: nodeBeforeSend.nodeApiUrl,
-          txGroupId,
+          txGroupId: chatRequest.txGroupId,
+          validateTarget,
         })
       }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {

@@ -1,5 +1,5 @@
-// A bounded per-(tab, account) rate limit on Home v2's SEND_CHAT_MESSAGE
-// action, shared between desktop (electron/home-v2-app-bridge.ts) and
+// A bounded per-(tab, account) rate limit on Home v2's public CHAT write
+// actions, shared between desktop (electron/home-v2-app-bridge.ts) and
 // Android (src/home-v2-live/HomeV2LiveApp.tsx) so both platforms enforce the
 // same constants (this file has no node/electron-only imports, so it bundles
 // into the renderer the same way electron/home-v2-app-actions.ts does).
@@ -10,7 +10,7 @@
 // unlimited back-to-back sends, each paying its own memory-pow cost, pegging
 // CPU and spamming the network for the tab's lifetime. This is a ceiling
 // layered ON TOP of the existing single-in-flight-PoW guard, not a
-// replacement for it, and it only ever gates SEND_CHAT_MESSAGE — reads and
+// replacement for it, and it only ever gates public CHAT writes — reads and
 // the permission prompt itself are never rate-limited.
 
 // A real person sending chat messages by hand rarely exceeds one message

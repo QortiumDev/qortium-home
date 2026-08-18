@@ -34,6 +34,16 @@ assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
   qortal: publicInfo.route,
   qortium: publicInfo.route,
 }).includes('SEND_CHAT_MESSAGE'), true)
+for (const action of ['SEND_CHAT_EDIT', 'SEND_CHAT_DELETE', 'SEND_CHAT_REACTION']) {
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  }).includes(action), true)
+}
+assert.equal(getHomeV2AvailableAppActions('qortalRequest', {
+  qortal: publicInfo.route,
+  qortium: publicInfo.route,
+}).includes('SEND_CHAT_DELETE'), true)
 
 const unreachableInfo = getHomeV2AppHostInfo({
   accountId: 'wallet:one:0',
@@ -180,6 +190,48 @@ for (const [name, source] of [
     `${name} must use the shared route-qualified host contract.`,
   )
 }
+const androidAppHost = readRepoSource('../src/home-v2-live/HomeV2LiveApp.tsx')
+const androidPlatform = readRepoSource('../src/platform.ts')
+const sharedChatActions = readRepoSource(
+  '../electron/home-v2-chat-actions.ts',
+  './home-v2-chat-actions.ts',
+)
+for (const [name, source] of [
+  ['desktop', desktopBridge],
+  ['android', androidAppHost],
+] as const) {
+  assert.equal(
+    source.includes('isHomeV2PublicChatAction(action)'),
+    true,
+    `${name} must dispatch the shared fine-grained public CHAT action family.`,
+  )
+  assert.equal(
+    source.includes('normalizeHomeV2PublicChatRequest'),
+    true,
+    `${name} must validate public CHAT requests through the shared contract.`,
+  )
+  assert.equal(
+    source.includes('normalizeHomeV2PublicChatReferenceTarget'),
+    true,
+    `${name} must attest referenced messages before revision signing.`,
+  )
+}
+for (const [name, source] of [
+  ['desktop', desktopBridge],
+  ['android', androidPlatform],
+] as const) {
+  assert.equal(
+    source.includes('buildHomeV2QortiumPublicChatBuildBody'),
+    true,
+    `${name} must use the shared Qortium CHAT build request.`,
+  )
+  assert.equal(
+    source.includes('createHomeV2UnknownChatBroadcastResult'),
+    true,
+    `${name} must preserve signed unknown broadcast outcomes.`,
+  )
+}
+assert.equal(sharedChatActions.includes("errorType: 'BROADCAST_OUTCOME_UNKNOWN'"), true)
 const desktopViewHost = readRepoSource('../electron/qdn-views.ts', './qdn-views.ts')
 const androidViewHost = readRepoSource(
   '../src/v2/shell/AppTabStage.tsx',

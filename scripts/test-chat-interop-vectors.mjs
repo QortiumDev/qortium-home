@@ -6,6 +6,11 @@ import {
   buildUnsignedQortalGroupChatTransactionBytes,
   stampQortalGroupChatNonce,
 } from '../dist-electron/qortal-chat.js';
+import { base58Decode, base58Encode } from '../dist-electron/base58.js';
+import {
+  buildHomeV2QortiumPublicChatBuildBody,
+  normalizeHomeV2PublicChatRequest,
+} from '../dist-electron/home-v2-chat-actions.js';
 import {
   loadPinnedQortalChatFixture,
   loadPinnedQortiumCoreChatFixture,
@@ -66,6 +71,29 @@ function parseQpgcMessageEnvelope(hex) {
 
 const { fixture: qortium, source: qortiumSource } = loadPinnedQortiumCoreChatFixture();
 validateQortiumCoreFixture(qortium);
+
+const qortiumRevision = qortium.chatTransactions.revision;
+const qortiumReference58 = base58Encode(hexBytes(qortiumRevision.chatReference));
+const qortiumRevisionRequest = normalizeHomeV2PublicChatRequest(
+  'qdnRequest',
+  'SEND_CHAT_EDIT',
+  {
+    chatReference: qortiumReference58,
+    message: qortiumRevision.dataUtf8,
+    txGroupId: qortiumRevision.txGroupId,
+  },
+);
+const qortiumBuildBody = buildHomeV2QortiumPublicChatBuildBody({
+  request: qortiumRevisionRequest,
+  senderPublicKey: base58Encode(hexBytes(qortium.accounts.alice.publicKey)),
+  timestamp: qortiumRevision.timestamp,
+});
+assert.equal(
+  Buffer.from(base58Decode(qortiumBuildBody.data)).toString('utf8'),
+  qortiumRevision.dataUtf8,
+  'Home Qortium revision payload bytes',
+);
+assert.equal(qortiumBuildBody.chatReference, qortiumReference58, 'Home Qortium revision reference');
 
 const qdm = parseQdm1Envelope(qortium.qdm1.envelope);
 assert.equal(qdm.associatedData, qortium.qdm1.associatedData);
@@ -135,20 +163,25 @@ for (const item of ['keyAnnouncement', 'keyRequest', 'currentKeyRequest', 'rotat
 const { fixture: qortal, source: qortalSource } = loadPinnedQortalChatFixture();
 validateQortalFixture(qortal);
 
-for (const [name, chatReference] of [
-  ['initialTransaction', null],
-  ['editTransaction', qortal.common.chatReference],
-  ['reactionTransaction', qortal.common.chatReference],
+for (const [name, action, chatReference] of [
+  ['initialTransaction', 'SEND_CHAT_MESSAGE', null],
+  ['editTransaction', 'SEND_CHAT_EDIT', qortal.common.chatReference],
+  ['reactionTransaction', 'SEND_CHAT_REACTION', qortal.common.chatReference],
 ]) {
   const payloadName = name.replace('Transaction', '');
   const expected = qortal.publicGroup[name];
-  const unsigned = buildUnsignedQortalGroupChatTransactionBytes({
-    ...(chatReference ? { chatReference: hexBytes(chatReference) } : {}),
-    lastReference: hexBytes(qortal.common.lastReference),
+  const normalized = normalizeHomeV2PublicChatRequest('qortalRequest', action, {
+    ...(chatReference ? { chatReference: base58Encode(hexBytes(chatReference)) } : {}),
     message: qortal.publicGroup.payloads[payloadName],
+    txGroupId: qortal.common.groupId,
+  });
+  const unsigned = buildUnsignedQortalGroupChatTransactionBytes({
+    ...(normalized.chatReference ? { chatReference: normalized.chatReference } : {}),
+    lastReference: hexBytes(qortal.common.lastReference),
+    message: normalized.message,
     senderPublicKey: hexBytes(qortal.accounts.alice.publicKey),
     timestamp: qortal.common.timestamp,
-    txGroupId: qortal.common.groupId,
+    txGroupId: normalized.txGroupId,
   });
   const stamped = stampQortalGroupChatNonce(unsigned, qortal.common.proofOfWorkNonce);
   assert.equal(Buffer.from(stamped).toString('hex'), expected.unsigned, `${name} unsigned bytes`);

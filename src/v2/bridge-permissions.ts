@@ -32,7 +32,10 @@ export interface PermissionPrompt {
     | 'GET_USER_ACCOUNT'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
+    | 'SEND_CHAT_DELETE'
+    | 'SEND_CHAT_EDIT'
     | 'SEND_CHAT_MESSAGE'
+    | 'SEND_CHAT_REACTION'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string
