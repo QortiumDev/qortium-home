@@ -43,11 +43,19 @@ separate durable capabilities and revision-checked mutations; see
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
+`CANCEL_GROUP_INVITE`, `ADD_GROUP_ADMIN`, `REMOVE_GROUP_ADMIN`, `GROUP_BAN`,
+`CANCEL_GROUP_BAN`, `GROUP_KICK`,
 `UPDATE_GROUP`, `SET_GROUP_AVATAR`, `SET_ACCOUNT_AVATAR`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
 `CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`, `SEND_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
+
+Home 2 exposes each group-administration mutation as its own single-request
+permission on both bridge protocols. On `qortalRequest`, stock-app names
+`BAN_FROM_GROUP` and `KICK_FROM_GROUP` are compatibility aliases for canonical
+`GROUP_BAN` and `GROUP_KICK`; they produce the same checked transaction and do
+not create separate permission capabilities.
 
 `OPEN_QDN_RESOURCE_VIEWER` and `GET_QDN_RESOURCE_STREAM_URL` are read-only and
 available in every node mode. The first opens Home's existing viewer as a

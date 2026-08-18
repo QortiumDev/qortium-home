@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable group administration
+
+Home 2 now gives QDN apps exact, separately approved invitation, join-request
+approval, invite cancellation, admin-role, kick, ban, and unban actions on
+both Qortium and Qortal. Desktop and Android build the seven underlying
+transaction types locally, attest every approved field, and use the chain's
+correct proof rule: current MemoryPoW on Qortium and a freshly rechecked fee
+and last reference on Qortal. Home verifies the current group owner or admin
+before prompting and again before signing, protects the owner from removal,
+kick, or ban, and binds every operation to the same app, tab, account, chain,
+group, member, and node route. Administrative approval is always one request;
+uncertain signed broadcasts retain their signature and are never offered as a
+safe retry. Qortal's established `BAN_FROM_GROUP` and `KICK_FROM_GROUP` names
+remain compatibility aliases for the same canonical actions, not new signing
+capabilities.
+
 ### 2026-08-18 - feat(chat): add dual-chain avatar bridge parity
 
 Home 2 now gives QDN apps dedicated account- and group-avatar reads on both

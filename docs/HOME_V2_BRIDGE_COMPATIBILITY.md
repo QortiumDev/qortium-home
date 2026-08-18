@@ -100,7 +100,7 @@ protocol or advertise a permanently reduced host implementation.
 | Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
-| Chat | Public group reads, initial/reply sends, edits, content-clearing deletes, reactions, explicit `JOIN_GROUP`/`LEAVE_GROUP` participation, and dedicated dual-chain account/group avatar reads work on both chains. Qortium participation uses Core C5 public unsigned builders plus local MemoryPoW; Qortal uses its pinned Hub-compatible transaction bytes, current fee/reference, and local signing. Closed-group joins return a join-request state, already-completed actions are idempotent, and uncertain signed broadcasts are never offered as safe retries. Avatar bytes are network-scoped, bounded, raster-validated, and never exposed as raw node URLs. The same contracts apply on desktop and Android. | Delete clears displayed content but cannot erase immutable transactions. DM/private-group crypto, invitation/moderation actions, full resources, and the later distinct RCHAT family remain deferred to the portability roadmap. |
+| Chat | Public group reads, initial/reply sends, edits, content-clearing deletes, reactions, explicit `JOIN_GROUP`/`LEAVE_GROUP` participation, exact invite/join-approval/admin/kick/ban actions, and dedicated dual-chain account/group avatar reads work on both chains. Qortium writes use local MemoryPoW; Qortal uses pinned compatible transaction bytes with current fee/reference. Group administration is single-request-only, rechecks owner/admin authority and target context before signing, and returns a non-retryable signature when broadcast status is uncertain. Avatar bytes are network-scoped, bounded, raster-validated, and never exposed as raw node URLs. The same contracts apply on desktop and Android. | Delete clears displayed content but cannot erase immutable transactions. DM/private-group crypto, full resources, and the later distinct RCHAT family remain deferred to the portability roadmap. |
 
 On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
 slice in packaged desktop and Android previews: its feed rendered, Home's
@@ -123,7 +123,7 @@ and Android fixtures pass.
 | More public reads/search | `GET_TX_ACTIVITY_SUMMARY` (an API-keyed POST that contacts foreign chains, not a bounded public read), `LINK_TO_QDN_RESOURCE` (navigation family) |
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
-| Names, groups, polls | `ADD_GROUP_ADMIN`, `BAN_FROM_GROUP`, `BUY_NAME`, `CANCEL_GROUP_BAN`, `CANCEL_GROUP_INVITE`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `INVITE_TO_GROUP`, `KICK_FROM_GROUP`, `REGISTER_NAME`, `REMOVE_GROUP_ADMIN`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
+| Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
 | QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PUBLISH_QDN_RESOURCE` |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` |
 | Wallets, payments, signing | `GET_USER_WALLET`, `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` |
@@ -136,7 +136,7 @@ The complete retained Home 1.x action-name source remains
 `electron/qdn-app-actions.ts`. Every action not listed in the implemented table
 above is deferred and unadvertised in Home 2.0. In particular this includes
 publishing/deletion, account/group/name/poll/rating mutations other than the
-implemented join/leave actions, payments,
+implemented participation and exact group-administration actions, payments,
 foreign wallets, private chat, Home/node settings writes, bookmarks,
 notifications, downloads/viewers, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by

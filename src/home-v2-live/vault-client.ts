@@ -74,6 +74,47 @@ export interface HomeV2GroupMembershipResult {
   readonly transactionSignature?: string
 }
 
+export interface HomeV2GroupAdminMutationRequest {
+  readonly accountId: string
+  readonly action:
+    | 'APPROVE_GROUP_JOIN_REQUEST'
+    | 'INVITE_TO_GROUP'
+    | 'CANCEL_GROUP_INVITE'
+    | 'ADD_GROUP_ADMIN'
+    | 'REMOVE_GROUP_ADMIN'
+    | 'GROUP_BAN'
+    | 'CANCEL_GROUP_BAN'
+    | 'GROUP_KICK'
+  readonly groupId: number
+  readonly groupName: string
+  readonly memberAddress: string
+  readonly ownerAddress: string
+  readonly reason: string
+  readonly timeToLive: number
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly validateTarget?: () => Promise<void>
+}
+
+export interface HomeV2GroupAdminMutationResult {
+  readonly accepted: boolean
+  readonly action: HomeV2GroupAdminMutationRequest['action']
+  readonly changed?: boolean
+  readonly error?: string
+  readonly errorType?: string
+  readonly groupId: number
+  readonly groupName: string
+  readonly memberAddress: string
+  readonly network: 'qortal' | 'qortium'
+  readonly outcome?: 'unknown'
+  readonly retryable?: false
+  readonly signature?: string
+  readonly timestamp?: number
+  readonly transactionSignature?: string
+  readonly wireAction: string
+}
+
 export interface HomeV2VaultClient {
   addAddress(accountId: string): Promise<HomeV2VaultState>
   create(request: HomeV2CreateAccountRequest): Promise<{ canceled: boolean; state: HomeV2VaultState }>
@@ -100,6 +141,7 @@ export interface HomeV2VaultClient {
   // HomeV2LiveApp.tsx, which never receives requests on desktop (desktop's
   // public CHAT writes are handled by electron/home-v2-app-bridge.ts directly).
   sendChatMessage?(request: HomeV2SendChatMessageRequest): Promise<HomeV2SendChatMessageResult>
+  sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
   updateSecurity(request: {
