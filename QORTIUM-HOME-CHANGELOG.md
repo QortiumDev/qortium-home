@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable Qortium private groups
+
+Home 2 now gives QDN apps a portable Qortium private-group chat family on
+desktop and Android through local, custom, and public nodes. Home reads Core's
+atomic group state and bounded signed control records, independently verifies
+the outer CHAT and inner QPGC signatures, recovers or relays recipient-wrapped
+keys, rotates group keys, and encrypts/decrypts retained messages without
+giving an app any reusable key or private wallet material. Send, edit,
+content-clearing delete, reaction, key-request, key-relay, and rotation actions
+all build and attest the exact unsigned CHAT transaction before local
+MemoryPoW/signing; account, membership epoch, reference, route, app, and tab
+context are rechecked before broadcast. Encrypted account-bound key records are
+stored with bounded owner-only desktop files or bounded Android preferences,
+purged with the corresponding account, recoverable after a same-identity wallet
+re-import, and exercised against Core's byte-exact QPGC fixture. This completes
+the Qortium half of H4; Qortal's
+separate private-bundle and `encryptSingle` lifecycle remains the next Home
+tranche.
+
 ### 2026-08-18 - feat(chat): add portable dual-chain direct messages
 
 Home 2 now gives QDN apps separately named direct-message history, active-chat,

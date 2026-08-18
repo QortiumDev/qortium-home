@@ -69,6 +69,18 @@ attestation, signing, and broadcast inside the trusted host. Apps receive
 plaintext rows or per-row failures but never a private key, shared secret, or
 reusable decryption key.
 
+Home 2 exposes the Qortium QPGC private-group family on `qdnRequest`:
+`GET_PRIVATE_GROUP_ACTIVE_CHATS`, `GET_PRIVATE_GROUP_CHAT_STATE`,
+`SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`, `REQUEST_PRIVATE_GROUP_CHAT_KEY`,
+`RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY`,
+`SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`,
+`SEND_PRIVATE_GROUP_CHAT_DELETE`, and `SEND_PRIVATE_GROUP_CHAT_REACTION`.
+Home verifies Core's signed control records, owns key recovery, relay, rotation,
+encryption, decryption, MemoryPoW, signing, and encrypted account-bound key
+persistence. Apps receive plaintext rows or explicit missing-key failures but
+never group keys. The Qortal private-group family is intentionally not
+advertised until its distinct bundle and `encryptSingle` implementation lands.
+
 `OPEN_QDN_RESOURCE_VIEWER` and `GET_QDN_RESOURCE_STREAM_URL` are read-only and
 available in every node mode. The first opens Home's existing viewer as a
 tab-scoped overlay; the second returns a host-safe ranged URL for inline
@@ -278,10 +290,12 @@ to `PREVIEW_QDN_PUBLISH_SOURCE`.
 
 Publish/delete, group, and name write requests require
 per-request approval before Home signs and processes the transaction with the
-selected tab account. Chat sends and private closed-group reads use a
-session-scoped approval for the current tab and selected account; direct private
-chat sends and reads use Core-managed direct-message helpers so QDN apps never
-receive wallet private keys or generic signing capability.
+selected tab account. Public/private chat sends use their scoped chat approval;
+private-group key request, relay, and rotation are always single-request.
+Private-group and direct reads may use a tab-session grant for the exact
+account, conversation, route, and app identity. Home performs the crypto and
+signing locally so QDN apps never receive wallet private keys, reusable chat
+keys, or generic signing capability.
 
 ## `SEND_MESSAGE` (AT contracts only)
 

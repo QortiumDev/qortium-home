@@ -254,7 +254,7 @@ and signing remain local even when the node is authenticated.
 | H1 | Public-group revisions and route-independent send parity | Implemented | H0 |
 | H2 | Portable group participation, administration, and avatar/identity parity | Complete: H2A join/leave, H2B avatar reads, and H2C exact administration actions implemented | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Implemented in Home; end-to-end Chat integration and route matrix remain | H0-H1; Core C0/C2 |
-| H4 | Qortium and Qortal private groups | Planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
+| H4 | Qortium and Qortal private groups | In progress: H4A Qortium implemented; H4B Qortal planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Planned | H0; Qortal publish proof |
 | H6 | Private attachments | Blocked/deferred | Core C6 plus Qortal DM/file vectors |
 | H7 | Notification, restart/node-switch, and full matrix completion | Planned throughout; closes last | H0-H6 as applicable |
@@ -491,6 +491,11 @@ Home clean-room implements the legacy protocol from frozen vectors:
 
 ## H4 — Private groups on both chains
 
+Implementation is split deliberately because the two chains do not share a
+private-group wire format. H4A, the Qortium QPGC v1 lifecycle, is implemented
+on both Home host surfaces. H4B, the Qortal private-bundle/`encryptSingle`
+lifecycle, remains before H4 can be marked complete.
+
 ### Qortium QPGC v1
 
 Home consumes Core C0-C4 and owns the portable lifecycle:
@@ -688,21 +693,24 @@ separate ceremonial acceptance phase.
    with shared desktop/Android bounds and no cross-chain fallback.
 6. **H2C group administration — implemented:** exact invitation, request approval,
    kick/ban, and admin-role primitives, each with its own permission contract.
-7. **H3 direct messages:** QDM1 and Qortal legacy-DM crypto/read/send/revision
-   families.
-8. **H4 private groups:** portable QPGC plus Qortal bundle/`encryptSingle`
-   lifecycles and secure key persistence.
-9. **H5 public resources:** dual-chain viewer/stream/save/source/publish and
+7. **H3 direct messages — implemented:** QDM1 and Qortal legacy-DM
+   crypto/read/send/revision families.
+8. **H4A Qortium private groups — implemented:** portable QPGC state,
+   control verification, recovery/relay/rotation, encrypted key persistence,
+   and private-message read/send/revision families on desktop and Android.
+9. **H4B Qortal private groups:** bundle discovery/publication plus compatible
+   old/new `encryptSingle` lifecycles and secure key persistence.
+10. **H5 public resources:** dual-chain viewer/stream/save/source/publish and
    public attachment parity.
-10. **H6 private attachments:** resume Core C6, then add Home encrypted
+11. **H6 private attachments:** resume Core C6, then add Home encrypted
    attachment flows.
-11. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
+12. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-H3 direct-message parity is now implemented in Home on both host surfaces.
-The next Home implementation milestone is H4 private-group crypto, after the
-corresponding Chat H3 adapter consumes these actions and completes the
-end-to-end desktop/Android route matrix. H1 added public edit,
+H3 direct-message parity and H4A Qortium QPGC are now implemented in Home on
+both host surfaces. The next Home implementation milestone is H4B Qortal
+private groups; Chat integration remains intentionally after the Home bridge
+families are complete. H1 added public edit,
 content-clearing delete, and reaction on both chains; H2A added portable
 join/leave, H2B added avatar-read parity, and H2C completed separately
 permissioned group administration.

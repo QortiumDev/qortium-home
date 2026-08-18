@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
+import nacl from 'tweetnacl'
 import {
   getHomeV2AppNodeState,
   getHomeV2ReadableNode,
@@ -64,6 +65,34 @@ import {
   type HomeV2DirectChatWriteAction,
   type HomeV2DirectChatWriteRequest,
 } from './home-v2-direct-chat-contract.js'
+import {
+  computeQpgcKeyId,
+  createQpgcKeyAnnouncement,
+  createQpgcKeyRequest,
+  decryptQpgcMessage,
+  decryptQpgcStoredKey,
+  encryptQpgcMessage,
+  encryptQpgcStoredKey,
+  parseQpgcEnvelope,
+  serializeQpgcEnvelope,
+  unwrapQpgcAnnouncementForRecipient,
+  type EncryptedQpgcStoredKey,
+} from './home-v2-private-group-chat-actions.js'
+import {
+  isHomeV2PrivateGroupChatReadAction,
+  isHomeV2PrivateGroupChatWriteAction,
+  normalizeHomeV2PrivateGroupChatReadRequest,
+  normalizeHomeV2PrivateGroupChatWriteRequest,
+  normalizeHomeV2QpgcControlPage,
+  normalizeHomeV2QpgcGroupState,
+  type HomeV2PrivateGroupChatReadAction,
+  type HomeV2PrivateGroupChatWriteAction,
+  type HomeV2QpgcGroupState,
+} from './home-v2-private-group-chat-contract.js'
+import {
+  findEncryptedQpgcKeyRecords,
+  upsertEncryptedQpgcKeyRecord,
+} from './home-v2-private-group-key-store.js'
 import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
@@ -155,6 +184,7 @@ const CHAT_WRITE_TIMEOUT_MS = 30_000
 // read-only actions (readBoundedResponse / HOME_V2_APP_LIMITS.responseBytes).
 const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024
 const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024
+const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 
 type AccountReadAction =
   | 'GET_SELECTED_ACCOUNT'
@@ -166,6 +196,8 @@ type AccountReadAction =
   | 'SEND_CHAT_MESSAGE'
   | 'SEND_CHAT_REACTION'
   | HomeV2DirectChatWriteAction
+  | HomeV2PrivateGroupChatReadAction
+  | HomeV2PrivateGroupChatWriteAction
   | 'JOIN_GROUP'
   | 'LEAVE_GROUP'
   | HomeV2GroupAdminAction
@@ -283,6 +315,15 @@ async function requireAccountReadPermission(
     readonly reason?: string
     readonly singleRequestOnly?: boolean
     readonly timeToLive?: number
+  } | {
+    readonly kind: 'private-group'
+    readonly targetChainLabel: string
+    readonly groupId: number
+    readonly messagePreview?: string
+    readonly operationLabel: string
+    readonly routeLabel: string
+    readonly singleRequestOnly?: boolean
+    readonly chatReference?: string | null
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -305,14 +346,14 @@ async function requireAccountReadPermission(
       accountUnlocked,
       nodeRoute,
     ),
-    writeDetails?.kind === 'group'
+    writeDetails?.kind === 'group' || writeDetails?.kind === 'private-group'
       ? `group:${writeDetails.groupId}`
       : writeDetails?.kind === 'direct'
         ? `direct:${writeDetails.otherAddress}`
         : '',
   ].join('|')
   const singleRequestOnly =
-    (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct') &&
+    (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
   const hostWindow = BrowserWindow.fromId(context.windowId)
@@ -382,6 +423,17 @@ async function requireAccountReadPermission(
               writeSingleRequestOnly: writeDetails.singleRequestOnly === true,
               writeTimeToLive: writeDetails.timeToLive,
             }
+          : writeDetails?.kind === 'private-group'
+            ? {
+                writeKind: 'private-group',
+                chatGroupId: writeDetails.groupId,
+                chatMessagePreview: writeDetails.messagePreview ?? null,
+                chatReference: writeDetails.chatReference ?? null,
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: writeDetails.singleRequestOnly === true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
           : {}),
     })
   })
@@ -1272,6 +1324,641 @@ async function readHomeV2DirectChatAction(
   }
 }
 
+function qpgcOperationLabel(action: HomeV2PrivateGroupChatReadAction | HomeV2PrivateGroupChatWriteAction) {
+  if (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') return 'Read active private-group chats'
+  if (action === 'GET_PRIVATE_GROUP_CHAT_STATE') return 'Read private-group chat state'
+  if (action === 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES') return 'Read private-group chat history'
+  if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') return 'Request a private-group chat key'
+  if (action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') return 'Relay private-group chat keys'
+  if (action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY') return 'Rotate a private-group chat key'
+  if (action === 'SEND_PRIVATE_GROUP_CHAT_EDIT') return 'Edit a private-group message'
+  if (action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') return 'Clear private-group message content'
+  if (action === 'SEND_PRIVATE_GROUP_CHAT_REACTION') return 'React in a private group'
+  return 'Send a private-group message'
+}
+
+function encodeBase64Bytes(value: Uint8Array) {
+  return Buffer.from(value).toString('base64')
+}
+
+function decodeCanonicalBase64(value: unknown, label: string) {
+  if (typeof value !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error(`${label} is not canonical Base64.`)
+  }
+  const bytes = Uint8Array.from(Buffer.from(value, 'base64'))
+  if (encodeBase64Bytes(bytes) !== value) throw new Error(`${label} is not canonical Base64.`)
+  return bytes
+}
+
+async function readHomeV2QpgcState(nodeApiUrl: string, groupId: number, apiKey = '') {
+  return normalizeHomeV2QpgcGroupState(
+    await readHomeV2ChatJson(
+      nodeApiUrl,
+      `/chat/private/group/state/${encodeURIComponent(String(groupId))}`,
+      'Private-group state lookup',
+      apiKey,
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+    groupId,
+  )
+}
+
+async function readHomeV2QpgcControls(input: {
+  readonly apiKey?: string
+  readonly beforeCursor?: string
+  readonly epochId?: Uint8Array
+  readonly groupId: number
+  readonly keyId?: Uint8Array
+  readonly limit?: number
+  readonly nodeApiUrl: string
+  readonly state?: HomeV2QpgcGroupState
+  readonly types: readonly ('KEY_ANNOUNCEMENT' | 'KEY_REQUEST' | 'ROTATION_REQUEST')[]
+}) {
+  const query = new URLSearchParams({
+    limit: String(input.limit ?? 100),
+    txGroupId: String(input.groupId),
+    types: input.types.join(','),
+  })
+  if (input.beforeCursor) query.set('beforeCursor', input.beforeCursor)
+  if (input.epochId) query.set('epochId', base58Encode(input.epochId))
+  if (input.keyId) query.set('keyId', base58Encode(input.keyId))
+  return normalizeHomeV2QpgcControlPage(
+    await readHomeV2ChatJson(
+      input.nodeApiUrl,
+      `/chat/private/group/control?${query.toString()}`,
+      'Private-group control lookup',
+      input.apiKey ?? '',
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+    input.groupId,
+    input.state,
+  )
+}
+
+function qpgcStoredRecords(input: {
+  readonly accountId: string
+  readonly accountPublicKey: Uint8Array
+  readonly epochId?: Uint8Array
+  readonly groupId: number
+  readonly keyId?: Uint8Array
+}) {
+  return findEncryptedQpgcKeyRecords({
+    accountId: input.accountId,
+    accountPublicKey: encodeBase64Bytes(input.accountPublicKey),
+    ...(input.epochId ? { epochId: encodeBase64Bytes(input.epochId) } : {}),
+    groupId: input.groupId,
+    ...(input.keyId ? { keyId: encodeBase64Bytes(input.keyId) } : {}),
+    userData: app.getPath('userData'),
+  })
+}
+
+async function decryptQpgcRecords(
+  records: readonly EncryptedQpgcStoredKey[],
+  secretKey: Uint8Array,
+) {
+  const decrypted = []
+  for (const record of records) {
+    try {
+      decrypted.push(await decryptQpgcStoredKey({ record, selectedAccountSecretKey: secretKey }))
+    } catch {
+      // A damaged or foreign ciphertext record is ignored and never returned to
+      // the app. A valid retained announcement can repair it below.
+    }
+  }
+  return decrypted
+}
+
+async function persistQpgcKey(input: {
+  readonly accountId: string
+  readonly epochId: Uint8Array
+  readonly groupId: number
+  readonly groupKey: Uint8Array
+  readonly keyId: Uint8Array
+  readonly secretKey: Uint8Array
+}) {
+  upsertEncryptedQpgcKeyRecord(await encryptQpgcStoredKey({
+    epochId: input.epochId,
+    groupId: input.groupId,
+    groupKey: input.groupKey,
+    keyId: input.keyId,
+    selectedAccountSecretKey: input.secretKey,
+  }), input.accountId, app.getPath('userData'))
+}
+
+async function resolveHomeV2QpgcKey(input: {
+  readonly accountId: string
+  readonly apiKey: string
+  readonly epochId: Uint8Array
+  readonly groupId: number
+  readonly keyId?: Uint8Array
+  readonly nodeApiUrl: string
+  readonly secretKey: Uint8Array
+  readonly state?: HomeV2QpgcGroupState
+}) {
+  const accountPublicKey = nacl.sign.keyPair.fromSecretKey(input.secretKey).publicKey
+  const stored = await decryptQpgcRecords(qpgcStoredRecords({
+    accountId: input.accountId,
+    accountPublicKey,
+    epochId: input.epochId,
+    groupId: input.groupId,
+    ...(input.keyId ? { keyId: input.keyId } : {}),
+  }), input.secretKey)
+  if (stored.length) return stored[stored.length - 1]
+  const page = await readHomeV2QpgcControls({
+    apiKey: input.apiKey,
+    epochId: input.epochId,
+    groupId: input.groupId,
+    ...(input.keyId ? { keyId: input.keyId } : {}),
+    nodeApiUrl: input.nodeApiUrl,
+    state: input.state,
+    types: ['KEY_ANNOUNCEMENT'],
+  })
+  for (const control of page.controls) {
+    if (control.envelope.type !== 'KEY_ANNOUNCEMENT') continue
+    try {
+      const groupKey = await unwrapQpgcAnnouncementForRecipient({
+        announcement: control.envelope,
+        ...(input.state && control.envelope.epochId.every((value, index) => value === input.state!.epochId[index])
+          ? { memberPublicKeys: input.state.memberPublicKeys }
+          : {}),
+        recipientSecretKey: input.secretKey,
+      })
+      const result = {
+        epochId: control.envelope.epochId,
+        groupKey,
+        keyId: control.envelope.keyId,
+      }
+      await persistQpgcKey({ accountId: input.accountId, ...result, groupId: input.groupId, secretKey: input.secretKey })
+      return result
+    } catch {
+      // Continue through bounded retained announcements until one valid wrapper
+      // for the selected account is found.
+    }
+  }
+  return null
+}
+
+async function validateHomeV2QpgcReference(input: {
+  readonly action: HomeV2PrivateGroupChatWriteAction
+  readonly apiKey: string
+  readonly chatReference: string | null
+  readonly groupId: number
+  readonly nodeApiUrl: string
+  readonly senderPublicKey: string
+}) {
+  if (!input.chatReference) return
+  const value = await readHomeV2ChatJson(
+    input.nodeApiUrl,
+    `/chat/message/${encodeURIComponent(input.chatReference)}?encoding=BASE58`,
+    'Referenced private-group message lookup',
+    input.apiKey,
+  )
+  if (!isHomeV2AppRecord(value) || value.signature !== input.chatReference || Number(value.txGroupId) !== input.groupId) {
+    throw new Error('Referenced private-group message belongs to a different conversation.')
+  }
+  if (value.recipient !== null && value.recipient !== undefined && value.recipient !== '') {
+    throw new Error('Referenced private-group message unexpectedly has a recipient.')
+  }
+  if (value.isEncrypted !== true || value.isText !== true || value.chatReference) {
+    throw new Error('Private-group revisions must reference one original encrypted group message.')
+  }
+  if (
+    (input.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' || input.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') &&
+    value.senderPublicKey !== input.senderPublicKey
+  ) throw new Error('Only the original sender can edit or clear a private-group message.')
+}
+
+async function sendHomeV2QpgcEnvelope(input: {
+  readonly apiKey: string
+  readonly chatReference: string | null
+  readonly envelope: Uint8Array
+  readonly groupId: number
+  readonly isStillValid: () => boolean | Promise<boolean>
+  readonly nodeApiUrl: string
+  readonly signingKey: HomeV2ChatSigningKey
+  readonly validateTarget: () => Promise<void>
+}) {
+  const timestamp = Date.now()
+  const buildRequest = {
+    ...(input.chatReference ? { chatReference: input.chatReference } : {}),
+    data: base58Encode(input.envelope),
+    fee: 0,
+    isEncrypted: true,
+    isText: true,
+    senderPublicKey: input.signingKey.publicKey58,
+    timestamp,
+    txGroupId: input.groupId,
+  }
+  const unsignedBytes = base58Decode(await postHomeV2ChatText(
+    input.nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify(buildRequest),
+    'application/json',
+    'Private-group CHAT build failed.',
+    input.apiKey,
+  ))
+  assertPublicChatTransaction(unsignedBytes, {
+    ...(input.chatReference ? { chatReference: base58Decode(input.chatReference) } : {}),
+    data: input.envelope,
+    encrypted: true,
+    publicKey: base58Decode(input.signingKey.publicKey58),
+    timestamp,
+    txGroupId: input.groupId,
+  })
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, QORTIUM_CHAT_POW_DIFFICULTY, input.isStillValid)
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before private-group submission.')
+  await input.validateTarget()
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before private-group submission.')
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, input.signingKey.secretKey)
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+  try {
+    await postHomeV2ChatText(
+      input.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      'text/plain',
+      'Private-group CHAT transaction processing failed.',
+      input.apiKey,
+    )
+    return { signature, timestamp }
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp)
+  }
+}
+
+function qpgcMessageFailure(row: Record<string, unknown>, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  let epochId: string | null = null
+  let keyId: string | null = null
+  try {
+    if (typeof row.data === 'string') {
+      const envelope = parseQpgcEnvelope(decodeCanonicalBase64(row.data, 'Encrypted private-group data'))
+      epochId = base58Encode(envelope.epochId)
+      keyId = 'keyId' in envelope && envelope.keyId ? base58Encode(envelope.keyId) : null
+    }
+  } catch {
+    // Preserve a safe MISSING_KEY/FAILED row without exposing malformed bytes.
+  }
+  return {
+    ...row,
+    data: null,
+    decryptionError: message,
+    epochId,
+    keyId,
+    status: /key is not available|no private-group key/i.test(message) ? 'MISSING_KEY' : 'FAILED',
+  }
+}
+
+async function decryptHomeV2QpgcRows(input: {
+  readonly accountId: string
+  readonly apiKey: string
+  readonly encoding: 'BASE58' | 'BASE64'
+  readonly groupId: number
+  readonly nodeApiUrl: string
+  readonly rows: readonly unknown[]
+  readonly secretKey: Uint8Array
+  readonly state: HomeV2QpgcGroupState
+}) {
+  const results = []
+  const keys = new Map<string, Awaited<ReturnType<typeof resolveHomeV2QpgcKey>>>()
+  for (const value of input.rows.slice(0, 100)) {
+    if (!isHomeV2AppRecord(value)) continue
+    try {
+      if (value.txGroupId !== input.groupId || value.isEncrypted !== true || value.isText !== true) {
+        throw new Error('Private-group row is not encrypted text for the approved group.')
+      }
+      if (value.recipient !== null && value.recipient !== undefined && value.recipient !== '') {
+        throw new Error('Private-group row unexpectedly has a recipient.')
+      }
+      const envelope = parseQpgcEnvelope(decodeCanonicalBase64(value.data, 'Encrypted private-group data'))
+      if (envelope.type !== 'MESSAGE' || envelope.groupId !== input.groupId) {
+        throw new Error('Private-group row is not a QPGC message envelope for the approved group.')
+      }
+      const keyIdentity = `${base58Encode(envelope.epochId)}|${base58Encode(envelope.keyId)}`
+      if (!keys.has(keyIdentity)) {
+        keys.set(keyIdentity, await resolveHomeV2QpgcKey({
+          accountId: input.accountId,
+          apiKey: input.apiKey,
+          epochId: envelope.epochId,
+          groupId: input.groupId,
+          keyId: envelope.keyId,
+          nodeApiUrl: input.nodeApiUrl,
+          secretKey: input.secretKey,
+          state: input.state,
+        }))
+      }
+      const key = keys.get(keyIdentity)
+      if (!key) throw new Error('Private-group key is not available in retained announcements.')
+      const plaintext = await decryptQpgcMessage({ envelope, groupKey: key.groupKey })
+      results.push({
+        ...value,
+        data: input.encoding === 'BASE58' ? base58Encode(plaintext) : encodeBase64Bytes(plaintext),
+        encoding: input.encoding,
+        epochId: base58Encode(envelope.epochId),
+        keyId: base58Encode(envelope.keyId),
+        status: 'DECRYPTED',
+      })
+    } catch (error) {
+      results.push(qpgcMessageFailure(value, error))
+    }
+  }
+  for (const key of keys.values()) key?.groupKey.fill(0)
+  return results
+}
+
+async function readHomeV2PrivateGroupChatAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2PrivateGroupChatReadAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2PrivateGroupChatReadRequest(protocol, action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network: 'qortium',
+    retryable: false,
+    ...(request.groupId ? { target: { kind: 'group' as const, groupId: request.groupId } } : {}),
+  })
+  const node = await getHomeV2ReadableNode('qortium')
+  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'private-group',
+    groupId: request.groupId ?? 0,
+    operationLabel: qpgcOperationLabel(action),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    targetChainLabel: 'Qortium',
+  })
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account changed before private-group decryption.')
+  }
+  try {
+    if (action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
+      return await readHomeV2QpgcState(node.nodeApiUrl, request.groupId as number, apiKey)
+    }
+    const groupsValue = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+      ? await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/groups/member/${encodeURIComponent(profile.address)}?limit=${request.limit}&reverse=true`,
+          'Private-group membership lookup',
+          apiKey,
+        )
+      : null
+    const groupIds = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+      ? (Array.isArray(groupsValue) ? groupsValue : []).flatMap((value) =>
+          isHomeV2AppRecord(value) && value.isOpen === false && Number.isSafeInteger(Number(value.groupId))
+            ? [Number(value.groupId)]
+            : [],
+        )
+      : [request.groupId as number]
+    const results = []
+    for (const groupId of groupIds.slice(0, request.limit)) {
+      const state = await readHomeV2QpgcState(node.nodeApiUrl, groupId, apiKey)
+      const query = new URLSearchParams({
+        encoding: 'BASE64',
+        limit: action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ? '1' : String(request.limit),
+        reverse: 'true',
+        txGroupId: String(groupId),
+      })
+      if (request.before !== undefined) query.set('before', String(request.before))
+      const rows = await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/chat/messages?${query.toString()}`,
+        'Encrypted private-group message lookup',
+        apiKey,
+        PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+      )
+      const decrypted = await decryptHomeV2QpgcRows({
+        accountId,
+        apiKey,
+        encoding: request.encoding,
+        groupId,
+        nodeApiUrl: node.nodeApiUrl,
+        rows: Array.isArray(rows) ? rows : [],
+        secretKey: signingKey.secretKey,
+        state,
+      })
+      if (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') {
+        results.push(decrypted[0] ?? { groupId, status: 'NO_MESSAGES' })
+      } else {
+        results.push(...decrypted)
+      }
+    }
+    const freshContext = getQdnViewContextForWebContents(sender)
+    const nodeNow = await getHomeV2ReadableNode('qortium').catch(() => null)
+    if (
+      !freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext) ||
+      !isAccountUnlocked(accountId) || !nodeNow || `${nodeNow.mode}|${nodeNow.nodeApiUrl}` !== nodeRoute
+    ) throw new Error('Private-group read context changed before decryption completed.')
+    return results
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
+async function sendHomeV2PrivateGroupChatAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2PrivateGroupChatWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2PrivateGroupChatWriteRequest(protocol, action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network: 'qortium',
+    retryable: false,
+    target: { kind: 'group', groupId: request.groupId },
+  })
+  const node = await getHomeV2ReadableNode('qortium')
+  const apiKey = await getHomeV2TrustedWriteApiKey('qortium', node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const state = await readHomeV2QpgcState(node.nodeApiUrl, request.groupId, apiKey)
+  const publicKey58 = getAccountSigningPublicKey(accountId)
+  const publicKey = base58Decode(publicKey58)
+  if (!state.memberPublicKeys.some((member) => member.every((value, index) => value === publicKey[index]))) {
+    throw createHomeV2BridgeError('The selected account is not a current member of this private group.', {
+      action,
+      code: 'NOT_GROUP_MEMBER',
+      network: 'qortium',
+      retryable: false,
+      target: { kind: 'group', groupId: request.groupId },
+    })
+  }
+  const singleRequestOnly = action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY' ||
+    action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS' ||
+    action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'private-group',
+    chatReference: request.chatReference,
+    groupId: request.groupId,
+    messagePreview: request.message?.slice(0, 180),
+    operationLabel: qpgcOperationLabel(action),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    singleRequestOnly,
+    targetChainLabel: 'Qortium',
+  })
+  if (!singleRequestOnly) {
+    const decision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+    if (!decision.allowed) throw new Error(decision.message)
+  }
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address || signingKey.publicKey58 !== publicKey58) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account changed before private-group signing.')
+  }
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode('qortium').catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  const validateState = async () => {
+    const current = await readHomeV2QpgcState(node.nodeApiUrl, request.groupId, apiKey)
+    if (!current.epochId.every((value, index) => value === state.epochId[index])) {
+      throw new Error('Private-group membership changed before signing.')
+    }
+    await validateHomeV2QpgcReference({
+      action,
+      apiKey,
+      chatReference: request.chatReference,
+      groupId: request.groupId,
+      nodeApiUrl: node.nodeApiUrl,
+      senderPublicKey: signingKey.publicKey58,
+    })
+  }
+  let persistedGroupKey: Uint8Array | null = null
+  try {
+    let envelopes: Uint8Array[] = []
+    if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
+      envelopes = [createQpgcKeyRequest({
+        epochId: request.epochId ? base58Decode(request.epochId) : state.epochId,
+        groupId: request.groupId,
+        keyId: request.keyId ? base58Decode(request.keyId) : null,
+        requesterSecretKey: signingKey.secretKey,
+      })]
+    } else if (action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') {
+      const requests = await readHomeV2QpgcControls({
+        apiKey,
+        groupId: request.groupId,
+        limit: request.limit,
+        nodeApiUrl: node.nodeApiUrl,
+        state,
+        types: ['KEY_REQUEST'],
+      })
+      const relayed = new Set<string>()
+      for (const control of requests.controls) {
+        if (control.envelope.type !== 'KEY_REQUEST') continue
+        const requesterPublicKey = control.envelope.requesterPublicKey
+        const announcements = await readHomeV2QpgcControls({
+          apiKey,
+          epochId: control.envelope.epochId,
+          groupId: request.groupId,
+          ...(control.envelope.keyId ? { keyId: control.envelope.keyId } : {}),
+          limit: 100,
+          nodeApiUrl: node.nodeApiUrl,
+          state,
+          types: ['KEY_ANNOUNCEMENT'],
+        })
+        const match = announcements.controls.find((candidate) =>
+          candidate.envelope.type === 'KEY_ANNOUNCEMENT' &&
+          candidate.envelope.wrappers.some((wrapper) => wrapper.recipientPublicKey.every(
+            (value, index) => value === requesterPublicKey[index],
+          )))
+        if (match?.envelope.type === 'KEY_ANNOUNCEMENT') {
+          const identity = base58Encode(match.signature)
+          if (!relayed.has(identity)) {
+            relayed.add(identity)
+            envelopes.push(new Uint8Array(
+              // Relay the exact inner announcement; its creator signature remains
+              // valid while the outer CHAT is signed by the current relayer.
+              serializeQpgcEnvelope(match.envelope),
+            ))
+          }
+        }
+      }
+    } else if (action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY') {
+      persistedGroupKey = new Uint8Array(randomBytes(32))
+      envelopes = [await createQpgcKeyAnnouncement({
+        announcerSecretKey: signingKey.secretKey,
+        epochId: state.epochId,
+        groupId: request.groupId,
+        groupKey: persistedGroupKey,
+        memberPublicKeys: state.memberPublicKeys,
+      })]
+    } else {
+      const key = await resolveHomeV2QpgcKey({
+        accountId,
+        apiKey,
+        epochId: state.epochId,
+        groupId: request.groupId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        state,
+      })
+      if (!key) throw createHomeV2BridgeError('No private-group key is available. Request or rotate the key first.', {
+        action,
+        code: 'MISSING_GROUP_KEY',
+        network: 'qortium',
+        retryable: false,
+        target: { kind: 'group', groupId: request.groupId },
+      })
+      try {
+        envelopes = [await encryptQpgcMessage({
+          epochId: key.epochId,
+          groupId: request.groupId,
+          groupKey: key.groupKey,
+          keyId: key.keyId,
+          nonce: new Uint8Array(randomBytes(12)),
+          plaintext: new TextEncoder().encode(request.message as string),
+        })]
+      } finally {
+        key.groupKey.fill(0)
+      }
+    }
+    if (envelopes.length === 0) return { accepted: true, relayed: 0 }
+    const results = []
+    for (const envelope of envelopes.slice(0, request.limit)) {
+      results.push(await sendHomeV2QpgcEnvelope({
+        apiKey,
+        chatReference: request.chatReference,
+        envelope,
+        groupId: request.groupId,
+        isStillValid,
+        nodeApiUrl: node.nodeApiUrl,
+        signingKey,
+        validateTarget: validateState,
+      }))
+    }
+    if (persistedGroupKey) {
+      const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey)
+      await persistQpgcKey({
+        accountId,
+        epochId: state.epochId,
+        groupId: request.groupId,
+        groupKey: persistedGroupKey,
+        keyId,
+        secretKey: signingKey.secretKey,
+      })
+    }
+    return results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results }
+  } finally {
+    persistedGroupKey?.fill(0)
+    signingKey.secretKey.fill(0)
+  }
+}
+
 function membershipOperationLabel(action: HomeV2GroupMembershipAction) {
   return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group'
 }
@@ -1990,6 +2677,12 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2DirectChatReadAction(action)) {
     return readHomeV2DirectChatAction(sender, context, protocol, network, action, requestValue)
+  }
+  if (isHomeV2PrivateGroupChatWriteAction(action)) {
+    return sendHomeV2PrivateGroupChatAction(sender, context, protocol, action, requestValue)
+  }
+  if (isHomeV2PrivateGroupChatReadAction(action)) {
+    return readHomeV2PrivateGroupChatAction(sender, context, protocol, action, requestValue)
   }
   if (isHomeV2GroupMembershipAction(action)) {
     return sendHomeV2GroupMembershipAction(sender, context, protocol, network, action, requestValue)
