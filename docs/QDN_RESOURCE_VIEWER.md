@@ -1,12 +1,13 @@
 # QDN resource viewing and streaming
 
-Home 1.6.2 adds two read-only, app-neutral bridge actions. Q-Apps should
-feature-detect both through `SHOW_ACTIONS`; older Home versions do not advertise
-them.
+Home 2 exposes read-only, app-neutral resource actions through both
+`qdnRequest` and `qortalRequest`. Q-Apps should feature-detect them through
+`SHOW_ACTIONS`; the invoked global is the authoritative network and Home never
+falls back to the other chain.
 
 ## Open a resource in Home's viewer
 
-`OPEN_QDN_RESOURCE_VIEWER` opens Home's existing tab-scoped `QdnViewer` over
+`OPEN_QDN_RESOURCE_VIEWER` opens Home's tab-scoped public-resource viewer over
 the Q-App that requested it:
 
 ```js
@@ -26,11 +27,12 @@ await qdnRequest({
 the correct viewer when a generic service such as `FILE` or `ATTACHMENT` was
 used. Home still verifies the resource and its resolved properties.
 
-The action supports public QDN resource services handled by `QdnViewer`,
-including images, audio/video, documents, text, Markdown/HTML, code, CSV, JSON,
-galleries, archives, and repositories. `APP`, `WEBSITE`, and `GAME` are
-deliberately excluded: use `OPEN_NEW_TAB` or `OPEN_CURRENT_TAB` rather than
-nesting browser content inside another Q-App.
+The Home 2 viewer renders raster images, audio, video, and PDF documents in its
+native overlay. Other public file services receive an explicit open-or-save
+surface rather than being interpreted as active content. `APP`, `WEBSITE`, and
+`GAME` are deliberately excluded: use `OPEN_NEW_TAB` rather than nesting
+browser content inside another Q-App. The viewer always labels the resource as
+public, including when the link came from a direct message or private group.
 
 The older `OPEN_QDN_MEDIA_PLAYER` and `OPEN_QDN_DOCUMENT_VIEWER` actions remain
 available for compatibility.
@@ -60,7 +62,7 @@ file services are included because publishers sometimes place media under
 them. The app remains responsible for deciding whether the resolved MIME type
 is appropriate for its element.
 
-On desktop the URL points at the selected node's public QDN render route. On
+On desktop the opaque URL points at the selected node's public QDN render route. On
 Android it uses Home's authorized HTTPS QDN proxy, avoiding mixed-content
 failures while preserving `Range`, `206 Partial Content`, `Accept-Ranges`,
 `Content-Range`, content type, and content length. Apps must treat the returned
@@ -73,3 +75,11 @@ unsuitable for general audio/video playback.
 Media should be loaded lazily. In long feeds or result lists, prefer
 `preload="metadata"` and assign the returned URL only when the item becomes
 visible or the user asks to preview it.
+
+## Save a resource
+
+`SAVE_QDN_RESOURCE` uses the same network-qualified coordinate fields and an
+optional `filename`. Desktop opens a native save dialog. Android uses the
+system document picker. Home sanitizes the suggested filename, fetches only
+from the selected route, and enforces a 100 MiB limit. Apps never provide a
+native filesystem path.

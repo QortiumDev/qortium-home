@@ -608,5 +608,15 @@ assert.throws(
   }),
   /file paths/,
 )
+for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
+  const actions = getHomeV2AppActions(protocol)
+  for (const action of [
+    'GET_QDN_RESOURCE_STREAM_URL',
+    'OPEN_QDN_RESOURCE_VIEWER',
+    'SAVE_QDN_RESOURCE',
+  ]) {
+    assert.equal(actions.includes(action), true, `${protocol} must advertise ${action}.`)
+  }
+}
 
 console.log('Home v2 app action contract tests passed.')

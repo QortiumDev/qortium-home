@@ -29,18 +29,22 @@ export function createAndroidHomeV2NodeClient() {
         status: response.status,
       }
     },
-    async requestBinary(url) {
+    async requestBinary(url, timeoutMs = 8_000) {
       const response = await CapacitorHttp.get({
         url,
         responseType: 'arraybuffer',
         connectTimeout: 5_000,
-        readTimeout: 8_000,
+        readTimeout: timeoutMs,
       })
       return {
         data: response.data,
         headers: response.headers,
         status: response.status,
       }
+    },
+    async saveBinary(request) {
+      const { saveBytesToFile } = await import('../platform')
+      return saveBytesToFile(request.fileName, request.bytes, request.mimeType)
     },
     now: () => Date.now(),
   })

@@ -37,6 +37,10 @@ import type {
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import {
+  HomeV2ResourceViewer,
+  type HomeV2ResourceViewerState,
+} from '../v2/shell/HomeV2ResourceViewer'
 import type { HomeV2AccountManageAction } from '../v2/shell/HomeV2Prototype'
 import {
   AccountDialog,
@@ -54,6 +58,12 @@ import type {
   HomeV2NodeClient,
 } from './node-client'
 import type { HomeV2VaultClient } from './vault-client'
+import {
+  getQdnResourceStreamProxyMimeType,
+  getQdnResourceStreamRequest,
+  getQdnResourceViewerRequest,
+} from '../../electron/qdn-resource-viewer-contract'
+import type { QdnAppRequest } from '../../electron/qdn-request-values'
 import {
   assertHomeV2OpenPublicGroup,
   isHomeV2PublicChatAction,
@@ -413,6 +423,38 @@ function unavailableNode(node: NodeSummary, error: unknown): NodeSummary {
   }
 }
 
+function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerState | null {
+  if (
+    !isRecord(value) ||
+    (value.network !== 'qortal' && value.network !== 'qortium') ||
+    typeof value.service !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.sourceTabId !== 'string' ||
+    typeof value.streamUrl !== 'string'
+  ) {
+    return null
+  }
+  let streamUrl: URL
+  try {
+    streamUrl = new URL(value.streamUrl)
+  } catch {
+    return null
+  }
+  if (streamUrl.protocol !== 'http:' && streamUrl.protocol !== 'https:') return null
+  const nullable = (field: unknown) => typeof field === 'string' && field ? field : null
+  return {
+    filename: nullable(value.filename),
+    identifier: nullable(value.identifier),
+    mimeType: nullable(value.mimeType),
+    name: value.name,
+    network: value.network,
+    path: nullable(value.path),
+    service: value.service.toUpperCase(),
+    sourceTabId: value.sourceTabId,
+    streamUrl: streamUrl.toString(),
+  }
+}
+
 export function HomeV2LiveApp() {
   const [productState, dispatchProduct] = useReducer(
     reduceProductState,
@@ -436,6 +478,7 @@ export function HomeV2LiveApp() {
   const [identityLookupBusy, setIdentityLookupBusy] = useState(false)
   const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
   const [shellNotice, setShellNotice] = useState<string | null>(null)
+  const [resourceViewer, setResourceViewer] = useState<HomeV2ResourceViewerState | null>(null)
   const [accountDialog, setAccountDialog] = useState<{
     mode: AccountDialogMode
     accountId?: string
@@ -892,6 +935,17 @@ export function HomeV2LiveApp() {
   useEffect(() => {
     const bridge = window.homeV2Apps
     if (!bridge) return
+    return bridge.onOpenResourceViewer((value) => {
+      const parsed = parseHomeV2ResourceViewerState(value)
+      if (!parsed) return
+      if (!productStateRef.current.tabs.some((tab) => tab.id === parsed.sourceTabId)) return
+      setResourceViewer(parsed)
+    })
+  }, [])
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
     return bridge.onPermissionRequest((value) => {
       if (
         !isRecord(value) ||
@@ -1181,6 +1235,9 @@ export function HomeV2LiveApp() {
         : ''
       if (
         action === 'UNLOCK_SELECTED_ACCOUNT' ||
+        action === 'GET_QDN_RESOURCE_STREAM_URL' ||
+        action === 'OPEN_QDN_RESOURCE_VIEWER' ||
+        action === 'SAVE_QDN_RESOURCE' ||
         isHomeV2PublicChatAction(action) ||
         isHomeV2DirectChatReadAction(action) ||
         isHomeV2DirectChatWriteAction(action) ||
@@ -1196,6 +1253,31 @@ export function HomeV2LiveApp() {
         if (!Array.isArray(actions) || !actions.includes(action)) {
           throw new Error(`${action} is unavailable on the configured route.`)
         }
+      }
+      if (action === 'GET_QDN_RESOURCE_STREAM_URL') {
+        const rawUrl = await nodeClient.requestApp(protocol, requestValue, context)
+        if (typeof rawUrl !== 'string') throw new Error('Resource stream URL response was invalid.')
+        const resource = getQdnResourceStreamRequest(requestValue as QdnAppRequest)
+        const { authorizeQdnResourceStreamUrl } = await import('../platform')
+        return authorizeQdnResourceStreamUrl(
+          rawUrl,
+          getQdnResourceStreamProxyMimeType(resource),
+        )
+      }
+      if (action === 'OPEN_QDN_RESOURCE_VIEWER') {
+        const raw = await nodeClient.requestApp(protocol, requestValue, context)
+        const parsed = parseHomeV2ResourceViewerState(raw)
+        if (!parsed) throw new Error('Resource viewer response was invalid.')
+        const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
+        const { authorizeQdnResourceStreamUrl } = await import('../platform')
+        setResourceViewer({
+          ...parsed,
+          streamUrl: await authorizeQdnResourceStreamUrl(
+            parsed.streamUrl,
+            getQdnResourceStreamProxyMimeType(resource),
+          ),
+        })
+        return true
       }
       if (action === 'UNLOCK_SELECTED_ACCOUNT') {
         if (protocol !== 'qdnRequest') throw new Error('UNLOCK_SELECTED_ACCOUNT is only available to Qortium apps.')
@@ -2664,7 +2746,8 @@ export function HomeV2LiveApp() {
   const accountPromptTabId = accountDialog?.permissionRequestId
     ? accountDialog.requestTabId ?? null
     : null
-  const appOverlayTabId = accountPromptTabId ?? permissionPromptTabId
+  const resourceViewerTabId = resourceViewer?.sourceTabId ?? null
+  const appOverlayTabId = accountPromptTabId ?? permissionPromptTabId ?? resourceViewerTabId
   const accountDialogVisible =
     !!accountDialog &&
     (!accountPromptTabId || productState.activeTabId === accountPromptTabId)
@@ -2703,6 +2786,22 @@ export function HomeV2LiveApp() {
       onSubmit={submitAccountDialog}
     />
   ) : null
+
+  const resourceViewerOverlay = resourceViewer && productState.activeTabId === resourceViewer.sourceTabId ? (
+    <HomeV2ResourceViewer
+      resource={resourceViewer}
+      onClose={() => setResourceViewer(null)}
+    />
+  ) : null
+
+  useEffect(() => {
+    if (
+      resourceViewer &&
+      !productState.tabs.some((tab) => tab.id === resourceViewer.sourceTabId)
+    ) {
+      setResourceViewer(null)
+    }
+  }, [productState.tabs, resourceViewer])
 
   useEffect(() => {
     if (
@@ -2754,7 +2853,7 @@ export function HomeV2LiveApp() {
           ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
           : shellNotice ?? 'Accounts, connections, and QDN apps'
       }
-      overlay={customNodeDialog ?? accountDialogOverlay}
+      overlay={customNodeDialog ?? accountDialogOverlay ?? resourceViewerOverlay}
       appOverlayTabId={appOverlayTabId ? brand<TabId>(appOverlayTabId) : null}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}

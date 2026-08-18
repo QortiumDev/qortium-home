@@ -26,6 +26,11 @@ import {
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
 import {
+  getQdnResourceStreamRequest,
+  getQdnResourceViewerRequest,
+} from '../../electron/qdn-resource-viewer-contract'
+import type { QdnAppRequest } from '../../electron/qdn-request-values'
+import {
   fetchHomeV2AvatarAction,
   type HomeV2AvatarAction,
 } from '../../electron/home-v2-avatar-actions'
@@ -112,11 +117,16 @@ export interface PortableNodeClientDependencies {
     ok: boolean
     status: number
   }>
-  requestBinary(url: string): Promise<{
+  requestBinary(url: string, timeoutMs?: number): Promise<{
     data: unknown
     headers: Readonly<Record<string, string>>
     status: number
   }>
+  saveBinary(request: {
+    bytes: Uint8Array
+    fileName: string
+    mimeType: string
+  }): Promise<{ canceled: boolean }>
   now(): number
 }
 
@@ -133,6 +143,17 @@ const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESOURCE_LIMIT = 50
 const APP_READ_TIMEOUT_MS = 30_000
+const RESOURCE_SAVE_MAX_BYTES = 100 * 1024 * 1024
+
+function sanitizePortableResourceFilename(value: unknown, fallback: string) {
+  const requested = typeof value === 'string' ? value.trim() : ''
+  const leaf = (requested || fallback).split(/[\\/]/).pop() ?? fallback
+  const sanitized = leaf
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, '_')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 180)
+  return sanitized || 'qdn-resource'
+}
 
 function normalizedAppResourceName(value: string) {
   const name = value.trim()
@@ -245,7 +266,7 @@ function headerValue(headers: Readonly<Record<string, string>>, name: string) {
   return Object.entries(headers).find(([key]) => key.toLowerCase() === expected)?.[1]
 }
 
-function decodeAvatarBase64(value: string) {
+export function decodePortableBase64(value: string) {
   const binary = globalThis.atob(value)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) {
@@ -305,7 +326,7 @@ export function parseHomeV2AvatarResponse(response: {
   }
   let bytes: Uint8Array
   try {
-    bytes = decodeAvatarBase64(response.data)
+    bytes = decodePortableBase64(response.data)
   } catch {
     return { message: 'Avatar response was not valid base64.', status: 'unavailable' }
   }
@@ -852,6 +873,61 @@ export function createPortableNodeClient(
           throw new Error('Resource does not exist.')
         }
         return `${status.nodeApiUrl}${buildHomeV2ResourceRenderPath(request)}`
+      }
+      if (action === 'GET_QDN_RESOURCE_STREAM_URL' || action === 'OPEN_QDN_RESOURCE_VIEWER') {
+        const resource = action === 'GET_QDN_RESOURCE_STREAM_URL'
+          ? getQdnResourceStreamRequest(request as QdnAppRequest)
+          : getQdnResourceViewerRequest(request as QdnAppRequest)
+        const status = await requestData(
+          network,
+          buildHomeV2ResourcePath('GET_QDN_RESOURCE_STATUS', request),
+          256 * 1024,
+        )
+        if (!isRecord(status.data) || !status.data.status || status.data.status === 'NOT_PUBLISHED') {
+          throw new Error('Resource does not exist.')
+        }
+        const streamUrl = `${status.nodeApiUrl}${buildHomeV2ResourceRenderPath(request)}`
+        return action === 'GET_QDN_RESOURCE_STREAM_URL'
+          ? streamUrl
+          : {
+              ...resource,
+              network,
+              sourceTabId: context?.tabId ?? null,
+              streamUrl,
+            }
+      }
+      if (action === 'SAVE_QDN_RESOURCE') {
+        const resource = getQdnResourceViewerRequest(request as QdnAppRequest)
+        const { nodeApiUrl } = await getReadableNode(network)
+        const response = await dependencies.requestBinary(
+          `${nodeApiUrl}${buildHomeV2ResourcePath('FETCH_QDN_RESOURCE', {
+            identifier: resource.identifier,
+            name: resource.name,
+            path: resource.path,
+            service: resource.service,
+          })}`,
+          120_000,
+        )
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error(`QDN resource request returned HTTP ${response.status}.`)
+        }
+        if (typeof response.data !== 'string') {
+          throw new Error('QDN resource response was not binary data.')
+        }
+        const declaredLength = Number(headerValue(response.headers, 'content-length'))
+        if (Number.isFinite(declaredLength) && declaredLength > RESOURCE_SAVE_MAX_BYTES) {
+          throw new Error('QDN resource exceeds the 100 MiB save limit.')
+        }
+        const bytes = decodePortableBase64(response.data)
+        if (bytes.byteLength > RESOURCE_SAVE_MAX_BYTES) {
+          throw new Error('QDN resource exceeds the 100 MiB save limit.')
+        }
+        const fallback = `${resource.service}_${resource.name}_${resource.identifier ?? 'default'}`
+        return dependencies.saveBinary({
+          bytes,
+          fileName: sanitizePortableResourceFilename(resource.filename, fallback),
+          mimeType: headerValue(response.headers, 'content-type') ?? resource.mimeType ?? 'application/octet-stream',
+        })
       }
       const path =
         action === 'GET_NODE_STATUS'

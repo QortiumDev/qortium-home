@@ -86,10 +86,13 @@ route's operator disables QDN staging, publication/rotation fails with
 `NODE_CAPABILITY_MISSING`; reads and already-keyed message sends remain on that
 same selected route and there is no plaintext or alternate-node fallback.
 
-`OPEN_QDN_RESOURCE_VIEWER` and `GET_QDN_RESOURCE_STREAM_URL` are read-only and
-available in every node mode. The first opens Home's existing viewer as a
+`OPEN_QDN_RESOURCE_VIEWER`, `GET_QDN_RESOURCE_STREAM_URL`, and
+`SAVE_QDN_RESOURCE` are read-only and available through both Home 2 globals in
+every readable node mode. The first opens Home's public-resource viewer as a
 tab-scoped overlay; the second returns a host-safe ranged URL for inline
-image/audio/video elements. See
+image/audio/video elements; the third opens the platform save picker. The
+invoked global fixes the network, so no action crosses from Qortal to Qortium
+or the reverse. See
 [QDN resource viewing and streaming](QDN_RESOURCE_VIEWER.md) for the request
 shapes, supported services, Android proxy behavior, compatibility actions, and
 lazy-loading guidance.
@@ -255,6 +258,10 @@ with `THUMBNAIL/<primaryName>/avatar` for accounts, or
 Publishing and pointer assignment remain deliberately separate actions.
 
 ## Publishing sources
+
+The following source-token publishing surface is retained by the broad legacy
+bridge. Home 2 will add its clean, network-qualified replacement in H5B and
+does not advertise these write actions yet.
 
 Single-resource publishing can use inline `data64`/`base64` payloads or a
 Home-owned file/folder picker on desktop and a Home-owned single-file native

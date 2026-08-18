@@ -66,7 +66,9 @@ const unavailable = new Set<string>()
 const requestCount = new Map<string, number>()
 let lastRequestedUrl = ''
 let lastRequestedBinaryUrl = ''
+let lastRequestedBinaryTimeoutMs: number | undefined
 let lastRequestedTimeoutMs: number | undefined
+let savedResource: { fileName: string; mimeType: string; size: number } | null = null
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
@@ -94,7 +96,9 @@ const dependencies: PortableNodeClientDependencies = {
               owner: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE',
               ownerPrimaryName: 'Qortal Owner',
             }
-          : url.includes('/admin/status')
+        : url.includes('/arbitrary/resource/status/')
+          ? { status: 'READY' }
+        : url.includes('/admin/status')
         ? syncedStatus
         : url.includes('/arbitrary/resources/search') && url.includes('name=Trust')
           ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
@@ -109,8 +113,9 @@ const dependencies: PortableNodeClientDependencies = {
       status: 200,
     }
   },
-  async requestBinary(url) {
+  async requestBinary(url, timeoutMs) {
     lastRequestedBinaryUrl = url
+    lastRequestedBinaryTimeoutMs = timeoutMs
     return {
       data: 'iVBORw0KGgo=',
       headers: url.includes('/addresses/')
@@ -123,6 +128,10 @@ const dependencies: PortableNodeClientDependencies = {
         : { 'content-type': 'application/octet-stream' },
       status: 200,
     }
+  },
+  async saveBinary({ bytes, fileName, mimeType }) {
+    savedResource = { fileName, mimeType, size: bytes.byteLength }
+    return { canceled: false }
   },
   now: () => 1_700_000_000_000,
 }
@@ -165,6 +174,11 @@ assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_USER_ACCOUNT'), 
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('UNLOCK_SELECTED_ACCOUNT'), false)
 await client.setMode('qortium', 'public')
+const resourceContext = {
+  resourceLocation: 'qortal://APP/Chat',
+  selectedAccountId: null,
+  tabId: 'chat-tab',
+}
 assert.deepEqual(
   await client.requestApp('qdnRequest', {
     action: 'OPEN_NEW_TAB',
@@ -172,6 +186,59 @@ assert.deepEqual(
   }),
   { address: 'qortal://APP/Q-Tube', openIn: 'new-tab' },
 )
+const qortalStreamUrl = await client.requestApp('qortalRequest', {
+  action: 'GET_QDN_RESOURCE_STREAM_URL',
+  service: 'IMAGE',
+  name: 'Alice',
+  identifier: 'qortal_avatar',
+}, resourceContext)
+assert.match(String(qortalStreamUrl), /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/render\/IMAGE\/Alice\/qortal_avatar$/)
+const qortiumStreamUrl = await client.requestApp('qdnRequest', {
+  action: 'GET_QDN_RESOURCE_STREAM_URL',
+  service: 'IMAGE',
+  name: 'Alice',
+  identifier: 'avatar',
+}, resourceContext)
+assert.match(String(qortiumStreamUrl), /^https:\/\/node[12]\.qortium\.app\/render\/IMAGE\/Alice\/avatar$/)
+assert.notEqual(new URL(String(qortalStreamUrl)).origin, new URL(String(qortiumStreamUrl)).origin)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'OPEN_QDN_RESOURCE_VIEWER',
+    service: 'IMAGE',
+    name: 'Alice',
+    identifier: 'qortal_avatar',
+    filename: 'avatar.png',
+    mimeType: 'image/png',
+  }, resourceContext),
+  {
+    filename: 'avatar.png',
+    identifier: 'qortal_avatar',
+    mimeType: 'image/png',
+    name: 'Alice',
+    network: 'qortal',
+    path: null,
+    service: 'IMAGE',
+    sourceTabId: 'chat-tab',
+    streamUrl: qortalStreamUrl,
+  },
+)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'SAVE_QDN_RESOURCE',
+    service: 'IMAGE',
+    name: 'Alice',
+    identifier: 'qortal_avatar',
+    filename: '../avatar.png',
+  }, resourceContext),
+  { canceled: false },
+)
+assert.equal(lastRequestedBinaryUrl.includes('/arbitrary/IMAGE/Alice/qortal_avatar'), true)
+assert.equal(lastRequestedBinaryTimeoutMs, 120_000)
+assert.deepEqual(savedResource, {
+  fileName: 'avatar.png',
+  mimeType: 'application/octet-stream',
+  size: 8,
+})
 const qortalRead = await client.requestApp('qortalRequest', {
   action: 'FETCH_NODE_API',
   path: '/names/Alice',

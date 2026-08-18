@@ -1,5 +1,7 @@
-import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import nodePath from 'node:path'
 import nacl from 'tweetnacl'
 import {
   getHomeV2AppNodeState,
@@ -36,6 +38,11 @@ import {
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
+import {
+  getQdnResourceStreamRequest,
+  getQdnResourceViewerRequest,
+} from './qdn-resource-viewer-contract.js'
+import type { QdnAppRequest } from './qdn-request-values.js'
 import {
   fetchHomeV2AvatarAction,
   type HomeV2AvatarAction,
@@ -544,6 +551,75 @@ async function fetchRead(
     signal: AbortSignal.timeout(15_000),
   })
   return { node, result: await readBoundedResponse(response, method, maxBytes) }
+}
+
+const HOME_V2_RESOURCE_SAVE_MAX_BYTES = 100 * 1024 * 1024
+
+function sanitizeHomeV2ResourceFilename(value: unknown, fallback: string) {
+  const requested = typeof value === 'string' ? value.trim() : ''
+  const leaf = nodePath.basename(requested || fallback)
+  const sanitized = leaf
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, '_')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 180)
+  return sanitized || 'qdn-resource'
+}
+
+async function resolveHomeV2ResourceUrl(
+  network: HomeV2AppNetwork,
+  request: Record<string, unknown>,
+  context: QdnViewContext,
+  streamOnly = false,
+) {
+  if (streamOnly) getQdnResourceStreamRequest(request as QdnAppRequest)
+  else getQdnResourceViewerRequest(request as QdnAppRequest)
+  const statusPath = buildHomeV2ResourcePath('GET_QDN_RESOURCE_STATUS', request)
+  const { node, result } = await fetchRead(network, statusPath, 'GET', 256 * 1024)
+  const status = responseDataOrThrow(result, 'QDN resource status request')
+  if (!isHomeV2AppRecord(status) || !status.status || status.status === 'NOT_PUBLISHED') {
+    throw new Error('Resource does not exist.')
+  }
+  return {
+    node,
+    status,
+    url: `${node.nodeApiUrl}${buildHomeV2ResourceRenderPath(request, context.displaySettings)}`,
+  }
+}
+
+async function readHomeV2ResourceBytes(
+  network: HomeV2AppNetwork,
+  request: Record<string, unknown>,
+  expectedRoute: string,
+) {
+  const node = await getHomeV2ReadableNode(network)
+  if (`${node.mode}|${node.nodeApiUrl}` !== expectedRoute) {
+    throw new Error('The selected resource route changed before the save began.')
+  }
+  const resource = getQdnResourceViewerRequest(request as QdnAppRequest)
+  const resourcePath = buildHomeV2ResourcePath('FETCH_QDN_RESOURCE', {
+    identifier: resource.identifier,
+    name: resource.name,
+    path: resource.path,
+    service: resource.service,
+  })
+  const response = await nodeFetch(`${node.nodeApiUrl}${resourcePath}`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(120_000),
+  })
+  if (!response.ok) throw new Error(`QDN resource request returned HTTP ${response.status}.`)
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > HOME_V2_RESOURCE_SAVE_MAX_BYTES) {
+    await response.body?.cancel()
+    throw new Error('QDN resource exceeds the 100 MiB save limit.')
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  if (bytes.byteLength > HOME_V2_RESOURCE_SAVE_MAX_BYTES) {
+    throw new Error('QDN resource exceeds the 100 MiB save limit.')
+  }
+  return {
+    bytes,
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+  }
 }
 
 function stringField(value: unknown, key: string) {
@@ -3495,13 +3571,50 @@ async function handleRequestWithRuntime(
     return responseDataOrThrow(result, `${action} request`)
   }
   if (action === 'GET_QDN_RESOURCE_URL') {
-    const statusPath = buildHomeV2ResourcePath('GET_QDN_RESOURCE_STATUS', requestValue)
-    const { node, result } = await fetchRead(network, statusPath, 'GET')
-    const status = responseDataOrThrow(result, 'QDN resource status request')
-    if (!isHomeV2AppRecord(status) || !status.status || status.status === 'NOT_PUBLISHED') {
-      throw new Error('Resource does not exist.')
+    return (await resolveHomeV2ResourceUrl(network, requestValue, context)).url
+  }
+  if (action === 'GET_QDN_RESOURCE_STREAM_URL') {
+    return (await resolveHomeV2ResourceUrl(network, requestValue, context, true)).url
+  }
+  if (action === 'OPEN_QDN_RESOURCE_VIEWER') {
+    const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
+    const hostWindow = BrowserWindow.fromId(context.windowId)
+    if (!hostWindow || hostWindow.isDestroyed()) {
+      throw new Error('The resource viewer request does not belong to an active Home window.')
     }
-    return `${node.nodeApiUrl}${buildHomeV2ResourceRenderPath(requestValue, context.displaySettings)}`
+    const resolved = await resolveHomeV2ResourceUrl(network, requestValue, context)
+    hostWindow.webContents.send('home-v2-app:open-resource-viewer', {
+      ...resource,
+      network,
+      sourceTabId: context.tabId,
+      streamUrl: resolved.url,
+    })
+    return true
+  }
+  if (action === 'SAVE_QDN_RESOURCE') {
+    const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
+    const candidateWindow = BrowserWindow.fromId(context.windowId)
+    const hostWindow = candidateWindow && !candidateWindow.isDestroyed() ? candidateWindow : null
+    if (!hostWindow) {
+      throw new Error('The resource save request does not belong to an active Home window.')
+    }
+    const nodeBefore = await getHomeV2ReadableNode(network)
+    const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+    const fallback = `${resource.service}_${resource.name}_${resource.identifier ?? 'default'}`
+    const filename = sanitizeHomeV2ResourceFilename(resource.filename, fallback)
+    const options = {
+      title: `Save ${network === 'qortal' ? 'Qortal' : 'Qortium'} resource`,
+      defaultPath: nodePath.join(app.getPath('downloads'), filename),
+    }
+    const selection = await dialog.showSaveDialog(hostWindow, options)
+    if (selection.canceled || !selection.filePath) return { canceled: true }
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh)) {
+      throw new Error('The app or tab changed before the resource save began.')
+    }
+    const { bytes } = await readHomeV2ResourceBytes(network, requestValue, nodeRoute)
+    await writeFile(selection.filePath, bytes)
+    return { canceled: false }
   }
   const path =
     action === 'GET_NODE_STATUS'

@@ -255,7 +255,7 @@ and signing remain local even when the node is authenticated.
 | H2 | Portable group participation, administration, and avatar/identity parity | Complete: H2A join/leave, H2B avatar reads, and H2C exact administration actions implemented | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Implemented in Home; end-to-end Chat integration and route matrix remain | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Implemented in Home: H4A Qortium and H4B Qortal; Chat integration and route matrix remain | H0-H3; Core C0-C4; selected Qortal route permits QDN staging for bundle publication |
-| H5 | Public resource, embed, viewer, stream, save, and publish parity | Planned | H0; Qortal publish proof |
+| H5 | Public resource, embed, viewer, stream, save, and publish parity | In progress: H5A viewer/stream/save action parity implemented; H5B capability/source/publish planned | H0; Qortal publish proof |
 | H6 | Private attachments | Blocked/deferred | Core C6 plus Qortal DM/file vectors |
 | H7 | Notification, restart/node-switch, and full matrix completion | Planned throughout; closes last | H0-H6 as applicable |
 
@@ -573,6 +573,13 @@ plaintext.
 - Refresh membership/key state after join, leave, removal, or admin changes.
 
 ## H5 — Public resources, embeds, and attachments
+
+H5A is implemented on both Home 2 host surfaces: bounded fetches, explicit
+Qortal/Qortium navigation, Home's public-resource viewer, ranged media URLs,
+and user-directed saves are network-qualified by the invoked bridge. H5B is
+the remaining expiring capability, source-token, and public-publish tranche;
+desktop H5A stream URLs contain no API key but still name the selected public
+render route directly until that capability layer lands.
 
 ### Home changes
 
