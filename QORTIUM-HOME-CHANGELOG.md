@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable group participation
+
+Home 2 now lets QDN apps request group joins and leaves on both Qortium and
+Qortal from desktop or Android, using any node route that the platform can
+configure: local, public, or custom on desktop, and public or custom on
+Android. Qortium Core supplies signature-free transaction bytes that Home
+checks field by field before locally computing proof of work and signing;
+Qortal transactions are built locally from the frozen interoperability vectors
+with a freshly rechecked reference and fee. Approval identifies the app,
+account, chain, group, action, and route, and Home cancels if that context
+changes. Already joined, already requested, and already left states are safe
+idempotent results, while an uncertain signed broadcast retains its signature
+and cannot be retried blindly. Joining does not silently create minting
+authority; that remains a separate explicit operation.
+
 ### 2026-08-18 - feat(chat): add portable public chat revisions
 
 Home 2 now preserves and verifies public-chat references while signing on both

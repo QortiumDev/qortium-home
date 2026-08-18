@@ -61,6 +61,12 @@ import {
   normalizeHomeV2PublicChatRequest,
   type HomeV2PublicChatAction,
 } from '../../electron/home-v2-chat-actions'
+import {
+  isHomeV2GroupMembershipAction,
+  normalizeHomeV2GroupMembershipRequest,
+  normalizeHomeV2GroupMembershipTarget,
+  type HomeV2GroupMembershipAction,
+} from '../../electron/home-v2-group-actions'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import { resolveDualIdentity } from './identity-resolver'
 import {
@@ -86,6 +92,10 @@ function publicChatOperationLabel(action: HomeV2PublicChatAction) {
   if (action === 'SEND_CHAT_DELETE') return 'Delete message'
   if (action === 'SEND_CHAT_REACTION') return 'React to message'
   return 'Send message'
+}
+
+function groupMembershipOperationLabel(action: HomeV2GroupMembershipAction) {
+  return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group'
 }
 
 function nullableString(value: unknown) {
@@ -863,15 +873,23 @@ export function HomeV2LiveApp() {
           (value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
-            !isHomeV2PublicChatAction(value.action))) ||
+            !isHomeV2PublicChatAction(value.action) &&
+            !isHomeV2GroupMembershipAction(value.action))) ||
         typeof value.accountId !== 'string' ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
+        ((isHomeV2PublicChatAction(value.action) || isHomeV2GroupMembershipAction(value.action)) &&
+          (typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string')) ||
         (isHomeV2PublicChatAction(value.action) &&
-          (typeof value.chatGroupId !== 'number' ||
-            typeof value.chatMessagePreview !== 'string' ||
-            typeof value.chatOperationLabel !== 'string' ||
-            typeof value.chatTargetChainLabel !== 'string'))
+          (value.writeKind !== 'chat' ||
+            typeof value.chatGroupId !== 'number' ||
+            typeof value.chatMessagePreview !== 'string')) ||
+        (isHomeV2GroupMembershipAction(value.action) &&
+          (value.writeKind !== 'group' ||
+            typeof value.groupId !== 'number' ||
+            typeof value.groupName !== 'string' ||
+            typeof value.writeRouteLabel !== 'string'))
       ) {
         return
       }
@@ -909,12 +927,13 @@ export function HomeV2LiveApp() {
         }
       })()
       const isChatWrite = isHomeV2PublicChatAction(value.action)
-      const operationLabel = isChatWrite ? String(value.chatOperationLabel) : ''
+      const isGroupWrite = isHomeV2GroupMembershipAction(value.action)
+      const operationLabel = isChatWrite || isGroupWrite ? String(value.writeOperationLabel) : ''
       const prompt = createPermissionPrompt({
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: isChatWrite ? 'chat.send' : 'account.public.read',
+        capability: isChatWrite ? 'chat.send' : isGroupWrite ? 'group.membership' : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
@@ -928,21 +947,29 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isChatWrite ? `Allow ${operationLabel.toLowerCase()}?` : 'Allow account access?',
-        summary: isChatWrite
+        title: isChatWrite || isGroupWrite ? `Allow ${operationLabel.toLowerCase()}?` : 'Allow account access?',
+        summary: isChatWrite || isGroupWrite
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
         details: isChatWrite
           ? [
               { label: 'Account', value: account?.label ?? value.accountId },
               { label: 'Operation', value: operationLabel },
-              { label: 'Chain', value: String(value.chatTargetChainLabel) },
+              { label: 'Chain', value: String(value.writeTargetChainLabel) },
               { label: 'Message', value: String(value.chatMessagePreview) },
               ...(typeof value.chatReference === 'string'
                 ? [{ label: 'Reference', value: value.chatReference }]
                 : []),
             ]
-          : [
+          : isGroupWrite
+            ? [
+                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Operation', value: operationLabel },
+                { label: 'Chain', value: String(value.writeTargetChainLabel) },
+                { label: 'Route', value: String(value.writeRouteLabel) },
+                { label: 'Group', value: String(value.groupName) },
+              ]
+            : [
               { label: 'Account', value: account?.label ?? value.accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
             ],
@@ -1039,7 +1066,11 @@ export function HomeV2LiveApp() {
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
-      if (action === 'UNLOCK_SELECTED_ACCOUNT' || isHomeV2PublicChatAction(action)) {
+      if (
+        action === 'UNLOCK_SELECTED_ACCOUNT' ||
+        isHomeV2PublicChatAction(action) ||
+        isHomeV2GroupMembershipAction(action)
+      ) {
         const actions = await nodeClient.requestApp(
           protocol,
           { action: 'SHOW_ACTIONS' },
@@ -1109,6 +1140,165 @@ export function HomeV2LiveApp() {
               })
             },
           })
+        })
+      }
+      if (isHomeV2GroupMembershipAction(action)) {
+        if (!vaultClient?.sendGroupMembership) {
+          throw new Error('Group membership changes are unavailable on this platform.')
+        }
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const membershipRequest = normalizeHomeV2GroupMembershipRequest(
+          action,
+          isRecord(requestValue) ? requestValue : {},
+        )
+        const account = accountCatalogueRef.current.accounts.find(
+          (candidate) => candidate.id === accountId,
+        )
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const readTarget = async () => normalizeHomeV2GroupMembershipTarget(
+          await nodeClient.requestApp(
+            protocol,
+            { action: 'GET_GROUP', groupId: membershipRequest.groupId },
+            context,
+          ),
+          membershipRequest.groupId,
+          targetNetwork,
+        )
+        const target = await readTarget()
+        const validateTarget = async () => {
+          const currentTarget = await readTarget()
+          if (
+            currentTarget.groupName !== target.groupName ||
+            currentTarget.isOpen !== target.isOpen
+          ) {
+            throw new Error('The selected group changed before the group action could be signed.')
+          }
+        }
+        const operationLabel = groupMembershipOperationLabel(action)
+        const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+        const grantKey = [
+          context.tabId,
+          context.resourceLocation,
+          accountId,
+          protocol,
+          action,
+          account.isUnlocked,
+          nodeRoute,
+          `group:${membershipRequest.groupId}`,
+        ].join('|')
+        if (!androidSessionAccountGrants.current.has(grantKey)) {
+          const requestId = brand<PermissionRequestId>(
+            globalThis.crypto.randomUUID?.() ??
+              `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          )
+          const parsedApp = (() => {
+            try {
+              const parsed = parseAppResourceLocation(context.resourceLocation)
+              const identifier = resolveLaunchIdentifier(
+                parsed.identity.identifier,
+                context.resourceLocation,
+              )
+              return {
+                identityKey: buildAppResourceLocation(parsed.sourceNetwork, {
+                  ...parsed.identity,
+                  identifier,
+                }),
+                title: parsed.identity.name,
+              }
+            } catch {
+              return {
+                identityKey: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+                title: 'QDN app',
+              }
+            }
+          })()
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const prompt = createPermissionPrompt({
+            id: requestId,
+            protocol,
+            action,
+            capability: 'group.membership',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: `Allow ${operationLabel.toLowerCase()}?`,
+            summary: `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Operation', value: operationLabel },
+              { label: 'Chain', value: targetChainLabel },
+              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+              { label: 'Group', value: target.groupName },
+            ],
+            allowedScopes: ['single-request', 'session'],
+          })
+          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          if (!decision.approved) throw new Error('Account access was denied.')
+          if (decision.scope === 'session') androidSessionAccountGrants.current.add(grantKey)
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === accountId,
+          )
+          const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            freshAccount?.isUnlocked !== account.isUnlocked ||
+            `${nodeAfter.mode}|${nodeAfter.nodeApiUrl ?? ''}` !== nodeRoute
+          ) {
+            throw new Error('Account access context changed before approval completed.')
+          }
+        }
+        const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(
+          `${context.tabId}|${accountId}`,
+        )
+        if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+        const checkStillValid = async () => {
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find(
+            (candidate) => candidate.id === accountId,
+          )
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            !freshAccount?.isUnlocked
+          ) return false
+          const nodeNow = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          return `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await checkStillValid())) {
+          throw new Error('Account access context changed before the group action could start.')
+        }
+        return vaultClient.sendGroupMembership({
+          accountId,
+          action,
+          groupId: membershipRequest.groupId,
+          groupName: target.groupName,
+          isOpen: target.isOpen,
+          isStillValid: checkStillValid,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          validateTarget: async () => {
+            await validateTarget()
+          },
         })
       }
       if (isHomeV2PublicChatAction(action)) {

@@ -44,6 +44,16 @@ assert.equal(getHomeV2AvailableAppActions('qortalRequest', {
   qortal: publicInfo.route,
   qortium: publicInfo.route,
 }).includes('SEND_CHAT_DELETE'), true)
+for (const action of ['JOIN_GROUP', 'LEAVE_GROUP']) {
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  }).includes(action), true)
+  assert.equal(getHomeV2AvailableAppActions('qortalRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  }).includes(action), true)
+}
 
 const unreachableInfo = getHomeV2AppHostInfo({
   accountId: 'wallet:one:0',
@@ -145,6 +155,15 @@ const genericDenial = normalizeHomeV2BridgeError(
 )
 assert.equal(genericDenial.code, 'HOME_BRIDGE_ERROR')
 assert.equal(genericDenial.retryable, false)
+const missingNodeCapability = normalizeHomeV2BridgeError(
+  new Error('The selected Qortium node does not expose the public group-membership builder.'),
+  {
+    action: 'JOIN_GROUP',
+    network: 'qortium',
+  },
+)
+assert.equal(missingNodeCapability.code, 'NODE_CAPABILITY_MISSING')
+assert.equal(missingNodeCapability.retryable, false)
 const userDenial = normalizeHomeV2BridgeError(new Error('Approval was denied.'), {
   action: 'SEND_CHAT_MESSAGE',
   network: 'qortium',

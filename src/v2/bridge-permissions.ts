@@ -18,6 +18,7 @@ export type PermissionCapability =
   | 'qortal.account.read'
   | 'account.unlock'
   | 'chat.send'
+  | 'group.membership'
 
 export interface PermissionDetail {
   readonly label: string
@@ -30,6 +31,8 @@ export interface PermissionPrompt {
   readonly action:
     | 'GET_SELECTED_ACCOUNT'
     | 'GET_USER_ACCOUNT'
+    | 'JOIN_GROUP'
+    | 'LEAVE_GROUP'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
     | 'SEND_CHAT_DELETE'
