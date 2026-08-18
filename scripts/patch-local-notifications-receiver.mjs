@@ -11,38 +11,54 @@ const receiverPath = path.join(
   'android',
   'src',
   'main',
-  'java',
+  'kotlin',
   'com',
   'capacitorjs',
   'plugins',
   'localnotifications',
-  'LocalNotificationRestoreReceiver.java',
+  'LocalNotificationRestoreReceiver.kt',
 );
 
-const original = `    public void onReceive(Context context, Intent intent) {
-        UserManager um = context.getSystemService(UserManager.class);`;
+const original = `    override fun onReceive(context: Context, intent: Intent) {
+        val um = context.getSystemService(UserManager::class.java)`;
 
-const patched = `    public void onReceive(Context context, Intent intent) {
-        String action = intent == null ? null : intent.getAction();
+const patched = `    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
         if (
-            !Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action) &&
-            !Intent.ACTION_BOOT_COMPLETED.equals(action) &&
-            !"android.intent.action.QUICKBOOT_POWERON".equals(action)
+            action != Intent.ACTION_LOCKED_BOOT_COMPLETED &&
+            action != Intent.ACTION_BOOT_COMPLETED &&
+            action != "android.intent.action.QUICKBOOT_POWERON"
         ) {
-            return;
+            return
         }
 
-        UserManager um = context.getSystemService(UserManager.class);`;
+        val um = context.getSystemService(UserManager::class.java)`;
 
-const source = readFileSync(receiverPath, 'utf8');
+export function patchLocalNotificationRestoreReceiverSource(source) {
+  const originalCount = source.split(original).length - 1;
+  const patchedCount = source.split(patched).length - 1;
 
-if (source.includes(patched)) {
-  console.log('Capacitor local-notification restore receiver is already patched.');
-} else if (source.includes(original)) {
-  writeFileSync(receiverPath, source.replace(original, patched));
-  console.log('Patched Capacitor local-notification restore receiver intent validation.');
-} else {
+  if (patchedCount === 1 && originalCount === 0) {
+    return { source, changed: false };
+  }
+
+  if (originalCount === 1 && patchedCount === 0) {
+    return { source: source.replace(original, patched), changed: true };
+  }
+
   throw new Error(
     'Unsupported @capacitor/local-notifications receiver source; review the security patch before installing.',
   );
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const source = readFileSync(receiverPath, 'utf8');
+  const result = patchLocalNotificationRestoreReceiverSource(source);
+
+  if (result.changed) {
+    writeFileSync(receiverPath, result.source);
+    console.log('Patched Capacitor local-notification restore receiver intent validation.');
+  } else {
+    console.log('Capacitor local-notification restore receiver is already patched.');
+  }
 }
