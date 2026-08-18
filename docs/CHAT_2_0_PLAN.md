@@ -74,7 +74,10 @@ is a separate custom off-chain RCHAT protocol.
 | Action | Protocols | Semantics |
 | --- | --- | --- |
 | `SEARCH_CHAT_MESSAGES` | both | Bounded read of `/chat/messages` (group selector or involving pair). Encrypted-DM result handling follows the pending owner decision recorded in the ledger. |
-| `SEND_CHAT_MESSAGE` | both | Open/group chat send. Qortium path: keyless public build + local PoW/sign. Qortal path: client-side bytes builder + PoW/sign. Returns the signature immediately after broadcast acceptance. Hub-compatible payload semantics on `qortalRequest` (group + DM once DM phase lands). |
+| `SEND_CHAT_MESSAGE` | both | Initial/reply public-group send with no transaction `chatReference`. Qortium path: keyless public build + local PoW/sign. Qortal path: client-side bytes builder + PoW/sign. A signed uncertain submission retains its signature for confirmation polling. |
+| `SEND_CHAT_EDIT` | both | Public-group edit with exact reference, group, sender-ownership, route, account, and network-specific payload validation before approval and signing. Qortal accepts only the frozen Hub-v3 edit envelope. |
+| `SEND_CHAT_DELETE` | both | Referenced content-clearing revision with the same ownership checks. Qortium uses its empty-message revision envelope. Qortal uses Home's one canonical empty Hub-v3 edit (`messageText: "<p></p>"`, no images); Hub renders it as no message. Both immutable transactions remain available on-chain. |
+| `SEND_CHAT_REACTION` | both | Public-group emoji reaction with exact reference/group binding. Unlike edits and deletes, the referenced original may belong to another sender. |
 | `GET_CHAT_MESSAGE` | both | Single message by signature (read; supports confirm-polling). |
 
 Real-time delivery starts as **polling** through these reads (the app polls

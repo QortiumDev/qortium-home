@@ -17,6 +17,7 @@ export type HomeV2WalletFileSelection =
 
 export interface HomeV2SendChatMessageRequest {
   readonly accountId: string
+  readonly action: 'SEND_CHAT_MESSAGE' | 'SEND_CHAT_EDIT' | 'SEND_CHAT_DELETE' | 'SEND_CHAT_REACTION'
   // Rechecked immediately before signing and polled during the (potentially
   // tens-of-seconds) memory-pow computation, mirroring the desktop bridge's
   // isStillValid recheck (electron/home-v2-app-bridge.ts sendHomeV2ChatMessage):
@@ -26,6 +27,8 @@ export interface HomeV2SendChatMessageRequest {
   // that omits it gets no mid-flight cancellation, so every real caller
   // should supply one.
   readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly validateTarget?: (senderPublicKey: string) => Promise<void>
+  readonly chatReference?: string | null
   readonly message: string
   readonly network: 'qortal' | 'qortium'
   readonly nodeApiUrl: string
@@ -33,6 +36,11 @@ export interface HomeV2SendChatMessageRequest {
 }
 
 export interface HomeV2SendChatMessageResult {
+  readonly accepted?: boolean
+  readonly error?: string
+  readonly errorType?: string
+  readonly outcome?: 'unknown'
+  readonly retryable?: false
   readonly signature: string
   readonly timestamp: number
 }
@@ -43,6 +51,7 @@ export interface HomeV2VaultClient {
   discardLoadedWallet(token: string): Promise<void>
   exportAccount(accountId: string): Promise<{ canceled: boolean; fileName?: string; uri?: string }>
   getPrivateKeyAddress(privateKey: string): Promise<string>
+  getSigningPublicKey?(accountId: string): Promise<string>
   getState(): Promise<HomeV2VaultState>
   importPrivateKey(
     request: HomeV2ImportPrivateKeyRequest,
@@ -55,12 +64,12 @@ export interface HomeV2VaultClient {
   saveLoadedWallet(request: { label: string; token: string }): Promise<HomeV2VaultState>
   select(request: { accountId: string | null; addressId: string | null }): Promise<HomeV2VaultState>
   selectWalletFile(): Promise<HomeV2WalletFileSelection>
-  // The trusted-layer chat send primitive (Chat 2.0 Phase 1,
-  // docs/CHAT_2_0_PLAN.md): builds, memory-pows, signs, and broadcasts a CHAT
+  // The trusted-layer public CHAT primitive (Home chat portability H1):
+  // builds, memory-pows, signs, and broadcasts a CHAT
   // transaction entirely inside this module. Optional because it currently
   // has only one caller — the Android app-frame dispatcher in
   // HomeV2LiveApp.tsx, which never receives requests on desktop (desktop's
-  // SEND_CHAT_MESSAGE is handled by electron/home-v2-app-bridge.ts directly).
+  // public CHAT writes are handled by electron/home-v2-app-bridge.ts directly).
   sendChatMessage?(request: HomeV2SendChatMessageRequest): Promise<HomeV2SendChatMessageResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
   updateSecurity(request: {

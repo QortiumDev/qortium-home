@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable public chat revisions
+
+Home 2 now preserves and verifies public-chat references while signing on both
+desktop and Android. Qortium apps receive explicit edit, delete, and reaction
+actions; Qortal apps receive its frozen Hub-compatible edit and reaction
+actions. Home checks the selected chain, open group, original message, sender
+ownership where required, app/account/route context, and exact payload before
+prompting and again before signing. A broadcast whose final outcome cannot be
+confirmed returns the signed transaction signature without offering an unsafe
+retry. Qortal delete is a strictly validated, referenced empty Hub-v3 edit: it
+clears the rendered content and leaves the immutable original and revision
+transactions on-chain. Home does not substitute Reticulum's unrelated format.
+
 ### 2026-08-17 - test(chat): add dual-chain interop vectors
 
 Home now reads Qortium Core's committed direct-message and private-group Chat

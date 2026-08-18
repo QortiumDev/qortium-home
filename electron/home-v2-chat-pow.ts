@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
-// Independent MemoryPoW worker pool for the Home v2 SEND_CHAT_MESSAGE path.
+// Independent MemoryPoW worker pool for Home v2 public CHAT write paths.
 // Mirrors the pool wrapper electron/qdn.ts and src/platform.ts each already
 // use for v1 CHAT sends (getMemoryPowWorker/computeChatNonce), but runs as
 // its own singleton so a v1 send in flight never contends with a v2 send for

@@ -971,6 +971,19 @@ export function getAccountSecretKey(accountId: string) {
   };
 }
 
+// Public-key-only companion for pre-approval reference ownership checks. It
+// derives the same selected address key but immediately clears the temporary
+// 64-byte signing key, so Home never retains signing authority while waiting
+// for the user to approve an app request.
+export function getAccountSigningPublicKey(accountId: string) {
+  const signingKey = getAccountSecretKey(accountId);
+  try {
+    return signingKey.publicKey58;
+  } finally {
+    signingKey.secretKey.fill(0);
+  }
+}
+
 // The CHAT memory-pow nonce is a big-endian int32 at this byte offset within the
 // "bytes-for-signing" (the serialized CHAT transaction without the trailing
 // 64-byte signature). Offset = txType(4) + timestamp(8) + txGroupId(4) +

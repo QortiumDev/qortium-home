@@ -60,7 +60,10 @@ const QDN_ACTIONS = [
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_EDIT',
   'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_REACTION',
   'UNLOCK_SELECTED_ACCOUNT',
 ] as const
 
@@ -98,7 +101,10 @@ const QORTAL_ACTIONS = [
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_EDIT',
   'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_REACTION',
 ] as const
 // SEARCH_GROUPS (Qortium-only): /groups/search does not exist on Qortal
 // (verified absent from both the Qortal master 6.1.5 and develop checkouts'
