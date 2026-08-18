@@ -3,8 +3,8 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import {
   getHomeV2AppNodeState,
   getHomeV2ReadableNode,
-  readHomeV2Avatar,
   readHomeV2Identity,
+  readResolvedHomeV2Avatar,
 } from './home-v2-node-bridge.js'
 import { nodeFetch } from './node-tls.js'
 import {
@@ -27,7 +27,6 @@ import {
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
   normalizeHomeV2AppProtocol,
-  normalizeHomeV2AvatarMaxBytes,
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
@@ -36,6 +35,10 @@ import {
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
+import {
+  fetchHomeV2AvatarAction,
+  type HomeV2AvatarAction,
+} from './home-v2-avatar-actions.js'
 import {
   assertHomeV2OpenPublicGroup,
   buildHomeV2QortiumPublicChatBuildBody,
@@ -444,73 +447,20 @@ async function resolveIdentities(request: Record<string, unknown>) {
   }))
 }
 
-function translateAvatarResult(
-  address: string,
-  source: 'LEGACY' | 'POINTER',
-  descriptor: { identifier: string; name: string; service: string } | null,
-  result: Awaited<ReturnType<typeof readHomeV2Avatar>>,
-  maxBytes: number,
+async function fetchAvatar(
+  network: HomeV2AppNetwork,
+  action: HomeV2AvatarAction,
+  request: Record<string, unknown>,
 ) {
-  if (result.status === 'pending') {
-    return {
-      address,
-      descriptor,
-      retryAfterSeconds: result.retryAfterSeconds,
-      source,
-      status: 'PENDING',
-    }
-  }
-  if (result.status !== 'ready') throw new Error('Account avatar is not set.')
-  if (result.contentLength > maxBytes) {
-    throw new Error('Account avatar exceeded the requested size limit.')
-  }
-  return {
-    address,
-    body: result.body,
-    contentLength: result.contentLength,
-    contentType: result.contentType,
-    descriptor,
-    encoding: 'base64',
-    source,
-  }
-}
-
-async function fetchAccountAvatar(request: Record<string, unknown>) {
-  const address = normalizeHomeV2Address(request.address)
-  const maxBytes = normalizeHomeV2AvatarMaxBytes(request.maxBytes)
-  const pointer = await readIdentityData('qortium', 'accountAvatarInfo', address)
-  if (isHomeV2AppRecord(pointer)) {
-    const service = stringField(pointer, 'service')
-    const name = stringField(pointer, 'name')
-    const identifier = stringField(pointer, 'identifier')
-    if (service && name && identifier) {
-      const descriptor = { identifier, name, service }
-      return translateAvatarResult(
-        address,
-        'POINTER',
-        descriptor,
-        await readHomeV2Avatar('qortium', {
-          address,
-          pointer: { ...descriptor, source: 'account-pointer' },
-        }),
-        maxBytes,
-      )
-    }
-  }
-  const primary = await readIdentityData('qortium', 'primaryName', address)
-  const name = stringField(primary, 'name')
-  if (!name) throw new Error('Account avatar is not set.')
-  const descriptor = { identifier: 'avatar', name, service: 'THUMBNAIL' }
-  return translateAvatarResult(
-    address,
-    'LEGACY',
-    null,
-    await readHomeV2Avatar('qortium', {
-      address,
-      pointer: { ...descriptor, source: 'legacy-name' },
-    }),
-    maxBytes,
-  )
+  return fetchHomeV2AvatarAction(network, action, request, {
+    async readAvatar(path, legacyAsync) {
+      return readResolvedHomeV2Avatar(network, { legacyAsync, path })
+    },
+    async readJson(path) {
+      const { result } = await fetchRead(network, path, 'GET', 256 * 1024)
+      return { data: result.data, status: result.status }
+    },
+  })
 }
 
 async function postHomeV2ChatText(
@@ -1310,7 +1260,9 @@ async function handleRequestWithRuntime(
     return responseDataOrThrow(result, `${action} request`)
   }
   if (action === 'RESOLVE_IDENTITIES') return resolveIdentities(requestValue)
-  if (action === 'FETCH_ACCOUNT_AVATAR') return fetchAccountAvatar(requestValue)
+  if (action === 'FETCH_ACCOUNT_AVATAR' || action === 'FETCH_GROUP_AVATAR') {
+    return fetchAvatar(network, action, requestValue)
+  }
   if (
     action === 'FETCH_QDN_RESOURCE' ||
     action === 'LIST_QDN_RESOURCES' ||

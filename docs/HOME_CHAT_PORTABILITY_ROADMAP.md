@@ -2,10 +2,11 @@
 
 Status: active planning and implementation tracker
 
-Home baseline: `main` at `8c9098116e699769a7bc3861af2baa81d0930ac3`
+Home implementation base: `main` at `13d02a1c753a882bfc187d946480ae37043f6680`
 
-Core baseline: Qortium Core `3ac275024d9256cb27cd9ba085a1e2c81f2596da`
-(C0-C5 complete)
+Core implementation baseline: Qortium Core
+`3ac275024d9256cb27cd9ba085a1e2c81f2596da` (C0-C5 complete). The reviewed
+current `origin/main` is `6463a0a887ed106beaa63f6f5f45a3036cdf9250`.
 
 Order: Qortium Core first, Qortium Home second, Chat app last
 
@@ -98,8 +99,8 @@ milestones.
 | Public edit/delete/reaction | Edit/delete/reaction implemented | Hub-v3 edit/reaction plus content-clearing empty-edit delete implemented |
 | Direct messages | Missing | Missing |
 | Closed/private groups | Missing | Missing |
-| Join/leave | Reads only | Reads only |
-| User/group avatar read | Account reads; Qortium group action gap | Raw Qortal thumbnail reads |
+| Join/leave | Present | Present |
+| User/group avatar read | Dedicated pointer-aware account/group actions | Dedicated named-thumbnail account/group actions |
 | Viewer/stream/save/publish | Small reads/status/URL only | Small reads/status/URL only |
 | Private attachments | Missing | Missing |
 
@@ -251,7 +252,7 @@ and signing remain local even when the node is authenticated.
 | --- | --- | --- | --- |
 | H0 | Shared contracts, route-aware discovery, errors, and vector harness | Complete: H0A and H0B implemented | Core C0-C5 complete |
 | H1 | Public-group revisions and route-independent send parity | Implemented | H0 |
-| H2 | Portable group participation and avatar/identity parity | Planned | H0; Core C5 |
+| H2 | Portable group participation and avatar/identity parity | In progress: H2A join/leave and H2B avatar reads implemented; invitation/moderation remains | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Planned | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Planned | H0; Qortal publish proof |
@@ -347,8 +348,8 @@ and signing remain local even when the node is authenticated.
 
 ## H2 — Participation and identity parity
 
-Progress (2026-08-18): the first H2 tranche implements `JOIN_GROUP` and
-`LEAVE_GROUP` for both chains in Home 2 on desktop and Android. Qortium uses
+Progress (2026-08-18): H2A implements `JOIN_GROUP` and `LEAVE_GROUP` for both
+chains in Home 2 on desktop and Android. Qortium uses
 Core C5's public unsigned builders, locally computes the advertised MemoryPoW,
 and rejects any unapproved field before signing. Qortal uses the clean-room
 serializer pinned to the H0B Hub vectors, the account's fresh last reference,
@@ -356,8 +357,17 @@ the current unit fee, and local signing; these Qortal transactions do not use
 CHAT MemoryPoW. Both paths bind approval and signing to the same app, tab,
 account, chain, group, and node route, return a non-retryable signed outcome
 when broadcast status is uncertain, and normalize already-member,
-already-requested, and already-left results. Avatar parity and the later
-invite/moderation actions remain open H2 work.
+already-requested, and already-left results.
+
+H2B adds `FETCH_ACCOUNT_AVATAR` and `FETCH_GROUP_AVATAR` to both bridge
+protocols through one shared desktop/Android resolver. Qortium's account/group
+pointer is authoritative and only an exact pointer-info 404 permits the legacy
+named-thumbnail fallback. Qortal uses its established
+`qortal_avatar`/`qortal_group_avatar_<groupId>` resources on the Qortal route,
+with owner-name fallback for older/custom group responses. Results repeat the
+authoritative network, carry bounded raster-validated base64 or a pending
+state, and never expose a raw node URL. Exact invitation/moderation actions
+remain open H2 work.
 
 ### Home changes
 
@@ -660,23 +670,28 @@ separate ceremonial acceptance phase.
 3. **H1 public revisions — implemented:** route-independent Qortium/Qortal
    initial sends plus exact supported edit/delete/reaction actions, reference
    attestation, ownership checks, and signed ambiguous-broadcast results.
-4. **H2 participation and identity:** portable Qortium/Qortal join/leave,
-   idempotent results, exact later admin primitives, and avatar-read parity.
-5. **H3 direct messages:** QDM1 and Qortal legacy-DM crypto/read/send/revision
+4. **H2A participation — implemented:** portable Qortium/Qortal join/leave and
+   idempotent results.
+5. **H2B identity — implemented:** network-scoped account/group avatar reads
+   with shared desktop/Android bounds and no cross-chain fallback.
+6. **H2C group administration:** exact invitation, request approval,
+   kick/ban, and admin-role primitives, each with its own permission contract.
+7. **H3 direct messages:** QDM1 and Qortal legacy-DM crypto/read/send/revision
    families.
-6. **H4 private groups:** portable QPGC plus Qortal bundle/`encryptSingle`
+8. **H4 private groups:** portable QPGC plus Qortal bundle/`encryptSingle`
    lifecycles and secure key persistence.
-7. **H5 public resources:** dual-chain viewer/stream/save/source/publish and
+9. **H5 public resources:** dual-chain viewer/stream/save/source/publish and
    public attachment parity.
-8. **H6 private attachments:** resume Core C6, then add Home encrypted
+10. **H6 private attachments:** resume Core C6, then add Home encrypted
    attachment flows.
-9. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
+11. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-The immediate next implementation is H2. H1 added public edit, content-clearing
-delete, and reaction on both chains and both Home 2 host surfaces. Qortal delete
-uses Home's canonical referenced empty Hub-v3 edit and does not claim to erase chain
-history. Direct-message and private-group crypto remain H3/H4 work.
+The immediate next implementation after H2B is H2C's exact group invitation
+and moderation primitives. H1 added public edit, content-clearing delete, and
+reaction on both chains and both Home 2 host surfaces; H2A added portable
+join/leave and H2B added avatar-read parity. Direct-message and private-group
+crypto remain H3/H4 work.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent

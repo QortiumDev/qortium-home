@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add dual-chain avatar bridge parity
+
+Home 2 now gives QDN apps dedicated account- and group-avatar reads on both
+Qortium and Qortal, with one shared contract on desktop and Android. Qortium
+uses the current on-chain account/group pointer when present and only falls
+back to the established named thumbnail after an exact missing-pointer result.
+Qortal resolves its established account and group thumbnail coordinates from
+the requested chain without falling back to Qortium. Every result identifies
+its network, returns bounded base64 instead of a node URL, caps the image at
+500 KiB, validates raster magic bytes, and reports queued QDN content as a
+retryable pending state.
+
 ### 2026-08-18 - feat(chat): add portable group participation
 
 Home 2 now lets QDN apps request group joins and leaves on both Qortium and

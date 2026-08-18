@@ -27,6 +27,7 @@ const COMMON_ACTIONS = [
 const QDN_ACTIONS = [
   ...COMMON_ACTIONS,
   'FETCH_ACCOUNT_AVATAR',
+  'FETCH_GROUP_AVATAR',
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
@@ -71,9 +72,11 @@ const QDN_ACTIONS = [
 
 const QORTAL_ACTIONS = [
   ...COMMON_ACTIONS,
+  'FETCH_ACCOUNT_AVATAR',
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
+  'FETCH_GROUP_AVATAR',
   'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
@@ -115,7 +118,7 @@ const QORTAL_ACTIONS = [
 // GroupsResource.java) — it is a Qortium Core addition. Home therefore
 // advertises it only on qdnRequest, the same asymmetric pattern already used
 // for GET_DAY_SUMMARY/GET_PRICE (qortalRequest-only) and
-// RESOLVE_IDENTITIES/FETCH_ACCOUNT_AVATAR/FETCH_QORTAL_NODE_API
+// RESOLVE_IDENTITIES/FETCH_QORTAL_NODE_API
 // (qdnRequest-only).
 
 const READ_PREFIXES = [

@@ -19,13 +19,17 @@ import {
   isHomeV2ChainReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
-  normalizeHomeV2AvatarMaxBytes,
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
+import {
+  fetchHomeV2AvatarAction,
+  type HomeV2AvatarAction,
+} from '../../electron/home-v2-avatar-actions'
+import { getAvatarDescriptorFromHeaders } from '../../electron/qdn-group-avatar-input'
 import {
   createHomeV2BridgeError,
   getHomeV2AppHostInfo,
@@ -797,62 +801,32 @@ export function createPortableNodeClient(
           }
         }))
       }
-      if (action === 'FETCH_ACCOUNT_AVATAR') {
-        const address = normalizeHomeV2Address(request.address)
-        const maxBytes = normalizeHomeV2AvatarMaxBytes(request.maxBytes)
-        const { nodeApiUrl } = await getReadableNode('qortium')
-        const pointerResponse = await dependencies.requestJson(
-          `${nodeApiUrl}/addresses/${encodeURIComponent(address)}/avatar/info`,
-        )
-        const pointer = pointerResponse.status === 200 && isRecord(pointerResponse.data)
-          ? {
-              identifier: stringField(pointerResponse.data, 'identifier'),
-              name: stringField(pointerResponse.data, 'name'),
-              service: stringField(pointerResponse.data, 'service'),
+      if (action === 'FETCH_ACCOUNT_AVATAR' || action === 'FETCH_GROUP_AVATAR') {
+        const avatarAction = action as HomeV2AvatarAction
+        const { nodeApiUrl } = await getReadableNode(network)
+        return fetchHomeV2AvatarAction(network, avatarAction, request, {
+          async readAvatar(path) {
+            const response = await dependencies.requestBinary(`${nodeApiUrl}${path}`)
+            const result = parseHomeV2AvatarResponse(response)
+            if (result.status !== 'ready' && result.status !== 'pending') return result
+            const descriptor = getAvatarDescriptorFromHeaders(
+              (name) => headerValue(response.headers, name),
+            )
+            return descriptor ? { ...result, descriptor } : result
+          },
+          async readJson(path) {
+            const response = await dependencies.requestJson(
+              `${nodeApiUrl}${path}`,
+              'GET',
+              APP_READ_TIMEOUT_MS,
+            )
+            const body = JSON.stringify(response.data ?? null)
+            if (new TextEncoder().encode(body).byteLength > 256 * 1024) {
+              throw new Error('Avatar metadata response exceeded the size limit.')
             }
-          : null
-        let source: 'LEGACY' | 'POINTER' = 'POINTER'
-        let descriptor: { identifier: string; name: string; service: string } | null = null
-        let path = `/addresses/${encodeURIComponent(address)}/avatar`
-        if (pointer?.identifier && pointer.name && pointer.service) {
-          descriptor = {
-            identifier: pointer.identifier,
-            name: pointer.name,
-            service: pointer.service,
-          }
-        } else {
-          const primary = await dependencies.requestJson(
-            `${nodeApiUrl}/names/primary/${encodeURIComponent(address)}`,
-          )
-          const name = primary.status === 200 ? stringField(primary.data, 'name') : null
-          if (!name) throw new Error('Account avatar is not set.')
-          source = 'LEGACY'
-          path = `/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
-        }
-        const avatar = parseHomeV2AvatarResponse(
-          await dependencies.requestBinary(`${nodeApiUrl}${path}`),
-        )
-        if (avatar.status === 'pending') {
-          return {
-            address,
-            descriptor,
-            retryAfterSeconds: avatar.retryAfterSeconds,
-            source,
-            status: 'PENDING',
-          }
-        }
-        if (avatar.status !== 'ready' || avatar.contentLength > maxBytes) {
-          throw new Error('Account avatar is not available.')
-        }
-        return {
-          address,
-          body: avatar.body,
-          contentLength: avatar.contentLength,
-          contentType: avatar.contentType,
-          descriptor,
-          encoding: 'base64',
-          source,
-        }
+            return { data: response.data, status: response.status }
+          },
+        })
       }
       if (
         action === 'FETCH_QDN_RESOURCE' ||

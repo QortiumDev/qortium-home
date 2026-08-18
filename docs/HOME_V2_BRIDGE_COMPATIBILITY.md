@@ -1,6 +1,6 @@
 # Home 2.0 bridge compatibility ledger
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -49,7 +49,7 @@ pages and Home 1.x retain Core's injected bridge client.
 | `GET_PRIMARY_NAME` | `qortalRequest` | Bare Core JSON | Explicit Qortal identity read | yes | yes |
 | `GET_ACCOUNT_DATA`, `GET_BALANCE` | `qortalRequest` | Bare Core JSON | Explicit Qortal address read | yes | yes |
 | `RESOLVE_IDENTITIES` | `qdnRequest` | Address/name/avatar-hint array | Qortium metadata only; at most 500 unique addresses | yes | yes |
-| `FETCH_ACCOUNT_AVATAR` | `qdnRequest` | Pointer-aware bounded base64 image or pending state | Qortium; explicit address; max 500 KiB; raster magic-byte validation | yes | yes |
+| `FETCH_ACCOUNT_AVATAR`, `FETCH_GROUP_AVATAR` | both | Network-qualified bounded base64 image or pending state | Protocol selects chain; Qortium on-chain pointer wins and exact pointer-info 404 alone enables legacy fallback; Qortal uses the established named-thumbnail coordinates; explicit address/positive group ID; max 500 KiB; raster magic-byte validation; no node URL | yes | yes |
 | `FETCH_QDN_RESOURCE` | both | Bare decoded Core response | Source protocol selects chain; 2 MiB default and 5 MiB maximum | yes | yes |
 | `LIST_QDN_RESOURCES`, `SEARCH_QDN_RESOURCES` | both | Bare Core resource array | Validated query mapping | yes | yes |
 | `GET_QDN_RESOURCE_METADATA`, `GET_QDN_RESOURCE_PROPERTIES`, `GET_QDN_RESOURCE_STATUS`, `GET_QDN_RESOURCE_URL` | both | Bare JSON or render URL | Source protocol selects chain | yes | yes |
@@ -100,7 +100,7 @@ protocol or advertise a permanently reduced host implementation.
 | Qortium Trust public browsing | Public ratings, names, identity batches, visible avatars, and Home-mediated account unlock have bridge coverage | `RATE_ACCOUNT` and other mutations remain deferred |
 | Qortium Help public browsing | Search/list/fetch, identity, avatar, and app-link navigation have bridge coverage | publish/delete, file/viewer actions, and notifications remain deferred |
 | Qortal Q-Tube and similar QDN readers | Qortal resource search/list/fetch, resource URL/status, public account data, navigation, Home-owned bridge selection, and the exact transaction-signature read passed packaged desktop and Android acceptance | media/file helpers, publishing, and any app-specific action outside this slice remain deferred |
-| Chat | Public group reads, initial/reply sends, edits, content-clearing deletes, reactions, and explicit `JOIN_GROUP`/`LEAVE_GROUP` participation work on both chains. Qortium participation uses Core C5 public unsigned builders plus local MemoryPoW; Qortal uses its pinned Hub-compatible transaction bytes, current fee/reference, and local signing. Closed-group joins return a join-request state, already-completed actions are idempotent, and uncertain signed broadcasts are never offered as safe retries. The same account/tab/route checks and approval details apply on desktop and Android. | Delete clears displayed content but cannot erase immutable transactions. DM/private-group crypto, avatar parity, invitation/moderation actions, full resources, and the later distinct RCHAT family remain deferred to the portability roadmap. |
+| Chat | Public group reads, initial/reply sends, edits, content-clearing deletes, reactions, explicit `JOIN_GROUP`/`LEAVE_GROUP` participation, and dedicated dual-chain account/group avatar reads work on both chains. Qortium participation uses Core C5 public unsigned builders plus local MemoryPoW; Qortal uses its pinned Hub-compatible transaction bytes, current fee/reference, and local signing. Closed-group joins return a join-request state, already-completed actions are idempotent, and uncertain signed broadcasts are never offered as safe retries. Avatar bytes are network-scoped, bounded, raster-validated, and never exposed as raw node URLs. The same contracts apply on desktop and Android. | Delete clears displayed content but cannot erase immutable transactions. DM/private-group crypto, invitation/moderation actions, full resources, and the later distinct RCHAT family remain deferred to the portability roadmap. |
 
 On 2026-08-10, the current unchanged Q-Tube passed the implemented read-only
 slice in packaged desktop and Android previews: its feed rendered, Home's
