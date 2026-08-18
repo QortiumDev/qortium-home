@@ -20,6 +20,10 @@ export type PermissionCapability =
   | 'chat.send'
   | 'chat.direct.read'
   | 'chat.direct.send'
+  | 'chat.private-group.read'
+  | 'chat.private-group.recover'
+  | 'chat.private-group.rotate'
+  | 'chat.private-group.send'
   | 'group.membership'
   | 'group.administration'
 
@@ -58,6 +62,16 @@ export interface PermissionPrompt {
     | 'SEND_DIRECT_CHAT_EDIT'
     | 'SEND_DIRECT_CHAT_MESSAGE'
     | 'SEND_DIRECT_CHAT_REACTION'
+    | 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    | 'GET_PRIVATE_GROUP_CHAT_STATE'
+    | 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES'
+    | 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
+    | 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
+    | 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
+    | 'SEND_PRIVATE_GROUP_CHAT_DELETE'
+    | 'SEND_PRIVATE_GROUP_CHAT_EDIT'
+    | 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
+    | 'SEND_PRIVATE_GROUP_CHAT_REACTION'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

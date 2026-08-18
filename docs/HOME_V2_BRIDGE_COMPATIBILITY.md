@@ -65,6 +65,9 @@ pages and Home 1.x retain Core's injected bridge client.
 | `SEND_CHAT_REACTION` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Requires the exact reaction envelope and canonical reference; the target may belong to another sender, but must be the original public text message in the selected chain/group | yes | yes |
 | `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES` | both | Selected-account-scoped rows with plaintext `data`, or a per-row `decryptionStatus: "FAILED"` without plaintext | Trusted direct-read prompt; exact selected account and participant selectors; encrypted text only; 100-row and 1 MiB response bounds; no plaintext bridge cache; keys never leave Home | yes | yes |
 | `SEND_DIRECT_CHAT_MESSAGE`, `SEND_DIRECT_CHAT_EDIT`, `SEND_DIRECT_CHAT_DELETE`, `SEND_DIRECT_CHAT_REACTION` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Single-request direct-write prompt; recipient key, exact original/reference/participant binding, payload codec, route, account, and app/tab context rechecked before signing. Qortium uses QDM1; Qortal uses legacy v2 secretbox. Delete clears displayed content but does not erase transactions | yes | yes |
+| `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `GET_PRIVATE_GROUP_CHAT_STATE`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES` | `qdnRequest` | Selected-account-scoped QPGC state or retained rows with plaintext `data`; unavailable rows report `MISSING_KEY` without ciphertext or reusable keys | Trusted private-group read prompt; bounded atomic state/control responses; outer CHAT and inner QPGC signatures verified; current membership, account, app/tab, and route rechecked | yes | yes |
+| `REQUEST_PRIVATE_GROUP_CHAT_KEY`, `RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY` | `qdnRequest` | `{ signature, timestamp }`, bounded relay result, or signed non-retryable unknown-outcome result | Single-request recovery/rotation prompt; Home creates or relays only verified QPGC controls, attests unsigned CHAT bytes, and stores only encrypted account-bound group-key records | yes | yes |
+| `SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`, `SEND_PRIVATE_GROUP_CHAT_DELETE`, `SEND_PRIVATE_GROUP_CHAT_REACTION` | `qdnRequest` | `{ signature, timestamp }`, or signed non-retryable unknown-outcome result | QPGC v1 only; private group must be available and at most 39 members with all public keys known; Home rechecks epoch, membership, reference, sender ownership where required, route, account, and app/tab context before signing | yes | yes |
 | `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
 
@@ -139,7 +142,7 @@ The complete retained Home 1.x action-name source remains
 above is deferred and unadvertised in Home 2.0. In particular this includes
 publishing/deletion, account/group/name/poll/rating mutations other than the
 implemented participation and exact group-administration actions, payments,
-foreign wallets, private-group chat, Home/node settings writes, bookmarks,
+foreign wallets, Qortal private-group chat, Home/node settings writes, bookmarks,
 notifications, downloads/viewers, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
@@ -197,7 +200,7 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   opens. On `qortalRequest`, `txGroupId: 0`
   (Qortal's retired general chat) is rejected with a specific error; on
   `qdnRequest`, group 0 is Qortium's open general chat and stays allowed. The
-  selected account must already be unlocked before a public CHAT write is
+  selected account must already be unlocked before a CHAT write is
   requested — a pure-Qortal app has no unlock shortcut (see above), so it cannot
   drive an unlock itself in Phase 1 and depends on the account already being
   unlocked by other means; this is a known limitation, not a bug. The normal
@@ -209,9 +212,13 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   an older Qortium app's `SEND_CHAT_MESSAGE + chatReference` request is
   classified by its validated payload and routed through the same exact
   action; Qortal has no released equivalent alias. Home verifies every
-  positive-ID target group is
-  open before broadcasting, since private-group encryption is not implemented
-  yet and Home will not send plaintext into an unverified or closed group.
+  positive-ID target group is open before broadcasting through the public CHAT
+  family. Qortium closed groups use the separately advertised QPGC actions,
+  which fail closed unless Core reports a compatible atomic membership state
+  and Home has or recovers the correct wrapped group key. Qortal private groups
+  remain unadvertised until their distinct H4B bundle/`encryptSingle` lifecycle
+  is implemented; Home never sends a plaintext fallback into either chain's
+  closed group.
 - **Android within-principal residual (known limitation, accepted, tracked
   separately):** Android's QDN render proxy serves every app tab on one node
   from a single shared `https://<label>.qdn.androidplatform.net` origin (see

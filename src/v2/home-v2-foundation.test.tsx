@@ -1370,7 +1370,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /function liveResourceMatchesGrant/)
   assert.match(
     appBridge,
-    /liveResourceMatchesGrant\(context\)[\s\S]{0,900}sessionAccountReadGrants\.has\(grantKey\)/,
+    /liveResourceMatchesGrant\(context\)[\s\S]{0,2400}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
 

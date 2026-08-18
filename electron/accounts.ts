@@ -28,6 +28,7 @@ import {
   ensureHomeV2ProfileBackup,
   getHomeV2ProfileRecoveryState,
 } from './home-v2-profile-recovery.js';
+import { removeEncryptedQpgcAccountIdRecords } from './home-v2-private-group-key-store.js';
 
 const requireFromElectron = createRequire(import.meta.url);
 const asmCrypto = requireFromElectron('asmcrypto.js') as {
@@ -1543,6 +1544,7 @@ export async function removeWallet(accountId: string, password?: string) {
   // Removing a derived address only hides it from the list; re-adding derives
   // the same address again, so no password confirmation is needed.
   if (addressIndex > 0) {
+    removeEncryptedQpgcAccountIdRecords(accountId, app.getPath('userData'));
     wallet.derivedAddresses = wallet.derivedAddresses.filter((derived) => derived.index !== addressIndex);
     wallet.updatedAt = new Date().toISOString();
 
@@ -1558,7 +1560,13 @@ export async function removeWallet(accountId: string, password?: string) {
   const walletIndex = store.wallets.findIndex((storedWallet) => storedWallet.id === wallet.id);
 
   if (!unlockedWalletSeeds.has(wallet.id)) {
-    await decryptWalletSeed(password ?? '', wallet.encryptedWallet);
+    const verifiedSeed = await decryptWalletSeed(password ?? '', wallet.encryptedWallet);
+    verifiedSeed.fill(0);
+  }
+
+  removeEncryptedQpgcAccountIdRecords(wallet.id, app.getPath('userData'));
+  for (const derived of wallet.derivedAddresses) {
+    removeEncryptedQpgcAccountIdRecords(getDerivedAccountId(wallet.id, derived.index), app.getPath('userData'));
   }
 
   const wasActiveWallet =

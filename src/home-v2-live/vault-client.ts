@@ -71,6 +71,44 @@ export interface HomeV2DirectChatWriteRequest {
   readonly validateTarget?: (senderPublicKey: string, peerPublicKey: string) => Promise<void>
 }
 
+export interface HomeV2PrivateGroupChatReadRequest {
+  readonly accountId: string
+  readonly action:
+    | 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    | 'GET_PRIVATE_GROUP_CHAT_STATE'
+    | 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES'
+  readonly before?: number
+  readonly encoding: 'BASE58' | 'BASE64'
+  readonly groupId?: number
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly limit: number
+  readonly network: 'qortium'
+  readonly nodeApiUrl: string
+  readonly reverse: boolean
+}
+
+export interface HomeV2PrivateGroupChatWriteRequest {
+  readonly accountId: string
+  readonly action:
+    | 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
+    | 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
+    | 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
+    | 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
+    | 'SEND_PRIVATE_GROUP_CHAT_EDIT'
+    | 'SEND_PRIVATE_GROUP_CHAT_DELETE'
+    | 'SEND_PRIVATE_GROUP_CHAT_REACTION'
+  readonly chatReference: string | null
+  readonly epochId: string | null
+  readonly groupId: number
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly keyId: string | null
+  readonly limit: number
+  readonly message: string | null
+  readonly network: 'qortium'
+  readonly nodeApiUrl: string
+  readonly validateTarget?: (senderPublicKey: string, epochId: string) => Promise<void>
+}
+
 export interface HomeV2GroupMembershipRequest {
   readonly accountId: string
   readonly action: 'JOIN_GROUP' | 'LEAVE_GROUP'
@@ -168,7 +206,9 @@ export interface HomeV2VaultClient {
   // public CHAT writes are handled by electron/home-v2-app-bridge.ts directly).
   sendChatMessage?(request: HomeV2SendChatMessageRequest): Promise<HomeV2SendChatMessageResult>
   readDirectChats?(request: HomeV2DirectChatReadRequest): Promise<unknown[]>
+  readPrivateGroupChats?(request: HomeV2PrivateGroupChatReadRequest): Promise<unknown>
   sendDirectChat?(request: HomeV2DirectChatWriteRequest): Promise<HomeV2SendChatMessageResult>
+  sendPrivateGroupChat?(request: HomeV2PrivateGroupChatWriteRequest): Promise<unknown>
   sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
