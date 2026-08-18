@@ -9,6 +9,7 @@ import {
   type QpgcEnvelope,
 } from './home-v2-private-group-chat-actions.js'
 import { normalizeHomeV2PublicChatRequest } from './home-v2-chat-actions.js'
+import { QORTAL_PRIVATE_GROUP_MAX_PLAINTEXT_BYTES } from './home-v2-qortal-private-group-actions.js'
 import type { HomeV2AppBridgeProtocol } from './home-v2-app-actions.js'
 
 export const HOME_V2_PRIVATE_GROUP_CHAT_READ_ACTIONS = Object.freeze([
@@ -79,10 +80,10 @@ function isRecord(value: unknown): value is RecordValue {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function assertQortiumProtocol(protocol: HomeV2AppBridgeProtocol, network: unknown) {
-  if (protocol !== 'qdnRequest') throw new Error('QPGC private-group actions require the Qortium bridge.')
-  if (network !== undefined && network !== null && network !== '' && network !== 'qortium') {
-    throw new Error('Request network must match the authoritative Qortium bridge.')
+function assertAuthoritativeProtocol(protocol: HomeV2AppBridgeProtocol, network: unknown) {
+  const expectedNetwork = protocol === 'qdnRequest' ? 'qortium' : 'qortal'
+  if (network !== undefined && network !== null && network !== '' && network !== expectedNetwork) {
+    throw new Error(`Request network must match the authoritative ${expectedNetwork === 'qortium' ? 'Qortium' : 'Qortal'} bridge.`)
   }
 }
 
@@ -154,9 +155,12 @@ function normalizeOptionalEpochId(value: unknown) {
   return value as string
 }
 
-function normalizePrivateGroupMessage(value: unknown) {
-  if (typeof value !== 'string' || !value || new TextEncoder().encode(value).length > QPGC_MAX_MESSAGE_PLAINTEXT_BYTES) {
-    throw new Error(`Private-group payload must be a non-empty string no larger than ${QPGC_MAX_MESSAGE_PLAINTEXT_BYTES} UTF-8 bytes.`)
+function normalizePrivateGroupMessage(value: unknown, protocol: HomeV2AppBridgeProtocol) {
+  const maximum = protocol === 'qdnRequest'
+    ? QPGC_MAX_MESSAGE_PLAINTEXT_BYTES
+    : QORTAL_PRIVATE_GROUP_MAX_PLAINTEXT_BYTES
+  if (typeof value !== 'string' || !value || new TextEncoder().encode(value).length > maximum) {
+    throw new Error(`Private-group payload must be a non-empty string no larger than ${maximum} UTF-8 bytes.`)
   }
   return value
 }
@@ -174,7 +178,7 @@ export function normalizeHomeV2PrivateGroupChatReadRequest(
   action: HomeV2PrivateGroupChatReadAction,
   request: RecordValue,
 ): HomeV2PrivateGroupChatReadRequest {
-  assertQortiumProtocol(protocol, request.network)
+  assertAuthoritativeProtocol(protocol, request.network)
   const encoding = normalizeEncoding(request.encoding)
   if (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') {
     return { action, encoding, limit: normalizeLimit(request.limit), reverse: true }
@@ -199,7 +203,7 @@ export function normalizeHomeV2PrivateGroupChatWriteRequest(
   action: HomeV2PrivateGroupChatWriteAction,
   request: RecordValue,
 ): HomeV2PrivateGroupChatWriteRequest {
-  assertQortiumProtocol(protocol, request.network)
+  assertAuthoritativeProtocol(protocol, request.network)
   const groupId = normalizeGroupId(request)
   if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
     return {
@@ -218,7 +222,7 @@ export function normalizeHomeV2PrivateGroupChatWriteRequest(
   if (action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY') {
     return { action, chatReference: null, epochId: null, groupId, keyId: null, limit: 1, message: null }
   }
-  const message = normalizePrivateGroupMessage(request.message)
+  const message = normalizePrivateGroupMessage(request.message, protocol)
   const publicAction = action === 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
     ? 'SEND_CHAT_MESSAGE'
     : action === 'SEND_PRIVATE_GROUP_CHAT_EDIT'
@@ -226,10 +230,11 @@ export function normalizeHomeV2PrivateGroupChatWriteRequest(
       : action === 'SEND_PRIVATE_GROUP_CHAT_DELETE'
         ? 'SEND_CHAT_DELETE'
         : 'SEND_CHAT_REACTION'
-  const validated = normalizeHomeV2PublicChatRequest('qdnRequest', publicAction, {
+  const network = protocol === 'qdnRequest' ? 'qortium' : 'qortal'
+  const validated = normalizeHomeV2PublicChatRequest(protocol, publicAction, {
     chatReference: request.chatReference,
     message,
-    network: 'qortium',
+    network,
     txGroupId: groupId,
   })
   return {

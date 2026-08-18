@@ -69,17 +69,22 @@ attestation, signing, and broadcast inside the trusted host. Apps receive
 plaintext rows or per-row failures but never a private key, shared secret, or
 reusable decryption key.
 
-Home 2 exposes the Qortium QPGC private-group family on `qdnRequest`:
+Home 2 exposes the private-group family on both bridge protocols:
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `GET_PRIVATE_GROUP_CHAT_STATE`,
 `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`, `REQUEST_PRIVATE_GROUP_CHAT_KEY`,
 `RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY`,
 `SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`,
 `SEND_PRIVATE_GROUP_CHAT_DELETE`, and `SEND_PRIVATE_GROUP_CHAT_REACTION`.
-Home verifies Core's signed control records, owns key recovery, relay, rotation,
-encryption, decryption, MemoryPoW, signing, and encrypted account-bound key
-persistence. Apps receive plaintext rows or explicit missing-key failures but
-never group keys. The Qortal private-group family is intentionally not
-advertised until its distinct bundle and `encryptSingle` implementation lands.
+On `qdnRequest`, Home verifies Core's signed QPGC control records and owns key
+recovery, relay, rotation, encryption, decryption, MemoryPoW, signing, and
+encrypted account-bound key persistence. On `qortalRequest`, Home discovers
+only current-administrator `DOCUMENT_PRIVATE` bundles, supports the established
+old/new `encryptSingle` forms, publishes or rotates current-member bundles, and
+uses Qortal's app-level encrypted group CHAT wire. Apps receive plaintext rows
+or explicit missing-key failures but never group keys. If the selected Qortal
+route's operator disables QDN staging, publication/rotation fails with
+`NODE_CAPABILITY_MISSING`; reads and already-keyed message sends remain on that
+same selected route and there is no plaintext or alternate-node fallback.
 
 `OPEN_QDN_RESOURCE_VIEWER` and `GET_QDN_RESOURCE_STREAM_URL` are read-only and
 available in every node mode. The first opens Home's existing viewer as a

@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable Qortal private groups
+
+Home 2 now gives QDN apps the matching Qortal private-group action family on
+desktop and Android through the selected local, custom, or public route. Home
+discovers only current administrator publications at the established
+`DOCUMENT_PRIVATE/<admin>/symmetric-qchat-group-<groupId>` coordinate,
+decrypts the Hub-compatible recipient bundle, supports both retained
+`encryptSingle` formats and reaction type 102, and keeps recovered key rings in
+encrypted account-bound desktop or Android storage. Current members can read,
+send, reply, edit, clear displayed content, react, and recover after reinstall;
+current named administrators can republish or rotate bundles for the current
+membership. QDN publication stages only already-encrypted ciphertext, attests
+the returned Qortal ARBITRARY sender, reference, coordinate, method, service,
+hash shape, size, timestamp, and fee before local signing, and preserves signed
+unknown broadcasts as unsafe to retry. Operators may disable QDN staging; Home
+then reports `NODE_CAPABILITY_MISSING` on that exact route and never changes
+nodes or falls back to plaintext. Clean-room byte-exact tests match the official
+Hub v3.0.0 bundle plus old/new message and reaction fixtures. This completes
+Home milestone H4 on both chains.
+
 ### 2026-08-18 - feat(chat): add portable Qortium private groups
 
 Home 2 now gives QDN apps a portable Qortium private-group chat family on

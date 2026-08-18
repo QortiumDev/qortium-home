@@ -94,6 +94,24 @@ import {
   upsertEncryptedQpgcKeyRecord,
 } from './home-v2-private-group-key-store.js'
 import {
+  appendQortalPrivateGroupKey,
+  decryptQortalPrivateGroupBundle,
+  decryptQortalPrivateGroupPayload,
+  decryptQortalPrivateGroupStoredKeyRing,
+  encryptQortalPrivateGroupBundle,
+  encryptQortalPrivateGroupPayload,
+  encryptQortalPrivateGroupStoredKeyRing,
+  type QortalPrivateGroupKeyRing,
+} from './home-v2-qortal-private-group-actions.js'
+import {
+  findEncryptedQortalPrivateGroupRecord,
+  upsertEncryptedQortalPrivateGroupRecord,
+} from './home-v2-qortal-private-group-key-store.js'
+import {
+  attestUnsignedQortalPrivateGroupPublish,
+  signAttestedQortalPrivateGroupPublish,
+} from './home-v2-qortal-private-group-publish.js'
+import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
   createHomeV2GroupMembershipSuccess,
@@ -1324,17 +1342,462 @@ async function readHomeV2DirectChatAction(
   }
 }
 
-function qpgcOperationLabel(action: HomeV2PrivateGroupChatReadAction | HomeV2PrivateGroupChatWriteAction) {
+function qpgcOperationLabel(
+  action: HomeV2PrivateGroupChatReadAction | HomeV2PrivateGroupChatWriteAction,
+  network: HomeV2AppNetwork = 'qortium',
+) {
   if (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') return 'Read active private-group chats'
   if (action === 'GET_PRIVATE_GROUP_CHAT_STATE') return 'Read private-group chat state'
   if (action === 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES') return 'Read private-group chat history'
-  if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') return 'Request a private-group chat key'
-  if (action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') return 'Relay private-group chat keys'
+  if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') return network === 'qortal' ? 'Recover a private-group chat key' : 'Request a private-group chat key'
+  if (action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') return network === 'qortal' ? 'Republish private-group chat keys' : 'Relay private-group chat keys'
   if (action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY') return 'Rotate a private-group chat key'
   if (action === 'SEND_PRIVATE_GROUP_CHAT_EDIT') return 'Edit a private-group message'
   if (action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') return 'Clear private-group message content'
   if (action === 'SEND_PRIVATE_GROUP_CHAT_REACTION') return 'React in a private group'
   return 'Send a private-group message'
+}
+
+type HomeV2QortalPrivateGroupState = {
+  readonly adminAddresses: readonly string[]
+  readonly adminNames: readonly string[]
+  readonly groupId: number
+  readonly groupName: string
+  readonly isOpen: false
+  readonly memberAddresses: readonly string[]
+  readonly memberPublicKeys?: readonly Uint8Array[]
+  readonly ownerAddress: string
+}
+
+type HomeV2QortalPrivateGroupResource = {
+  readonly created: number
+  readonly identifier: string
+  readonly name: string
+  readonly signature: string
+  readonly size: number
+  readonly updated: number
+}
+
+function normalizeQortalPrivateGroupMembers(value: unknown) {
+  if (!isHomeV2AppRecord(value) || !Array.isArray(value.members)) {
+    throw new Error('Qortal private-group membership response is invalid.')
+  }
+  const members = value.members.map((entry) => {
+    if (!isHomeV2AppRecord(entry)) throw new Error('Qortal private-group member entry is invalid.')
+    return {
+      address: normalizeHomeV2Address(entry.member),
+      isAdmin: entry.isAdmin === true,
+      primaryName: typeof entry.primaryName === 'string' && entry.primaryName.trim()
+        ? entry.primaryName.trim()
+        : null,
+    }
+  })
+  if (!Number.isSafeInteger(value.memberCount) || value.memberCount !== members.length || members.length < 1 || members.length > 4_096) {
+    throw new Error('Qortal private-group member count is invalid.')
+  }
+  return members
+}
+
+async function readHomeV2QortalPrivateGroupState(
+  nodeApiUrl: string,
+  groupId: number,
+  includePublicKeys = false,
+): Promise<HomeV2QortalPrivateGroupState> {
+  const [groupValue, memberValue] = await Promise.all([
+    readHomeV2ChatJson(nodeApiUrl, `/groups/${encodeURIComponent(String(groupId))}`, 'Qortal private-group lookup'),
+    readHomeV2ChatJson(
+      nodeApiUrl,
+      `/groups/members/${encodeURIComponent(String(groupId))}?limit=0`,
+      'Qortal private-group membership lookup',
+      '',
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+  ])
+  const target = normalizeHomeV2GroupAdminTarget(groupValue, groupId, 'qortal')
+  if (!isHomeV2AppRecord(groupValue) || groupValue.isOpen !== false) {
+    throw new Error('Qortal private-group actions require a closed group.')
+  }
+  const members = normalizeQortalPrivateGroupMembers(memberValue)
+  const memberAddresses = members.map((member) => member.address)
+  const adminAddresses = [...new Set([
+    target.ownerAddress,
+    ...members.filter((member) => member.isAdmin).map((member) => member.address),
+  ])]
+  const primaryByAddress = new Map(members.flatMap((member) =>
+    member.primaryName ? [[member.address, member.primaryName] as const] : [],
+  ))
+  if (typeof groupValue.ownerPrimaryName === 'string' && groupValue.ownerPrimaryName.trim()) {
+    primaryByAddress.set(target.ownerAddress, groupValue.ownerPrimaryName.trim())
+  }
+  for (const address of adminAddresses) {
+    if (primaryByAddress.has(address)) continue
+    const value = await readHomeV2ChatJson(
+      nodeApiUrl,
+      `/names/primary/${encodeURIComponent(address)}`,
+      'Qortal group-administrator primary-name lookup',
+    ).catch(() => null)
+    const name = stringField(value, 'name')
+    if (name) primaryByAddress.set(address, name)
+  }
+  let memberPublicKeys: Uint8Array[] | undefined
+  if (includePublicKeys) {
+    memberPublicKeys = []
+    for (const address of memberAddresses) {
+      let key: Awaited<ReturnType<typeof readHomeV2DirectPublicKey>>
+      try {
+        key = await readHomeV2DirectPublicKey(nodeApiUrl, 'qortal', address)
+      } catch (error) {
+        throw createHomeV2BridgeError(
+          `Qortal group member ${address} does not have a usable public key.`,
+          {
+            action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+            code: 'MISSING_RECIPIENT_PUBLIC_KEY',
+            network: 'qortal',
+            retryable: false,
+            target: { kind: 'group', groupId },
+          },
+        )
+      }
+      memberPublicKeys.push(key.bytes)
+    }
+  }
+  return Object.freeze({
+    adminAddresses: Object.freeze(adminAddresses),
+    adminNames: Object.freeze(adminAddresses.flatMap((address) => {
+      const name = primaryByAddress.get(address)
+      return name ? [name] : []
+    })),
+    groupId,
+    groupName: target.groupName,
+    isOpen: false,
+    memberAddresses: Object.freeze(memberAddresses),
+    ...(memberPublicKeys ? { memberPublicKeys: Object.freeze(memberPublicKeys) } : {}),
+    ownerAddress: target.ownerAddress,
+  })
+}
+
+function normalizeQortalPrivateGroupResource(
+  value: unknown,
+  state: HomeV2QortalPrivateGroupState,
+): HomeV2QortalPrivateGroupResource | null {
+  if (!isHomeV2AppRecord(value)) return null
+  const identifier = `symmetric-qchat-group-${state.groupId}`
+  if (value.service !== 'DOCUMENT_PRIVATE' || value.identifier !== identifier || typeof value.name !== 'string' || !state.adminNames.includes(value.name)) return null
+  const signature = typeof value.latestSignature === 'string' ? value.latestSignature : ''
+  try {
+    if (base58Decode(signature).length !== 64 || base58Encode(base58Decode(signature)) !== signature) return null
+  } catch { return null }
+  const created = Number(value.created)
+  const updated = value.updated === undefined ? created : Number(value.updated)
+  const size = Number(value.size)
+  if (!Number.isSafeInteger(created) || !Number.isSafeInteger(updated) || !Number.isSafeInteger(size) || size < 1 || size > 2 * 1024 * 1024) return null
+  return { created, identifier, name: value.name, signature, size, updated }
+}
+
+async function readHomeV2QortalPrivateGroupResources(
+  nodeApiUrl: string,
+  state: HomeV2QortalPrivateGroupState,
+) {
+  if (!state.adminNames.length) return []
+  const query = new URLSearchParams({
+    exactmatchnames: 'true',
+    identifier: `symmetric-qchat-group-${state.groupId}`,
+    limit: '0',
+    mode: 'ALL',
+    prefix: 'true',
+    reverse: 'true',
+    service: 'DOCUMENT_PRIVATE',
+  })
+  for (const name of state.adminNames) query.append('name', name)
+  const value = await readHomeV2ChatJson(
+    nodeApiUrl,
+    `/arbitrary/resources/searchsimple?${query.toString()}`,
+    'Qortal private-group key-bundle search',
+    '',
+    PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+  )
+  if (!Array.isArray(value)) throw new Error('Qortal private-group key-bundle search response is invalid.')
+  return value.flatMap((entry) => {
+    const normalized = normalizeQortalPrivateGroupResource(entry, state)
+    return normalized ? [normalized] : []
+  }).sort((left, right) => right.updated - left.updated || right.created - left.created || right.signature.localeCompare(left.signature))
+}
+
+async function persistHomeV2QortalPrivateGroupRing(input: {
+  readonly accountId: string
+  readonly groupId: number
+  readonly keyRing: QortalPrivateGroupKeyRing
+  readonly publisherName: string
+  readonly recipientCount: number
+  readonly resourceSignature: string
+  readonly secretKey: Uint8Array
+}) {
+  upsertEncryptedQortalPrivateGroupRecord(await encryptQortalPrivateGroupStoredKeyRing({
+    groupId: input.groupId,
+    keyRing: input.keyRing,
+    publisherName: input.publisherName,
+    recipientCount: input.recipientCount,
+    resourceSignature: input.resourceSignature,
+    selectedAccountSecretKey: input.secretKey,
+  }), input.accountId, app.getPath('userData'))
+}
+
+async function resolveHomeV2QortalPrivateGroupRing(input: {
+  readonly accountId: string
+  readonly nodeApiUrl: string
+  readonly secretKey: Uint8Array
+  readonly state: HomeV2QortalPrivateGroupState
+}) {
+  const accountPublicKey = Buffer.from(nacl.sign.keyPair.fromSecretKey(input.secretKey).publicKey).toString('base64')
+  const stored = findEncryptedQortalPrivateGroupRecord({
+    accountId: input.accountId,
+    accountPublicKey,
+    groupId: input.state.groupId,
+    userData: app.getPath('userData'),
+  })
+  const resources = await readHomeV2QortalPrivateGroupResources(input.nodeApiUrl, input.state)
+  for (const resource of resources.slice(0, 100)) {
+    try {
+      if (stored?.resourceSignature === resource.signature && stored.publisherName === resource.name) {
+        return {
+          keyRing: await decryptQortalPrivateGroupStoredKeyRing({ record: stored, selectedAccountSecretKey: input.secretKey }),
+          publisherName: resource.name,
+          recipientCount: stored.recipientCount,
+          resourceSignature: resource.signature,
+        }
+      }
+      const value = await readHomeV2ChatJson(
+        input.nodeApiUrl,
+        `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}?encoding=base64&rebuild=true`,
+        'Qortal private-group key-bundle fetch',
+        '',
+        3 * 1024 * 1024,
+      )
+      if (typeof value !== 'string') throw new Error('Qortal private-group key-bundle body is invalid.')
+      const decrypted = decryptQortalPrivateGroupBundle({
+        encryptedBundle: value.trim(),
+        selectedAccountSecretKey: input.secretKey,
+      })
+      await persistHomeV2QortalPrivateGroupRing({
+        accountId: input.accountId,
+        groupId: input.state.groupId,
+        keyRing: decrypted.keyRing,
+        publisherName: resource.name,
+        recipientCount: decrypted.recipientCount,
+        resourceSignature: resource.signature,
+        secretKey: input.secretKey,
+      })
+      return {
+        keyRing: decrypted.keyRing,
+        publisherName: resource.name,
+        recipientCount: decrypted.recipientCount,
+        resourceSignature: resource.signature,
+      }
+    } catch {
+      // Continue through the bounded newest-first list until one currently
+      // authorized administrator resource decrypts and authenticates.
+    }
+  }
+  if (stored && input.state.adminNames.includes(stored.publisherName)) {
+    try {
+      return {
+        keyRing: await decryptQortalPrivateGroupStoredKeyRing({ record: stored, selectedAccountSecretKey: input.secretKey }),
+        publisherName: stored.publisherName,
+        recipientCount: stored.recipientCount,
+        resourceSignature: stored.resourceSignature,
+      }
+    } catch { /* fail below */ }
+  }
+  return null
+}
+
+function normalizeQortalAtomicFee(value: unknown) {
+  const raw = typeof value === 'number' || typeof value === 'bigint' || typeof value === 'string'
+    ? String(value).trim()
+    : ''
+  if (!/^\d+$/.test(raw)) throw new Error('Qortal ARBITRARY fee response is invalid.')
+  const fee = BigInt(raw)
+  if (fee < 0n || fee > 9_223_372_036_854_775_807n) throw new Error('Qortal ARBITRARY fee is outside the transaction range.')
+  return fee
+}
+
+async function publishHomeV2QortalPrivateGroupBundle(input: {
+  readonly accountId: string
+  readonly encryptedBundle: string
+  readonly isStillValid: () => boolean | Promise<boolean>
+  readonly keyRing: QortalPrivateGroupKeyRing
+  readonly name: string
+  readonly nodeApiUrl: string
+  readonly secretKey: Uint8Array
+  readonly senderAddress: string
+  readonly senderPublicKey: Uint8Array
+  readonly state: HomeV2QortalPrivateGroupState
+  readonly validateState: () => Promise<void>
+}) {
+  const identifier = `symmetric-qchat-group-${input.state.groupId}`
+  const feeTimestamp = Date.now()
+  const [feeValue, referenceValue] = await Promise.all([
+    readHomeV2ChatJson(input.nodeApiUrl, `/transactions/unitfee?txType=ARBITRARY&timestamp=${feeTimestamp}`, 'Qortal private-group publication fee lookup'),
+    readHomeV2ChatJson(input.nodeApiUrl, `/addresses/lastreference/${encodeURIComponent(input.senderAddress)}`, 'Qortal private-group publication reference lookup'),
+  ])
+  const fee = normalizeQortalAtomicFee(feeValue)
+  if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.')
+  const lastReference = base58Decode(referenceValue.trim())
+  if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) throw new Error('Qortal last-reference response is invalid.')
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle staging.')
+  const started = Date.now()
+  let unsignedBase58: string
+  try {
+    unsignedBase58 = await postHomeV2ChatText(
+      input.nodeApiUrl,
+      `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(input.name)}/${encodeURIComponent(identifier)}/base64?fee=${encodeURIComponent(String(fee))}`,
+      input.encryptedBundle,
+      'text/plain',
+      'Qortal private-group key-bundle staging failed.',
+    )
+  } catch (error) {
+    const status = isHomeV2AppRecord(error) && typeof error.status === 'number' ? error.status : null
+    if (status === 401 || status === 403 || status === 404 || status === 405) {
+      throw createHomeV2BridgeError(
+        'The selected Qortal node does not permit private-group QDN bundle staging.',
+        {
+          action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+          code: 'NODE_CAPABILITY_MISSING',
+          network: 'qortal',
+          retryable: false,
+          target: { kind: 'group', groupId: input.state.groupId },
+        },
+      )
+    }
+    throw error
+  }
+  const attested = attestUnsignedQortalPrivateGroupPublish(unsignedBase58.trim(), {
+    bundleSize: Buffer.from(input.encryptedBundle, 'base64').length,
+    feeAtomic: fee,
+    identifier,
+    lastReference,
+    name: input.name,
+    senderPublicKey: input.senderPublicKey,
+    timestampMaximum: Date.now() + 5_000,
+    timestampMinimum: started - 5_000,
+  })
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle signing.')
+  await input.validateState()
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle submission.')
+  const signed = signAttestedQortalPrivateGroupPublish({
+    selectedAccountSecretKey: input.secretKey,
+    signingBytes: attested.signingBytes,
+    unsignedBytes: attested.unsignedBytes,
+  })
+  try {
+    await postHomeV2ChatText(
+      input.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signed.signedBytes),
+      'text/plain',
+      'Qortal private-group key-bundle broadcast failed.',
+    )
+  } catch (error) {
+    // Do not cache an unconfirmed bundle coordinate. If the broadcast did
+    // reach the chain, normal resource discovery will recover it later.
+    return createHomeV2UnknownChatBroadcastResult(error, signed.signature, attested.timestamp)
+  }
+  try {
+    await persistHomeV2QortalPrivateGroupRing({
+      accountId: input.accountId,
+      groupId: input.state.groupId,
+      keyRing: input.keyRing,
+      publisherName: input.name,
+      recipientCount: input.state.memberAddresses.length,
+      resourceSignature: signed.signature,
+      secretKey: input.secretKey,
+    })
+  } catch {
+    // The accepted QDN resource remains the recovery source. A local cache
+    // failure must not turn a confirmed broadcast into a retryable failure.
+  }
+  return { accepted: true, signature: signed.signature, timestamp: attested.timestamp }
+}
+
+async function validateHomeV2QortalPrivateGroupReference(input: {
+  readonly action: HomeV2PrivateGroupChatWriteAction
+  readonly chatReference: string | null
+  readonly groupId: number
+  readonly nodeApiUrl: string
+  readonly senderPublicKey: string
+}) {
+  if (!input.chatReference) return
+  const value = await readHomeV2ChatJson(
+    input.nodeApiUrl,
+    `/chat/message/${encodeURIComponent(input.chatReference)}?encoding=BASE64`,
+    'Referenced Qortal private-group message lookup',
+  )
+  if (!isHomeV2AppRecord(value) || value.signature !== input.chatReference || Number(value.txGroupId) !== input.groupId) {
+    throw new Error('Referenced private-group message belongs to a different conversation.')
+  }
+  if (value.recipient !== null && value.recipient !== undefined && value.recipient !== '') {
+    throw new Error('Referenced private-group message unexpectedly has a recipient.')
+  }
+  if (value.isEncrypted !== false || value.isText !== true || value.chatReference) {
+    throw new Error('Qortal private-group revisions must reference one original app-encrypted group message.')
+  }
+  if (
+    (input.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' || input.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') &&
+    value.senderPublicKey !== input.senderPublicKey
+  ) throw new Error('Only the original sender can edit or clear a private-group message.')
+}
+
+function qortalPrivateGroupFailure(row: Record<string, unknown>, error: unknown) {
+  return {
+    ...row,
+    data: null,
+    decryptionError: error instanceof Error ? error.message : String(error),
+    status: /key version .* unavailable|key bundle|key ring/i.test(error instanceof Error ? error.message : String(error))
+      ? 'MISSING_KEY'
+      : 'FAILED',
+  }
+}
+
+function decodeQortalPrivateGroupChatData(value: unknown) {
+  if (typeof value !== 'string' || !value) throw new Error('Qortal private-group CHAT data is missing.')
+  const bytes = Uint8Array.from(Buffer.from(value, 'base64'))
+  if (Buffer.from(bytes).toString('base64') !== value) throw new Error('Qortal private-group CHAT data is not canonical Base64.')
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { throw new Error('Qortal private-group CHAT data is not UTF-8.') }
+}
+
+function decryptHomeV2QortalPrivateGroupRows(input: {
+  readonly encoding: 'BASE58' | 'BASE64'
+  readonly groupId: number
+  readonly keyRing: QortalPrivateGroupKeyRing
+  readonly rows: readonly unknown[]
+}) {
+  const results: Record<string, unknown>[] = []
+  for (const value of input.rows.slice(0, 100)) {
+    if (!isHomeV2AppRecord(value)) continue
+    try {
+      if (Number(value.txGroupId) !== input.groupId || value.isEncrypted !== false || value.isText !== true) {
+        throw new Error('Qortal private-group row is not app-encrypted text for the approved group.')
+      }
+      if (value.recipient !== null && value.recipient !== undefined && value.recipient !== '') {
+        throw new Error('Qortal private-group row unexpectedly has a recipient.')
+      }
+      const decrypted = decryptQortalPrivateGroupPayload({
+        ciphertext: decodeQortalPrivateGroupChatData(value.data),
+        keyRing: input.keyRing,
+      })
+      results.push({
+        ...value,
+        data: input.encoding === 'BASE58' ? base58Encode(decrypted.plaintext) : Buffer.from(decrypted.plaintext).toString('base64'),
+        encoding: input.encoding,
+        keyVersion: decrypted.keyVersion,
+        payloadType: decrypted.typeNumber,
+        status: 'DECRYPTED',
+      })
+    } catch (error) {
+      results.push(qortalPrivateGroupFailure(value, error))
+    }
+  }
+  return results
 }
 
 function encodeBase64Bytes(value: Uint8Array) {
@@ -1664,6 +2127,272 @@ async function decryptHomeV2QpgcRows(input: {
   }
   for (const key of keys.values()) key?.groupKey.fill(0)
   return results
+}
+
+async function readHomeV2QortalPrivateGroupChatAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2PrivateGroupChatReadAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2PrivateGroupChatReadRequest(protocol, action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network: 'qortal',
+    retryable: false,
+    ...(request.groupId ? { target: { kind: 'group' as const, groupId: request.groupId } } : {}),
+  })
+  const node = await getHomeV2ReadableNode('qortal')
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'private-group',
+    groupId: request.groupId ?? 0,
+    operationLabel: qpgcOperationLabel(action, 'qortal'),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    targetChainLabel: 'Qortal',
+  })
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account changed before Qortal private-group decryption.')
+  }
+  try {
+    if (action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
+      const state = await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, request.groupId as number)
+      const isMember = state.memberAddresses.includes(profile.address)
+      const key = isMember ? await resolveHomeV2QortalPrivateGroupRing({ accountId, nodeApiUrl: node.nodeApiUrl, secretKey: signingKey.secretKey, state }) : null
+      return {
+        available: !!key,
+        exists: true,
+        groupId: state.groupId,
+        groupName: state.groupName,
+        isMember,
+        isOpen: false,
+        memberCount: state.memberAddresses.length,
+        publisherName: key?.publisherName ?? null,
+        qortalPrivateGroupVersion: 1,
+        recipientCount: key?.recipientCount ?? null,
+        resourceSignature: key?.resourceSignature ?? null,
+        rotationRequired: key?.recipientCount !== null && key?.recipientCount !== state.memberAddresses.length,
+      }
+    }
+    const memberships = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+      ? await readHomeV2ChatJson(
+          node.nodeApiUrl,
+          `/groups/member/${encodeURIComponent(profile.address)}?limit=0&reverse=true`,
+          'Qortal private-group membership lookup',
+          '',
+          PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+        )
+      : null
+    const groupIds = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+      ? (Array.isArray(memberships) ? memberships : []).flatMap((value) =>
+          isHomeV2AppRecord(value) && value.isOpen === false && Number.isSafeInteger(Number(value.groupId))
+            ? [Number(value.groupId)]
+            : [],
+        )
+      : [request.groupId as number]
+    const results: Record<string, unknown>[] = []
+    for (const groupId of groupIds.slice(0, request.limit)) {
+      const state = await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, groupId)
+      if (!state.memberAddresses.includes(profile.address)) continue
+      const key = await resolveHomeV2QortalPrivateGroupRing({ accountId, nodeApiUrl: node.nodeApiUrl, secretKey: signingKey.secretKey, state })
+      if (!key) {
+        if (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') results.push({ groupId, status: 'MISSING_KEY' })
+        else throw createHomeV2BridgeError('No Qortal private-group key bundle is available to this account.', {
+          action,
+          code: 'MISSING_GROUP_KEY',
+          network: 'qortal',
+          retryable: false,
+          target: { kind: 'group', groupId },
+        })
+        continue
+      }
+      const query = new URLSearchParams({
+        encoding: 'BASE64',
+        limit: action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ? '1' : String(request.limit),
+        reverse: 'true',
+        txGroupId: String(groupId),
+      })
+      if (request.before !== undefined) query.set('before', String(request.before))
+      const rows = await readHomeV2ChatJson(
+        node.nodeApiUrl,
+        `/chat/messages?${query.toString()}`,
+        'Qortal private-group message lookup',
+        '',
+        PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+      )
+      const decrypted = decryptHomeV2QortalPrivateGroupRows({
+        encoding: request.encoding,
+        groupId,
+        keyRing: key.keyRing,
+        rows: Array.isArray(rows) ? rows : [],
+      })
+      if (action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') results.push(decrypted[0] ?? { groupId, status: 'NO_MESSAGES' })
+      else results.push(...decrypted)
+    }
+    const fresh = getQdnViewContextForWebContents(sender)
+    const nodeNow = await getHomeV2ReadableNode('qortal').catch(() => null)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId) || !nodeNow || `${nodeNow.mode}|${nodeNow.nodeApiUrl}` !== nodeRoute) {
+      throw new Error('Qortal private-group read context changed before decryption completed.')
+    }
+    return results
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
+async function sendHomeV2QortalPrivateGroupChatAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: HomeV2PrivateGroupChatWriteAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2PrivateGroupChatWriteRequest(protocol, action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action,
+    code: 'ACCOUNT_LOCKED',
+    network: 'qortal',
+    retryable: false,
+    target: { kind: 'group', groupId: request.groupId },
+  })
+  const node = await getHomeV2ReadableNode('qortal')
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const needsMemberKeys = action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
+  const state = await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, request.groupId, needsMemberKeys)
+  if (!state.memberAddresses.includes(profile.address)) throw createHomeV2BridgeError(
+    'The selected account is not a current member of this private group.',
+    { action, code: 'NOT_GROUP_MEMBER', network: 'qortal', retryable: false, target: { kind: 'group', groupId: request.groupId } },
+  )
+  const singleRequestOnly = action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY' ||
+    action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS' ||
+    action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'private-group',
+    chatReference: request.chatReference,
+    groupId: request.groupId,
+    messagePreview: request.message?.slice(0, 180),
+    operationLabel: qpgcOperationLabel(action, 'qortal'),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    singleRequestOnly,
+    targetChainLabel: 'Qortal',
+  })
+  if (!singleRequestOnly) {
+    const decision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+    if (!decision.allowed) throw new Error(decision.message)
+  }
+  const approvedPublicKey = getAccountSigningPublicKey(accountId)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address || signingKey.publicKey58 !== approvedPublicKey) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account changed before Qortal private-group signing.')
+  }
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode('qortal').catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  const validateState = async () => {
+    const current = await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, request.groupId)
+    if (
+      current.memberAddresses.join('|') !== state.memberAddresses.join('|') ||
+      current.adminAddresses.join('|') !== state.adminAddresses.join('|')
+    ) throw new Error('Private-group membership changed before signing.')
+    await validateHomeV2QortalPrivateGroupReference({
+      action,
+      chatReference: request.chatReference,
+      groupId: request.groupId,
+      nodeApiUrl: node.nodeApiUrl,
+      senderPublicKey: signingKey.publicKey58,
+    })
+  }
+  try {
+    if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
+      const key = await resolveHomeV2QortalPrivateGroupRing({ accountId, nodeApiUrl: node.nodeApiUrl, secretKey: signingKey.secretKey, state })
+      if (!key) throw createHomeV2BridgeError('No Qortal private-group key bundle is available to this account.', {
+        action,
+        code: 'MISSING_GROUP_KEY',
+        network: 'qortal',
+        retryable: false,
+        target: { kind: 'group', groupId: request.groupId },
+      })
+      return { accepted: true, recovered: true, resourceSignature: key.resourceSignature }
+    }
+    if (action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') {
+      if (!state.adminAddresses.includes(profile.address)) throw new Error('Only a current group administrator can publish a Qortal private-group key bundle.')
+      const nameValue = await readHomeV2ChatJson(node.nodeApiUrl, `/names/primary/${encodeURIComponent(profile.address)}`, 'Qortal publisher primary-name lookup')
+      const name = stringField(nameValue, 'name')
+      if (!name || stringField(nameValue, 'owner') !== profile.address || !state.adminNames.includes(name)) throw new Error('The selected Qortal group administrator needs a current primary name.')
+      const existing = await resolveHomeV2QortalPrivateGroupRing({ accountId, nodeApiUrl: node.nodeApiUrl, secretKey: signingKey.secretKey, state })
+      let keyRing = existing?.keyRing ?? null
+      if (action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || !keyRing) {
+        keyRing = appendQortalPrivateGroupKey(keyRing, new Uint8Array(randomBytes(32))).keyRing
+      }
+      const encryptedBundle = encryptQortalPrivateGroupBundle({
+        keyRing,
+        memberPublicKeys: state.memberPublicKeys ?? [],
+        selectedAccountSecretKey: signingKey.secretKey,
+        senderPublicKey: base58Decode(signingKey.publicKey58),
+      })
+      return publishHomeV2QortalPrivateGroupBundle({
+        accountId,
+        encryptedBundle,
+        isStillValid,
+        keyRing,
+        name,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        senderAddress: profile.address,
+        senderPublicKey: base58Decode(signingKey.publicKey58),
+        state,
+        validateState,
+      })
+    }
+    const key = await resolveHomeV2QortalPrivateGroupRing({ accountId, nodeApiUrl: node.nodeApiUrl, secretKey: signingKey.secretKey, state })
+    if (!key) throw createHomeV2BridgeError('No Qortal private-group key bundle is available. Recover or rotate the key first.', {
+      action,
+      code: 'MISSING_GROUP_KEY',
+      network: 'qortal',
+      retryable: false,
+      target: { kind: 'group', groupId: request.groupId },
+    })
+    const encryptedMessage = encryptQortalPrivateGroupPayload({
+      keyRing: key.keyRing,
+      plaintext: new TextEncoder().encode(request.message as string),
+      typeNumber: action === 'SEND_PRIVATE_GROUP_CHAT_REACTION' ? 102 : 2,
+    })
+    const publicAction = action === 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
+      ? 'SEND_CHAT_MESSAGE'
+      : action === 'SEND_PRIVATE_GROUP_CHAT_EDIT'
+        ? 'SEND_CHAT_EDIT'
+        : action === 'SEND_PRIVATE_GROUP_CHAT_DELETE'
+          ? 'SEND_CHAT_DELETE'
+          : 'SEND_CHAT_REACTION'
+    return sendHomeV2QortalChatMessage(
+      node.nodeApiUrl,
+      {
+        action: publicAction,
+        chatReference: request.chatReference,
+        message: encryptedMessage,
+        txGroupId: request.groupId,
+      },
+      signingKey,
+      isStillValid,
+      validateState,
+    )
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
 }
 
 async function readHomeV2PrivateGroupChatAction(
@@ -2679,10 +3408,14 @@ async function handleRequestWithRuntime(
     return readHomeV2DirectChatAction(sender, context, protocol, network, action, requestValue)
   }
   if (isHomeV2PrivateGroupChatWriteAction(action)) {
-    return sendHomeV2PrivateGroupChatAction(sender, context, protocol, action, requestValue)
+    return network === 'qortal'
+      ? sendHomeV2QortalPrivateGroupChatAction(sender, context, protocol, action, requestValue)
+      : sendHomeV2PrivateGroupChatAction(sender, context, protocol, action, requestValue)
   }
   if (isHomeV2PrivateGroupChatReadAction(action)) {
-    return readHomeV2PrivateGroupChatAction(sender, context, protocol, action, requestValue)
+    return network === 'qortal'
+      ? readHomeV2QortalPrivateGroupChatAction(sender, context, protocol, action, requestValue)
+      : readHomeV2PrivateGroupChatAction(sender, context, protocol, action, requestValue)
   }
   if (isHomeV2GroupMembershipAction(action)) {
     return sendHomeV2GroupMembershipAction(sender, context, protocol, network, action, requestValue)
