@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-17 - fix(android): update local notifications safely
+
+Updates Capacitor's local-notifications plugin to 8.3.0 while preserving Home's
+boot-only notification restore protection after the plugin moved its Android
+receiver from Java to Kotlin. Installation still stops safely if a future
+plugin release changes the guarded receiver unexpectedly, and a focused test
+now verifies both the protection and the installed dependency source. Home's
+immediate alerts also opt out of the plugin's new exact-alarm default, avoiding
+an unnecessary Android system-settings prompt.
+
 ### 2026-08-17 - feat(chat): add route-aware Home 2 bridge discovery
 
 Home 2 apps now receive a callable action list for their actual Qortium or

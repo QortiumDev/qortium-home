@@ -3677,6 +3677,7 @@ async function showNotificationForApp(request: QdnAppRequest, context: QdnAppReq
         {
           body: text ?? '',
           id: nextLocalNotificationId++,
+          isExactNotification: false,
           title: displayTitle,
         },
       ],

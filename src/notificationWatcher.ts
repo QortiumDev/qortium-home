@@ -138,7 +138,16 @@ export function startForegroundNotificationWatcher(options: WatcherOptions) {
       const id = nextNotificationId++;
       if (rule.event === 'FOREIGN_PAYMENT_RECEIVED') foreignPaymentReplayDeduper.markDelivered(data);
       notificationLinks.set(id, appendNotificationTargetQuery(rule.link ?? appKey, data, rule.event));
-      await LocalNotifications.schedule({ notifications: [{ id, title, body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '' }] });
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            id,
+            title,
+            body: rule.text ?? getQdnNotificationDefaultBody(rule, data) ?? '',
+            isExactNotification: false,
+          },
+        ],
+      });
     } else if (typeof window.Notification === 'function' && window.Notification.permission === 'granted') {
       const [latestStore, enabled] = await Promise.all([
         getNotificationStore(),
