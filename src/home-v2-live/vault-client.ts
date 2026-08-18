@@ -45,6 +45,35 @@ export interface HomeV2SendChatMessageResult {
   readonly timestamp: number
 }
 
+export interface HomeV2GroupMembershipRequest {
+  readonly accountId: string
+  readonly action: 'JOIN_GROUP' | 'LEAVE_GROUP'
+  readonly groupId: number
+  readonly groupName: string
+  readonly isOpen: boolean
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly validateTarget?: () => Promise<void>
+}
+
+export interface HomeV2GroupMembershipResult {
+  readonly accepted: boolean
+  readonly action: 'JOIN_GROUP' | 'LEAVE_GROUP'
+  readonly changed?: boolean
+  readonly error?: string
+  readonly errorType?: string
+  readonly groupId: number
+  readonly groupName: string
+  readonly membership?: 'joined' | 'left' | 'requested'
+  readonly network: 'qortal' | 'qortium'
+  readonly outcome?: 'unknown'
+  readonly retryable?: false
+  readonly signature?: string
+  readonly timestamp?: number
+  readonly transactionSignature?: string
+}
+
 export interface HomeV2VaultClient {
   addAddress(accountId: string): Promise<HomeV2VaultState>
   create(request: HomeV2CreateAccountRequest): Promise<{ canceled: boolean; state: HomeV2VaultState }>
@@ -71,6 +100,7 @@ export interface HomeV2VaultClient {
   // HomeV2LiveApp.tsx, which never receives requests on desktop (desktop's
   // public CHAT writes are handled by electron/home-v2-app-bridge.ts directly).
   sendChatMessage?(request: HomeV2SendChatMessageRequest): Promise<HomeV2SendChatMessageResult>
+  sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
   updateSecurity(request: {
     accountId: string

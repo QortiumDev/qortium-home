@@ -2,6 +2,8 @@ const TYPE_CREATE_POLL = 8;
 const TYPE_VOTE_ON_POLL = 9;
 const TYPE_ARBITRARY = 10;
 const TYPE_CHAT = 18;
+const TYPE_JOIN_GROUP = 31;
+const TYPE_LEAVE_GROUP = 32;
 const TYPE_UPDATE_POLL = 47;
 
 const PUBLIC_KEY_LENGTH = 32;
@@ -268,6 +270,52 @@ export function assertPublicChatTransaction(bytes: Uint8Array, expected: ChatExp
   if (hasReference) {
     assertBytes(reader.readBytes(SIGNATURE_LENGTH, 'chat reference'), expected.chatReference!, 'chat reference', label);
   }
+  reader.finish();
+}
+
+export type GroupMembershipExpected = CommonExpected & {
+  groupId: number;
+  mintingPublicKey?: Uint8Array;
+};
+
+export function assertPublicJoinGroupTransaction(
+  bytes: Uint8Array,
+  expected: GroupMembershipExpected,
+) {
+  const label = 'JOIN_GROUP';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_JOIN_GROUP, expected, label);
+  assertEqual(reader.readInt32('group ID'), expected.groupId, 'group ID', label);
+  const optionalBytes = reader.remaining - 8;
+  if (optionalBytes !== 0 && optionalBytes !== PUBLIC_KEY_LENGTH) {
+    throw new Error('Public JOIN_GROUP builder returned malformed optional minting public key bytes.');
+  }
+  if (optionalBytes === PUBLIC_KEY_LENGTH) {
+    if (!expected.mintingPublicKey) {
+      throw new Error('Public JOIN_GROUP builder added an unapproved minting public key.');
+    }
+    assertBytes(
+      reader.readBytes(PUBLIC_KEY_LENGTH, 'minting public key'),
+      expected.mintingPublicKey,
+      'minting public key',
+      label,
+    );
+  } else if (expected.mintingPublicKey) {
+    throw new Error('Public JOIN_GROUP builder omitted the approved minting public key.');
+  }
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+export function assertPublicLeaveGroupTransaction(
+  bytes: Uint8Array,
+  expected: Omit<GroupMembershipExpected, 'mintingPublicKey'>,
+) {
+  const label = 'LEAVE_GROUP';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_LEAVE_GROUP, expected, label);
+  assertEqual(reader.readInt32('group ID'), expected.groupId, 'group ID', label);
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
   reader.finish();
 }
 

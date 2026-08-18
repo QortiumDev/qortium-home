@@ -347,6 +347,18 @@ and signing remain local even when the node is authenticated.
 
 ## H2 — Participation and identity parity
 
+Progress (2026-08-18): the first H2 tranche implements `JOIN_GROUP` and
+`LEAVE_GROUP` for both chains in Home 2 on desktop and Android. Qortium uses
+Core C5's public unsigned builders, locally computes the advertised MemoryPoW,
+and rejects any unapproved field before signing. Qortal uses the clean-room
+serializer pinned to the H0B Hub vectors, the account's fresh last reference,
+the current unit fee, and local signing; these Qortal transactions do not use
+CHAT MemoryPoW. Both paths bind approval and signing to the same app, tab,
+account, chain, group, and node route, return a non-retryable signed outcome
+when broadcast status is uncertain, and normalize already-member,
+already-requested, and already-left results. Avatar parity and the later
+invite/moderation actions remain open H2 work.
+
 ### Home changes
 
 - Implement Qortium `JOIN_GROUP` and `LEAVE_GROUP` through Core C5's public
@@ -355,8 +367,13 @@ and signing remain local even when the node is authenticated.
   compute MemoryPoW and sign locally.
 - Normalize Core's `ALREADY_GROUP_MEMBER` and `NOT_GROUP_MEMBER` results as
   idempotent membership states.
-- Implement Qortal join/leave with clean-room transaction serializers, local
-  proof of work/signing, and the same stale-context and approval checks.
+- Implement Qortal join/leave with clean-room transaction serializers, fresh
+  last-reference and unit-fee checks, local signing, and the same stale-context
+  and approval checks. Qortal JOIN_GROUP/LEAVE_GROUP do not carry CHAT
+  MemoryPoW.
+- Keep Qortium's optional JOIN_GROUP minting key absent in this participation
+  action. Joining a chat group must not silently create minting authority;
+  minting setup remains a separate explicit Home permission and operation.
 - Add invite, accept/approve, ban, kick, and admin-role actions one at a time
   only after exact serializers and permissions are tested. Do not replace them
   with one broad `groupMutations` capability.
@@ -369,7 +386,12 @@ and signing remain local even when the node is authenticated.
 
 ### Completion gate
 
-- Join and leave work on both chains, both platforms, and all four route kinds.
+- Join and leave are implemented on both chains and both platforms across every
+  route kind that the platform can configure: local, public, and custom on
+  desktop, and public and custom on Android. An operator-customized Qortium
+  node that removes Core C5's
+  public builders fails with `NODE_CAPABILITY_MISSING` rather than falling back
+  to a private-key route.
 - Approval text identifies network, group, account, action, and route.
 - Account/route changes after approval cannot sign or broadcast the old intent.
 - Joined/private-group membership refreshes immediately enough to rotate or

@@ -121,6 +121,8 @@ const disabledQortiumActions = await client.requestApp(
 ) as string[]
 assert.equal(disabledQortiumActions.includes('FETCH_NODE_API'), false)
 assert.equal(disabledQortiumActions.includes('SEND_CHAT_MESSAGE'), false)
+assert.equal(disabledQortiumActions.includes('JOIN_GROUP'), false)
+assert.equal(disabledQortiumActions.includes('LEAVE_GROUP'), false)
 assert.equal(disabledQortiumActions.includes('FETCH_QORTAL_NODE_API'), true)
 assert.equal(disabledQortiumActions.includes('GET_HOST_INFO'), true)
 assert.deepEqual(

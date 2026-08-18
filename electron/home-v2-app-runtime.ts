@@ -238,6 +238,10 @@ function inferredCode(message: string) {
     normalized.includes('not available on android')
   ) return 'ROUTE_UNAVAILABLE'
   if (
+    normalized.includes('does not expose') ||
+    normalized.includes('does not advertise a compatible')
+  ) return 'NODE_CAPABILITY_MISSING'
+  if (
     normalized.includes('required') ||
     normalized.includes('invalid') ||
     normalized.includes('must be') ||

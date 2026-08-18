@@ -153,6 +153,8 @@ import {
   assertPublicArbitraryTransaction,
   assertPublicChatTransaction,
   assertPublicCreatePollTransaction,
+  assertPublicJoinGroupTransaction,
+  assertPublicLeaveGroupTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
   getStaticQdnServiceId,
@@ -236,6 +238,20 @@ import {
   createHomeV2UnknownChatBroadcastResult,
   type HomeV2PublicChatRequest,
 } from '../electron/home-v2-chat-actions';
+import {
+  appendHomeV2GroupMembershipSignature,
+  buildUnsignedQortalGroupMembershipTransactionBytes,
+  createHomeV2GroupMembershipSuccess,
+  createHomeV2UnknownGroupMembershipBroadcastResult,
+  encodeHomeV2GroupMembershipTransaction,
+  groupMembershipIdempotentState,
+  normalizeHomeV2GroupMembershipTarget,
+  normalizeQortalGroupMembershipFee,
+  qortalGroupMembershipFeeType,
+  type HomeV2GroupMembershipAction,
+  type HomeV2GroupMembershipRequest,
+  type HomeV2GroupMembershipTarget,
+} from '../electron/home-v2-group-actions';
 import { signChatTransaction } from './chatSign';
 import type { CoreTransportStatusSnapshot } from './i2p';
 import { t } from './i18n';
@@ -3756,7 +3772,10 @@ async function postLocalNodeText(
   }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(responseBody, fallbackMessage)),
+      { status: response.status },
+    );
   }
 
   return {
@@ -4224,8 +4243,16 @@ async function fetchLocalNodeApiPayload(
   // it, so this only refuses to trust/parse an oversized response, applied
   // only where the caller opts in. Existing callers keep prior behavior.
   maxBytes?: number,
+  apiKey = '',
 ) {
-  const response = await requestNode(nodeApiUrl, apiPath, 'text');
+  const response = await requestNode(
+    nodeApiUrl,
+    apiPath,
+    'text',
+    REQUEST_TIMEOUT_MS,
+    'GET',
+    apiKey ? { 'X-API-KEY': apiKey } : undefined,
+  );
   const body = stringifyResponseData(response.data);
 
   if (typeof maxBytes === 'number' && new TextEncoder().encode(body).length > maxBytes) {
@@ -4233,7 +4260,10 @@ async function fetchLocalNodeApiPayload(
   }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(readableNodeErrorMessage(body, fallbackMessage));
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(body, fallbackMessage)),
+      { status: response.status },
+    );
   }
 
   return parseResponseData(body, getContentType(response));
@@ -12202,6 +12232,19 @@ async function sendHomeV2QortiumChatMessage(
   isStillValid: () => boolean | Promise<boolean>,
   validateTarget: () => Promise<void>,
 ) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the chat action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
   const timestamp = Date.now();
   const buildRequest = buildHomeV2QortiumPublicChatBuildBody({
     request,
@@ -12212,7 +12255,7 @@ async function sendHomeV2QortiumChatMessage(
     nodeApiUrl,
     '/chat/public/build',
     JSON.stringify(buildRequest),
-    '',
+    apiKey,
     'Chat transaction build failed.',
     'application/json',
     CHAT_SIGNING_RESPONSE_MAX_BYTES,
@@ -12228,12 +12271,12 @@ async function sendHomeV2QortiumChatMessage(
     timestamp,
     txGroupId: request.txGroupId,
   });
-  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isStillValid);
-  if (!(await isStillValid())) {
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isRouteStillValid);
+  if (!(await isRouteStillValid())) {
     throw new Error('The signing context changed before the chat message could be submitted.');
   }
   await validateTarget();
-  if (!(await isStillValid())) {
+  if (!(await isRouteStillValid())) {
     throw new Error('The signing context changed before the chat message could be submitted.');
   }
   const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey);
@@ -12243,7 +12286,7 @@ async function sendHomeV2QortiumChatMessage(
       nodeApiUrl,
       '/transactions/process?apiVersion=2',
       base58Encode(signedBytes),
-      '',
+      apiKey,
       'Chat transaction processing failed.',
       'text/plain',
       CHAT_SIGNING_RESPONSE_MAX_BYTES,
@@ -12297,6 +12340,263 @@ async function sendHomeV2QortalChatMessage(
     return { signature, timestamp };
   } catch (error) {
     return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
+
+function homeV2MembershipOperationLabel(action: HomeV2GroupMembershipAction) {
+  return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group';
+}
+
+function homeV2MempowFeeDifficulty(value: unknown) {
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.mempowFeeAlternativeDifficulty) ||
+    Number(value.mempowFeeAlternativeDifficulty) < 1 ||
+    Number(value.mempowFeeAlternativeDifficulty) > 31
+  ) {
+    throw new Error('The selected Qortium node does not advertise a compatible MemoryPoW fee difficulty.');
+  }
+  return Number(value.mempowFeeAlternativeDifficulty);
+}
+
+function homeV2IdempotentGroupResult(
+  action: HomeV2GroupMembershipAction,
+  error: unknown,
+  network: 'qortal' | 'qortium',
+  target: HomeV2GroupMembershipTarget,
+) {
+  const membership = groupMembershipIdempotentState(action, error);
+  return membership
+    ? createHomeV2GroupMembershipSuccess({
+        action,
+        changed: false,
+        groupId: target.groupId,
+        groupName: target.groupName,
+        membership,
+        network,
+      })
+    : null;
+}
+
+function homeV2GroupBuilderUnavailable(error: unknown) {
+  return isRecord(error) && (error.status === 403 || error.status === 404);
+}
+
+async function sendAndroidHomeV2QortiumGroupMembership(
+  nodeApiUrl: string,
+  request: HomeV2GroupMembershipRequest,
+  target: HomeV2GroupMembershipTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the group action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
+  const timestamp = Date.now();
+  let unsignedText: string;
+  try {
+    const response = await postLocalNodeText(
+      nodeApiUrl,
+      request.action === 'JOIN_GROUP' ? '/groups/public/join' : '/groups/public/leave',
+      JSON.stringify({
+        fee: 0,
+        groupId: request.groupId,
+        [request.action === 'JOIN_GROUP' ? 'joinerPublicKey' : 'leaverPublicKey']: signingKey.publicKey58,
+        timestamp,
+        txGroupId: 0,
+      }),
+      apiKey,
+      `${homeV2MembershipOperationLabel(request.action)} transaction build failed.`,
+      'application/json',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    unsignedText = response.body;
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupResult(request.action, error, 'qortium', target);
+    if (idempotent) return idempotent;
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the public group-membership builder.');
+    }
+    throw error;
+  }
+  const unsignedBytes = base58Decode(unsignedText);
+  const expected = {
+    groupId: request.groupId,
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId: 0,
+  };
+  if (request.action === 'JOIN_GROUP') assertPublicJoinGroupTransaction(unsignedBytes, expected);
+  else assertPublicLeaveGroupTransaction(unsignedBytes, expected);
+  let difficulty: number;
+  try {
+    difficulty = homeV2MempowFeeDifficulty(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      apiKey,
+    ));
+  } catch (error) {
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the MemoryPoW capability needed for group membership.');
+    }
+    throw error;
+  }
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isRouteStillValid);
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  const signedBytes = appendHomeV2GroupMembershipSignature(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      `${homeV2MembershipOperationLabel(request.action)} transaction processing failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupMembershipSuccess({
+      action: request.action,
+      changed: true,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      membership: request.action === 'JOIN_GROUP' && !target.isOpen ? 'requested' : undefined,
+      network: 'qortium',
+      signature,
+      timestamp,
+    });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupResult(request.action, error, 'qortium', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupMembershipBroadcastResult({
+      action: request.action,
+      error,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      network: 'qortium',
+      signedBytes,
+      timestamp,
+    });
+  }
+}
+
+async function sendAndroidHomeV2QortalGroupMembership(
+  nodeApiUrl: string,
+  request: HomeV2GroupMembershipRequest,
+  target: HomeV2GroupMembershipTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const [feeValue, lastReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(qortalGroupMembershipFeeType(request.action))}`,
+      'Qortal group transaction fee lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  const feeAtomic = normalizeQortalGroupMembershipFee(feeValue);
+  const lastReference = typeof lastReferenceValue === 'string' ? lastReferenceValue.trim() : '';
+  if (!lastReference) {
+    throw new Error('The selected Qortal account does not have a last reference. It may need QORT before it can join or leave groups.');
+  }
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortalGroupMembershipTransactionBytes({
+    action: request.action,
+    feeAtomic,
+    groupId: request.groupId,
+    lastReference,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const [freshFeeValue, freshReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(qortalGroupMembershipFeeType(request.action))}`,
+      'Qortal group transaction fee recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  if (
+    normalizeQortalGroupMembershipFee(freshFeeValue) !== feeAtomic ||
+    typeof freshReferenceValue !== 'string' ||
+    freshReferenceValue.trim() !== lastReference
+  ) {
+    throw new Error('The Qortal fee or account reference changed before signing. Please try the group action again.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const signedBytes = appendHomeV2GroupMembershipSignature(
+    unsignedBytes,
+    nacl.sign.detached(unsignedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      encodeHomeV2GroupMembershipTransaction(signedBytes),
+      '',
+      `Qortal ${homeV2MembershipOperationLabel(request.action).toLowerCase()} broadcast failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupMembershipSuccess({
+      action: request.action,
+      changed: true,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      membership: request.action === 'JOIN_GROUP' && !target.isOpen ? 'requested' : undefined,
+      network: 'qortal',
+      signature,
+      timestamp,
+    });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupResult(request.action, error, 'qortal', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupMembershipBroadcastResult({
+      action: request.action,
+      error,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      network: 'qortal',
+      signedBytes,
+      timestamp,
+    });
   }
 }
 
@@ -12528,6 +12828,42 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
         return await (request.network === 'qortium'
           ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget)
           : sendHomeV2QortalChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendGroupMembership(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      const isStillValid = request.isStillValid ?? (() => true);
+      const validateTarget = request.validateTarget ?? (async () => undefined);
+      const membershipRequest: HomeV2GroupMembershipRequest = {
+        action: request.action,
+        groupId: request.groupId,
+      };
+      const target: HomeV2GroupMembershipTarget = {
+        groupId: request.groupId,
+        groupName: request.groupName,
+        isMintingGroup: false,
+        isOpen: request.isOpen,
+      };
+      try {
+        return await (request.network === 'qortium'
+          ? sendAndroidHomeV2QortiumGroupMembership(
+              request.nodeApiUrl,
+              membershipRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            )
+          : sendAndroidHomeV2QortalGroupMembership(
+              request.nodeApiUrl,
+              membershipRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            ));
       } finally {
         signingKey.secretKey.fill(0);
       }

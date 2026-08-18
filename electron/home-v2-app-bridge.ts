@@ -47,6 +47,22 @@ import {
   type HomeV2PublicChatRequest,
 } from './home-v2-chat-actions.js'
 import {
+  appendHomeV2GroupMembershipSignature,
+  buildUnsignedQortalGroupMembershipTransactionBytes,
+  createHomeV2GroupMembershipSuccess,
+  createHomeV2UnknownGroupMembershipBroadcastResult,
+  encodeHomeV2GroupMembershipTransaction,
+  groupMembershipIdempotentState,
+  isHomeV2GroupMembershipAction,
+  normalizeHomeV2GroupMembershipRequest,
+  normalizeHomeV2GroupMembershipTarget,
+  normalizeQortalGroupMembershipFee,
+  qortalGroupMembershipFeeType,
+  type HomeV2GroupMembershipAction,
+  type HomeV2GroupMembershipRequest,
+  type HomeV2GroupMembershipTarget,
+} from './home-v2-group-actions.js'
+import {
   createHomeV2BridgeError,
   getHomeV2AppHostInfo,
   getHomeV2AppRouteDescriptor,
@@ -61,12 +77,18 @@ import {
   isAccountUnlocked,
   signChatTransaction,
   signDetached,
+  signTransactionWithNonce,
 } from './accounts.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
 import { base58Decode, base58Encode } from './base58.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
-import { assertPublicChatTransaction } from './public-transaction-validation.js'
+import { getNodeConnection } from './node-settings.js'
+import {
+  assertPublicChatTransaction,
+  assertPublicJoinGroupTransaction,
+  assertPublicLeaveGroupTransaction,
+} from './public-transaction-validation.js'
 import {
   buildUnsignedQortalGroupChatTransactionBytes,
   qortalChatPowDifficultyForBalanceResponse,
@@ -98,6 +120,8 @@ type AccountReadAction =
   | 'SEND_CHAT_EDIT'
   | 'SEND_CHAT_MESSAGE'
   | 'SEND_CHAT_REACTION'
+  | 'JOIN_GROUP'
+  | 'LEAVE_GROUP'
   | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
@@ -185,12 +209,20 @@ async function requireAccountReadPermission(
   context: QdnViewContext,
   protocol: HomeV2AppBridgeProtocol,
   action: AccountReadAction,
-  chatDetails?: {
+  writeDetails?: {
+    readonly kind: 'chat'
     readonly targetChainLabel: string
     readonly groupId: number
     readonly messagePreview: string
     readonly operationLabel?: string
     readonly chatReference?: string | null
+  } | {
+    readonly kind: 'group'
+    readonly targetChainLabel: string
+    readonly groupId: number
+    readonly groupName: string
+    readonly operationLabel: string
+    readonly routeLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -204,14 +236,17 @@ async function requireAccountReadPermission(
   const nodeBefore = await getHomeV2ReadableNode(targetNetwork)
   const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
   const accountUnlocked = isAccountUnlocked(context.accountId)
-  const grantKey = accountGrantKey(
-    sender,
-    context,
-    protocol,
-    action,
-    accountUnlocked,
-    nodeRoute,
-  )
+  const grantKey = [
+    accountGrantKey(
+      sender,
+      context,
+      protocol,
+      action,
+      accountUnlocked,
+      nodeRoute,
+    ),
+    writeDetails?.kind === 'group' ? `group:${writeDetails.groupId}` : '',
+  ].join('|')
   if (sessionAccountReadGrants.has(grantKey)) return
   const hostWindow = BrowserWindow.fromId(context.windowId)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -247,15 +282,25 @@ async function requireAccountReadPermission(
       resourceUrl: context.resourceUrl,
       tabId: context.tabId,
       targetNetwork,
-      ...(chatDetails
+      ...(writeDetails?.kind === 'chat'
         ? {
-            chatGroupId: chatDetails.groupId,
-            chatMessagePreview: chatDetails.messagePreview,
-            chatOperationLabel: chatDetails.operationLabel ?? 'Send message',
-            chatReference: chatDetails.chatReference ?? null,
-            chatTargetChainLabel: chatDetails.targetChainLabel,
+            writeKind: 'chat',
+            chatGroupId: writeDetails.groupId,
+            chatMessagePreview: writeDetails.messagePreview,
+            writeOperationLabel: writeDetails.operationLabel ?? 'Send message',
+            chatReference: writeDetails.chatReference ?? null,
+            writeTargetChainLabel: writeDetails.targetChainLabel,
           }
-        : {}),
+        : writeDetails?.kind === 'group'
+          ? {
+              writeKind: 'group',
+              groupId: writeDetails.groupId,
+              groupName: writeDetails.groupName,
+              writeOperationLabel: writeDetails.operationLabel,
+              writeRouteLabel: writeDetails.routeLabel,
+              writeTargetChainLabel: writeDetails.targetChainLabel,
+            }
+          : {}),
     })
   })
   if (!decision.approved) throw new Error('Account access was denied.')
@@ -474,10 +519,14 @@ async function postHomeV2ChatText(
   body: string,
   contentType: string,
   fallbackMessage: string,
+  apiKey = '',
 ) {
   const response = await nodeFetch(`${nodeApiUrl}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': contentType },
+    headers: {
+      'Content-Type': contentType,
+      ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+    },
     body,
     signal: AbortSignal.timeout(CHAT_WRITE_TIMEOUT_MS),
   })
@@ -490,12 +539,27 @@ async function postHomeV2ChatText(
   const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
   const text = result.body.trim()
   if (!result.ok) {
-    throw new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`))
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(text, `${fallbackMessage} HTTP ${result.status}.`)),
+      { status: result.status },
+    )
   }
   return text
 }
 
 type HomeV2ChatSigningKey = { address: string; publicKey58: string; secretKey: Uint8Array }
+
+async function getHomeV2TrustedWriteApiKey(
+  network: HomeV2AppNetwork,
+  expectedNodeApiUrl: string,
+) {
+  if (network === 'qortal') return ''
+  const connection = await getNodeConnection()
+  if (connection.nodeApiUrl !== expectedNodeApiUrl) {
+    throw new Error('The selected Qortium route changed before the write could start.')
+  }
+  return connection.apiKey ?? ''
+}
 
 function chatOperationLabel(action: HomeV2PublicChatAction) {
   if (action === 'SEND_CHAT_EDIT') return 'Edit message'
@@ -504,13 +568,16 @@ function chatOperationLabel(action: HomeV2PublicChatAction) {
   return 'Send message'
 }
 
-async function readHomeV2ChatJson(nodeApiUrl: string, path: string, label: string) {
+async function readHomeV2ChatJson(nodeApiUrl: string, path: string, label: string, apiKey = '') {
   const response = await nodeFetch(`${nodeApiUrl}${path}`, {
+    headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
     method: 'GET',
     signal: AbortSignal.timeout(15_000),
   })
   const result = await readBoundedResponse(response, 'GET', CHAT_SIGNING_RESPONSE_MAX_BYTES)
-  if (!result.ok) throw new Error(`${label} returned HTTP ${result.status}.`)
+  if (!result.ok) {
+    throw Object.assign(new Error(`${label} returned HTTP ${result.status}.`), { status: result.status })
+  }
   return result.data
 }
 
@@ -519,12 +586,14 @@ async function validateHomeV2PublicChatTarget(
   network: HomeV2AppNetwork,
   request: HomeV2PublicChatRequest,
   senderPublicKey: string,
+  apiKey = '',
 ) {
   if (request.txGroupId !== 0) {
     const group = await readHomeV2ChatJson(
       nodeApiUrl,
       `/groups/${encodeURIComponent(String(request.txGroupId))}`,
       'Group lookup',
+      apiKey,
     )
     assertHomeV2OpenPublicGroup(group, request.txGroupId, network)
   }
@@ -534,6 +603,7 @@ async function validateHomeV2PublicChatTarget(
       nodeApiUrl,
       `/chat/message/${encodeURIComponent(request.chatReference)}?encoding=BASE58`,
       'Referenced chat lookup',
+      apiKey,
     ),
     {
       chatReference: request.chatReference,
@@ -558,6 +628,7 @@ async function sendHomeV2QortiumChatMessage(
   signingKey: HomeV2ChatSigningKey,
   isStillValid: () => boolean | Promise<boolean>,
   validateTarget: () => Promise<void>,
+  apiKey = '',
 ) {
   const timestamp = Date.now()
   const buildRequest = buildHomeV2QortiumPublicChatBuildBody({
@@ -571,6 +642,7 @@ async function sendHomeV2QortiumChatMessage(
     JSON.stringify(buildRequest),
     'application/json',
     'Chat transaction build failed.',
+    apiKey,
   )
   const unsignedBytes = base58Decode(buildBody)
   // Never sign node-provided bytes without checking they encode exactly the
@@ -599,6 +671,7 @@ async function sendHomeV2QortiumChatMessage(
       base58Encode(signedBytes),
       'text/plain',
       'Chat transaction processing failed.',
+      apiKey,
     )
     return { signature, timestamp }
   } catch (error) {
@@ -695,6 +768,7 @@ async function sendHomeV2PublicChatAction(
     throw new Error('The selected account is locked.')
   }
   const node = await getHomeV2ReadableNode(network)
+  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
   const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
   const profile = await getAccountProfile(accountId)
   const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
@@ -703,6 +777,7 @@ async function sendHomeV2PublicChatAction(
     network,
     request,
     approvedSenderPublicKey,
+    nodeApiKey,
   )
   // Reference ownership/conversation binding and public-group metadata are
   // checked before the user sees a prompt, then checked again immediately
@@ -711,6 +786,7 @@ async function sendHomeV2PublicChatAction(
   const targetChainLabel = network === 'qortal' ? 'Qortal' : 'Qortium'
   const groupLabel = request.txGroupId === 0 ? 'General chat' : `Group ${request.txGroupId}`
   await requireAccountReadPermission(sender, context, protocol, effectiveAction, {
+    kind: 'chat',
     chatReference: request.chatReference,
     groupId: request.txGroupId,
     messagePreview: request.message.slice(0, 180),
@@ -736,15 +812,366 @@ async function sendHomeV2PublicChatAction(
     if (!liveResourceMatchesGrant(freshContext)) return false
     if (!isAccountUnlocked(accountId)) return false
     const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
-    return !!nodeNow && `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
   }
   try {
     if (!(await isStillValid())) {
       throw new Error('Account access context changed before approval completed.')
     }
     return await (network === 'qortium'
-      ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget)
+      ? sendHomeV2QortiumChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget, nodeApiKey)
       : sendHomeV2QortalChatMessage(node.nodeApiUrl, request, signingKey, isStillValid, validateTarget))
+  } finally {
+    signingKey.secretKey.fill(0)
+  }
+}
+
+function membershipOperationLabel(action: HomeV2GroupMembershipAction) {
+  return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group'
+}
+
+function parseMempowFeeAlternativeDifficulty(value: unknown) {
+  if (
+    !isHomeV2AppRecord(value) ||
+    !Number.isInteger(value.mempowFeeAlternativeDifficulty) ||
+    (value.mempowFeeAlternativeDifficulty as number) < 1 ||
+    (value.mempowFeeAlternativeDifficulty as number) > 31
+  ) {
+    throw createHomeV2BridgeError(
+      'The selected Qortium node does not advertise a compatible MemoryPoW fee difficulty.',
+      {
+        action: 'GROUP_MEMBERSHIP',
+        code: 'NODE_CAPABILITY_MISSING',
+        network: 'qortium',
+        retryable: false,
+      },
+    )
+  }
+  return value.mempowFeeAlternativeDifficulty as number
+}
+
+async function readHomeV2GroupTarget(
+  nodeApiUrl: string,
+  network: HomeV2AppNetwork,
+  groupId: number,
+  apiKey = '',
+) {
+  return normalizeHomeV2GroupMembershipTarget(
+    await readHomeV2ChatJson(
+      nodeApiUrl,
+      `/groups/${encodeURIComponent(String(groupId))}`,
+      'Group lookup',
+      apiKey,
+    ),
+    groupId,
+    network,
+  )
+}
+
+function idempotentGroupResult(
+  action: HomeV2GroupMembershipAction,
+  error: unknown,
+  network: HomeV2AppNetwork,
+  target: HomeV2GroupMembershipTarget,
+) {
+  const membership = groupMembershipIdempotentState(action, error)
+  return membership
+    ? createHomeV2GroupMembershipSuccess({
+        action,
+        changed: false,
+        groupId: target.groupId,
+        groupName: target.groupName,
+        membership,
+        network,
+      })
+    : null
+}
+
+function groupBuilderUnavailable(error: unknown) {
+  return isHomeV2AppRecord(error) && (error.status === 403 || error.status === 404)
+}
+
+async function sendHomeV2QortiumGroupMembership(
+  nodeApiUrl: string,
+  request: HomeV2GroupMembershipRequest,
+  target: HomeV2GroupMembershipTarget,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+  apiKey: string,
+) {
+  const timestamp = Date.now()
+  const buildBody = JSON.stringify({
+    fee: 0,
+    groupId: request.groupId,
+    [request.action === 'JOIN_GROUP' ? 'joinerPublicKey' : 'leaverPublicKey']: signingKey.publicKey58,
+    timestamp,
+    txGroupId: 0,
+  })
+  let unsignedText: string
+  try {
+    unsignedText = await postHomeV2ChatText(
+      nodeApiUrl,
+      request.action === 'JOIN_GROUP' ? '/groups/public/join' : '/groups/public/leave',
+      buildBody,
+      'application/json',
+      `${membershipOperationLabel(request.action)} transaction build failed.`,
+      apiKey,
+    )
+  } catch (error) {
+    const idempotent = idempotentGroupResult(request.action, error, 'qortium', target)
+    if (idempotent) return idempotent
+    if (groupBuilderUnavailable(error)) {
+      throw createHomeV2BridgeError(
+        'The selected Qortium node does not expose the public group-membership builder.',
+        {
+          action: request.action,
+          code: 'NODE_CAPABILITY_MISSING',
+          network: 'qortium',
+          retryable: false,
+          target: { groupId: request.groupId, kind: 'group' },
+        },
+      )
+    }
+    throw error
+  }
+  const unsignedBytes = base58Decode(unsignedText)
+  const expected = {
+    groupId: request.groupId,
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId: 0,
+  }
+  if (request.action === 'JOIN_GROUP') {
+    // Deliberately omit the optional mintingPublicKey: group membership must
+    // not silently create minting authority. Home exposes minting as a
+    // separate explicit operation.
+    assertPublicJoinGroupTransaction(unsignedBytes, expected)
+  } else {
+    assertPublicLeaveGroupTransaction(unsignedBytes, expected)
+  }
+  let difficulty: number
+  try {
+    difficulty = parseMempowFeeAlternativeDifficulty(await readHomeV2ChatJson(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup',
+      apiKey,
+    ))
+  } catch (error) {
+    if (groupBuilderUnavailable(error)) {
+      throw createHomeV2BridgeError(
+        'The selected Qortium node does not expose the MemoryPoW capability needed for group membership.',
+        {
+          action: request.action,
+          code: 'NODE_CAPABILITY_MISSING',
+          network: 'qortium',
+          retryable: false,
+          target: { groupId: request.groupId, kind: 'group' },
+        },
+      )
+    }
+    throw error
+  }
+  const nonce = await computeHomeV2ChatNonce(unsignedBytes, difficulty, isStillValid)
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+  await validateTarget()
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+  const signedBytes = signTransactionWithNonce(unsignedBytes, nonce, signingKey.secretKey)
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+  try {
+    await postHomeV2ChatText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      'text/plain',
+      `${membershipOperationLabel(request.action)} transaction processing failed.`,
+      apiKey,
+    )
+    return createHomeV2GroupMembershipSuccess({
+      action: request.action,
+      changed: true,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      membership: request.action === 'JOIN_GROUP' && !target.isOpen ? 'requested' : undefined,
+      network: 'qortium',
+      signature,
+      timestamp,
+    })
+  } catch (error) {
+    const idempotent = idempotentGroupResult(request.action, error, 'qortium', target)
+    if (idempotent) return idempotent
+    return createHomeV2UnknownGroupMembershipBroadcastResult({
+      action: request.action,
+      error,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      network: 'qortium',
+      signedBytes,
+      timestamp,
+    })
+  }
+}
+
+async function sendHomeV2QortalGroupMembership(
+  nodeApiUrl: string,
+  request: HomeV2GroupMembershipRequest,
+  target: HomeV2GroupMembershipTarget,
+  signingKey: HomeV2ChatSigningKey,
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const feeType = qortalGroupMembershipFeeType(request.action)
+  const [feeValue, lastReferenceValue] = await Promise.all([
+    readHomeV2ChatJson(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(feeType)}`,
+      'Qortal group transaction fee lookup',
+    ),
+    readHomeV2ChatJson(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference lookup',
+    ),
+  ])
+  const feeAtomic = normalizeQortalGroupMembershipFee(feeValue)
+  const lastReference = typeof lastReferenceValue === 'string'
+    ? lastReferenceValue.trim()
+    : ''
+  if (!lastReference) {
+    throw new Error('The selected Qortal account does not have a last reference. It may need QORT before it can join or leave groups.')
+  }
+  const timestamp = Date.now()
+  const unsignedBytes = buildUnsignedQortalGroupMembershipTransactionBytes({
+    action: request.action,
+    feeAtomic,
+    groupId: request.groupId,
+    lastReference,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  })
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+  await validateTarget()
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+  const [freshFeeValue, freshReferenceValue] = await Promise.all([
+    readHomeV2ChatJson(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(feeType)}`,
+      'Qortal group transaction fee recheck',
+    ),
+    readHomeV2ChatJson(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference recheck',
+    ),
+  ])
+  if (
+    normalizeQortalGroupMembershipFee(freshFeeValue) !== feeAtomic ||
+    typeof freshReferenceValue !== 'string' ||
+    freshReferenceValue.trim() !== lastReference
+  ) {
+    throw new Error('The Qortal fee or account reference changed before signing. Please try the group action again.')
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.')
+  const signatureBytes = signDetached(unsignedBytes, signingKey.secretKey)
+  const signedBytes = appendHomeV2GroupMembershipSignature(unsignedBytes, signatureBytes)
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes)
+  try {
+    await postHomeV2ChatText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      encodeHomeV2GroupMembershipTransaction(signedBytes),
+      'text/plain',
+      `Qortal ${membershipOperationLabel(request.action).toLowerCase()} broadcast failed.`,
+    )
+    return createHomeV2GroupMembershipSuccess({
+      action: request.action,
+      changed: true,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      membership: request.action === 'JOIN_GROUP' && !target.isOpen ? 'requested' : undefined,
+      network: 'qortal',
+      signature,
+      timestamp,
+    })
+  } catch (error) {
+    const idempotent = idempotentGroupResult(request.action, error, 'qortal', target)
+    if (idempotent) return idempotent
+    return createHomeV2UnknownGroupMembershipBroadcastResult({
+      action: request.action,
+      error,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      network: 'qortal',
+      signedBytes,
+      timestamp,
+    })
+  }
+}
+
+async function sendHomeV2GroupMembershipAction(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  action: HomeV2GroupMembershipAction,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  const accountId = context.accountId
+  const request = normalizeHomeV2GroupMembershipRequest(action, requestValue)
+  if (!isAccountUnlocked(accountId)) throw new Error('The selected account is locked.')
+  const node = await getHomeV2ReadableNode(network)
+  const nodeApiKey = await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const target = await readHomeV2GroupTarget(node.nodeApiUrl, network, request.groupId, nodeApiKey)
+  const targetChainLabel = network === 'qortal' ? 'Qortal' : 'Qortium'
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'group',
+    groupId: request.groupId,
+    groupName: target.groupName,
+    operationLabel: membershipOperationLabel(action),
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    targetChainLabel,
+  })
+  const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
+  if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
+  const signingKey = getAccountSecretKey(accountId)
+  if (signingKey.address !== profile.address) {
+    signingKey.secretKey.fill(0)
+    throw new Error('Selected account signing key changed before the group action could be signed.')
+  }
+  const isStillValid = async () => {
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext)) return false
+    if (!liveResourceMatchesGrant(freshContext) || !isAccountUnlocked(accountId)) return false
+    const nodeNow = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!nodeNow &&
+      `${nodeNow.mode}|${nodeNow.nodeApiUrl}` === nodeRoute &&
+      (await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl).catch(() => null)) === nodeApiKey
+  }
+  const validateTarget = async () => {
+    const currentTarget = await readHomeV2GroupTarget(
+      node.nodeApiUrl,
+      network,
+      request.groupId,
+      nodeApiKey,
+    )
+    if (
+      currentTarget.groupName !== target.groupName ||
+      currentTarget.isOpen !== target.isOpen
+    ) {
+      throw new Error('The selected group changed before the group action could be signed.')
+    }
+  }
+  try {
+    if (!(await isStillValid())) throw new Error('Account access context changed before approval completed.')
+    return await (network === 'qortium'
+      ? sendHomeV2QortiumGroupMembership(node.nodeApiUrl, request, target, signingKey, isStillValid, validateTarget, nodeApiKey)
+      : sendHomeV2QortalGroupMembership(node.nodeApiUrl, request, target, signingKey, isStillValid, validateTarget))
   } finally {
     signingKey.secretKey.fill(0)
   }
@@ -828,6 +1255,9 @@ async function handleRequestWithRuntime(
   }
   if (isHomeV2PublicChatAction(action)) {
     return sendHomeV2PublicChatAction(sender, context, protocol, network, action, requestValue)
+  }
+  if (isHomeV2GroupMembershipAction(action)) {
+    return sendHomeV2GroupMembershipAction(sender, context, protocol, network, action, requestValue)
   }
   if (action === 'GET_NAME_DATA' || action === 'GET_ACCOUNT_NAMES' || action === 'GET_PRIMARY_NAME') {
     const path = buildHomeV2NamePath(action, requestValue)

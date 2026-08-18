@@ -42,6 +42,10 @@ assert.equal(qdnActions.includes('SEND_CHAT_DELETE'), true)
 // Qortal deletion is a referenced canonical empty Hub-v3 edit. It clears the
 // rendered content without claiming to erase either on-chain transaction.
 assert.equal(qortalActions.includes('SEND_CHAT_DELETE'), true)
+for (const action of ['JOIN_GROUP', 'LEAVE_GROUP']) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
 
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 0), 0)
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 5), 5)
