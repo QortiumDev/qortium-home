@@ -179,6 +179,24 @@ export interface HomeV2GroupAdminMutationResult {
   readonly wireAction: string
 }
 
+export interface HomeV2PublicPublishMutationRequest {
+  readonly accountId: string
+  readonly fileName: string
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly resource: {
+    readonly category?: string
+    readonly description?: string
+    readonly identifier?: string
+    readonly name: string
+    readonly service: string
+    readonly tags: readonly string[]
+    readonly title?: string
+  }
+  readonly sourceBase64: string
+}
+
 export interface HomeV2VaultClient {
   addAddress(accountId: string): Promise<HomeV2VaultState>
   create(request: HomeV2CreateAccountRequest): Promise<{ canceled: boolean; state: HomeV2VaultState }>
@@ -211,6 +229,7 @@ export interface HomeV2VaultClient {
   sendPrivateGroupChat?(request: HomeV2PrivateGroupChatWriteRequest): Promise<unknown>
   sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
+  publishPublicResource?(request: HomeV2PublicPublishMutationRequest): Promise<unknown>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
   updateSecurity(request: {
     accountId: string

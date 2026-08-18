@@ -69,18 +69,54 @@ export type QortalPrivateGroupPublishIntent = {
   readonly timestampMinimum: number
 }
 
+export type QortalArbitraryPublishIntent = {
+  readonly dataSize: number
+  readonly feeAtomic: bigint
+  readonly identifier: string
+  readonly lastReference: Uint8Array
+  readonly name: string
+  readonly senderPublicKey: Uint8Array
+  readonly service: number
+  readonly timestampMaximum: number
+  readonly timestampMinimum: number
+}
+
+export function attestUnsignedQortalArbitraryPublish(
+  unsignedBase58: string,
+  expected: QortalArbitraryPublishIntent,
+) {
+  return attestUnsignedQortalPublish(unsignedBase58, expected)
+}
+
 export function attestUnsignedQortalPrivateGroupPublish(
   unsignedBase58: string,
   expected: QortalPrivateGroupPublishIntent,
+) {
+  return attestUnsignedQortalPublish(unsignedBase58, {
+    dataSize: expected.bundleSize,
+    feeAtomic: expected.feeAtomic,
+    identifier: expected.identifier,
+    lastReference: expected.lastReference,
+    name: expected.name,
+    senderPublicKey: expected.senderPublicKey,
+    service: DOCUMENT_PRIVATE_SERVICE,
+    timestampMaximum: expected.timestampMaximum,
+    timestampMinimum: expected.timestampMinimum,
+  })
+}
+
+function attestUnsignedQortalPublish(
+  unsignedBase58: string,
+  expected: QortalArbitraryPublishIntent,
 ) {
   let unsignedBytes: Uint8Array
   try {
     unsignedBytes = base58Decode(unsignedBase58)
   } catch {
-    throw new Error('Qortal private-group publish builder returned invalid Base58.')
+    throw new Error('Qortal publish builder returned invalid Base58.')
   }
   if (unsignedBytes.length < 4 + 8 + 4 + REFERENCE_BYTES + PUBLIC_KEY_BYTES) {
-    throw new Error('Qortal private-group publish builder returned truncated bytes.')
+    throw new Error('Qortal publish builder returned truncated bytes.')
   }
   const reader = new Reader(unsignedBytes)
   if (reader.int32('transaction type') !== ARBITRARY_TRANSACTION_TYPE) throw new Error('Qortal publish builder changed the transaction type.')
@@ -98,20 +134,20 @@ export function attestUnsignedQortalPrivateGroupPublish(
   const name = reader.sizedUtf8(MAX_NAME_BYTES, 'name')
   const identifier = reader.sizedUtf8(MAX_IDENTIFIER_BYTES, 'identifier')
   if (name !== expected.name || identifier !== expected.identifier) throw new Error('Qortal publish builder changed the resource coordinate.')
-  if (reader.int32('method') !== 0) throw new Error('Qortal private-group bundles require a PUT transaction.')
+  if (reader.int32('method') !== 0) throw new Error('Qortal public publishing requires a PUT transaction.')
   const secretLength = reader.int32('secret length')
-  if (secretLength !== 0) throw new Error('Qortal private-group publish must not contain a secret.')
+  if (secretLength !== 0) throw new Error('Qortal public publish must not contain a secret.')
   const secret = reader.read(secretLength, 'secret')
-  if (reader.int32('compression') !== 0) throw new Error('Qortal private-group bundles must not be compressed by the node.')
-  if (reader.int32('payment count') !== 0) throw new Error('Qortal private-group publish must not contain payments.')
-  if (reader.int32('service') !== DOCUMENT_PRIVATE_SERVICE) throw new Error('Qortal publish builder changed the resource service.')
+  if (reader.int32('compression') !== 0) throw new Error('Qortal public publish must not be compressed by the node.')
+  if (reader.int32('payment count') !== 0) throw new Error('Qortal public publish must not contain payments.')
+  if (reader.int32('service') !== expected.service) throw new Error('Qortal publish builder changed the resource service.')
   const dataTypeOffset = reader.offset
-  if (reader.byte('data type') !== 0) throw new Error('Qortal private-group publish must use a staged DATA_HASH.')
-  if (reader.int32('data length') !== HASH_BYTES) throw new Error('Qortal private-group publish has an invalid data hash length.')
+  if (reader.byte('data type') !== 0) throw new Error('Qortal public publish must use a staged DATA_HASH.')
+  if (reader.int32('data length') !== HASH_BYTES) throw new Error('Qortal public publish has an invalid data hash length.')
   const dataHash = reader.read(HASH_BYTES, 'data hash')
-  if (reader.int32('raw data size') !== expected.bundleSize) throw new Error('Qortal publish builder changed the encrypted bundle size.')
+  if (reader.int32('raw data size') !== expected.dataSize) throw new Error('Qortal publish builder changed the approved data size.')
   const metadataHashLength = reader.int32('metadata hash length')
-  if (metadataHashLength !== 0) throw new Error('Qortal private-group publish must not contain metadata.')
+  if (metadataHashLength !== 0) throw new Error('Qortal public publish must not contain metadata.')
   const metadataHash = reader.read(metadataHashLength, 'metadata hash')
   const feeAtomic = reader.int64('fee')
   if (feeAtomic !== expected.feeAtomic) throw new Error('Qortal publish builder changed the approved fee.')

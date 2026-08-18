@@ -49,4 +49,27 @@ public class QdnRenderProxyPlugin extends Plugin {
         QdnRenderProxy.release(call.getString("origin"));
         call.resolve();
     }
+
+    @PluginMethod
+    public void authorizeStream(PluginCall call) {
+        String streamUrl = QdnRenderProxy.authorizeStream(
+            call.getString("origin"),
+            call.getString("resourceUrl"),
+            call.getString("mimeType"),
+            call.getString("binding")
+        );
+        if (streamUrl == null) {
+            call.reject("An exact public QDN render URL and capability binding are required.");
+            return;
+        }
+        JSObject result = new JSObject();
+        result.put("streamUrl", streamUrl);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void releaseStreams(PluginCall call) {
+        QdnRenderProxy.releaseStreams(call.getString("binding"));
+        call.resolve();
+    }
 }

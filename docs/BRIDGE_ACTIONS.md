@@ -97,6 +97,17 @@ or the reverse. See
 shapes, supported services, Android proxy behavior, compatibility actions, and
 lazy-loading guidance.
 
+`SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are the Home 2 public
+publication pair on both globals. They are advertised only while the invoked
+network has a reachable selected route. Selection returns a 30-minute token
+bound to the app, tab, account, chain, and route; no native path or inline
+bytes cross the bridge. Publication always uses a single-request
+`qdn.publish` approval, verifies current name ownership, stages and attests on
+that exact route, signs locally, and returns a transaction signature plus
+SHA-256 content pin. Qortal currently rejects mutable resource metadata. See
+[Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md) for request, result,
+unknown-broadcast, and operator-denial behavior.
+
 The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
 `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`,
@@ -259,9 +270,10 @@ Publishing and pointer assignment remain deliberately separate actions.
 
 ## Publishing sources
 
-The following source-token publishing surface is retained by the broad legacy
-bridge. Home 2 will add its clean, network-qualified replacement in H5B and
-does not advertise these write actions yet.
+Home 2's clean, network-qualified single-resource replacement is documented in
+[Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md). The following broader
+inline/directory/multi-resource and preview surface describes only the retained
+compatibility bridge; Home 2 does not advertise those legacy variants.
 
 Single-resource publishing can use inline `data64`/`base64` payloads or a
 Home-owned file/folder picker on desktop and a Home-owned single-file native

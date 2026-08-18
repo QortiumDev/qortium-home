@@ -62,11 +62,17 @@ file services are included because publishers sometimes place media under
 them. The app remains responsible for deciding whether the resolved MIME type
 is appropriate for its element.
 
-On desktop the opaque URL points at the selected node's public QDN render route. On
-Android it uses Home's authorized HTTPS QDN proxy, avoiding mixed-content
-failures while preserving `Range`, `206 Partial Content`, `Accept-Ranges`,
-`Content-Range`, content type, and content length. Apps must treat the returned
-URL as opaque and must not rewrite its origin or path. No API key is included.
+The returned URL is a ten-minute, exact-resource capability bound to the
+requesting app, tab, account, network, and selected route. Desktop uses Home's
+private secure stream scheme in the requesting app session. Android uses an
+opaque token on Home's authorized HTTPS QDN proxy, avoiding mixed-content
+failures without replacing or broadening the app document's separate bridge
+authorization. Both preserve `Range`, `206 Partial Content`, `Accept-Ranges`,
+`Content-Range`, content type, and content length; reject redirects; cap one
+response at 512 MiB and the declared resource at 4 GiB; and expose no API key.
+Capabilities are revoked when their app/account/route context changes and must
+be reacquired after expiry. Apps must treat the URL as opaque and must not
+rewrite its origin, path, or query.
 
 Use this action for large media. `FETCH_QDN_RESOURCE` remains appropriate for
 bounded whole-resource reads, but its 5 MiB maximum intentionally makes it

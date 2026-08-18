@@ -255,7 +255,7 @@ and signing remain local even when the node is authenticated.
 | H2 | Portable group participation, administration, and avatar/identity parity | Complete: H2A join/leave, H2B avatar reads, and H2C exact administration actions implemented | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Implemented in Home; end-to-end Chat integration and route matrix remain | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Implemented in Home: H4A Qortium and H4B Qortal; Chat integration and route matrix remain | H0-H3; Core C0-C4; selected Qortal route permits QDN staging for bundle publication |
-| H5 | Public resource, embed, viewer, stream, save, and publish parity | In progress: H5A viewer/stream/save action parity implemented; H5B capability/source/publish planned | H0; Qortal publish proof |
+| H5 | Public resource, embed, viewer, stream, save, and publish parity | Complete in Home: H5A viewing/save plus H5B capabilities/source-token public publishing; Chat integration and route matrix remain | H0; selected Qortal route permits public QDN staging |
 | H6 | Private attachments | Blocked/deferred | Core C6 plus Qortal DM/file vectors |
 | H7 | Notification, restart/node-switch, and full matrix completion | Planned throughout; closes last | H0-H6 as applicable |
 
@@ -574,12 +574,10 @@ plaintext.
 
 ## H5 — Public resources, embeds, and attachments
 
-H5A is implemented on both Home 2 host surfaces: bounded fetches, explicit
-Qortal/Qortium navigation, Home's public-resource viewer, ranged media URLs,
-and user-directed saves are network-qualified by the invoked bridge. H5B is
-the remaining expiring capability, source-token, and public-publish tranche;
-desktop H5A stream URLs contain no API key but still name the selected public
-render route directly until that capability layer lands.
+Status: implemented. H5A supplied network-qualified bounded reads, navigation,
+viewer, ranged media, and saves. H5B adds expiring exact-resource stream
+capabilities plus Home-issued source tokens and portable single-resource public
+publishing on both desktop and Android.
 
 ### Home changes
 
@@ -595,7 +593,10 @@ render route directly until that capability layer lands.
   ceilings, and no API-key exposure. Android uses the authorized HTTPS range
   proxy rather than whole-file Base64 buffering.
 - Qortal publish uses clean-room transaction and QDN staging contracts and is
-  advertised only after the selected route is proven capable.
+  advertised only while the selected route is reachable. Operator staging
+  policy has no side-effect-free probe on every supported node, so the actual
+  staging request is the final capability check; denial returns
+  `NODE_CAPABILITY_MISSING` on that exact route.
 - Public upload descriptors include an immutable transaction signature and/or
   content hash. Mutable coordinates remain visibly different from pinned
   attachments.
@@ -620,6 +621,24 @@ render route directly until that capability layer lands.
 - Use Home viewers/streams for large media and keep bounded user-triggered image
   previews/cards in the app.
 - Enable Qortal public publish-to-attach only after Home advertises it.
+
+### H5 implementation record
+
+- `GET_QDN_RESOURCE_STREAM_URL` returns a ten-minute app/tab/account/network/
+  route-bound capability. Desktop registers a secure private protocol in both
+  the Home shell and isolated QDN-app sessions; Android uses a separate native
+  stream-token registry and never overwrites the app document authorization.
+- Stream requests are exact-coordinate, GET/HEAD only, redirect-refusing,
+  cancellable, Range-preserving, and bounded to 512 MiB per response and 4 GiB
+  declared total size. No node API key appears in a returned URL or upstream
+  request.
+- `SELECT_QDN_PUBLISH_SOURCE` accepts only native-picked regular files between
+  1 byte and 100 MiB and returns an opaque 30-minute token. The app never
+  receives or supplies a native path.
+- `PUBLISH_QDN_RESOURCE` is one-request approved, rechecks name ownership and
+  all stale context, attests the chain-specific ARBITRARY transaction and
+  content, signs locally, and returns an immutable SHA-256/signature pin.
+  Signed unknown broadcasts remain nonretryable.
 
 ## H6 — Private attachments
 

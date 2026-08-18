@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -44,6 +45,9 @@ final class QdnRenderProxy {
     /** Reserved for in-app content; it never resolves through DNS. */
     static final String PROXY_HOST_SUFFIX = ".qdn.androidplatform.net";
     static final String PROXY_MIME_QUERY_PARAM = "qdnHomeMime";
+    static final String STREAM_CAPABILITY_QUERY_PARAM = "qdnHomeStream";
+    static final long STREAM_CAPABILITY_TTL_MS = 10L * 60L * 1000L;
+    static final int STREAM_CAPABILITY_MAX_ENTRIES = 64;
 
     /**
      * Round 6: shared with {@link QdnBridgeWebViewClient}, which reads the live
@@ -84,6 +88,7 @@ final class QdnRenderProxy {
     ));
 
     private static final Map<String, AuthorizedOrigin> AUTHORIZED_ORIGINS = new ConcurrentHashMap<>();
+    private static final Map<String, AuthorizedStream> AUTHORIZED_STREAMS = new ConcurrentHashMap<>();
     private static final String BASE58_SIGNATURE_PATTERN = "^[1-9A-HJ-NP-Za-km-z]{64,88}$";
     private static final Set<String> ALLOWED_RENDER_SERVICES = new HashSet<>(Arrays.asList(
         // Browser archives keep their existing isolated-host path.
@@ -183,6 +188,31 @@ final class QdnRenderProxy {
         }
     }
 
+    private static final class AuthorizedStream {
+        final String binding;
+        final long expiresAt;
+        final String proxyHost;
+        final String proxyPath;
+        final String upstreamQuery;
+        final String upstreamUrl;
+
+        AuthorizedStream(
+            String binding,
+            long expiresAt,
+            String proxyHost,
+            String proxyPath,
+            String upstreamQuery,
+            String upstreamUrl
+        ) {
+            this.binding = binding;
+            this.expiresAt = expiresAt;
+            this.proxyHost = proxyHost;
+            this.proxyPath = proxyPath;
+            this.upstreamQuery = upstreamQuery;
+            this.upstreamUrl = upstreamUrl;
+        }
+    }
+
     static String authorize(String origin) {
         return authorize(origin, false, null);
     }
@@ -223,6 +253,58 @@ final class QdnRenderProxy {
         }
     }
 
+    static String authorizeStream(String origin, String resourceUrl, String mimeType, String binding) {
+        String normalizedOrigin = normalizeOrigin(origin);
+        if (normalizedOrigin == null || resourceUrl == null || binding == null || binding.trim().isEmpty()) {
+            return null;
+        }
+        Uri resource = Uri.parse(resourceUrl);
+        String resourceOrigin = canonicalizeOrigin(resource.getScheme(), resource.getHost(), resource.getPort());
+        if (
+            !normalizedOrigin.equals(resourceOrigin) ||
+            resource.getUserInfo() != null ||
+            resource.getFragment() != null ||
+            classifyProxyPath(resource.getPathSegments(), resource.getEncodedQuery(), false) != RouteKind.RENDER
+        ) {
+            return null;
+        }
+        sweepExpiredStreams();
+        while (AUTHORIZED_STREAMS.size() >= STREAM_CAPABILITY_MAX_ENTRIES) {
+            String oldest = AUTHORIZED_STREAMS.keySet().stream().findFirst().orElse(null);
+            if (oldest == null) break;
+            AUTHORIZED_STREAMS.remove(oldest);
+        }
+        String token = UUID.randomUUID().toString();
+        String proxyHost = getLabel(normalizedOrigin) + PROXY_HOST_SUFFIX;
+        String upstreamQuery = resource.getEncodedQuery();
+        AUTHORIZED_STREAMS.put(token, new AuthorizedStream(
+            binding,
+            System.currentTimeMillis() + STREAM_CAPABILITY_TTL_MS,
+            proxyHost,
+            resource.getEncodedPath(),
+            upstreamQuery,
+            resource.toString()
+        ));
+        Uri.Builder proxy = resource.buildUpon()
+            .scheme("https")
+            .encodedAuthority(proxyHost)
+            .fragment(null)
+            .appendQueryParameter(STREAM_CAPABILITY_QUERY_PARAM, token);
+        String safeMimeType = sanitizeResponseMimeType(mimeType);
+        if (safeMimeType != null) proxy.appendQueryParameter(PROXY_MIME_QUERY_PARAM, safeMimeType);
+        return proxy.build().toString();
+    }
+
+    static void releaseStreams(String binding) {
+        if (binding == null || binding.trim().isEmpty()) {
+            AUTHORIZED_STREAMS.clear();
+            return;
+        }
+        for (Map.Entry<String, AuthorizedStream> entry : AUTHORIZED_STREAMS.entrySet()) {
+            if (binding.equals(entry.getValue().binding)) AUTHORIZED_STREAMS.remove(entry.getKey());
+        }
+    }
+
     static boolean isProxyUrl(Uri url) {
         if (url == null || !"https".equalsIgnoreCase(url.getScheme())) {
             return false;
@@ -240,6 +322,11 @@ final class QdnRenderProxy {
     static String resolveUpstreamUrl(Uri url) {
         if (!isProxyUrl(url)) {
             return null;
+        }
+
+        if (hasStreamCapabilityParameter(url)) {
+            AuthorizedStream stream = getAuthorizedStream(url);
+            return stream == null ? null : stream.upstreamUrl;
         }
 
         String host = url.getHost().toLowerCase(Locale.ROOT);
@@ -278,6 +365,9 @@ final class QdnRenderProxy {
     }
 
     static RouteKind classifyProxyRoute(Uri url) {
+        if (hasStreamCapabilityParameter(url)) {
+            return getAuthorizedStream(url) == null ? RouteKind.DENIED : RouteKind.RENDER;
+        }
         AuthorizedOrigin authorization = getAuthorization(url);
 
         if (authorization == null) {
@@ -797,12 +887,15 @@ final class QdnRenderProxy {
         }
 
         String encodedProxyMimePrefix = PROXY_MIME_QUERY_PARAM + "=";
+        String encodedStreamPrefix = STREAM_CAPABILITY_QUERY_PARAM + "=";
         StringBuilder upstreamQuery = new StringBuilder();
 
         for (String parameter : encodedQuery.split("&")) {
             if (
                 parameter.equals(PROXY_MIME_QUERY_PARAM) ||
-                parameter.startsWith(encodedProxyMimePrefix)
+                parameter.startsWith(encodedProxyMimePrefix) ||
+                parameter.equals(STREAM_CAPABILITY_QUERY_PARAM) ||
+                parameter.startsWith(encodedStreamPrefix)
             ) {
                 continue;
             }
@@ -815,6 +908,45 @@ final class QdnRenderProxy {
         }
 
         return upstreamQuery.length() == 0 ? null : upstreamQuery.toString();
+    }
+
+    static boolean isStreamCapabilityUrl(Uri url) {
+        return getAuthorizedStream(url) != null;
+    }
+
+    private static AuthorizedStream getAuthorizedStream(Uri url) {
+        if (!isProxyUrl(url)) return null;
+        List<String> tokens = url.getQueryParameters(STREAM_CAPABILITY_QUERY_PARAM);
+        if (tokens.size() != 1) return null;
+        AuthorizedStream stream = AUTHORIZED_STREAMS.get(tokens.get(0));
+        if (stream == null) return null;
+        if (stream.expiresAt <= System.currentTimeMillis()) {
+            AUTHORIZED_STREAMS.remove(tokens.get(0));
+            return null;
+        }
+        if (
+            !stream.proxyHost.equalsIgnoreCase(url.getHost()) ||
+            !stream.proxyPath.equals(url.getEncodedPath()) ||
+            !equalNullable(stream.upstreamQuery, getUpstreamEncodedQuery(url.getEncodedQuery()))
+        ) {
+            return null;
+        }
+        return stream;
+    }
+
+    private static boolean hasStreamCapabilityParameter(Uri url) {
+        return isProxyUrl(url) && !url.getQueryParameters(STREAM_CAPABILITY_QUERY_PARAM).isEmpty();
+    }
+
+    private static boolean equalNullable(String left, String right) {
+        return left == null ? right == null : left.equals(right);
+    }
+
+    private static void sweepExpiredStreams() {
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, AuthorizedStream> entry : AUTHORIZED_STREAMS.entrySet()) {
+            if (entry.getValue().expiresAt <= now) AUTHORIZED_STREAMS.remove(entry.getKey());
+        }
     }
 
     /** A stable, opaque host label: same node origin, same label, same storage. */

@@ -112,6 +112,16 @@ import {
 } from '../v2/resource-location'
 import { resolveLaunchIdentifier } from '../v2/shell/render-path-identity'
 import { base58Decode, base58Encode } from '../../electron/base58'
+import {
+  normalizeHomeV2PublicPublishRequest,
+  sha256Hex,
+} from '../../electron/home-v2-public-publish-contract'
+import type { HomeV2PublishSourceBinding } from '../../electron/home-v2-publish-source-tokens'
+import {
+  decodeHomeV2AndroidPublishSource,
+  homeV2AndroidPublishSources,
+  selectHomeV2AndroidPublishSource,
+} from './public-publish-source'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -440,7 +450,11 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
   } catch {
     return null
   }
-  if (streamUrl.protocol !== 'http:' && streamUrl.protocol !== 'https:') return null
+  if (
+    streamUrl.protocol !== 'http:' &&
+    streamUrl.protocol !== 'https:' &&
+    streamUrl.protocol !== 'qortium-home-resource:'
+  ) return null
   const nullable = (field: unknown) => typeof field === 'string' && field ? field : null
   return {
     filename: nullable(value.filename),
@@ -456,6 +470,7 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
 }
 
 export function HomeV2LiveApp() {
+  const isAndroidHost = useRef(!window.homeV2Nodes).current
   const [productState, dispatchProduct] = useReducer(
     reduceProductState,
     undefined,
@@ -544,6 +559,24 @@ export function HomeV2LiveApp() {
     new Map<string, AppTabNavigationController>(),
   )
   const tabSequence = useRef(0)
+
+  useEffect(() => {
+    if (!isAndroidHost) return
+    homeV2AndroidPublishSources.clear()
+    void import('./android-app-host')
+      .then(({ releaseHomeV2AndroidResourceStreams }) => releaseHomeV2AndroidResourceStreams())
+      .catch(() => undefined)
+  }, [
+    isAndroidHost,
+    productState.activeTabId,
+    productState.tabs.find((tab) => tab.id === productState.activeTabId)?.context.resourceLocation,
+    selectedAccountId,
+    accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.isUnlocked,
+    snapshot.nodes.qortal.mode,
+    snapshot.nodes.qortal.nodeApiUrl,
+    snapshot.nodes.qortium.mode,
+    snapshot.nodes.qortium.nodeApiUrl,
+  ])
 
   const applyVaultState = useCallback((state: HomeV2VaultState) => {
     const catalogue = vaultCatalogue(state)
@@ -955,6 +988,7 @@ export function HomeV2LiveApp() {
           (value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
+            value.action !== 'PUBLISH_QDN_RESOURCE' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
             !isHomeV2DirectChatWriteAction(value.action) &&
@@ -989,6 +1023,15 @@ export function HomeV2LiveApp() {
             typeof value.groupId !== 'number' ||
             typeof value.groupName !== 'string' ||
             typeof value.writeRouteLabel !== 'string'))
+        || (value.action === 'PUBLISH_QDN_RESOURCE' &&
+          (value.writeKind !== 'publish' ||
+            typeof value.publishContentHash !== 'string' ||
+            typeof value.publishFileName !== 'string' ||
+            typeof value.publishResourceCoordinate !== 'string' ||
+            typeof value.publishSize !== 'number' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeRouteLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string'))
       ) {
         return
       }
@@ -1032,7 +1075,8 @@ export function HomeV2LiveApp() {
       const isPrivateGroupWrite = isHomeV2PrivateGroupChatWriteAction(value.action)
       const isGroupWrite = isHomeV2GroupWriteAction(value.action)
       const isGroupAdminWrite = isHomeV2GroupAdminAction(value.action)
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite
+      const isPublish = value.action === 'PUBLISH_QDN_RESOURCE'
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -1057,6 +1101,8 @@ export function HomeV2LiveApp() {
             ? 'group.administration'
             : isGroupWrite
               ? 'group.membership'
+              : isPublish
+                ? 'qdn.publish'
               : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
@@ -1071,10 +1117,10 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite
+        title: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
-        summary: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite
+        summary: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
         details: isChatWrite
@@ -1133,6 +1179,17 @@ export function HomeV2LiveApp() {
                 ...(typeof value.writeTimeToLive === 'number'
                   ? [{ label: 'Lifetime', value: value.writeTimeToLive === 0 ? 'No expiry' : `${value.writeTimeToLive} seconds` }]
                   : []),
+              ]
+          : isPublish
+            ? [
+                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Operation', value: operationLabel },
+                { label: 'Chain', value: String(value.writeTargetChainLabel) },
+                { label: 'Route', value: String(value.writeRouteLabel) },
+                { label: 'Resource', value: String(value.publishResourceCoordinate) },
+                { label: 'File', value: String(value.publishFileName) },
+                { label: 'Size', value: `${Number(value.publishSize).toLocaleString()} bytes` },
+                { label: 'SHA-256', value: String(value.publishContentHash) },
               ]
             : [
               { label: 'Account', value: account?.label ?? value.accountId },
@@ -1238,6 +1295,8 @@ export function HomeV2LiveApp() {
         action === 'GET_QDN_RESOURCE_STREAM_URL' ||
         action === 'OPEN_QDN_RESOURCE_VIEWER' ||
         action === 'SAVE_QDN_RESOURCE' ||
+        action === 'SELECT_QDN_PUBLISH_SOURCE' ||
+        action === 'PUBLISH_QDN_RESOURCE' ||
         isHomeV2PublicChatAction(action) ||
         isHomeV2DirectChatReadAction(action) ||
         isHomeV2DirectChatWriteAction(action) ||
@@ -1254,27 +1313,184 @@ export function HomeV2LiveApp() {
           throw new Error(`${action} is unavailable on the configured route.`)
         }
       }
+      if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const hostInfo = await nodeClient.requestApp(protocol, { action: 'GET_HOST_INFO' }, context)
+        if (!isRecord(hostInfo) || !isRecord(hostInfo.route) || typeof hostInfo.route.revision !== 'string') {
+          throw new Error('Home bridge route identity is unavailable.')
+        }
+        const binding: HomeV2PublishSourceBinding = Object.freeze({
+          accountId,
+          appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          protocol,
+          routeRevision: hostInfo.route.revision,
+          tabId: context.tabId,
+        })
+        if (action === 'SELECT_QDN_PUBLISH_SOURCE') {
+          return selectHomeV2AndroidPublishSource(binding)
+        }
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        if (!vaultClient?.publishPublicResource) {
+          throw new Error('Public QDN publishing is unavailable on this platform.')
+        }
+        const publishRequest = normalizeHomeV2PublicPublishRequest(
+          targetNetwork,
+          isRecord(requestValue) ? requestValue : {},
+        )
+        const source = homeV2AndroidPublishSources.resolve(publishRequest.sourceToken, binding)
+        const nameValue = await nodeClient.requestApp(
+          protocol,
+          { action: 'GET_NAME_DATA', name: publishRequest.resource.name },
+          context,
+        )
+        if (!isRecord(nameValue) || nameValue.owner !== account.address) {
+          throw new Error('The selected account does not currently own the requested publisher name on this chain.')
+        }
+        const contentHash = await sha256Hex(decodeHomeV2AndroidPublishSource(source.dataBase64))
+        const requestId = brand<PermissionRequestId>(
+          globalThis.crypto.randomUUID?.() ?? `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        )
+        const parsedApp = (() => {
+          try {
+            const parsed = parseAppResourceLocation(context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            return {
+              identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
+              title: parsed.identity.name,
+            }
+          } catch {
+            return { identityKey: binding.appIdentity, title: 'QDN app' }
+          }
+        })()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: requestId,
+          protocol,
+          action: 'PUBLISH_QDN_RESOURCE',
+          capability: 'qdn.publish',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: 'Allow public resource publication?',
+          summary: `${parsedApp.title} wants to publish a public resource as the selected account.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+            { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+            { label: 'Resource', value: `${publishRequest.resource.service}/${publishRequest.resource.name}/${publishRequest.resource.identifier ?? 'default'}` },
+            { label: 'File', value: source.fileName },
+            { label: 'Size', value: `${source.size.toLocaleString()} bytes` },
+            { label: 'SHA-256', value: contentHash },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved) throw new Error('Public resource publication was denied.')
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            currentTab.context.selectedAccountId === accountId &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (!(await isStillValid())) throw new Error('The app, account, or node route changed before public publishing.')
+        const currentNameValue = await nodeClient.requestApp(
+          protocol,
+          { action: 'GET_NAME_DATA', name: publishRequest.resource.name },
+          context,
+        )
+        if (!isRecord(currentNameValue) || currentNameValue.owner !== account.address || !(await isStillValid())) {
+          throw new Error('Publisher-name ownership or the app context changed after approval.')
+        }
+        const result = await vaultClient.publishPublicResource({
+          accountId,
+          fileName: source.fileName,
+          isStillValid,
+          network: targetNetwork,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+          resource: publishRequest.resource,
+          sourceBase64: source.dataBase64,
+        })
+        if (isRecord(result) && (result.accepted === true || result.outcome === 'unknown')) {
+          homeV2AndroidPublishSources.release(publishRequest.sourceToken)
+        }
+        return result
+      }
       if (action === 'GET_QDN_RESOURCE_STREAM_URL') {
-        const rawUrl = await nodeClient.requestApp(protocol, requestValue, context)
+        if (!isAndroidHost) return nodeClient.requestApp(protocol, requestValue, context)
+        const [rawUrl, hostInfo] = await Promise.all([
+          nodeClient.requestApp(protocol, requestValue, context),
+          nodeClient.requestApp(protocol, { action: 'GET_HOST_INFO' }, context),
+        ])
         if (typeof rawUrl !== 'string') throw new Error('Resource stream URL response was invalid.')
+        if (!isRecord(hostInfo) || !isRecord(hostInfo.route) || typeof hostInfo.route.revision !== 'string') {
+          throw new Error('Home bridge route identity is unavailable.')
+        }
         const resource = getQdnResourceStreamRequest(requestValue as QdnAppRequest)
-        const { authorizeQdnResourceStreamUrl } = await import('../platform')
-        return authorizeQdnResourceStreamUrl(
+        const network = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const { authorizeHomeV2AndroidResourceStream } = await import('./android-app-host')
+        return authorizeHomeV2AndroidResourceStream(
           rawUrl,
           getQdnResourceStreamProxyMimeType(resource),
+          JSON.stringify({
+            accountId: context.selectedAccountId,
+            appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+            network,
+            protocol,
+            routeRevision: hostInfo.route.revision,
+            tabId: context.tabId,
+          }),
         )
       }
       if (action === 'OPEN_QDN_RESOURCE_VIEWER') {
-        const raw = await nodeClient.requestApp(protocol, requestValue, context)
+        if (!isAndroidHost) return nodeClient.requestApp(protocol, requestValue, context)
+        const [raw, hostInfo] = await Promise.all([
+          nodeClient.requestApp(protocol, requestValue, context),
+          nodeClient.requestApp(protocol, { action: 'GET_HOST_INFO' }, context),
+        ])
         const parsed = parseHomeV2ResourceViewerState(raw)
         if (!parsed) throw new Error('Resource viewer response was invalid.')
+        if (!isRecord(hostInfo) || !isRecord(hostInfo.route) || typeof hostInfo.route.revision !== 'string') {
+          throw new Error('Home bridge route identity is unavailable.')
+        }
         const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
-        const { authorizeQdnResourceStreamUrl } = await import('../platform')
+        const network = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const { authorizeHomeV2AndroidResourceStream } = await import('./android-app-host')
         setResourceViewer({
           ...parsed,
-          streamUrl: await authorizeQdnResourceStreamUrl(
+          streamUrl: await authorizeHomeV2AndroidResourceStream(
             parsed.streamUrl,
             getQdnResourceStreamProxyMimeType(resource),
+            JSON.stringify({
+              accountId: context.selectedAccountId,
+              appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+              network,
+              protocol,
+              routeRevision: hostInfo.route.revision,
+              tabId: context.tabId,
+            }),
           ),
         })
         return true

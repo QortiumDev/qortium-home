@@ -3,6 +3,8 @@ import {
   BrowserWindow,
   ipcMain,
   Menu,
+  protocol,
+  session,
   screen,
   type MenuItemConstructorOptions,
   type Rectangle,
@@ -30,6 +32,8 @@ import {
   registerHomeV2NodeBridgeIpcHandlers,
 } from './home-v2-node-bridge.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
+import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
+import { HOME_V2_RESOURCE_STREAM_SCHEME } from './home-v2-resource-stream-capability.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
 import { startNotificationWatcher } from './notification-watcher.js';
 import {
@@ -57,6 +61,17 @@ const HOME_V2_SHELL_PARTITION = 'persist:home-v2-shell';
 const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
 const IS_HOME_V2 = process.env.QORTIUM_HOME_V2 === '1';
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: HOME_V2_RESOURCE_STREAM_SCHEME,
+  privileges: {
+    corsEnabled: true,
+    secure: true,
+    standard: true,
+    stream: true,
+    supportFetchAPI: true,
+  },
+}]);
 
 initZoom({ sync: syncQdnViewsForWindowZoom });
 
@@ -465,6 +480,7 @@ function createWindow(options: CreateWindowOptions = {}) {
   });
 
   if (IS_HOME_V2) {
+    registerHomeV2DesktopResourceStreamProtocol(session.fromPartition(HOME_V2_SHELL_PARTITION));
     authorizeHomeV2NodeBridge(window.webContents);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-attach-webview', (event) => event.preventDefault());

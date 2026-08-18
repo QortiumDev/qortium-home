@@ -3,6 +3,7 @@ import nacl from 'tweetnacl'
 
 import { base58Encode } from './base58.js'
 import {
+  attestUnsignedQortalArbitraryPublish,
   attestUnsignedQortalPrivateGroupPublish,
   signAttestedQortalPrivateGroupPublish,
 } from './home-v2-qortal-private-group-publish.js'
@@ -70,6 +71,17 @@ const signed = signAttestedQortalPrivateGroupPublish({
 })
 assert.equal(nacl.sign.detached.verify(attested.signingBytes, signed.signedBytes.subarray(unsigned.length), keyPair.publicKey), true)
 assert.equal(signed.signature.length > 64, true)
+assert.equal(attestUnsignedQortalArbitraryPublish(base58Encode(unsigned), {
+  dataSize: 512,
+  feeAtomic: 100_000n,
+  identifier,
+  lastReference: new Uint8Array(64).fill(1),
+  name,
+  senderPublicKey: keyPair.publicKey,
+  service: 801,
+  timestampMaximum: timestamp + 1,
+  timestampMinimum: timestamp - 1,
+}).dataHash.length, 32)
 
 const wrongService = Uint8Array.from(unsigned)
 new DataView(wrongService.buffer).setInt32(dataTypeOffset - 4, 1, false)

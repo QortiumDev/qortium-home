@@ -278,9 +278,14 @@ import {
   type QortalPrivateGroupKeyRing,
 } from '../electron/home-v2-qortal-private-group-actions';
 import {
+  attestUnsignedQortalArbitraryPublish,
   attestUnsignedQortalPrivateGroupPublish,
   signAttestedQortalPrivateGroupPublish,
 } from '../electron/home-v2-qortal-private-group-publish';
+import {
+  createHomeV2PublicPublishDescriptor,
+  sha256Hex,
+} from '../electron/home-v2-public-publish-contract';
 import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
@@ -323,6 +328,7 @@ import { loadDisplaySettings } from './displaySettings';
 import type {
   HomeV2PrivateGroupChatReadRequest,
   HomeV2PrivateGroupChatWriteRequest as HomeV2VaultPrivateGroupChatWriteRequest,
+  HomeV2PublicPublishMutationRequest,
   HomeV2VaultClient,
 } from './home-v2-live/vault-client';
 import type { HomeV2VaultState } from './v2/contracts';
@@ -3926,12 +3932,14 @@ async function postLocalNodeText(
   // let an oversized/hostile body be decoded, signed, or trusted further.
   // Existing callers that omit maxBytes keep their prior unbounded behavior.
   maxBytes?: number,
+  refuseRedirects = false,
 ) {
   let response: HttpResponse;
 
   try {
+    const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`;
     response = await CapacitorHttp.request({
-      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      url: requestUrl,
       method: 'POST',
       headers: {
         'Content-Type': contentType,
@@ -3941,7 +3949,11 @@ async function postLocalNodeText(
       responseType: 'text',
       connectTimeout: REQUEST_TIMEOUT_MS,
       readTimeout: REQUEST_TIMEOUT_MS,
+      disableRedirects: refuseRedirects,
     });
+    if (refuseRedirects && response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
+      throw new Error('Node request changed the approved URL.');
+    }
   } catch {
     throw new Error(getNodeUnavailableMessage(nodeApiUrl));
   }
@@ -3985,6 +3997,7 @@ async function postLocalNodeBytes(
   body: Blob,
   apiKey: string,
   fallbackMessage: string,
+  refuseRedirects = false,
 ) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -3998,6 +4011,7 @@ async function postLocalNodeBytes(
         'X-API-KEY': apiKey,
       },
       body,
+      redirect: refuseRedirects ? 'error' : 'follow',
       signal: controller.signal,
     });
   } catch {
@@ -4315,12 +4329,13 @@ async function signAndProcessKeylessQdnTransaction(
 
 async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: number) {
   if (hash.length !== 32) throw new Error('Public QDN builder returned an invalid attestation hash.');
+  const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`;
   let result: Awaited<ReturnType<typeof fetchBoundedBytes>>;
   try {
     result = await fetchBoundedBytes(
       (signal) => window.fetch(
-        `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`,
-        { cache: 'no-store', signal },
+        requestUrl,
+        { cache: 'no-store', redirect: 'error', signal },
       ),
       maxBytes,
     );
@@ -4330,6 +4345,9 @@ async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8
     );
   }
   const { bytes, response } = result;
+  if (response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
+    throw new Error('Public QDN content attestation changed the approved node URL.');
+  }
   if (response.status < 200 || response.status >= 300) {
     throw new Error(readableNodeErrorMessage(
       new TextDecoder().decode(bytes),
@@ -12530,17 +12548,23 @@ async function requestAndroidHomeV2ChatJson(
   pathname: string,
   apiKey = '',
   maxBytes = CHAT_SIGNING_RESPONSE_MAX_BYTES,
+  refuseRedirects = false,
 ) {
   let response: HttpResponse;
   try {
+    const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`;
     response = await CapacitorHttp.request({
-      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      url: requestUrl,
       method: 'GET',
       headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
       responseType: 'text',
       connectTimeout: REQUEST_TIMEOUT_MS,
       readTimeout: REQUEST_TIMEOUT_MS,
+      disableRedirects: refuseRedirects,
     });
+    if (refuseRedirects && response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
+      throw new Error('Chat node request changed the approved URL.');
+    }
   } catch {
     throw new Error(getNodeUnavailableMessage(nodeApiUrl));
   }
@@ -14128,6 +14152,160 @@ async function sendAndroidHomeV2QortalGroupAdmin(
   }
 }
 
+async function publishAndroidHomeV2PublicResource(
+  request: HomeV2PublicPublishMutationRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const isStillValid = request.isStillValid ?? (() => true);
+  const sourceBytes = base64ToBytes(request.sourceBase64);
+  if (sourceBytes.byteLength < 1 || sourceBytes.byteLength > QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES) {
+    throw new Error('Publish source must be between 1 byte and 100 MiB.');
+  }
+  const resource: QdnWriteResourceRequest = { ...request.resource, tags: [...request.resource.tags] };
+  const source: QdnPublishSourceResult & { canceled: false } = {
+    canceled: false,
+    dataBase64: request.sourceBase64,
+    fileName: request.fileName,
+    kind: 'file',
+    size: sourceBytes.byteLength,
+  };
+  const contentHash = await sha256Hex(sourceBytes);
+  let signedBytes: Uint8Array;
+  let signature: string;
+  let timestamp = Date.now();
+
+  if (request.network === 'qortium') {
+    const upload = getQdnPublishUploadSource(resource, source);
+    const unsigned = await postLocalNodeBytes(
+      request.nodeApiUrl,
+      buildQdnPublicPublishUploadPath(resource, upload.source),
+      upload.body,
+      '',
+      'Qortium public publish staging failed.',
+      true,
+    );
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN attestation.');
+    const rawUnsignedBytes = base58Decode(unsigned.body.trim());
+    const details = assertPublicArbitraryTransaction(rawUnsignedBytes, {
+      identifier: resource.identifier && resource.identifier !== 'default' ? resource.identifier : undefined,
+      method: 0,
+      name: resource.name,
+      publicKey: base58Decode(signingKey.publicKey58),
+      service: getStaticQdnServiceId(resource.service),
+      txGroupId: 0,
+    });
+    await createPublicQdnPublishAttestation(request.nodeApiUrl, resource, {
+      bytes: sourceBytes,
+      filename: request.fileName,
+      unpackZip: false,
+    })(details);
+    const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
+    const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY, isStillValid);
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN signing.');
+    const rawWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
+    const signingWithNonce = stampTransactionNonce(signingBytes, nonce);
+    signedBytes = appendSignatureToTransactionBytes(
+      rawWithNonce,
+      nacl.sign.detached(signingWithNonce, signingKey.secretKey),
+    );
+    signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  } else {
+    const feeTimestamp = Date.now();
+    const [feeValue, referenceValue] = await Promise.all([
+      requestAndroidHomeV2ChatJson(
+        request.nodeApiUrl,
+        `/transactions/unitfee?txType=ARBITRARY&timestamp=${feeTimestamp}`,
+        '',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        true,
+      ),
+      requestAndroidHomeV2ChatJson(
+        request.nodeApiUrl,
+        `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+        '',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        true,
+      ),
+    ]);
+    const fee = normalizeAndroidQortalFee(feeValue);
+    if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
+    const lastReference = base58Decode(referenceValue.trim());
+    if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) {
+      throw new Error('Qortal last-reference response is invalid.');
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before Qortal staging.');
+    const started = Date.now();
+    const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+    const unsigned = await postLocalNodeText(
+      request.nodeApiUrl,
+      `/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}${identifierPath}/base64?fee=${encodeURIComponent(String(fee))}`,
+      request.sourceBase64,
+      '',
+      'Qortal public publish staging failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    const attested = attestUnsignedQortalArbitraryPublish(unsigned.body.trim(), {
+      dataSize: sourceBytes.byteLength,
+      feeAtomic: fee,
+      identifier: resource.identifier ?? 'default',
+      lastReference,
+      name: resource.name,
+      senderPublicKey: base58Decode(signingKey.publicKey58),
+      service: getStaticQdnServiceId(resource.service),
+      timestampMaximum: Date.now() + 5_000,
+      timestampMinimum: started - 5_000,
+    });
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(sourceBytes).buffer);
+    if (base58Encode(new Uint8Array(digest)) !== base58Encode(attested.dataHash)) {
+      throw new Error('Qortal publish builder changed the approved resource content.');
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.');
+    const signed = signAttestedQortalPrivateGroupPublish({
+      selectedAccountSecretKey: signingKey.secretKey,
+      signingBytes: attested.signingBytes,
+      unsignedBytes: attested.unsignedBytes,
+    });
+    signedBytes = signed.signedBytes;
+    signature = signed.signature;
+    timestamp = attested.timestamp;
+  }
+
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before publication broadcast.');
+  const descriptor = createHomeV2PublicPublishDescriptor({
+    contentHash,
+    fileName: request.fileName,
+    network: request.network,
+    resource,
+    size: sourceBytes.byteLength,
+    transactionSignature: signature,
+  });
+  try {
+    await postLocalNodeText(
+      request.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      `${request.network === 'qortal' ? 'Qortal' : 'Qortium'} public publish broadcast failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    return descriptor;
+  } catch (error) {
+    return {
+      ...descriptor,
+      accepted: false,
+      error: error instanceof Error ? error.message : 'Publish broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN',
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp,
+    };
+  }
+}
+
 let androidHomeV2AutoUnlockAttempted = false;
 
 export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
@@ -14338,6 +14516,28 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     async requestRestore() {
       await HomeV2ProfileRecovery.requestRestore();
       return { restartRequired: true };
+    },
+    async publishPublicResource(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        try {
+          return await publishAndroidHomeV2PublicResource(request, signingKey);
+        } catch (error) {
+          const status = error instanceof QdnUploadPostError
+            ? error.status
+            : typeof (error as { status?: unknown })?.status === 'number'
+              ? (error as { status: number }).status
+              : null;
+          if (status === 401 || status === 403 || status === 404 || status === 405) {
+            throw new Error(
+              `The selected ${request.network === 'qortal' ? 'Qortal' : 'Qortium'} node does not expose a compatible public QDN publish staging route.`,
+            );
+          }
+          throw error;
+        }
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
     },
     async sendChatMessage(request) {
       const signingKey = await getAccountSecretKey(request.accountId);

@@ -24,7 +24,9 @@ public class QdnRenderProxyTest {
         assertEquals("video/webm", QdnRenderProxy.sanitizeResponseMimeType(" Video/WebM "));
         assertEquals(
             "theme=dark",
-            QdnRenderProxy.getUpstreamEncodedQuery("theme=dark&qdnHomeMime=video%2Fwebm")
+            QdnRenderProxy.getUpstreamEncodedQuery(
+                "theme=dark&qdnHomeMime=video%2Fwebm&qdnHomeStream=00000000-0000-4000-8000-000000000001"
+            )
         );
     }
 

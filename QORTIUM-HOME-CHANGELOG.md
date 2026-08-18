@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add portable dual-chain public publishing
+
+Home 2 now gives QDN apps a Home-owned public-publish flow through both
+`qdnRequest` and `qortalRequest` on desktop and Android. The app first asks
+Home to select a file and receives only an expiring token; native paths never
+cross the bridge. Publication is always a one-request approval that shows the
+selected chain, node route, resource coordinate, filename, size, and SHA-256
+hash. Home verifies current name ownership, stages only against that exact
+route, attests the returned ARBITRARY transaction and approved content, applies
+the chain's required proof and signature locally, and returns an immutable
+transaction signature plus content hash. Qortal and Qortium never fall back to
+one another or to another node, and an operator that disables public staging
+gets an exact capability error. H5B also replaces raw media routes with
+ten-minute, exact-resource stream capabilities: desktop uses a private secure
+scheme registered in each app session, while Android uses the HTTPS range
+proxy without weakening the app document's bridge authorization. Both refuse
+redirects, preserve bounded Range delivery, expose no API key, and expire or
+revoke with the app, tab, account, or route context. This completes Home H5;
+private attachments remain the separate H6 cryptographic tranche.
+
 ### 2026-08-18 - feat(chat): add dual-chain public resource viewing
 
 Home 2 now gives QDN apps the same network-qualified public-resource viewing

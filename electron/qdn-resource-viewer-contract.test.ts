@@ -147,6 +147,12 @@ const android = readRepoSource('../src/platform.ts', './platform.ts');
 const app = readRepoSource('../src/App.tsx', './App.tsx');
 const preload = readRepoSource('../electron/preload.cts', './preload.cts');
 const homeV2Desktop = readRepoSource('../electron/home-v2-app-bridge.ts', './home-v2-app-bridge.ts');
+const homeV2DesktopStream = readRepoSource(
+  '../electron/home-v2-desktop-resource-stream.ts',
+  './home-v2-desktop-resource-stream.ts',
+);
+const electronMain = readRepoSource('../electron/main.ts', './main.ts');
+const qdnViews = readRepoSource('../electron/qdn-views.ts', './qdn-views.ts');
 const homeV2Preload = readRepoSource('../electron/home-v2-live-preload.cts', './home-v2-live-preload.cts');
 const homeV2Android = readRepoSource('../src/home-v2-live/node-client.ts', './src/home-v2-live/node-client.ts');
 const homeV2Live = readRepoSource('../src/home-v2-live/HomeV2LiveApp.tsx', './src/home-v2-live/HomeV2LiveApp.tsx');
@@ -185,8 +191,30 @@ assert(
   'Home 2 desktop preload must expose the resource viewer event.',
 );
 assert(
-  homeV2Live.includes('authorizeQdnResourceStreamUrl') && homeV2Live.includes('HomeV2ResourceViewer'),
-  'Home 2 Android must authorize ranged resource URLs and render the unified viewer.',
+  homeV2Live.includes('authorizeHomeV2AndroidResourceStream') && homeV2Live.includes('HomeV2ResourceViewer'),
+  'Home 2 Android must issue ranged resource capabilities and render the unified viewer.',
+);
+assert(
+  androidProxy.includes('STREAM_CAPABILITY_QUERY_PARAM') && androidProxy.includes('authorizeStream'),
+  'Android resource streams must use exact, expiring native capabilities.',
+);
+assert(
+  androidProxy.includes('hasStreamCapabilityParameter(url)') &&
+    androidProxy.includes('getAuthorizedStream(url) == null ? RouteKind.DENIED : RouteKind.RENDER'),
+  'An invalid or expired Android stream token must fail closed instead of falling through to ordinary proxy authorization.',
+);
+assert(
+  androidWebViewClient.includes('setInstanceFollowRedirects(!streamCapability)') &&
+    androidWebViewClient.includes('new ByteLimitInputStream('),
+  'Android stream capabilities must refuse redirects and bound undeclared response bodies.',
+);
+assert(
+  homeV2DesktopStream.includes("redirect: 'error'") &&
+    homeV2DesktopStream.includes('authorization.targetSession !== targetSession') &&
+    electronMain.includes('registerSchemesAsPrivileged') &&
+    electronMain.includes('registerHomeV2DesktopResourceStreamProtocol') &&
+    qdnViews.includes('registerHomeV2DesktopResourceStreamProtocol(viewSession)'),
+  'Desktop stream capabilities must refuse redirects, remain session-bound, and be registered in both the Home shell and isolated app sessions.',
 );
 
 for (const service of QDN_STREAMABLE_SERVICES) {
