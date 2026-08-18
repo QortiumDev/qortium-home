@@ -254,7 +254,7 @@ and signing remain local even when the node is authenticated.
 | H1 | Public-group revisions and route-independent send parity | Implemented | H0 |
 | H2 | Portable group participation, administration, and avatar/identity parity | Complete: H2A join/leave, H2B avatar reads, and H2C exact administration actions implemented | H0; Core C5 |
 | H3 | Qortium and Qortal direct messages | Implemented in Home; end-to-end Chat integration and route matrix remain | H0-H1; Core C0/C2 |
-| H4 | Qortium and Qortal private groups | In progress: H4A Qortium implemented; H4B Qortal planned | H0-H3; Core C0-C4; Qortal QDN publish proof |
+| H4 | Qortium and Qortal private groups | Implemented in Home: H4A Qortium and H4B Qortal; Chat integration and route matrix remain | H0-H3; Core C0-C4; selected Qortal route permits QDN staging for bundle publication |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Planned | H0; Qortal publish proof |
 | H6 | Private attachments | Blocked/deferred | Core C6 plus Qortal DM/file vectors |
 | H7 | Notification, restart/node-switch, and full matrix completion | Planned throughout; closes last | H0-H6 as applicable |
@@ -494,7 +494,7 @@ Home clean-room implements the legacy protocol from frozen vectors:
 Implementation is split deliberately because the two chains do not share a
 private-group wire format. H4A, the Qortium QPGC v1 lifecycle, is implemented
 on both Home host surfaces. H4B, the Qortal private-bundle/`encryptSingle`
-lifecycle, remains before H4 can be marked complete.
+lifecycle, is now implemented; H4 is complete at the Home bridge layer.
 
 ### Qortium QPGC v1
 
@@ -528,15 +528,29 @@ Home clean-room implements the separate Hub-compatible lifecycle:
 - parse/decrypt the `qortalGroupEncryptedData` recipient bundle;
 - implement compatible old/new `encryptSingle` forms, including reaction type
   102 and key-version selection;
-- publish/rotate bundles and encrypt/decrypt messages and established private
-  group images; and
+- publish/rotate bundles and encrypt/decrypt messages; and
 - rotate promptly after member removal and define join, reinstall, and
   multi-device recovery behavior.
 
-Portable Qortal QDN publication must be proven on local, authenticated custom,
-unauthenticated custom, and public routes before this phase can be complete. If
-a node lacks the required public staging/process route, Home returns an exact
+Hub-compatible encrypted private-group image publication remains H6 work; H4B
+does not treat a public resource link inside an encrypted message as a private
+attachment.
+
+Full route-matrix acceptance must exercise portable Qortal QDN publication on
+local, authenticated custom, unauthenticated custom, and public routes. If a
+node lacks the required public staging/process route, Home returns an exact
 capability error; it does not downgrade a private group to plaintext.
+
+H4B implements that route probe at the actual staging request. The complete
+bundle is encrypted before it leaves Home; Home then attests every returned
+ARBITRARY field available to the client and signs locally. Stock Qortal's
+staging API exposes the encrypted data hash but no public pre-sign fetch by
+that hash, so the selected staging operator remains trusted not to substitute
+different ciphertext. Substitution cannot reveal the group key or plaintext,
+but could induce a signed unusable resource; subsequent bundle discovery and
+authenticated decryption reject it. A denying operator produces
+`NODE_CAPABILITY_MISSING`, and Home neither changes route nor retries in
+plaintext.
 
 ### Completion gate
 
@@ -698,8 +712,9 @@ separate ceremonial acceptance phase.
 8. **H4A Qortium private groups — implemented:** portable QPGC state,
    control verification, recovery/relay/rotation, encrypted key persistence,
    and private-message read/send/revision families on desktop and Android.
-9. **H4B Qortal private groups:** bundle discovery/publication plus compatible
-   old/new `encryptSingle` lifecycles and secure key persistence.
+9. **H4B Qortal private groups — implemented:** current-admin bundle
+   discovery/publication, compatible old/new `encryptSingle` lifecycles,
+   reaction type 102, and secure account-bound key-ring persistence.
 10. **H5 public resources:** dual-chain viewer/stream/save/source/publish and
    public attachment parity.
 11. **H6 private attachments:** resume Core C6, then add Home encrypted
@@ -707,10 +722,10 @@ separate ceremonial acceptance phase.
 12. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
    and release documentation.
 
-H3 direct-message parity and H4A Qortium QPGC are now implemented in Home on
-both host surfaces. The next Home implementation milestone is H4B Qortal
-private groups; Chat integration remains intentionally after the Home bridge
-families are complete. H1 added public edit,
+H3 direct-message parity and both H4 private-group protocols are now
+implemented in Home on both host surfaces. The next Home implementation
+milestone is H5 public-resource parity; Chat integration remains intentionally
+after the Home bridge families are complete. H1 added public edit,
 content-clearing delete, and reaction on both chains; H2A added portable
 join/leave, H2B added avatar-read parity, and H2C completed separately
 permissioned group administration.

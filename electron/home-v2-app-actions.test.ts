@@ -67,6 +67,21 @@ for (const action of ['BAN_FROM_GROUP', 'KICK_FROM_GROUP']) {
   assert.equal(qdnActions.includes(action), false)
   assert.equal(qortalActions.includes(action), true)
 }
+for (const action of [
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_CHAT_STATE',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+  'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+]) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
 
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 0), 0)
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 5), 5)

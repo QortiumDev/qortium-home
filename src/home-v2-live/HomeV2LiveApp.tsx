@@ -1053,7 +1053,7 @@ export function HomeV2LiveApp() {
                 { label: 'Operation', value: operationLabel },
                 { label: 'Chain', value: String(value.writeTargetChainLabel) },
                 { label: 'Route', value: String(value.writeRouteLabel) },
-                ...(value.chatGroupId > 0
+                ...(typeof value.chatGroupId === 'number' && value.chatGroupId > 0
                   ? [{ label: 'Group', value: String(value.chatGroupId) }]
                   : []),
                 ...(isPrivateGroupWrite && typeof value.chatMessagePreview === 'string'
@@ -1589,11 +1589,10 @@ export function HomeV2LiveApp() {
       }
       if (isHomeV2PrivateGroupChatReadAction(action) || isHomeV2PrivateGroupChatWriteAction(action)) {
         if (
-          protocol !== 'qdnRequest' ||
           !vaultClient?.readPrivateGroupChats ||
           !vaultClient.sendPrivateGroupChat ||
           !vaultClient.getSigningPublicKey
-        ) throw new Error('Qortium private-group encryption is unavailable on this platform.')
+        ) throw new Error('Private-group encryption is unavailable on this platform.')
         if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
         const accountId = context.selectedAccountId
         const isWrite = isHomeV2PrivateGroupChatWriteAction(action)
@@ -1607,14 +1606,16 @@ export function HomeV2LiveApp() {
         const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot()).qortium
+        const privateGroupNetwork = protocol === 'qdnRequest' ? 'qortium' : 'qortal'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[privateGroupNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
-          throw new Error(nodeBefore.error ?? 'Qortium is unavailable.')
+          throw new Error(nodeBefore.error ?? `${privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal'} is unavailable.`)
         }
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
         const groupId = privateRequest.groupId ?? 0
         const senderPublicKey = await vaultClient.getSigningPublicKey(accountId)
         const readState = async (requestedGroupId: number) => {
+          if (privateGroupNetwork !== 'qortium') throw new Error('QPGC state is available only on Qortium.')
           const response = await nodeClient.requestApp(
             protocol,
             {
@@ -1627,7 +1628,7 @@ export function HomeV2LiveApp() {
           const value = isRecord(response) && 'data' in response ? response.data : response
           return normalizeHomeV2QpgcGroupState(value, requestedGroupId)
         }
-        const initialState = groupId > 0 ? await readState(groupId) : null
+        const initialState = privateGroupNetwork === 'qortium' && groupId > 0 ? await readState(groupId) : null
         if (
           initialState &&
           !initialState.memberPublicKeys.some((member) => base58Encode(member) === senderPublicKey)
@@ -1645,9 +1646,9 @@ export function HomeV2LiveApp() {
             : action === 'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES'
               ? 'Read private-group chat history'
               : action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY'
-                ? 'Request a private-group chat key'
+                ? privateGroupNetwork === 'qortal' ? 'Recover a private-group chat key' : 'Request a private-group chat key'
                 : action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
-                  ? 'Relay private-group chat keys'
+                  ? privateGroupNetwork === 'qortal' ? 'Republish private-group chat keys' : 'Relay private-group chat keys'
                   : action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
                     ? 'Rotate a private-group chat key'
                     : action === 'SEND_PRIVATE_GROUP_CHAT_EDIT'
@@ -1711,9 +1712,9 @@ export function HomeV2LiveApp() {
             context: {
               appId,
               identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
-              nodeProfileRef: snapshot.nodes.qortium.ref,
+              nodeProfileRef: snapshot.nodes[privateGroupNetwork].ref,
               tabId: brand<TabId>(context.tabId),
-              targetNetwork: 'qortium',
+              targetNetwork: privateGroupNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
             title: `Allow ${operationLabel.toLowerCase()}?`,
@@ -1721,7 +1722,7 @@ export function HomeV2LiveApp() {
             details: [
               { label: 'Account', value: account.label },
               { label: 'Operation', value: operationLabel },
-              { label: 'Chain', value: 'Qortium' },
+              { label: 'Chain', value: privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal' },
               { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
               ...(groupId ? [{ label: 'Group', value: String(groupId) }] : []),
               ...(privateWriteRequest?.message
@@ -1749,7 +1750,8 @@ export function HomeV2LiveApp() {
             !freshAccount?.isUnlocked
           ) return false
           const nodesNow = await nodeClient.getSnapshot().then(parseNodesSnapshot).catch(() => null)
-          return !!nodesNow?.qortium.nodeApiUrl && `${nodesNow.qortium.mode}|${nodesNow.qortium.nodeApiUrl}` === nodeRoute
+          const currentNode = nodesNow?.[privateGroupNetwork]
+          return !!currentNode?.nodeApiUrl && `${currentNode.mode}|${currentNode.nodeApiUrl}` === nodeRoute
         }
         if (!(await checkPrivateGroupStillValid())) {
           throw new Error('Account access context changed before the private-group action could start.')
@@ -1764,16 +1766,18 @@ export function HomeV2LiveApp() {
             ...(privateReadRequest.groupId === undefined ? {} : { groupId: privateReadRequest.groupId }),
             isStillValid: checkPrivateGroupStillValid,
             limit: privateReadRequest.limit,
-            network: 'qortium',
+            network: privateGroupNetwork,
             nodeApiUrl: nodeBefore.nodeApiUrl,
             reverse: privateReadRequest.reverse,
           })
         }
         if (!privateWriteRequest) throw new Error('Private-group write request is unavailable.')
         const validatePrivateGroupTarget = async (currentSenderPublicKey: string, currentEpochId: string) => {
-          if (currentSenderPublicKey !== senderPublicKey || !initialState) {
+          if (currentSenderPublicKey !== senderPublicKey) {
             throw new Error('Private-group participant identity changed before signing.')
           }
+          if (privateGroupNetwork === 'qortal') return
+          if (!initialState) throw new Error('Private-group participant identity changed before signing.')
           const current = await readState(privateWriteRequest.groupId)
           if (base58Encode(current.epochId) !== currentEpochId || currentEpochId !== base58Encode(initialState.epochId)) {
             throw new Error('Private-group membership changed before signing.')
@@ -1795,7 +1799,7 @@ export function HomeV2LiveApp() {
           keyId: privateWriteRequest.keyId,
           limit: privateWriteRequest.limit,
           message: privateWriteRequest.message,
-          network: 'qortium',
+          network: privateGroupNetwork,
           nodeApiUrl: nodeBefore.nodeApiUrl,
           validateTarget: validatePrivateGroupTarget,
         })

@@ -82,7 +82,7 @@ export interface HomeV2PrivateGroupChatReadRequest {
   readonly groupId?: number
   readonly isStillValid?: () => boolean | Promise<boolean>
   readonly limit: number
-  readonly network: 'qortium'
+  readonly network: 'qortal' | 'qortium'
   readonly nodeApiUrl: string
   readonly reverse: boolean
 }
@@ -104,7 +104,7 @@ export interface HomeV2PrivateGroupChatWriteRequest {
   readonly keyId: string | null
   readonly limit: number
   readonly message: string | null
-  readonly network: 'qortium'
+  readonly network: 'qortal' | 'qortium'
   readonly nodeApiUrl: string
   readonly validateTarget?: (senderPublicKey: string, epochId: string) => Promise<void>
 }

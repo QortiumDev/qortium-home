@@ -178,9 +178,44 @@ assert.deepEqual(
     message: null,
   },
 )
+assert.deepEqual(
+  normalizeHomeV2PrivateGroupChatReadRequest('qortalRequest', 'GET_PRIVATE_GROUP_CHAT_STATE', { groupId: 12 }),
+  { action: 'GET_PRIVATE_GROUP_CHAT_STATE', encoding: 'BASE64', groupId: 12, limit: 1, reverse: true },
+)
+assert.deepEqual(
+  normalizeHomeV2PrivateGroupChatWriteRequest('qortalRequest', 'SEND_PRIVATE_GROUP_CHAT_REACTION', {
+    chatReference: revisionReference,
+    groupId: 12,
+    message: JSON.stringify({
+      content: '❤️',
+      contentState: true,
+      message: '',
+      specialId: 'h4b-reaction',
+      type: 'reaction',
+    }),
+  }),
+  {
+    action: 'SEND_PRIVATE_GROUP_CHAT_REACTION',
+    chatReference: revisionReference,
+    epochId: null,
+    groupId: 12,
+    keyId: null,
+    limit: 1,
+    message: JSON.stringify({
+      content: '❤️',
+      contentState: true,
+      message: '',
+      specialId: 'h4b-reaction',
+      type: 'reaction',
+    }),
+  },
+)
 assert.throws(
-  () => normalizeHomeV2PrivateGroupChatReadRequest('qortalRequest', 'GET_PRIVATE_GROUP_CHAT_STATE', { groupId: 12 }),
-  /Qortium bridge/,
+  () => normalizeHomeV2PrivateGroupChatReadRequest('qortalRequest', 'GET_PRIVATE_GROUP_CHAT_STATE', {
+    groupId: 12,
+    network: 'qortium',
+  }),
+  /authoritative Qortal bridge/,
 )
 assert.throws(
   () => normalizeHomeV2PrivateGroupChatReadRequest('qdnRequest', 'GET_PRIVATE_GROUP_CHAT_STATE', {
@@ -232,7 +267,20 @@ assert.match(androidLiveSource, /sendPrivateGroupChat/)
 assert.match(androidLiveSource, /chat\.private-group\.read/)
 assert.match(androidLiveSource, /chat\.private-group\.send/)
 assert.match(androidVaultSource, /home-v2-qpgc-key-store-v1/)
+assert.match(androidVaultSource, /home-v2-qortal-private-group-key-store-v1/)
 assert.match(desktopBridgeSource, /home-v2-private-group-key-store/)
+assert.match(desktopBridgeSource, /home-v2-qortal-private-group-key-store/)
+for (const source of [desktopBridgeSource, androidVaultSource]) {
+  assert.match(source, /symmetric-qchat-group-/)
+  assert.match(source, /DOCUMENT_PRIVATE/)
+  assert.match(source, /attestUnsignedQortalPrivateGroupPublish/)
+  assert.match(source, /encryptQortalPrivateGroupPayload/)
+  assert.match(source, /decryptQortalPrivateGroupPayload/)
+  assert.match(source, /NODE_CAPABILITY_MISSING/)
+}
+assert.match(desktopBridgeSource, /status === 401 \|\| status === 403 \|\| status === 404 \|\| status === 405/)
+assert.match(androidVaultSource, /isAndroidQortalPrivateGroupStagingUnavailable/)
+assert.match(androidVaultSource, /if \(!isAndroidQortalPrivateGroupStagingUnavailable\(error\)\) throw error/)
 assert.match(actionCatalogueSource, /'SEND_PRIVATE_GROUP_CHAT_REACTION'/)
 assert.match(actionCatalogueSource, /'GET_PRIVATE_GROUP_CHAT_STATE'/)
 

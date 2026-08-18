@@ -267,6 +267,21 @@ import {
   type HomeV2QpgcGroupState,
 } from '../electron/home-v2-private-group-chat-contract';
 import {
+  appendQortalPrivateGroupKey,
+  decryptQortalPrivateGroupBundle,
+  decryptQortalPrivateGroupPayload,
+  decryptQortalPrivateGroupStoredKeyRing,
+  encryptQortalPrivateGroupBundle,
+  encryptQortalPrivateGroupPayload,
+  encryptQortalPrivateGroupStoredKeyRing,
+  type EncryptedQortalPrivateGroupKeyRing,
+  type QortalPrivateGroupKeyRing,
+} from '../electron/home-v2-qortal-private-group-actions';
+import {
+  attestUnsignedQortalPrivateGroupPublish,
+  signAttestedQortalPrivateGroupPublish,
+} from '../electron/home-v2-qortal-private-group-publish';
+import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
   createHomeV2GroupMembershipSuccess,
@@ -1487,6 +1502,65 @@ async function removeAndroidQpgcAccountRecords(accountId: string) {
   const entries = await readAndroidQpgcKeyStore();
   if (!entries.some((entry) => entry.accountId === accountId)) return;
   await writeAndroidQpgcKeyStore(entries.filter((entry) => entry.accountId !== accountId));
+}
+
+const ANDROID_QORTAL_PRIVATE_GROUP_STORE_KEY = 'home-v2-qortal-private-group-key-store-v1';
+const ANDROID_QORTAL_PRIVATE_GROUP_STORE_MAX_BYTES = 16 * 1024 * 1024;
+
+type AndroidQortalPrivateGroupStoreEntry = {
+  accountId: string;
+  record: EncryptedQortalPrivateGroupKeyRing;
+};
+
+async function readAndroidQortalPrivateGroupStore(): Promise<AndroidQortalPrivateGroupStoreEntry[]> {
+  const raw = await getStoredValue(ANDROID_QORTAL_PRIVATE_GROUP_STORE_KEY);
+  if (!raw) return [];
+  if (new TextEncoder().encode(raw).length > ANDROID_QORTAL_PRIVATE_GROUP_STORE_MAX_BYTES) {
+    throw new Error('Qortal private-group key store exceeds its size limit.');
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new Error('Qortal private-group key store is not valid JSON.'); }
+  if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.entries) || parsed.entries.length > 2_048) {
+    throw new Error('Qortal private-group key store is invalid.');
+  }
+  const entries = parsed.entries.filter((entry): entry is AndroidQortalPrivateGroupStoreEntry =>
+    isRecord(entry) && typeof entry.accountId === 'string' && isRecord(entry.record) && entry.record.network === 'qortal',
+  );
+  if (entries.length !== parsed.entries.length) throw new Error('Qortal private-group key store contains an invalid record.');
+  return entries;
+}
+
+async function writeAndroidQortalPrivateGroupStore(entries: readonly AndroidQortalPrivateGroupStoreEntry[]) {
+  if (entries.length > 2_048) throw new Error('Qortal private-group key store has too many records.');
+  const raw = JSON.stringify({ entries, version: 1 });
+  if (new TextEncoder().encode(raw).length > ANDROID_QORTAL_PRIVATE_GROUP_STORE_MAX_BYTES) {
+    throw new Error('Qortal private-group key store update exceeds its size limit.');
+  }
+  await setStoredValue(ANDROID_QORTAL_PRIVATE_GROUP_STORE_KEY, raw);
+}
+
+async function upsertAndroidQortalPrivateGroupRecord(accountId: string, record: EncryptedQortalPrivateGroupKeyRing) {
+  const entries = await readAndroidQortalPrivateGroupStore();
+  await writeAndroidQortalPrivateGroupStore([
+    ...entries.filter((entry) => !(
+      entry.accountId === accountId &&
+      entry.record.accountPublicKey === record.accountPublicKey &&
+      entry.record.groupId === record.groupId
+    )),
+    { accountId, record },
+  ]);
+}
+
+async function findAndroidQortalPrivateGroupRecord(accountId: string, accountPublicKey: string, groupId: number) {
+  return (await readAndroidQortalPrivateGroupStore()).find((entry) =>
+    entry.accountId === accountId && entry.record.accountPublicKey === accountPublicKey && entry.record.groupId === groupId,
+  )?.record ?? null;
+}
+
+async function removeAndroidQortalPrivateGroupAccountRecords(accountId: string) {
+  const entries = await readAndroidQortalPrivateGroupStore();
+  if (!entries.some((entry) => entry.accountId === accountId)) return;
+  await writeAndroidQortalPrivateGroupStore(entries.filter((entry) => entry.accountId !== accountId));
 }
 
 // True when window.qortiumHome is this module's own web fallback rather than
@@ -3861,7 +3935,7 @@ async function postLocalNodeText(
       method: 'POST',
       headers: {
         'Content-Type': contentType,
-        'X-API-KEY': apiKey,
+        ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
       },
       data: body,
       responseType: 'text',
@@ -12710,6 +12784,188 @@ async function readAndroidHomeV2DirectChats(
 
 const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
 
+type AndroidQortalPrivateGroupState = {
+  adminAddresses: string[];
+  adminNames: string[];
+  groupId: number;
+  groupName: string;
+  memberAddresses: string[];
+  memberPublicKeys?: Uint8Array[];
+  ownerAddress: string;
+};
+
+function requiredQortalAddress(value: unknown, label: string) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is missing.`);
+  const address = value.trim();
+  const bytes = base58Decode(address);
+  if (bytes.length !== 25 || base58Encode(bytes) !== address) throw new Error(`${label} is invalid.`);
+  return address;
+}
+
+async function readAndroidQortalPrivateGroupState(
+  nodeApiUrl: string,
+  groupId: number,
+  includePublicKeys = false,
+): Promise<AndroidQortalPrivateGroupState> {
+  const [group, memberResponse] = await Promise.all([
+    requestAndroidHomeV2ChatJson(nodeApiUrl, `/groups/${encodeURIComponent(String(groupId))}`),
+    requestAndroidHomeV2ChatJson(
+      nodeApiUrl,
+      `/groups/members/${encodeURIComponent(String(groupId))}?limit=0`,
+      '',
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  if (!isRecord(group) || Number(group.groupId) !== groupId || group.isOpen !== false || !isRecord(memberResponse) || !Array.isArray(memberResponse.members)) {
+    throw new Error('Qortal private-group state is invalid or the group is not closed.');
+  }
+  const ownerAddress = requiredQortalAddress(group.owner ?? group.ownerAddress, 'Qortal group owner');
+  const members = memberResponse.members.map((entry) => {
+    if (!isRecord(entry)) throw new Error('Qortal private-group member entry is invalid.');
+    return {
+      address: requiredQortalAddress(entry.member, 'Qortal group member'),
+      isAdmin: entry.isAdmin === true,
+      primaryName: typeof entry.primaryName === 'string' && entry.primaryName.trim() ? entry.primaryName.trim() : null,
+    };
+  });
+  if (members.length < 1 || members.length > 4_096 || memberResponse.memberCount !== members.length) {
+    throw new Error('Qortal private-group member count is invalid.');
+  }
+  const adminAddresses = [...new Set([ownerAddress, ...members.filter((member) => member.isAdmin).map((member) => member.address)])];
+  const names = new Map(members.flatMap((member) => member.primaryName ? [[member.address, member.primaryName] as const] : []));
+  if (typeof group.ownerPrimaryName === 'string' && group.ownerPrimaryName.trim()) names.set(ownerAddress, group.ownerPrimaryName.trim());
+  for (const address of adminAddresses) {
+    if (names.has(address)) continue;
+    const value = await requestAndroidHomeV2ChatJson(nodeApiUrl, `/names/primary/${encodeURIComponent(address)}`).catch(() => null);
+    if (isRecord(value) && typeof value.name === 'string' && value.name.trim()) names.set(address, value.name.trim());
+  }
+  let memberPublicKeys: Uint8Array[] | undefined;
+  if (includePublicKeys) {
+    memberPublicKeys = [];
+    for (const member of members) {
+      try {
+        memberPublicKeys.push((await readAndroidHomeV2DirectPublicKey(nodeApiUrl, member.address)).bytes);
+      } catch (error) {
+        throw Object.assign(new Error(`Qortal group member ${member.address} does not have a usable public key.`), {
+          action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+          cause: error,
+          code: 'MISSING_RECIPIENT_PUBLIC_KEY',
+          network: 'qortal',
+          retryable: false,
+          target: { groupId, kind: 'group' },
+        });
+      }
+    }
+  }
+  return {
+    adminAddresses,
+    adminNames: adminAddresses.flatMap((address) => names.get(address) ? [names.get(address)!] : []),
+    groupId,
+    groupName: typeof group.groupName === 'string' && group.groupName.trim() ? group.groupName.trim() : `Group ${groupId}`,
+    memberAddresses: members.map((member) => member.address),
+    ...(memberPublicKeys ? { memberPublicKeys } : {}),
+    ownerAddress,
+  };
+}
+
+async function readAndroidQortalPrivateGroupResources(nodeApiUrl: string, state: AndroidQortalPrivateGroupState) {
+  if (!state.adminNames.length) return [];
+  const identifier = `symmetric-qchat-group-${state.groupId}`;
+  const query = new URLSearchParams({ exactmatchnames: 'true', identifier, limit: '0', mode: 'ALL', prefix: 'true', reverse: 'true', service: 'DOCUMENT_PRIVATE' });
+  for (const name of state.adminNames) query.append('name', name);
+  const value = await requestAndroidHomeV2ChatJson(
+    nodeApiUrl,
+    `/arbitrary/resources/searchsimple?${query.toString()}`,
+    '',
+    PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+  );
+  if (!Array.isArray(value)) throw new Error('Qortal private-group key-bundle search response is invalid.');
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || entry.service !== 'DOCUMENT_PRIVATE' || entry.identifier !== identifier || typeof entry.name !== 'string' || !state.adminNames.includes(entry.name)) return [];
+    const signature = typeof entry.latestSignature === 'string' ? entry.latestSignature : '';
+    try { if (base58Decode(signature).length !== 64 || base58Encode(base58Decode(signature)) !== signature) return []; } catch { return []; }
+    const created = Number(entry.created);
+    const updated = entry.updated === undefined ? created : Number(entry.updated);
+    const size = Number(entry.size);
+    if (!Number.isSafeInteger(created) || !Number.isSafeInteger(updated) || !Number.isSafeInteger(size) || size < 1 || size > 2 * 1024 * 1024) return [];
+    return [{ created, identifier, name: entry.name, signature, size, updated }];
+  }).sort((left, right) => right.updated - left.updated || right.created - left.created || right.signature.localeCompare(left.signature));
+}
+
+async function persistAndroidQortalPrivateGroupRing(input: {
+  accountId: string;
+  groupId: number;
+  keyRing: QortalPrivateGroupKeyRing;
+  publisherName: string;
+  recipientCount: number;
+  resourceSignature: string;
+  secretKey: Uint8Array;
+}) {
+  await upsertAndroidQortalPrivateGroupRecord(input.accountId, await encryptQortalPrivateGroupStoredKeyRing({
+    groupId: input.groupId,
+    keyRing: input.keyRing,
+    publisherName: input.publisherName,
+    recipientCount: input.recipientCount,
+    resourceSignature: input.resourceSignature,
+    selectedAccountSecretKey: input.secretKey,
+  }));
+}
+
+async function resolveAndroidQortalPrivateGroupRing(input: {
+  accountId: string;
+  nodeApiUrl: string;
+  secretKey: Uint8Array;
+  state: AndroidQortalPrivateGroupState;
+}) {
+  const accountPublicKey = bytesToBase64(nacl.sign.keyPair.fromSecretKey(input.secretKey).publicKey);
+  const stored = await findAndroidQortalPrivateGroupRecord(input.accountId, accountPublicKey, input.state.groupId);
+  const resources = await readAndroidQortalPrivateGroupResources(input.nodeApiUrl, input.state);
+  for (const resource of resources.slice(0, 100)) {
+    try {
+      if (stored?.resourceSignature === resource.signature && stored.publisherName === resource.name) {
+        return { keyRing: await decryptQortalPrivateGroupStoredKeyRing({ record: stored, selectedAccountSecretKey: input.secretKey }), publisherName: resource.name, recipientCount: stored.recipientCount, resourceSignature: resource.signature };
+      }
+      const value = await requestAndroidHomeV2ChatJson(
+        input.nodeApiUrl,
+        `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}?encoding=base64&rebuild=true`,
+        '',
+        3 * 1024 * 1024,
+      );
+      if (typeof value !== 'string') throw new Error('Qortal private-group bundle body is invalid.');
+      const decrypted = decryptQortalPrivateGroupBundle({ encryptedBundle: value.trim(), selectedAccountSecretKey: input.secretKey });
+      await persistAndroidQortalPrivateGroupRing({ accountId: input.accountId, groupId: input.state.groupId, keyRing: decrypted.keyRing, publisherName: resource.name, recipientCount: decrypted.recipientCount, resourceSignature: resource.signature, secretKey: input.secretKey });
+      return { keyRing: decrypted.keyRing, publisherName: resource.name, recipientCount: decrypted.recipientCount, resourceSignature: resource.signature };
+    } catch {
+      // Continue through currently-authorized, newest-first resources.
+    }
+  }
+  if (stored && input.state.adminNames.includes(stored.publisherName)) {
+    try {
+      return { keyRing: await decryptQortalPrivateGroupStoredKeyRing({ record: stored, selectedAccountSecretKey: input.secretKey }), publisherName: stored.publisherName, recipientCount: stored.recipientCount, resourceSignature: stored.resourceSignature };
+    } catch { /* fail below */ }
+  }
+  return null;
+}
+
+function decryptAndroidQortalPrivateGroupRows(input: { encoding: 'BASE58' | 'BASE64'; groupId: number; keyRing: QortalPrivateGroupKeyRing; rows: readonly unknown[] }) {
+  const results: Record<string, unknown>[] = [];
+  for (const value of input.rows.slice(0, 100)) {
+    if (!isRecord(value)) continue;
+    try {
+      if (Number(value.txGroupId) !== input.groupId || value.isEncrypted !== false || value.isText !== true || (value.recipient !== null && value.recipient !== undefined && value.recipient !== '')) {
+        throw new Error('Qortal private-group row does not match the approved group.');
+      }
+      const encoded = decodeCanonicalBase64Bytes(value.data, 'Qortal private-group CHAT data');
+      const ciphertext = new TextDecoder('utf-8', { fatal: true }).decode(encoded);
+      const decrypted = decryptQortalPrivateGroupPayload({ ciphertext, keyRing: input.keyRing });
+      results.push({ ...value, data: input.encoding === 'BASE58' ? base58Encode(decrypted.plaintext) : bytesToBase64(decrypted.plaintext), encoding: input.encoding, keyVersion: decrypted.keyVersion, payloadType: decrypted.typeNumber, status: 'DECRYPTED' });
+    } catch (error) {
+      results.push({ ...value, data: null, decryptionError: error instanceof Error ? error.message : String(error), status: 'FAILED' });
+    }
+  }
+  return results;
+}
+
 function androidQpgcBridgeError(
   message: string,
   code: string,
@@ -12879,6 +13135,155 @@ async function resolveAndroidHomeV2QpgcKey(input: {
     }
   }
   return null;
+}
+
+async function readAndroidHomeV2QortalPrivateGroupChats(
+  request: HomeV2PrivateGroupChatReadRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  if (request.action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
+    const state = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.groupId as number);
+    const isMember = state.memberAddresses.includes(signingKey.address);
+    const key = isMember ? await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state }) : null;
+    return { available: !!key, exists: true, groupId: state.groupId, groupName: state.groupName, isMember, isOpen: false, memberCount: state.memberAddresses.length, publisherName: key?.publisherName ?? null, qortalPrivateGroupVersion: 1, recipientCount: key?.recipientCount ?? null, resourceSignature: key?.resourceSignature ?? null, rotationRequired: key?.recipientCount !== null && key?.recipientCount !== state.memberAddresses.length };
+  }
+  const memberships = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    ? await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/groups/member/${encodeURIComponent(signingKey.address)}?limit=0&reverse=true`, '', PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES)
+    : null;
+  const groupIds = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    ? (Array.isArray(memberships) ? memberships : []).flatMap((value) => isRecord(value) && value.isOpen === false && Number.isSafeInteger(Number(value.groupId)) ? [Number(value.groupId)] : [])
+    : [request.groupId as number];
+  const results: Record<string, unknown>[] = [];
+  for (const groupId of groupIds.slice(0, request.limit)) {
+    const state = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, groupId);
+    if (!state.memberAddresses.includes(signingKey.address)) continue;
+    const key = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+    if (!key) {
+      if (request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') results.push({ groupId, status: 'MISSING_KEY' });
+      else throw Object.assign(new Error('No Qortal private-group key bundle is available to this account.'), { action: request.action, code: 'MISSING_GROUP_KEY', network: 'qortal', retryable: false, target: { groupId, kind: 'group' } });
+      continue;
+    }
+    const query = new URLSearchParams({ encoding: 'BASE64', limit: request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ? '1' : String(request.limit), reverse: String(request.reverse), txGroupId: String(groupId) });
+    if (request.before !== undefined) query.set('before', String(request.before));
+    const rows = await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/chat/messages?${query.toString()}`, '', PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES);
+    const decrypted = decryptAndroidQortalPrivateGroupRows({ encoding: request.encoding, groupId, keyRing: key.keyRing, rows: Array.isArray(rows) ? rows : [] });
+    if (request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') results.push(decrypted[0] ?? { groupId, status: 'NO_MESSAGES' });
+    else results.push(...decrypted);
+  }
+  if (!(await (request.isStillValid?.() ?? true))) throw new Error('Qortal private-group read context changed before decryption completed.');
+  return results;
+}
+
+function normalizeAndroidQortalFee(value: unknown) {
+  const raw = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint' ? String(value).trim() : '';
+  if (!/^\d+$/.test(raw)) throw new Error('Qortal ARBITRARY fee response is invalid.');
+  const fee = BigInt(raw);
+  if (fee > 0x7fffffffffffffffn) throw new Error('Qortal ARBITRARY fee response is invalid.');
+  return fee;
+}
+
+function isAndroidQortalPrivateGroupStagingUnavailable(error: unknown) {
+  if (!isRecord(error)) return false;
+  return error.status === 401 || error.status === 403 || error.status === 404 || error.status === 405;
+}
+
+async function publishAndroidQortalPrivateGroupBundle(input: {
+  accountId: string;
+  encryptedBundle: string;
+  isStillValid: () => boolean | Promise<boolean>;
+  keyRing: QortalPrivateGroupKeyRing;
+  name: string;
+  nodeApiUrl: string;
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+  state: AndroidQortalPrivateGroupState;
+  validateTarget: () => Promise<void>;
+}) {
+  const identifier = `symmetric-qchat-group-${input.state.groupId}`;
+  const [feeValue, referenceValue] = await Promise.all([
+    requestAndroidHomeV2ChatJson(input.nodeApiUrl, `/transactions/unitfee?txType=ARBITRARY&timestamp=${Date.now()}`),
+    requestAndroidHomeV2ChatJson(input.nodeApiUrl, `/addresses/lastreference/${encodeURIComponent(input.signingKey.address)}`),
+  ]);
+  const fee = normalizeAndroidQortalFee(feeValue);
+  if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
+  const lastReference = base58Decode(referenceValue.trim());
+  if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) throw new Error('Qortal last-reference response is invalid.');
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle staging.');
+  const started = Date.now();
+  let unsigned;
+  try {
+    unsigned = await postLocalNodeText(
+      input.nodeApiUrl,
+      `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(input.name)}/${encodeURIComponent(identifier)}/base64?fee=${encodeURIComponent(String(fee))}`,
+      input.encryptedBundle,
+      '',
+      'Qortal private-group key-bundle staging failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+  } catch (error) {
+    if (!isAndroidQortalPrivateGroupStagingUnavailable(error)) throw error;
+    throw Object.assign(new Error('The selected Qortal node does not permit private-group QDN bundle staging.'), { action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY', code: 'NODE_CAPABILITY_MISSING', network: 'qortal', retryable: false, target: { groupId: input.state.groupId, kind: 'group' }, cause: error });
+  }
+  const attested = attestUnsignedQortalPrivateGroupPublish(unsigned.body.trim(), { bundleSize: base64ToBytes(input.encryptedBundle).length, feeAtomic: fee, identifier, lastReference, name: input.name, senderPublicKey: base58Decode(input.signingKey.publicKey58), timestampMaximum: Date.now() + 5_000, timestampMinimum: started - 5_000 });
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle signing.');
+  await input.validateTarget();
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle submission.');
+  const signed = signAttestedQortalPrivateGroupPublish({ selectedAccountSecretKey: input.signingKey.secretKey, signingBytes: attested.signingBytes, unsignedBytes: attested.unsignedBytes });
+  try {
+    await postLocalNodeText(input.nodeApiUrl, '/transactions/process?apiVersion=2', base58Encode(signed.signedBytes), '', 'Qortal private-group key-bundle broadcast failed.', 'text/plain', CHAT_SIGNING_RESPONSE_MAX_BYTES);
+  } catch (error) {
+    // Do not cache an unconfirmed bundle coordinate. If the broadcast did
+    // reach the chain, normal resource discovery will recover it later.
+    return createHomeV2UnknownChatBroadcastResult(error, signed.signature, attested.timestamp);
+  }
+  try {
+    await persistAndroidQortalPrivateGroupRing({ accountId: input.accountId, groupId: input.state.groupId, keyRing: input.keyRing, publisherName: input.name, recipientCount: input.state.memberAddresses.length, resourceSignature: signed.signature, secretKey: input.signingKey.secretKey });
+  } catch {
+    // The accepted QDN resource remains the recovery source. A local cache
+    // failure must not turn a confirmed broadcast into a retryable failure.
+  }
+  return { accepted: true, signature: signed.signature, timestamp: attested.timestamp };
+}
+
+async function sendAndroidHomeV2QortalPrivateGroupChat(
+  request: HomeV2VaultPrivateGroupChatWriteRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const isStillValid = request.isStillValid ?? (() => true);
+  const includePublicKeys = request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || request.action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS';
+  const state = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.groupId, includePublicKeys);
+  if (!state.memberAddresses.includes(signingKey.address)) throw Object.assign(new Error('The selected account is not a current member of this private group.'), { action: request.action, code: 'NOT_GROUP_MEMBER', network: 'qortal', retryable: false, target: { groupId: request.groupId, kind: 'group' } });
+  const validateTarget = async () => {
+    const current = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.groupId);
+    if (current.memberAddresses.join('|') !== state.memberAddresses.join('|') || current.adminAddresses.join('|') !== state.adminAddresses.join('|')) throw new Error('Private-group membership changed before signing.');
+    if (request.chatReference) {
+      const value = await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/chat/message/${encodeURIComponent(request.chatReference)}?encoding=BASE64`);
+      if (!isRecord(value) || value.signature !== request.chatReference || Number(value.txGroupId) !== request.groupId || value.isEncrypted !== false || value.isText !== true || value.chatReference || (value.recipient !== null && value.recipient !== undefined && value.recipient !== '')) throw new Error('Referenced Qortal private-group message is invalid.');
+      if ((request.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' || request.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') && value.senderPublicKey !== signingKey.publicKey58) throw new Error('Only the original sender can edit or clear a private-group message.');
+    }
+    await request.validateTarget?.(signingKey.publicKey58, state.memberAddresses.join('|'));
+  };
+  if (request.action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
+    const key = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+    if (!key) throw Object.assign(new Error('No Qortal private-group key bundle is available to this account.'), { action: request.action, code: 'MISSING_GROUP_KEY', network: 'qortal', retryable: false, target: { groupId: request.groupId, kind: 'group' } });
+    return { accepted: true, recovered: true, resourceSignature: key.resourceSignature };
+  }
+  if (request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || request.action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') {
+    if (!state.adminAddresses.includes(signingKey.address)) throw new Error('Only a current group administrator can publish a Qortal private-group key bundle.');
+    const nameValue = await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/names/primary/${encodeURIComponent(signingKey.address)}`);
+    const name = isRecord(nameValue) && typeof nameValue.name === 'string' ? nameValue.name.trim() : '';
+    if (!name || !isRecord(nameValue) || nameValue.owner !== signingKey.address || !state.adminNames.includes(name)) throw new Error('The selected Qortal group administrator needs a current primary name.');
+    const existing = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+    let keyRing = existing?.keyRing ?? null;
+    if (request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || !keyRing) keyRing = appendQortalPrivateGroupKey(keyRing, getRandomBytes(32)).keyRing;
+    const encryptedBundle = encryptQortalPrivateGroupBundle({ keyRing, memberPublicKeys: state.memberPublicKeys ?? [], selectedAccountSecretKey: signingKey.secretKey, senderPublicKey: base58Decode(signingKey.publicKey58) });
+    return publishAndroidQortalPrivateGroupBundle({ accountId: request.accountId, encryptedBundle, isStillValid, keyRing, name, nodeApiUrl: request.nodeApiUrl, signingKey, state, validateTarget });
+  }
+  const key = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+  if (!key) throw Object.assign(new Error('No Qortal private-group key bundle is available. Recover or rotate the key first.'), { action: request.action, code: 'MISSING_GROUP_KEY', network: 'qortal', retryable: false, target: { groupId: request.groupId, kind: 'group' } });
+  const encryptedMessage = encryptQortalPrivateGroupPayload({ keyRing: key.keyRing, plaintext: new TextEncoder().encode(request.message as string), typeNumber: request.action === 'SEND_PRIVATE_GROUP_CHAT_REACTION' ? 102 : 2 });
+  const publicAction = request.action === 'SEND_PRIVATE_GROUP_CHAT_MESSAGE' ? 'SEND_CHAT_MESSAGE' : request.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' ? 'SEND_CHAT_EDIT' : request.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE' ? 'SEND_CHAT_DELETE' : 'SEND_CHAT_REACTION';
+  return sendHomeV2QortalChatMessage(request.nodeApiUrl, { action: publicAction, chatReference: request.chatReference, message: encryptedMessage, txGroupId: request.groupId }, signingKey, isStillValid, validateTarget);
 }
 
 async function validateAndroidHomeV2QpgcReference(input: {
@@ -13055,7 +13460,7 @@ async function readAndroidHomeV2PrivateGroupChats(
   request: HomeV2PrivateGroupChatReadRequest,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
 ) {
-  if (request.network !== 'qortium') throw new Error('QPGC private-group actions require Qortium.');
+  if (request.network === 'qortal') return readAndroidHomeV2QortalPrivateGroupChats(request, signingKey);
   const settings = await readNodeSettings();
   const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
   if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(request.nodeApiUrl)) {
@@ -13122,7 +13527,7 @@ async function sendAndroidHomeV2PrivateGroupChat(
   request: HomeV2VaultPrivateGroupChatWriteRequest,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
 ) {
-  if (request.network !== 'qortium') throw new Error('QPGC private-group actions require Qortium.');
+  if (request.network === 'qortal') return sendAndroidHomeV2QortalPrivateGroupChat(request, signingKey);
   const settings = await readNodeSettings();
   const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
   if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(request.nodeApiUrl)) {
@@ -13873,6 +14278,8 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     async removeAddress(addressId) {
       await prepareMutation();
       await removeWallet(addressId);
+      await removeAndroidQpgcAccountRecords(addressId);
+      await removeAndroidQortalPrivateGroupAccountRecords(addressId);
       return buildAndroidHomeV2VaultState();
     },
     async removeAccount({ accountId, password }) {
@@ -13880,6 +14287,7 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       await removeWallet(accountId, password);
       await HomeV2SecureStorage.remove({ accountId }).catch(() => undefined);
       await removeAndroidQpgcAccountRecords(accountId);
+      await removeAndroidQortalPrivateGroupAccountRecords(accountId);
       const securityStore = await readAndroidHomeV2SecurityStore();
       delete securityStore.accounts[accountId];
       await writeAndroidHomeV2SecurityStore(securityStore);
