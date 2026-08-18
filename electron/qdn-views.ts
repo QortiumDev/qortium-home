@@ -7,6 +7,7 @@ import {
   type Rectangle,
   type WebContents,
 } from 'electron';
+import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
@@ -1247,7 +1248,11 @@ function createViewEntry(
   bridgeStates: QdnBridgeStateDetail[],
 ): QdnViewEntry {
   const partition = getPartition(nodeOrigin, resourceUrl);
-  installCertificateVerifyProc(session.fromPartition(partition));
+  const viewSession = session.fromPartition(partition);
+  installCertificateVerifyProc(viewSession);
+  if (process.env.QORTIUM_HOME_V2 === '1') {
+    registerHomeV2DesktopResourceStreamProtocol(viewSession);
+  }
 
   const entry: QdnViewEntry = {
     accountId,

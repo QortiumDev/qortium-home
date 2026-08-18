@@ -91,6 +91,16 @@ assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
   qortal: unreachableInfo.route,
   qortium: unreachableInfo.route,
 }).includes('SEND_CHAT_MESSAGE'), true)
+for (const action of ['SELECT_QDN_PUBLISH_SOURCE', 'PUBLISH_QDN_RESOURCE']) {
+  assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: unreachableInfo.route,
+    qortium: unreachableInfo.route,
+  }).includes(action), false)
+  assert.equal(getHomeV2AvailableAppActions('qortalRequest', {
+    qortal: publicInfo.route,
+    qortium: unreachableInfo.route,
+  }).includes(action), true)
+}
 assert.notEqual(unreachableInfo.route.revision, publicInfo.route.revision)
 
 const androidLocalInfo = getHomeV2AppHostInfo({

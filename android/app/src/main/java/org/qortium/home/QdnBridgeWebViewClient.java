@@ -26,6 +26,8 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
     private static final int REQUEST_TIMEOUT_MS = 30000;
     static final int TRANSACTION_RESPONSE_MAX_BYTES = 512 * 1024;
+    static final long RESOURCE_STREAM_RESPONSE_MAX_BYTES = 512L * 1024L * 1024L;
+    static final long RESOURCE_STREAM_TOTAL_MAX_BYTES = 4L * 1024L * 1024L * 1024L;
     // Round 6: moved to QdnRenderProxy so its exact-URL document-identity
     // normalization (which must ignore this exact param) and this class's own
     // use of it as the actual carried credential can never drift apart — see
@@ -346,7 +348,8 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         connection.setConnectTimeout(REQUEST_TIMEOUT_MS);
         connection.setReadTimeout(REQUEST_TIMEOUT_MS);
-        connection.setInstanceFollowRedirects(true);
+        boolean streamCapability = QdnRenderProxy.isStreamCapabilityUrl(request.getUrl());
+        connection.setInstanceFollowRedirects(!streamCapability);
         connection.setRequestMethod("GET");
 
         for (Map.Entry<String, String> header : request.getRequestHeaders().entrySet()) {
@@ -367,6 +370,10 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         connection.setRequestProperty("Accept-Encoding", "identity");
 
         int statusCode = connection.getResponseCode();
+        if (streamCapability && statusCode >= 300 && statusCode < 400) {
+            connection.disconnect();
+            return forbiddenResponse();
+        }
         String reasonPhrase = connection.getResponseMessage();
         String contentType = connection.getContentType();
         boolean inferredContentType = contentType == null || contentType.trim().isEmpty();
@@ -377,11 +384,23 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         Map<String, String> responseHeaders = getResponseHeaders(connection);
 
+        if (
+            streamCapability &&
+            (responseContentLengthExceeds(connection, RESOURCE_STREAM_RESPONSE_MAX_BYTES) ||
+                getContentRangeTotal(responseHeaders) > RESOURCE_STREAM_TOTAL_MAX_BYTES)
+        ) {
+            connection.disconnect();
+            return payloadTooLargeResponse();
+        }
+
         if (inferredContentType && contentType != null) {
             responseHeaders.put("Content-Type", contentType);
         }
 
         InputStream responseStream = getResponseStream(connection, statusCode);
+        InputStream deliveredStream = streamCapability
+            ? new ByteLimitInputStream(responseStream, RESOURCE_STREAM_RESPONSE_MAX_BYTES)
+            : responseStream;
         long responseContentLength = connection.getContentLengthLong();
         long virtualRangePrefixLength = getContentRangeStart(responseHeaders);
 
@@ -466,12 +485,41 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
             reasonPhrase == null ? getReasonPhrase(statusCode) : reasonPhrase,
             responseHeaders,
             new DisconnectingInputStream(
-                responseStream,
+                deliveredStream,
                 connection,
                 responseContentLength,
                 virtualRangePrefixLength
             )
         );
+    }
+
+    static final class ByteLimitInputStream extends FilterInputStream {
+        private final long maximum;
+        private long read;
+
+        ByteLimitInputStream(InputStream stream, long maximum) {
+            super(stream);
+            this.maximum = maximum;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = super.read();
+            if (value != -1) record(1);
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int value = super.read(buffer, offset, length);
+            if (value > 0) record(value);
+            return value;
+        }
+
+        private void record(long count) throws IOException {
+            read += count;
+            if (read > maximum) throw new IOException("Resource stream exceeded Home's byte limit.");
+        }
     }
 
     private WebResourceResponse payloadTooLargeResponse() {
@@ -664,6 +712,26 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         }
 
         return 0;
+    }
+
+    static long getContentRangeTotal(Map<String, String> headers) {
+        if (headers == null) return -1;
+        for (Map.Entry<String, String> header : headers.entrySet()) {
+            if (!"Content-Range".equalsIgnoreCase(header.getKey()) || header.getValue() == null) continue;
+            Matcher match = CONTENT_RANGE_PATTERN.matcher(header.getValue().trim());
+            if (!match.matches() || "*".equals(match.group(3))) return -1;
+            try {
+                return Long.parseLong(match.group(3));
+            } catch (NumberFormatException ignored) {
+                return Long.MAX_VALUE;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean responseContentLengthExceeds(HttpURLConnection connection, long maximum) {
+        long length = connection.getContentLengthLong();
+        return length > maximum;
     }
 
     private InputStream getResponseStream(HttpURLConnection connection, int statusCode) throws IOException {

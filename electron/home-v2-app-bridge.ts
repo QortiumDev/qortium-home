@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type Session, type WebContents } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
@@ -39,9 +39,15 @@ import {
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
 import {
+  getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
   getQdnResourceViewerRequest,
 } from './qdn-resource-viewer-contract.js'
+import {
+  clearHomeV2DesktopResourceStreams,
+  issueHomeV2DesktopResourceStream,
+} from './home-v2-desktop-resource-stream.js'
+import type { HomeV2ResourceStreamBinding } from './home-v2-resource-stream-capability.js'
 import type { QdnAppRequest } from './qdn-request-values.js'
 import {
   fetchHomeV2AvatarAction,
@@ -118,6 +124,17 @@ import {
   attestUnsignedQortalPrivateGroupPublish,
   signAttestedQortalPrivateGroupPublish,
 } from './home-v2-qortal-private-group-publish.js'
+import {
+  homeV2DesktopPublishSources,
+  readHomeV2DesktopPublishSource,
+  selectHomeV2DesktopPublishSource,
+} from './home-v2-desktop-publish-source.js'
+import {
+  normalizeHomeV2PublicPublishRequest,
+  sha256Hex,
+} from './home-v2-public-publish-contract.js'
+import { publishHomeV2PublicResource } from './home-v2-public-publish.js'
+import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
 import {
   appendHomeV2GroupMembershipSignature,
   buildUnsignedQortalGroupMembershipTransactionBytes,
@@ -226,6 +243,7 @@ type AccountReadAction =
   | 'JOIN_GROUP'
   | 'LEAVE_GROUP'
   | HomeV2GroupAdminAction
+  | 'PUBLISH_QDN_RESOURCE'
   | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
@@ -321,6 +339,15 @@ async function requireAccountReadPermission(
     readonly operationLabel?: string
     readonly chatReference?: string | null
   } | {
+    readonly kind: 'publish'
+    readonly contentHash: string
+    readonly fileName: string
+    readonly operationLabel: string
+    readonly resourceCoordinate: string
+    readonly routeLabel: string
+    readonly size: number
+    readonly targetChainLabel: string
+  } | {
     readonly kind: 'direct'
     readonly targetChainLabel: string
     readonly messagePreview?: string
@@ -377,7 +404,7 @@ async function requireAccountReadPermission(
         ? `direct:${writeDetails.otherAddress}`
         : '',
   ].join('|')
-  const singleRequestOnly =
+  const singleRequestOnly = writeDetails?.kind === 'publish' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
@@ -459,6 +486,18 @@ async function requireAccountReadPermission(
                 writeSingleRequestOnly: writeDetails.singleRequestOnly === true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
+          : writeDetails?.kind === 'publish'
+            ? {
+                writeKind: 'publish',
+                publishContentHash: writeDetails.contentHash,
+                publishFileName: writeDetails.fileName,
+                publishResourceCoordinate: writeDetails.resourceCoordinate,
+                publishSize: writeDetails.size,
+                writeOperationLabel: writeDetails.operationLabel,
+                writeRouteLabel: writeDetails.routeLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
           : {}),
     })
   })
@@ -483,6 +522,184 @@ async function requireAccountReadPermission(
     throw new Error('Account access node route changed before approval completed.')
   }
   if (!singleRequestOnly && decision.scope === 'session') sessionAccountReadGrants.add(grantKey)
+}
+
+function homeV2PublishSourceBinding(input: {
+  readonly context: QdnViewContext
+  readonly network: HomeV2AppNetwork
+  readonly nodeApiUrl: string
+  readonly protocol: HomeV2AppBridgeProtocol
+  readonly routeRevision: string
+}): HomeV2PublishSourceBinding {
+  if (!input.context.accountId) throw new Error('No account is selected for this tab.')
+  return Object.freeze({
+    accountId: input.context.accountId,
+    appIdentity: input.context.resourceUrl ?? input.context.currentUrl ?? `home-v2-tab:${input.context.tabId}`,
+    network: input.network,
+    nodeApiUrl: input.nodeApiUrl,
+    protocol: input.protocol,
+    routeRevision: input.routeRevision,
+    tabId: input.context.tabId,
+  })
+}
+
+function homeV2ResourceStreamBinding(input: {
+  readonly context: QdnViewContext
+  readonly network: HomeV2AppNetwork
+  readonly nodeApiUrl: string
+  readonly protocol: HomeV2AppBridgeProtocol
+  readonly routeRevision: string
+}): HomeV2ResourceStreamBinding {
+  return Object.freeze({
+    accountId: input.context.accountId,
+    appIdentity: input.context.resourceUrl ?? input.context.currentUrl ?? `home-v2-tab:${input.context.tabId}`,
+    network: input.network,
+    nodeApiUrl: input.nodeApiUrl,
+    protocol: input.protocol,
+    routeRevision: input.routeRevision,
+    tabId: input.context.tabId,
+  })
+}
+
+function homeV2ResourceStreamValidator(input: {
+  readonly context: QdnViewContext
+  readonly network: HomeV2AppNetwork
+  readonly nodeRoute: string
+  readonly sender: WebContents
+}) {
+  return async () => {
+    const fresh = getQdnViewContextForWebContents(input.sender)
+    if (!fresh || !sameViewContext(input.context, fresh) || !liveResourceMatchesGrant(fresh)) return false
+    const current = await getHomeV2ReadableNode(input.network).catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === input.nodeRoute
+  }
+}
+
+function issueHomeV2ResourceStream(input: {
+  readonly context: QdnViewContext
+  readonly mimeType: string | null
+  readonly network: HomeV2AppNetwork
+  readonly node: { mode: string; nodeApiUrl: string }
+  readonly protocol: HomeV2AppBridgeProtocol
+  readonly routeRevision: string
+  readonly sender: WebContents
+  readonly targetSession: Session
+  readonly upstreamUrl: string
+}) {
+  const nodeRoute = `${input.node.mode}|${input.node.nodeApiUrl}`
+  return issueHomeV2DesktopResourceStream({
+    binding: homeV2ResourceStreamBinding({
+      context: input.context,
+      network: input.network,
+      nodeApiUrl: input.node.nodeApiUrl,
+      protocol: input.protocol,
+      routeRevision: input.routeRevision,
+    }),
+    isStillValid: homeV2ResourceStreamValidator({
+      context: input.context,
+      network: input.network,
+      nodeRoute,
+      sender: input.sender,
+    }),
+    mimeType: input.mimeType,
+    targetSession: input.targetSession,
+    upstreamUrl: input.upstreamUrl,
+  })
+}
+
+async function selectHomeV2PublicPublishSource(
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+) {
+  const node = await getHomeV2ReadableNode(network)
+  return selectHomeV2DesktopPublishSource(context.windowId, homeV2PublishSourceBinding({
+    context,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    protocol,
+    routeRevision,
+  }))
+}
+
+async function publishHomeV2PublicPublishSource(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action: 'PUBLISH_QDN_RESOURCE',
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  const request = normalizeHomeV2PublicPublishRequest(network, requestValue)
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const binding = homeV2PublishSourceBinding({
+    context,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    protocol,
+    routeRevision,
+  })
+  const source = homeV2DesktopPublishSources.resolve(request.sourceToken, binding)
+  const sourceBytes = await readHomeV2DesktopPublishSource(source)
+  const contentHash = await sha256Hex(sourceBytes)
+  const profile = await getAccountProfile(accountId)
+  const nameValue = await readHomeV2ChatJson(
+    node.nodeApiUrl,
+    `/names/${encodeURIComponent(request.resource.name)}`,
+    `${network === 'qortal' ? 'Qortal' : 'Qortium'} publisher-name lookup`,
+  )
+  if (stringField(nameValue, 'owner') !== profile.address) {
+    throw new Error('The selected account does not currently own the requested publisher name on this chain.')
+  }
+  await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_QDN_RESOURCE', {
+    kind: 'publish',
+    contentHash,
+    fileName: source.fileName,
+    operationLabel: 'Publish a public QDN resource',
+    resourceCoordinate: `${request.resource.service}/${request.resource.name}/${request.resource.identifier ?? 'default'}`,
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    size: source.size,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before public publishing.')
+  const currentNameValue = await readHomeV2ChatJson(
+    node.nodeApiUrl,
+    `/names/${encodeURIComponent(request.resource.name)}`,
+    `${network === 'qortal' ? 'Qortal' : 'Qortium'} publisher-name recheck`,
+  )
+  if (stringField(currentNameValue, 'owner') !== profile.address || !(await isStillValid())) {
+    throw new Error('Publisher-name ownership or the app context changed after approval.')
+  }
+  const result = await publishHomeV2PublicResource({
+    accountId,
+    fileName: source.fileName,
+    isStillValid,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    resource: request.resource,
+    sourceBytes,
+  })
+  if (result.accepted || result.outcome === 'unknown') {
+    homeV2DesktopPublishSources.release(request.sourceToken)
+  }
+  return result
 }
 
 async function readBoundedResponse(
@@ -3429,6 +3646,24 @@ async function handleRequestWithRuntime(
   if (action === 'IS_USING_PUBLIC_NODE') {
     return hostInfo.route.configuredKind === 'public'
   }
+  if (action === 'SELECT_QDN_PUBLISH_SOURCE') {
+    return selectHomeV2PublicPublishSource(
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+    )
+  }
+  if (action === 'PUBLISH_QDN_RESOURCE') {
+    return publishHomeV2PublicPublishSource(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      requestValue,
+    )
+  }
   if (action === 'OPEN_NEW_TAB') {
     const address = normalizeHomeV2OpenAddress(requestValue)
     const hostWindow = BrowserWindow.fromId(context.windowId)
@@ -3574,7 +3809,19 @@ async function handleRequestWithRuntime(
     return (await resolveHomeV2ResourceUrl(network, requestValue, context)).url
   }
   if (action === 'GET_QDN_RESOURCE_STREAM_URL') {
-    return (await resolveHomeV2ResourceUrl(network, requestValue, context, true)).url
+    const resource = getQdnResourceStreamRequest(requestValue as QdnAppRequest)
+    const resolved = await resolveHomeV2ResourceUrl(network, requestValue, context, true)
+    return issueHomeV2ResourceStream({
+      context,
+      mimeType: getQdnResourceStreamProxyMimeType(resource),
+      network,
+      node: resolved.node,
+      protocol,
+      routeRevision: hostInfo.route.revision,
+      sender,
+      targetSession: sender.session,
+      upstreamUrl: resolved.url,
+    })
   }
   if (action === 'OPEN_QDN_RESOURCE_VIEWER') {
     const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
@@ -3583,11 +3830,22 @@ async function handleRequestWithRuntime(
       throw new Error('The resource viewer request does not belong to an active Home window.')
     }
     const resolved = await resolveHomeV2ResourceUrl(network, requestValue, context)
+    const streamUrl = issueHomeV2ResourceStream({
+      context,
+      mimeType: getQdnResourceStreamProxyMimeType(resource),
+      network,
+      node: resolved.node,
+      protocol,
+      routeRevision: hostInfo.route.revision,
+      sender,
+      targetSession: hostWindow.webContents.session,
+      upstreamUrl: resolved.url,
+    })
     hostWindow.webContents.send('home-v2-app:open-resource-viewer', {
       ...resource,
       network,
       sourceTabId: context.tabId,
-      streamUrl: resolved.url,
+      streamUrl,
     })
     return true
   }
@@ -3708,6 +3966,8 @@ export function registerHomeV2AppBridgeIpcHandlers() {
   ipcMain.on('home-v2-app:account-locked', (event) => {
     sessionAccountReadGrants.clear()
     chatSendRateLimiter.reset()
+    homeV2DesktopPublishSources.clear()
+    clearHomeV2DesktopResourceStreams()
     for (const [requestId, pending] of pendingAccountReads) {
       if (pending.hostWebContentsId !== event.sender.id) continue
       pendingAccountReads.delete(requestId)

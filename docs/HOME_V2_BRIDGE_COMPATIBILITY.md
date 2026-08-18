@@ -129,7 +129,7 @@ and Android fixtures pass.
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
-| QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PUBLISH_QDN_RESOURCE` (planned H5B) |
+| QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, deletion, and legacy inline/path publishing; Home 2 single-resource `PUBLISH_QDN_RESOURCE` is implemented through its separate H5B source-token contract |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` |
 | Wallets, payments, signing | `GET_USER_WALLET`, `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` |
 | Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` |
@@ -137,21 +137,22 @@ and Android fixtures pass.
 
 ## Deferred Qortium surface
 
-The complete retained Home 1.x action-name source remains
+The complete retained legacy-bridge action-name source remains
 `electron/qdn-app-actions.ts`. Every action not listed in the implemented table
 above is deferred and unadvertised in Home 2.0. In particular this includes
-publishing/deletion, account/group/name/poll/rating mutations other than the
+multi-resource publishing/deletion, account/group/name/poll/rating mutations other than the
 implemented participation and exact group-administration actions, payments,
 foreign wallets, Home/node settings writes, bookmarks,
-notifications, public publishing/source selection, minting, and Qortal-prefixed legacy
+notifications, legacy inline/path publishing, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
 
 ## Known limitations of this slice
 
 - Android's generic app fetch adapter keeps ordinary reads bounded. The H5A
-  save path uses the binary adapter explicitly, while large media uses the
-  authorized HTTPS range proxy rather than whole-file bridge buffering.
+  save path uses the binary adapter explicitly, while H5B large media uses an
+  exact expiring capability on the authorized HTTPS range proxy rather than
+  whole-file bridge buffering.
 - Android gives app-originated reads a 30-second response timeout. Node health
   probes remain short so endpoint selection and dashboard refreshes stay responsive.
 - Android's isolated app origin forwards GET-only `/arbitrary/...` relative
@@ -159,9 +160,8 @@ forwarding Home 2.0 apps into the broad v1 bridge.
   bounded transaction-signature compatibility route documented above. Other
   Core API families and non-GET methods remain blocked at the proxy boundary.
 - Home 2.0 intentionally does not expose `qortalRequestWithTimeout` or
-  `qdnRequestWithTimeout` aliases yet. Current Q-Tube uses the former only for
-  deferred publishing flows, so adding it would not improve this read-only
-  slice.
+  `qdnRequestWithTimeout` aliases. H5B's normalized publish action has its own
+  bounded host timeout and does not require those compatibility globals.
 - Android app titles and browser-history snapshots are accepted only from the
   active iframe with its private bridge token and selected proxy origin. Titles
   are sanitized and capped at 160 characters. History is capped at 200 entries,

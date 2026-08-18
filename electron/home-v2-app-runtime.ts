@@ -56,6 +56,11 @@ export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
   'WHICH_UI',
 ] as const)
 
+const HOME_V2_REACHABLE_ROUTE_ACTIONS = new Set<string>([
+  'PUBLISH_QDN_RESOURCE',
+  'SELECT_QDN_PUBLISH_SOURCE',
+])
+
 function configuredRouteKind(node: HomeV2AppNodeState): HomeV2ConfiguredRouteKind {
   if (node.mode !== 'custom') return node.mode
   return node.customAuthenticated
@@ -116,9 +121,11 @@ export function getHomeV2AvailableAppActions(
 ): readonly string[] {
   const implemented = getHomeV2AppActions(protocol)
   const routeIndependent = new Set<string>(HOME_V2_ROUTE_INDEPENDENT_ACTIONS)
-  return Object.freeze(implemented.filter((action) =>
-    routeIndependent.has(action) || routes[getHomeV2AppNetwork(protocol, action)].available,
-  ))
+  return Object.freeze(implemented.filter((action) => {
+    if (routeIndependent.has(action)) return true
+    const route = routes[getHomeV2AppNetwork(protocol, action)]
+    return HOME_V2_REACHABLE_ROUTE_ACTIONS.has(action) ? route.reachable : route.available
+  }))
 }
 
 export function getHomeV2AppHostInfo(input: {
