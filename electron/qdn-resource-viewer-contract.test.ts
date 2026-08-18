@@ -146,6 +146,10 @@ const desktop = readRepoSource('../electron/qdn.ts', './qdn.ts');
 const android = readRepoSource('../src/platform.ts', './platform.ts');
 const app = readRepoSource('../src/App.tsx', './App.tsx');
 const preload = readRepoSource('../electron/preload.cts', './preload.cts');
+const homeV2Desktop = readRepoSource('../electron/home-v2-app-bridge.ts', './home-v2-app-bridge.ts');
+const homeV2Preload = readRepoSource('../electron/home-v2-live-preload.cts', './home-v2-live-preload.cts');
+const homeV2Android = readRepoSource('../src/home-v2-live/node-client.ts', './src/home-v2-live/node-client.ts');
+const homeV2Live = readRepoSource('../src/home-v2-live/HomeV2LiveApp.tsx', './src/home-v2-live/HomeV2LiveApp.tsx');
 const androidProxy = readRepoSource(
   '../android/app/src/main/java/org/qortium/home/QdnRenderProxy.java',
   '../../android/app/src/main/java/org/qortium/home/QdnRenderProxy.java',
@@ -170,6 +174,20 @@ for (const [label, source] of [
 
 assert(app.includes('onOpenResourceViewer'), 'Home must thread the generic viewer callback into QDN app frames.');
 assert(preload.includes('qdn-app:open-resource-viewer'), 'Desktop preload must expose the viewer event.');
+for (const source of [homeV2Desktop, homeV2Android]) {
+  for (const action of ['GET_QDN_RESOURCE_STREAM_URL', 'OPEN_QDN_RESOURCE_VIEWER', 'SAVE_QDN_RESOURCE']) {
+    assert(source.includes(`action === '${action}'`), `Home 2 must dispatch ${action} on both host surfaces.`);
+  }
+  assert(source.includes('getQdnResourceViewerRequest'), 'Home 2 resource actions must use the shared viewer validator.');
+}
+assert(
+  homeV2Preload.includes('home-v2-app:open-resource-viewer'),
+  'Home 2 desktop preload must expose the resource viewer event.',
+);
+assert(
+  homeV2Live.includes('authorizeQdnResourceStreamUrl') && homeV2Live.includes('HomeV2ResourceViewer'),
+  'Home 2 Android must authorize ranged resource URLs and render the unified viewer.',
+);
 
 for (const service of QDN_STREAMABLE_SERVICES) {
   assert(

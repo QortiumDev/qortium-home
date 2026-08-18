@@ -59,6 +59,7 @@ const QDN_ACTIONS = [
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
+  'GET_QDN_RESOURCE_STREAM_URL',
   'GET_QDN_RESOURCE_URL',
   'GET_SELECTED_ACCOUNT',
   'INVITE_TO_GROUP',
@@ -68,6 +69,8 @@ const QDN_ACTIONS = [
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
   'REMOVE_GROUP_ADMIN',
+  'OPEN_QDN_RESOURCE_VIEWER',
+  'SAVE_QDN_RESOURCE',
   'RESOLVE_IDENTITIES',
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
@@ -131,6 +134,7 @@ const QORTAL_ACTIONS = [
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
+  'GET_QDN_RESOURCE_STREAM_URL',
   'GET_QDN_RESOURCE_URL',
   'GET_USER_ACCOUNT',
   'KICK_FROM_GROUP',
@@ -141,6 +145,8 @@ const QORTAL_ACTIONS = [
   'LIST_QDN_RESOURCES',
   'LEAVE_GROUP',
   'REMOVE_GROUP_ADMIN',
+  'OPEN_QDN_RESOURCE_VIEWER',
+  'SAVE_QDN_RESOURCE',
   'SEARCH_CHAT_MESSAGES',
   'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
   'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
@@ -291,13 +297,21 @@ function normalizedResource(request: Record<string, unknown>) {
   if (!/^[A-Z0-9_]+$/.test(service)) {
     throw new Error('QDN resource service is invalid.')
   }
-  if (name === '.' || name === '..' || identifier === '.' || identifier === '..') {
+  if (
+    name === '.' ||
+    name === '..' ||
+    identifier === '.' ||
+    identifier === '..'
+  ) {
     throw new Error('QDN resource path segments cannot be dot or dot-dot.')
   }
   return { identifier, name, service }
 }
 
-function assertSafeResourceFilePath(value: string) {
+export function assertSafeHomeV2ResourceFilePath(value: string) {
+  if (value.includes('\\')) {
+    throw new Error('QDN resource file paths cannot contain backslashes.')
+  }
   if (value.split('/').some((segment) => segment === '.' || segment === '..')) {
     throw new Error('QDN resource file paths cannot contain . or .. segments.')
   }
@@ -410,7 +424,7 @@ export function buildHomeV2ResourcePath(
       typeof request.path === 'string' ? 'path' : 'filepath',
       2_000,
     )
-    if (resourcePath) query.set('filepath', assertSafeResourceFilePath(resourcePath))
+    if (resourcePath) query.set('filepath', assertSafeHomeV2ResourceFilePath(resourcePath))
     for (const key of ['encoding', 'rebuild', 'async']) {
       const value = request[key]
       if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
@@ -441,7 +455,7 @@ export function buildHomeV2ResourceRenderPath(
     2_000,
   )
   const [unsafePathOnly, rawQuery = ''] = rawPath.split('?', 2)
-  const pathOnly = assertSafeResourceFilePath(unsafePathOnly)
+  const pathOnly = assertSafeHomeV2ResourceFilePath(unsafePathOnly)
   const encodedPath = pathOnly
     .split('/')
     .filter(Boolean)

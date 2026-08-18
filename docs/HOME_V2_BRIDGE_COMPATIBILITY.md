@@ -129,7 +129,7 @@ and Android fixtures pass.
 | Lists, hosted data, files, viewers | `ADD_LIST_ITEMS`, `DELETE_HOSTED_DATA`, `DELETE_LIST_ITEM`, `GET_HOSTED_DATA`, `GET_LIST_ITEMS`, `PLAY_ENCRYPTED_MEDIA`, `SAVE_FILE`, `SHOW_PDF_READER` |
 | Notifications and tab sessions | `LOCK_TAB`, `NOTIFICATION_ADD`, `NOTIFICATION_GET`, `NOTIFICATION_HAS_PERMISSION`, `NOTIFICATION_MARK_SEEN`, `NOTIFICATION_PERMISSION`, `NOTIFICATION_REMOVE`, `SESSION_PERMISSIONS`, `UNLOCK_TAB`, `UPDATE_SUBSCRIPTIONS` |
 | Names, groups, polls | `BUY_NAME`, `CANCEL_SELL_NAME`, `CREATE_GROUP`, `CREATE_POLL`, `REGISTER_NAME`, `SELL_NAME`, `UPDATE_GROUP`, `UPDATE_NAME`, `VOTE_ON_POLL` |
-| QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PUBLISH_QDN_RESOURCE` |
+| QDN writes | `PUBLISH_MULTIPLE_QDN_RESOURCES`, `PUBLISH_QDN_RESOURCE` (planned H5B) |
 | Encryption and group keys | `DECRYPT_AESGCM`, `DECRYPT_DATA`, `DECRYPT_DATA_WITH_SHARING_KEY`, `DECRYPT_QORTAL_GROUP_DATA`, `ENCRYPT_DATA`, `ENCRYPT_DATA_WITH_SHARING_KEY`, `ENCRYPT_QORTAL_GROUP_DATA`, `REENCRYPT_GROUP_KEYS` |
 | Wallets, payments, signing | `GET_USER_WALLET`, `GET_USER_WALLET_INFO`, `GET_USER_WALLET_TRANSACTIONS`, `GET_WALLET_BALANCE`, `MULTI_ASSET_PAYMENT_WITH_PRIVATE_DATA`, `SEND_COIN`, `SIGN_FOREIGN_FEES`, `SIGN_TRANSACTION`, `TRANSFER_ASSET` |
 | Foreign chain and trading | `ADD_FOREIGN_SERVER`, `CANCEL_TRADE_SELL_ORDER`, `CREATE_TRADE_BUY_ORDER`, `CREATE_TRADE_SELL_ORDER`, `GET_ARRR_SYNC_STATUS`, `GET_CROSSCHAIN_SERVER_INFO`, `GET_FOREIGN_FEE`, `GET_SERVER_CONNECTION_HISTORY`, `REMOVE_FOREIGN_SERVER`, `SET_CURRENT_FOREIGN_SERVER`, `START_CROSSCHAIN_SERVER`, `UPDATE_FOREIGN_FEE` |
@@ -143,15 +143,15 @@ above is deferred and unadvertised in Home 2.0. In particular this includes
 publishing/deletion, account/group/name/poll/rating mutations other than the
 implemented participation and exact group-administration actions, payments,
 foreign wallets, Home/node settings writes, bookmarks,
-notifications, downloads/viewers, minting, and Qortal-prefixed legacy
+notifications, public publishing/source selection, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.
 
 ## Known limitations of this slice
 
-- Android's generic app fetch adapter currently represents node responses as
-  JSON. Arbitrary binary QDN resources require a separate bounded binary
-  contract rather than string coercion.
+- Android's generic app fetch adapter keeps ordinary reads bounded. The H5A
+  save path uses the binary adapter explicitly, while large media uses the
+  authorized HTTPS range proxy rather than whole-file bridge buffering.
 - Android gives app-originated reads a 30-second response timeout. Node health
   probes remain short so endpoint selection and dashboard refreshes stay responsive.
 - Android's isolated app origin forwards GET-only `/arbitrary/...` relative
@@ -169,9 +169,10 @@ forwarding Home 2.0 apps into the broad v1 bridge.
 - `GET_USER_ACCOUNT.publicKey` is read from Qortal's public account data. It can
   be `null` for an address whose public key is not yet visible on chain; Home
   does not unlock or expose private material to fill it.
-- Only new-tab navigation is advertised. Current-tab replacement, viewers,
-  downloads, native file access, and external web URLs are not silently mapped
-  onto it.
+- Only new-tab application navigation is advertised. Public resource viewing,
+  ranged media URLs, and user-directed saves have their own exact H5A actions;
+  current-tab replacement, arbitrary native paths, and external web URLs are
+  not silently mapped onto them.
 - Home 2.0 now uses the existing production profile and strict encrypted wallet
   format. A verified curated backup gates account mutations; malformed data or
   backup verification failure produces read-only recovery state.

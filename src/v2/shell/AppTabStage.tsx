@@ -586,6 +586,7 @@ declare global {
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void
+      onOpenResourceViewer(listener: (event: unknown) => void): () => void
       onPermissionRequest(listener: (event: unknown) => void): () => void
       onPermissionTimeout(listener: (event: unknown) => void): () => void
       onNavigationChanged(listener: (event: unknown) => void): () => void

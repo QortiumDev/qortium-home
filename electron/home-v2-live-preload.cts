@@ -79,6 +79,11 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
     ipcRenderer.on('home-v2-app:open-address', handler)
     return () => ipcRenderer.removeListener('home-v2-app:open-address', handler)
   },
+  onOpenResourceViewer: (listener: (event: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => listener(payload)
+    ipcRenderer.on('home-v2-app:open-resource-viewer', handler)
+    return () => ipcRenderer.removeListener('home-v2-app:open-resource-viewer', handler)
+  },
   onPermissionRequest: (listener: (event: unknown) => void) => {
     const handler = (_event: unknown, payload: unknown) => listener(payload)
     ipcRenderer.on('home-v2-app:permission-request', handler)

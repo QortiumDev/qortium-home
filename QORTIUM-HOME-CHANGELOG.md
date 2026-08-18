@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add dual-chain public resource viewing
+
+Home 2 now gives QDN apps the same network-qualified public-resource viewing
+surface through `qdnRequest` and `qortalRequest` on desktop and Android. Apps
+can open Home's tab-scoped viewer, obtain a ranged media URL, or ask Home to
+save a resource through the route selected for that exact chain. Android uses
+the authorized HTTPS range proxy for media instead of buffering whole files;
+desktop and Android saves are user initiated, filename-sanitized, and capped at
+100 MiB. Resource coordinates reject traversal and never fall back
+between Qortium and Qortal. The viewer visibly labels every item as public and
+keeps scriptable application archives out of the embedded surface. This
+completes H5A action parity; expiring stream capabilities, Home-issued source
+tokens, and portable public publishing remain H5B.
+
 ### 2026-08-18 - feat(chat): add portable Qortal private groups
 
 Home 2 now gives QDN apps the matching Qortal private-group action family on

@@ -6,6 +6,7 @@ import {
   getString,
   type QdnAppRequest,
 } from './qdn-request-values.js';
+import { assertSafeHomeV2ResourceFilePath } from './home-v2-app-actions.js';
 
 export const QDN_RESOURCE_VIEWER_ACTIONS = [
   'GET_QDN_RESOURCE_STREAM_URL',
@@ -94,6 +95,16 @@ export function getQdnResourceViewerRequest(request: QdnAppRequest): QdnResource
     getString(getRequestValue(request, 'filepath'));
   const filename = getString(getRequestValue(request, 'filename'));
   const mimeType = getString(getRequestValue(request, 'mimeType'));
+
+  for (const [label, value] of [['name', name], ['identifier', identifier]] as const) {
+    if (value === '.' || value === '..') {
+      throw new Error(`QDN resource viewer ${label} cannot be a dot segment.`);
+    }
+  }
+
+  if (resourcePath) {
+    assertSafeHomeV2ResourceFilePath(resourcePath.split('?', 1)[0]);
+  }
 
   for (const [label, value] of [
     ['name', name],
