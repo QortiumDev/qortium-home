@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type Session, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, type Session, type WebContents } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
@@ -12,9 +12,20 @@ import {
 import { nodeFetch } from './node-tls.js'
 import {
   getQdnViewContextForWebContents,
+  isQdnViewFocused,
   isQdnRenderUrlSameAppResource,
   type QdnViewContext,
 } from './qdn-views.js'
+import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js'
+import {
+  grantAppNotifications,
+  hasNotificationGrant,
+  readNotificationStore,
+} from './notification-store.js'
+import {
+  areQdnAppNotificationsEnabled,
+  consumeQdnAppNotificationRateLimit,
+} from './qdn.js'
 import { encodeQdnBridgeError, encodeQdnBridgeResult } from './qdn-bridge-error.js'
 import {
   buildHomeV2AssetReadPath,
@@ -79,6 +90,11 @@ import {
   fetchHomeV2AvatarAction,
   type HomeV2AvatarAction,
 } from './home-v2-avatar-actions.js'
+import {
+  homeV2NotificationChainLabel,
+  homeV2NotificationSourceKey,
+  normalizeHomeV2NotificationRequest,
+} from './home-v2-notification-contract.js'
 import {
   assertHomeV2OpenPublicGroup,
   buildHomeV2QortiumPublicChatBuildBody,
@@ -274,7 +290,7 @@ type AccountReadAction =
   | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
-  readonly scope: 'session' | 'single-request' | null
+  readonly scope: 'always' | 'session' | 'single-request' | null
 }
 
 const pendingAccountReads = new Map<string, {
@@ -288,6 +304,121 @@ const sessionAccountReadGrants = new Set<string>()
 // constants/algorithm (also used by Android's requestApp in
 // src/home-v2-live/HomeV2LiveApp.tsx).
 const chatSendRateLimiter = createHomeV2SendRateLimiter()
+
+function homeV2NotificationAppKey(context: QdnViewContext): string {
+  const resourceUrl = context.resourceUrl
+  if (!resourceUrl) throw new Error('Notification request is missing its stable app identity.')
+  return sanitizeQdnManagerAppKey(resourceUrl)
+}
+
+function homeV2NotificationAppName(appKey: string): string {
+  const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(appKey)
+  if (!match) return 'QDN app'
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+async function requireHomeV2NotificationPermission(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  appKey: string,
+) {
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Notification app context changed before approval completed.')
+  }
+  if (hasNotificationGrant(appKey)) return
+  const hostWindow = BrowserWindow.fromId(context.windowId)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The notification request does not belong to an active Home window.')
+  }
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
+    }, 60_000)
+    pendingAccountReads.set(requestId, {
+      hostWebContentsId: hostWindow.webContents.id,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action: 'SHOW_NOTIFICATION',
+      appIdentityKey: appKey,
+      appTitle: homeV2NotificationAppName(appKey),
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: protocol === 'qortalRequest' ? 'qortal' : 'qortium',
+      writeKind: 'notification',
+      writeOperationLabel: 'Show notifications',
+    })
+  })
+  if (!decision.approved || decision.scope !== 'always') {
+    throw new Error('Notification permission was denied.')
+  }
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Notification app context changed before approval completed.')
+  }
+  grantAppNotifications(appKey)
+}
+
+async function showHomeV2DesktopNotification(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  requestValue: Record<string, unknown>,
+) {
+  const request = normalizeHomeV2NotificationRequest(protocol, requestValue)
+  const appKey = homeV2NotificationAppKey(context)
+  await requireHomeV2NotificationPermission(sender, context, protocol, appKey)
+  const resultBase = Object.freeze({ network: request.network, source: request.source })
+  const grant = readNotificationStore().grants[appKey]
+  if (!grant) return { ...resultBase, shown: false, reason: 'revoked' }
+  if (grant.muted) return { ...resultBase, shown: false, reason: 'muted' }
+  if (!areQdnAppNotificationsEnabled()) return { ...resultBase, shown: false, reason: 'disabled' }
+  if (!Notification.isSupported()) return { ...resultBase, shown: false, reason: 'unsupported' }
+  if (isQdnViewFocused(context.windowId, context.tabId)) {
+    return { ...resultBase, shown: false, reason: 'focused' }
+  }
+  if (!consumeQdnAppNotificationRateLimit(appKey)) {
+    return { ...resultBase, shown: false, reason: 'rate-limited' }
+  }
+  const chain = homeV2NotificationChainLabel(request.network)
+  const notification = new Notification({
+    body: request.text,
+    title: `${request.title} — ${homeV2NotificationAppName(appKey)} · ${chain}`,
+  })
+  notification.on('click', () => {
+    const hostWindow = BrowserWindow.fromId(context.windowId)
+    if (!hostWindow || hostWindow.isDestroyed()) return
+    if (hostWindow.isMinimized()) hostWindow.restore()
+    hostWindow.show()
+    hostWindow.focus()
+    hostWindow.webContents.send('home-v2-app:notification-clicked', {
+      network: request.network,
+      source: request.source,
+      sourceKey: homeV2NotificationSourceKey(request.source),
+      tabId: context.tabId,
+    })
+  })
+  const latestGrant = readNotificationStore().grants[appKey]
+  if (!latestGrant) return { ...resultBase, shown: false, reason: 'revoked' }
+  if (latestGrant.muted) return { ...resultBase, shown: false, reason: 'muted' }
+  if (!areQdnAppNotificationsEnabled()) return { ...resultBase, shown: false, reason: 'disabled' }
+  notification.show()
+  return { ...resultBase, shown: true }
+}
 
 // Fix 5 (Sol re-review #6): includes the sender's own WebContents id and its
 // host window id, the same sender/window identity accountGrantKey below
@@ -4151,6 +4282,15 @@ async function handleRequestWithRuntime(
   if (action === 'WHICH_UI') return 'QORTIUM_HOME_ELECTRON'
   if (action === 'GET_HOST_INFO') return hostInfo
   const network = getHomeV2AppNetwork(protocol, action)
+  if (action === 'NOTIFICATION_HAS_PERMISSION') {
+    return {
+      granted: hasNotificationGrant(homeV2NotificationAppKey(context)),
+      network,
+    }
+  }
+  if (action === 'SHOW_NOTIFICATION') {
+    return showHomeV2DesktopNotification(sender, context, protocol, requestValue)
+  }
   if (action === 'IS_USING_PUBLIC_NODE') {
     return hostInfo.route.configuredKind === 'public'
   }
@@ -4574,7 +4714,11 @@ export function registerHomeV2AppBridgeIpcHandlers() {
     pendingAccountReads.delete(value.requestId)
     clearTimeout(pending.timeout)
     const approved = value.approved === true
-    const scope = value.scope === 'session' ? 'session' : 'single-request'
+    const scope = value.scope === 'always'
+      ? 'always'
+      : value.scope === 'session'
+        ? 'session'
+        : 'single-request'
     pending.resolve({ approved, scope: approved ? scope : null })
   })
   ipcMain.handle(

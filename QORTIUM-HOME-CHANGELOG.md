@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - feat(chat): add chain-qualified Home 2 notifications
+
+Home 2 apps can now request system notifications through either the Qortium or
+Qortal bridge on desktop and Android without depending on a node route or
+wallet unlock. Home derives the chain from the invoked bridge, rejects a
+mismatched claim, validates optional group/direct conversation identity, and
+repeats that normalized source in the result and click event. The first request
+uses one durable, revocable app-scoped approval shared with Home's notification
+settings. Shown titles always include the app name and chain, focused tabs are
+suppressed, each app is rate-limited, and clicks reactivate the originating tab
+when it still exists. This completes H7A; background subscription rules remain
+separate until Chat's bounded polling demonstrates a need, while H7B still owns
+lifecycle invalidation, ambiguous-send continuity, and the final matrix.
+
 ### 2026-08-18 - feat(chat): add encrypted private attachments
 
 Home 2 now owns private chat attachment encryption, publication, decryption,
