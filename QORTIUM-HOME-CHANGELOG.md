@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - feat(v2): send hosted apps the modern uiStyle; drop Chat 2.0's RCHAT release gate
+
+Home 2's app tab stage now tells hosted QDN apps to render their `modern`
+uiStyle variant instead of `classic`, both in the render URL's `uiStyle`
+query parameter and in the postMessage displaySettings bridge's `ui` field —
+the v2 shell is Home's modern design system, and apps already implement a
+`modern` variant from the legacy display-settings catalogue. The `clay`
+accent still remaps to `orange` for now, since published apps don't yet
+recognize `clay`; that stays until Chat and other apps ship clay support.
+Separately, `docs/CHAT_2_0_PLAN.md` no longer treats the Qortal RCHAT/
+Reticulum source as release-gating for Chat 2.0: the owner decided RCHAT is
+parked as a possible post-2.0 addition, not a shipping requirement, so the
+plan's status, goals, and release-gate language were updated to match.
+
 ### 2026-08-19 - feat(chat): complete Home 2 operational continuity
 
 Home 2 now revokes temporary app authority whenever the selected account,

@@ -53,7 +53,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   query.set('lang', snapshot.appearance.resolvedLanguage)
   query.set('textSize', snapshot.appearance.textSize)
   query.set('theme', snapshot.appearance.resolvedTheme)
-  query.set('uiStyle', 'classic')
+  query.set('uiStyle', 'modern')
   const queryString = query.toString()
   return {
     identity: resource.identity,
@@ -135,11 +135,17 @@ function DesktopAppStage(props: AppTabStageProps) {
           platform: 'desktop',
         }),
         displaySettings: {
+          // Remap the v2-only `clay` accent to `orange`, its closest published
+          // equivalent: hosted apps' displaySettings bridge (and the classic
+          // catalogue's `modern` uiStyle variant apps already implement) only
+          // knows the pre-clay accent set. Keep this remap until the Chat app
+          // (and other apps) ship clay support, at which point Home can pass
+          // clay straight through instead of substituting orange.
           accent: props.snapshot.appearance.accent === 'clay' ? 'orange' : props.snapshot.appearance.accent,
           language: props.snapshot.appearance.resolvedLanguage,
           textSize: props.snapshot.appearance.textSize,
           theme: props.snapshot.appearance.resolvedTheme,
-          ui: 'classic',
+          ui: 'modern',
         },
         nodeApiUrl: resolved.nodeApiUrl,
         renderUrl: resolved.url,
