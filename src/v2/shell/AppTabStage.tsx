@@ -135,13 +135,11 @@ function DesktopAppStage(props: AppTabStageProps) {
           platform: 'desktop',
         }),
         displaySettings: {
-          // Remap the v2-only `clay` accent to `orange`, its closest published
-          // equivalent: hosted apps' displaySettings bridge (and the classic
-          // catalogue's `modern` uiStyle variant apps already implement) only
-          // knows the pre-clay accent set. Keep this remap until the Chat app
-          // (and other apps) ship clay support, at which point Home can pass
-          // clay straight through instead of substituting orange.
-          accent: props.snapshot.appearance.accent === 'clay' ? 'orange' : props.snapshot.appearance.accent,
+          // Apps receive the v2 accent set as-is, matching the render-URL
+          // `accent` query param above. Apps that predate `clay` simply don't
+          // recognize the value and fall back to their own default accent
+          // until they republish with clay support.
+          accent: props.snapshot.appearance.accent,
           language: props.snapshot.appearance.resolvedLanguage,
           textSize: props.snapshot.appearance.textSize,
           theme: props.snapshot.appearance.resolvedTheme,
