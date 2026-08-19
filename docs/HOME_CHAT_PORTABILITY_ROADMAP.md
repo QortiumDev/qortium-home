@@ -258,7 +258,7 @@ and signing remain local even when the node is authenticated.
 | H4 | Qortium and Qortal private groups | Implemented in Home: H4A Qortium and H4B Qortal; Chat integration and route matrix remain | H0-H3; Core C0-C4; selected Qortal route permits QDN staging for bundle publication |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Complete in Home: H5A viewing/save plus H5B capabilities/source-token public publishing; Chat integration and route matrix remain | H0; selected Qortal route permits public QDN staging |
 | H6 | Private attachments | Implemented in Home; Chat integration and route matrix remain | Core C6; H3-H5 |
-| H7 | Notification, restart/node-switch, and full matrix completion | Planned throughout; closes last | H0-H6 as applicable |
+| H7 | Notification, restart/node-switch, and full matrix completion | H7A app notifications implemented; H7B lifecycle and matrix work remains | H0-H6 as applicable |
 
 ## H0 — Shared contracts, discovery, and vectors
 
@@ -690,9 +690,10 @@ This work is developed alongside H0-H6 and is the final completion gate.
 
 ### Home changes
 
-- Make app-scoped notifications carry network/source/conversation identity so
+- **H7A implemented:** make app-scoped notifications carry authoritative
+  network/source/conversation identity so
   Qortium and Qortal group/DM mentions do not collide.
-- Clear or rebind decrypted caches, approvals, streams, pending crypto work,
+- **H7B next:** clear or rebind decrypted caches, approvals, streams, pending crypto work,
   and route capabilities on lock, account switch, node switch, public failover,
   app navigation, tab close, and Home restart.
 - Keep background polling bounded and pause/resume it with platform lifecycle.
@@ -747,20 +748,19 @@ separate ceremonial acceptance phase.
 9. **H4B Qortal private groups — implemented:** current-admin bundle
    discovery/publication, compatible old/new `encryptSingle` lifecycles,
    reaction type 102, and secure account-bound key-ring persistence.
-10. **H5 public resources:** dual-chain viewer/stream/save/source/publish and
-   public attachment parity.
-11. **H6 private attachments:** resume Core C6, then add Home encrypted
-   attachment flows.
-12. **H7 completion:** notifications, lifecycle hardening, matrix reconciliation,
-   and release documentation.
+10. **H5 public resources — implemented:** dual-chain viewer/stream/save and
+    source-token public publishing.
+11. **H6 private attachments — implemented:** Home-owned dual-chain encrypted
+    publish/view/stream/save flows built on the completed Core C6 contract.
+12. **H7A notifications — implemented:** route-independent app notifications
+    with authoritative chain and optional group/direct source identity on
+    desktop and Android.
+13. **H7B operational completion — next:** lifecycle invalidation, ambiguous
+    signed-transaction continuity, matrix reconciliation, and release docs.
 
-H3 direct-message parity and both H4 private-group protocols are now
-implemented in Home on both host surfaces. The next Home implementation
-milestone is H5 public-resource parity; Chat integration remains intentionally
-after the Home bridge families are complete. H1 added public edit,
-content-clearing delete, and reaction on both chains; H2A added portable
-join/leave, H2B added avatar-read parity, and H2C completed separately
-permissioned group administration.
+H0-H6 and H7A are now implemented in Home on both host surfaces. H7B is the
+remaining Home milestone before Chat integration: it closes lifecycle state,
+ambiguous-send continuity, and the complete deterministic action matrix.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent

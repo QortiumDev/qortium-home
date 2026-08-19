@@ -27,6 +27,7 @@ export type PermissionCapability =
   | 'chat.attachment'
   | 'group.membership'
   | 'group.administration'
+  | 'notifications.show'
 
 export interface PermissionDetail {
   readonly label: string
@@ -77,6 +78,7 @@ export interface PermissionPrompt {
     | 'SEND_PRIVATE_GROUP_CHAT_EDIT'
     | 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
     | 'SEND_PRIVATE_GROUP_CHAT_REACTION'
+    | 'SHOW_NOTIFICATION'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

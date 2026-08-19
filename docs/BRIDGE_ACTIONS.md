@@ -119,6 +119,16 @@ stream action grants temporary bounded byte access through an opaque URL. See
 [Home 2 private chat attachments](HOME_CHAT_PRIVATE_ATTACHMENTS.md) for the
 descriptor, exact formats, limits, and observable-metadata boundary.
 
+Home 2 exposes `NOTIFICATION_HAS_PERMISSION` and `SHOW_NOTIFICATION` through
+both bridge protocols without depending on a node route or wallet unlock. The
+invoked protocol fixes the chain; optional group/direct source identity is
+validated and repeated in the result and click event. The first request uses a
+durable, revocable app-scoped `notifications.show` approval. Home visibly
+suffixes every title with the app name and chain, suppresses focused tabs, and
+rate-limits each app. See [Home 2 app notifications](HOME_V2_APP_NOTIFICATIONS.md)
+for the request, result, permission, desktop/Android, and background-watcher
+boundary.
+
 The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
 `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`,

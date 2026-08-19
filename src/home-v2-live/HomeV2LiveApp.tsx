@@ -101,6 +101,17 @@ import {
   normalizeHomeV2GroupAdminTarget,
 } from '../../electron/home-v2-group-admin-actions'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
+import {
+  homeV2NotificationChainLabel,
+  homeV2NotificationSourceKey,
+  normalizeHomeV2NotificationRequest,
+} from '../../electron/home-v2-notification-contract'
+import { sanitizeQdnManagerAppKey } from '../../electron/qdn-manager-permissions'
+import { loadDisplaySettings } from '../displaySettings'
+import {
+  getNotificationStore,
+  grantAppNotifications,
+} from '../notificationStore'
 import { resolveDualIdentity } from './identity-resolver'
 import {
   parseHomeV2ShellState,
@@ -174,6 +185,7 @@ function nullableNumber(value: unknown) {
 const ANDROID_PERMISSION_PROMPT_TIMEOUT_MS = 60_000
 const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_PER_APP = 3
 const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_GLOBAL = 20
+const HOME_V2_NOTIFICATION_MIN_INTERVAL_MS = 3_000
 
 const plannedApps: readonly AppDescriptor[] = [
   {
@@ -490,6 +502,8 @@ export function HomeV2LiveApp() {
   // a tab closed mid-PoW stays invisible to the recheck (FIX #2, review 2).
   const productStateRef = useRef(productState)
   productStateRef.current = productState
+  const androidLastNotificationAt = useRef(new Map<string, number>())
+  const androidNextNotificationId = useRef((Date.now() % 2_000_000_000) + 1)
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [busyNetwork, setBusyNetwork] = useState<NetworkId | null>(null)
   const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
@@ -848,6 +862,30 @@ export function HomeV2LiveApp() {
     return () => media.removeEventListener('change', update)
   }, [])
 
+  useEffect(() => {
+    if (!isAndroidHost) return
+    let disposed = false
+    let removeListener: (() => Promise<void>) | null = null
+    void import('@capacitor/local-notifications').then(async ({ LocalNotifications }) => {
+      const handle = await LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+        const extra = isRecord(event.notification.extra) ? event.notification.extra : null
+        if (!extra || typeof extra.homeV2TabId !== 'string') return
+        const tabId = brand<TabId>(extra.homeV2TabId)
+        if (!productStateRef.current.tabs.some((tab) => tab.id === tabId)) return
+        dispatchProduct({ type: 'activate-tab', tabId })
+      })
+      if (disposed) {
+        await handle.remove()
+        return
+      }
+      removeListener = () => handle.remove()
+    }).catch(() => undefined)
+    return () => {
+      disposed = true
+      void removeListener?.()
+    }
+  }, [isAndroidHost])
+
   const updateAppearance = useCallback(
     (patch: Partial<HomeV2Snapshot['appearance']>) =>
       setSnapshot((current) => ({
@@ -987,6 +1025,17 @@ export function HomeV2LiveApp() {
   useEffect(() => {
     const bridge = window.homeV2Apps
     if (!bridge) return
+    return bridge.onNotificationClicked((value) => {
+      if (!isRecord(value) || typeof value.tabId !== 'string') return
+      const tabId = brand<TabId>(value.tabId)
+      if (!productStateRef.current.tabs.some((tab) => tab.id === tabId)) return
+      dispatchProduct({ type: 'activate-tab', tabId })
+    })
+  }, [])
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
     return bridge.onPermissionRequest((value) => {
       if (
         !isRecord(value) ||
@@ -1001,6 +1050,7 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_CHAT_ATTACHMENT_STREAM_URL' &&
             value.action !== 'OPEN_CHAT_ATTACHMENT_VIEWER' &&
             value.action !== 'SAVE_CHAT_ATTACHMENT' &&
+            value.action !== 'SHOW_NOTIFICATION' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
             !isHomeV2DirectChatWriteAction(value.action) &&
@@ -1008,7 +1058,7 @@ export function HomeV2LiveApp() {
             !isHomeV2PrivateGroupChatWriteAction(value.action) &&
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
-        typeof value.accountId !== 'string' ||
+        (value.action !== 'SHOW_NOTIFICATION' && typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
         ((isHomeV2PublicChatAction(value.action) || isHomeV2GroupWriteAction(value.action)) &&
@@ -1051,9 +1101,9 @@ export function HomeV2LiveApp() {
       ) {
         return
       }
-      const account = accountCatalogueRef.current.accounts.find(
-        (candidate) => candidate.id === value.accountId,
-      )
+      const account = typeof value.accountId === 'string'
+        ? accountCatalogueRef.current.accounts.find((candidate) => candidate.id === value.accountId)
+        : undefined
       if (value.action === 'UNLOCK_SELECTED_ACCOUNT') {
         if (!account || value.protocol !== 'qdnRequest') {
           window.homeV2Apps?.resolvePermission({
@@ -1096,7 +1146,8 @@ export function HomeV2LiveApp() {
         value.action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
         value.action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
         value.action === 'SAVE_CHAT_ATTACHMENT'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
+      const isNotification = value.action === 'SHOW_NOTIFICATION'
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -1125,13 +1176,17 @@ export function HomeV2LiveApp() {
                 ? 'qdn.publish'
               : isPrivateAttachment
                 ? 'chat.attachment'
+              : isNotification
+                ? 'notifications.show'
               : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
         appTitle,
         context: {
           appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
-          identityId: brand<IdentityId>(`home-v2:identity:${value.accountId}`),
+          identityId: brand<IdentityId>(isNotification
+            ? `home-v2:identity:app:${appIdentityKey}`
+            : `home-v2:identity:${value.accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
           tabId: brand<TabId>(value.tabId),
           targetNetwork: value.targetNetwork,
@@ -1139,13 +1194,23 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
+        title: isNotification
+          ? 'Allow app notifications?'
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
-        summary: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
+        summary: isNotification
+          ? `${appTitle} wants to show system notifications until revoked in Settings.`
+          : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
-        details: isChatWrite
+        details: isNotification
+          ? [
+              { label: 'App', value: appTitle },
+              { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+              { label: 'Scope', value: 'Until revoked in Settings' },
+            ]
+          : isChatWrite
           ? [
               { label: 'Account', value: account?.label ?? value.accountId },
               { label: 'Operation', value: operationLabel },
@@ -1217,7 +1282,9 @@ export function HomeV2LiveApp() {
               { label: 'Account', value: account?.label ?? value.accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
             ],
-        allowedScopes: value.writeSingleRequestOnly === true
+        allowedScopes: isNotification
+          ? ['always']
+          : value.writeSingleRequestOnly === true
           ? ['single-request']
           : ['single-request', 'session'],
       })
@@ -1312,6 +1379,111 @@ export function HomeV2LiveApp() {
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
+      if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const parsedApp = (() => {
+          try {
+            const parsed = parseAppResourceLocation(context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            return {
+              identityKey: sanitizeQdnManagerAppKey(
+                buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
+              ),
+              title: parsed.identity.name,
+            }
+          } catch {
+            throw new Error('Notification request is missing its stable app identity.')
+          }
+        })()
+        const store = await getNotificationStore()
+        if (action === 'NOTIFICATION_HAS_PERMISSION') {
+          return { granted: !!store.grants[parsedApp.identityKey], network: targetNetwork }
+        }
+        const notificationRequest = normalizeHomeV2NotificationRequest(protocol, requestValue)
+        if (!store.grants[parsedApp.identityKey]) {
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action: 'SHOW_NOTIFICATION',
+            capability: 'notifications.show',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: null,
+            },
+            title: 'Allow app notifications?',
+            summary: `${parsedApp.title} wants to show system notifications until revoked in Settings.`,
+            details: [
+              { label: 'App', value: parsedApp.title },
+              { label: 'Chain', value: homeV2NotificationChainLabel(targetNetwork) },
+              { label: 'Scope', value: 'Until revoked in Settings' },
+            ],
+            allowedScopes: ['always'],
+          }), context.tabId)
+          if (!decision.approved || decision.scope !== 'always') {
+            throw new Error('Notification permission was denied.')
+          }
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          if (!currentTab || currentTab.context.resourceLocation !== context.resourceLocation) {
+            throw new Error('Notification app context changed before approval completed.')
+          }
+          await grantAppNotifications(parsedApp.identityKey)
+        }
+        const resultBase = { network: notificationRequest.network, source: notificationRequest.source }
+        const currentGrant = (await getNotificationStore()).grants[parsedApp.identityKey]
+        if (!currentGrant) return { ...resultBase, shown: false, reason: 'revoked' }
+        if (currentGrant.muted) return { ...resultBase, shown: false, reason: 'muted' }
+        if (!(await loadDisplaySettings()).appNotifications) {
+          return { ...resultBase, shown: false, reason: 'disabled' }
+        }
+        if (
+          productStateRef.current.activeTabId === context.tabId &&
+          document.visibilityState === 'visible' &&
+          document.hasFocus()
+        ) {
+          return { ...resultBase, shown: false, reason: 'focused' }
+        }
+        const now = Date.now()
+        const lastShownAt = androidLastNotificationAt.current.get(parsedApp.identityKey) ?? 0
+        if (now - lastShownAt < HOME_V2_NOTIFICATION_MIN_INTERVAL_MS) {
+          return { ...resultBase, shown: false, reason: 'rate-limited' }
+        }
+        const displayTitle = `${notificationRequest.title} — ${parsedApp.title} · ${homeV2NotificationChainLabel(targetNetwork)}`
+        const { LocalNotifications } = await import('@capacitor/local-notifications')
+        const permission = await LocalNotifications.requestPermissions()
+        if (permission.display !== 'granted') {
+          return { ...resultBase, shown: false, reason: 'disabled' }
+        }
+        const latestGrant = (await getNotificationStore()).grants[parsedApp.identityKey]
+        if (!latestGrant || latestGrant.muted || !(await loadDisplaySettings()).appNotifications) {
+          return { ...resultBase, shown: false, reason: latestGrant?.muted ? 'muted' : latestGrant ? 'disabled' : 'revoked' }
+        }
+        androidLastNotificationAt.current.set(parsedApp.identityKey, Date.now())
+        await LocalNotifications.schedule({
+          notifications: [{
+            body: notificationRequest.text,
+            extra: {
+              homeV2Network: targetNetwork,
+              homeV2SourceKey: homeV2NotificationSourceKey(notificationRequest.source),
+              homeV2TabId: context.tabId,
+            },
+            id: androidNextNotificationId.current,
+            isExactNotification: false,
+            title: displayTitle,
+          }],
+        })
+        androidNextNotificationId.current = androidNextNotificationId.current >= 2_000_000_000
+          ? 1
+          : androidNextNotificationId.current + 1
+        return { ...resultBase, shown: true }
+      }
       if (
         action === 'UNLOCK_SELECTED_ACCOUNT' ||
         action === 'GET_QDN_RESOURCE_STREAM_URL' ||

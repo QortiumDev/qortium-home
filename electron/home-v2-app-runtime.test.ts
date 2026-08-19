@@ -124,7 +124,9 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
 }), [
   'GET_HOST_INFO',
   'IS_USING_PUBLIC_NODE',
+  'NOTIFICATION_HAS_PERMISSION',
   'OPEN_NEW_TAB',
+  'SHOW_NOTIFICATION',
   'SHOW_ACTIONS',
   'WHICH_UI',
 ])
