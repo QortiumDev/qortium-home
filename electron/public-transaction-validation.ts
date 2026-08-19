@@ -45,6 +45,7 @@ const QDN_SERVICE_IDS: Readonly<Record<string, number>> = Object.freeze({
   PLUGIN: 1410,
   PODCAST: 640,
   PRODUCT: 1310,
+  QCHAT_ATTACHMENT_PRIVATE: 121,
   QCHAT_IMAGE: 420,
   SNAPSHOT: 1710,
   STORE: 1300,

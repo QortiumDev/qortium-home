@@ -36,8 +36,22 @@ type PublishInput = {
   readonly network: HomeV2PublicPublishNetwork
   readonly nodeApiUrl: string
   readonly resource: QdnWriteResourceRequest
+  readonly serviceId: number
   readonly sourceBytes: Uint8Array
+  readonly validateTarget?: () => void | Promise<void>
 }
+
+export type HomeV2PublishedResourceBytes = Readonly<{
+  accepted: boolean
+  contentHash: string
+  error?: string
+  errorType?: 'BROADCAST_UNKNOWN'
+  outcome?: 'unknown'
+  retryable?: false
+  size: number
+  timestamp: number
+  transactionSignature: string
+}>
 
 function queryForQortiumResource(resource: QdnWriteResourceRequest, fileName: string) {
   const query = new URLSearchParams({ filename: fileName })
@@ -169,7 +183,7 @@ async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof
     method: 0,
     name: input.resource.name,
     publicKey: base58Decode(signingKey.publicKey58),
-    service: getStaticQdnServiceId(input.resource.service),
+    service: input.serviceId,
     txGroupId: 0,
   })
   await attestPublicQdnPublish({
@@ -186,6 +200,8 @@ async function publishQortium(input: PublishInput, signingKey: ReturnType<typeof
   })
   const signingBytes = arbitraryRawToSigningBytes(unsignedBytes)
   const nonce = await computeHomeV2ChatNonce(signingBytes, ARBITRARY_POW_DIFFICULTY, input.isStillValid)
+  if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN signing.')
+  await input.validateTarget?.()
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before QDN signing.')
   const rawWithNonce = stampTransactionNonce(unsignedBytes, nonce)
   const signingWithNonce = stampTransactionNonce(signingBytes, nonce)
@@ -231,7 +247,7 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
     lastReference: reference,
     name: input.resource.name,
     senderPublicKey: base58Decode(signingKey.publicKey58),
-    service: getStaticQdnServiceId(input.resource.service),
+    service: input.serviceId,
     timestampMaximum: Date.now() + 5_000,
     timestampMinimum: started - 5_000,
   })
@@ -239,6 +255,8 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
   if (base58Encode(new Uint8Array(expectedHash)) !== base58Encode(attested.dataHash)) {
     throw new Error('Qortal publish builder changed the approved resource content.')
   }
+  if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.')
+  await input.validateTarget?.()
   if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.')
   const signed = signAttestedQortalPrivateGroupPublish({
     selectedAccountSecretKey: signingKey.secretKey,
@@ -248,7 +266,7 @@ async function publishQortal(input: PublishInput, signingKey: ReturnType<typeof 
   return { signedBytes: signed.signedBytes, signature: signed.signature, timestamp: attested.timestamp }
 }
 
-export async function publishHomeV2PublicResource(input: PublishInput) {
+async function publishHomeV2ResourceBytes(input: PublishInput): Promise<HomeV2PublishedResourceBytes> {
   const signingKey = getAccountSecretKey(input.accountId)
   try {
     const contentHash = await sha256Hex(input.sourceBytes)
@@ -269,6 +287,8 @@ export async function publishHomeV2PublicResource(input: PublishInput) {
       throw error
     }
     if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before publication broadcast.')
+    await input.validateTarget?.()
+    if (!(await input.isStillValid())) throw new Error('The app, account, or node route changed before publication broadcast.')
     try {
       await postText(
         input.nodeApiUrl,
@@ -276,33 +296,59 @@ export async function publishHomeV2PublicResource(input: PublishInput) {
         base58Encode(transaction.signedBytes),
         `${input.network === 'qortal' ? 'Qortal' : 'Qortium'} public publish broadcast`,
       )
-      return createHomeV2PublicPublishDescriptor({
+      return Object.freeze({
+        accepted: true,
         contentHash,
-        fileName: input.fileName,
-        network: input.network,
-        resource: input.resource,
         size: input.sourceBytes.byteLength,
+        timestamp: transaction.timestamp,
         transactionSignature: transaction.signature,
       })
     } catch (error) {
       return Object.freeze({
-        ...createHomeV2PublicPublishDescriptor({
-          contentHash,
-          fileName: input.fileName,
-          network: input.network,
-          resource: input.resource,
-          size: input.sourceBytes.byteLength,
-          transactionSignature: transaction.signature,
-        }),
-        accepted: false as const,
+        accepted: false,
+        contentHash,
         error: error instanceof Error ? error.message : 'Publish broadcast outcome is unknown.',
-        errorType: 'BROADCAST_UNKNOWN',
+        errorType: 'BROADCAST_UNKNOWN' as const,
         outcome: 'unknown' as const,
         retryable: false as const,
+        size: input.sourceBytes.byteLength,
         timestamp: transaction.timestamp,
+        transactionSignature: transaction.signature,
       })
     }
   } finally {
     signingKey.secretKey.fill(0)
   }
+}
+
+export async function publishHomeV2EncryptedResource(input: Omit<PublishInput, 'serviceId'> & {
+  readonly serviceId: 121 | 400
+}) {
+  return publishHomeV2ResourceBytes(input)
+}
+
+export async function publishHomeV2PublicResource(input: Omit<PublishInput, 'serviceId'>) {
+  const result = await publishHomeV2ResourceBytes({
+    ...input,
+    serviceId: getStaticQdnServiceId(input.resource.service),
+  })
+  const descriptor = createHomeV2PublicPublishDescriptor({
+    contentHash: result.contentHash,
+    fileName: input.fileName,
+    network: input.network,
+    resource: input.resource,
+    size: result.size,
+    transactionSignature: result.transactionSignature,
+  })
+  return result.accepted
+    ? descriptor
+    : Object.freeze({
+        ...descriptor,
+        accepted: false as const,
+        error: result.error,
+        errorType: result.errorType,
+        outcome: result.outcome,
+        retryable: result.retryable,
+        timestamp: result.timestamp,
+      })
 }

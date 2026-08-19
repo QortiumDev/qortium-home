@@ -118,6 +118,14 @@ import {
 } from '../../electron/home-v2-public-publish-contract'
 import type { HomeV2PublishSourceBinding } from '../../electron/home-v2-publish-source-tokens'
 import {
+  normalizeHomeV2PrivateAttachmentAccessRequest,
+  normalizeHomeV2PrivateAttachmentPublishRequest,
+} from '../../electron/home-v2-private-attachment-contract'
+import {
+  isQortalHubCompatiblePrivateImageMediaType,
+  sniffPrivateChatAttachmentMediaType,
+} from '../../electron/home-v2-private-attachment-actions'
+import {
   decodeHomeV2AndroidPublishSource,
   homeV2AndroidPublishSources,
   selectHomeV2AndroidPublishSource,
@@ -989,6 +997,10 @@ export function HomeV2LiveApp() {
             value.action !== 'GET_USER_ACCOUNT' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
             value.action !== 'PUBLISH_QDN_RESOURCE' &&
+            value.action !== 'PUBLISH_CHAT_ATTACHMENT' &&
+            value.action !== 'GET_CHAT_ATTACHMENT_STREAM_URL' &&
+            value.action !== 'OPEN_CHAT_ATTACHMENT_VIEWER' &&
+            value.action !== 'SAVE_CHAT_ATTACHMENT' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
             !isHomeV2DirectChatWriteAction(value.action) &&
@@ -1023,7 +1035,11 @@ export function HomeV2LiveApp() {
             typeof value.groupId !== 'number' ||
             typeof value.groupName !== 'string' ||
             typeof value.writeRouteLabel !== 'string'))
-        || (value.action === 'PUBLISH_QDN_RESOURCE' &&
+        || ((value.action === 'PUBLISH_QDN_RESOURCE' ||
+          value.action === 'PUBLISH_CHAT_ATTACHMENT' ||
+          value.action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
+          value.action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
+          value.action === 'SAVE_CHAT_ATTACHMENT') &&
           (value.writeKind !== 'publish' ||
             typeof value.publishContentHash !== 'string' ||
             typeof value.publishFileName !== 'string' ||
@@ -1076,7 +1092,11 @@ export function HomeV2LiveApp() {
       const isGroupWrite = isHomeV2GroupWriteAction(value.action)
       const isGroupAdminWrite = isHomeV2GroupAdminAction(value.action)
       const isPublish = value.action === 'PUBLISH_QDN_RESOURCE'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish
+      const isPrivateAttachment = value.action === 'PUBLISH_CHAT_ATTACHMENT' ||
+        value.action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
+        value.action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
+        value.action === 'SAVE_CHAT_ATTACHMENT'
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -1103,6 +1123,8 @@ export function HomeV2LiveApp() {
               ? 'group.membership'
               : isPublish
                 ? 'qdn.publish'
+              : isPrivateAttachment
+                ? 'chat.attachment'
               : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
@@ -1117,10 +1139,10 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish
+        title: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
-        summary: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish
+        summary: isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
         details: isChatWrite
@@ -1180,7 +1202,7 @@ export function HomeV2LiveApp() {
                   ? [{ label: 'Lifetime', value: value.writeTimeToLive === 0 ? 'No expiry' : `${value.writeTimeToLive} seconds` }]
                   : []),
               ]
-          : isPublish
+          : isPublish || isPrivateAttachment
             ? [
                 { label: 'Account', value: account?.label ?? value.accountId },
                 { label: 'Operation', value: operationLabel },
@@ -1297,6 +1319,10 @@ export function HomeV2LiveApp() {
         action === 'SAVE_QDN_RESOURCE' ||
         action === 'SELECT_QDN_PUBLISH_SOURCE' ||
         action === 'PUBLISH_QDN_RESOURCE' ||
+        action === 'PUBLISH_CHAT_ATTACHMENT' ||
+        action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
+        action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
+        action === 'SAVE_CHAT_ATTACHMENT' ||
         isHomeV2PublicChatAction(action) ||
         isHomeV2DirectChatReadAction(action) ||
         isHomeV2DirectChatWriteAction(action) ||
@@ -1311,6 +1337,220 @@ export function HomeV2LiveApp() {
         )
         if (!Array.isArray(actions) || !actions.includes(action)) {
           throw new Error(`${action} is unavailable on the configured route.`)
+        }
+      }
+      if (
+        isAndroidHost &&
+        (action === 'PUBLISH_CHAT_ATTACHMENT' ||
+          action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
+          action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
+          action === 'SAVE_CHAT_ATTACHMENT')
+      ) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        if (!account.isUnlocked) throw new Error('The selected account is locked.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
+          throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
+        }
+        const hostInfo = await nodeClient.requestApp(protocol, { action: 'GET_HOST_INFO' }, context)
+        if (!isRecord(hostInfo) || !isRecord(hostInfo.route) || typeof hostInfo.route.revision !== 'string') {
+          throw new Error('Home bridge route identity is unavailable.')
+        }
+        const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+        const parsedApp = (() => {
+          try {
+            const parsed = parseAppResourceLocation(context.resourceLocation)
+            const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+            return {
+              identityKey: buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
+              title: parsed.identity.name,
+            }
+          } catch {
+            return { identityKey: context.resourceLocation || `home-v2-tab:${context.tabId}`, title: 'QDN app' }
+          }
+        })()
+        const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+        const isStillValid = async () => {
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          const currentNode = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          return !!currentTab &&
+            currentTab.context.resourceLocation === context.resourceLocation &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
+            !!currentAccount?.isUnlocked &&
+            currentNode.capabilities.read &&
+            `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute
+        }
+        if (action === 'PUBLISH_CHAT_ATTACHMENT') {
+          if (!vaultClient?.publishPrivateAttachment) throw new Error('Private attachment publishing is unavailable on this platform.')
+          const publishRequest = normalizeHomeV2PrivateAttachmentPublishRequest(protocol, requestValue)
+          const binding: HomeV2PublishSourceBinding = Object.freeze({
+            accountId,
+            appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+            network: targetNetwork,
+            nodeApiUrl: nodeBefore.nodeApiUrl,
+            protocol,
+            routeRevision: hostInfo.route.revision,
+            tabId: context.tabId,
+          })
+          const source = homeV2AndroidPublishSources.resolve(publishRequest.sourceToken, binding)
+          const primaryValue = await nodeClient.requestApp(
+            protocol,
+            { action: 'GET_PRIMARY_NAME', address: account.address },
+            context,
+          )
+          if (!isRecord(primaryValue) || primaryValue.owner !== account.address || typeof primaryValue.name !== 'string' || !primaryValue.name.trim()) {
+            throw new Error('Publishing a private chat attachment requires a current primary name owned by the selected account.')
+          }
+          const sourceBytes = decodeHomeV2AndroidPublishSource(source.dataBase64)
+          const contentHash = await sha256Hex(sourceBytes)
+          sourceBytes.fill(0)
+          const opaqueId = globalThis.crypto.randomUUID().replaceAll('-', '')
+          const sourceMedia = (() => {
+            const bytes = decodeHomeV2AndroidPublishSource(source.dataBase64)
+            try {
+              return sniffPrivateChatAttachmentMediaType(bytes)
+            } finally {
+              bytes.fill(0)
+            }
+          })()
+          const hubImage = targetNetwork === 'qortal' && publishRequest.conversation.kind === 'group' &&
+            isQortalHubCompatiblePrivateImageMediaType(sourceMedia)
+          const service = hubImage ? 'IMAGE' as const : 'QCHAT_ATTACHMENT_PRIVATE' as const
+          const identifier = hubImage
+            ? `grp-q-manager_0_group_${publishRequest.conversation.groupId}_${opaqueId.slice(0, 16)}`
+            : `chat-attachment-${opaqueId}`
+          const requestId = brand<PermissionRequestId>(globalThis.crypto.randomUUID())
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: requestId,
+            protocol,
+            action,
+            capability: 'chat.attachment',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: 'Allow encrypted attachment publication?',
+            summary: `${parsedApp.title} wants to encrypt and publish a private chat attachment as the selected account.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+              { label: 'Resource', value: `${service}/${primaryValue.name}/${identifier}` },
+              { label: 'File', value: source.fileName },
+              { label: 'Size', value: `${source.size.toLocaleString()} bytes` },
+              { label: 'SHA-256', value: contentHash },
+            ],
+            allowedScopes: ['single-request'],
+          }), context.tabId)
+          if (!decision.approved) throw new Error('Private attachment publication was denied.')
+          if (!(await isStillValid())) throw new Error('The app, account, or node route changed before private attachment publishing.')
+          const result = await vaultClient.publishPrivateAttachment({
+            accountId,
+            conversation: publishRequest.conversation,
+            fileName: source.fileName,
+            identifier,
+            isStillValid,
+            network: targetNetwork,
+            nodeApiUrl: nodeBefore.nodeApiUrl,
+            publisherName: primaryValue.name.trim(),
+            service,
+            sourceBase64: source.dataBase64,
+          })
+          if (isRecord(result) && (result.accepted === true || result.outcome === 'unknown')) {
+            homeV2AndroidPublishSources.release(publishRequest.sourceToken)
+          }
+          return result
+        }
+        if (!vaultClient?.decryptPrivateAttachment) throw new Error('Private attachment decryption is unavailable on this platform.')
+        const { descriptor } = normalizeHomeV2PrivateAttachmentAccessRequest(protocol, requestValue)
+        const requestId = brand<PermissionRequestId>(globalThis.crypto.randomUUID())
+        const operation = action === 'SAVE_CHAT_ATTACHMENT'
+          ? 'save'
+          : action === 'OPEN_CHAT_ATTACHMENT_VIEWER'
+            ? 'view'
+            : 'stream'
+        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          id: requestId,
+          protocol,
+          action,
+          capability: 'chat.attachment',
+          appId,
+          appIdentityKey: parsedApp.identityKey,
+          appTitle: parsedApp.title,
+          context: {
+            appId,
+            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+            tabId: brand<TabId>(context.tabId),
+            targetNetwork,
+            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+          },
+          title: `Allow private attachment ${operation}?`,
+          summary: `${parsedApp.title} wants to decrypt and ${operation} a private chat attachment.`,
+          details: [
+            { label: 'Account', value: account.label },
+            { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+            { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+            { label: 'Resource', value: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}` },
+            { label: 'Ciphertext size', value: `${descriptor.ciphertext.size.toLocaleString()} bytes` },
+            { label: 'Ciphertext SHA-256', value: descriptor.ciphertext.hash },
+          ],
+          allowedScopes: ['single-request'],
+        }), context.tabId)
+        if (!decision.approved) throw new Error('Private attachment access was denied.')
+        const decrypted = await vaultClient.decryptPrivateAttachment({
+          accountId,
+          descriptor,
+          isStillValid,
+          nodeApiUrl: nodeBefore.nodeApiUrl,
+        })
+        const bytes = decodeHomeV2AndroidPublishSource(decrypted.dataBase64)
+        try {
+          if (!(await isStillValid())) throw new Error('The app, account, or node route changed after attachment decryption.')
+          if (action === 'SAVE_CHAT_ATTACHMENT') {
+            const { saveBytesToFile } = await import('../platform')
+            return saveBytesToFile(decrypted.fileName, bytes, decrypted.mediaType)
+          }
+          const { authorizeHomeV2AndroidPrivateBytesStream } = await import('./android-app-host')
+          const streamUrl = await authorizeHomeV2AndroidPrivateBytesStream(
+            decrypted.dataBase64,
+            decrypted.mediaType,
+            JSON.stringify({
+              accountId,
+              appIdentity: context.resourceLocation || `home-v2-tab:${context.tabId}`,
+              network: targetNetwork,
+              protocol,
+              routeRevision: hostInfo.route.revision,
+              tabId: context.tabId,
+            }),
+          )
+          if (action === 'GET_CHAT_ATTACHMENT_STREAM_URL') return streamUrl
+          setResourceViewer({
+            filename: decrypted.fileName,
+            identifier: descriptor.resource.identifier,
+            mimeType: decrypted.mediaType,
+            name: descriptor.resource.name,
+            network: targetNetwork,
+            path: null,
+            service: descriptor.resource.service,
+            sourceTabId: context.tabId,
+            streamUrl,
+          })
+          return true
+        } finally {
+          bytes.fill(0)
         }
       }
       if (isAndroidHost && (action === 'SELECT_QDN_PUBLISH_SOURCE' || action === 'PUBLISH_QDN_RESOURCE')) {
@@ -1410,7 +1650,7 @@ export function HomeV2LiveApp() {
           const currentNode = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           return !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
-            currentTab.context.selectedAccountId === accountId &&
+            String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
             !!currentAccount?.isUnlocked &&
             currentNode.capabilities.read &&
             `${currentNode.mode}|${currentNode.nodeApiUrl ?? ''}` === nodeRoute

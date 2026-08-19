@@ -6,6 +6,12 @@
     "path": "src/test/resources/chat/interop/chat-crypto-v1.json",
     "sha256": "cc79c8c827e92c25a530825abd1ffc8ffb477df9cdfebe57b4986a23687a82e6"
   },
+  "qortiumAttachment": {
+    "repository": "https://github.com/QortiumDev/qortium-core.git",
+    "commit": "d0da4036263a057d6f1d25356d19427170d8f93b",
+    "path": "src/test/resources/chat/interop/qenc-attachment-v2.json",
+    "sha256": "d4a5ae15e0d6915f889d0b3b1e92562e3aeaea32495a16842b687cb42eab361a"
+  },
   "qortalFixture": {
     "path": "scripts/fixtures/qortal-chat-interop-v1.json",
     "sha256": "2ed1bbd6c3f4cdf2e5254bb420b5ffec2cb06cec057c986404618c7648406d29"

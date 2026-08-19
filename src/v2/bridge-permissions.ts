@@ -24,6 +24,7 @@ export type PermissionCapability =
   | 'chat.private-group.recover'
   | 'chat.private-group.rotate'
   | 'chat.private-group.send'
+  | 'chat.attachment'
   | 'group.membership'
   | 'group.administration'
 
@@ -52,6 +53,10 @@ export interface PermissionPrompt {
     | 'KICK_FROM_GROUP'
     | 'UNLOCK_SELECTED_ACCOUNT'
     | 'PUBLISH_QDN_RESOURCE'
+    | 'PUBLISH_CHAT_ATTACHMENT'
+    | 'GET_CHAT_ATTACHMENT_STREAM_URL'
+    | 'OPEN_CHAT_ATTACHMENT_VIEWER'
+    | 'SAVE_CHAT_ATTACHMENT'
     | 'SEND_CHAT_DELETE'
     | 'SEND_CHAT_EDIT'
     | 'SEND_CHAT_MESSAGE'

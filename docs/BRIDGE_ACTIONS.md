@@ -108,6 +108,17 @@ SHA-256 content pin. Qortal currently rejects mutable resource metadata. See
 [Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md) for request, result,
 unknown-broadcast, and operator-denial behavior.
 
+Home 2 private chat attachments use `PUBLISH_CHAT_ATTACHMENT`,
+`GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, and
+`SAVE_CHAT_ATTACHMENT` through both globals. They reuse the Home-issued source
+token but never accept inline bytes or paths. Home chooses and authenticates the
+chain-specific encrypted format, publishes only ciphertext, and returns an
+immutable descriptor. Every decrypt/view/save/stream request is a one-request
+`chat.attachment` approval; plaintext is never returned inline, while the
+stream action grants temporary bounded byte access through an opaque URL. See
+[Home 2 private chat attachments](HOME_CHAT_PRIVATE_ATTACHMENTS.md) for the
+descriptor, exact formats, limits, and observable-metadata boundary.
+
 The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
 `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`,

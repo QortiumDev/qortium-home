@@ -13,10 +13,12 @@ import {
 } from '../dist-electron/home-v2-chat-actions.js';
 import {
   loadPinnedQortalChatFixture,
+  loadPinnedQortiumAttachmentFixture,
   loadPinnedQortiumCoreChatFixture,
   mutateHexSource,
   resolveFixtureValue,
   validateQortalFixture,
+  validateQortiumAttachmentFixture,
   validateQortiumCoreFixture,
 } from './lib/chat-interop-fixtures.mjs';
 
@@ -71,6 +73,8 @@ function parseQpgcMessageEnvelope(hex) {
 
 const { fixture: qortium, source: qortiumSource } = loadPinnedQortiumCoreChatFixture();
 validateQortiumCoreFixture(qortium);
+const { fixture: qortiumAttachment, source: qortiumAttachmentSource } = loadPinnedQortiumAttachmentFixture();
+validateQortiumAttachmentFixture(qortiumAttachment);
 
 const qortiumRevision = qortium.chatTransactions.revision;
 const qortiumReference58 = base58Encode(hexBytes(qortiumRevision.chatReference));
@@ -309,5 +313,6 @@ assert.match(qortal.resourceDescriptors.privateGroupImage.embedUri, /encryptionT
 
 console.log(
   `Home chat interop vectors passed: direct Core fixture ${qortiumSource.commit.slice(0, 9)}, ` +
+  `attachment fixture ${qortiumAttachmentSource.commit.slice(0, 9)}, ` +
   `Qortal fixture ${qortalSource.sha256.slice(0, 12)}, crypto/framing negatives and 6 Qortal signatures verified.`,
 );

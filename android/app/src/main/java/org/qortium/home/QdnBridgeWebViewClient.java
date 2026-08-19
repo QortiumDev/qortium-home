@@ -16,6 +16,7 @@ import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -71,7 +72,9 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
      * passed through, so the proxy can never reach an origin Home did not choose.
      */
     private WebResourceResponse serveProxiedQdnRequest(WebResourceRequest request) {
-        if (!isAllowedProxyMethod(request.getMethod())) {
+        boolean streamCapability = QdnRenderProxy.isStreamCapabilityUrl(request.getUrl());
+        if (!isAllowedProxyMethod(request.getMethod()) &&
+            !(streamCapability && "HEAD".equalsIgnoreCase(request.getMethod()))) {
             return forbiddenResponse();
         }
 
@@ -83,6 +86,11 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
 
         if (route == QdnRenderProxy.RouteKind.DENIED) {
             return forbiddenResponse();
+        }
+
+        byte[] privateBytes = QdnRenderProxy.resolvePrivateStreamBytes(request.getUrl());
+        if (privateBytes != null) {
+            return servePrivateBytes(request, privateBytes, QdnRenderProxy.resolvePrivateStreamMimeType(request.getUrl()));
         }
 
         String upstreamUrl = QdnRenderProxy.resolveUpstreamUrl(request.getUrl());
@@ -128,6 +136,78 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         } catch (IOException ignored) {
             return null;
         }
+    }
+
+    private WebResourceResponse servePrivateBytes(
+        WebResourceRequest request,
+        byte[] bytes,
+        String mimeType
+    ) {
+        int total = bytes.length;
+        int start = 0;
+        int end = bytes.length - 1;
+        int status = 200;
+        String range = getRequestHeader(request, "Range");
+        if (!range.isEmpty()) {
+            int[] normalized = normalizePrivateByteRange(range, bytes.length);
+            if (normalized == null) {
+                Arrays.fill(bytes, (byte) 0);
+                return privateRangeNotSatisfiable(bytes.length);
+            }
+            start = normalized[0];
+            end = normalized[1];
+            status = 206;
+        }
+        boolean head = "HEAD".equalsIgnoreCase(request.getMethod());
+        int payloadLength = end - start + 1;
+        byte[] body = head ? new byte[0] : Arrays.copyOfRange(bytes, start, end + 1);
+        Arrays.fill(bytes, (byte) 0);
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Accept-Ranges", "bytes");
+        headers.put("Access-Control-Allow-Origin", "*");
+        headers.put("Cache-Control", "no-store");
+        headers.put("Content-Length", String.valueOf(payloadLength));
+        headers.put("Content-Security-Policy", "default-src 'none'; sandbox");
+        headers.put("Cross-Origin-Resource-Policy", "cross-origin");
+        headers.put("X-Content-Type-Options", "nosniff");
+        if (status == 206) headers.put("Content-Range", "bytes " + start + "-" + end + "/" + total);
+        return new WebResourceResponse(
+            mimeType == null || mimeType.trim().isEmpty() ? "application/octet-stream" : mimeType,
+            null,
+            status,
+            status == 206 ? "Partial Content" : "OK",
+            headers,
+            new ByteArrayInputStream(body)
+        );
+    }
+
+    static int[] normalizePrivateByteRange(String value, int total) {
+        if (value == null || value.trim().isEmpty() || total < 1) return null;
+        Matcher matcher = Pattern.compile("^bytes=(\\d+)-(\\d*)$").matcher(value.trim());
+        if (!matcher.matches()) return null;
+        try {
+            int start = Integer.parseInt(matcher.group(1));
+            int end = matcher.group(2).isEmpty()
+                ? total - 1
+                : Math.min(Integer.parseInt(matcher.group(2)), total - 1);
+            return start < total && end >= start ? new int[] { start, end } : null;
+        } catch (NumberFormatException error) {
+            return null;
+        }
+    }
+
+    private WebResourceResponse privateRangeNotSatisfiable(int total) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Range", "bytes */" + total);
+        headers.put("Cache-Control", "no-store");
+        return new WebResourceResponse(
+            "text/plain",
+            StandardCharsets.UTF_8.name(),
+            416,
+            "Range Not Satisfiable",
+            headers,
+            new ByteArrayInputStream(new byte[0])
+        );
     }
 
     /**
@@ -350,7 +430,7 @@ public class QdnBridgeWebViewClient extends BridgeWebViewClient {
         connection.setReadTimeout(REQUEST_TIMEOUT_MS);
         boolean streamCapability = QdnRenderProxy.isStreamCapabilityUrl(request.getUrl());
         connection.setInstanceFollowRedirects(!streamCapability);
-        connection.setRequestMethod("GET");
+        connection.setRequestMethod("HEAD".equalsIgnoreCase(request.getMethod()) ? "HEAD" : "GET");
 
         for (Map.Entry<String, String> header : request.getRequestHeaders().entrySet()) {
             String name = header.getKey();
