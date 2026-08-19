@@ -129,6 +129,17 @@ rate-limits each app. See [Home 2 app notifications](HOME_V2_APP_NOTIFICATIONS.m
 for the request, result, permission, desktop/Android, and background-watcher
 boundary.
 
+Home 2 exposes route-independent `GET_PENDING_TRANSACTIONS` and
+`FORGET_PENDING_TRANSACTION` on both protocols. Home automatically records an
+opaque account/app/chain/action/target/signature entry when a signed mutation
+returns an unknown broadcast outcome, and blocks a same-target mutation until
+the app reconciles and explicitly forgets that signature. The read uses a
+scoped `transactions.pending.read` approval; forgetting is always a
+single-request `transactions.pending.forget` approval. No message, payload,
+key, native path, or attachment bytes enter the journal. See
+[Home 2 Chat operational completion](HOME_V2_OPERATIONAL_COMPLETION.md) for the
+lifecycle, retention, duplicate-prevention, and platform/route matrix.
+
 The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
 `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`,

@@ -96,6 +96,19 @@ import {
   normalizeHomeV2NotificationRequest,
 } from './home-v2-notification-contract.js'
 import {
+  createHomeV2PendingTransactionFromResult,
+  isHomeV2JournaledMutation,
+  normalizeHomeV2ForgetPendingTransactionRequest,
+  toHomeV2PendingTransactionResult,
+} from './home-v2-transaction-journal.js'
+import {
+  findStoredHomeV2PendingTransactionConflict,
+  forgetHomeV2PendingTransaction,
+  listHomeV2PendingTransactions,
+  recordHomeV2PendingTransaction,
+} from './home-v2-transaction-journal-store.js'
+import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
+import {
   assertHomeV2OpenPublicGroup,
   buildHomeV2QortiumPublicChatBuildBody,
   createHomeV2UnknownChatBroadcastResult,
@@ -287,6 +300,8 @@ type AccountReadAction =
   | HomeV2GroupAdminAction
   | HomeV2PrivateAttachmentAction
   | 'PUBLISH_QDN_RESOURCE'
+  | 'GET_PENDING_TRANSACTIONS'
+  | 'FORGET_PENDING_TRANSACTION'
   | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
   readonly approved: boolean
@@ -295,6 +310,7 @@ type PermissionDecision = {
 
 const pendingAccountReads = new Map<string, {
   readonly hostWebContentsId: number
+  readonly tabId: string
   readonly resolve: (decision: PermissionDecision) => void
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
@@ -305,9 +321,9 @@ const sessionAccountReadGrants = new Set<string>()
 // src/home-v2-live/HomeV2LiveApp.tsx).
 const chatSendRateLimiter = createHomeV2SendRateLimiter()
 
-function homeV2NotificationAppKey(context: QdnViewContext): string {
+function homeV2AppIdentityKey(context: QdnViewContext): string {
   const resourceUrl = context.resourceUrl
-  if (!resourceUrl) throw new Error('Notification request is missing its stable app identity.')
+  if (!resourceUrl) throw new Error('App request is missing its stable app identity.')
   return sanitizeQdnManagerAppKey(resourceUrl)
 }
 
@@ -346,6 +362,7 @@ async function requireHomeV2NotificationPermission(
     }, 60_000)
     pendingAccountReads.set(requestId, {
       hostWebContentsId: hostWindow.webContents.id,
+      tabId: context.tabId,
       resolve,
       timeout,
     })
@@ -380,7 +397,7 @@ async function showHomeV2DesktopNotification(
   requestValue: Record<string, unknown>,
 ) {
   const request = normalizeHomeV2NotificationRequest(protocol, requestValue)
-  const appKey = homeV2NotificationAppKey(context)
+  const appKey = homeV2AppIdentityKey(context)
   await requireHomeV2NotificationPermission(sender, context, protocol, appKey)
   const resultBase = Object.freeze({ network: request.network, source: request.source })
   const grant = readNotificationStore().grants[appKey]
@@ -534,6 +551,11 @@ async function requireAccountReadPermission(
     readonly routeLabel: string
     readonly singleRequestOnly?: boolean
     readonly chatReference?: string | null
+  } | {
+    readonly kind: 'journal'
+    readonly operationLabel: string
+    readonly signature: string
+    readonly targetChainLabel: string
   },
 ) {
   if (!context.accountId) throw new Error('No account is selected for this tab.')
@@ -544,8 +566,9 @@ async function requireAccountReadPermission(
     throw new Error('Account access context changed before approval completed.')
   }
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-  const nodeBefore = await getHomeV2ReadableNode(targetNetwork)
-  const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
+  const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION'
+  const nodeBefore = routeIndependent ? null : await getHomeV2ReadableNode(targetNetwork)
+  const nodeRoute = nodeBefore ? `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}` : 'route-independent'
   const accountUnlocked = isAccountUnlocked(context.accountId)
   const grantKey = [
     accountGrantKey(
@@ -560,9 +583,12 @@ async function requireAccountReadPermission(
       ? `group:${writeDetails.groupId}`
       : writeDetails?.kind === 'direct'
         ? `direct:${writeDetails.otherAddress}`
+        : writeDetails?.kind === 'journal'
+          ? `signature:${writeDetails.signature}`
         : '',
   ].join('|')
   const singleRequestOnly = writeDetails?.kind === 'publish' ||
+    writeDetails?.kind === 'journal' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
@@ -587,6 +613,7 @@ async function requireAccountReadPermission(
     }, 60_000)
     pendingAccountReads.set(requestId, {
       hostWebContentsId: hostWindow.webContents.id,
+      tabId: context.tabId,
       resolve,
       timeout,
     })
@@ -656,6 +683,14 @@ async function requireAccountReadPermission(
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
+          : writeDetails?.kind === 'journal'
+            ? {
+                journalSignature: writeDetails.signature,
+                writeKind: 'journal',
+                writeOperationLabel: writeDetails.operationLabel,
+                writeSingleRequestOnly: true,
+                writeTargetChainLabel: writeDetails.targetChainLabel,
+              }
           : {}),
     })
   })
@@ -675,9 +710,11 @@ async function requireAccountReadPermission(
   } else if (isAccountUnlocked(context.accountId) !== accountUnlocked) {
     throw new Error('Account lock state changed before approval completed.')
   }
-  const nodeAfter = await getHomeV2ReadableNode(targetNetwork)
-  if (`${nodeAfter.mode}|${nodeAfter.nodeApiUrl}` !== nodeRoute) {
-    throw new Error('Account access node route changed before approval completed.')
+  if (!routeIndependent) {
+    const nodeAfter = await getHomeV2ReadableNode(targetNetwork)
+    if (`${nodeAfter.mode}|${nodeAfter.nodeApiUrl}` !== nodeRoute) {
+      throw new Error('Account access node route changed before approval completed.')
+    }
   }
   if (!singleRequestOnly && decision.scope === 'session') sessionAccountReadGrants.add(grantKey)
 }
@@ -4284,12 +4321,38 @@ async function handleRequestWithRuntime(
   const network = getHomeV2AppNetwork(protocol, action)
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {
-      granted: hasNotificationGrant(homeV2NotificationAppKey(context)),
+      granted: hasNotificationGrant(homeV2AppIdentityKey(context)),
       network,
     }
   }
   if (action === 'SHOW_NOTIFICATION') {
     return showHomeV2DesktopNotification(sender, context, protocol, requestValue)
+  }
+  if (action === 'GET_PENDING_TRANSACTIONS') {
+    await requireAccountReadPermission(sender, context, protocol, action)
+    return Object.freeze({
+      entries: Object.freeze(listHomeV2PendingTransactions(app.getPath('userData'), {
+        accountId: context.accountId!,
+        appIdentity: homeV2AppIdentityKey(context),
+        network,
+      }).map(toHomeV2PendingTransactionResult)),
+      network,
+      version: 1 as const,
+    })
+  }
+  if (action === 'FORGET_PENDING_TRANSACTION') {
+    const request = normalizeHomeV2ForgetPendingTransactionRequest(protocol, requestValue)
+    await requireAccountReadPermission(sender, context, protocol, action, {
+      kind: 'journal',
+      operationLabel: 'Forget pending transaction',
+      signature: request.signature,
+      targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+    })
+    return Object.freeze({
+      forgotten: forgetHomeV2PendingTransaction(app.getPath('userData'), request),
+      network,
+      signature: request.signature,
+    })
   }
   if (action === 'IS_USING_PUBLIC_NODE') {
     return hostInfo.route.configuredKind === 'public'
@@ -4676,7 +4739,29 @@ async function handleRequest(
         protocol: 'qdnRequest',
       }),
     }
-    return await handleRequestWithRuntime(
+    if (context.accountId && isHomeV2JournaledMutation(action)) {
+      const pending = findStoredHomeV2PendingTransactionConflict(app.getPath('userData'), {
+        accountId: context.accountId,
+        action,
+        appIdentity: homeV2AppIdentityKey(context),
+        network,
+        request: requestValue,
+      })
+      if (pending) {
+        throw createHomeV2BridgeError(
+          `A previous ${action} for this target has an unknown outcome. Reconcile signature ${pending.signature} before submitting another.`,
+          {
+            action,
+            code: 'PENDING_TRANSACTION_RECONCILIATION_REQUIRED',
+            network,
+            outcome: 'unknown',
+            retryable: false,
+            routeRevision: hostInfo.route.revision,
+          },
+        )
+      }
+    }
+    const result = await handleRequestWithRuntime(
       sender,
       context,
       protocol,
@@ -4685,6 +4770,24 @@ async function handleRequest(
       hostInfo,
       getHomeV2AvailableAppActions(protocol, routes),
     )
+    try {
+      const entry = context.accountId
+        ? createHomeV2PendingTransactionFromResult({
+            accountId: context.accountId,
+            action,
+            appIdentity: homeV2AppIdentityKey(context),
+            protocol,
+            request: requestValue,
+            result,
+          })
+        : null
+      if (!entry) return result
+      recordHomeV2PendingTransaction(app.getPath('userData'), entry)
+      return isHomeV2AppRecord(result) ? Object.freeze({ ...result, journalStored: true }) : result
+    } catch (error) {
+      console.warn('[home-v2-app] Unable to retain an ambiguous signed transaction:', error)
+      return isHomeV2AppRecord(result) ? Object.freeze({ ...result, journalStored: false }) : result
+    }
   } catch (error) {
     throw normalizeHomeV2BridgeError(error, {
       action,
@@ -4695,16 +4798,28 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
-  ipcMain.on('home-v2-app:account-locked', (event) => {
+  const invalidateRuntime = (hostWebContentsId: number, value: unknown) => {
+    const invalidation = normalizeHomeV2RuntimeInvalidation(value)
     sessionAccountReadGrants.clear()
     chatSendRateLimiter.reset()
     homeV2DesktopPublishSources.clear()
     clearHomeV2DesktopResourceStreams()
     for (const [requestId, pending] of pendingAccountReads) {
-      if (pending.hostWebContentsId !== event.sender.id) continue
+      if (pending.hostWebContentsId !== hostWebContentsId) continue
+      if (invalidation.tabId && pending.tabId !== invalidation.tabId) continue
       pendingAccountReads.delete(requestId)
       clearTimeout(pending.timeout)
       pending.resolve({ approved: false, scope: null })
+    }
+  }
+  ipcMain.on('home-v2-app:account-locked', (event) => {
+    invalidateRuntime(event.sender.id, { kind: 'locked' })
+  })
+  ipcMain.on('home-v2-app:invalidate-runtime', (event, value: unknown) => {
+    try {
+      invalidateRuntime(event.sender.id, value)
+    } catch (error) {
+      console.warn('[home-v2-app] Ignoring invalid runtime invalidation:', error)
     }
   })
   ipcMain.on('home-v2-app:permission-resolve', (event, value: unknown) => {

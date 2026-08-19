@@ -28,6 +28,8 @@ export type PermissionCapability =
   | 'group.membership'
   | 'group.administration'
   | 'notifications.show'
+  | 'transactions.pending.read'
+  | 'transactions.pending.forget'
 
 export interface PermissionDetail {
   readonly label: string
@@ -79,6 +81,8 @@ export interface PermissionPrompt {
     | 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
     | 'SEND_PRIVATE_GROUP_CHAT_REACTION'
     | 'SHOW_NOTIFICATION'
+    | 'GET_PENDING_TRANSACTIONS'
+    | 'FORGET_PENDING_TRANSACTION'
   readonly capability: PermissionCapability
   readonly appId: AppId
   readonly appIdentityKey: string

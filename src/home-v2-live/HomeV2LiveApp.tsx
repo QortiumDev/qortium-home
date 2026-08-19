@@ -106,6 +106,18 @@ import {
   homeV2NotificationSourceKey,
   normalizeHomeV2NotificationRequest,
 } from '../../electron/home-v2-notification-contract'
+import {
+  createHomeV2PendingTransactionFromResult,
+  isHomeV2JournaledMutation,
+  normalizeHomeV2ForgetPendingTransactionRequest,
+  toHomeV2PendingTransactionResult,
+} from '../../electron/home-v2-transaction-journal'
+import {
+  findAndroidHomeV2PendingTransactionConflict,
+  forgetAndroidHomeV2PendingTransaction,
+  listAndroidHomeV2PendingTransactions,
+  recordAndroidHomeV2PendingTransaction,
+} from './transaction-journal-store'
 import { sanitizeQdnManagerAppKey } from '../../electron/qdn-manager-permissions'
 import { loadDisplaySettings } from '../displaySettings'
 import {
@@ -581,19 +593,67 @@ export function HomeV2LiveApp() {
     new Map<string, AppTabNavigationController>(),
   )
   const tabSequence = useRef(0)
+  const accountRuntimeFingerprint = useRef<string | null>(null)
+  const nodeRuntimeFingerprint = useRef<string | null>(null)
 
-  useEffect(() => {
+  const invalidateAndroidRuntime = useCallback((
+    kind: 'account-changed' | 'locked' | 'navigation-changed' | 'node-changed' | 'tab-closed',
+    tabId: string | null = null,
+  ) => {
+    setPermissionState((current) =>
+      kind === 'navigation-changed' || kind === 'tab-closed'
+        ? invalidatePermissionState(current, {
+            kind,
+            tabId: brand<TabId>(tabId!),
+          })
+        : invalidatePermissionState(current, { kind: 'locked' }),
+    )
     if (!isAndroidHost) return
+    androidSessionAccountGrants.current.clear()
+    androidChatSendRateLimiter.current.reset()
     homeV2AndroidPublishSources.clear()
     void import('./android-app-host')
       .then(({ releaseHomeV2AndroidResourceStreams }) => releaseHomeV2AndroidResourceStreams())
       .catch(() => undefined)
+    for (const [requestId, meta] of androidPendingPermissionMeta.current) {
+      if (tabId && meta.tabId !== tabId) continue
+      androidPendingPermissionMeta.current.delete(requestId)
+      const resolver = androidPermissionResolvers.current.get(requestId)
+      if (!resolver) continue
+      androidPermissionResolvers.current.delete(requestId)
+      window.clearTimeout(resolver.timeout)
+      resolver.resolve({ approved: false })
+    }
+  }, [isAndroidHost])
+
+  useEffect(() => {
+    const fingerprint = JSON.stringify({
+      accountId: selectedAccountId,
+      accountUnlocked: accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.isUnlocked ?? false,
+    })
+    const previous = accountRuntimeFingerprint.current
+    accountRuntimeFingerprint.current = fingerprint
+    if (previous === null || previous === fingerprint) return
+    invalidateAndroidRuntime('account-changed')
+    window.homeV2Apps?.invalidateRuntime({ kind: 'account-changed' })
   }, [
-    isAndroidHost,
-    productState.activeTabId,
-    productState.tabs.find((tab) => tab.id === productState.activeTabId)?.context.resourceLocation,
+    accountCatalogue.accounts,
+    invalidateAndroidRuntime,
     selectedAccountId,
-    accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.isUnlocked,
+  ])
+
+  useEffect(() => {
+    const fingerprint = JSON.stringify({
+      qortal: [snapshot.nodes.qortal.mode, snapshot.nodes.qortal.nodeApiUrl],
+      qortium: [snapshot.nodes.qortium.mode, snapshot.nodes.qortium.nodeApiUrl],
+    })
+    const previous = nodeRuntimeFingerprint.current
+    nodeRuntimeFingerprint.current = fingerprint
+    if (previous === null || previous === fingerprint) return
+    invalidateAndroidRuntime('node-changed')
+    window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed' })
+  }, [
+    invalidateAndroidRuntime,
     snapshot.nodes.qortal.mode,
     snapshot.nodes.qortal.nodeApiUrl,
     snapshot.nodes.qortium.mode,
@@ -611,12 +671,14 @@ export function HomeV2LiveApp() {
 
   const handleAppNavigationChanged = useCallback(
     (tabId: TabId, navigation: AppTabNavigationSnapshot) => {
+      invalidateAndroidRuntime('navigation-changed', tabId)
+      window.homeV2Apps?.invalidateRuntime({ kind: 'navigation-changed', tabId })
       setAppNavigation((current) => ({
         ...current,
         [tabId]: navigation,
       }))
     },
-    [],
+    [invalidateAndroidRuntime],
   )
 
   const handleAppNavigationControllerChange = useCallback(
@@ -1044,6 +1106,8 @@ export function HomeV2LiveApp() {
         (typeof value.action !== 'string' ||
           (value.action !== 'GET_SELECTED_ACCOUNT' &&
             value.action !== 'GET_USER_ACCOUNT' &&
+            value.action !== 'GET_PENDING_TRANSACTIONS' &&
+            value.action !== 'FORGET_PENDING_TRANSACTION' &&
             value.action !== 'UNLOCK_SELECTED_ACCOUNT' &&
             value.action !== 'PUBLISH_QDN_RESOURCE' &&
             value.action !== 'PUBLISH_CHAT_ATTACHMENT' &&
@@ -1085,6 +1149,12 @@ export function HomeV2LiveApp() {
             typeof value.groupId !== 'number' ||
             typeof value.groupName !== 'string' ||
             typeof value.writeRouteLabel !== 'string'))
+        || (value.action === 'FORGET_PENDING_TRANSACTION' &&
+          (value.writeKind !== 'journal' ||
+            typeof value.journalSignature !== 'string' ||
+            typeof value.writeOperationLabel !== 'string' ||
+            typeof value.writeTargetChainLabel !== 'string' ||
+            value.writeSingleRequestOnly !== true))
         || ((value.action === 'PUBLISH_QDN_RESOURCE' ||
           value.action === 'PUBLISH_CHAT_ATTACHMENT' ||
           value.action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
@@ -1147,7 +1217,9 @@ export function HomeV2LiveApp() {
         value.action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
         value.action === 'SAVE_CHAT_ATTACHMENT'
       const isNotification = value.action === 'SHOW_NOTIFICATION'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification
+      const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
+      const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isJournalForget
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -1178,6 +1250,10 @@ export function HomeV2LiveApp() {
                 ? 'chat.attachment'
               : isNotification
                 ? 'notifications.show'
+              : isJournalForget
+                ? 'transactions.pending.forget'
+              : isJournalRead
+                ? 'transactions.pending.read'
               : 'account.public.read',
         appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
         appIdentityKey,
@@ -1196,11 +1272,19 @@ export function HomeV2LiveApp() {
         },
         title: isNotification
           ? 'Allow app notifications?'
+          : isJournalRead
+            ? 'Allow pending transaction access?'
+          : isJournalForget
+            ? 'Forget pending transaction?'
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
         summary: isNotification
           ? `${appTitle} wants to show system notifications until revoked in Settings.`
+          : isJournalRead
+            ? `${appTitle} wants to read its retained unknown transaction outcomes for this account and chain.`
+          : isJournalForget
+            ? `${appTitle} wants Home to forget one retained transaction after reconciliation.`
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
@@ -1210,6 +1294,19 @@ export function HomeV2LiveApp() {
               { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
               { label: 'Scope', value: 'Until revoked in Settings' },
             ]
+          : isJournalRead
+            ? [
+                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+                { label: 'Data', value: 'Signatures and targets of this app’s unknown transaction outcomes' },
+              ]
+          : isJournalForget
+            ? [
+                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Operation', value: operationLabel },
+                { label: 'Chain', value: String(value.writeTargetChainLabel) },
+                { label: 'Signature', value: String(value.journalSignature) },
+              ]
           : isChatWrite
           ? [
               { label: 'Account', value: account?.label ?? value.accountId },
@@ -1379,6 +1476,39 @@ export function HomeV2LiveApp() {
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
+      const resolveAppIdentity = () => {
+        try {
+          const parsed = parseAppResourceLocation(context.resourceLocation)
+          const identifier = resolveLaunchIdentifier(parsed.identity.identifier, context.resourceLocation)
+          return {
+            identityKey: sanitizeQdnManagerAppKey(
+              buildAppResourceLocation(parsed.sourceNetwork, { ...parsed.identity, identifier }),
+            ),
+            title: parsed.identity.name,
+          }
+        } catch {
+          throw new Error('App request is missing its stable app identity.')
+        }
+      }
+      const retainUnknownTransaction = async (result: unknown) => {
+        if (!context.selectedAccountId) return result
+        try {
+          const entry = createHomeV2PendingTransactionFromResult({
+            accountId: context.selectedAccountId,
+            action,
+            appIdentity: resolveAppIdentity().identityKey,
+            protocol,
+            request: requestValue,
+            result,
+          })
+          if (!entry) return result
+          await recordAndroidHomeV2PendingTransaction(entry)
+          return isRecord(result) ? { ...result, journalStored: true } : result
+        } catch (error) {
+          console.warn('[home-v2-app] Unable to retain an ambiguous signed transaction:', error)
+          return isRecord(result) ? { ...result, journalStored: false } : result
+        }
+      }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
         const parsedApp = (() => {
@@ -1484,6 +1614,108 @@ export function HomeV2LiveApp() {
           : androidNextNotificationId.current + 1
         return { ...resultBase, shown: true }
       }
+      if (isAndroidHost && (action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION')) {
+        if (!context.selectedAccountId) throw new Error('No account is selected for this tab.')
+        const accountId = context.selectedAccountId
+        const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+        if (!account) throw new Error('The selected account is no longer available.')
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const parsedApp = resolveAppIdentity()
+        const forgetRequest = action === 'FORGET_PENDING_TRANSACTION'
+          ? normalizeHomeV2ForgetPendingTransactionRequest(protocol, requestValue)
+          : null
+        const grantKey = [
+          context.tabId,
+          parsedApp.identityKey,
+          accountId,
+          protocol,
+          action,
+          forgetRequest?.signature ?? '',
+        ].join('|')
+        const singleRequestOnly = action === 'FORGET_PENDING_TRANSACTION'
+        if (singleRequestOnly || !androidSessionAccountGrants.current.has(grantKey)) {
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: singleRequestOnly ? 'transactions.pending.forget' : 'transactions.pending.read',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: singleRequestOnly ? 'Forget pending transaction?' : 'Allow pending transaction access?',
+            summary: singleRequestOnly
+              ? `${parsedApp.title} wants Home to forget one retained transaction after reconciliation.`
+              : `${parsedApp.title} wants to read its retained unknown transaction outcomes for this account and chain.`,
+            details: [
+              { label: 'Account', value: account.label },
+              { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+              ...(forgetRequest ? [{ label: 'Signature', value: forgetRequest.signature }] : []),
+            ],
+            allowedScopes: singleRequestOnly ? ['single-request'] : ['single-request', 'session'],
+          }), context.tabId)
+          if (!decision.approved) throw new Error('Account access was denied.')
+          if (!singleRequestOnly && decision.scope === 'session') {
+            androidSessionAccountGrants.current.add(grantKey)
+          }
+          const freshTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          const freshAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
+          if (
+            selectedAccountId !== accountId ||
+            !freshTab ||
+            freshTab.context.resourceLocation !== context.resourceLocation ||
+            !freshAccount
+          ) {
+            throw new Error('Account access context changed before approval completed.')
+          }
+        }
+        if (forgetRequest) {
+          return {
+            forgotten: await forgetAndroidHomeV2PendingTransaction(forgetRequest),
+            network: targetNetwork,
+            signature: forgetRequest.signature,
+          }
+        }
+        return {
+          entries: (await listAndroidHomeV2PendingTransactions({
+            accountId,
+            appIdentity: parsedApp.identityKey,
+            network: targetNetwork,
+          })).map(toHomeV2PendingTransactionResult),
+          network: targetNetwork,
+          version: 1,
+        }
+      }
+      if (isAndroidHost && context.selectedAccountId && isHomeV2JournaledMutation(action)) {
+        const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
+        const pending = await findAndroidHomeV2PendingTransactionConflict({
+          accountId: context.selectedAccountId,
+          action,
+          appIdentity: resolveAppIdentity().identityKey,
+          network: targetNetwork,
+          request: requestValue,
+        })
+        if (pending) {
+          throw Object.assign(
+            new Error(`A previous ${action} for this target has an unknown outcome. Reconcile signature ${pending.signature} before submitting another.`),
+            {
+              action,
+              code: 'PENDING_TRANSACTION_RECONCILIATION_REQUIRED',
+              network: targetNetwork,
+              outcome: 'unknown',
+              retryable: false,
+            },
+          )
+        }
+      }
       if (
         action === 'UNLOCK_SELECTED_ACCOUNT' ||
         action === 'GET_QDN_RESOURCE_STREAM_URL' ||
@@ -1492,6 +1724,8 @@ export function HomeV2LiveApp() {
         action === 'SELECT_QDN_PUBLISH_SOURCE' ||
         action === 'PUBLISH_QDN_RESOURCE' ||
         action === 'PUBLISH_CHAT_ATTACHMENT' ||
+        action === 'GET_PENDING_TRANSACTIONS' ||
+        action === 'FORGET_PENDING_TRANSACTION' ||
         action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
         action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
         action === 'SAVE_CHAT_ATTACHMENT' ||
@@ -1643,7 +1877,7 @@ export function HomeV2LiveApp() {
           if (isRecord(result) && (result.accepted === true || result.outcome === 'unknown')) {
             homeV2AndroidPublishSources.release(publishRequest.sourceToken)
           }
-          return result
+          return retainUnknownTransaction(result)
         }
         if (!vaultClient?.decryptPrivateAttachment) throw new Error('Private attachment decryption is unavailable on this platform.')
         const { descriptor } = normalizeHomeV2PrivateAttachmentAccessRequest(protocol, requestValue)
@@ -1848,7 +2082,7 @@ export function HomeV2LiveApp() {
         if (isRecord(result) && (result.accepted === true || result.outcome === 'unknown')) {
           homeV2AndroidPublishSources.release(publishRequest.sourceToken)
         }
-        return result
+        return retainUnknownTransaction(result)
       }
       if (action === 'GET_QDN_RESOURCE_STREAM_URL') {
         if (!isAndroidHost) return nodeClient.requestApp(protocol, requestValue, context)
@@ -2114,7 +2348,7 @@ export function HomeV2LiveApp() {
         if (!(await checkStillValid())) {
           throw new Error('Account access context changed before the group action could start.')
         }
-        return vaultClient.sendGroupMembership({
+        return retainUnknownTransaction(await vaultClient.sendGroupMembership({
           accountId,
           action,
           groupId: membershipRequest.groupId,
@@ -2126,7 +2360,7 @@ export function HomeV2LiveApp() {
           validateTarget: async () => {
             await validateTarget()
           },
-        })
+        }))
       }
       if (isHomeV2GroupAdminAction(action)) {
         if (!vaultClient?.sendGroupAdmin) {
@@ -2282,7 +2516,7 @@ export function HomeV2LiveApp() {
           `${context.tabId}|${accountId}`,
         )
         if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
-        return vaultClient.sendGroupAdmin({
+        return retainUnknownTransaction(await vaultClient.sendGroupAdmin({
           accountId,
           action: adminRequest.action,
           groupId: adminRequest.groupId,
@@ -2295,7 +2529,7 @@ export function HomeV2LiveApp() {
           network: targetNetwork,
           nodeApiUrl: nodeBefore.nodeApiUrl,
           validateTarget,
-        })
+        }))
       }
       if (isHomeV2PrivateGroupChatReadAction(action) || isHomeV2PrivateGroupChatWriteAction(action)) {
         if (
@@ -2499,7 +2733,7 @@ export function HomeV2LiveApp() {
           )
           if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
         }
-        return vaultClient.sendPrivateGroupChat({
+        return retainUnknownTransaction(await vaultClient.sendPrivateGroupChat({
           accountId,
           action,
           chatReference: privateWriteRequest.chatReference,
@@ -2512,7 +2746,7 @@ export function HomeV2LiveApp() {
           network: privateGroupNetwork,
           nodeApiUrl: nodeBefore.nodeApiUrl,
           validateTarget: validatePrivateGroupTarget,
-        })
+        }))
       }
       if (isHomeV2DirectChatReadAction(action) || isHomeV2DirectChatWriteAction(action)) {
         if (!vaultClient?.readDirectChats || !vaultClient.sendDirectChat || !vaultClient.getSigningPublicKey) {
@@ -2718,7 +2952,7 @@ export function HomeV2LiveApp() {
           `${context.tabId}|${accountId}`,
         )
         if (!rateLimitDecision.allowed) throw new Error(rateLimitDecision.message)
-        return vaultClient.sendDirectChat({
+        return retainUnknownTransaction(await vaultClient.sendDirectChat({
           accountId,
           action,
           chatReference: directWriteRequest.chatReference,
@@ -2728,7 +2962,7 @@ export function HomeV2LiveApp() {
           nodeApiUrl: nodeBefore.nodeApiUrl,
           otherAddress: directWriteRequest.otherAddress,
           validateTarget: validateApprovedDirectTarget,
-        })
+        }))
       }
       if (isHomeV2PublicChatAction(action)) {
         if (!vaultClient?.sendChatMessage || !vaultClient.getSigningPublicKey) {
@@ -2919,6 +3153,7 @@ export function HomeV2LiveApp() {
             (candidate) => candidate.id === accountId,
           )
           if (
+            selectedAccountId !== accountId ||
             !freshTab ||
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
@@ -2933,7 +3168,7 @@ export function HomeV2LiveApp() {
         if (!nodeBeforeSend.nodeApiUrl || !(await checkChatSendStillValid())) {
           throw new Error('Account access context changed before approval completed.')
         }
-        return vaultClient.sendChatMessage({
+        return retainUnknownTransaction(await vaultClient.sendChatMessage({
           accountId,
           action: effectiveAction,
           chatReference: chatRequest.chatReference,
@@ -2943,7 +3178,7 @@ export function HomeV2LiveApp() {
           nodeApiUrl: nodeBeforeSend.nodeApiUrl,
           txGroupId: chatRequest.txGroupId,
           validateTarget,
-        })
+        }))
       }
       if (action !== 'GET_SELECTED_ACCOUNT' && action !== 'GET_USER_ACCOUNT') {
         return nodeClient.requestApp(protocol, requestValue, context)
@@ -3083,6 +3318,8 @@ export function HomeV2LiveApp() {
     mode: NodeConnectionMode,
   ) => {
     if (!nodeClient) return
+    invalidateAndroidRuntime('node-changed')
+    window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed' })
     setBusyNetwork(network)
     setIdentityLookup(null)
     try {
@@ -3111,6 +3348,8 @@ export function HomeV2LiveApp() {
 
   const saveCustomNode = async () => {
     if (!customNetwork || !nodeClient) return
+    invalidateAndroidRuntime('node-changed')
+    window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed' })
     setBusyNetwork(customNetwork)
     setIdentityLookup(null)
     setCustomError(null)
@@ -3499,6 +3738,8 @@ export function HomeV2LiveApp() {
         dispatchProduct({ type: 'activate-tab', tabId })
       }
       onCloseTab={(tabId) => {
+        invalidateAndroidRuntime('tab-closed', tabId)
+        window.homeV2Apps?.invalidateRuntime({ kind: 'tab-closed', tabId })
         void window.homeV2Apps?.destroy({ tabId })
         androidNavigationControllers.current.delete(tabId)
         setAppNavigation((current) => {
@@ -3561,9 +3802,7 @@ export function HomeV2LiveApp() {
       }}
       onLockAccount={() => {
         if (!vaultClient || !selectedVaultAccount) return
-        setPermissionState((current) => invalidatePermissionState(current, { kind: 'locked' }))
-        androidSessionAccountGrants.current.clear()
-        androidChatSendRateLimiter.current.reset()
+        invalidateAndroidRuntime('locked')
         window.homeV2Apps?.accountLocked()
         for (const tab of productState.tabs) {
           const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')

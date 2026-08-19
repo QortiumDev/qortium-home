@@ -2,7 +2,9 @@
 
 Status: active planning and implementation tracker
 
-Home implementation base: `main` at `13d02a1c753a882bfc187d946480ae37043f6680`
+Home implementation base: H7A `main` at
+`5c2f3cad6fe266580d69df583b431c6b5a00589d`; H7B is implemented by the
+current tracked change.
 
 Core implementation baseline: Qortium Core
 `3ac275024d9256cb27cd9ba085a1e2c81f2596da` (C0-C5 complete). The reviewed
@@ -258,7 +260,7 @@ and signing remain local even when the node is authenticated.
 | H4 | Qortium and Qortal private groups | Implemented in Home: H4A Qortium and H4B Qortal; Chat integration and route matrix remain | H0-H3; Core C0-C4; selected Qortal route permits QDN staging for bundle publication |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Complete in Home: H5A viewing/save plus H5B capabilities/source-token public publishing; Chat integration and route matrix remain | H0; selected Qortal route permits public QDN staging |
 | H6 | Private attachments | Implemented in Home; Chat integration and route matrix remain | Core C6; H3-H5 |
-| H7 | Notification, restart/node-switch, and full matrix completion | H7A app notifications implemented; H7B lifecycle and matrix work remains | H0-H6 as applicable |
+| H7 | Notification, restart/node-switch, and full matrix completion | H7A notifications and H7B operational continuity implemented | H0-H6 as applicable |
 
 ## H0 — Shared contracts, discovery, and vectors
 
@@ -693,7 +695,7 @@ This work is developed alongside H0-H6 and is the final completion gate.
 - **H7A implemented:** make app-scoped notifications carry authoritative
   network/source/conversation identity so
   Qortium and Qortal group/DM mentions do not collide.
-- **H7B next:** clear or rebind decrypted caches, approvals, streams, pending crypto work,
+- **H7B implemented:** clear or rebind decrypted caches, approvals, streams, pending crypto work,
   and route capabilities on lock, account switch, node switch, public failover,
   app navigation, tab close, and Home restart.
 - Keep background polling bounded and pause/resume it with platform lifecycle.
@@ -755,12 +757,13 @@ separate ceremonial acceptance phase.
 12. **H7A notifications — implemented:** route-independent app notifications
     with authoritative chain and optional group/direct source identity on
     desktop and Android.
-13. **H7B operational completion — next:** lifecycle invalidation, ambiguous
-    signed-transaction continuity, matrix reconciliation, and release docs.
+13. **H7B operational completion — implemented:** lifecycle invalidation,
+    restart-safe opaque ambiguous-transaction continuity, duplicate blocking,
+    matrix reconciliation, and release docs.
 
-H0-H6 and H7A are now implemented in Home on both host surfaces. H7B is the
-remaining Home milestone before Chat integration: it closes lifecycle state,
-ambiguous-send continuity, and the complete deterministic action matrix.
+H0-H7 are now implemented in Home on both host surfaces. The next work belongs
+to Chat integration: consume the fine-grained actions and pending-transaction
+journal, then complete the product UI against the deterministic matrix.
 
 Each implementation PR updates `QORTIUM-HOME-CHANGELOG.md`, the relevant bridge
 ledger, and focused tests. Crypto and transaction PRs require independent
