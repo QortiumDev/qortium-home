@@ -34,6 +34,23 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - feat(chat): complete Home 2 operational continuity
+
+Home 2 now revokes temporary app authority whenever the selected account,
+unlock state, node route, app navigation, or tab lifecycle changes. Desktop and
+Android clear session approvals, pending prompts, chat rate-limit state,
+publish source tokens, and resource streams at the same boundaries while every
+long-running signing path retains its final context checks. Signed transactions
+whose broadcast outcome is unknown are retained across restart in a bounded,
+app/account/chain-scoped journal containing only the signature, action,
+timestamp, and normalized target—never message text, keys, file bytes, paths,
+or content hashes. Apps can read and explicitly forget their own entries through
+two permissioned route-independent actions; Home blocks another same-target
+mutation until reconciliation prevents a restart or route change from becoming
+a duplicate submission. Deterministic tests now cover both chains across
+desktop local/custom/public and Android custom/public routes. This completes
+Home milestones H0-H7; the next portability work is Chat integration.
+
 ### 2026-08-19 - feat(chat): add chain-qualified Home 2 notifications
 
 Home 2 apps can now request system notifications through either the Qortium or

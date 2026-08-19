@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld('homeV2Vault', {
 
 contextBridge.exposeInMainWorld('homeV2Apps', {
   accountLocked: () => ipcRenderer.send('home-v2-app:account-locked'),
+  invalidateRuntime: (request: unknown) =>
+    ipcRenderer.send('home-v2-app:invalidate-runtime', request),
   capture: (request: unknown) => ipcRenderer.invoke('qdn-views:capture', request),
   destroy: (request: unknown) => ipcRenderer.invoke('qdn-views:destroy', request),
   hide: (request: unknown) => ipcRenderer.invoke('qdn-views:hide', request),

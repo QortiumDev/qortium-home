@@ -577,6 +577,7 @@ declare global {
   interface Window {
     homeV2Apps?: {
       accountLocked(): void
+      invalidateRuntime(request: unknown): void
       capture(request: { tabId: string }): Promise<string | null>
       destroy(request: { tabId: string }): Promise<void>
       hide(request: { tabId: string }): Promise<void>

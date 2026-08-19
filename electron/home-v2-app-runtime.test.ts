@@ -8,6 +8,7 @@ import {
   homeV2BridgeErrorPayload,
   normalizeHomeV2BridgeError,
 } from './home-v2-app-runtime.js'
+import { HOME_V2_RUNTIME_INVALIDATION_KINDS } from './home-v2-runtime-invalidation.js'
 
 const reachablePublic = {
   capabilities: { read: true },
@@ -122,6 +123,8 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   qortal: androidLocalInfo.route,
   qortium: publicInfo.route,
 }), [
+  'FORGET_PENDING_TRANSACTION',
+  'GET_PENDING_TRANSACTIONS',
   'GET_HOST_INFO',
   'IS_USING_PUBLIC_NODE',
   'NOTIFICATION_HAS_PERMISSION',
@@ -144,6 +147,89 @@ const authenticatedCustomInfo = getHomeV2AppHostInfo({
   protocol: 'qdnRequest',
 })
 assert.equal(authenticatedCustomInfo.route.configuredKind, 'custom-authenticated')
+
+const operationalChatActions = [
+  'GET_ACTIVE_CHATS',
+  'SEARCH_CHAT_MESSAGES',
+  'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_EDIT',
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_REACTION',
+  'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  'SEND_DIRECT_CHAT_MESSAGE',
+  'SEND_DIRECT_CHAT_EDIT',
+  'SEND_DIRECT_CHAT_DELETE',
+  'SEND_DIRECT_CHAT_REACTION',
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+  'JOIN_GROUP',
+  'LEAVE_GROUP',
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'INVITE_TO_GROUP',
+  'CANCEL_GROUP_INVITE',
+  'ADD_GROUP_ADMIN',
+  'REMOVE_GROUP_ADMIN',
+  'GROUP_BAN',
+  'CANCEL_GROUP_BAN',
+  'GROUP_KICK',
+  'PUBLISH_QDN_RESOURCE',
+  'PUBLISH_CHAT_ATTACHMENT',
+  'GET_CHAT_ATTACHMENT_STREAM_URL',
+  'OPEN_CHAT_ATTACHMENT_VIEWER',
+  'SAVE_CHAT_ATTACHMENT',
+  'GET_PENDING_TRANSACTIONS',
+  'FORGET_PENDING_TRANSACTION',
+  'SHOW_NOTIFICATION',
+] as const
+const operationalRoutes = [
+  { mode: 'local' as const, platform: 'desktop' as const },
+  { customAuthenticated: true, customConfigured: true, mode: 'custom' as const, platform: 'desktop' as const },
+  { customAuthenticated: false, customConfigured: true, mode: 'custom' as const, platform: 'desktop' as const },
+  { mode: 'public' as const, platform: 'desktop' as const },
+  { customAuthenticated: true, customConfigured: true, mode: 'custom' as const, platform: 'android' as const },
+  { customAuthenticated: false, customConfigured: true, mode: 'custom' as const, platform: 'android' as const },
+  { mode: 'public' as const, platform: 'android' as const },
+] as const
+for (const routeCase of operationalRoutes) {
+  for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
+    const info = getHomeV2AppHostInfo({
+      accountId: 'wallet:one:0',
+      node: {
+        capabilities: { read: true },
+        customAuthenticated: 'customAuthenticated' in routeCase ? routeCase.customAuthenticated : false,
+        customConfigured: 'customConfigured' in routeCase ? routeCase.customConfigured : false,
+        mode: routeCase.mode,
+        nodeApiUrl: routeCase.mode === 'local' ? 'https://127.0.0.1:24891' : 'https://chat-node.example',
+      },
+      platform: routeCase.platform,
+      platformVersion: '2.0',
+      protocol,
+    })
+    const actions = getHomeV2AvailableAppActions(protocol, {
+      qortal: info.route,
+      qortium: info.route,
+    })
+    for (const action of operationalChatActions) {
+      assert.equal(
+        actions.includes(action),
+        true,
+        `${routeCase.platform}/${routeCase.mode}/${protocol} must advertise ${action}`,
+      )
+    }
+  }
+}
+assert.deepEqual(HOME_V2_RUNTIME_INVALIDATION_KINDS, [
+  'account-changed',
+  'locked',
+  'navigation-changed',
+  'node-changed',
+  'tab-closed',
+])
 assert.deepEqual(getHomeV2BridgeStateDetails({
   accountId: 'wallet:one:0',
   nodes: { qortal: reachablePublic, qortium: reachablePublic },

@@ -1545,6 +1545,18 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(liveApp, /androidChatSendRateLimiter[\s\S]{0,40}createHomeV2SendRateLimiter/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.checkAndRecordSend/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.reset\(\)/)
+  // H7B: both host surfaces revoke transient app authority on every runtime
+  // boundary and retain only opaque signed unknown outcomes across restart.
+  assert.match(appBridge, /home-v2-app:invalidate-runtime/)
+  assert.match(appBridge, /normalizeHomeV2RuntimeInvalidation/)
+  assert.match(appBridge, /findStoredHomeV2PendingTransactionConflict/)
+  assert.match(appBridge, /recordHomeV2PendingTransaction/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('account-changed'\)/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed'\)/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('navigation-changed', tabId\)/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('tab-closed', tabId\)/)
+  assert.match(liveApp, /findAndroidHomeV2PendingTransactionConflict/)
+  assert.match(liveApp, /recordAndroidHomeV2PendingTransaction/)
 }
 
 function testShellStateMigratesAddressSelection(): void {
