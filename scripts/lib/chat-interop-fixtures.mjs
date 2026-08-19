@@ -84,6 +84,37 @@ export function loadPinnedQortiumCoreChatFixture() {
   );
 }
 
+export function loadPinnedQortiumAttachmentFixture() {
+  const lock = getInteropSourceLock();
+  const source = assertObject(lock.qortiumAttachment, 'qortiumAttachment source');
+  const failures = [];
+
+  for (const candidate of coreRepositoryCandidates()) {
+    if (!existsSync(candidate)) {
+      failures.push(`${candidate}: not found`);
+      continue;
+    }
+    try {
+      const bytes = readPinnedGitFile(candidate, source);
+      const actualHash = sha256(bytes);
+      if (actualHash !== source.sha256) {
+        throw new Error(`SHA-256 ${actualHash} did not match ${source.sha256}`);
+      }
+      return {
+        fixture: JSON.parse(bytes.toString('utf8')),
+        repositoryPath: candidate,
+        source,
+      };
+    } catch (error) {
+      failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error(
+    `Unable to read the pinned Qortium Core attachment fixture. Set QORTIUM_CORE_REPOSITORY to a Core checkout containing ${source.commit}. ${failures.join('; ')}`,
+  );
+}
+
 export function loadPinnedQortalChatFixture() {
   const lock = getInteropSourceLock();
   const source = assertObject(lock.qortalFixture, 'qortalFixture source');
@@ -206,6 +237,24 @@ export function validateQortiumCoreFixture(fixture) {
     }
   }
   validateCases(fixture, 'Qortium');
+  return fixture;
+}
+
+export function validateQortiumAttachmentFixture(fixture) {
+  assertObject(fixture, 'Qortium attachment fixture');
+  if (fixture.format !== 'qortium-chat-attachment-v2') {
+    throw new Error('Unexpected Qortium attachment fixture format.');
+  }
+  assertHex(fixture.accounts.alice.privateKey, 32, 'Attachment Alice private key');
+  assertHex(fixture.accounts.alice.publicKey, 32, 'Attachment Alice public key');
+  assertHex(fixture.accounts.bob.privateKey, 32, 'Attachment Bob private key');
+  assertHex(fixture.accounts.bob.publicKey, 32, 'Attachment Bob public key');
+  assertHex(fixture.payload.serialized, null, 'QATT payload');
+  assertHex(fixture.direct.envelope, null, 'QENC direct envelope');
+  assertHex(fixture.group.envelope, null, 'QENC group envelope');
+  if (!Array.isArray(fixture.negativeCases) || fixture.negativeCases.length < 4) {
+    throw new Error('Qortium attachment negative cases are incomplete.');
+  }
   return fixture;
 }
 

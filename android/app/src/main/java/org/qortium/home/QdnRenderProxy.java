@@ -1,6 +1,7 @@
 package org.qortium.home;
 
 import android.net.Uri;
+import android.util.Base64;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -195,6 +196,8 @@ final class QdnRenderProxy {
         final String proxyPath;
         final String upstreamQuery;
         final String upstreamUrl;
+        final byte[] privateBytes;
+        final String privateMimeType;
 
         AuthorizedStream(
             String binding,
@@ -202,7 +205,9 @@ final class QdnRenderProxy {
             String proxyHost,
             String proxyPath,
             String upstreamQuery,
-            String upstreamUrl
+            String upstreamUrl,
+            byte[] privateBytes,
+            String privateMimeType
         ) {
             this.binding = binding;
             this.expiresAt = expiresAt;
@@ -210,6 +215,8 @@ final class QdnRenderProxy {
             this.proxyPath = proxyPath;
             this.upstreamQuery = upstreamQuery;
             this.upstreamUrl = upstreamUrl;
+            this.privateBytes = privateBytes;
+            this.privateMimeType = privateMimeType;
         }
     }
 
@@ -272,7 +279,7 @@ final class QdnRenderProxy {
         while (AUTHORIZED_STREAMS.size() >= STREAM_CAPABILITY_MAX_ENTRIES) {
             String oldest = AUTHORIZED_STREAMS.keySet().stream().findFirst().orElse(null);
             if (oldest == null) break;
-            AUTHORIZED_STREAMS.remove(oldest);
+            removeStream(oldest);
         }
         String token = UUID.randomUUID().toString();
         String proxyHost = getLabel(normalizedOrigin) + PROXY_HOST_SUFFIX;
@@ -283,7 +290,9 @@ final class QdnRenderProxy {
             proxyHost,
             resource.getEncodedPath(),
             upstreamQuery,
-            resource.toString()
+            resource.toString(),
+            null,
+            null
         ));
         Uri.Builder proxy = resource.buildUpon()
             .scheme("https")
@@ -295,13 +304,70 @@ final class QdnRenderProxy {
         return proxy.build().toString();
     }
 
+    static String authorizePrivateBytes(String dataBase64, String mimeType, String binding) {
+        if (dataBase64 == null || binding == null || binding.trim().isEmpty()) return null;
+        final byte[] bytes;
+        try {
+            bytes = Base64.decode(dataBase64, Base64.NO_WRAP);
+        } catch (IllegalArgumentException error) {
+            return null;
+        }
+        if (bytes.length < 1 || bytes.length > 1024 * 1024) {
+            Arrays.fill(bytes, (byte) 0);
+            return null;
+        }
+        sweepExpiredStreams();
+        while (AUTHORIZED_STREAMS.size() >= STREAM_CAPABILITY_MAX_ENTRIES) {
+            String oldest = AUTHORIZED_STREAMS.keySet().stream().findFirst().orElse(null);
+            if (oldest == null) break;
+            removeStream(oldest);
+        }
+        String token = UUID.randomUUID().toString();
+        String proxyHost = "private-" + token.substring(0, 8) + PROXY_HOST_SUFFIX;
+        String proxyPath = "/home-v2-private-attachment";
+        byte[] storedBytes = Arrays.copyOf(bytes, bytes.length);
+        Arrays.fill(bytes, (byte) 0);
+        AUTHORIZED_STREAMS.put(token, new AuthorizedStream(
+            binding,
+            System.currentTimeMillis() + STREAM_CAPABILITY_TTL_MS,
+            proxyHost,
+            proxyPath,
+            null,
+            null,
+            storedBytes,
+            sanitizeResponseMimeType(mimeType)
+        ));
+        return new Uri.Builder()
+            .scheme("https")
+            .encodedAuthority(proxyHost)
+            .encodedPath(proxyPath)
+            .appendQueryParameter(STREAM_CAPABILITY_QUERY_PARAM, token)
+            .build()
+            .toString();
+    }
+
+    static byte[] resolvePrivateStreamBytes(Uri url) {
+        AuthorizedStream stream = getAuthorizedStream(url);
+        return stream == null || stream.privateBytes == null
+            ? null
+            : Arrays.copyOf(stream.privateBytes, stream.privateBytes.length);
+    }
+
+    static String resolvePrivateStreamMimeType(Uri url) {
+        AuthorizedStream stream = getAuthorizedStream(url);
+        return stream == null ? null : stream.privateMimeType;
+    }
+
     static void releaseStreams(String binding) {
         if (binding == null || binding.trim().isEmpty()) {
+            for (AuthorizedStream stream : AUTHORIZED_STREAMS.values()) {
+                if (stream.privateBytes != null) Arrays.fill(stream.privateBytes, (byte) 0);
+            }
             AUTHORIZED_STREAMS.clear();
             return;
         }
         for (Map.Entry<String, AuthorizedStream> entry : AUTHORIZED_STREAMS.entrySet()) {
-            if (binding.equals(entry.getValue().binding)) AUTHORIZED_STREAMS.remove(entry.getKey());
+            if (binding.equals(entry.getValue().binding)) removeStream(entry.getKey());
         }
     }
 
@@ -921,7 +987,7 @@ final class QdnRenderProxy {
         AuthorizedStream stream = AUTHORIZED_STREAMS.get(tokens.get(0));
         if (stream == null) return null;
         if (stream.expiresAt <= System.currentTimeMillis()) {
-            AUTHORIZED_STREAMS.remove(tokens.get(0));
+            removeStream(tokens.get(0));
             return null;
         }
         if (
@@ -945,8 +1011,13 @@ final class QdnRenderProxy {
     private static void sweepExpiredStreams() {
         long now = System.currentTimeMillis();
         for (Map.Entry<String, AuthorizedStream> entry : AUTHORIZED_STREAMS.entrySet()) {
-            if (entry.getValue().expiresAt <= now) AUTHORIZED_STREAMS.remove(entry.getKey());
+            if (entry.getValue().expiresAt <= now) removeStream(entry.getKey());
         }
+    }
+
+    private static void removeStream(String token) {
+        AuthorizedStream removed = AUTHORIZED_STREAMS.remove(token);
+        if (removed != null && removed.privateBytes != null) Arrays.fill(removed.privateBytes, (byte) 0);
     }
 
     /** A stable, opaque host label: same node origin, same label, same storage. */

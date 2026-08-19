@@ -1,6 +1,7 @@
 package org.qortium.home;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -550,6 +551,17 @@ public class QdnBridgeWebViewClientTest {
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("HEAD"));
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("POST"));
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod(null));
+    }
+
+    @Test
+    public void privateAttachmentRangesAreSingleBoundedRanges() {
+        assertArrayEquals(new int[] { 0, 9 }, QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=0-", 10));
+        assertArrayEquals(new int[] { 2, 6 }, QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=2-6", 10));
+        assertArrayEquals(new int[] { 8, 9 }, QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=8-99", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=-3", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=3-2", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=0-1,3-4", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=10-", 10));
     }
 
     private static final class CloseAwareInputStream extends FilterInputStream {

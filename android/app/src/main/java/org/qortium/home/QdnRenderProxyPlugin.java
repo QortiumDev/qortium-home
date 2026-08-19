@@ -68,6 +68,22 @@ public class QdnRenderProxyPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void authorizePrivateBytes(PluginCall call) {
+        String streamUrl = QdnRenderProxy.authorizePrivateBytes(
+            call.getString("dataBase64"),
+            call.getString("mimeType"),
+            call.getString("binding")
+        );
+        if (streamUrl == null) {
+            call.reject("Bounded private attachment bytes and a capability binding are required.");
+            return;
+        }
+        JSObject result = new JSObject();
+        result.put("streamUrl", streamUrl);
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void releaseStreams(PluginCall call) {
         QdnRenderProxy.releaseStreams(call.getString("binding"));
         call.resolve();

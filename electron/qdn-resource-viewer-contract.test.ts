@@ -199,6 +199,18 @@ assert(
   'Android resource streams must use exact, expiring native capabilities.',
 );
 assert(
+  androidProxy.includes('authorizePrivateBytes') &&
+    androidProxy.includes('resolvePrivateStreamBytes') &&
+    androidProxy.includes('1024 * 1024'),
+  'Android private attachments must use bounded byte-backed native capabilities.',
+);
+assert(
+  homeV2DesktopStream.includes('issueHomeV2DesktopPrivateBytesStream') &&
+    homeV2DesktopStream.includes('privateByteStreamResponse') &&
+    homeV2DesktopStream.includes('entry.bytes.fill(0)'),
+  'Desktop private attachments must use session-bound byte-backed stream capabilities and wipe released plaintext.',
+);
+assert(
   androidProxy.includes('hasStreamCapabilityParameter(url)') &&
     androidProxy.includes('getAuthorizedStream(url) == null ? RouteKind.DENIED : RouteKind.RENDER'),
   'An invalid or expired Android stream token must fail closed instead of falling through to ordinary proxy authorization.',

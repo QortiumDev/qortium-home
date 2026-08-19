@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-18 - feat(chat): add encrypted private attachments
+
+Home 2 now owns private chat attachment encryption, publication, decryption,
+viewing, streaming, and saving for Qortium and Qortal direct messages and
+closed groups on desktop and Android. Apps receive only an expiring native
+source token and an immutable ciphertext descriptor; native paths, private
+keys, and group keys never cross into the app, and decrypted bytes are exposed
+only through an approved expiring stream capability. Qortium uses
+Core's frozen QATT/QENC v2 contract, Qortal direct files use a distinct marked
+QENC v2 envelope, generic Qortal private-group files use a distinct QATT
+`encryptSingle` type, and Qortal private-group images retain Hub-compatible
+type-2 IMAGE publication. Every access is one-request approved, verifies the
+exact ciphertext size and SHA-256 commitment, rechecks the selected account,
+peer key or current group membership, app/tab, chain, and node route, and uses
+an expiring GET/HEAD/Range capability for decrypted bytes. Ciphertext size,
+timing, and publisher identity remain public metadata, and recipients can
+retain plaintext they already downloaded. This completes Home milestone H6;
+Chat still needs to emit and render the authenticated descriptor.
+
 ### 2026-08-18 - feat(chat): add portable dual-chain public publishing
 
 Home 2 now gives QDN apps a Home-owned public-publish flow through both

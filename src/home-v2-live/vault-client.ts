@@ -4,6 +4,10 @@ import type {
   HomeV2UnlockAccountRequest,
   HomeV2VaultState,
 } from '../v2/contracts'
+import type {
+  HomeV2PrivateAttachmentConversation,
+  HomeV2PrivateAttachmentDescriptor,
+} from '../../electron/home-v2-private-attachment-contract'
 
 export type HomeV2WalletFileSelection =
   | { canceled: true }
@@ -183,6 +187,7 @@ export interface HomeV2PublicPublishMutationRequest {
   readonly accountId: string
   readonly fileName: string
   readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly validateTarget?: () => Promise<void>
   readonly network: 'qortal' | 'qortium'
   readonly nodeApiUrl: string
   readonly resource: {
@@ -195,6 +200,32 @@ export interface HomeV2PublicPublishMutationRequest {
     readonly title?: string
   }
   readonly sourceBase64: string
+}
+
+export interface HomeV2PrivateAttachmentPublishMutationRequest {
+  readonly accountId: string
+  readonly conversation: HomeV2PrivateAttachmentConversation
+  readonly fileName: string
+  readonly identifier: string
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly network: 'qortal' | 'qortium'
+  readonly nodeApiUrl: string
+  readonly publisherName: string
+  readonly service: 'IMAGE' | 'QCHAT_ATTACHMENT_PRIVATE'
+  readonly sourceBase64: string
+}
+
+export interface HomeV2PrivateAttachmentDecryptRequest {
+  readonly accountId: string
+  readonly descriptor: HomeV2PrivateAttachmentDescriptor
+  readonly isStillValid?: () => boolean | Promise<boolean>
+  readonly nodeApiUrl: string
+}
+
+export interface HomeV2PrivateAttachmentDecryptResult {
+  readonly dataBase64: string
+  readonly fileName: string
+  readonly mediaType: string
 }
 
 export interface HomeV2VaultClient {
@@ -230,6 +261,8 @@ export interface HomeV2VaultClient {
   sendGroupAdmin?(request: HomeV2GroupAdminMutationRequest): Promise<HomeV2GroupAdminMutationResult>
   sendGroupMembership?(request: HomeV2GroupMembershipRequest): Promise<HomeV2GroupMembershipResult>
   publishPublicResource?(request: HomeV2PublicPublishMutationRequest): Promise<unknown>
+  publishPrivateAttachment?(request: HomeV2PrivateAttachmentPublishMutationRequest): Promise<unknown>
+  decryptPrivateAttachment?(request: HomeV2PrivateAttachmentDecryptRequest): Promise<HomeV2PrivateAttachmentDecryptResult>
   unlock(request: HomeV2UnlockAccountRequest): Promise<HomeV2VaultState>
   updateSecurity(request: {
     accountId: string

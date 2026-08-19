@@ -13,6 +13,8 @@ export const QORTAL_PRIVATE_GROUP_MAX_MEMBERS = 4_096
 // 4,000-byte CHAT data limit.
 export const QORTAL_PRIVATE_GROUP_MAX_CHAT_DATA_BYTES = 4_000
 export const QORTAL_PRIVATE_GROUP_MAX_PLAINTEXT_BYTES = 2_225
+export const QORTAL_PRIVATE_GROUP_ATTACHMENT_TYPE = 201
+export const QORTAL_PRIVATE_GROUP_MAX_ATTACHMENT_CIPHERTEXT_BYTES = 1024 * 1024
 
 const PUBLIC_KEY_BYTES = 32
 const MESSAGE_KEY_BYTES = 32
@@ -429,6 +431,68 @@ export function decryptQortalPrivateGroupPayload(input: {
   if (plaintext.length < 1 || plaintext.length > QORTAL_PRIVATE_GROUP_MAX_PLAINTEXT_BYTES) {
     throw new Error('Qortal private-group plaintext length is invalid.')
   }
+  return { keyVersion, plaintext, typeNumber }
+}
+
+/**
+ * Hub-compatible current-format encryptSingle for binary attachment bytes.
+ * Unlike CHAT payloads, the result is bounded by the QDN attachment service's
+ * one-mebibyte ciphertext ceiling. Legacy key entries with a fixed nonce are
+ * refused because reusing that nonce for multiple binary resources would be
+ * unsafe.
+ */
+export function encryptQortalPrivateGroupAttachmentPayload(input: {
+  readonly keyRing: QortalPrivateGroupKeyRing
+  readonly nonce?: Uint8Array
+  readonly plaintext: Uint8Array
+  readonly typeNumber?: number
+}) {
+  if (!(input.plaintext instanceof Uint8Array) || input.plaintext.length < 1) {
+    throw new Error('Qortal private-group attachment data is missing.')
+  }
+  const [version, entry] = highestKeyEntry(input.keyRing)
+  if (entry.nonce) {
+    throw new Error('Qortal private-group attachments require a current random-nonce group key version.')
+  }
+  const nonce = input.nonce ?? globalThis.crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
+  requireBytes(nonce, NONCE_BYTES, 'Qortal private-group attachment nonce')
+  const encrypted = nacl.secretbox(input.plaintext, nonce, entry.messageKey)
+  const result = encodeBase64(concatBytes(
+    new TextEncoder().encode(String(version).padStart(KEY_VERSION_DIGITS, '0')),
+    new TextEncoder().encode(String(requireTypeNumber(input.typeNumber ?? QORTAL_PRIVATE_GROUP_ATTACHMENT_TYPE)).padStart(TYPE_DIGITS, '0')),
+    nonce,
+    encrypted,
+  ))
+  if (new TextEncoder().encode(result).length > QORTAL_PRIVATE_GROUP_MAX_ATTACHMENT_CIPHERTEXT_BYTES) {
+    throw new Error('Encrypted Qortal private-group attachment exceeds the 1 MiB resource limit.')
+  }
+  return result
+}
+
+export function decryptQortalPrivateGroupAttachmentPayload(input: {
+  readonly ciphertext: string
+  readonly keyRing: QortalPrivateGroupKeyRing
+  readonly expectedType?: number
+}) {
+  const decoded = decodeCanonicalBase64(
+    input.ciphertext,
+    'Qortal private-group attachment',
+    QORTAL_PRIVATE_GROUP_MAX_ATTACHMENT_CIPHERTEXT_BYTES,
+  )
+  if (decoded.length < KEY_VERSION_DIGITS + TYPE_DIGITS + NONCE_BYTES + nacl.secretbox.overheadLength) {
+    throw new Error('Qortal private-group attachment is truncated.')
+  }
+  const keyVersion = requireKeyVersion(parseAsciiDigits(decoded, 0, KEY_VERSION_DIGITS, 'Qortal private-group key version'))
+  const typeNumber = requireTypeNumber(parseAsciiDigits(decoded, KEY_VERSION_DIGITS, TYPE_DIGITS, 'Qortal private-group attachment type'))
+  if (typeNumber !== (input.expectedType ?? QORTAL_PRIVATE_GROUP_ATTACHMENT_TYPE)) {
+    throw new Error('Qortal private-group attachment type does not match.')
+  }
+  const entry = input.keyRing.get(keyVersion)
+  if (!entry || entry.nonce) throw new Error(`Qortal private-group key version ${keyVersion} is unavailable or legacy-only.`)
+  const nonce = decoded.subarray(KEY_VERSION_DIGITS + TYPE_DIGITS, KEY_VERSION_DIGITS + TYPE_DIGITS + NONCE_BYTES)
+  const encrypted = decoded.subarray(KEY_VERSION_DIGITS + TYPE_DIGITS + NONCE_BYTES)
+  const plaintext = nacl.secretbox.open(encrypted, nonce, entry.messageKey)
+  if (!plaintext || plaintext.length < 1) throw new Error('Qortal private-group attachment authentication failed.')
   return { keyVersion, plaintext, typeNumber }
 }
 

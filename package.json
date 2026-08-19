@@ -75,6 +75,8 @@
     "test:home-v2-chat-actions": "npm run build:electron && node dist-electron/home-v2-chat-actions.test.js",
     "test:home-v2-direct-chat-actions": "npm run build:electron && node dist-electron/home-v2-direct-chat-actions.test.js",
     "test:home-v2-private-group-chat-actions": "npm run build:electron && node dist-electron/home-v2-private-group-chat-actions.test.js",
+    "test:home-v2-private-attachment-actions": "npm run build:electron && node dist-electron/home-v2-private-attachment-actions.test.js",
+    "test:home-v2-private-attachment-contract": "npm run build:electron && node dist-electron/home-v2-private-attachment-contract.test.js",
     "test:home-v2-private-group-chat-contract": "npm run build:electron && node dist-electron/home-v2-private-group-chat-contract.test.js",
     "test:home-v2-private-group-key-store": "npm run build:electron && node dist-electron/home-v2-private-group-key-store.test.js",
     "test:home-v2-qortal-private-group-actions": "npm run build:electron && node dist-electron/home-v2-qortal-private-group-actions.test.js",

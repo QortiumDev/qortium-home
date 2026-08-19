@@ -86,9 +86,10 @@ QDM1 direct messages, QPGC private-group reads/recovery/send, or join/leave.
 Home owns the remaining crypto, approvals, proof of work, signing, field
 attestation, secure key persistence, and app-facing contracts.
 
-Core C6, the corrected QENC private-attachment contract, is deliberately
-deferred. It blocks generic private attachments, not the preceding text-chat
-milestones.
+Core C6 is complete. Its pinned language-neutral fixture freezes QATT payloads
+and QENC v2 direct/group envelopes, sender reopen behavior, bounds, and negative
+vectors. Home H6 implements that contract and separately documents the Qortal
+direct and private-group file wrappers.
 
 ## Current Home gap summary
 
@@ -98,11 +99,11 @@ milestones.
 | Replies | Present in the message payload | Present for Hub-v3 open groups |
 | Public edit/delete/reaction | Edit/delete/reaction implemented | Hub-v3 edit/reaction plus content-clearing empty-edit delete implemented |
 | Direct messages | QDM1 active/history/decrypt/send/revision actions implemented on desktop and Android | Legacy v2 active/history/decrypt/send/revision actions implemented on desktop and Android |
-| Closed/private groups | Missing | Missing |
+| Closed/private groups | Implemented on desktop and Android | Implemented on desktop and Android |
 | Join/leave | Present | Present |
 | User/group avatar read | Dedicated pointer-aware account/group actions | Dedicated named-thumbnail account/group actions |
-| Viewer/stream/save/publish | Small reads/status/URL only | Small reads/status/URL only |
-| Private attachments | Missing | Missing |
+| Viewer/stream/save/publish | Implemented on desktop and Android | Implemented on desktop and Android |
+| Private attachments | Implemented in Home; Chat integration remains | Implemented in Home; Chat integration remains |
 
 The Core-injected gateway bridge remains a Qortium read-only environment. It is
 not a wallet, Qortal, native-viewer, or private-chat portability target.
@@ -221,7 +222,7 @@ Canonical action families are deliberately fine-grained:
 | Private-group reads | `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`, `GET_PRIVATE_GROUP_CHAT_STATE` |
 | Private-group writes | `SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`, `SEND_PRIVATE_GROUP_CHAT_DELETE`, `SEND_PRIVATE_GROUP_CHAT_REACTION`, `REQUEST_PRIVATE_GROUP_CHAT_KEY`, `RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY` |
 | Participation | `JOIN_GROUP`, `LEAVE_GROUP`, followed by exact invite/approval/ban/kick/admin actions |
-| Identity/resources | `FETCH_ACCOUNT_AVATAR`, `FETCH_GROUP_AVATAR`, `FETCH_QDN_RESOURCE`, `OPEN_QDN_RESOURCE_VIEWER`, `GET_QDN_RESOURCE_STREAM_URL`, `SAVE_QDN_RESOURCE`, `SELECT_QDN_PUBLISH_SOURCE`, `PUBLISH_QDN_RESOURCE` |
+| Identity/resources | `FETCH_ACCOUNT_AVATAR`, `FETCH_GROUP_AVATAR`, `FETCH_QDN_RESOURCE`, `OPEN_QDN_RESOURCE_VIEWER`, `GET_QDN_RESOURCE_STREAM_URL`, `SAVE_QDN_RESOURCE`, `SELECT_QDN_PUBLISH_SOURCE`, `PUBLISH_QDN_RESOURCE`, `PUBLISH_CHAT_ATTACHMENT`, `GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, `SAVE_CHAT_ATTACHMENT` |
 
 The same canonical action name has the same app-facing shape on both globals,
 but its implementation and payload codec are network-specific. Released
@@ -256,7 +257,7 @@ and signing remain local even when the node is authenticated.
 | H3 | Qortium and Qortal direct messages | Implemented in Home; end-to-end Chat integration and route matrix remain | H0-H1; Core C0/C2 |
 | H4 | Qortium and Qortal private groups | Implemented in Home: H4A Qortium and H4B Qortal; Chat integration and route matrix remain | H0-H3; Core C0-C4; selected Qortal route permits QDN staging for bundle publication |
 | H5 | Public resource, embed, viewer, stream, save, and publish parity | Complete in Home: H5A viewing/save plus H5B capabilities/source-token public publishing; Chat integration and route matrix remain | H0; selected Qortal route permits public QDN staging |
-| H6 | Private attachments | Blocked/deferred | Core C6 plus Qortal DM/file vectors |
+| H6 | Private attachments | Implemented in Home; Chat integration and route matrix remain | Core C6; H3-H5 |
 | H7 | Notification, restart/node-switch, and full matrix completion | Planned throughout; closes last | H0-H6 as applicable |
 
 ## H0 — Shared contracts, discovery, and vectors
@@ -642,15 +643,16 @@ publishing on both desktop and Android.
 
 ## H6 — Private attachments
 
-Status: deferred until the underlying contracts are complete.
+Status: implemented in Home; corresponding Chat integration remains.
 
 ### Prerequisites
 
 - Qortium Core C6 freezes QENC group/direct headers, KDF/AAD, nonce, complete
   envelope, byte ceilings, sender reopen behavior, and negative vectors.
 - Qortal private-group images retain established Hub compatibility.
-- Generic Qortal DM files and non-image private-group files receive their own
-  written interoperable formats; they are not inferred from `encryptSingle`.
+- Generic Qortal DM files and non-image private-group files use the distinct
+  formats frozen in `HOME_CHAT_PRIVATE_ATTACHMENTS.md`; they are not inferred
+  from the Hub image format.
 
 ### Home changes
 
@@ -677,6 +679,10 @@ Status: deferred until the underlying contracts are complete.
 - Render only the authenticated descriptor returned by Home.
 - Show progress/failure without receiving encryption material.
 - Keep public-link attachments visibly distinct from private encrypted files.
+
+The exact implemented wire formats, descriptor, visibility boundary, and
+desktop/Android capability behavior are frozen in
+`HOME_CHAT_PRIVATE_ATTACHMENTS.md`.
 
 ## H7 — Operational completion
 

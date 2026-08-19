@@ -45,8 +45,34 @@ import {
 } from './qdn-resource-viewer-contract.js'
 import {
   clearHomeV2DesktopResourceStreams,
+  issueHomeV2DesktopPrivateBytesStream,
   issueHomeV2DesktopResourceStream,
 } from './home-v2-desktop-resource-stream.js'
+import {
+  createHomeV2PrivateAttachmentDescriptor,
+  isHomeV2PrivateAttachmentAction,
+  normalizeHomeV2PrivateAttachmentAccessRequest,
+  normalizeHomeV2PrivateAttachmentPublishRequest,
+  type HomeV2PrivateAttachmentAction,
+  type HomeV2PrivateAttachmentDescriptor,
+} from './home-v2-private-attachment-contract.js'
+import {
+  assertPrivateChatAttachmentRecipients,
+  decryptPrivateChatAttachmentForRecipient,
+  decryptPrivateChatGroupAttachment,
+  decryptQortalHubPrivateGroupImage,
+  decryptQortalPrivateChatDirectAttachment,
+  decryptQortalPrivateChatGroupAttachment,
+  encryptPrivateChatDirectAttachment,
+  encryptPrivateChatGroupAttachment,
+  encryptQortalHubPrivateGroupImage,
+  encryptQortalPrivateChatDirectAttachment,
+  encryptQortalPrivateChatGroupAttachment,
+  getQortalPrivateChatDirectQencEnvelope,
+  isQortalHubCompatiblePrivateImageMediaType,
+  parsePrivateChatAttachmentEnvelope,
+  sniffPrivateChatAttachmentMediaType,
+} from './home-v2-private-attachment-actions.js'
 import type { HomeV2ResourceStreamBinding } from './home-v2-resource-stream-capability.js'
 import type { QdnAppRequest } from './qdn-request-values.js'
 import {
@@ -133,7 +159,7 @@ import {
   normalizeHomeV2PublicPublishRequest,
   sha256Hex,
 } from './home-v2-public-publish-contract.js'
-import { publishHomeV2PublicResource } from './home-v2-public-publish.js'
+import { publishHomeV2EncryptedResource, publishHomeV2PublicResource } from './home-v2-public-publish.js'
 import type { HomeV2PublishSourceBinding } from './home-v2-publish-source-tokens.js'
 import {
   appendHomeV2GroupMembershipSignature,
@@ -243,6 +269,7 @@ type AccountReadAction =
   | 'JOIN_GROUP'
   | 'LEAVE_GROUP'
   | HomeV2GroupAdminAction
+  | HomeV2PrivateAttachmentAction
   | 'PUBLISH_QDN_RESOURCE'
   | 'UNLOCK_SELECTED_ACCOUNT'
 type PermissionDecision = {
@@ -700,6 +727,487 @@ async function publishHomeV2PublicPublishSource(
     homeV2DesktopPublishSources.release(request.sourceToken)
   }
   return result
+}
+
+function wipeQortalPrivateGroupKeyRing(keyRing: QortalPrivateGroupKeyRing) {
+  for (const entry of keyRing.values()) {
+    entry.messageKey.fill(0)
+    entry.nonce?.fill(0)
+  }
+}
+
+async function readHomeV2PrimaryPublisherName(
+  nodeApiUrl: string,
+  network: HomeV2AppNetwork,
+  address: string,
+) {
+  const value = await readHomeV2ChatJson(
+    nodeApiUrl,
+    `/names/primary/${encodeURIComponent(address)}`,
+    `${network === 'qortal' ? 'Qortal' : 'Qortium'} primary-name lookup`,
+  )
+  const name = stringField(value, 'name')
+  if (!name || stringField(value, 'owner') !== address) {
+    throw new Error('Publishing a private chat attachment requires a current primary name owned by the selected account.')
+  }
+  return name
+}
+
+async function publishHomeV2PrivateAttachmentSource(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId) throw new Error('No account is selected for this tab.')
+  if (!isAccountUnlocked(context.accountId)) throw createHomeV2BridgeError('The selected account is locked.', {
+    action: 'PUBLISH_CHAT_ATTACHMENT',
+    code: 'ACCOUNT_LOCKED',
+    network,
+    retryable: false,
+    routeRevision,
+  })
+  const accountId = context.accountId
+  const request = normalizeHomeV2PrivateAttachmentPublishRequest(protocol, requestValue)
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const binding = homeV2PublishSourceBinding({
+    context,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    protocol,
+    routeRevision,
+  })
+  const source = homeV2DesktopPublishSources.resolve(request.sourceToken, binding)
+  const sourceBytes = await readHomeV2DesktopPublishSource(source)
+  const sourceHash = await sha256Hex(sourceBytes)
+  const profile = await getAccountProfile(accountId)
+  const publisherName = await readHomeV2PrimaryPublisherName(node.nodeApiUrl, network, profile.address)
+  const mediaType = sniffPrivateChatAttachmentMediaType(sourceBytes)
+  const opaqueId = randomUUID().replaceAll('-', '')
+  const hubImage = network === 'qortal' && request.conversation.kind === 'group' &&
+    isQortalHubCompatiblePrivateImageMediaType(mediaType)
+  const service = hubImage ? 'IMAGE' as const : 'QCHAT_ATTACHMENT_PRIVATE' as const
+  const identifier = hubImage
+    ? `grp-q-manager_0_group_${request.conversation.groupId}_${opaqueId.slice(0, 16)}`
+    : `chat-attachment-${opaqueId}`
+  const approvedSenderPublicKey = getAccountSigningPublicKey(accountId)
+  const apiKey = network === 'qortium'
+    ? await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+    : ''
+  const directBaseline = request.conversation.kind === 'direct'
+    ? await readHomeV2DirectPublicKey(node.nodeApiUrl, network, request.conversation.otherAddress, apiKey)
+    : null
+  const qpgcBaseline = request.conversation.kind === 'group' && network === 'qortium'
+    ? await readHomeV2QpgcState(node.nodeApiUrl, request.conversation.groupId, apiKey)
+    : null
+  const qortalGroupBaseline = request.conversation.kind === 'group' && network === 'qortal'
+    ? await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, request.conversation.groupId)
+    : null
+  if (
+    request.conversation.kind === 'group' &&
+    network === 'qortium' &&
+    (!qpgcBaseline || !qpgcBaseline.memberPublicKeys.some((key) => base58Encode(key) === approvedSenderPublicKey))
+  ) throw createHomeV2BridgeError('The selected account is not a current member of this private group.', {
+    action: 'PUBLISH_CHAT_ATTACHMENT',
+    code: 'NOT_GROUP_MEMBER',
+    network,
+    retryable: false,
+    routeRevision,
+    target: request.conversation,
+  })
+  if (
+    request.conversation.kind === 'group' &&
+    network === 'qortal' &&
+    (!qortalGroupBaseline || !qortalGroupBaseline.memberAddresses.includes(profile.address))
+  ) throw createHomeV2BridgeError('The selected account is not a current member of this private group.', {
+    action: 'PUBLISH_CHAT_ATTACHMENT',
+    code: 'NOT_GROUP_MEMBER',
+    network,
+    retryable: false,
+    routeRevision,
+    target: request.conversation,
+  })
+  await requireAccountReadPermission(sender, context, protocol, 'PUBLISH_CHAT_ATTACHMENT', {
+    kind: 'publish',
+    contentHash: sourceHash,
+    fileName: source.fileName,
+    operationLabel: request.conversation.kind === 'direct'
+      ? 'Encrypt and publish a direct-message attachment'
+      : 'Encrypt and publish a private-group attachment',
+    resourceCoordinate: `${service}/${publisherName}/${identifier}`,
+    routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
+    size: source.size,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const isStillValid = async () => {
+    const fresh = getQdnViewContextForWebContents(sender)
+    if (!fresh || !sameViewContext(context, fresh) || !liveResourceMatchesGrant(fresh) || !isAccountUnlocked(accountId)) return false
+    const current = await getHomeV2ReadableNode(network).catch(() => null)
+    return !!current && `${current.mode}|${current.nodeApiUrl}` === nodeRoute
+  }
+  const validateTarget = async () => {
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed during private attachment publishing.')
+    const currentName = await readHomeV2PrimaryPublisherName(node.nodeApiUrl, network, profile.address)
+    if (currentName !== publisherName) throw new Error('The selected account primary name changed during private attachment publishing.')
+    if (request.conversation.kind === 'direct') {
+      const current = await readHomeV2DirectPublicKey(node.nodeApiUrl, network, request.conversation.otherAddress, apiKey)
+      if (!directBaseline || current.value !== directBaseline.value) throw new Error('Direct attachment recipient public key changed before signing.')
+      return
+    }
+    if (network === 'qortium') {
+      const current = await readHomeV2QpgcState(node.nodeApiUrl, request.conversation.groupId, apiKey)
+      if (
+        !qpgcBaseline ||
+        !current.epochId.every((value, index) => value === qpgcBaseline.epochId[index]) ||
+        !current.memberPublicKeys.some((key) => base58Encode(key) === approvedSenderPublicKey)
+      ) throw new Error('Private-group membership changed before attachment signing.')
+      return
+    }
+    const current = await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, request.conversation.groupId)
+    if (
+      !current.memberAddresses.includes(profile.address) ||
+      !qortalGroupBaseline ||
+      current.memberAddresses.join('|') !== qortalGroupBaseline.memberAddresses.join('|')
+    ) throw new Error('Qortal private-group membership changed before attachment signing.')
+  }
+  await validateTarget()
+  const payload = { data: sourceBytes, filename: source.fileName, mediaType }
+  let ciphertext: Uint8Array
+  let codec: HomeV2PrivateAttachmentDescriptor['codec']
+  const keyMaterial = getAccountSecretKey(accountId)
+  try {
+    if (keyMaterial.address !== profile.address || keyMaterial.publicKey58 !== approvedSenderPublicKey) {
+      throw new Error('Selected account signing key changed before attachment encryption.')
+    }
+    if (request.conversation.kind === 'direct') {
+      ciphertext = network === 'qortium'
+        ? await encryptPrivateChatDirectAttachment({
+            payload,
+            recipientPublicKey: directBaseline!.bytes,
+            senderPublicKey: base58Decode(approvedSenderPublicKey),
+          })
+        : await encryptQortalPrivateChatDirectAttachment({
+            payload,
+            recipientPublicKey: directBaseline!.bytes,
+            senderPublicKey: base58Decode(approvedSenderPublicKey),
+          })
+      codec = network === 'qortium' ? 'qenc-v2-direct' : 'qortal-qatt-direct-v1'
+    } else if (network === 'qortium') {
+      const key = await resolveHomeV2QpgcKey({
+        accountId,
+        apiKey,
+        epochId: qpgcBaseline!.epochId,
+        groupId: request.conversation.groupId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: keyMaterial.secretKey,
+        state: qpgcBaseline!,
+      })
+      if (!key) throw createHomeV2BridgeError('No private-group key is available. Recover or rotate the key first.', {
+        action: 'PUBLISH_CHAT_ATTACHMENT', code: 'MISSING_GROUP_KEY', network, retryable: false,
+        routeRevision, target: request.conversation,
+      })
+      try {
+        ciphertext = await encryptPrivateChatGroupAttachment({
+          epochId: key.epochId,
+          groupId: request.conversation.groupId,
+          groupKey: key.groupKey,
+          keyId: key.keyId,
+          payload,
+        })
+      } finally {
+        key.groupKey.fill(0)
+      }
+      codec = 'qenc-v2-group'
+    } else {
+      const key = await resolveHomeV2QortalPrivateGroupRing({
+        accountId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: keyMaterial.secretKey,
+        state: qortalGroupBaseline!,
+      })
+      if (!key) throw createHomeV2BridgeError('No Qortal private-group key is available. Recover or rotate the key first.', {
+        action: 'PUBLISH_CHAT_ATTACHMENT', code: 'MISSING_GROUP_KEY', network, retryable: false,
+        routeRevision, target: request.conversation,
+      })
+      try {
+        ciphertext = hubImage
+          ? encryptQortalHubPrivateGroupImage({ data: sourceBytes, keyRing: key.keyRing })
+          : await encryptQortalPrivateChatGroupAttachment({ keyRing: key.keyRing, payload })
+      } finally {
+        wipeQortalPrivateGroupKeyRing(key.keyRing)
+      }
+      codec = hubImage ? 'qortal-hub-group-image-v1' : 'qortal-qatt-group-v1'
+    }
+  } finally {
+    keyMaterial.secretKey.fill(0)
+  }
+  await validateTarget()
+  const result = await publishHomeV2EncryptedResource({
+    accountId,
+    fileName: 'private-chat-attachment.bin',
+    isStillValid,
+    network,
+    nodeApiUrl: node.nodeApiUrl,
+    resource: { identifier, name: publisherName, service, tags: [] },
+    serviceId: service === 'IMAGE' ? 400 : 121,
+    sourceBytes: ciphertext,
+    validateTarget,
+  })
+  const descriptor = createHomeV2PrivateAttachmentDescriptor({
+    ciphertextHash: result.contentHash,
+    ciphertextSize: result.size,
+    codec,
+    conversation: request.conversation,
+    identifier,
+    name: publisherName,
+    network,
+    service,
+    transactionSignature: result.transactionSignature,
+  })
+  if (result.accepted || result.outcome === 'unknown') homeV2DesktopPublishSources.release(request.sourceToken)
+  return result.accepted
+    ? Object.freeze({ accepted: true as const, descriptor, transactionSignature: result.transactionSignature })
+    : Object.freeze({
+        accepted: false as const,
+        descriptor,
+        error: result.error,
+        errorType: result.errorType,
+        outcome: result.outcome,
+        retryable: result.retryable,
+        timestamp: result.timestamp,
+        transactionSignature: result.transactionSignature,
+      })
+}
+
+async function readHomeV2PrivateAttachmentCiphertext(
+  nodeApiUrl: string,
+  descriptor: HomeV2PrivateAttachmentDescriptor,
+  apiKey: string,
+) {
+  const resource = descriptor.resource
+  const url = `${nodeApiUrl}/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}?rebuild=true`
+  const response = await nodeFetch(url, {
+    headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(120_000),
+  })
+  if (response.url && new URL(response.url).toString() !== url) {
+    await response.body?.cancel()
+    throw new Error('Private attachment response changed the approved resource URL.')
+  }
+  if (!response.ok) throw new Error(`Private attachment request returned HTTP ${response.status}.`)
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > 1024 * 1024) {
+    await response.body?.cancel()
+    throw new Error('Private attachment ciphertext exceeds the 1 MiB limit.')
+  }
+  const reader = response.body?.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > 1024 * 1024) {
+        await reader.cancel()
+        throw new Error('Private attachment ciphertext exceeds the 1 MiB limit.')
+      }
+      chunks.push(value)
+    }
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  if (
+    bytes.length !== descriptor.ciphertext.size ||
+    await sha256Hex(bytes) !== descriptor.ciphertext.hash
+  ) throw new Error('Private attachment ciphertext does not match its immutable descriptor.')
+  return bytes
+}
+
+function privateAttachmentExtension(mediaType: string) {
+  return new Map([
+    ['application/pdf', 'pdf'],
+    ['image/avif', 'avif'],
+    ['image/gif', 'gif'],
+    ['image/jpeg', 'jpg'],
+    ['image/png', 'png'],
+    ['image/webp', 'webp'],
+  ]).get(mediaType) ?? 'bin'
+}
+
+async function decryptHomeV2PrivateAttachment(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  network: HomeV2AppNetwork,
+  routeRevision: string,
+  action: Exclude<HomeV2PrivateAttachmentAction, 'PUBLISH_CHAT_ATTACHMENT'>,
+  requestValue: Record<string, unknown>,
+) {
+  if (!context.accountId || !isAccountUnlocked(context.accountId)) {
+    throw createHomeV2BridgeError('The selected account is locked.', {
+      action,
+      code: 'ACCOUNT_LOCKED',
+      network,
+      retryable: false,
+      routeRevision,
+    })
+  }
+  const accountId = context.accountId
+  const { descriptor } = normalizeHomeV2PrivateAttachmentAccessRequest(protocol, requestValue)
+  const node = await getHomeV2ReadableNode(network)
+  const nodeRoute = `${node.mode}|${node.nodeApiUrl}`
+  const profile = await getAccountProfile(accountId)
+  const routeLabel = `${node.mode} · ${node.nodeApiUrl}`
+  await requireAccountReadPermission(sender, context, protocol, action, {
+    kind: 'publish',
+    contentHash: descriptor.ciphertext.hash,
+    fileName: 'Encrypted private chat attachment',
+    operationLabel: action === 'SAVE_CHAT_ATTACHMENT'
+      ? 'Decrypt and save a private chat attachment'
+      : action === 'OPEN_CHAT_ATTACHMENT_VIEWER'
+        ? 'Decrypt and view a private chat attachment'
+        : 'Decrypt and stream a private chat attachment',
+    resourceCoordinate: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}`,
+    routeLabel,
+    size: descriptor.ciphertext.size,
+    targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
+  })
+  const baseContextIsStillValid = homeV2ResourceStreamValidator({ context, network, nodeRoute, sender })
+  const isStillValid = async () => isAccountUnlocked(accountId) && await baseContextIsStillValid()
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before attachment decryption.')
+  const approvedPublicKey = getAccountSigningPublicKey(accountId)
+  const apiKey = network === 'qortium'
+    ? await getHomeV2TrustedWriteApiKey(network, node.nodeApiUrl)
+    : ''
+  let peerKey: Awaited<ReturnType<typeof readHomeV2DirectPublicKey>> | null = null
+  let qpgcState: HomeV2QpgcGroupState | null = null
+  let qortalState: HomeV2QortalPrivateGroupState | null = null
+  if (descriptor.conversation.kind === 'direct') {
+    peerKey = await readHomeV2DirectPublicKey(
+      node.nodeApiUrl,
+      network,
+      descriptor.conversation.otherAddress,
+      apiKey,
+    )
+  } else if (network === 'qortium') {
+    qpgcState = await readHomeV2QpgcState(node.nodeApiUrl, descriptor.conversation.groupId, apiKey)
+    if (!qpgcState.memberPublicKeys.some((key) => base58Encode(key) === approvedPublicKey)) {
+      throw createHomeV2BridgeError('The selected account is not a current member of this private group.', {
+        action, code: 'NOT_GROUP_MEMBER', network, retryable: false, routeRevision,
+        target: descriptor.conversation,
+      })
+    }
+  } else {
+    qortalState = await readHomeV2QortalPrivateGroupState(node.nodeApiUrl, descriptor.conversation.groupId)
+    if (!qortalState.memberAddresses.includes(profile.address)) {
+      throw createHomeV2BridgeError('The selected account is not a current member of this private group.', {
+        action, code: 'NOT_GROUP_MEMBER', network, retryable: false, routeRevision,
+        target: descriptor.conversation,
+      })
+    }
+  }
+  const ciphertext = await readHomeV2PrivateAttachmentCiphertext(node.nodeApiUrl, descriptor, apiKey)
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed during attachment fetch.')
+  const keyMaterial = getAccountSecretKey(accountId)
+  try {
+    if (keyMaterial.address !== profile.address || keyMaterial.publicKey58 !== approvedPublicKey) {
+      throw new Error('Selected account signing key changed before attachment decryption.')
+    }
+    let payload: Readonly<{ data: Uint8Array; filename: string; mediaType: string }>
+    if (descriptor.conversation.kind === 'direct') {
+      const qenc = network === 'qortal' ? getQortalPrivateChatDirectQencEnvelope(ciphertext) : ciphertext
+      await assertPrivateChatAttachmentRecipients(qenc, [base58Decode(approvedPublicKey), peerKey!.bytes])
+      payload = network === 'qortal'
+        ? await decryptQortalPrivateChatDirectAttachment({ envelope: ciphertext, selectedAccountSecretKey: keyMaterial.secretKey })
+        : await decryptPrivateChatAttachmentForRecipient({ envelope: ciphertext, selectedAccountSecretKey: keyMaterial.secretKey })
+    } else if (network === 'qortium') {
+      const envelope = parsePrivateChatAttachmentEnvelope(ciphertext)
+      if (envelope.mode !== 'group' || envelope.groupId !== descriptor.conversation.groupId || !envelope.epochId || !envelope.keyId) {
+        throw new Error('Private attachment group context does not match its descriptor.')
+      }
+      const currentEpoch = qpgcState!.epochId.every((value, index) => value === envelope.epochId![index])
+      const key = await resolveHomeV2QpgcKey({
+        accountId,
+        apiKey,
+        epochId: envelope.epochId,
+        groupId: descriptor.conversation.groupId,
+        keyId: envelope.keyId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: keyMaterial.secretKey,
+        ...(currentEpoch ? { state: qpgcState! } : {}),
+      })
+      if (!key) throw createHomeV2BridgeError('No matching private-group attachment key is available.', {
+        action, code: 'MISSING_GROUP_KEY', network, retryable: false, routeRevision,
+        target: descriptor.conversation,
+      })
+      try {
+        payload = await decryptPrivateChatGroupAttachment({
+          envelope: ciphertext,
+          epochId: envelope.epochId,
+          groupId: descriptor.conversation.groupId,
+          groupKey: key.groupKey,
+          keyId: envelope.keyId,
+        })
+      } finally {
+        key.groupKey.fill(0)
+      }
+    } else {
+      const key = await resolveHomeV2QortalPrivateGroupRing({
+        accountId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: keyMaterial.secretKey,
+        state: qortalState!,
+      })
+      if (!key) throw createHomeV2BridgeError('No matching Qortal private-group attachment key is available.', {
+        action, code: 'MISSING_GROUP_KEY', network, retryable: false, routeRevision,
+        target: descriptor.conversation,
+      })
+      try {
+        if (descriptor.codec === 'qortal-hub-group-image-v1') {
+          const data = decryptQortalHubPrivateGroupImage({ ciphertext, keyRing: key.keyRing })
+          const mediaType = sniffPrivateChatAttachmentMediaType(data)
+          if (!isQortalHubCompatiblePrivateImageMediaType(mediaType)) {
+            data.fill(0)
+            throw new Error('Qortal private-group image has an unsupported decrypted media type.')
+          }
+          payload = Object.freeze({ data, filename: `private-image.${privateAttachmentExtension(mediaType)}`, mediaType })
+        } else {
+          payload = await decryptQortalPrivateChatGroupAttachment({ envelope: ciphertext, keyRing: key.keyRing })
+        }
+      } finally {
+        wipeQortalPrivateGroupKeyRing(key.keyRing)
+      }
+    }
+    const sniffed = sniffPrivateChatAttachmentMediaType(payload.data)
+    const mediaType = sniffed === 'application/octet-stream' ? 'application/octet-stream' : sniffed
+    if (!(await isStillValid())) {
+      payload.data.fill(0)
+      throw new Error('The app, account, or node route changed during attachment decryption.')
+    }
+    const bytes = new Uint8Array(payload.data)
+    payload.data.fill(0)
+    return Object.freeze({
+      bytes,
+      filename: sanitizeHomeV2ResourceFilename(payload.filename, `private-attachment.${privateAttachmentExtension(mediaType)}`),
+      isStillValid,
+      mediaType,
+      node,
+      nodeRoute,
+    })
+  } finally {
+    keyMaterial.secretKey.fill(0)
+    ciphertext.fill(0)
+  }
 }
 
 async function readBoundedResponse(
@@ -3663,6 +4171,90 @@ async function handleRequestWithRuntime(
       hostInfo.route.revision,
       requestValue,
     )
+  }
+  if (action === 'PUBLISH_CHAT_ATTACHMENT') {
+    return publishHomeV2PrivateAttachmentSource(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      requestValue,
+    )
+  }
+  if (
+    action === 'GET_CHAT_ATTACHMENT_STREAM_URL' ||
+    action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
+    action === 'SAVE_CHAT_ATTACHMENT'
+  ) {
+    const decrypted = await decryptHomeV2PrivateAttachment(
+      sender,
+      context,
+      protocol,
+      network,
+      hostInfo.route.revision,
+      action,
+      requestValue,
+    )
+    try {
+      if (!(await decrypted.isStillValid())) throw new Error('The app, account, or node route changed after attachment decryption.')
+      if (action === 'GET_CHAT_ATTACHMENT_STREAM_URL') {
+        return issueHomeV2DesktopPrivateBytesStream({
+          binding: homeV2ResourceStreamBinding({
+            context,
+            network,
+            nodeApiUrl: decrypted.node.nodeApiUrl,
+            protocol,
+            routeRevision: hostInfo.route.revision,
+          }),
+          bytes: decrypted.bytes,
+          isStillValid: decrypted.isStillValid,
+          mimeType: decrypted.mediaType,
+          targetSession: sender.session,
+        })
+      }
+      const candidateWindow = BrowserWindow.fromId(context.windowId)
+      const hostWindow = candidateWindow && !candidateWindow.isDestroyed() ? candidateWindow : null
+      if (!hostWindow) throw new Error('The attachment request does not belong to an active Home window.')
+      if (action === 'OPEN_CHAT_ATTACHMENT_VIEWER') {
+        const streamUrl = issueHomeV2DesktopPrivateBytesStream({
+          binding: homeV2ResourceStreamBinding({
+            context,
+            network,
+            nodeApiUrl: decrypted.node.nodeApiUrl,
+            protocol,
+            routeRevision: hostInfo.route.revision,
+          }),
+          bytes: decrypted.bytes,
+          isStillValid: decrypted.isStillValid,
+          mimeType: decrypted.mediaType,
+          targetSession: hostWindow.webContents.session,
+        })
+        const { descriptor } = normalizeHomeV2PrivateAttachmentAccessRequest(protocol, requestValue)
+        hostWindow.webContents.send('home-v2-app:open-resource-viewer', {
+          filename: decrypted.filename,
+          identifier: descriptor.resource.identifier,
+          mimeType: decrypted.mediaType,
+          name: descriptor.resource.name,
+          network,
+          path: null,
+          service: descriptor.resource.service,
+          sourceTabId: context.tabId,
+          streamUrl,
+        })
+        return true
+      }
+      const selection = await dialog.showSaveDialog(hostWindow, {
+        defaultPath: nodePath.join(app.getPath('downloads'), decrypted.filename),
+        title: 'Save private chat attachment',
+      })
+      if (selection.canceled || !selection.filePath) return { canceled: true }
+      if (!(await decrypted.isStillValid())) throw new Error('The app, account, or node route changed before attachment save.')
+      await writeFile(selection.filePath, decrypted.bytes)
+      return { canceled: false }
+    } finally {
+      decrypted.bytes.fill(0)
+    }
   }
   if (action === 'OPEN_NEW_TAB') {
     const address = normalizeHomeV2OpenAddress(requestValue)

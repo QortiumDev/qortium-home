@@ -32,6 +32,7 @@ for (const action of ['FETCH_ACCOUNT_AVATAR', 'FETCH_GROUP_AVATAR']) {
   assert.equal(qdnActions.includes(action), true)
   assert.equal(qortalActions.includes(action), true)
 }
+assert.equal(qdnActions.includes('GET_PRIMARY_NAME'), true)
 assert.equal(qortalActions.includes('GET_ASSET_INFO'), false)
 // SEND_CHAT_MESSAGE ships on both protocols (Chat 2.0 Phase 1,
 // docs/CHAT_2_0_PLAN.md); the desktop and Android send flows share this one
@@ -614,6 +615,10 @@ for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
     'GET_QDN_RESOURCE_STREAM_URL',
     'OPEN_QDN_RESOURCE_VIEWER',
     'SAVE_QDN_RESOURCE',
+    'PUBLISH_CHAT_ATTACHMENT',
+    'GET_CHAT_ATTACHMENT_STREAM_URL',
+    'OPEN_CHAT_ATTACHMENT_VIEWER',
+    'SAVE_CHAT_ATTACHMENT',
   ]) {
     assert.equal(actions.includes(action), true, `${protocol} must advertise ${action}.`)
   }
