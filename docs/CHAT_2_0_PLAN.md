@@ -2,12 +2,15 @@
 
 Last updated: 2026-08-19
 
-Status: accepted and in progress. The implemented on-chain open/group work is
-the foundation, not yet a complete Chat 2.0; Phases 2–3 below are the
-remaining work for the Home 2.0 Chat app. Chat 2.0 is **not release-gated on
-Qortal RCHAT/Reticulum**: the owner decided (2026-08-19) that the separate
-Qortal RCHAT/Reticulum source described below is parked as a possible
-post-2.0 addition, not a requirement for shipping Chat 2.0 under that name.
+Status: **shipped**. Chat 2.0.0 released 2026-08-19, published to Qortium QDN
+(`APP/Chat/Chat`) and Qortal QDN (`APP/xchat/default`, registered name
+`xchat`). Phases 1–3 below — the on-chain open/group foundation, DMs and
+private groups, and the file-sharing upgrade — landed through qortium-chat
+PRs #85–#91. Chat 2.0 was **not release-gated on Qortal RCHAT/Reticulum**: the
+owner decided (2026-08-19) that the separate Qortal RCHAT/Reticulum source
+described below remains parked as a possible post-2.0 addition (Phase 6), not
+part of this release. The phase breakdown, architecture, and decisions below
+are retained as the historical design record.
 
 This plan consolidates the 2026-08-12 investigations into the Android
 custom-node posting failure, Qortal legacy-CHAT status, and proven client-side
@@ -129,8 +132,8 @@ naming the missing endpoint when it does not.
    on Previewnet.
 2. **Phase 2 — DMs and private groups.** Client-side encryption/key handling
    design (replaces v1's key-posting endpoints), both chains; includes the
-   `SEARCH_CHAT_MESSAGES` encrypted-result decision. Plan text only below —
-   nothing in this bullet is implemented yet:
+   `SEARCH_CHAT_MESSAGES` encrypted-result decision. Shipped as part of the
+   2026-08-19 2.0.0 release; the text below is retained as the design record:
    - **Home-side DM decryption, in the trusted layer, for both chains.** For
      a DM transaction the selected account sent or received, Home derives an
      ECDH shared secret from the selected account's private key and the
@@ -158,8 +161,8 @@ naming the missing endpoint when it does not.
    family (QDN publish actions are their own ledger tranche and gate this).
 4. **Later** — host subscription contract to replace polling.
 
-**Release gate (revised 2026-08-19):** Chat 2.0 is complete and releasable once
-Phases 1–3 above land; it is **not gated** on Qortal RCHAT integration. Home's
+**Release gate (revised 2026-08-19):** Chat 2.0 shipped 2026-08-19 with Phases
+1–3 above landed; it was **not gated** on Qortal RCHAT integration. Home's
 Phase 6 Qortal RCHAT integration — a distinct trusted source/action family
 that can recover current RCHAT history and exchange plain-text messages with
 the current community client while leaving the legacy CHAT actions unchanged

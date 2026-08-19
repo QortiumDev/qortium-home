@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - feat(v2): pass the clay accent through to hosted app tabs unchanged
+
+Home 2's app tab stage no longer remaps the `clay` accent to `orange` in the
+postMessage displaySettings bridge sent to hosted QDN apps — it now sends
+`clay` unchanged, matching the render URL's `accent` query parameter, which
+already passed it through raw. Apps that don't yet recognize `clay` simply
+fall back to their own default accent until they republish with clay support;
+this removes the prior inconsistency where an app saw `accent=clay` in its
+URL but `orange` in the UI bridge payload. Separately, `docs/CHAT_2_0_PLAN.md`
+is updated to reflect that Chat 2.0.0 shipped 2026-08-19, published to both
+the Qortium QDN (`APP/Chat/Chat`) and Qortal QDN (`APP/xchat/default`) chains,
+with Phases 1–3 delivered.
+
 ### 2026-08-19 - feat(v2): send hosted apps the modern uiStyle; drop Chat 2.0's RCHAT release gate
 
 Home 2's app tab stage now tells hosted QDN apps to render their `modern`
