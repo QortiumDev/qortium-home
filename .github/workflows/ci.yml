@@ -23,6 +23,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # Home consumes Core's committed chat fixtures directly instead of
+      # transcribing expected bytes. Check out the latest pinned fixture commit
+      # with history so tests can still verify each fixture from its own locked
+      # commit rather than silently following a branch.
+      - name: Checkout pinned Core chat vectors
+        uses: actions/checkout@v6
+        with:
+          repository: QortiumDev/qortium-core
+          ref: d0da4036263a057d6f1d25356d19427170d8f93b
+          path: .interop/qortium-core
+          fetch-depth: 0
+          sparse-checkout: |
+            src/test/resources/chat/interop/chat-crypto-v1.json
+            src/test/resources/chat/interop/qenc-attachment-v2.json
+          sparse-checkout-cone-mode: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -55,6 +71,7 @@ jobs:
         run: npm test
         env:
           MEMORY_POW_TEST_MODE: ${{ github.event_name == 'pull_request' && 'quick' || 'full' }}
+          QORTIUM_CORE_REPOSITORY: ${{ github.workspace }}/.interop/qortium-core
 
   android-unit-test:
     name: Android unit test

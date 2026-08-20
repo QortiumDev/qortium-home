@@ -28,12 +28,61 @@ assert.equal(qortalActions.includes('GET_USER_ACCOUNT'), true)
 assert.equal(qortalActions.includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('UNLOCK_SELECTED_ACCOUNT'), false)
 assert.equal(qortalActions.includes('FETCH_QDN_RESOURCE'), true)
+for (const action of ['FETCH_ACCOUNT_AVATAR', 'FETCH_GROUP_AVATAR']) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
+assert.equal(qdnActions.includes('GET_PRIMARY_NAME'), true)
 assert.equal(qortalActions.includes('GET_ASSET_INFO'), false)
 // SEND_CHAT_MESSAGE ships on both protocols (Chat 2.0 Phase 1,
 // docs/CHAT_2_0_PLAN.md); the desktop and Android send flows share this one
 // catalogue entry.
 assert.equal(qdnActions.includes('SEND_CHAT_MESSAGE'), true)
 assert.equal(qortalActions.includes('SEND_CHAT_MESSAGE'), true)
+for (const action of ['SEND_CHAT_EDIT', 'SEND_CHAT_REACTION']) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
+assert.equal(qdnActions.includes('SEND_CHAT_DELETE'), true)
+// Qortal deletion is a referenced canonical empty Hub-v3 edit. It clears the
+// rendered content without claiming to erase either on-chain transaction.
+assert.equal(qortalActions.includes('SEND_CHAT_DELETE'), true)
+for (const action of ['JOIN_GROUP', 'LEAVE_GROUP']) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
+for (const action of [
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'INVITE_TO_GROUP',
+  'CANCEL_GROUP_INVITE',
+  'ADD_GROUP_ADMIN',
+  'REMOVE_GROUP_ADMIN',
+  'GROUP_BAN',
+  'CANCEL_GROUP_BAN',
+  'GROUP_KICK',
+]) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
+for (const action of ['BAN_FROM_GROUP', 'KICK_FROM_GROUP']) {
+  assert.equal(qdnActions.includes(action), false)
+  assert.equal(qortalActions.includes(action), true)
+}
+for (const action of [
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_CHAT_STATE',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+  'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+]) {
+  assert.equal(qdnActions.includes(action), true)
+  assert.equal(qortalActions.includes(action), true)
+}
 
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 0), 0)
 assert.equal(normalizeHomeV2SendTxGroupId('qdnRequest', 5), 5)
@@ -474,6 +523,10 @@ for (const [name, source] of [
     `${name} must dispatch chain reads through the shared Home v2 builder.`,
   )
   assert(
+    source.includes('fetchHomeV2AvatarAction('),
+    `${name} must dispatch account and group avatars through the shared dual-chain action.`,
+  )
+  assert(
     source.includes("throw new Error('AT not found.')"),
     `${name} must normalize valid-but-absent AT reads to the documented error.`,
   )
@@ -556,5 +609,19 @@ assert.throws(
   }),
   /file paths/,
 )
+for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
+  const actions = getHomeV2AppActions(protocol)
+  for (const action of [
+    'GET_QDN_RESOURCE_STREAM_URL',
+    'OPEN_QDN_RESOURCE_VIEWER',
+    'SAVE_QDN_RESOURCE',
+    'PUBLISH_CHAT_ATTACHMENT',
+    'GET_CHAT_ATTACHMENT_STREAM_URL',
+    'OPEN_CHAT_ATTACHMENT_VIEWER',
+    'SAVE_CHAT_ATTACHMENT',
+  ]) {
+    assert.equal(actions.includes(action), true, `${protocol} must advertise ${action}.`)
+  }
+}
 
 console.log('Home v2 app action contract tests passed.')

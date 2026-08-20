@@ -2,6 +2,8 @@ const TYPE_CREATE_POLL = 8;
 const TYPE_VOTE_ON_POLL = 9;
 const TYPE_ARBITRARY = 10;
 const TYPE_CHAT = 18;
+const TYPE_JOIN_GROUP = 31;
+const TYPE_LEAVE_GROUP = 32;
 const TYPE_UPDATE_POLL = 47;
 
 const PUBLIC_KEY_LENGTH = 32;
@@ -43,6 +45,7 @@ const QDN_SERVICE_IDS: Readonly<Record<string, number>> = Object.freeze({
   PLUGIN: 1410,
   PODCAST: 640,
   PRODUCT: 1310,
+  QCHAT_ATTACHMENT_PRIVATE: 121,
   QCHAT_IMAGE: 420,
   SNAPSHOT: 1710,
   STORE: 1300,
@@ -251,16 +254,30 @@ export function assertPublicUpdatePollTransaction(bytes: Uint8Array, expected: U
   reader.finish();
 }
 
-export type ChatExpected = CommonExpected & { chatReference?: Uint8Array; data: Uint8Array };
+export type ChatExpected = CommonExpected & {
+  chatReference?: Uint8Array;
+  data: Uint8Array;
+  encrypted?: boolean;
+  recipient?: Uint8Array;
+};
 
 export function assertPublicChatTransaction(bytes: Uint8Array, expected: ChatExpected) {
   const label = 'CHAT';
   const reader = new Reader(bytes, label);
   readCommon(reader, TYPE_CHAT, expected, label);
-  assertEqual(reader.readByte('has recipient'), 0, 'recipient', label);
+  const hasRecipient = reader.readByte('has recipient');
+  assertEqual(hasRecipient, expected.recipient ? 1 : 0, 'recipient', label);
+  if (hasRecipient) {
+    assertBytes(
+      reader.readBytes(ADDRESS_LENGTH, 'recipient'),
+      expected.recipient!,
+      'recipient',
+      label,
+    );
+  }
   const dataLength = reader.readInt32('message length');
   assertBytes(reader.readBytes(dataLength, 'message'), expected.data, 'message', label);
-  assertEqual(reader.readByte('encrypted flag'), 0, 'encrypted flag', label);
+  assertEqual(reader.readByte('encrypted flag'), expected.encrypted ? 1 : 0, 'encrypted flag', label);
   assertEqual(reader.readByte('text flag'), 1, 'text flag', label);
   assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
   const hasReference = reader.readByte('has chat reference');
@@ -268,6 +285,52 @@ export function assertPublicChatTransaction(bytes: Uint8Array, expected: ChatExp
   if (hasReference) {
     assertBytes(reader.readBytes(SIGNATURE_LENGTH, 'chat reference'), expected.chatReference!, 'chat reference', label);
   }
+  reader.finish();
+}
+
+export type GroupMembershipExpected = CommonExpected & {
+  groupId: number;
+  mintingPublicKey?: Uint8Array;
+};
+
+export function assertPublicJoinGroupTransaction(
+  bytes: Uint8Array,
+  expected: GroupMembershipExpected,
+) {
+  const label = 'JOIN_GROUP';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_JOIN_GROUP, expected, label);
+  assertEqual(reader.readInt32('group ID'), expected.groupId, 'group ID', label);
+  const optionalBytes = reader.remaining - 8;
+  if (optionalBytes !== 0 && optionalBytes !== PUBLIC_KEY_LENGTH) {
+    throw new Error('Public JOIN_GROUP builder returned malformed optional minting public key bytes.');
+  }
+  if (optionalBytes === PUBLIC_KEY_LENGTH) {
+    if (!expected.mintingPublicKey) {
+      throw new Error('Public JOIN_GROUP builder added an unapproved minting public key.');
+    }
+    assertBytes(
+      reader.readBytes(PUBLIC_KEY_LENGTH, 'minting public key'),
+      expected.mintingPublicKey,
+      'minting public key',
+      label,
+    );
+  } else if (expected.mintingPublicKey) {
+    throw new Error('Public JOIN_GROUP builder omitted the approved minting public key.');
+  }
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
+  reader.finish();
+}
+
+export function assertPublicLeaveGroupTransaction(
+  bytes: Uint8Array,
+  expected: Omit<GroupMembershipExpected, 'mintingPublicKey'>,
+) {
+  const label = 'LEAVE_GROUP';
+  const reader = new Reader(bytes, label);
+  readCommon(reader, TYPE_LEAVE_GROUP, expected, label);
+  assertEqual(reader.readInt32('group ID'), expected.groupId, 'group ID', label);
+  assertEqual(reader.readInt64('fee'), 0n, 'fee', label);
   reader.finish();
 }
 

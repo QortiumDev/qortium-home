@@ -14,6 +14,11 @@ import {
 import { clampWidgetSize } from './widget-sizing.js'
 import { clampRectToDisplays } from './widget-snapping.js'
 import { readWidgetPlacements, saveWidgetPlacement } from './widget-store.js'
+import type {
+  QdnBridgeStateDetail,
+  QdnDisplaySettings,
+} from './qdn-views.js'
+import type { QdnManagerRevisions } from './qdn-manager-events.js'
 
 // package.json sets "type": "module", so this compiles to ESM and __dirname is
 // not defined. electron/main.ts derives it the same way.
@@ -32,6 +37,9 @@ export type CreateWidgetWindowOptions = {
   readonly resourceUrl: string
   readonly nodeOrigin: string
   readonly accountId: string | null
+  readonly bridgeStates: readonly QdnBridgeStateDetail[]
+  readonly displaySettings: QdnDisplaySettings
+  readonly managerRevisions?: QdnManagerRevisions
 }
 
 function centreOnCursorDisplay(width: number, height: number) {
@@ -76,10 +84,12 @@ function watchPlacement(window: BrowserWindow, resourceUrl: string) {
     if (window.isDestroyed()) return
     saveWidgetPlacement(resourceUrl, {
       ...window.getContentBounds(),
-      // Read from the window, not from the registry record. The window is the
-      // only authoritative account of its own opacity, and a record that has
-      // drifted would otherwise write its stale value over a good stored one.
-      opacity: window.getOpacity(),
+      // Electron reports 1 on Linux compositors that do not expose native
+      // per-window opacity, even after setOpacity accepted the requested value.
+      // The registry is the authoritative user selection and keeps placement
+      // persistence stable across those desktops; fall back to the native
+      // value only before registration has completed.
+      opacity: getWidgetByWindowId(window.id)?.opacity ?? window.getOpacity(),
       updatedAt: Date.now(),
     })
   }
@@ -152,6 +162,11 @@ export function createWidgetWindow(options: CreateWidgetWindowOptions): CreatedW
     nodeOrigin: options.nodeOrigin,
   })
   if (options.accountId) query.set('accountId', options.accountId)
+  query.set('bridgeStates', JSON.stringify(options.bridgeStates))
+  query.set('displaySettings', JSON.stringify(options.displaySettings))
+  if (options.managerRevisions) {
+    query.set('managerRevisions', JSON.stringify(options.managerRevisions))
+  }
 
   if (shouldLoadRendererFromDist()) {
     void window.loadFile(path.join(currentDirectory, '../dist/widget.html'), {

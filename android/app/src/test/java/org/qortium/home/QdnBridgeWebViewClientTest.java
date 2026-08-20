@@ -1,6 +1,7 @@
 package org.qortium.home;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -31,6 +32,10 @@ public class QdnBridgeWebViewClientTest {
         assertTrue(homeV2.contains("qortium:qdn-title"));
         assertTrue(homeV2.contains("qortium:qdn-navigation"));
         assertTrue(homeV2.contains("qortium:qdn-navigation-command"));
+        assertTrue(homeV2.contains("qortium:bridge-state-changed"));
+        assertTrue(homeV2.contains("qortiumBridgeStateChanged"));
+        assertTrue(homeV2.contains("data.bridgeToken!==bridgeToken"));
+        assertTrue(homeV2.contains("Object.keys(data.error)"));
     }
 
     @Test
@@ -167,10 +172,12 @@ public class QdnBridgeWebViewClientTest {
         headers.put("content-range", "bytes 1867776-1898556/1898557");
 
         assertEquals(1867776, QdnBridgeWebViewClient.getContentRangeStart(headers));
+        assertEquals(1898557, QdnBridgeWebViewClient.getContentRangeTotal(headers));
 
         headers.put("content-range", "invalid");
 
         assertEquals(0, QdnBridgeWebViewClient.getContentRangeStart(headers));
+        assertEquals(-1, QdnBridgeWebViewClient.getContentRangeTotal(headers));
     }
 
     @Test
@@ -190,6 +197,35 @@ public class QdnBridgeWebViewClientTest {
         }
 
         throw new AssertionError("A transaction response above 512 KiB was accepted.");
+    }
+
+    @Test
+    public void resourceStreamLimitRejectsUndeclaredBodiesAfterTheBound() throws Exception {
+        QdnBridgeWebViewClient.ByteLimitInputStream bulk =
+            new QdnBridgeWebViewClient.ByteLimitInputStream(
+                new ByteArrayInputStream(new byte[] { 1, 2, 3 }),
+                2
+            );
+        byte[] buffer = new byte[3];
+
+        try {
+            bulk.read(buffer);
+        } catch (IOException expected) {
+            QdnBridgeWebViewClient.ByteLimitInputStream single =
+                new QdnBridgeWebViewClient.ByteLimitInputStream(
+                    new ByteArrayInputStream(new byte[] { 1, 2 }),
+                    1
+                );
+            assertEquals(1, single.read());
+            try {
+                single.read();
+            } catch (IOException alsoExpected) {
+                return;
+            }
+            throw new AssertionError("A single-byte stream read exceeded its bound without failing.");
+        }
+
+        throw new AssertionError("A bulk stream read exceeded its bound without failing.");
     }
 
     // Round 4, Defect C (Sol round-3 re-review): the exploit was that
@@ -515,6 +551,17 @@ public class QdnBridgeWebViewClientTest {
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("HEAD"));
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod("POST"));
         assertFalse(QdnBridgeWebViewClient.isAllowedProxyMethod(null));
+    }
+
+    @Test
+    public void privateAttachmentRangesAreSingleBoundedRanges() {
+        assertArrayEquals(new int[] { 0, 9 }, QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=0-", 10));
+        assertArrayEquals(new int[] { 2, 6 }, QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=2-6", 10));
+        assertArrayEquals(new int[] { 8, 9 }, QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=8-99", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=-3", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=3-2", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=0-1,3-4", 10));
+        assertNull(QdnBridgeWebViewClient.normalizePrivateByteRange("bytes=10-", 10));
     }
 
     private static final class CloseAwareInputStream extends FilterInputStream {

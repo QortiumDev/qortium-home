@@ -21,6 +21,7 @@ import { nodeFetch } from './node-tls.js'
 import {
   buildAccountAvatarPath,
   buildAvatarResourcePath,
+  getAvatarDescriptorFromHeaders,
   getAvatarImageContentType,
   getGroupAvatarRetryAfterSeconds,
   GROUP_AVATAR_MAX_BYTES,
@@ -371,6 +372,8 @@ function normalizeNodeSummary(
     state,
     statusText,
     isTrusted: mode === 'local',
+    customAuthenticated:
+      mode === 'custom' && settings.customAuthenticated === true,
     customConfigured: !!stringField(settings, 'customUrl'),
     customUrl: stringField(settings, 'customUrl'),
     ...localCoreSummary(installState, rawLocalStatus),
@@ -468,6 +471,10 @@ async function getRecentSnapshot() {
   return getSnapshot()
 }
 
+export async function getHomeV2AppNodeState(network: NetworkId) {
+  return (await getRecentSnapshot()).nodes[network]
+}
+
 export async function getHomeV2ReadableNode(network: NetworkId) {
   const snapshot = await getRecentSnapshot()
   const node = snapshot.nodes[network]
@@ -550,6 +557,13 @@ export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown
       status: 'unavailable' as const,
     }
   }
+  return readResolvedHomeV2Avatar(network, request)
+}
+
+export async function readResolvedHomeV2Avatar(
+  network: NetworkId,
+  request: { readonly legacyAsync: boolean; readonly path: string },
+) {
   const snapshot = await getRecentSnapshot()
   const node = snapshot.nodes[network]
   if (!node.capabilities.read || !node.nodeApiUrl) {
@@ -565,6 +579,9 @@ export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown
     })
     if (response.status === 202) {
       return {
+        descriptor: getAvatarDescriptorFromHeaders(
+          (name) => response.headers.get(name) ?? undefined,
+        ),
         retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
           response.headers.get('retry-after') ?? undefined,
         ),
@@ -597,6 +614,9 @@ export async function readHomeV2Avatar(network: NetworkId, requestValue: unknown
       body: Buffer.from(bytes).toString('base64'),
       contentLength: bytes.byteLength,
       contentType,
+      descriptor: getAvatarDescriptorFromHeaders(
+        (name) => response.headers.get(name) ?? undefined,
+      ),
       status: 'ready' as const,
     }
   } catch (error) {

@@ -120,22 +120,30 @@ function startFixtureNode() {
   })
 }
 
+const registryModule = JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-registry.js'))
+const interactionModule = JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-interaction.js'))
+
 // Reads every widget window's native state from the main process. `describe`
 // rather than one getter per fact, because each round trip pauses the app.
 const DESCRIBE_WIDGETS = mainRequire(`
   const { BrowserWindow } = require('electron')
+  const registry = require(${registryModule})
   return BrowserWindow.getAllWindows()
     .filter((window) => window.webContents.getURL().includes('widget.html'))
-    .map((window) => ({
-      id: window.id,
-      alwaysOnTop: window.isAlwaysOnTop(),
-      bounds: window.getContentBounds(),
-      frameBounds: window.getBounds(),
-      opacity: window.getOpacity(),
-      resizable: window.isResizable(),
-      url: window.webContents.getURL(),
-      visible: window.isVisible(),
-    }))
+    .map((window) => {
+      const record = registry.getWidgetByWindowId(window.id)
+      return {
+        id: window.id,
+        alwaysOnTop: window.isAlwaysOnTop(),
+        bounds: window.getContentBounds(),
+        frameBounds: window.getBounds(),
+        nativeOpacity: window.getOpacity(),
+        opacity: record ? record.opacity : window.getOpacity(),
+        resizable: window.isResizable(),
+        url: window.webContents.getURL(),
+        visible: window.isVisible(),
+      }
+    })
 `)
 
 const DESCRIBE_HOME_WINDOWS = mainRequire(`
@@ -156,8 +164,14 @@ const ALWAYS_ON_TOP_IS_REPORTED = mainRequire(`
   return reported
 `)
 
-const registryModule = JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-registry.js'))
-const interactionModule = JSON.stringify(path.join(repoRoot, 'dist-electron', 'widget-interaction.js'))
+const NATIVE_OPACITY_IS_REPORTED = mainRequire(`
+  const { BrowserWindow } = require('electron')
+  const control = new BrowserWindow({ height: 80, show: false, transparent: true, width: 120 })
+  control.setOpacity(0.75)
+  const reported = Math.abs(control.getOpacity() - 0.75) < 0.001
+  control.destroy()
+  return reported
+`)
 
 // Number of polygons currently driving hit-testing. The manifest declares one
 // pentagon, so a pushed replacement is only observable in the main process.
@@ -335,6 +349,10 @@ async function assertPermissionGate(home, node, approve) {
   const promptsAfterFirst = await shell.evaluate('window.__widgetPrompts.length')
   assert.equal(promptsAfterFirst, 1, 'The first open must have prompted exactly once.')
 
+  await home.main.evaluate(CLOSE_ALL_WIDGETS)
+  await waitUntil('the first gate widget to close', STEP_TIMEOUT_MS, async () =>
+    (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
+
   const second = await shell.evaluate(
     "window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })",
     STEP_TIMEOUT_MS,
@@ -400,6 +418,10 @@ async function main() {
     } else {
       log('WARNING: this desktop session does not report always-on-top, even for a control window; skipping that assertion')
     }
+    const nativeOpacityReported = await home.main.evaluate(NATIVE_OPACITY_IS_REPORTED)
+    if (!nativeOpacityReported) {
+      log('WARNING: this desktop session does not report native window opacity; checking the persisted user selection instead')
+    }
 
     assert.equal(widget.resizable, true, 'The fixture declares resizable: both.')
     assertDeclaredSize(widget.bounds, { width: 280, height: 120 }, 'the declared default size')
@@ -408,7 +430,7 @@ async function main() {
     // while the app paints into the viewport. If those two ever disagree every
     // declared region silently shifts, so pin them to each other here.
     const face = await home.renderer(
-      (url) => url.startsWith('http') && url.endsWith('/widget.html'),
+      (url) => url.startsWith('http') && new URL(url).pathname.endsWith('/widget.html'),
       'widget face',
     )
     const viewport = await face.evaluate('[window.innerWidth, window.innerHeight]')
@@ -562,7 +584,7 @@ async function main() {
     const fromTab = await appView.evaluate(widgetRequest({ action: 'WIDGET_GET_STATE' }))
     assert.match(
       fromTab.error ?? '',
-      /only available inside a widget/,
+      /unavailable/,
       `A normal tab must not reach widget actions: ${JSON.stringify(fromTab)}`,
     )
     log('widget actions are refused from a normal tab')
@@ -571,13 +593,15 @@ async function main() {
 
     // The shell names a tab; the app view's own context is resolved in the main
     // process, so the request cannot point at a resource the tab is not showing.
-    // The grant is already held for this app, so no second prompt is expected.
+    // Version 1 intentionally has one live window per published resource, so
+    // the toolbar must identify the already-open widget instead of creating a
+    // second window with colliding placement state.
     const viaToolbar = await shell.evaluate(`
       window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })
     `, STEP_TIMEOUT_MS)
-    assert.equal(viaToolbar.ok, true, `The toolbar action failed: ${JSON.stringify(viaToolbar)}`)
-    await waitUntil('a second widget from the toolbar', STEP_TIMEOUT_MS, async () =>
-      (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 2)
+    assert.equal(viaToolbar.ok, false)
+    assert.match(viaToolbar.message ?? '', /already open/)
+    assert.equal((await home.main.evaluate(DESCRIBE_WIDGETS)).length, 1)
 
     // A tab that is not showing an app cannot be opened as a widget.
     const unknownTab = await shell.evaluate(`
@@ -585,13 +609,15 @@ async function main() {
     `)
     assert.equal(unknownTab.ok, false)
     assert.match(unknownTab.message ?? '', /not showing a published app/)
-    log('toolbar "Open as widget" opens a widget and refuses an unknown tab')
+    log('toolbar "Open as widget" enforces one resource instance and refuses an unknown tab')
 
-    // Back to a single widget for the persistence leg below.
-    assert.equal(await home.main.evaluate(clickTray(['Close all 2 widgets'])), 'clicked')
-    await waitUntil('the tray close-all action', STEP_TIMEOUT_MS, async () =>
+    assert.equal(
+      await home.main.evaluate(clickTray([`${APP_NAME}/${APP_IDENTIFIER}`, 'Close'])),
+      'clicked',
+    )
+    await waitUntil('the tray close action', STEP_TIMEOUT_MS, async () =>
       (await home.main.evaluate(DESCRIBE_WIDGETS)).length === 0)
-    log('tray close-all dismissed every widget')
+    log('tray close dismissed the widget')
 
     const reopened = await shell.evaluate(`
       window.homeV2Apps.openAsWidget({ tabId: 'smoke-app' })
@@ -627,6 +653,10 @@ async function main() {
       const [current] = await home.main.evaluate(DESCRIBE_WIDGETS)
       return current && Math.abs(current.opacity - 0.75) < 0.001
     })
+    if (nativeOpacityReported) {
+      const [current] = await home.main.evaluate(DESCRIBE_WIDGETS)
+      assert.ok(Math.abs(current.nativeOpacity - 0.75) < 0.001)
+    }
     const dimmedTray = await home.main.evaluate(DESCRIBE_TRAY)
     const opacityMenu = dimmedTray
       .find((item) => item.label === `${APP_NAME}/${APP_IDENTIFIER}`)
@@ -680,6 +710,9 @@ async function main() {
       Math.abs(after.opacity - 0.75) < 0.001,
       `A widget must reopen at the opacity it was left at, got ${after.opacity}.`,
     )
+    if (nativeOpacityReported) {
+      assert.ok(Math.abs(after.nativeOpacity - 0.75) < 0.001)
+    }
     log('placement and opacity survived a restart')
 
     // Surviving one restart is not enough. A restored widget has to report its

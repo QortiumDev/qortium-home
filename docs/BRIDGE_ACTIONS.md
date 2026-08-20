@@ -43,19 +43,102 @@ separate durable capabilities and revision-checked mutations; see
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
+`CANCEL_GROUP_INVITE`, `ADD_GROUP_ADMIN`, `REMOVE_GROUP_ADMIN`, `GROUP_BAN`,
+`CANCEL_GROUP_BAN`, `GROUP_KICK`,
 `UPDATE_GROUP`, `SET_GROUP_AVATAR`, `SET_ACCOUNT_AVATAR`, `START_MINTING`, `REGISTER_NAME`, `UPDATE_NAME`, `SELL_NAME`,
 `CANCEL_SELL_NAME`, `BUY_NAME`, `SEND_CHAT_MESSAGE`, `SEND_MESSAGE`,
 `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`,
 `GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `RATE_ACCOUNT`, `RATE_RESOURCE`, and
 `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`.
 
-`OPEN_QDN_RESOURCE_VIEWER` and `GET_QDN_RESOURCE_STREAM_URL` are read-only and
-available in every node mode. The first opens Home's existing viewer as a
+Home 2 exposes each group-administration mutation as its own single-request
+permission on both bridge protocols. On `qortalRequest`, stock-app names
+`BAN_FROM_GROUP` and `KICK_FROM_GROUP` are compatibility aliases for canonical
+`GROUP_BAN` and `GROUP_KICK`; they produce the same checked transaction and do
+not create separate permission capabilities.
+
+Home 2 also exposes a portable, fine-grained direct-message family on both
+`qdnRequest` and `qortalRequest`:
+`GET_PRIVATE_DIRECT_ACTIVE_CHATS`, `SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES`,
+`SEND_DIRECT_CHAT_MESSAGE`, `SEND_DIRECT_CHAT_EDIT`,
+`SEND_DIRECT_CHAT_DELETE`, and `SEND_DIRECT_CHAT_REACTION`. Direct reads require
+an unlocked selected account and a scoped `chat.direct.read` approval; writes
+use a single-request `chat.direct.send` approval. Home performs all QDM1 or
+Qortal legacy-v2 key agreement, decryption, encryption, proof of work, field
+attestation, signing, and broadcast inside the trusted host. Apps receive
+plaintext rows or per-row failures but never a private key, shared secret, or
+reusable decryption key.
+
+Home 2 exposes the private-group family on both bridge protocols:
+`GET_PRIVATE_GROUP_ACTIVE_CHATS`, `GET_PRIVATE_GROUP_CHAT_STATE`,
+`SEARCH_PRIVATE_GROUP_CHAT_MESSAGES`, `REQUEST_PRIVATE_GROUP_CHAT_KEY`,
+`RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY`,
+`SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`,
+`SEND_PRIVATE_GROUP_CHAT_DELETE`, and `SEND_PRIVATE_GROUP_CHAT_REACTION`.
+On `qdnRequest`, Home verifies Core's signed QPGC control records and owns key
+recovery, relay, rotation, encryption, decryption, MemoryPoW, signing, and
+encrypted account-bound key persistence. On `qortalRequest`, Home discovers
+only current-administrator `DOCUMENT_PRIVATE` bundles, supports the established
+old/new `encryptSingle` forms, publishes or rotates current-member bundles, and
+uses Qortal's app-level encrypted group CHAT wire. Apps receive plaintext rows
+or explicit missing-key failures but never group keys. If the selected Qortal
+route's operator disables QDN staging, publication/rotation fails with
+`NODE_CAPABILITY_MISSING`; reads and already-keyed message sends remain on that
+same selected route and there is no plaintext or alternate-node fallback.
+
+`OPEN_QDN_RESOURCE_VIEWER`, `GET_QDN_RESOURCE_STREAM_URL`, and
+`SAVE_QDN_RESOURCE` are read-only and available through both Home 2 globals in
+every readable node mode. The first opens Home's public-resource viewer as a
 tab-scoped overlay; the second returns a host-safe ranged URL for inline
-image/audio/video elements. See
+image/audio/video elements; the third opens the platform save picker. The
+invoked global fixes the network, so no action crosses from Qortal to Qortium
+or the reverse. See
 [QDN resource viewing and streaming](QDN_RESOURCE_VIEWER.md) for the request
 shapes, supported services, Android proxy behavior, compatibility actions, and
 lazy-loading guidance.
+
+`SELECT_QDN_PUBLISH_SOURCE` and `PUBLISH_QDN_RESOURCE` are the Home 2 public
+publication pair on both globals. They are advertised only while the invoked
+network has a reachable selected route. Selection returns a 30-minute token
+bound to the app, tab, account, chain, and route; no native path or inline
+bytes cross the bridge. Publication always uses a single-request
+`qdn.publish` approval, verifies current name ownership, stages and attests on
+that exact route, signs locally, and returns a transaction signature plus
+SHA-256 content pin. Qortal currently rejects mutable resource metadata. See
+[Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md) for request, result,
+unknown-broadcast, and operator-denial behavior.
+
+Home 2 private chat attachments use `PUBLISH_CHAT_ATTACHMENT`,
+`GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, and
+`SAVE_CHAT_ATTACHMENT` through both globals. They reuse the Home-issued source
+token but never accept inline bytes or paths. Home chooses and authenticates the
+chain-specific encrypted format, publishes only ciphertext, and returns an
+immutable descriptor. Every decrypt/view/save/stream request is a one-request
+`chat.attachment` approval; plaintext is never returned inline, while the
+stream action grants temporary bounded byte access through an opaque URL. See
+[Home 2 private chat attachments](HOME_CHAT_PRIVATE_ATTACHMENTS.md) for the
+descriptor, exact formats, limits, and observable-metadata boundary.
+
+Home 2 exposes `NOTIFICATION_HAS_PERMISSION` and `SHOW_NOTIFICATION` through
+both bridge protocols without depending on a node route or wallet unlock. The
+invoked protocol fixes the chain; optional group/direct source identity is
+validated and repeated in the result and click event. The first request uses a
+durable, revocable app-scoped `notifications.show` approval. Home visibly
+suffixes every title with the app name and chain, suppresses focused tabs, and
+rate-limits each app. See [Home 2 app notifications](HOME_V2_APP_NOTIFICATIONS.md)
+for the request, result, permission, desktop/Android, and background-watcher
+boundary.
+
+Home 2 exposes route-independent `GET_PENDING_TRANSACTIONS` and
+`FORGET_PENDING_TRANSACTION` on both protocols. Home automatically records an
+opaque account/app/chain/action/target/signature entry when a signed mutation
+returns an unknown broadcast outcome, and blocks a same-target mutation until
+the app reconciles and explicitly forgets that signature. The read uses a
+scoped `transactions.pending.read` approval; forgetting is always a
+single-request `transactions.pending.forget` approval. No message, payload,
+key, native path, or attachment bytes enter the journal. See
+[Home 2 Chat operational completion](HOME_V2_OPERATIONAL_COMPLETION.md) for the
+lifecycle, retention, duplicate-prevention, and platform/route matrix.
 
 The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
@@ -167,6 +250,15 @@ feature-detect and call `FETCH_ACCOUNT_AVATAR` for visible avatar images. This
 keeps the 500-address identity batch from downloading and base64-encoding up to
 500 images while preserving older apps unchanged.
 
+Home 2 advertises both `FETCH_ACCOUNT_AVATAR` and `FETCH_GROUP_AVATAR` on
+`qdnRequest` and `qortalRequest`. The invoked protocol is authoritative and the
+normalized ready/pending result repeats `network: 'qortium' | 'qortal'` so a
+consumer can keep caches chain-scoped. Qortium resolves the on-chain pointer
+contract described below. Qortal has no equivalent pointer transaction, so it
+uses `THUMBNAIL/<primaryName>/qortal_avatar` for accounts and
+`THUMBNAIL/<ownerPrimaryName>/qortal_group_avatar_<groupId>` for groups. Home
+never falls back from one protocol to the other.
+
 `FETCH_GROUP_AVATAR` accepts a positive `groupId` (or `txGroupId`), while
 `FETCH_ACCOUNT_AVATAR` accepts an `address` (or uses the selected account).
 Both are read-only, public-node-safe actions. They query Core's exact-avatar
@@ -210,6 +302,11 @@ Publishing and pointer assignment remain deliberately separate actions.
 
 ## Publishing sources
 
+Home 2's clean, network-qualified single-resource replacement is documented in
+[Home 2 public QDN publishing](QDN_PUBLIC_PUBLISHING.md). The following broader
+inline/directory/multi-resource and preview surface describes only the retained
+compatibility bridge; Home 2 does not advertise those legacy variants.
+
 Single-resource publishing can use inline `data64`/`base64` payloads or a
 Home-owned file/folder picker on desktop and a Home-owned single-file native
 picker on Android. `SELECT_QDN_PUBLISH_SOURCE` can return a `sourceToken` and
@@ -249,10 +346,12 @@ to `PREVIEW_QDN_PUBLISH_SOURCE`.
 
 Publish/delete, group, and name write requests require
 per-request approval before Home signs and processes the transaction with the
-selected tab account. Chat sends and private closed-group reads use a
-session-scoped approval for the current tab and selected account; direct private
-chat sends and reads use Core-managed direct-message helpers so QDN apps never
-receive wallet private keys or generic signing capability.
+selected tab account. Public/private chat sends use their scoped chat approval;
+private-group key request, relay, and rotation are always single-request.
+Private-group and direct reads may use a tab-session grant for the exact
+account, conversation, route, and app identity. Home performs the crypto and
+signing locally so QDN apps never receive wallet private keys, reusable chat
+keys, or generic signing capability.
 
 ## `SEND_MESSAGE` (AT contracts only)
 

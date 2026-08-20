@@ -1,6 +1,6 @@
 ext {
     androidxActivityVersion = '1.11.0'
-    androidxAppCompatVersion = '1.7.1'
+    androidxAppCompatVersion = '1.8.0'
     androidxCoordinatorLayoutVersion = '1.3.0'
     androidxCoreVersion = '1.17.0'
     androidxFragmentVersion = '1.8.9'

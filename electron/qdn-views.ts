@@ -7,6 +7,7 @@ import {
   type Rectangle,
   type WebContents,
 } from 'electron';
+import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCertificateVerifyProc } from './node-tls.js';
@@ -34,7 +35,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME_VALUES = new Set(['dark', 'light']);
 const LANGUAGE_VALUES = new Set(['ar', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nb', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv', 'zh-CN', 'zh-TW']);
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
-const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
+const ACCENT_VALUES = new Set(['blue', 'clay', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
 const UI_VALUES = new Set(['classic', 'modern', 'fun']);
 // Exact Qortal node origins the cross-chain bridge can return for direct resource URLs. QDN apps
 // render from the node's own origin, so the rendered Content-Security-Policy must allow connecting
@@ -85,7 +86,7 @@ function relaxQdnAppCspForQortal(csp: string): string {
 export type QdnDisplaySettings = {
   language: 'ar' | 'de' | 'el' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'it' | 'ja' | 'ko' | 'nb' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
-  accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
+  accent: 'blue' | 'clay' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
   theme: 'dark' | 'light';
   ui: 'classic' | 'modern' | 'fun';
 };
@@ -108,6 +109,7 @@ const DEFAULT_QDN_DISPLAY_SETTINGS: QdnDisplaySettings = {
 type QdnViewEntry = {
   accountId: string | null;
   accountUnlocked: boolean;
+  bridgeStates: QdnBridgeStateDetail[];
   currentUrl: string | null;
   // The renderUrl React last asked us to load. Unlike `currentUrl`, this is not
   // mutated by in-app navigation, so it tells us whether a `qdn-views:show`
@@ -117,6 +119,7 @@ type QdnViewEntry = {
   // What the loaded page last received; `undefined` means nothing delivered
   // yet, so state messages are only sent when these fall out of sync.
   deliveredAccountStateKey: string | undefined;
+  deliveredBridgeStateRevisions: Record<string, string> | undefined;
   deliveredDisplaySettings: QdnDisplaySettings | undefined;
   deliveredManagerRevisions: QdnManagerRevisions | undefined;
   displaySettings: QdnDisplaySettings;
@@ -136,12 +139,19 @@ type QdnViewEntry = {
 type SanitizedShowRequest = {
   accountId: string | null;
   bounds: Rectangle;
+  bridgeStates: QdnBridgeStateDetail[];
   displaySettings: QdnDisplaySettings;
   managerRevisions: QdnManagerRevisions | undefined;
   nodeOrigin: string;
   renderUrl: string;
   resourceUrl: string | null;
   tabId: string;
+};
+
+export type QdnBridgeStateDetail = {
+  network: 'qortal' | 'qortium';
+  protocol: 'qdnRequest' | 'qortalRequest';
+  revision: string;
 };
 
 type SanitizedBoundsRequest = {
@@ -203,8 +213,10 @@ const watchedWindowIds = new Set<number>();
 
 export type QdnViewContext = {
   accountId: string | null;
+  bridgeStates: QdnBridgeStateDetail[];
   currentUrl: string | null;
   displaySettings: QdnDisplaySettings;
+  managerRevisions: QdnManagerRevisions | undefined;
   nodeOrigin: string;
   resourceUrl: string | null;
   tabId: string;
@@ -501,6 +513,7 @@ function sanitizeShowRequest(value: unknown): SanitizedShowRequest {
   return {
     accountId: sanitizeOptionalAccountId(value.accountId),
     bounds: sanitizeBounds(value.bounds),
+    bridgeStates: sanitizeBridgeStates(value.bridgeStates),
     displaySettings: sanitizeDisplaySettings(value.displaySettings),
     managerRevisions: value.managerRevisions === undefined
       ? undefined
@@ -510,6 +523,34 @@ function sanitizeShowRequest(value: unknown): SanitizedShowRequest {
     resourceUrl: sanitizeOptionalResourceUrl(value.resourceUrl),
     tabId: sanitizeTabId(value.tabId),
   };
+}
+
+function sanitizeBridgeStates(value: unknown): QdnBridgeStateDetail[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 2) {
+    throw new Error('QDN bridge states are invalid.');
+  }
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    if (!isRecord(entry)) throw new Error('QDN bridge state is invalid.');
+    const protocol = entry.protocol;
+    if (protocol !== 'qdnRequest' && protocol !== 'qortalRequest') {
+      throw new Error('QDN bridge state is invalid.');
+    }
+    const network = entry.network;
+    const revision = typeof entry.revision === 'string' ? entry.revision.trim() : '';
+    const expectedNetwork = protocol === 'qdnRequest' ? 'qortium' : 'qortal';
+    if (
+      network !== expectedNetwork ||
+      !revision ||
+      revision.length > 128 ||
+      seen.has(protocol)
+    ) {
+      throw new Error('QDN bridge state is invalid.');
+    }
+    seen.add(protocol);
+    return { network: expectedNetwork, protocol, revision };
+  });
 }
 
 function sanitizeManagerRevisionsRequest(value: unknown): SanitizedManagerRevisionsRequest {
@@ -774,8 +815,10 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
       if (entry.view.webContents.id === webContents.id) {
         return {
           accountId: entry.accountId,
+          bridgeStates: entry.bridgeStates,
           currentUrl: getTrustedCurrentUrl(entry),
           displaySettings: entry.displaySettings,
+          managerRevisions: entry.managerRevisions,
           nodeOrigin: entry.nodeOrigin,
           resourceUrl: entry.resourceUrl,
           tabId: entry.tabId,
@@ -808,13 +851,35 @@ export function getQdnViewContextForTab(
 
   return {
     accountId: entry.accountId,
-    currentUrl: entry.currentUrl,
+    bridgeStates: entry.bridgeStates,
+    currentUrl: getTrustedCurrentUrl(entry),
     displaySettings: entry.displaySettings,
+    managerRevisions: entry.managerRevisions,
     nodeOrigin: entry.nodeOrigin,
     resourceUrl: entry.resourceUrl,
     tabId: entry.tabId,
     windowId: hostWebContentsId,
   };
+}
+
+export function syncWidgetQdnViewState(value: unknown) {
+  if (!isRecord(value)) throw new Error('Widget runtime state is required.');
+  const displaySettings = sanitizeDisplaySettings(value.displaySettings);
+  const bridgeStates = sanitizeBridgeStates(value.bridgeStates);
+  const managerRevisions = value.managerRevisions === undefined
+    ? undefined
+    : validateQdnManagerRevisions(value.managerRevisions);
+  const deliveries: Promise<void>[] = [];
+  for (const windowViews of qdnViewsByWindow.values()) {
+    for (const entry of windowViews.values()) {
+      if (!entry.tabId.startsWith('widget:')) continue;
+      entry.displaySettings = displaySettings;
+      entry.bridgeStates = bridgeStates;
+      if (managerRevisions) entry.managerRevisions = managerRevisions;
+      deliveries.push(queueQdnViewStateDelivery(entry));
+    }
+  }
+  return Promise.all(deliveries).then(() => undefined);
 }
 
 function getQdnViewEntryForWebContents(webContents: WebContents): QdnViewEntry | null {
@@ -1093,6 +1158,21 @@ async function sendQdnHomeSettingsChangedEvent(entry: QdnViewEntry, detail: QdnH
   );
 }
 
+async function sendQdnBridgeStateChangedEvent(
+  entry: QdnViewEntry,
+  detail: QdnBridgeStateDetail,
+) {
+  if (entry.view.webContents.isDestroyed()) return;
+  await entry.view.webContents.executeJavaScript(
+    `window.dispatchEvent(new CustomEvent('qortiumBridgeStateChanged', { detail: ${JSON.stringify(detail)} }));`,
+    true,
+  );
+}
+
+function bridgeStateRevisionMap(states: readonly QdnBridgeStateDetail[]) {
+  return Object.fromEntries(states.map((state) => [state.protocol, state.revision]));
+}
+
 async function sendQdnManagerRevisionChangedEvent(
   entry: QdnViewEntry,
   kind: QdnManagerEventKind,
@@ -1134,6 +1214,11 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
     entry.displaySettings,
   );
   const sendAccountChanged = entry.deliveredAccountStateKey !== getAccountStateKey(entry);
+  const changedBridgeStates = entry.isPageReady && entry.deliveredBridgeStateRevisions
+    ? entry.bridgeStates.filter(
+        (state) => entry.deliveredBridgeStateRevisions?.[state.protocol] !== state.revision,
+      )
+    : [];
   const appTargetMessage = entry.pendingAppTargetMessage;
   const homeSettingsEvent = entry.pendingHomeSettingsEvent;
   const sendHomeSettingsEvent = entry.isPageReady && !!homeSettingsEvent;
@@ -1150,7 +1235,12 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
     ...(sendAppTarget ? [appTargetMessage] : []),
   ];
 
-  if (!messages.length && !sendHomeSettingsEvent && managerRevisionEvents.length === 0) {
+  if (
+    !messages.length &&
+    !sendHomeSettingsEvent &&
+    managerRevisionEvents.length === 0 &&
+    changedBridgeStates.length === 0
+  ) {
     return;
   }
 
@@ -1173,6 +1263,13 @@ async function sendPendingQdnViewStateMessages(entry: QdnViewEntry) {
   if (sendHomeSettingsEvent && homeSettingsEvent && entry.pendingHomeSettingsEvent === homeSettingsEvent) {
     await sendQdnHomeSettingsChangedEvent(entry, homeSettingsEvent);
     entry.pendingHomeSettingsEvent = undefined;
+  }
+
+  for (const detail of changedBridgeStates) {
+    await sendQdnBridgeStateChangedEvent(entry, detail);
+  }
+  if (changedBridgeStates.length > 0) {
+    entry.deliveredBridgeStateRevisions = bridgeStateRevisionMap(entry.bridgeStates);
   }
 
   for (const { kind, revision } of managerRevisionEvents) {
@@ -1203,16 +1300,23 @@ function createViewEntry(
   accountId: string | null,
   resourceUrl: string | null,
   displaySettings: QdnDisplaySettings,
+  bridgeStates: QdnBridgeStateDetail[],
 ): QdnViewEntry {
   const partition = getPartition(nodeOrigin, resourceUrl);
-  installCertificateVerifyProc(session.fromPartition(partition));
+  const viewSession = session.fromPartition(partition);
+  installCertificateVerifyProc(viewSession);
+  if (process.env.QORTIUM_HOME_V2 === '1') {
+    registerHomeV2DesktopResourceStreamProtocol(viewSession);
+  }
 
   const entry: QdnViewEntry = {
     accountId,
     accountUnlocked: false,
+    bridgeStates,
     currentUrl: null,
     requestedUrl: null,
     deliveredAccountStateKey: undefined,
+    deliveredBridgeStateRevisions: undefined,
     deliveredDisplaySettings: undefined,
     deliveredManagerRevisions: undefined,
     displaySettings,
@@ -1361,6 +1465,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     // accountId is pinned at creation: a QDN app tab stays bound to its launch
     // account for its lifetime, so a re-show must never rebind it.
     existingEntry.displaySettings = request.displaySettings;
+    existingEntry.bridgeStates = request.bridgeStates;
     existingEntry.managerRevisions = request.managerRevisions;
     existingEntry.resourceUrl = request.resourceUrl;
     return existingEntry;
@@ -1377,6 +1482,7 @@ function getOrCreateEntry(window: BrowserWindow, request: SanitizedShowRequest) 
     request.accountId,
     request.resourceUrl,
     request.displaySettings,
+    request.bridgeStates,
   );
 
   entry.managerRevisions = request.managerRevisions;
@@ -1449,6 +1555,7 @@ export function registerQdnViewIpcHandlers() {
           // The freshly loaded page has received nothing yet.
           entry.isPageReady = true;
           entry.deliveredAccountStateKey = undefined;
+          entry.deliveredBridgeStateRevisions = bridgeStateRevisionMap(entry.bridgeStates);
           entry.deliveredDisplaySettings = undefined;
           entry.deliveredManagerRevisions = undefined;
           queueQdnViewStateDelivery(entry);

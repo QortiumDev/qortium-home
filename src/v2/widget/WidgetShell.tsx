@@ -2,12 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 
 function readParams() {
   const params = new URLSearchParams(window.location.search)
+  const readJson = (name: string): unknown => {
+    const value = params.get(name)
+    if (!value) return undefined
+    try {
+      return JSON.parse(value) as unknown
+    } catch {
+      return undefined
+    }
+  }
   return {
     widgetId: params.get('widgetId') ?? '',
     renderUrl: params.get('renderUrl') ?? '',
     resourceUrl: params.get('resourceUrl') ?? '',
     nodeOrigin: params.get('nodeOrigin') ?? '',
     accountId: params.get('accountId'),
+    bridgeStates: readJson('bridgeStates'),
+    displaySettings: readJson('displaySettings'),
+    managerRevisions: readJson('managerRevisions'),
   }
 }
 
@@ -46,12 +58,9 @@ export function WidgetShell() {
             width: Math.round(bounds.width),
             height: Math.round(bounds.height),
           },
-          displaySettings: {
-            accent: 'default',
-            language: 'en',
-            textSize: 'medium',
-            theme: 'dark',
-          },
+          bridgeStates: params.bridgeStates,
+          displaySettings: params.displaySettings,
+          managerRevisions: params.managerRevisions,
           // qdn-views reads nodeApiUrl and derives the origin itself. Sending
           // nodeOrigin instead leaves it undefined and the show is rejected.
           nodeApiUrl: params.nodeOrigin,

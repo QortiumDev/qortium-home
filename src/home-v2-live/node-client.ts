@@ -19,13 +19,30 @@ import {
   isHomeV2ChainReadAction,
   normalizeHomeV2Address,
   normalizeHomeV2AppAction,
-  normalizeHomeV2AvatarMaxBytes,
   normalizeHomeV2IdentityAddresses,
   normalizeHomeV2OpenAddress,
   normalizeHomeV2ReadMethod,
   normalizeHomeV2ReadPath,
   normalizeHomeV2ResponseMaxBytes,
 } from '../../electron/home-v2-app-actions'
+import {
+  getQdnResourceStreamRequest,
+  getQdnResourceViewerRequest,
+} from '../../electron/qdn-resource-viewer-contract'
+import type { QdnAppRequest } from '../../electron/qdn-request-values'
+import {
+  fetchHomeV2AvatarAction,
+  type HomeV2AvatarAction,
+} from '../../electron/home-v2-avatar-actions'
+import { getAvatarDescriptorFromHeaders } from '../../electron/qdn-group-avatar-input'
+import {
+  createHomeV2BridgeError,
+  getHomeV2AppHostInfo,
+  getHomeV2AppRouteDescriptor,
+  getHomeV2AvailableAppActions,
+  getHomeV2ContextualAppActions,
+  HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
+} from '../../electron/home-v2-app-runtime'
 
 export interface HomeV2NodeClient {
   getSnapshot(): Promise<unknown>
@@ -101,11 +118,16 @@ export interface PortableNodeClientDependencies {
     ok: boolean
     status: number
   }>
-  requestBinary(url: string): Promise<{
+  requestBinary(url: string, timeoutMs?: number): Promise<{
     data: unknown
     headers: Readonly<Record<string, string>>
     status: number
   }>
+  saveBinary(request: {
+    bytes: Uint8Array
+    fileName: string
+    mimeType: string
+  }): Promise<{ canceled: boolean }>
   now(): number
 }
 
@@ -122,6 +144,17 @@ const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESOURCE_LIMIT = 50
 const APP_READ_TIMEOUT_MS = 30_000
+const RESOURCE_SAVE_MAX_BYTES = 100 * 1024 * 1024
+
+function sanitizePortableResourceFilename(value: unknown, fallback: string) {
+  const requested = typeof value === 'string' ? value.trim() : ''
+  const leaf = (requested || fallback).split(/[\\/]/).pop() ?? fallback
+  const sanitized = leaf
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, '_')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 180)
+  return sanitized || 'qdn-resource'
+}
 
 function normalizedAppResourceName(value: string) {
   const name = value.trim()
@@ -234,7 +267,7 @@ function headerValue(headers: Readonly<Record<string, string>>, name: string) {
   return Object.entries(headers).find(([key]) => key.toLowerCase() === expected)?.[1]
 }
 
-function decodeAvatarBase64(value: string) {
+export function decodePortableBase64(value: string) {
   const binary = globalThis.atob(value)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) {
@@ -294,7 +327,7 @@ export function parseHomeV2AvatarResponse(response: {
   }
   let bytes: Uint8Array
   try {
-    bytes = decodeAvatarBase64(response.data)
+    bytes = decodePortableBase64(response.data)
   } catch {
     return { message: 'Avatar response was not valid base64.', status: 'unavailable' }
   }
@@ -444,6 +477,7 @@ function emptySummary(
     state: 'offline',
     statusText: disabled ? 'Disabled' : settings.mode === 'local' ? 'Not available' : 'Unavailable',
     isTrusted: settings.mode === 'local',
+    customAuthenticated: false,
     customConfigured: !!settings.customUrl,
     customUrl: settings.customUrl || null,
     localCoreState: 'unsupported',
@@ -620,21 +654,65 @@ export function createPortableNodeClient(
       if (!isHomeV2AppRecord(requestValue)) throw new Error('App requests must be objects.')
       const request = requestValue
       const action = normalizeHomeV2AppAction(request)
-      const availableActions = getHomeV2AppActions(protocol)
-      if (action === 'SHOW_ACTIONS') return [...availableActions]
-      if (!availableActions.includes(action)) {
-        throw new Error(`${action} is not available in Home v2 read-only mode.`)
+      const network = getHomeV2AppNetwork(protocol, action)
+      const selectedSettings = await readSettings(network)
+      const selectedNode = await summary(network, selectedSettings)
+      const hostInfo = getHomeV2AppHostInfo({
+        accountId: context?.selectedAccountId,
+        node: selectedNode,
+        platform: 'android',
+        platformVersion: '2.0',
+        protocol,
+      })
+      if (action === 'SHOW_ACTIONS') {
+        const otherNetwork: NetworkId = network === 'qortal' ? 'qortium' : 'qortal'
+        const otherSettings = await readSettings(otherNetwork)
+        const otherNode = await summary(otherNetwork, otherSettings)
+        const qortalNode = network === 'qortal' ? selectedNode : otherNode
+        const qortiumNode = network === 'qortium' ? selectedNode : otherNode
+        return [...getHomeV2ContextualAppActions(getHomeV2AvailableAppActions(protocol, {
+          qortal: getHomeV2AppRouteDescriptor({
+            accountId: context?.selectedAccountId,
+            network: 'qortal',
+            node: qortalNode,
+            platform: 'android',
+            protocol: 'qortalRequest',
+          }),
+          qortium: getHomeV2AppRouteDescriptor({
+            accountId: context?.selectedAccountId,
+            network: 'qortium',
+            node: qortiumNode,
+            platform: 'android',
+            protocol: 'qdnRequest',
+          }),
+        }), 'android')]
+      }
+      if (action === 'OPEN_AS_WIDGET' || action.startsWith('WIDGET_')) {
+        throw new Error(`${action} is only available in Qortium Home desktop.`)
+      }
+      const implemented = getHomeV2AppActions(protocol).includes(action)
+      const routeIndependent = (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action)
+      if (!implemented || (!routeIndependent && !hostInfo.route.available)) {
+        throw createHomeV2BridgeError(
+          implemented
+            ? `${action} is unavailable on the configured ${hostInfo.network} route.`
+            : `${action} is not implemented for ${protocol}.`,
+          {
+            action,
+            code: implemented ? 'NODE_CAPABILITY_MISSING' : 'UNSUPPORTED_PROTOCOL',
+            network: hostInfo.network,
+            retryable: false,
+            routeRevision: hostInfo.route.revision,
+          },
+        )
       }
       if (action === 'WHICH_UI') return 'QORTIUM_HOME_ANDROID'
-      if (action === 'GET_HOST_INFO') {
-        return { hostName: 'qortium-home', platform: 'android', platformVersion: '2.0-preview' }
-      }
+      if (action === 'GET_HOST_INFO') return hostInfo
       if (action === 'OPEN_NEW_TAB') {
         return { address: normalizeHomeV2OpenAddress(request), openIn: 'new-tab' }
       }
-      const network = getHomeV2AppNetwork(protocol, action)
       if (action === 'IS_USING_PUBLIC_NODE') {
-        return (await getReadableNode(network)).settings.mode === 'public'
+        return hostInfo.route.configuredKind === 'public'
       }
       const requestData = async (targetNetwork: NetworkId, path: string, maxBytes: number) => {
         const { nodeApiUrl } = await getReadableNode(targetNetwork)
@@ -748,62 +826,32 @@ export function createPortableNodeClient(
           }
         }))
       }
-      if (action === 'FETCH_ACCOUNT_AVATAR') {
-        const address = normalizeHomeV2Address(request.address)
-        const maxBytes = normalizeHomeV2AvatarMaxBytes(request.maxBytes)
-        const { nodeApiUrl } = await getReadableNode('qortium')
-        const pointerResponse = await dependencies.requestJson(
-          `${nodeApiUrl}/addresses/${encodeURIComponent(address)}/avatar/info`,
-        )
-        const pointer = pointerResponse.status === 200 && isRecord(pointerResponse.data)
-          ? {
-              identifier: stringField(pointerResponse.data, 'identifier'),
-              name: stringField(pointerResponse.data, 'name'),
-              service: stringField(pointerResponse.data, 'service'),
+      if (action === 'FETCH_ACCOUNT_AVATAR' || action === 'FETCH_GROUP_AVATAR') {
+        const avatarAction = action as HomeV2AvatarAction
+        const { nodeApiUrl } = await getReadableNode(network)
+        return fetchHomeV2AvatarAction(network, avatarAction, request, {
+          async readAvatar(path) {
+            const response = await dependencies.requestBinary(`${nodeApiUrl}${path}`)
+            const result = parseHomeV2AvatarResponse(response)
+            if (result.status !== 'ready' && result.status !== 'pending') return result
+            const descriptor = getAvatarDescriptorFromHeaders(
+              (name) => headerValue(response.headers, name),
+            )
+            return descriptor ? { ...result, descriptor } : result
+          },
+          async readJson(path) {
+            const response = await dependencies.requestJson(
+              `${nodeApiUrl}${path}`,
+              'GET',
+              APP_READ_TIMEOUT_MS,
+            )
+            const body = JSON.stringify(response.data ?? null)
+            if (new TextEncoder().encode(body).byteLength > 256 * 1024) {
+              throw new Error('Avatar metadata response exceeded the size limit.')
             }
-          : null
-        let source: 'LEGACY' | 'POINTER' = 'POINTER'
-        let descriptor: { identifier: string; name: string; service: string } | null = null
-        let path = `/addresses/${encodeURIComponent(address)}/avatar`
-        if (pointer?.identifier && pointer.name && pointer.service) {
-          descriptor = {
-            identifier: pointer.identifier,
-            name: pointer.name,
-            service: pointer.service,
-          }
-        } else {
-          const primary = await dependencies.requestJson(
-            `${nodeApiUrl}/names/primary/${encodeURIComponent(address)}`,
-          )
-          const name = primary.status === 200 ? stringField(primary.data, 'name') : null
-          if (!name) throw new Error('Account avatar is not set.')
-          source = 'LEGACY'
-          path = `/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`
-        }
-        const avatar = parseHomeV2AvatarResponse(
-          await dependencies.requestBinary(`${nodeApiUrl}${path}`),
-        )
-        if (avatar.status === 'pending') {
-          return {
-            address,
-            descriptor,
-            retryAfterSeconds: avatar.retryAfterSeconds,
-            source,
-            status: 'PENDING',
-          }
-        }
-        if (avatar.status !== 'ready' || avatar.contentLength > maxBytes) {
-          throw new Error('Account avatar is not available.')
-        }
-        return {
-          address,
-          body: avatar.body,
-          contentLength: avatar.contentLength,
-          contentType: avatar.contentType,
-          descriptor,
-          encoding: 'base64',
-          source,
-        }
+            return { data: response.data, status: response.status }
+          },
+        })
       }
       if (
         action === 'FETCH_QDN_RESOURCE' ||
@@ -829,6 +877,61 @@ export function createPortableNodeClient(
           throw new Error('Resource does not exist.')
         }
         return `${status.nodeApiUrl}${buildHomeV2ResourceRenderPath(request)}`
+      }
+      if (action === 'GET_QDN_RESOURCE_STREAM_URL' || action === 'OPEN_QDN_RESOURCE_VIEWER') {
+        const resource = action === 'GET_QDN_RESOURCE_STREAM_URL'
+          ? getQdnResourceStreamRequest(request as QdnAppRequest)
+          : getQdnResourceViewerRequest(request as QdnAppRequest)
+        const status = await requestData(
+          network,
+          buildHomeV2ResourcePath('GET_QDN_RESOURCE_STATUS', request),
+          256 * 1024,
+        )
+        if (!isRecord(status.data) || !status.data.status || status.data.status === 'NOT_PUBLISHED') {
+          throw new Error('Resource does not exist.')
+        }
+        const streamUrl = `${status.nodeApiUrl}${buildHomeV2ResourceRenderPath(request)}`
+        return action === 'GET_QDN_RESOURCE_STREAM_URL'
+          ? streamUrl
+          : {
+              ...resource,
+              network,
+              sourceTabId: context?.tabId ?? null,
+              streamUrl,
+            }
+      }
+      if (action === 'SAVE_QDN_RESOURCE') {
+        const resource = getQdnResourceViewerRequest(request as QdnAppRequest)
+        const { nodeApiUrl } = await getReadableNode(network)
+        const response = await dependencies.requestBinary(
+          `${nodeApiUrl}${buildHomeV2ResourcePath('FETCH_QDN_RESOURCE', {
+            identifier: resource.identifier,
+            name: resource.name,
+            path: resource.path,
+            service: resource.service,
+          })}`,
+          120_000,
+        )
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error(`QDN resource request returned HTTP ${response.status}.`)
+        }
+        if (typeof response.data !== 'string') {
+          throw new Error('QDN resource response was not binary data.')
+        }
+        const declaredLength = Number(headerValue(response.headers, 'content-length'))
+        if (Number.isFinite(declaredLength) && declaredLength > RESOURCE_SAVE_MAX_BYTES) {
+          throw new Error('QDN resource exceeds the 100 MiB save limit.')
+        }
+        const bytes = decodePortableBase64(response.data)
+        if (bytes.byteLength > RESOURCE_SAVE_MAX_BYTES) {
+          throw new Error('QDN resource exceeds the 100 MiB save limit.')
+        }
+        const fallback = `${resource.service}_${resource.name}_${resource.identifier ?? 'default'}`
+        return dependencies.saveBinary({
+          bytes,
+          fileName: sanitizePortableResourceFilename(resource.filename, fallback),
+          mimeType: headerValue(response.headers, 'content-type') ?? resource.mimeType ?? 'application/octet-stream',
+        })
       }
       const path =
         action === 'GET_NODE_STATUS'

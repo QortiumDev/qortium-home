@@ -789,6 +789,7 @@ async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
   if (settings.mode === 'disabled') {
     return {
       ...settings,
+      customAuthenticated: false,
       localUrl: getLocalNodeApiUrl(),
       networkModeAvailable: true,
       networkSeedUrls: QORTIUM_PUBLIC_NODE_API_URLS,
@@ -808,6 +809,7 @@ async function getNodeSettingsSnapshot(settings = readNodeSettings()) {
 
   return {
     ...settings,
+    customAuthenticated: settings.mode === 'custom' && !!settings.apiKey,
     localUrl: getLocalNodeApiUrl(),
     networkModeAvailable: true,
     networkSeedUrls: QORTIUM_PUBLIC_NODE_API_URLS,

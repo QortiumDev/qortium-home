@@ -28,6 +28,8 @@ import {
   ensureHomeV2ProfileBackup,
   getHomeV2ProfileRecoveryState,
 } from './home-v2-profile-recovery.js';
+import { removeEncryptedQpgcAccountIdRecords } from './home-v2-private-group-key-store.js';
+import { removeEncryptedQortalPrivateGroupAccountIdRecords } from './home-v2-qortal-private-group-key-store.js';
 
 const requireFromElectron = createRequire(import.meta.url);
 const asmCrypto = requireFromElectron('asmcrypto.js') as {
@@ -971,6 +973,19 @@ export function getAccountSecretKey(accountId: string) {
   };
 }
 
+// Public-key-only companion for pre-approval reference ownership checks. It
+// derives the same selected address key but immediately clears the temporary
+// 64-byte signing key, so Home never retains signing authority while waiting
+// for the user to approve an app request.
+export function getAccountSigningPublicKey(accountId: string) {
+  const signingKey = getAccountSecretKey(accountId);
+  try {
+    return signingKey.publicKey58;
+  } finally {
+    signingKey.secretKey.fill(0);
+  }
+}
+
 // The CHAT memory-pow nonce is a big-endian int32 at this byte offset within the
 // "bytes-for-signing" (the serialized CHAT transaction without the trailing
 // 64-byte signature). Offset = txType(4) + timestamp(8) + txGroupId(4) +
@@ -1530,6 +1545,8 @@ export async function removeWallet(accountId: string, password?: string) {
   // Removing a derived address only hides it from the list; re-adding derives
   // the same address again, so no password confirmation is needed.
   if (addressIndex > 0) {
+    removeEncryptedQpgcAccountIdRecords(accountId, app.getPath('userData'));
+    removeEncryptedQortalPrivateGroupAccountIdRecords(accountId, app.getPath('userData'));
     wallet.derivedAddresses = wallet.derivedAddresses.filter((derived) => derived.index !== addressIndex);
     wallet.updatedAt = new Date().toISOString();
 
@@ -1545,7 +1562,15 @@ export async function removeWallet(accountId: string, password?: string) {
   const walletIndex = store.wallets.findIndex((storedWallet) => storedWallet.id === wallet.id);
 
   if (!unlockedWalletSeeds.has(wallet.id)) {
-    await decryptWalletSeed(password ?? '', wallet.encryptedWallet);
+    const verifiedSeed = await decryptWalletSeed(password ?? '', wallet.encryptedWallet);
+    verifiedSeed.fill(0);
+  }
+
+  removeEncryptedQpgcAccountIdRecords(wallet.id, app.getPath('userData'));
+  removeEncryptedQortalPrivateGroupAccountIdRecords(wallet.id, app.getPath('userData'));
+  for (const derived of wallet.derivedAddresses) {
+    removeEncryptedQpgcAccountIdRecords(getDerivedAccountId(wallet.id, derived.index), app.getPath('userData'));
+    removeEncryptedQortalPrivateGroupAccountIdRecords(getDerivedAccountId(wallet.id, derived.index), app.getPath('userData'));
   }
 
   const wasActiveWallet =

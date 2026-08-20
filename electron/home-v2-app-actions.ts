@@ -15,16 +15,21 @@ const MAX_ADDRESS_LENGTH = 2_048
 
 const COMMON_ACTIONS = [
   'FETCH_NODE_API',
+  'FORGET_PENDING_TRANSACTION',
+  'GET_PENDING_TRANSACTIONS',
   'GET_HOST_INFO',
   'GET_NODE_INFO',
   'GET_NODE_STATUS',
   'IS_USING_PUBLIC_NODE',
   'OPEN_AS_WIDGET',
+  'NOTIFICATION_HAS_PERMISSION',
   'OPEN_NEW_TAB',
+  'SHOW_NOTIFICATION',
   'SHOW_ACTIONS',
   'WHICH_UI',
-  // The widget actions are listed for every app, but each one is rejected
-  // unless the calling view is itself a widget. A normal tab cannot reach them.
+  // The implemented catalogue contains both launch and widget-local actions.
+  // The runtime filters these by calling context before SHOW_ACTIONS exposes
+  // them to an app.
   'WIDGET_CLOSE',
   'WIDGET_END_DRAG',
   'WIDGET_GET_STATE',
@@ -35,11 +40,18 @@ const COMMON_ACTIONS = [
 
 const QDN_ACTIONS = [
   ...COMMON_ACTIONS,
+  'ADD_GROUP_ADMIN',
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'CANCEL_GROUP_BAN',
+  'CANCEL_GROUP_INVITE',
   'FETCH_ACCOUNT_AVATAR',
+  'FETCH_GROUP_AVATAR',
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
   'FETCH_QORTAL_NODE_API',
+  'GROUP_BAN',
+  'GROUP_KICK',
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
   'GET_ACCOUNT_NAMES',
@@ -51,33 +63,75 @@ const QDN_ACTIONS = [
   'GET_AT',
   'GET_AT_DATA',
   'GET_CHAT_MESSAGE',
+  'GET_CHAT_ATTACHMENT_STREAM_URL',
   'GET_GROUP',
   'GET_GROUP_JOIN_REQUESTS',
   'GET_GROUP_MEMBERS',
   'GET_NAME_DATA',
+  'GET_PRIMARY_NAME',
+  'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_CHAT_STATE',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
+  'GET_QDN_RESOURCE_STREAM_URL',
   'GET_QDN_RESOURCE_URL',
   'GET_SELECTED_ACCOUNT',
+  'INVITE_TO_GROUP',
+  'JOIN_GROUP',
   'LIST_ATS',
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
+  'LEAVE_GROUP',
+  'REMOVE_GROUP_ADMIN',
+  'OPEN_QDN_RESOURCE_VIEWER',
+  'OPEN_CHAT_ATTACHMENT_VIEWER',
+  'SAVE_QDN_RESOURCE',
+  'SAVE_CHAT_ATTACHMENT',
+  'SELECT_QDN_PUBLISH_SOURCE',
   'RESOLVE_IDENTITIES',
   'SEARCH_CHAT_MESSAGES',
+  'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
   'SEARCH_GROUPS',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_EDIT',
   'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_REACTION',
+  'SEND_DIRECT_CHAT_DELETE',
+  'SEND_DIRECT_CHAT_EDIT',
+  'SEND_DIRECT_CHAT_MESSAGE',
+  'SEND_DIRECT_CHAT_REACTION',
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+  'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+  'PUBLISH_QDN_RESOURCE',
+  'PUBLISH_CHAT_ATTACHMENT',
   'UNLOCK_SELECTED_ACCOUNT',
 ] as const
 
 const QORTAL_ACTIONS = [
   ...COMMON_ACTIONS,
+  'ADD_GROUP_ADMIN',
+  'APPROVE_GROUP_JOIN_REQUEST',
+  'BAN_FROM_GROUP',
+  'CANCEL_GROUP_BAN',
+  'CANCEL_GROUP_INVITE',
+  'FETCH_ACCOUNT_AVATAR',
   'FETCH_BLOCK',
   'FETCH_BLOCK_RANGE',
   'FETCH_QDN_RESOURCE',
+  'FETCH_GROUP_AVATAR',
+  'GROUP_BAN',
+  'GROUP_KICK',
   'GET_ACCOUNT_DATA',
   'GET_ACCOUNT_GROUPS',
   'GET_ACCOUNT_GROUP_JOIN_REQUESTS',
@@ -88,6 +142,7 @@ const QORTAL_ACTIONS = [
   'GET_AT_DATA',
   'GET_BALANCE',
   'GET_CHAT_MESSAGE',
+  'GET_CHAT_ATTACHMENT_STREAM_URL',
   'GET_DAY_SUMMARY',
   'GET_GROUP',
   'GET_GROUP_JOIN_REQUESTS',
@@ -95,26 +150,58 @@ const QORTAL_ACTIONS = [
   'GET_NAME_DATA',
   'GET_PRICE',
   'GET_PRIMARY_NAME',
+  'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_ACTIVE_CHATS',
+  'GET_PRIVATE_GROUP_CHAT_STATE',
   'GET_QDN_RESOURCE_METADATA',
   'GET_QDN_RESOURCE_PROPERTIES',
   'GET_QDN_RESOURCE_STATUS',
+  'GET_QDN_RESOURCE_STREAM_URL',
   'GET_QDN_RESOURCE_URL',
   'GET_USER_ACCOUNT',
+  'KICK_FROM_GROUP',
+  'INVITE_TO_GROUP',
+  'JOIN_GROUP',
   'LIST_ATS',
   'LIST_GROUPS',
   'LIST_QDN_RESOURCES',
+  'LEAVE_GROUP',
+  'REMOVE_GROUP_ADMIN',
+  'OPEN_QDN_RESOURCE_VIEWER',
+  'OPEN_CHAT_ATTACHMENT_VIEWER',
+  'SAVE_QDN_RESOURCE',
+  'SAVE_CHAT_ATTACHMENT',
+  'SELECT_QDN_PUBLISH_SOURCE',
   'SEARCH_CHAT_MESSAGES',
+  'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+  'SEARCH_PRIVATE_GROUP_CHAT_MESSAGES',
   'SEARCH_NAMES',
   'SEARCH_QDN_RESOURCES',
   'SEARCH_TRANSACTIONS',
+  'SEND_CHAT_DELETE',
+  'SEND_CHAT_EDIT',
   'SEND_CHAT_MESSAGE',
+  'SEND_CHAT_REACTION',
+  'SEND_DIRECT_CHAT_DELETE',
+  'SEND_DIRECT_CHAT_EDIT',
+  'SEND_DIRECT_CHAT_MESSAGE',
+  'SEND_DIRECT_CHAT_REACTION',
+  'REQUEST_PRIVATE_GROUP_CHAT_KEY',
+  'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS',
+  'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+  'SEND_PRIVATE_GROUP_CHAT_DELETE',
+  'SEND_PRIVATE_GROUP_CHAT_EDIT',
+  'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  'SEND_PRIVATE_GROUP_CHAT_REACTION',
+  'PUBLISH_QDN_RESOURCE',
+  'PUBLISH_CHAT_ATTACHMENT',
 ] as const
 // SEARCH_GROUPS (Qortium-only): /groups/search does not exist on Qortal
 // (verified absent from both the Qortal master 6.1.5 and develop checkouts'
 // GroupsResource.java) — it is a Qortium Core addition. Home therefore
 // advertises it only on qdnRequest, the same asymmetric pattern already used
 // for GET_DAY_SUMMARY/GET_PRICE (qortalRequest-only) and
-// RESOLVE_IDENTITIES/FETCH_ACCOUNT_AVATAR/FETCH_QORTAL_NODE_API
+// RESOLVE_IDENTITIES/FETCH_QORTAL_NODE_API
 // (qdnRequest-only).
 
 const READ_PREFIXES = [
@@ -237,13 +324,21 @@ function normalizedResource(request: Record<string, unknown>) {
   if (!/^[A-Z0-9_]+$/.test(service)) {
     throw new Error('QDN resource service is invalid.')
   }
-  if (name === '.' || name === '..' || identifier === '.' || identifier === '..') {
+  if (
+    name === '.' ||
+    name === '..' ||
+    identifier === '.' ||
+    identifier === '..'
+  ) {
     throw new Error('QDN resource path segments cannot be dot or dot-dot.')
   }
   return { identifier, name, service }
 }
 
-function assertSafeResourceFilePath(value: string) {
+export function assertSafeHomeV2ResourceFilePath(value: string) {
+  if (value.includes('\\')) {
+    throw new Error('QDN resource file paths cannot contain backslashes.')
+  }
   if (value.split('/').some((segment) => segment === '.' || segment === '..')) {
     throw new Error('QDN resource file paths cannot contain . or .. segments.')
   }
@@ -356,7 +451,7 @@ export function buildHomeV2ResourcePath(
       typeof request.path === 'string' ? 'path' : 'filepath',
       2_000,
     )
-    if (resourcePath) query.set('filepath', assertSafeResourceFilePath(resourcePath))
+    if (resourcePath) query.set('filepath', assertSafeHomeV2ResourceFilePath(resourcePath))
     for (const key of ['encoding', 'rebuild', 'async']) {
       const value = request[key]
       if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
@@ -387,7 +482,7 @@ export function buildHomeV2ResourceRenderPath(
     2_000,
   )
   const [unsafePathOnly, rawQuery = ''] = rawPath.split('?', 2)
-  const pathOnly = assertSafeResourceFilePath(unsafePathOnly)
+  const pathOnly = assertSafeHomeV2ResourceFilePath(unsafePathOnly)
   const encodedPath = pathOnly
     .split('/')
     .filter(Boolean)

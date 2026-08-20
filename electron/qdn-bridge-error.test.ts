@@ -15,6 +15,22 @@ const decoded = decodeQdnBridgeError(envelope);
 
 assert.equal(decoded?.message, 'Public node is read-only.');
 assert.equal((decoded as Error & { code?: string })?.code, 'PUBLIC_NODE_READ_ONLY');
+const structuredSource = Object.assign(new Error('The route changed.'), {
+  action: 'SEND_CHAT_MESSAGE',
+  code: 'STALE_CONTEXT',
+  network: 'qortium',
+  outcome: 'unknown',
+  retryable: false,
+  routeRevision: 'home-v2-route-v1-12345678',
+  target: { groupId: 12, kind: 'group' },
+});
+const structuredDecoded = decodeQdnBridgeError(encodeQdnBridgeError(structuredSource)) as Error & Record<string, unknown>;
+assert.equal(structuredDecoded.action, 'SEND_CHAT_MESSAGE');
+assert.equal(structuredDecoded.network, 'qortium');
+assert.equal(structuredDecoded.outcome, 'unknown');
+assert.equal(structuredDecoded.retryable, false);
+assert.equal(structuredDecoded.routeRevision, 'home-v2-route-v1-12345678');
+assert.deepEqual(structuredDecoded.target, { groupId: 12, kind: 'group' });
 assert.equal(decodeQdnBridgeError(encodeQdnBridgeError(new Error('Plain error.')))?.message, 'Plain error.');
 assert.equal(decodeQdnBridgeError({ value: true }), undefined);
 assert.equal(decodeQdnBridgeError({ [QDN_BRIDGE_ERROR_KEY]: { message: 'nope' }, value: true }), undefined);
@@ -67,6 +83,17 @@ assert.ok(
 assert.ok(
   preloadSource.includes('if (!completed)'),
   'qdn-app-preload.cts must fail closed if Electron 32 defers bridge installation',
+);
+
+const homeV2PreloadSourceUrl = [
+  new URL('../electron/home-v2-qdn-app-preload.cts', import.meta.url),
+  new URL('./home-v2-qdn-app-preload.cts', import.meta.url),
+].find((url) => existsSync(url));
+assert.ok(homeV2PreloadSourceUrl, 'home-v2-qdn-app-preload.cts source not found');
+const homeV2PreloadSource = readFileSync(homeV2PreloadSourceUrl, 'utf8');
+assert.ok(
+  homeV2PreloadSource.includes("Object.entries(error).filter(([key]) => key !== 'message')"),
+  'Home v2 desktop apps must receive safe structured bridge-error fields.',
 );
 
 console.log('QDN bridge error envelope tests passed.');

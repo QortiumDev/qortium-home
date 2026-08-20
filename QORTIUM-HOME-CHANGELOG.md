@@ -34,6 +34,295 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - feat(widgets): integrate widgets with Home 2
+
+Home 2 can now host desktop widgets published inside QDN apps: small,
+transparent, always-on-top faces with declared click-through regions, native
+dragging and resizing, edge snapping, saved placement and opacity, and complete
+tray controls even when the main Home window is closed. Widget discovery and
+permissions are tied to the exact calling tab and published resource, manifests
+are size-bounded before parsing, duplicate instances of one resource are
+prevented, and each widget receives current Home 2 appearance and route state.
+The first widget contract is deliberately public and read-only apart from its
+own window controls; account, signing, publishing, notification, private-data,
+file-dialog, and other trusted-chrome actions stay in normal app tabs. Public
+author documentation, focused contract tests, an offline native smoke test,
+and packaged Linux verification cover the release path; Android floating
+windows remain out of scope.
+
+### 2026-08-19 - feat(v2): pass the clay accent through to hosted app tabs unchanged
+
+Home 2's app tab stage no longer remaps the `clay` accent to `orange` in the
+postMessage displaySettings bridge sent to hosted QDN apps — it now sends
+`clay` unchanged, matching the render URL's `accent` query parameter, which
+already passed it through raw. Apps that don't yet recognize `clay` simply
+fall back to their own default accent until they republish with clay support;
+this removes the prior inconsistency where an app saw `accent=clay` in its
+URL but `orange` in the UI bridge payload. Separately, `docs/CHAT_2_0_PLAN.md`
+is updated to reflect that Chat 2.0.0 shipped 2026-08-19, published to both
+the Qortium QDN (`APP/Chat/Chat`) and Qortal QDN (`APP/xchat/default`) chains,
+with Phases 1–3 delivered.
+
+### 2026-08-19 - feat(v2): send hosted apps the modern uiStyle; drop Chat 2.0's RCHAT release gate
+
+Home 2's app tab stage now tells hosted QDN apps to render their `modern`
+uiStyle variant instead of `classic`, both in the render URL's `uiStyle`
+query parameter and in the postMessage displaySettings bridge's `ui` field —
+the v2 shell is Home's modern design system, and apps already implement a
+`modern` variant from the legacy display-settings catalogue. The `clay`
+accent still remaps to `orange` for now, since published apps don't yet
+recognize `clay`; that stays until Chat and other apps ship clay support.
+Separately, `docs/CHAT_2_0_PLAN.md` no longer treats the Qortal RCHAT/
+Reticulum source as release-gating for Chat 2.0: the owner decided RCHAT is
+parked as a possible post-2.0 addition, not a shipping requirement, so the
+plan's status, goals, and release-gate language were updated to match.
+
+### 2026-08-19 - feat(chat): complete Home 2 operational continuity
+
+Home 2 now revokes temporary app authority whenever the selected account,
+unlock state, node route, app navigation, or tab lifecycle changes. Desktop and
+Android clear session approvals, pending prompts, chat rate-limit state,
+publish source tokens, and resource streams at the same boundaries while every
+long-running signing path retains its final context checks. Signed transactions
+whose broadcast outcome is unknown are retained across restart in a bounded,
+app/account/chain-scoped journal containing only the signature, action,
+timestamp, and normalized target—never message text, keys, file bytes, paths,
+or content hashes. Apps can read and explicitly forget their own entries through
+two permissioned route-independent actions; Home blocks another same-target
+mutation until reconciliation prevents a restart or route change from becoming
+a duplicate submission. Deterministic tests now cover both chains across
+desktop local/custom/public and Android custom/public routes. This completes
+Home milestones H0-H7; the next portability work is Chat integration.
+
+### 2026-08-19 - feat(chat): add chain-qualified Home 2 notifications
+
+Home 2 apps can now request system notifications through either the Qortium or
+Qortal bridge on desktop and Android without depending on a node route or
+wallet unlock. Home derives the chain from the invoked bridge, rejects a
+mismatched claim, validates optional group/direct conversation identity, and
+repeats that normalized source in the result and click event. The first request
+uses one durable, revocable app-scoped approval shared with Home's notification
+settings. Shown titles always include the app name and chain, focused tabs are
+suppressed, each app is rate-limited, and clicks reactivate the originating tab
+when it still exists. This completes H7A; background subscription rules remain
+separate until Chat's bounded polling demonstrates a need, while H7B still owns
+lifecycle invalidation, ambiguous-send continuity, and the final matrix.
+
+### 2026-08-18 - feat(chat): add encrypted private attachments
+
+Home 2 now owns private chat attachment encryption, publication, decryption,
+viewing, streaming, and saving for Qortium and Qortal direct messages and
+closed groups on desktop and Android. Apps receive only an expiring native
+source token and an immutable ciphertext descriptor; native paths, private
+keys, and group keys never cross into the app, and decrypted bytes are exposed
+only through an approved expiring stream capability. Qortium uses
+Core's frozen QATT/QENC v2 contract, Qortal direct files use a distinct marked
+QENC v2 envelope, generic Qortal private-group files use a distinct QATT
+`encryptSingle` type, and Qortal private-group images retain Hub-compatible
+type-2 IMAGE publication. Every access is one-request approved, verifies the
+exact ciphertext size and SHA-256 commitment, rechecks the selected account,
+peer key or current group membership, app/tab, chain, and node route, and uses
+an expiring GET/HEAD/Range capability for decrypted bytes. Ciphertext size,
+timing, and publisher identity remain public metadata, and recipients can
+retain plaintext they already downloaded. This completes Home milestone H6;
+Chat still needs to emit and render the authenticated descriptor.
+
+### 2026-08-18 - feat(chat): add portable dual-chain public publishing
+
+Home 2 now gives QDN apps a Home-owned public-publish flow through both
+`qdnRequest` and `qortalRequest` on desktop and Android. The app first asks
+Home to select a file and receives only an expiring token; native paths never
+cross the bridge. Publication is always a one-request approval that shows the
+selected chain, node route, resource coordinate, filename, size, and SHA-256
+hash. Home verifies current name ownership, stages only against that exact
+route, attests the returned ARBITRARY transaction and approved content, applies
+the chain's required proof and signature locally, and returns an immutable
+transaction signature plus content hash. Qortal and Qortium never fall back to
+one another or to another node, and an operator that disables public staging
+gets an exact capability error. H5B also replaces raw media routes with
+ten-minute, exact-resource stream capabilities: desktop uses a private secure
+scheme registered in each app session, while Android uses the HTTPS range
+proxy without weakening the app document's bridge authorization. Both refuse
+redirects, preserve bounded Range delivery, expose no API key, and expire or
+revoke with the app, tab, account, or route context. This completes Home H5;
+private attachments remain the separate H6 cryptographic tranche.
+
+### 2026-08-18 - feat(chat): add dual-chain public resource viewing
+
+Home 2 now gives QDN apps the same network-qualified public-resource viewing
+surface through `qdnRequest` and `qortalRequest` on desktop and Android. Apps
+can open Home's tab-scoped viewer, obtain a ranged media URL, or ask Home to
+save a resource through the route selected for that exact chain. Android uses
+the authorized HTTPS range proxy for media instead of buffering whole files;
+desktop and Android saves are user initiated, filename-sanitized, and capped at
+100 MiB. Resource coordinates reject traversal and never fall back
+between Qortium and Qortal. The viewer visibly labels every item as public and
+keeps scriptable application archives out of the embedded surface. This
+completes H5A action parity; expiring stream capabilities, Home-issued source
+tokens, and portable public publishing remain H5B.
+
+### 2026-08-18 - feat(chat): add portable Qortal private groups
+
+Home 2 now gives QDN apps the matching Qortal private-group action family on
+desktop and Android through the selected local, custom, or public route. Home
+discovers only current administrator publications at the established
+`DOCUMENT_PRIVATE/<admin>/symmetric-qchat-group-<groupId>` coordinate,
+decrypts the Hub-compatible recipient bundle, supports both retained
+`encryptSingle` formats and reaction type 102, and keeps recovered key rings in
+encrypted account-bound desktop or Android storage. Current members can read,
+send, reply, edit, clear displayed content, react, and recover after reinstall;
+current named administrators can republish or rotate bundles for the current
+membership. QDN publication stages only already-encrypted ciphertext, attests
+the returned Qortal ARBITRARY sender, reference, coordinate, method, service,
+hash shape, size, timestamp, and fee before local signing, and preserves signed
+unknown broadcasts as unsafe to retry. Operators may disable QDN staging; Home
+then reports `NODE_CAPABILITY_MISSING` on that exact route and never changes
+nodes or falls back to plaintext. Clean-room byte-exact tests match the official
+Hub v3.0.0 bundle plus old/new message and reaction fixtures. This completes
+Home milestone H4 on both chains.
+
+### 2026-08-18 - feat(chat): add portable Qortium private groups
+
+Home 2 now gives QDN apps a portable Qortium private-group chat family on
+desktop and Android through local, custom, and public nodes. Home reads Core's
+atomic group state and bounded signed control records, independently verifies
+the outer CHAT and inner QPGC signatures, recovers or relays recipient-wrapped
+keys, rotates group keys, and encrypts/decrypts retained messages without
+giving an app any reusable key or private wallet material. Send, edit,
+content-clearing delete, reaction, key-request, key-relay, and rotation actions
+all build and attest the exact unsigned CHAT transaction before local
+MemoryPoW/signing; account, membership epoch, reference, route, app, and tab
+context are rechecked before broadcast. Encrypted account-bound key records are
+stored with bounded owner-only desktop files or bounded Android preferences,
+purged with the corresponding account, recoverable after a same-identity wallet
+re-import, and exercised against Core's byte-exact QPGC fixture. This completes
+the Qortium half of H4; Qortal's
+separate private-bundle and `encryptSingle` lifecycle remains the next Home
+tranche.
+
+### 2026-08-18 - feat(chat): add portable dual-chain direct messages
+
+Home 2 now gives QDN apps separately named direct-message history, active-chat,
+send, edit, content-clearing delete, and reaction actions on both Qortium and
+Qortal. Desktop and Android keep every private key and shared secret inside
+Home, decrypt each retained message only for the selected account and exact
+peer, and return per-message failures without exposing ciphertext keys.
+Qortium uses Core's QDM1 AES-GCM envelope and public unsigned CHAT builder;
+Qortal uses the frozen legacy version-2 NaCl secretbox and transaction format.
+Both implementations share byte-exact interoperability tests, require a usable
+recipient public key, recheck the app, tab, account, peer, reference, and node
+route before signing, and preserve signed uncertain broadcasts as unsafe to
+retry. Qortal delete is explicitly a valid content-clearing edit: it does not
+claim to erase either immutable transaction.
+
+### 2026-08-18 - feat(chat): add portable group administration
+
+Home 2 now gives QDN apps exact, separately approved invitation, join-request
+approval, invite cancellation, admin-role, kick, ban, and unban actions on
+both Qortium and Qortal. Desktop and Android build the seven underlying
+transaction types locally, attest every approved field, and use the chain's
+correct proof rule: current MemoryPoW on Qortium and a freshly rechecked fee
+and last reference on Qortal. Home verifies the current group owner or admin
+before prompting and again before signing, protects the owner from removal,
+kick, or ban, and binds every operation to the same app, tab, account, chain,
+group, member, and node route. Administrative approval is always one request;
+uncertain signed broadcasts retain their signature and are never offered as a
+safe retry. Qortal's established `BAN_FROM_GROUP` and `KICK_FROM_GROUP` names
+remain compatibility aliases for the same canonical actions, not new signing
+capabilities.
+
+### 2026-08-18 - feat(chat): add dual-chain avatar bridge parity
+
+Home 2 now gives QDN apps dedicated account- and group-avatar reads on both
+Qortium and Qortal, with one shared contract on desktop and Android. Qortium
+uses the current on-chain account/group pointer when present and only falls
+back to the established named thumbnail after an exact missing-pointer result.
+Qortal resolves its established account and group thumbnail coordinates from
+the requested chain without falling back to Qortium. Every result identifies
+its network, returns bounded base64 instead of a node URL, caps the image at
+500 KiB, validates raster magic bytes, and reports queued QDN content as a
+retryable pending state.
+
+### 2026-08-18 - feat(chat): add portable group participation
+
+Home 2 now lets QDN apps request group joins and leaves on both Qortium and
+Qortal from desktop or Android, using any node route that the platform can
+configure: local, public, or custom on desktop, and public or custom on
+Android. Qortium Core supplies signature-free transaction bytes that Home
+checks field by field before locally computing proof of work and signing;
+Qortal transactions are built locally from the frozen interoperability vectors
+with a freshly rechecked reference and fee. Approval identifies the app,
+account, chain, group, action, and route, and Home cancels if that context
+changes. Already joined, already requested, and already left states are safe
+idempotent results, while an uncertain signed broadcast retains its signature
+and cannot be retried blindly. Joining does not silently create minting
+authority; that remains a separate explicit operation.
+
+### 2026-08-18 - feat(chat): add portable public chat revisions
+
+Home 2 now preserves and verifies public-chat references while signing on both
+desktop and Android. Qortium apps receive explicit edit, delete, and reaction
+actions; Qortal apps receive its frozen Hub-compatible edit and reaction
+actions. Home checks the selected chain, open group, original message, sender
+ownership where required, app/account/route context, and exact payload before
+prompting and again before signing. A broadcast whose final outcome cannot be
+confirmed returns the signed transaction signature without offering an unsafe
+retry. Qortal delete is a strictly validated, referenced empty Hub-v3 edit: it
+clears the rendered content and leaves the immutable original and revision
+transactions on-chain. Home does not substitute Reticulum's unrelated format.
+
+### 2026-08-17 - test(chat): add dual-chain interop vectors
+
+Home now reads Qortium Core's committed direct-message and private-group Chat
+vectors from their exact pinned Core revision instead of keeping a second copy.
+It also freezes independently generated Qortal Hub v3 fixtures for public
+revisions and reactions, encrypted direct messages, private-group keys and
+messages, group join and leave transactions, and resource descriptors. CI
+checks the provenance, framing, signed bytes, signatures, and negative-case
+definitions before later Home work adds any new Chat signing or encryption.
+
+### 2026-08-17 - fix(android): update local notifications safely
+
+Updates Capacitor's local-notifications plugin to 8.3.0 while preserving Home's
+boot-only notification restore protection after the plugin moved its Android
+receiver from Java to Kotlin. Installation still stops safely if a future
+plugin release changes the guarded receiver unexpectedly, and a focused test
+now verifies both the protection and the installed dependency source. Home's
+immediate alerts also opt out of the plugin's new exact-alarm default, avoiding
+an unnecessary Android system-settings prompt.
+
+### 2026-08-17 - feat(chat): add route-aware Home 2 bridge discovery
+
+Home 2 apps now receive a callable action list for their actual Qortium or
+Qortal route instead of a fixed platform list. `GET_HOST_INFO` identifies the
+invoked protocol, network, desktop or Android host, configured/effective route,
+reachability, and an opaque revision that changes with relevant route or
+account context. Desktop and Android deliver the same revision-change event so
+apps can refresh their action list, and structured errors now preserve safe
+action, network, retry, route, outcome, and target details across both bridges.
+
+### 2026-08-17 - docs(chat): plan portable dual-chain Chat bridge
+
+Adds the implementation roadmap for making public groups, private groups,
+direct messages, revisions, reactions, participation, avatars, embeds, and
+attachments work through both Qortium and Qortal nodes. Every milestone targets
+Home 2 on desktop and Android across local/custom/public routes. The roadmap
+keeps wallet keys and chat encryption inside Home, uses the completed Qortium
+Core portability APIs, leaves Qortal Core unchanged, and keeps future
+FreeChat-style General compatibility and Reticulum as distinct protocol work.
+
+### 2026-08-16 - fix(core): preserve reward identity across managed updates
+
+Before Home replaces or relocates a managed Core installation, it now securely
+copies Core's existing reward-node identity from the replaceable Preview folder
+into the persistent runtime folder. A valid runtime identity is always kept,
+the legacy copy remains available for rollback, and unsafe, malformed, or
+unreadable identity files stop the update instead of silently rotating the
+node's reward identity. The same protection runs for same-version repair,
+running and stopped Core upgrades, and migration from Home's older managed-Core
+layout. Home also places the authoritative runtime identity into each replacement
+candidate, so a deliberate downgrade to an older Core keeps the same identity.
+
 ### 2026-08-13 - Harden Home v2 app-grant identity binding + add chat-send rate limit
 
 Home now binds an app tab's account and chat-send authority to the exact QDN

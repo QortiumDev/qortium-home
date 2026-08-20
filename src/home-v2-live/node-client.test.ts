@@ -12,6 +12,7 @@ import {
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
+import { getHomeV2ContextualAppActions } from '../../electron/home-v2-app-runtime'
 
 const syncedStatus = {
   height: 123,
@@ -65,7 +66,10 @@ const latency = new Map([
 const unavailable = new Set<string>()
 const requestCount = new Map<string, number>()
 let lastRequestedUrl = ''
+let lastRequestedBinaryUrl = ''
+let lastRequestedBinaryTimeoutMs: number | undefined
 let lastRequestedTimeoutMs: number | undefined
+let savedResource: { fileName: string; mimeType: string; size: number } | null = null
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
@@ -83,7 +87,19 @@ const dependencies: PortableNodeClientDependencies = {
       return { data: null, latencyMs: 1, ok: false, status: 503 }
     }
     return {
-      data: url.includes('/admin/status')
+      data: url.includes(`/names/primary/QH143K2qjVdn864NSY7aNESo88ao1ZnALH`)
+        ? { name: 'Qortal Alice' }
+        : url.endsWith('/addresses/QH143K2qjVdn864NSY7aNESo88ao1ZnALH/avatar/info')
+          ? { identifier: 'old-pointer', name: 'Old publisher', service: 'THUMBNAIL' }
+        : url.endsWith('/groups/12')
+          ? {
+              groupId: 12,
+              owner: 'QH143K3FAiM4CHbm7cbYguCyYCdLMGW5YE',
+              ownerPrimaryName: 'Qortal Owner',
+            }
+        : url.includes('/arbitrary/resource/status/')
+          ? { status: 'READY' }
+        : url.includes('/admin/status')
         ? syncedStatus
         : url.includes('/arbitrary/resources/search') && url.includes('name=Trust')
           ? [{ identifier: 'Trust', name: 'Trust', service: 'APP' }]
@@ -98,12 +114,25 @@ const dependencies: PortableNodeClientDependencies = {
       status: 200,
     }
   },
-  async requestBinary() {
+  async requestBinary(url, timeoutMs) {
+    lastRequestedBinaryUrl = url
+    lastRequestedBinaryTimeoutMs = timeoutMs
     return {
       data: 'iVBORw0KGgo=',
-      headers: { 'content-type': 'application/octet-stream' },
+      headers: url.includes('/addresses/')
+        ? {
+            'content-type': 'application/octet-stream',
+            'x-qortium-avatar-identifier': 'current-pointer',
+            'x-qortium-avatar-name': 'Current publisher',
+            'x-qortium-avatar-service': 'THUMBNAIL',
+          }
+        : { 'content-type': 'application/octet-stream' },
       status: 200,
     }
+  },
+  async saveBinary({ bytes, fileName, mimeType }) {
+    savedResource = { fileName, mimeType, size: bytes.byteLength }
+    return { canceled: false }
   },
   now: () => 1_700_000_000_000,
 }
@@ -115,19 +144,44 @@ assert.deepEqual(await client.getShellState(), {
   version: 1,
   selectedAccountId: 'wallet:one:2',
 })
-assert.deepEqual(
-  await client.requestApp('qdnRequest', { action: 'SHOW_ACTIONS' }),
-  getHomeV2AppActions('qdnRequest'),
-)
+const disabledQortiumActions = await client.requestApp(
+  'qdnRequest',
+  { action: 'SHOW_ACTIONS' },
+) as string[]
+assert.equal(disabledQortiumActions.includes('FETCH_NODE_API'), false)
+assert.equal(disabledQortiumActions.includes('SEND_CHAT_MESSAGE'), false)
+assert.equal(disabledQortiumActions.includes('JOIN_GROUP'), false)
+assert.equal(disabledQortiumActions.includes('LEAVE_GROUP'), false)
+assert.equal(disabledQortiumActions.includes('FETCH_QORTAL_NODE_API'), true)
+assert.equal(disabledQortiumActions.includes('GET_HOST_INFO'), true)
 assert.deepEqual(
   await client.requestApp('qortalRequest', { action: 'SHOW_ACTIONS' }),
-  getHomeV2AppActions('qortalRequest'),
+  getHomeV2ContextualAppActions(getHomeV2AppActions('qortalRequest'), 'android'),
 )
+assert.equal(disabledQortiumActions.includes('OPEN_AS_WIDGET'), false)
+assert.equal(disabledQortiumActions.some((action) => action.startsWith('WIDGET_')), false)
+const disabledQortiumHostInfo = await client.requestApp(
+  'qdnRequest',
+  { action: 'GET_HOST_INFO' },
+) as { network: string; platform: string; protocol: string; route: Record<string, unknown> }
+assert.equal(disabledQortiumHostInfo.network, 'qortium')
+assert.equal(disabledQortiumHostInfo.platform, 'android')
+assert.equal(disabledQortiumHostInfo.protocol, 'qdnRequest')
+assert.equal(disabledQortiumHostInfo.route.configuredKind, 'disabled')
+assert.equal(disabledQortiumHostInfo.route.available, false)
+assert.equal(disabledQortiumHostInfo.route.reachable, false)
+assert.match(String(disabledQortiumHostInfo.route.revision), /^home-v2-route-v1-[0-9a-f]{8}$/)
 assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_SELECTED_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qdnRequest').includes('UNLOCK_SELECTED_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_USER_ACCOUNT'), true)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('UNLOCK_SELECTED_ACCOUNT'), false)
+await client.setMode('qortium', 'public')
+const resourceContext = {
+  resourceLocation: 'qortal://APP/Chat',
+  selectedAccountId: null,
+  tabId: 'chat-tab',
+}
 assert.deepEqual(
   await client.requestApp('qdnRequest', {
     action: 'OPEN_NEW_TAB',
@@ -135,6 +189,59 @@ assert.deepEqual(
   }),
   { address: 'qortal://APP/Q-Tube', openIn: 'new-tab' },
 )
+const qortalStreamUrl = await client.requestApp('qortalRequest', {
+  action: 'GET_QDN_RESOURCE_STREAM_URL',
+  service: 'IMAGE',
+  name: 'Alice',
+  identifier: 'qortal_avatar',
+}, resourceContext)
+assert.match(String(qortalStreamUrl), /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/render\/IMAGE\/Alice\/qortal_avatar$/)
+const qortiumStreamUrl = await client.requestApp('qdnRequest', {
+  action: 'GET_QDN_RESOURCE_STREAM_URL',
+  service: 'IMAGE',
+  name: 'Alice',
+  identifier: 'avatar',
+}, resourceContext)
+assert.match(String(qortiumStreamUrl), /^https:\/\/node[12]\.qortium\.app\/render\/IMAGE\/Alice\/avatar$/)
+assert.notEqual(new URL(String(qortalStreamUrl)).origin, new URL(String(qortiumStreamUrl)).origin)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'OPEN_QDN_RESOURCE_VIEWER',
+    service: 'IMAGE',
+    name: 'Alice',
+    identifier: 'qortal_avatar',
+    filename: 'avatar.png',
+    mimeType: 'image/png',
+  }, resourceContext),
+  {
+    filename: 'avatar.png',
+    identifier: 'qortal_avatar',
+    mimeType: 'image/png',
+    name: 'Alice',
+    network: 'qortal',
+    path: null,
+    service: 'IMAGE',
+    sourceTabId: 'chat-tab',
+    streamUrl: qortalStreamUrl,
+  },
+)
+assert.deepEqual(
+  await client.requestApp('qortalRequest', {
+    action: 'SAVE_QDN_RESOURCE',
+    service: 'IMAGE',
+    name: 'Alice',
+    identifier: 'qortal_avatar',
+    filename: '../avatar.png',
+  }, resourceContext),
+  { canceled: false },
+)
+assert.equal(lastRequestedBinaryUrl.includes('/arbitrary/IMAGE/Alice/qortal_avatar'), true)
+assert.equal(lastRequestedBinaryTimeoutMs, 120_000)
+assert.deepEqual(savedResource, {
+  fileName: 'avatar.png',
+  mimeType: 'application/octet-stream',
+  size: 8,
+})
 const qortalRead = await client.requestApp('qortalRequest', {
   action: 'FETCH_NODE_API',
   path: '/names/Alice',
@@ -221,7 +328,10 @@ assert.match(lastRequestedUrl, /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.l
 // public seeds do not expose their routes.
 await assert.rejects(
   () => client.requestApp('qdnRequest', { action: 'GET_PRICE', blockchain: 'LITECOIN' }),
-  /not available in Home v2 read-only mode/,
+  (error: unknown) =>
+    error instanceof Error &&
+    error.message === 'GET_PRICE is not implemented for qdnRequest.' &&
+    (error as Error & { code?: string }).code === 'UNSUPPORTED_PROTOCOL',
 )
 await assert.rejects(
   () => client.requestApp('qortalRequest', {
@@ -403,6 +513,46 @@ assert.equal(
 await client.setMode('qortal', 'public')
 await client.setMode('qortium', 'public')
 
+const qortiumAccountAvatar = await client.requestApp('qdnRequest', {
+  action: 'FETCH_ACCOUNT_AVATAR',
+  address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+}) as Record<string, unknown>
+assert.equal(qortiumAccountAvatar.network, 'qortium')
+assert.equal(qortiumAccountAvatar.source, 'POINTER')
+assert.deepEqual(qortiumAccountAvatar.descriptor, {
+  identifier: 'current-pointer',
+  name: 'Current publisher',
+  service: 'THUMBNAIL',
+})
+assert.match(
+  lastRequestedBinaryUrl,
+  /^https:\/\/(node1|node2)\.qortium\.app\/addresses\/QH143K2qjVdn864NSY7aNESo88ao1ZnALH\/avatar$/,
+)
+
+const qortalAccountAvatar = await client.requestApp('qortalRequest', {
+  action: 'FETCH_ACCOUNT_AVATAR',
+  address: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
+}) as Record<string, unknown>
+assert.equal(qortalAccountAvatar.network, 'qortal')
+assert.equal(qortalAccountAvatar.source, 'LEGACY')
+assert.equal(qortalAccountAvatar.contentType, 'image/png')
+assert.match(
+  lastRequestedBinaryUrl,
+  /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/arbitrary\/THUMBNAIL\/Qortal%20Alice\/qortal_avatar\?async=true$/,
+)
+
+const qortalGroupAvatar = await client.requestApp('qortalRequest', {
+  action: 'FETCH_GROUP_AVATAR',
+  groupId: 12,
+}) as Record<string, unknown>
+assert.equal(qortalGroupAvatar.network, 'qortal')
+assert.equal(qortalGroupAvatar.groupId, 12)
+assert.equal(qortalGroupAvatar.source, 'LEGACY')
+assert.match(
+  lastRequestedBinaryUrl,
+  /^https:\/\/(api\.qortal\.org|ext-node\.qortal\.link)\/arbitrary\/THUMBNAIL\/Qortal%20Owner\/qortal_group_avatar_12\?async=true$/,
+)
+
 // Group/chat-active read family (unblocks Chat 2.0 group browsing):
 // representative URL-routing coverage on both protocols.
 assert.deepEqual(
@@ -443,7 +593,7 @@ assert.match(lastRequestedUrl, /\/groups\/search\?query=Chess$/)
 // SEARCH_GROUPS is Qortium-only: /groups/search does not exist on Qortal.
 await assert.rejects(
   () => client.requestApp('qortalRequest', { action: 'SEARCH_GROUPS', query: 'Chess' }),
-  /not available in Home v2 read-only mode/,
+  /SEARCH_GROUPS is not implemented for qortalRequest/,
 )
 
 assert.equal(getHomeV2AppActions('qdnRequest').includes('GET_ASSET_BALANCES'), true)
@@ -471,7 +621,7 @@ await assert.rejects(
 )
 await assert.rejects(
   () => client.requestApp('qortalRequest', { action: 'GET_ASSET_INFO', assetId: 5 }),
-  /not available in Home v2 read-only mode/,
+  /GET_ASSET_INFO is not implemented for qortalRequest/,
 )
 const appContext = {
   resourceLocation: 'qdn://APP/Trust/Trust',

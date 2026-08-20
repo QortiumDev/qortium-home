@@ -3,7 +3,6 @@ import type { WidgetManifest } from './widget-manifest.js'
 import type { WidgetRegion } from './widget-region.js'
 import type { SnapEdge } from './widget-snapping.js'
 
-export const WIDGETS_PER_APP_MAX = 4
 export const WIDGETS_TOTAL_MAX = 16
 
 export type WidgetRecord = {
@@ -46,16 +45,14 @@ export function allocateWidgetId(): string {
   return randomUUID()
 }
 
-export function assertWidgetCapacity(appName: string) {
+export function assertWidgetCapacity(resourceUrl: string) {
   if (widgets.size >= WIDGETS_TOTAL_MAX) {
     throw new Error(`Home allows at most ${WIDGETS_TOTAL_MAX} widgets at once.`)
   }
-  let owned = 0
   for (const record of widgets.values()) {
-    if (record.appName === appName) owned += 1
-  }
-  if (owned >= WIDGETS_PER_APP_MAX) {
-    throw new Error(`This app already has the maximum of ${WIDGETS_PER_APP_MAX} widgets open.`)
+    if (record.resourceUrl === resourceUrl) {
+      throw new Error('This published widget is already open.')
+    }
   }
 }
 

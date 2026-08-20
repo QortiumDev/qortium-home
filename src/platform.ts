@@ -153,6 +153,8 @@ import {
   assertPublicArbitraryTransaction,
   assertPublicChatTransaction,
   assertPublicCreatePollTransaction,
+  assertPublicJoinGroupTransaction,
+  assertPublicLeaveGroupTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
   getStaticQdnServiceId,
@@ -226,11 +228,113 @@ import {
   assertValidQortalChatSignature,
   buildQortalAccountGroupsPath,
   buildQortalGroupChatPayload,
+  buildUnsignedQortalDirectChatTransactionBytes,
   buildUnsignedQortalGroupChatTransactionBytes,
   qortalChatPowDifficultyForBalance,
   QORTAL_CHAT_POW_DIFFICULTY_BELOW,
   stampQortalGroupChatNonce,
 } from '../electron/qortal-chat';
+import {
+  buildHomeV2QortiumPublicChatBuildBody,
+  createHomeV2UnknownChatBroadcastResult,
+  type HomeV2PublicChatRequest,
+} from '../electron/home-v2-chat-actions';
+import {
+  encryptQdm1Message,
+  encryptQortalDirectMessage,
+} from '../electron/home-v2-direct-chat-actions';
+import {
+  decryptHomeV2DirectChatRow,
+  directDecryptFailure,
+  type HomeV2DirectChatWriteRequest,
+} from '../electron/home-v2-direct-chat-contract';
+import {
+  computeQpgcKeyId,
+  createQpgcKeyAnnouncement,
+  createQpgcKeyRequest,
+  decryptQpgcMessage,
+  decryptQpgcStoredKey,
+  encryptQpgcMessage,
+  encryptQpgcStoredKey,
+  parseQpgcEnvelope,
+  serializeQpgcEnvelope,
+  unwrapQpgcAnnouncementForRecipient,
+  type EncryptedQpgcStoredKey,
+} from '../electron/home-v2-private-group-chat-actions';
+import {
+  normalizeHomeV2QpgcControlPage,
+  normalizeHomeV2QpgcGroupState,
+  type HomeV2QpgcGroupState,
+} from '../electron/home-v2-private-group-chat-contract';
+import {
+  appendQortalPrivateGroupKey,
+  decryptQortalPrivateGroupBundle,
+  decryptQortalPrivateGroupPayload,
+  decryptQortalPrivateGroupStoredKeyRing,
+  encryptQortalPrivateGroupBundle,
+  encryptQortalPrivateGroupPayload,
+  encryptQortalPrivateGroupStoredKeyRing,
+  type EncryptedQortalPrivateGroupKeyRing,
+  type QortalPrivateGroupKeyRing,
+} from '../electron/home-v2-qortal-private-group-actions';
+import {
+  assertPrivateChatAttachmentRecipients,
+  decryptPrivateChatAttachmentForRecipient,
+  decryptPrivateChatGroupAttachment,
+  decryptQortalHubPrivateGroupImage,
+  decryptQortalPrivateChatDirectAttachment,
+  decryptQortalPrivateChatGroupAttachment,
+  encryptPrivateChatDirectAttachment,
+  encryptPrivateChatGroupAttachment,
+  encryptQortalHubPrivateGroupImage,
+  encryptQortalPrivateChatDirectAttachment,
+  encryptQortalPrivateChatGroupAttachment,
+  getQortalPrivateChatDirectQencEnvelope,
+  isQortalHubCompatiblePrivateImageMediaType,
+  parsePrivateChatAttachmentEnvelope,
+  sniffPrivateChatAttachmentMediaType,
+} from '../electron/home-v2-private-attachment-actions';
+import {
+  createHomeV2PrivateAttachmentDescriptor,
+} from '../electron/home-v2-private-attachment-contract';
+import {
+  attestUnsignedQortalArbitraryPublish,
+  attestUnsignedQortalPrivateGroupPublish,
+  signAttestedQortalPrivateGroupPublish,
+} from '../electron/home-v2-qortal-private-group-publish';
+import {
+  createHomeV2PublicPublishDescriptor,
+  sha256Hex,
+} from '../electron/home-v2-public-publish-contract';
+import {
+  appendHomeV2GroupMembershipSignature,
+  buildUnsignedQortalGroupMembershipTransactionBytes,
+  createHomeV2GroupMembershipSuccess,
+  createHomeV2UnknownGroupMembershipBroadcastResult,
+  encodeHomeV2GroupMembershipTransaction,
+  groupMembershipIdempotentState,
+  normalizeHomeV2GroupMembershipTarget,
+  normalizeQortalGroupMembershipFee,
+  qortalGroupMembershipFeeType,
+  type HomeV2GroupMembershipAction,
+  type HomeV2GroupMembershipRequest,
+  type HomeV2GroupMembershipTarget,
+} from '../electron/home-v2-group-actions';
+import {
+  appendHomeV2GroupAdminSignature,
+  assertUnsignedHomeV2GroupAdminTransaction,
+  buildUnsignedQortalGroupAdminTransactionBytes,
+  buildUnsignedQortiumGroupAdminTransactionBytes,
+  createHomeV2GroupAdminSuccess,
+  createHomeV2UnknownGroupAdminBroadcastResult,
+  encodeHomeV2GroupAdminTransaction,
+  groupAdminIdempotentResult,
+  homeV2GroupAdminOperationLabel,
+  normalizeHomeV2GroupAdminFee,
+  qortalGroupAdminFeeType,
+  type HomeV2GroupAdminRequest,
+  type HomeV2GroupAdminTarget,
+} from '../electron/home-v2-group-admin-actions';
 import { signChatTransaction } from './chatSign';
 import type { CoreTransportStatusSnapshot } from './i2p';
 import { t } from './i18n';
@@ -241,7 +345,14 @@ import {
   type QdnDisplaySettings,
 } from './qdn';
 import { loadDisplaySettings } from './displaySettings';
-import type { HomeV2VaultClient } from './home-v2-live/vault-client';
+import type {
+  HomeV2PrivateGroupChatReadRequest,
+  HomeV2PrivateGroupChatWriteRequest as HomeV2VaultPrivateGroupChatWriteRequest,
+  HomeV2PrivateAttachmentDecryptRequest,
+  HomeV2PrivateAttachmentPublishMutationRequest,
+  HomeV2PublicPublishMutationRequest,
+  HomeV2VaultClient,
+} from './home-v2-live/vault-client';
 import type { HomeV2VaultState } from './v2/contracts';
 
 const NODE_SETTINGS_KEY = 'qortium-home-node-settings';
@@ -1359,6 +1470,125 @@ async function setStoredValue(key: string, value: string) {
   }
 
   window.localStorage.setItem(key, value);
+}
+
+const ANDROID_QPGC_KEY_STORE_KEY = 'home-v2-qpgc-key-store-v1';
+const ANDROID_QPGC_KEY_STORE_MAX_BYTES = 8 * 1024 * 1024;
+const ANDROID_QPGC_KEY_STORE_MAX_RECORDS = 2_048;
+
+type AndroidQpgcKeyStoreEntry = {
+  accountId: string;
+  record: EncryptedQpgcStoredKey;
+};
+
+async function readAndroidQpgcKeyStore(): Promise<AndroidQpgcKeyStoreEntry[]> {
+  const raw = await getStoredValue(ANDROID_QPGC_KEY_STORE_KEY);
+  if (!raw) return [];
+  if (new TextEncoder().encode(raw).length > ANDROID_QPGC_KEY_STORE_MAX_BYTES) {
+    throw new Error('Private-group key store exceeds its size limit.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Private-group key store is not valid JSON.');
+  }
+  if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.entries) || parsed.entries.length > ANDROID_QPGC_KEY_STORE_MAX_RECORDS) {
+    throw new Error('Private-group key store is invalid.');
+  }
+  const entries = parsed.entries.filter((entry): entry is AndroidQpgcKeyStoreEntry =>
+    isRecord(entry) && typeof entry.accountId === 'string' && isRecord(entry.record),
+  );
+  if (entries.length !== parsed.entries.length) throw new Error('Private-group key store contains an invalid record.');
+  return entries;
+}
+
+async function writeAndroidQpgcKeyStore(entries: readonly AndroidQpgcKeyStoreEntry[]) {
+  if (entries.length > ANDROID_QPGC_KEY_STORE_MAX_RECORDS) throw new Error('Private-group key store has too many records.');
+  const raw = JSON.stringify({ entries, version: 1 });
+  if (new TextEncoder().encode(raw).length > ANDROID_QPGC_KEY_STORE_MAX_BYTES) {
+    throw new Error('Private-group key store update exceeds its size limit.');
+  }
+  await setStoredValue(ANDROID_QPGC_KEY_STORE_KEY, raw);
+}
+
+async function upsertAndroidQpgcKeyRecord(accountId: string, record: EncryptedQpgcStoredKey) {
+  const identity = [record.accountPublicKey, record.groupId, record.epochId, record.keyId].join('|');
+  const entries = await readAndroidQpgcKeyStore();
+  await writeAndroidQpgcKeyStore([
+    ...entries.filter((entry) => [
+      entry.record.accountPublicKey,
+      entry.record.groupId,
+      entry.record.epochId,
+      entry.record.keyId,
+    ].join('|') !== identity),
+    { accountId, record },
+  ]);
+}
+
+async function removeAndroidQpgcAccountRecords(accountId: string) {
+  const entries = await readAndroidQpgcKeyStore();
+  if (!entries.some((entry) => entry.accountId === accountId)) return;
+  await writeAndroidQpgcKeyStore(entries.filter((entry) => entry.accountId !== accountId));
+}
+
+const ANDROID_QORTAL_PRIVATE_GROUP_STORE_KEY = 'home-v2-qortal-private-group-key-store-v1';
+const ANDROID_QORTAL_PRIVATE_GROUP_STORE_MAX_BYTES = 16 * 1024 * 1024;
+
+type AndroidQortalPrivateGroupStoreEntry = {
+  accountId: string;
+  record: EncryptedQortalPrivateGroupKeyRing;
+};
+
+async function readAndroidQortalPrivateGroupStore(): Promise<AndroidQortalPrivateGroupStoreEntry[]> {
+  const raw = await getStoredValue(ANDROID_QORTAL_PRIVATE_GROUP_STORE_KEY);
+  if (!raw) return [];
+  if (new TextEncoder().encode(raw).length > ANDROID_QORTAL_PRIVATE_GROUP_STORE_MAX_BYTES) {
+    throw new Error('Qortal private-group key store exceeds its size limit.');
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new Error('Qortal private-group key store is not valid JSON.'); }
+  if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.entries) || parsed.entries.length > 2_048) {
+    throw new Error('Qortal private-group key store is invalid.');
+  }
+  const entries = parsed.entries.filter((entry): entry is AndroidQortalPrivateGroupStoreEntry =>
+    isRecord(entry) && typeof entry.accountId === 'string' && isRecord(entry.record) && entry.record.network === 'qortal',
+  );
+  if (entries.length !== parsed.entries.length) throw new Error('Qortal private-group key store contains an invalid record.');
+  return entries;
+}
+
+async function writeAndroidQortalPrivateGroupStore(entries: readonly AndroidQortalPrivateGroupStoreEntry[]) {
+  if (entries.length > 2_048) throw new Error('Qortal private-group key store has too many records.');
+  const raw = JSON.stringify({ entries, version: 1 });
+  if (new TextEncoder().encode(raw).length > ANDROID_QORTAL_PRIVATE_GROUP_STORE_MAX_BYTES) {
+    throw new Error('Qortal private-group key store update exceeds its size limit.');
+  }
+  await setStoredValue(ANDROID_QORTAL_PRIVATE_GROUP_STORE_KEY, raw);
+}
+
+async function upsertAndroidQortalPrivateGroupRecord(accountId: string, record: EncryptedQortalPrivateGroupKeyRing) {
+  const entries = await readAndroidQortalPrivateGroupStore();
+  await writeAndroidQortalPrivateGroupStore([
+    ...entries.filter((entry) => !(
+      entry.accountId === accountId &&
+      entry.record.accountPublicKey === record.accountPublicKey &&
+      entry.record.groupId === record.groupId
+    )),
+    { accountId, record },
+  ]);
+}
+
+async function findAndroidQortalPrivateGroupRecord(accountId: string, accountPublicKey: string, groupId: number) {
+  return (await readAndroidQortalPrivateGroupStore()).find((entry) =>
+    entry.accountId === accountId && entry.record.accountPublicKey === accountPublicKey && entry.record.groupId === groupId,
+  )?.record ?? null;
+}
+
+async function removeAndroidQortalPrivateGroupAccountRecords(accountId: string) {
+  const entries = await readAndroidQortalPrivateGroupStore();
+  if (!entries.some((entry) => entry.accountId === accountId)) return;
+  await writeAndroidQortalPrivateGroupStore(entries.filter((entry) => entry.accountId !== accountId));
 }
 
 // True when window.qortiumHome is this module's own web fallback rather than
@@ -3677,6 +3907,7 @@ async function showNotificationForApp(request: QdnAppRequest, context: QdnAppReq
         {
           body: text ?? '',
           id: nextLocalNotificationId++,
+          isExactNotification: false,
           title: displayTitle,
         },
       ],
@@ -3723,22 +3954,28 @@ async function postLocalNodeText(
   // let an oversized/hostile body be decoded, signed, or trusted further.
   // Existing callers that omit maxBytes keep their prior unbounded behavior.
   maxBytes?: number,
+  refuseRedirects = false,
 ) {
   let response: HttpResponse;
 
   try {
+    const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`;
     response = await CapacitorHttp.request({
-      url: `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`,
+      url: requestUrl,
       method: 'POST',
       headers: {
         'Content-Type': contentType,
-        'X-API-KEY': apiKey,
+        ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
       },
       data: body,
       responseType: 'text',
       connectTimeout: REQUEST_TIMEOUT_MS,
       readTimeout: REQUEST_TIMEOUT_MS,
+      disableRedirects: refuseRedirects,
     });
+    if (refuseRedirects && response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
+      throw new Error('Node request changed the approved URL.');
+    }
   } catch {
     throw new Error(getNodeUnavailableMessage(nodeApiUrl));
   }
@@ -3750,7 +3987,10 @@ async function postLocalNodeText(
   }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(readableNodeErrorMessage(responseBody, fallbackMessage));
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(responseBody, fallbackMessage)),
+      { status: response.status },
+    );
   }
 
   return {
@@ -3779,6 +4019,7 @@ async function postLocalNodeBytes(
   body: Blob,
   apiKey: string,
   fallbackMessage: string,
+  refuseRedirects = false,
 ) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -3792,6 +4033,7 @@ async function postLocalNodeBytes(
         'X-API-KEY': apiKey,
       },
       body,
+      redirect: refuseRedirects ? 'error' : 'follow',
       signal: controller.signal,
     });
   } catch {
@@ -4109,12 +4351,13 @@ async function signAndProcessKeylessQdnTransaction(
 
 async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8Array, maxBytes: number) {
   if (hash.length !== 32) throw new Error('Public QDN builder returned an invalid attestation hash.');
+  const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`;
   let result: Awaited<ReturnType<typeof fetchBoundedBytes>>;
   try {
     result = await fetchBoundedBytes(
       (signal) => window.fetch(
-        `${getNodeApiUrlBase(nodeApiUrl)}/arbitrary/public/data/${encodeURIComponent(base58Encode(hash))}`,
-        { cache: 'no-store', signal },
+        requestUrl,
+        { cache: 'no-store', redirect: 'error', signal },
       ),
       maxBytes,
     );
@@ -4124,6 +4367,9 @@ async function fetchPublicQdnAttestationArtifact(nodeApiUrl: string, hash: Uint8
     );
   }
   const { bytes, response } = result;
+  if (response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
+    throw new Error('Public QDN content attestation changed the approved node URL.');
+  }
   if (response.status < 200 || response.status >= 300) {
     throw new Error(readableNodeErrorMessage(
       new TextDecoder().decode(bytes),
@@ -4218,8 +4464,16 @@ async function fetchLocalNodeApiPayload(
   // it, so this only refuses to trust/parse an oversized response, applied
   // only where the caller opts in. Existing callers keep prior behavior.
   maxBytes?: number,
+  apiKey = '',
 ) {
-  const response = await requestNode(nodeApiUrl, apiPath, 'text');
+  const response = await requestNode(
+    nodeApiUrl,
+    apiPath,
+    'text',
+    REQUEST_TIMEOUT_MS,
+    'GET',
+    apiKey ? { 'X-API-KEY': apiKey } : undefined,
+  );
   const body = stringifyResponseData(response.data);
 
   if (typeof maxBytes === 'number' && new TextEncoder().encode(body).length > maxBytes) {
@@ -4227,7 +4481,10 @@ async function fetchLocalNodeApiPayload(
   }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(readableNodeErrorMessage(body, fallbackMessage));
+    throw Object.assign(
+      new Error(readableNodeErrorMessage(body, fallbackMessage)),
+      { status: response.status },
+    );
   }
 
   return parseResponseData(body, getContentType(response));
@@ -4237,6 +4494,7 @@ async function fetchLocalNodeApiPayload(
 // signing-path callers; the many existing getGroupDataForChat call sites
 // below that don't pass maxBytes keep their prior unbounded behavior.
 const CHAT_SIGNING_RESPONSE_MAX_BYTES = 256 * 1024;
+const DIRECT_CHAT_READ_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 async function getGroupDataForChat(nodeApiUrl: string, groupId: number, maxBytes?: number) {
   if (groupId === 0) {
@@ -12173,7 +12431,7 @@ async function buildAndroidHomeV2VaultState(): Promise<HomeV2VaultState> {
   }
 }
 
-// Home v2 SEND_CHAT_MESSAGE (Chat 2.0 Phase 1, docs/CHAT_2_0_PLAN.md). These
+// Home v2 public CHAT writes (Home chat portability H1). These
 // mirror sendKeylessPublicGroupChatMessage / sendQortalGroupChatForApp above,
 // but take an explicit v2-resolved nodeApiUrl (v2's Android node client has
 // its own node settings, separate from v1's), send no API key at all (not
@@ -12191,26 +12449,35 @@ async function buildAndroidHomeV2VaultState(): Promise<HomeV2VaultState> {
 // and broadcasting under a stale account/node/tab.
 async function sendHomeV2QortiumChatMessage(
   nodeApiUrl: string,
-  txGroupId: number,
-  message: string,
+  request: HomeV2PublicChatRequest,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
   isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
 ) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the chat action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
   const timestamp = Date.now();
-  const data = encodeChatTextData(message);
+  const buildRequest = buildHomeV2QortiumPublicChatBuildBody({
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
   const unsignedTransaction = await postLocalNodeText(
     nodeApiUrl,
     '/chat/public/build',
-    JSON.stringify({
-      senderPublicKey: signingKey.publicKey58,
-      data,
-      isText: true,
-      isEncrypted: false,
-      txGroupId,
-      timestamp,
-      fee: 0,
-    }),
-    '',
+    JSON.stringify(buildRequest),
+    apiKey,
     'Chat transaction build failed.',
     'application/json',
     CHAT_SIGNING_RESPONSE_MAX_BYTES,
@@ -12220,58 +12487,60 @@ async function sendHomeV2QortiumChatMessage(
   // Never sign node-provided bytes without checking they encode exactly the
   // sender/group/message/timestamp we asked for.
   assertPublicChatTransaction(unsignedBytes, {
-    data: base58Decode(data),
+    ...(request.chatReference ? { chatReference: base58Decode(request.chatReference) } : {}),
+    data: base58Decode(buildRequest.data),
     publicKey: base58Decode(signingKey.publicKey58),
     timestamp,
-    txGroupId,
+    txGroupId: request.txGroupId,
   });
-  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isStillValid);
-  if (!(await isStillValid())) {
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isRouteStillValid);
+  if (!(await isRouteStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.');
+  }
+  await validateTarget();
+  if (!(await isRouteStillValid())) {
     throw new Error('The signing context changed before the chat message could be submitted.');
   }
   const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey);
-
-  await postLocalNodeText(
-    nodeApiUrl,
-    '/transactions/process?apiVersion=2',
-    base58Encode(signedBytes),
-    '',
-    'Chat transaction processing failed.',
-    'text/plain',
-    CHAT_SIGNING_RESPONSE_MAX_BYTES,
-  );
-
-  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp };
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      'Chat transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
 }
 
 async function sendHomeV2QortalChatMessage(
   nodeApiUrl: string,
-  txGroupId: number,
-  message: string,
+  request: HomeV2PublicChatRequest,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
   isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
 ) {
-  // Home does not implement Qortal private-group encryption yet
-  // (docs/CHAT_2_0_PLAN.md); refuse to broadcast plaintext into a group that
-  // is not verifiably open, the same guard v1's Qortal group send applies.
-  let groupData: unknown = null;
-  try {
-    groupData = await getGroupDataForChat(nodeApiUrl, txGroupId, CHAT_SIGNING_RESPONSE_MAX_BYTES);
-  } catch {
-    groupData = null;
-  }
-  assertOpenQortalGroupMetadata(groupData, txGroupId);
-
   const timestamp = Date.now();
   const unsignedBytes = buildUnsignedQortalGroupChatTransactionBytes({
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
     lastReference: getRandomQortalReference(),
-    message,
+    message: request.message,
     senderPublicKey: signingKey.publicKey58,
     timestamp,
-    txGroupId,
+    txGroupId: request.txGroupId,
   });
   const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
   const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) {
+    throw new Error('The signing context changed before the chat message could be submitted.');
+  }
+  await validateTarget();
   if (!(await isStillValid())) {
     throw new Error('The signing context changed before the chat message could be submitted.');
   }
@@ -12279,17 +12548,2076 @@ async function sendHomeV2QortalChatMessage(
   const signatureBytes = nacl.sign.detached(stampedBytes, signingKey.secretKey);
   const signedBytes = appendSignatureToTransactionBytes(stampedBytes, signatureBytes);
 
-  await postLocalNodeText(
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Qortal chat message broadcast failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
+
+async function requestAndroidHomeV2ChatJson(
+  nodeApiUrl: string,
+  pathname: string,
+  apiKey = '',
+  maxBytes = CHAT_SIGNING_RESPONSE_MAX_BYTES,
+  refuseRedirects = false,
+) {
+  let response: HttpResponse;
+  try {
+    const requestUrl = `${getNodeApiUrlBase(nodeApiUrl)}${pathname}`;
+    response = await CapacitorHttp.request({
+      url: requestUrl,
+      method: 'GET',
+      headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
+      responseType: 'text',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+      disableRedirects: refuseRedirects,
+    });
+    if (refuseRedirects && response.url && new URL(response.url).toString() !== new URL(requestUrl).toString()) {
+      throw new Error('Chat node request changed the approved URL.');
+    }
+  } catch {
+    throw new Error(getNodeUnavailableMessage(nodeApiUrl));
+  }
+  const body = stringifyResponseData(response.data);
+  if (new TextEncoder().encode(body).length > maxBytes) {
+    throw new Error('Chat node response exceeded the trusted size limit.');
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(readableNodeErrorMessage(body, `Chat request failed with HTTP ${response.status}.`));
+  }
+  return parseResponseData(body, getContentType(response));
+}
+
+function normalizeAndroidHomeV2DirectPublicKey(value: unknown) {
+  const publicKey = typeof value === 'string'
+    ? value.trim()
+    : isRecord(value) && typeof value.publicKey === 'string'
+      ? value.publicKey.trim()
+      : '';
+  const bytes = base58Decode(publicKey);
+  if (bytes.length !== 32 || base58Encode(bytes) !== publicKey) {
+    throw new Error('The direct-message recipient does not have a usable public key.');
+  }
+  return { bytes, value: publicKey };
+}
+
+async function readAndroidHomeV2DirectPublicKey(
+  nodeApiUrl: string,
+  otherAddress: string,
+  apiKey = '',
+) {
+  return normalizeAndroidHomeV2DirectPublicKey(await requestAndroidHomeV2ChatJson(
     nodeApiUrl,
-    '/transactions/process?apiVersion=2',
-    base58Encode(signedBytes),
-    '',
-    'Qortal chat message broadcast failed.',
-    'text/plain',
+    `/addresses/publickey/${encodeURIComponent(otherAddress)}`,
+    apiKey,
+  ));
+}
+
+async function sendAndroidHomeV2QortiumDirectChat(
+  nodeApiUrl: string,
+  request: HomeV2DirectChatWriteRequest,
+  peerPublicKey: Uint8Array,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the direct-message action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
+  const timestamp = Date.now();
+  const envelope = await encryptQdm1Message({
+    nonce: getRandomBytes(12),
+    plaintext: new TextEncoder().encode(request.message),
+    recipientPublicKey: peerPublicKey,
+    selectedAccountSecretKey: signingKey.secretKey,
+    senderPublicKey: base58Decode(signingKey.publicKey58),
+  });
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before direct-message construction.');
+  const buildRequest = {
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    data: base58Encode(envelope),
+    fee: 0,
+    isEncrypted: true,
+    isText: true,
+    recipient: request.otherAddress,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+    txGroupId: 0,
+  };
+  const unsigned = await postLocalNodeText(
+    nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify(buildRequest),
+    apiKey,
+    'Direct CHAT transaction build failed.',
+    'application/json',
     CHAT_SIGNING_RESPONSE_MAX_BYTES,
   );
+  const unsignedBytes = base58Decode(unsigned.body);
+  assertPublicChatTransaction(unsignedBytes, {
+    ...(request.chatReference ? { chatReference: base58Decode(request.chatReference) } : {}),
+    data: envelope,
+    encrypted: true,
+    publicKey: base58Decode(signingKey.publicKey58),
+    recipient: base58Decode(request.otherAddress),
+    timestamp,
+    txGroupId: 0,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, isRouteStillValid);
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  await validateTarget();
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, signingKey.secretKey);
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      'Direct CHAT transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
 
-  return { signature: getSignatureFromSignedTransactionBytes(signedBytes), timestamp };
+async function sendAndroidHomeV2QortalDirectChat(
+  nodeApiUrl: string,
+  request: HomeV2DirectChatWriteRequest,
+  peerPublicKey: Uint8Array,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const timestamp = Date.now();
+  const lastReference = getRandomBytes(64);
+  const ciphertext = await encryptQortalDirectMessage({
+    lastReference,
+    peerPublicKey,
+    plaintext: new TextEncoder().encode(request.message),
+    selectedAccountSecretKey: signingKey.secretKey,
+  });
+  const unsignedBytes = buildUnsignedQortalDirectChatTransactionBytes({
+    ...(request.chatReference ? { chatReference: request.chatReference } : {}),
+    ciphertext,
+    lastReference,
+    recipientAddress: request.otherAddress,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const difficulty = await resolveQortalChatPowDifficulty(signingKey.address);
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isStillValid);
+  if (!(await isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The signing context changed before the direct message could be submitted.');
+  const stampedBytes = stampQortalGroupChatNonce(unsignedBytes, nonce);
+  const signedBytes = appendSignatureToTransactionBytes(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      'Qortal direct-message broadcast failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
+
+async function readAndroidHomeV2DirectChats(
+  request: import('./home-v2-live/vault-client').HomeV2DirectChatReadRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const settings = request.network === 'qortium' ? await readNodeSettings() : null;
+  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  const query = new URLSearchParams();
+  query.set('encoding', 'BASE64');
+  if (request.hasChatReference !== undefined) query.set('haschatreference', String(request.hasChatReference));
+  let path: string;
+  if (request.action === 'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES') {
+    if (!request.otherAddress) throw new Error('Direct-message peer is required.');
+    query.append('involving', signingKey.address);
+    query.append('involving', request.otherAddress);
+    if (request.before !== undefined) query.set('before', String(request.before));
+    query.set('limit', String(request.limit));
+    query.set('reverse', String(request.reverse));
+    path = `/chat/messages?${query.toString()}`;
+  } else {
+    path = `/chat/active/${encodeURIComponent(signingKey.address)}?${query.toString()}`;
+  }
+  const raw = await requestAndroidHomeV2ChatJson(
+    request.nodeApiUrl,
+    path,
+    apiKey,
+    DIRECT_CHAT_READ_RESPONSE_MAX_BYTES,
+  );
+  const rows = request.action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
+    ? isRecord(raw) && Array.isArray(raw.direct) ? raw.direct : []
+    : Array.isArray(raw) ? raw : [];
+  const peerKeys = new Map<string, Awaited<ReturnType<typeof readAndroidHomeV2DirectPublicKey>>>();
+  const decrypted: unknown[] = [];
+  for (const value of rows.slice(0, 100)) {
+    if (!isRecord(value)) continue;
+    try {
+      const sender = getRequiredAddressRequestString({ sender: value.sender } as QdnAppRequest, 'sender', 'sender');
+      const recipient = getRequiredAddressRequestString({ recipient: value.recipient } as QdnAppRequest, 'recipient', 'recipient');
+      const otherAddress = sender === signingKey.address
+        ? recipient
+        : recipient === signingKey.address
+          ? sender
+          : '';
+      if (!otherAddress || (request.otherAddress && request.otherAddress !== otherAddress)) {
+        throw new Error('Direct chat row does not match the approved participants.');
+      }
+      let peerKey = peerKeys.get(otherAddress);
+      if (!peerKey) {
+        peerKey = await readAndroidHomeV2DirectPublicKey(request.nodeApiUrl, otherAddress, apiKey);
+        peerKeys.set(otherAddress, peerKey);
+      }
+      decrypted.push(await decryptHomeV2DirectChatRow({
+        encoding: request.encoding,
+        localAddress: signingKey.address,
+        localPublicKey: base58Decode(signingKey.publicKey58),
+        network: request.network,
+        peerAddress: otherAddress,
+        peerPublicKey: peerKey.bytes,
+        row: value,
+        selectedAccountSecretKey: signingKey.secretKey,
+      }));
+    } catch (error) {
+      decrypted.push(directDecryptFailure(value, error));
+    }
+  }
+  if (!(await (request.isStillValid?.() ?? true))) {
+    throw new Error('Direct-message read context changed before decryption completed.');
+  }
+  return decrypted;
+}
+
+const PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+
+type AndroidQortalPrivateGroupState = {
+  adminAddresses: string[];
+  adminNames: string[];
+  groupId: number;
+  groupName: string;
+  memberAddresses: string[];
+  memberPublicKeys?: Uint8Array[];
+  ownerAddress: string;
+};
+
+function requiredQortalAddress(value: unknown, label: string) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is missing.`);
+  const address = value.trim();
+  const bytes = base58Decode(address);
+  if (bytes.length !== 25 || base58Encode(bytes) !== address) throw new Error(`${label} is invalid.`);
+  return address;
+}
+
+async function readAndroidQortalPrivateGroupState(
+  nodeApiUrl: string,
+  groupId: number,
+  includePublicKeys = false,
+): Promise<AndroidQortalPrivateGroupState> {
+  const [group, memberResponse] = await Promise.all([
+    requestAndroidHomeV2ChatJson(nodeApiUrl, `/groups/${encodeURIComponent(String(groupId))}`),
+    requestAndroidHomeV2ChatJson(
+      nodeApiUrl,
+      `/groups/members/${encodeURIComponent(String(groupId))}?limit=0`,
+      '',
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  if (!isRecord(group) || Number(group.groupId) !== groupId || group.isOpen !== false || !isRecord(memberResponse) || !Array.isArray(memberResponse.members)) {
+    throw new Error('Qortal private-group state is invalid or the group is not closed.');
+  }
+  const ownerAddress = requiredQortalAddress(group.owner ?? group.ownerAddress, 'Qortal group owner');
+  const members = memberResponse.members.map((entry) => {
+    if (!isRecord(entry)) throw new Error('Qortal private-group member entry is invalid.');
+    return {
+      address: requiredQortalAddress(entry.member, 'Qortal group member'),
+      isAdmin: entry.isAdmin === true,
+      primaryName: typeof entry.primaryName === 'string' && entry.primaryName.trim() ? entry.primaryName.trim() : null,
+    };
+  });
+  if (members.length < 1 || members.length > 4_096 || memberResponse.memberCount !== members.length) {
+    throw new Error('Qortal private-group member count is invalid.');
+  }
+  const adminAddresses = [...new Set([ownerAddress, ...members.filter((member) => member.isAdmin).map((member) => member.address)])];
+  const names = new Map(members.flatMap((member) => member.primaryName ? [[member.address, member.primaryName] as const] : []));
+  if (typeof group.ownerPrimaryName === 'string' && group.ownerPrimaryName.trim()) names.set(ownerAddress, group.ownerPrimaryName.trim());
+  for (const address of adminAddresses) {
+    if (names.has(address)) continue;
+    const value = await requestAndroidHomeV2ChatJson(nodeApiUrl, `/names/primary/${encodeURIComponent(address)}`).catch(() => null);
+    if (isRecord(value) && typeof value.name === 'string' && value.name.trim()) names.set(address, value.name.trim());
+  }
+  let memberPublicKeys: Uint8Array[] | undefined;
+  if (includePublicKeys) {
+    memberPublicKeys = [];
+    for (const member of members) {
+      try {
+        memberPublicKeys.push((await readAndroidHomeV2DirectPublicKey(nodeApiUrl, member.address)).bytes);
+      } catch (error) {
+        throw Object.assign(new Error(`Qortal group member ${member.address} does not have a usable public key.`), {
+          action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY',
+          cause: error,
+          code: 'MISSING_RECIPIENT_PUBLIC_KEY',
+          network: 'qortal',
+          retryable: false,
+          target: { groupId, kind: 'group' },
+        });
+      }
+    }
+  }
+  return {
+    adminAddresses,
+    adminNames: adminAddresses.flatMap((address) => names.get(address) ? [names.get(address)!] : []),
+    groupId,
+    groupName: typeof group.groupName === 'string' && group.groupName.trim() ? group.groupName.trim() : `Group ${groupId}`,
+    memberAddresses: members.map((member) => member.address),
+    ...(memberPublicKeys ? { memberPublicKeys } : {}),
+    ownerAddress,
+  };
+}
+
+async function readAndroidQortalPrivateGroupResources(nodeApiUrl: string, state: AndroidQortalPrivateGroupState) {
+  if (!state.adminNames.length) return [];
+  const identifier = `symmetric-qchat-group-${state.groupId}`;
+  const query = new URLSearchParams({ exactmatchnames: 'true', identifier, limit: '0', mode: 'ALL', prefix: 'true', reverse: 'true', service: 'DOCUMENT_PRIVATE' });
+  for (const name of state.adminNames) query.append('name', name);
+  const value = await requestAndroidHomeV2ChatJson(
+    nodeApiUrl,
+    `/arbitrary/resources/searchsimple?${query.toString()}`,
+    '',
+    PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+  );
+  if (!Array.isArray(value)) throw new Error('Qortal private-group key-bundle search response is invalid.');
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || entry.service !== 'DOCUMENT_PRIVATE' || entry.identifier !== identifier || typeof entry.name !== 'string' || !state.adminNames.includes(entry.name)) return [];
+    const signature = typeof entry.latestSignature === 'string' ? entry.latestSignature : '';
+    try { if (base58Decode(signature).length !== 64 || base58Encode(base58Decode(signature)) !== signature) return []; } catch { return []; }
+    const created = Number(entry.created);
+    const updated = entry.updated === undefined ? created : Number(entry.updated);
+    const size = Number(entry.size);
+    if (!Number.isSafeInteger(created) || !Number.isSafeInteger(updated) || !Number.isSafeInteger(size) || size < 1 || size > 2 * 1024 * 1024) return [];
+    return [{ created, identifier, name: entry.name, signature, size, updated }];
+  }).sort((left, right) => right.updated - left.updated || right.created - left.created || right.signature.localeCompare(left.signature));
+}
+
+async function persistAndroidQortalPrivateGroupRing(input: {
+  accountId: string;
+  groupId: number;
+  keyRing: QortalPrivateGroupKeyRing;
+  publisherName: string;
+  recipientCount: number;
+  resourceSignature: string;
+  secretKey: Uint8Array;
+}) {
+  await upsertAndroidQortalPrivateGroupRecord(input.accountId, await encryptQortalPrivateGroupStoredKeyRing({
+    groupId: input.groupId,
+    keyRing: input.keyRing,
+    publisherName: input.publisherName,
+    recipientCount: input.recipientCount,
+    resourceSignature: input.resourceSignature,
+    selectedAccountSecretKey: input.secretKey,
+  }));
+}
+
+async function resolveAndroidQortalPrivateGroupRing(input: {
+  accountId: string;
+  nodeApiUrl: string;
+  secretKey: Uint8Array;
+  state: AndroidQortalPrivateGroupState;
+}) {
+  const accountPublicKey = bytesToBase64(nacl.sign.keyPair.fromSecretKey(input.secretKey).publicKey);
+  const stored = await findAndroidQortalPrivateGroupRecord(input.accountId, accountPublicKey, input.state.groupId);
+  const resources = await readAndroidQortalPrivateGroupResources(input.nodeApiUrl, input.state);
+  for (const resource of resources.slice(0, 100)) {
+    try {
+      if (stored?.resourceSignature === resource.signature && stored.publisherName === resource.name) {
+        return { keyRing: await decryptQortalPrivateGroupStoredKeyRing({ record: stored, selectedAccountSecretKey: input.secretKey }), publisherName: resource.name, recipientCount: stored.recipientCount, resourceSignature: resource.signature };
+      }
+      const value = await requestAndroidHomeV2ChatJson(
+        input.nodeApiUrl,
+        `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}?encoding=base64&rebuild=true`,
+        '',
+        3 * 1024 * 1024,
+      );
+      if (typeof value !== 'string') throw new Error('Qortal private-group bundle body is invalid.');
+      const decrypted = decryptQortalPrivateGroupBundle({ encryptedBundle: value.trim(), selectedAccountSecretKey: input.secretKey });
+      await persistAndroidQortalPrivateGroupRing({ accountId: input.accountId, groupId: input.state.groupId, keyRing: decrypted.keyRing, publisherName: resource.name, recipientCount: decrypted.recipientCount, resourceSignature: resource.signature, secretKey: input.secretKey });
+      return { keyRing: decrypted.keyRing, publisherName: resource.name, recipientCount: decrypted.recipientCount, resourceSignature: resource.signature };
+    } catch {
+      // Continue through currently-authorized, newest-first resources.
+    }
+  }
+  if (stored && input.state.adminNames.includes(stored.publisherName)) {
+    try {
+      return { keyRing: await decryptQortalPrivateGroupStoredKeyRing({ record: stored, selectedAccountSecretKey: input.secretKey }), publisherName: stored.publisherName, recipientCount: stored.recipientCount, resourceSignature: stored.resourceSignature };
+    } catch { /* fail below */ }
+  }
+  return null;
+}
+
+function decryptAndroidQortalPrivateGroupRows(input: { encoding: 'BASE58' | 'BASE64'; groupId: number; keyRing: QortalPrivateGroupKeyRing; rows: readonly unknown[] }) {
+  const results: Record<string, unknown>[] = [];
+  for (const value of input.rows.slice(0, 100)) {
+    if (!isRecord(value)) continue;
+    try {
+      if (Number(value.txGroupId) !== input.groupId || value.isEncrypted !== false || value.isText !== true || (value.recipient !== null && value.recipient !== undefined && value.recipient !== '')) {
+        throw new Error('Qortal private-group row does not match the approved group.');
+      }
+      const encoded = decodeCanonicalBase64Bytes(value.data, 'Qortal private-group CHAT data');
+      const ciphertext = new TextDecoder('utf-8', { fatal: true }).decode(encoded);
+      const decrypted = decryptQortalPrivateGroupPayload({ ciphertext, keyRing: input.keyRing });
+      results.push({ ...value, data: input.encoding === 'BASE58' ? base58Encode(decrypted.plaintext) : bytesToBase64(decrypted.plaintext), encoding: input.encoding, keyVersion: decrypted.keyVersion, payloadType: decrypted.typeNumber, status: 'DECRYPTED' });
+    } catch (error) {
+      results.push({ ...value, data: null, decryptionError: error instanceof Error ? error.message : String(error), status: 'FAILED' });
+    }
+  }
+  return results;
+}
+
+function androidQpgcBridgeError(
+  message: string,
+  code: string,
+  action: string,
+  groupId: number,
+) {
+  return Object.assign(new Error(message), {
+    action,
+    code,
+    network: 'qortium' as const,
+    retryable: false,
+    target: { groupId, kind: 'group' as const },
+  });
+}
+
+function decodeCanonicalBase64Bytes(value: unknown, label: string) {
+  if (typeof value !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error(`${label} is not canonical Base64.`);
+  }
+  const bytes = base64ToBytes(value);
+  if (bytesToBase64(bytes) !== value) throw new Error(`${label} is not canonical Base64.`);
+  return bytes;
+}
+
+async function readAndroidHomeV2QpgcState(nodeApiUrl: string, groupId: number, apiKey = '') {
+  return normalizeHomeV2QpgcGroupState(
+    await requestAndroidHomeV2ChatJson(
+      nodeApiUrl,
+      `/chat/private/group/state/${encodeURIComponent(String(groupId))}`,
+      apiKey,
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+    groupId,
+  );
+}
+
+async function readAndroidHomeV2QpgcControls(input: {
+  apiKey?: string;
+  beforeCursor?: string;
+  epochId?: Uint8Array;
+  groupId: number;
+  keyId?: Uint8Array;
+  limit?: number;
+  nodeApiUrl: string;
+  state?: HomeV2QpgcGroupState;
+  types: readonly ('KEY_ANNOUNCEMENT' | 'KEY_REQUEST' | 'ROTATION_REQUEST')[];
+}) {
+  const query = new URLSearchParams({
+    limit: String(input.limit ?? 100),
+    txGroupId: String(input.groupId),
+    types: input.types.join(','),
+  });
+  if (input.beforeCursor) query.set('beforeCursor', input.beforeCursor);
+  if (input.epochId) query.set('epochId', base58Encode(input.epochId));
+  if (input.keyId) query.set('keyId', base58Encode(input.keyId));
+  return normalizeHomeV2QpgcControlPage(
+    await requestAndroidHomeV2ChatJson(
+      input.nodeApiUrl,
+      `/chat/private/group/control?${query.toString()}`,
+      input.apiKey ?? '',
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    ),
+    input.groupId,
+    input.state,
+  );
+}
+
+async function findAndroidQpgcRecords(input: {
+  accountId: string;
+  accountPublicKey: Uint8Array;
+  epochId?: Uint8Array;
+  groupId: number;
+  keyId?: Uint8Array;
+}) {
+  const accountPublicKey = bytesToBase64(input.accountPublicKey);
+  const epochId = input.epochId ? bytesToBase64(input.epochId) : null;
+  const keyId = input.keyId ? bytesToBase64(input.keyId) : null;
+  return (await readAndroidQpgcKeyStore())
+    .filter((entry) =>
+      entry.record.accountPublicKey === accountPublicKey &&
+      entry.record.groupId === input.groupId &&
+      (!epochId || entry.record.epochId === epochId) &&
+      (!keyId || entry.record.keyId === keyId),
+    )
+    .sort((left, right) => Number(left.accountId === input.accountId) - Number(right.accountId === input.accountId))
+    .map((entry) => entry.record);
+}
+
+async function persistAndroidQpgcKey(input: {
+  accountId: string;
+  epochId: Uint8Array;
+  groupId: number;
+  groupKey: Uint8Array;
+  keyId: Uint8Array;
+  secretKey: Uint8Array;
+}) {
+  await upsertAndroidQpgcKeyRecord(input.accountId, await encryptQpgcStoredKey({
+    epochId: input.epochId,
+    groupId: input.groupId,
+    groupKey: input.groupKey,
+    keyId: input.keyId,
+    selectedAccountSecretKey: input.secretKey,
+  }));
+}
+
+async function resolveAndroidHomeV2QpgcKey(input: {
+  accountId: string;
+  apiKey: string;
+  epochId: Uint8Array;
+  groupId: number;
+  keyId?: Uint8Array;
+  nodeApiUrl: string;
+  secretKey: Uint8Array;
+  state?: HomeV2QpgcGroupState;
+}) {
+  const accountPublicKey = nacl.sign.keyPair.fromSecretKey(input.secretKey).publicKey;
+  const records = await findAndroidQpgcRecords({
+    accountId: input.accountId,
+    accountPublicKey,
+    epochId: input.epochId,
+    groupId: input.groupId,
+    ...(input.keyId ? { keyId: input.keyId } : {}),
+  });
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    try {
+      return await decryptQpgcStoredKey({
+        record: records[index],
+        selectedAccountSecretKey: input.secretKey,
+      });
+    } catch {
+      // A retained announcement can repair an invalid local record below.
+    }
+  }
+  const page = await readAndroidHomeV2QpgcControls({
+    apiKey: input.apiKey,
+    epochId: input.epochId,
+    groupId: input.groupId,
+    ...(input.keyId ? { keyId: input.keyId } : {}),
+    nodeApiUrl: input.nodeApiUrl,
+    state: input.state,
+    types: ['KEY_ANNOUNCEMENT'],
+  });
+  for (const control of page.controls) {
+    if (control.envelope.type !== 'KEY_ANNOUNCEMENT') continue;
+    try {
+      const groupKey = await unwrapQpgcAnnouncementForRecipient({
+        announcement: control.envelope,
+        ...(input.state && control.envelope.epochId.every((value, index) => value === input.state!.epochId[index])
+          ? { memberPublicKeys: input.state.memberPublicKeys }
+          : {}),
+        recipientSecretKey: input.secretKey,
+      });
+      const result = {
+        epochId: control.envelope.epochId,
+        groupKey,
+        keyId: control.envelope.keyId,
+      };
+      await persistAndroidQpgcKey({
+        accountId: input.accountId,
+        ...result,
+        groupId: input.groupId,
+        secretKey: input.secretKey,
+      });
+      return result;
+    } catch {
+      // Continue through the bounded retained announcements.
+    }
+  }
+  return null;
+}
+
+async function readAndroidHomeV2QortalPrivateGroupChats(
+  request: HomeV2PrivateGroupChatReadRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  if (request.action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
+    const state = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.groupId as number);
+    const isMember = state.memberAddresses.includes(signingKey.address);
+    const key = isMember ? await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state }) : null;
+    return { available: !!key, exists: true, groupId: state.groupId, groupName: state.groupName, isMember, isOpen: false, memberCount: state.memberAddresses.length, publisherName: key?.publisherName ?? null, qortalPrivateGroupVersion: 1, recipientCount: key?.recipientCount ?? null, resourceSignature: key?.resourceSignature ?? null, rotationRequired: key?.recipientCount !== null && key?.recipientCount !== state.memberAddresses.length };
+  }
+  const memberships = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    ? await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/groups/member/${encodeURIComponent(signingKey.address)}?limit=0&reverse=true`, '', PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES)
+    : null;
+  const groupIds = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    ? (Array.isArray(memberships) ? memberships : []).flatMap((value) => isRecord(value) && value.isOpen === false && Number.isSafeInteger(Number(value.groupId)) ? [Number(value.groupId)] : [])
+    : [request.groupId as number];
+  const results: Record<string, unknown>[] = [];
+  for (const groupId of groupIds.slice(0, request.limit)) {
+    const state = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, groupId);
+    if (!state.memberAddresses.includes(signingKey.address)) continue;
+    const key = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+    if (!key) {
+      if (request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') results.push({ groupId, status: 'MISSING_KEY' });
+      else throw Object.assign(new Error('No Qortal private-group key bundle is available to this account.'), { action: request.action, code: 'MISSING_GROUP_KEY', network: 'qortal', retryable: false, target: { groupId, kind: 'group' } });
+      continue;
+    }
+    const query = new URLSearchParams({ encoding: 'BASE64', limit: request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ? '1' : String(request.limit), reverse: String(request.reverse), txGroupId: String(groupId) });
+    if (request.before !== undefined) query.set('before', String(request.before));
+    const rows = await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/chat/messages?${query.toString()}`, '', PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES);
+    const decrypted = decryptAndroidQortalPrivateGroupRows({ encoding: request.encoding, groupId, keyRing: key.keyRing, rows: Array.isArray(rows) ? rows : [] });
+    if (request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') results.push(decrypted[0] ?? { groupId, status: 'NO_MESSAGES' });
+    else results.push(...decrypted);
+  }
+  if (!(await (request.isStillValid?.() ?? true))) throw new Error('Qortal private-group read context changed before decryption completed.');
+  return results;
+}
+
+function normalizeAndroidQortalFee(value: unknown) {
+  const raw = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint' ? String(value).trim() : '';
+  if (!/^\d+$/.test(raw)) throw new Error('Qortal ARBITRARY fee response is invalid.');
+  const fee = BigInt(raw);
+  if (fee > 0x7fffffffffffffffn) throw new Error('Qortal ARBITRARY fee response is invalid.');
+  return fee;
+}
+
+function isAndroidQortalPrivateGroupStagingUnavailable(error: unknown) {
+  if (!isRecord(error)) return false;
+  return error.status === 401 || error.status === 403 || error.status === 404 || error.status === 405;
+}
+
+async function publishAndroidQortalPrivateGroupBundle(input: {
+  accountId: string;
+  encryptedBundle: string;
+  isStillValid: () => boolean | Promise<boolean>;
+  keyRing: QortalPrivateGroupKeyRing;
+  name: string;
+  nodeApiUrl: string;
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+  state: AndroidQortalPrivateGroupState;
+  validateTarget: () => Promise<void>;
+}) {
+  const identifier = `symmetric-qchat-group-${input.state.groupId}`;
+  const [feeValue, referenceValue] = await Promise.all([
+    requestAndroidHomeV2ChatJson(input.nodeApiUrl, `/transactions/unitfee?txType=ARBITRARY&timestamp=${Date.now()}`),
+    requestAndroidHomeV2ChatJson(input.nodeApiUrl, `/addresses/lastreference/${encodeURIComponent(input.signingKey.address)}`),
+  ]);
+  const fee = normalizeAndroidQortalFee(feeValue);
+  if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
+  const lastReference = base58Decode(referenceValue.trim());
+  if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) throw new Error('Qortal last-reference response is invalid.');
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle staging.');
+  const started = Date.now();
+  let unsigned;
+  try {
+    unsigned = await postLocalNodeText(
+      input.nodeApiUrl,
+      `/arbitrary/DOCUMENT_PRIVATE/${encodeURIComponent(input.name)}/${encodeURIComponent(identifier)}/base64?fee=${encodeURIComponent(String(fee))}`,
+      input.encryptedBundle,
+      '',
+      'Qortal private-group key-bundle staging failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+  } catch (error) {
+    if (!isAndroidQortalPrivateGroupStagingUnavailable(error)) throw error;
+    throw Object.assign(new Error('The selected Qortal node does not permit private-group QDN bundle staging.'), { action: 'ROTATE_PRIVATE_GROUP_CHAT_KEY', code: 'NODE_CAPABILITY_MISSING', network: 'qortal', retryable: false, target: { groupId: input.state.groupId, kind: 'group' }, cause: error });
+  }
+  const attested = attestUnsignedQortalPrivateGroupPublish(unsigned.body.trim(), { bundleSize: base64ToBytes(input.encryptedBundle).length, feeAtomic: fee, identifier, lastReference, name: input.name, senderPublicKey: base58Decode(input.signingKey.publicKey58), timestampMaximum: Date.now() + 5_000, timestampMinimum: started - 5_000 });
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle signing.');
+  await input.validateTarget();
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before Qortal key-bundle submission.');
+  const signed = signAttestedQortalPrivateGroupPublish({ selectedAccountSecretKey: input.signingKey.secretKey, signingBytes: attested.signingBytes, unsignedBytes: attested.unsignedBytes });
+  try {
+    await postLocalNodeText(input.nodeApiUrl, '/transactions/process?apiVersion=2', base58Encode(signed.signedBytes), '', 'Qortal private-group key-bundle broadcast failed.', 'text/plain', CHAT_SIGNING_RESPONSE_MAX_BYTES);
+  } catch (error) {
+    // Do not cache an unconfirmed bundle coordinate. If the broadcast did
+    // reach the chain, normal resource discovery will recover it later.
+    return createHomeV2UnknownChatBroadcastResult(error, signed.signature, attested.timestamp);
+  }
+  try {
+    await persistAndroidQortalPrivateGroupRing({ accountId: input.accountId, groupId: input.state.groupId, keyRing: input.keyRing, publisherName: input.name, recipientCount: input.state.memberAddresses.length, resourceSignature: signed.signature, secretKey: input.signingKey.secretKey });
+  } catch {
+    // The accepted QDN resource remains the recovery source. A local cache
+    // failure must not turn a confirmed broadcast into a retryable failure.
+  }
+  return { accepted: true, signature: signed.signature, timestamp: attested.timestamp };
+}
+
+async function sendAndroidHomeV2QortalPrivateGroupChat(
+  request: HomeV2VaultPrivateGroupChatWriteRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const isStillValid = request.isStillValid ?? (() => true);
+  const includePublicKeys = request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || request.action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS';
+  const state = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.groupId, includePublicKeys);
+  if (!state.memberAddresses.includes(signingKey.address)) throw Object.assign(new Error('The selected account is not a current member of this private group.'), { action: request.action, code: 'NOT_GROUP_MEMBER', network: 'qortal', retryable: false, target: { groupId: request.groupId, kind: 'group' } });
+  const validateTarget = async () => {
+    const current = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.groupId);
+    if (current.memberAddresses.join('|') !== state.memberAddresses.join('|') || current.adminAddresses.join('|') !== state.adminAddresses.join('|')) throw new Error('Private-group membership changed before signing.');
+    if (request.chatReference) {
+      const value = await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/chat/message/${encodeURIComponent(request.chatReference)}?encoding=BASE64`);
+      if (!isRecord(value) || value.signature !== request.chatReference || Number(value.txGroupId) !== request.groupId || value.isEncrypted !== false || value.isText !== true || value.chatReference || (value.recipient !== null && value.recipient !== undefined && value.recipient !== '')) throw new Error('Referenced Qortal private-group message is invalid.');
+      if ((request.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' || request.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') && value.senderPublicKey !== signingKey.publicKey58) throw new Error('Only the original sender can edit or clear a private-group message.');
+    }
+    await request.validateTarget?.(signingKey.publicKey58, state.memberAddresses.join('|'));
+  };
+  if (request.action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
+    const key = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+    if (!key) throw Object.assign(new Error('No Qortal private-group key bundle is available to this account.'), { action: request.action, code: 'MISSING_GROUP_KEY', network: 'qortal', retryable: false, target: { groupId: request.groupId, kind: 'group' } });
+    return { accepted: true, recovered: true, resourceSignature: key.resourceSignature };
+  }
+  if (request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || request.action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') {
+    if (!state.adminAddresses.includes(signingKey.address)) throw new Error('Only a current group administrator can publish a Qortal private-group key bundle.');
+    const nameValue = await requestAndroidHomeV2ChatJson(request.nodeApiUrl, `/names/primary/${encodeURIComponent(signingKey.address)}`);
+    const name = isRecord(nameValue) && typeof nameValue.name === 'string' ? nameValue.name.trim() : '';
+    if (!name || !isRecord(nameValue) || nameValue.owner !== signingKey.address || !state.adminNames.includes(name)) throw new Error('The selected Qortal group administrator needs a current primary name.');
+    const existing = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+    let keyRing = existing?.keyRing ?? null;
+    if (request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY' || !keyRing) keyRing = appendQortalPrivateGroupKey(keyRing, getRandomBytes(32)).keyRing;
+    const encryptedBundle = encryptQortalPrivateGroupBundle({ keyRing, memberPublicKeys: state.memberPublicKeys ?? [], selectedAccountSecretKey: signingKey.secretKey, senderPublicKey: base58Decode(signingKey.publicKey58) });
+    return publishAndroidQortalPrivateGroupBundle({ accountId: request.accountId, encryptedBundle, isStillValid, keyRing, name, nodeApiUrl: request.nodeApiUrl, signingKey, state, validateTarget });
+  }
+  const key = await resolveAndroidQortalPrivateGroupRing({ accountId: request.accountId, nodeApiUrl: request.nodeApiUrl, secretKey: signingKey.secretKey, state });
+  if (!key) throw Object.assign(new Error('No Qortal private-group key bundle is available. Recover or rotate the key first.'), { action: request.action, code: 'MISSING_GROUP_KEY', network: 'qortal', retryable: false, target: { groupId: request.groupId, kind: 'group' } });
+  const encryptedMessage = encryptQortalPrivateGroupPayload({ keyRing: key.keyRing, plaintext: new TextEncoder().encode(request.message as string), typeNumber: request.action === 'SEND_PRIVATE_GROUP_CHAT_REACTION' ? 102 : 2 });
+  const publicAction = request.action === 'SEND_PRIVATE_GROUP_CHAT_MESSAGE' ? 'SEND_CHAT_MESSAGE' : request.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' ? 'SEND_CHAT_EDIT' : request.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE' ? 'SEND_CHAT_DELETE' : 'SEND_CHAT_REACTION';
+  return sendHomeV2QortalChatMessage(request.nodeApiUrl, { action: publicAction, chatReference: request.chatReference, message: encryptedMessage, txGroupId: request.groupId }, signingKey, isStillValid, validateTarget);
+}
+
+async function validateAndroidHomeV2QpgcReference(input: {
+  action: HomeV2VaultPrivateGroupChatWriteRequest['action'];
+  apiKey: string;
+  chatReference: string | null;
+  groupId: number;
+  nodeApiUrl: string;
+  senderPublicKey: string;
+}) {
+  if (!input.chatReference) return;
+  const value = await requestAndroidHomeV2ChatJson(
+    input.nodeApiUrl,
+    `/chat/message/${encodeURIComponent(input.chatReference)}?encoding=BASE58`,
+    input.apiKey,
+  );
+  if (
+    !isRecord(value) ||
+    value.signature !== input.chatReference ||
+    Number(value.txGroupId) !== input.groupId ||
+    (value.recipient !== null && value.recipient !== undefined && value.recipient !== '') ||
+    value.isEncrypted !== true ||
+    value.isText !== true ||
+    value.chatReference
+  ) throw new Error('Referenced private-group message is not one original encrypted message in this group.');
+  if (
+    (input.action === 'SEND_PRIVATE_GROUP_CHAT_EDIT' || input.action === 'SEND_PRIVATE_GROUP_CHAT_DELETE') &&
+    value.senderPublicKey !== input.senderPublicKey
+  ) throw new Error('Only the original sender can edit or clear a private-group message.');
+}
+
+async function sendAndroidHomeV2QpgcEnvelope(input: {
+  apiKey: string;
+  chatReference: string | null;
+  envelope: Uint8Array;
+  groupId: number;
+  isStillValid: () => boolean | Promise<boolean>;
+  nodeApiUrl: string;
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array };
+  validateTarget: () => Promise<void>;
+}) {
+  const timestamp = Date.now();
+  const unsigned = await postLocalNodeText(
+    input.nodeApiUrl,
+    '/chat/public/build',
+    JSON.stringify({
+      ...(input.chatReference ? { chatReference: input.chatReference } : {}),
+      data: base58Encode(input.envelope),
+      fee: 0,
+      isEncrypted: true,
+      isText: true,
+      senderPublicKey: input.signingKey.publicKey58,
+      timestamp,
+      txGroupId: input.groupId,
+    }),
+    input.apiKey,
+    'Private-group CHAT build failed.',
+    'application/json',
+    CHAT_SIGNING_RESPONSE_MAX_BYTES,
+  );
+  const unsignedBytes = base58Decode(unsigned.body);
+  assertPublicChatTransaction(unsignedBytes, {
+    ...(input.chatReference ? { chatReference: base58Decode(input.chatReference) } : {}),
+    data: input.envelope,
+    encrypted: true,
+    publicKey: base58Decode(input.signingKey.publicKey58),
+    timestamp,
+    txGroupId: input.groupId,
+  });
+  const nonce = await computeChatNonce(unsignedBytes, CHAT_POW_DIFFICULTY, input.isStillValid);
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before private-group submission.');
+  await input.validateTarget();
+  if (!(await input.isStillValid())) throw new Error('The signing context changed before private-group submission.');
+  const signedBytes = signChatTransaction(unsignedBytes, nonce, input.signingKey.secretKey);
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      input.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      input.apiKey,
+      'Private-group CHAT transaction processing failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return { signature, timestamp };
+  } catch (error) {
+    return createHomeV2UnknownChatBroadcastResult(error, signature, timestamp);
+  }
+}
+
+function androidQpgcMessageFailure(row: Record<string, unknown>, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  let epochId: string | null = null;
+  let keyId: string | null = null;
+  try {
+    const envelope = parseQpgcEnvelope(decodeCanonicalBase64Bytes(row.data, 'Encrypted private-group data'));
+    epochId = base58Encode(envelope.epochId);
+    keyId = 'keyId' in envelope && envelope.keyId ? base58Encode(envelope.keyId) : null;
+  } catch {
+    // Preserve only safe metadata for malformed or unavailable messages.
+  }
+  return {
+    ...row,
+    data: null,
+    decryptionError: message,
+    epochId,
+    keyId,
+    status: /key is not available|no private-group key/i.test(message) ? 'MISSING_KEY' : 'FAILED',
+  };
+}
+
+async function decryptAndroidHomeV2QpgcRows(input: {
+  accountId: string;
+  apiKey: string;
+  encoding: 'BASE58' | 'BASE64';
+  groupId: number;
+  nodeApiUrl: string;
+  rows: readonly unknown[];
+  secretKey: Uint8Array;
+  state: HomeV2QpgcGroupState;
+}) {
+  const results: unknown[] = [];
+  const keys = new Map<string, Awaited<ReturnType<typeof resolveAndroidHomeV2QpgcKey>>>();
+  try {
+    for (const value of input.rows.slice(0, 100)) {
+      if (!isRecord(value)) continue;
+      try {
+        if (
+          Number(value.txGroupId) !== input.groupId ||
+          value.isEncrypted !== true ||
+          value.isText !== true ||
+          (value.recipient !== null && value.recipient !== undefined && value.recipient !== '')
+        ) throw new Error('Private-group row does not match the approved encrypted group.');
+        const envelope = parseQpgcEnvelope(decodeCanonicalBase64Bytes(value.data, 'Encrypted private-group data'));
+        if (envelope.type !== 'MESSAGE' || envelope.groupId !== input.groupId) {
+          throw new Error('Private-group row is not a QPGC message envelope for this group.');
+        }
+        const identity = `${base58Encode(envelope.epochId)}|${base58Encode(envelope.keyId)}`;
+        if (!keys.has(identity)) {
+          keys.set(identity, await resolveAndroidHomeV2QpgcKey({
+            accountId: input.accountId,
+            apiKey: input.apiKey,
+            epochId: envelope.epochId,
+            groupId: input.groupId,
+            keyId: envelope.keyId,
+            nodeApiUrl: input.nodeApiUrl,
+            secretKey: input.secretKey,
+            state: input.state,
+          }));
+        }
+        const key = keys.get(identity);
+        if (!key) throw new Error('Private-group key is not available in retained announcements.');
+        const plaintext = await decryptQpgcMessage({ envelope, groupKey: key.groupKey });
+        results.push({
+          ...value,
+          data: input.encoding === 'BASE58' ? base58Encode(plaintext) : bytesToBase64(plaintext),
+          encoding: input.encoding,
+          epochId: base58Encode(envelope.epochId),
+          keyId: base58Encode(envelope.keyId),
+          status: 'DECRYPTED',
+        });
+      } catch (error) {
+        results.push(androidQpgcMessageFailure(value, error));
+      }
+    }
+    return results;
+  } finally {
+    for (const key of keys.values()) key?.groupKey.fill(0);
+  }
+}
+
+async function readAndroidHomeV2PrivateGroupChats(
+  request: HomeV2PrivateGroupChatReadRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  if (request.network === 'qortal') return readAndroidHomeV2QortalPrivateGroupChats(request, signingKey);
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(request.nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the private-group read.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, request.nodeApiUrl);
+  if (request.action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
+    return readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId as number, apiKey);
+  }
+  const groupsValue = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    ? await requestAndroidHomeV2ChatJson(
+        request.nodeApiUrl,
+        `/groups/member/${encodeURIComponent(signingKey.address)}?limit=${request.limit}&reverse=true`,
+        apiKey,
+        PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+      )
+    : null;
+  const groupIds = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
+    ? (Array.isArray(groupsValue) ? groupsValue : []).flatMap((value) =>
+        isRecord(value) && value.isOpen === false && Number.isSafeInteger(Number(value.groupId))
+          ? [Number(value.groupId)]
+          : [],
+      )
+    : [request.groupId as number];
+  const results: unknown[] = [];
+  for (const groupId of groupIds.slice(0, request.limit)) {
+    const state = await readAndroidHomeV2QpgcState(request.nodeApiUrl, groupId, apiKey);
+    const query = new URLSearchParams({
+      encoding: 'BASE64',
+      limit: request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS' ? '1' : String(request.limit),
+      reverse: String(request.reverse),
+      txGroupId: String(groupId),
+    });
+    if (request.before !== undefined) query.set('before', String(request.before));
+    const rows = await requestAndroidHomeV2ChatJson(
+      request.nodeApiUrl,
+      `/chat/messages?${query.toString()}`,
+      apiKey,
+      PRIVATE_GROUP_CHAT_READ_RESPONSE_MAX_BYTES,
+    );
+    const decrypted = await decryptAndroidHomeV2QpgcRows({
+      accountId: request.accountId,
+      apiKey,
+      encoding: request.encoding,
+      groupId,
+      nodeApiUrl: request.nodeApiUrl,
+      rows: Array.isArray(rows) ? rows : [],
+      secretKey: signingKey.secretKey,
+      state,
+    });
+    if (request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS') {
+      results.push(decrypted[0] ?? { groupId, status: 'NO_MESSAGES' });
+    } else {
+      results.push(...decrypted);
+    }
+  }
+  if (!(await (request.isStillValid?.() ?? true))) {
+    throw new Error('Private-group read context changed before decryption completed.');
+  }
+  return results;
+}
+
+async function sendAndroidHomeV2PrivateGroupChat(
+  request: HomeV2VaultPrivateGroupChatWriteRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  if (request.network === 'qortal') return sendAndroidHomeV2QortalPrivateGroupChat(request, signingKey);
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(request.nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the private-group action.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, request.nodeApiUrl);
+  const isStillValid = request.isStillValid ?? (() => true);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(request.nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, request.nodeApiUrl) === apiKey;
+  };
+  const state = await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId, apiKey);
+  const publicKey = base58Decode(signingKey.publicKey58);
+  if (!state.memberPublicKeys.some((member) => member.every((value, index) => value === publicKey[index]))) {
+    throw androidQpgcBridgeError(
+      'The selected account is not a current member of this private group.',
+      'NOT_GROUP_MEMBER',
+      request.action,
+      request.groupId,
+    );
+  }
+  const validateTarget = async () => {
+    const current = await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId, apiKey);
+    if (!current.epochId.every((value, index) => value === state.epochId[index])) {
+      throw new Error('Private-group membership changed before signing.');
+    }
+    await validateAndroidHomeV2QpgcReference({
+      action: request.action,
+      apiKey,
+      chatReference: request.chatReference,
+      groupId: request.groupId,
+      nodeApiUrl: request.nodeApiUrl,
+      senderPublicKey: signingKey.publicKey58,
+    });
+    await request.validateTarget?.(signingKey.publicKey58, base58Encode(state.epochId));
+  };
+  let persistedGroupKey: Uint8Array | null = null;
+  try {
+    let envelopes: Uint8Array[] = [];
+    if (request.action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
+      envelopes = [createQpgcKeyRequest({
+        epochId: request.epochId ? base58Decode(request.epochId) : state.epochId,
+        groupId: request.groupId,
+        keyId: request.keyId ? base58Decode(request.keyId) : null,
+        requesterSecretKey: signingKey.secretKey,
+      })];
+    } else if (request.action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS') {
+      const requests = await readAndroidHomeV2QpgcControls({
+        apiKey,
+        groupId: request.groupId,
+        limit: request.limit,
+        nodeApiUrl: request.nodeApiUrl,
+        state,
+        types: ['KEY_REQUEST'],
+      });
+      const relayed = new Set<string>();
+      for (const control of requests.controls) {
+        if (control.envelope.type !== 'KEY_REQUEST') continue;
+        const requesterPublicKey = control.envelope.requesterPublicKey;
+        const announcements = await readAndroidHomeV2QpgcControls({
+          apiKey,
+          epochId: control.envelope.epochId,
+          groupId: request.groupId,
+          ...(control.envelope.keyId ? { keyId: control.envelope.keyId } : {}),
+          limit: 100,
+          nodeApiUrl: request.nodeApiUrl,
+          state,
+          types: ['KEY_ANNOUNCEMENT'],
+        });
+        const match = announcements.controls.find((candidate) =>
+          candidate.envelope.type === 'KEY_ANNOUNCEMENT' &&
+          candidate.envelope.wrappers.some((wrapper) => wrapper.recipientPublicKey.every(
+            (value, index) => value === requesterPublicKey[index],
+          )),
+        );
+        if (match?.envelope.type === 'KEY_ANNOUNCEMENT') {
+          const identity = base58Encode(match.signature);
+          if (!relayed.has(identity)) {
+            relayed.add(identity);
+            envelopes.push(serializeQpgcEnvelope(match.envelope));
+          }
+        }
+      }
+    } else if (request.action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY') {
+      persistedGroupKey = getRandomBytes(32);
+      envelopes = [await createQpgcKeyAnnouncement({
+        announcerSecretKey: signingKey.secretKey,
+        epochId: state.epochId,
+        groupId: request.groupId,
+        groupKey: persistedGroupKey,
+        memberPublicKeys: state.memberPublicKeys,
+      })];
+    } else {
+      const key = await resolveAndroidHomeV2QpgcKey({
+        accountId: request.accountId,
+        apiKey,
+        epochId: state.epochId,
+        groupId: request.groupId,
+        nodeApiUrl: request.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        state,
+      });
+      if (!key) throw androidQpgcBridgeError(
+        'No private-group key is available. Request or rotate the key first.',
+        'MISSING_GROUP_KEY',
+        request.action,
+        request.groupId,
+      );
+      try {
+        envelopes = [await encryptQpgcMessage({
+          epochId: key.epochId,
+          groupId: request.groupId,
+          groupKey: key.groupKey,
+          keyId: key.keyId,
+          nonce: getRandomBytes(12),
+          plaintext: new TextEncoder().encode(request.message as string),
+        })];
+      } finally {
+        key.groupKey.fill(0);
+      }
+    }
+    if (envelopes.length === 0) return { accepted: true, relayed: 0 };
+    const results = [];
+    for (const envelope of envelopes.slice(0, request.limit)) {
+      results.push(await sendAndroidHomeV2QpgcEnvelope({
+        apiKey,
+        chatReference: request.chatReference,
+        envelope,
+        groupId: request.groupId,
+        isStillValid: isRouteStillValid,
+        nodeApiUrl: request.nodeApiUrl,
+        signingKey,
+        validateTarget,
+      }));
+    }
+    if (persistedGroupKey) {
+      const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey);
+      await persistAndroidQpgcKey({
+        accountId: request.accountId,
+        epochId: state.epochId,
+        groupId: request.groupId,
+        groupKey: persistedGroupKey,
+        keyId,
+        secretKey: signingKey.secretKey,
+      });
+    }
+    return results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results };
+  } finally {
+    persistedGroupKey?.fill(0);
+  }
+}
+
+function homeV2MembershipOperationLabel(action: HomeV2GroupMembershipAction) {
+  return action === 'JOIN_GROUP' ? 'Join group' : 'Leave group';
+}
+
+function homeV2MempowFeeDifficulty(value: unknown) {
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.mempowFeeAlternativeDifficulty) ||
+    Number(value.mempowFeeAlternativeDifficulty) < 1 ||
+    Number(value.mempowFeeAlternativeDifficulty) > 31
+  ) {
+    throw new Error('The selected Qortium node does not advertise a compatible MemoryPoW fee difficulty.');
+  }
+  return Number(value.mempowFeeAlternativeDifficulty);
+}
+
+function homeV2IdempotentGroupResult(
+  action: HomeV2GroupMembershipAction,
+  error: unknown,
+  network: 'qortal' | 'qortium',
+  target: HomeV2GroupMembershipTarget,
+) {
+  const membership = groupMembershipIdempotentState(action, error);
+  return membership
+    ? createHomeV2GroupMembershipSuccess({
+        action,
+        changed: false,
+        groupId: target.groupId,
+        groupName: target.groupName,
+        membership,
+        network,
+      })
+    : null;
+}
+
+function homeV2GroupBuilderUnavailable(error: unknown) {
+  return isRecord(error) && (error.status === 403 || error.status === 404);
+}
+
+async function sendAndroidHomeV2QortiumGroupMembership(
+  nodeApiUrl: string,
+  request: HomeV2GroupMembershipRequest,
+  target: HomeV2GroupMembershipTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the group action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
+  const timestamp = Date.now();
+  let unsignedText: string;
+  try {
+    const response = await postLocalNodeText(
+      nodeApiUrl,
+      request.action === 'JOIN_GROUP' ? '/groups/public/join' : '/groups/public/leave',
+      JSON.stringify({
+        fee: 0,
+        groupId: request.groupId,
+        [request.action === 'JOIN_GROUP' ? 'joinerPublicKey' : 'leaverPublicKey']: signingKey.publicKey58,
+        timestamp,
+        txGroupId: 0,
+      }),
+      apiKey,
+      `${homeV2MembershipOperationLabel(request.action)} transaction build failed.`,
+      'application/json',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    unsignedText = response.body;
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupResult(request.action, error, 'qortium', target);
+    if (idempotent) return idempotent;
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the public group-membership builder.');
+    }
+    throw error;
+  }
+  const unsignedBytes = base58Decode(unsignedText);
+  const expected = {
+    groupId: request.groupId,
+    publicKey: base58Decode(signingKey.publicKey58),
+    timestamp,
+    txGroupId: 0,
+  };
+  if (request.action === 'JOIN_GROUP') assertPublicJoinGroupTransaction(unsignedBytes, expected);
+  else assertPublicLeaveGroupTransaction(unsignedBytes, expected);
+  let difficulty: number;
+  try {
+    difficulty = homeV2MempowFeeDifficulty(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      apiKey,
+    ));
+  } catch (error) {
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the MemoryPoW capability needed for group membership.');
+    }
+    throw error;
+  }
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isRouteStillValid);
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  const signedBytes = appendHomeV2GroupMembershipSignature(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      `${homeV2MembershipOperationLabel(request.action)} transaction processing failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupMembershipSuccess({
+      action: request.action,
+      changed: true,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      membership: request.action === 'JOIN_GROUP' && !target.isOpen ? 'requested' : undefined,
+      network: 'qortium',
+      signature,
+      timestamp,
+    });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupResult(request.action, error, 'qortium', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupMembershipBroadcastResult({
+      action: request.action,
+      error,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      network: 'qortium',
+      signedBytes,
+      timestamp,
+    });
+  }
+}
+
+async function sendAndroidHomeV2QortalGroupMembership(
+  nodeApiUrl: string,
+  request: HomeV2GroupMembershipRequest,
+  target: HomeV2GroupMembershipTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const [feeValue, lastReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(qortalGroupMembershipFeeType(request.action))}`,
+      'Qortal group transaction fee lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  const feeAtomic = normalizeQortalGroupMembershipFee(feeValue);
+  const lastReference = typeof lastReferenceValue === 'string' ? lastReferenceValue.trim() : '';
+  if (!lastReference) {
+    throw new Error('The selected Qortal account does not have a last reference. It may need QORT before it can join or leave groups.');
+  }
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortalGroupMembershipTransactionBytes({
+    action: request.action,
+    feeAtomic,
+    groupId: request.groupId,
+    lastReference,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const [freshFeeValue, freshReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(qortalGroupMembershipFeeType(request.action))}`,
+      'Qortal group transaction fee recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  if (
+    normalizeQortalGroupMembershipFee(freshFeeValue) !== feeAtomic ||
+    typeof freshReferenceValue !== 'string' ||
+    freshReferenceValue.trim() !== lastReference
+  ) {
+    throw new Error('The Qortal fee or account reference changed before signing. Please try the group action again.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const signedBytes = appendHomeV2GroupMembershipSignature(
+    unsignedBytes,
+    nacl.sign.detached(unsignedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      encodeHomeV2GroupMembershipTransaction(signedBytes),
+      '',
+      `Qortal ${homeV2MembershipOperationLabel(request.action).toLowerCase()} broadcast failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupMembershipSuccess({
+      action: request.action,
+      changed: true,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      membership: request.action === 'JOIN_GROUP' && !target.isOpen ? 'requested' : undefined,
+      network: 'qortal',
+      signature,
+      timestamp,
+    });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupResult(request.action, error, 'qortal', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupMembershipBroadcastResult({
+      action: request.action,
+      error,
+      groupId: request.groupId,
+      groupName: target.groupName,
+      network: 'qortal',
+      signedBytes,
+      timestamp,
+    });
+  }
+}
+
+function homeV2IdempotentGroupAdminResult(
+  request: HomeV2GroupAdminRequest,
+  error: unknown,
+  network: 'qortal' | 'qortium',
+  target: HomeV2GroupAdminTarget,
+) {
+  return groupAdminIdempotentResult(request.action, error)
+    ? createHomeV2GroupAdminSuccess({ changed: false, network, request, target })
+    : null;
+}
+
+async function sendAndroidHomeV2QortiumGroupAdmin(
+  nodeApiUrl: string,
+  request: HomeV2GroupAdminRequest,
+  target: HomeV2GroupAdminTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const settings = await readNodeSettings();
+  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
+  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
+    throw new Error('The selected Qortium route changed before the group action could start.');
+  }
+  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
+  const isRouteStillValid = async () => {
+    if (!(await isStillValid())) return false;
+    const currentSettings = await readNodeSettings();
+    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
+    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
+      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
+  };
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortiumGroupAdminTransactionBytes({
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  assertUnsignedHomeV2GroupAdminTransaction(unsignedBytes, {
+    feeAtomic: 0n,
+    network: 'qortium',
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  let difficulty: number;
+  try {
+    difficulty = homeV2MempowFeeDifficulty(await fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      '/polls/public/capabilities',
+      'MemoryPoW capability lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      apiKey,
+    ));
+  } catch (error) {
+    if (homeV2GroupBuilderUnavailable(error)) {
+      throw new Error('The selected Qortium node does not expose the MemoryPoW capability needed for group administration.');
+    }
+    throw error;
+  }
+  const nonce = await computeChatNonce(unsignedBytes, difficulty, isRouteStillValid);
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isRouteStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const stampedBytes = stampTransactionNonce(unsignedBytes, nonce);
+  assertUnsignedHomeV2GroupAdminTransaction(stampedBytes, {
+    feeAtomic: 0n,
+    network: 'qortium',
+    nonce,
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  const signedBytes = appendHomeV2GroupAdminSignature(
+    stampedBytes,
+    nacl.sign.detached(stampedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      apiKey,
+      `${homeV2GroupAdminOperationLabel(request.action)} transaction processing failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupAdminSuccess({ changed: true, network: 'qortium', request, signature, target, timestamp });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupAdminResult(request, error, 'qortium', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupAdminBroadcastResult({ error, network: 'qortium', request, signedBytes, target, timestamp });
+  }
+}
+
+async function sendAndroidHomeV2QortalGroupAdmin(
+  nodeApiUrl: string,
+  request: HomeV2GroupAdminRequest,
+  target: HomeV2GroupAdminTarget,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+  isStillValid: () => boolean | Promise<boolean>,
+  validateTarget: () => Promise<void>,
+) {
+  const feeType = qortalGroupAdminFeeType(request);
+  const [feeValue, lastReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(feeType)}`,
+      'Qortal group transaction fee lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference lookup failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  const feeAtomic = normalizeHomeV2GroupAdminFee(feeValue);
+  const lastReference = typeof lastReferenceValue === 'string' ? lastReferenceValue.trim() : '';
+  if (!lastReference) {
+    throw new Error('The selected Qortal account does not have a last reference. It may need QORT before it can administer groups.');
+  }
+  const timestamp = Date.now();
+  const unsignedBytes = buildUnsignedQortalGroupAdminTransactionBytes({
+    feeAtomic,
+    lastReference,
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  assertUnsignedHomeV2GroupAdminTransaction(unsignedBytes, {
+    feeAtomic,
+    lastReference,
+    network: 'qortal',
+    request,
+    senderPublicKey: signingKey.publicKey58,
+    timestamp,
+  });
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  await validateTarget();
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const [freshFeeValue, freshReferenceValue] = await Promise.all([
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/transactions/unitfee?txType=${encodeURIComponent(feeType)}`,
+      'Qortal group transaction fee recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+    fetchLocalNodeApiPayload(
+      nodeApiUrl,
+      `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+      'Qortal last-reference recheck failed.',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    ),
+  ]);
+  if (
+    normalizeHomeV2GroupAdminFee(freshFeeValue) !== feeAtomic ||
+    typeof freshReferenceValue !== 'string' ||
+    freshReferenceValue.trim() !== lastReference
+  ) {
+    throw new Error('The Qortal fee or account reference changed before signing. Please try the group action again.');
+  }
+  if (!(await isStillValid())) throw new Error('The signing context changed before the group action could be submitted.');
+  const signedBytes = appendHomeV2GroupAdminSignature(
+    unsignedBytes,
+    nacl.sign.detached(unsignedBytes, signingKey.secretKey),
+  );
+  const signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  try {
+    await postLocalNodeText(
+      nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      encodeHomeV2GroupAdminTransaction(signedBytes),
+      '',
+      `Qortal ${homeV2GroupAdminOperationLabel(request.action).toLowerCase()} broadcast failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+    );
+    return createHomeV2GroupAdminSuccess({ changed: true, network: 'qortal', request, signature, target, timestamp });
+  } catch (error) {
+    const idempotent = homeV2IdempotentGroupAdminResult(request, error, 'qortal', target);
+    if (idempotent) return idempotent;
+    return createHomeV2UnknownGroupAdminBroadcastResult({ error, network: 'qortal', request, signedBytes, target, timestamp });
+  }
+}
+
+async function publishAndroidHomeV2PublicResource(
+  request: HomeV2PublicPublishMutationRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const isStillValid = request.isStillValid ?? (() => true);
+  const sourceBytes = base64ToBytes(request.sourceBase64);
+  if (sourceBytes.byteLength < 1 || sourceBytes.byteLength > QDN_PUBLIC_STREAMED_PUBLISH_MAX_BYTES) {
+    throw new Error('Publish source must be between 1 byte and 100 MiB.');
+  }
+  const resource: QdnWriteResourceRequest = { ...request.resource, tags: [...request.resource.tags] };
+  const source: QdnPublishSourceResult & { canceled: false } = {
+    canceled: false,
+    dataBase64: request.sourceBase64,
+    fileName: request.fileName,
+    kind: 'file',
+    size: sourceBytes.byteLength,
+  };
+  const contentHash = await sha256Hex(sourceBytes);
+  let signedBytes: Uint8Array;
+  let signature: string;
+  let timestamp = Date.now();
+
+  if (request.network === 'qortium') {
+    const upload = getQdnPublishUploadSource(resource, source);
+    const unsigned = await postLocalNodeBytes(
+      request.nodeApiUrl,
+      buildQdnPublicPublishUploadPath(resource, upload.source),
+      upload.body,
+      '',
+      'Qortium public publish staging failed.',
+      true,
+    );
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN attestation.');
+    await request.validateTarget?.();
+    const rawUnsignedBytes = base58Decode(unsigned.body.trim());
+    const details = assertPublicArbitraryTransaction(rawUnsignedBytes, {
+      identifier: resource.identifier && resource.identifier !== 'default' ? resource.identifier : undefined,
+      method: 0,
+      name: resource.name,
+      publicKey: base58Decode(signingKey.publicKey58),
+      service: getStaticQdnServiceId(resource.service),
+      txGroupId: 0,
+    });
+    await createPublicQdnPublishAttestation(request.nodeApiUrl, resource, {
+      bytes: sourceBytes,
+      filename: request.fileName,
+      unpackZip: false,
+    })(details);
+    const signingBytes = arbitraryRawToSigningBytes(rawUnsignedBytes);
+    const nonce = await computeChatNonce(clearTransactionNonce(signingBytes), ARBITRARY_POW_DIFFICULTY, isStillValid);
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before QDN signing.');
+    await request.validateTarget?.();
+    const rawWithNonce = stampTransactionNonce(rawUnsignedBytes, nonce);
+    const signingWithNonce = stampTransactionNonce(signingBytes, nonce);
+    signedBytes = appendSignatureToTransactionBytes(
+      rawWithNonce,
+      nacl.sign.detached(signingWithNonce, signingKey.secretKey),
+    );
+    signature = getSignatureFromSignedTransactionBytes(signedBytes);
+  } else {
+    const feeTimestamp = Date.now();
+    const [feeValue, referenceValue] = await Promise.all([
+      requestAndroidHomeV2ChatJson(
+        request.nodeApiUrl,
+        `/transactions/unitfee?txType=ARBITRARY&timestamp=${feeTimestamp}`,
+        '',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        true,
+      ),
+      requestAndroidHomeV2ChatJson(
+        request.nodeApiUrl,
+        `/addresses/lastreference/${encodeURIComponent(signingKey.address)}`,
+        '',
+        CHAT_SIGNING_RESPONSE_MAX_BYTES,
+        true,
+      ),
+    ]);
+    const fee = normalizeAndroidQortalFee(feeValue);
+    if (typeof referenceValue !== 'string') throw new Error('Qortal last-reference response is invalid.');
+    const lastReference = base58Decode(referenceValue.trim());
+    if (lastReference.length !== 64 || base58Encode(lastReference) !== referenceValue.trim()) {
+      throw new Error('Qortal last-reference response is invalid.');
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before Qortal staging.');
+    const started = Date.now();
+    const identifierPath = resource.identifier ? `/${encodeURIComponent(resource.identifier)}` : '';
+    const unsigned = await postLocalNodeText(
+      request.nodeApiUrl,
+      `/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}${identifierPath}/base64?fee=${encodeURIComponent(String(fee))}`,
+      request.sourceBase64,
+      '',
+      'Qortal public publish staging failed.',
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    await request.validateTarget?.();
+    const attested = attestUnsignedQortalArbitraryPublish(unsigned.body.trim(), {
+      dataSize: sourceBytes.byteLength,
+      feeAtomic: fee,
+      identifier: resource.identifier ?? 'default',
+      lastReference,
+      name: resource.name,
+      senderPublicKey: base58Decode(signingKey.publicKey58),
+      service: getStaticQdnServiceId(resource.service),
+      timestampMaximum: Date.now() + 5_000,
+      timestampMinimum: started - 5_000,
+    });
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(sourceBytes).buffer);
+    if (base58Encode(new Uint8Array(digest)) !== base58Encode(attested.dataHash)) {
+      throw new Error('Qortal publish builder changed the approved resource content.');
+    }
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed before Qortal signing.');
+    await request.validateTarget?.();
+    const signed = signAttestedQortalPrivateGroupPublish({
+      selectedAccountSecretKey: signingKey.secretKey,
+      signingBytes: attested.signingBytes,
+      unsignedBytes: attested.unsignedBytes,
+    });
+    signedBytes = signed.signedBytes;
+    signature = signed.signature;
+    timestamp = attested.timestamp;
+  }
+
+  if (!(await isStillValid())) throw new Error('The app, account, or node route changed before publication broadcast.');
+  await request.validateTarget?.();
+  const descriptor = createHomeV2PublicPublishDescriptor({
+    contentHash,
+    fileName: request.fileName,
+    network: request.network,
+    resource,
+    size: sourceBytes.byteLength,
+    transactionSignature: signature,
+  });
+  try {
+    await postLocalNodeText(
+      request.nodeApiUrl,
+      '/transactions/process?apiVersion=2',
+      base58Encode(signedBytes),
+      '',
+      `${request.network === 'qortal' ? 'Qortal' : 'Qortium'} public publish broadcast failed.`,
+      'text/plain',
+      CHAT_SIGNING_RESPONSE_MAX_BYTES,
+      true,
+    );
+    return descriptor;
+  } catch (error) {
+    return {
+      ...descriptor,
+      accepted: false,
+      error: error instanceof Error ? error.message : 'Publish broadcast outcome is unknown.',
+      errorType: 'BROADCAST_UNKNOWN',
+      outcome: 'unknown' as const,
+      retryable: false as const,
+      timestamp,
+    };
+  }
+}
+
+function wipeAndroidQortalPrivateGroupKeyRing(keyRing: QortalPrivateGroupKeyRing) {
+  for (const entry of keyRing.values()) {
+    entry.messageKey.fill(0);
+    entry.nonce?.fill(0);
+  }
+}
+
+async function readAndroidHomeV2PrimaryPublisherName(nodeApiUrl: string, address: string) {
+  const value = await requestAndroidHomeV2ChatJson(
+    nodeApiUrl,
+    `/names/primary/${encodeURIComponent(address)}`,
+  );
+  if (!isRecord(value) || value.owner !== address || typeof value.name !== 'string' || !value.name.trim()) {
+    throw new Error('Publishing a private chat attachment requires a current primary name owned by the selected account.');
+  }
+  return value.name.trim();
+}
+
+async function publishAndroidHomeV2PrivateAttachment(
+  request: HomeV2PrivateAttachmentPublishMutationRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const isStillValid = request.isStillValid ?? (() => true);
+  const sourceBytes = base64ToBytes(request.sourceBase64);
+  const mediaType = sniffPrivateChatAttachmentMediaType(sourceBytes);
+  const hubImage = request.network === 'qortal' && request.conversation.kind === 'group' &&
+    isQortalHubCompatiblePrivateImageMediaType(mediaType);
+  if ((hubImage ? 'IMAGE' : 'QCHAT_ATTACHMENT_PRIVATE') !== request.service) {
+    throw new Error('Private attachment service does not match its encrypted codec.');
+  }
+  if (await readAndroidHomeV2PrimaryPublisherName(request.nodeApiUrl, signingKey.address) !== request.publisherName) {
+    throw new Error('The selected account primary name changed before attachment encryption.');
+  }
+  const settings = request.network === 'qortium' ? await readNodeSettings() : null;
+  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  const peerBaseline = request.conversation.kind === 'direct'
+    ? await readAndroidHomeV2DirectPublicKey(request.nodeApiUrl, request.conversation.otherAddress, apiKey)
+    : null;
+  const qpgcBaseline = request.conversation.kind === 'group' && request.network === 'qortium'
+    ? await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.conversation.groupId, apiKey)
+    : null;
+  const qortalBaseline = request.conversation.kind === 'group' && request.network === 'qortal'
+    ? await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.conversation.groupId)
+    : null;
+  if (qpgcBaseline && !qpgcBaseline.memberPublicKeys.some((key) => base58Encode(key) === signingKey.publicKey58)) {
+    throw new Error('The selected account is not a current member of this private group.');
+  }
+  if (qortalBaseline && !qortalBaseline.memberAddresses.includes(signingKey.address)) {
+    throw new Error('The selected account is not a current member of this private group.');
+  }
+  const validateTarget = async () => {
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed during private attachment publishing.');
+    if (await readAndroidHomeV2PrimaryPublisherName(request.nodeApiUrl, signingKey.address) !== request.publisherName) {
+      throw new Error('The selected account primary name changed during private attachment publishing.');
+    }
+    if (request.conversation.kind === 'direct') {
+      const current = await readAndroidHomeV2DirectPublicKey(request.nodeApiUrl, request.conversation.otherAddress, apiKey);
+      if (!peerBaseline || current.value !== peerBaseline.value) throw new Error('Direct attachment recipient public key changed before signing.');
+    } else if (request.network === 'qortium') {
+      const current = await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.conversation.groupId, apiKey);
+      if (
+        !qpgcBaseline ||
+        !current.epochId.every((value, index) => value === qpgcBaseline.epochId[index]) ||
+        !current.memberPublicKeys.some((key) => base58Encode(key) === signingKey.publicKey58)
+      ) throw new Error('Private-group membership changed before attachment signing.');
+    } else {
+      const current = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, request.conversation.groupId);
+      if (
+        !qortalBaseline ||
+        !current.memberAddresses.includes(signingKey.address) ||
+        current.memberAddresses.join('|') !== qortalBaseline.memberAddresses.join('|')
+      ) throw new Error('Qortal private-group membership changed before attachment signing.');
+    }
+  };
+  await validateTarget();
+  const payload = { data: sourceBytes, filename: request.fileName, mediaType };
+  let ciphertext: Uint8Array;
+  let codec: 'qenc-v2-direct' | 'qenc-v2-group' | 'qortal-hub-group-image-v1' | 'qortal-qatt-direct-v1' | 'qortal-qatt-group-v1';
+  if (request.conversation.kind === 'direct') {
+    ciphertext = request.network === 'qortium'
+      ? await encryptPrivateChatDirectAttachment({ payload, recipientPublicKey: peerBaseline!.bytes, senderPublicKey: base58Decode(signingKey.publicKey58) })
+      : await encryptQortalPrivateChatDirectAttachment({ payload, recipientPublicKey: peerBaseline!.bytes, senderPublicKey: base58Decode(signingKey.publicKey58) });
+    codec = request.network === 'qortium' ? 'qenc-v2-direct' : 'qortal-qatt-direct-v1';
+  } else if (request.network === 'qortium') {
+    const key = await resolveAndroidHomeV2QpgcKey({
+      accountId: request.accountId,
+      apiKey,
+      epochId: qpgcBaseline!.epochId,
+      groupId: request.conversation.groupId,
+      nodeApiUrl: request.nodeApiUrl,
+      secretKey: signingKey.secretKey,
+      state: qpgcBaseline!,
+    });
+    if (!key) throw new Error('No private-group key is available. Recover or rotate the key first.');
+    try {
+      ciphertext = await encryptPrivateChatGroupAttachment({
+        epochId: key.epochId,
+        groupId: request.conversation.groupId,
+        groupKey: key.groupKey,
+        keyId: key.keyId,
+        payload,
+      });
+    } finally {
+      key.groupKey.fill(0);
+    }
+    codec = 'qenc-v2-group';
+  } else {
+    const key = await resolveAndroidQortalPrivateGroupRing({
+      accountId: request.accountId,
+      nodeApiUrl: request.nodeApiUrl,
+      secretKey: signingKey.secretKey,
+      state: qortalBaseline!,
+    });
+    if (!key) throw new Error('No Qortal private-group key is available. Recover or rotate the key first.');
+    try {
+      ciphertext = hubImage
+        ? encryptQortalHubPrivateGroupImage({ data: sourceBytes, keyRing: key.keyRing })
+        : await encryptQortalPrivateChatGroupAttachment({ keyRing: key.keyRing, payload });
+    } finally {
+      wipeAndroidQortalPrivateGroupKeyRing(key.keyRing);
+    }
+    codec = hubImage ? 'qortal-hub-group-image-v1' : 'qortal-qatt-group-v1';
+  }
+  try {
+    const published = await publishAndroidHomeV2PublicResource({
+      accountId: request.accountId,
+      fileName: 'private-chat-attachment.bin',
+      isStillValid,
+      network: request.network,
+      nodeApiUrl: request.nodeApiUrl,
+      resource: {
+        identifier: request.identifier,
+        name: request.publisherName,
+        service: request.service,
+        tags: [],
+      },
+      sourceBase64: bytesToBase64(ciphertext),
+      validateTarget,
+    }, signingKey);
+    if (!isRecord(published) || typeof published.transactionSignature !== 'string') {
+      throw new Error('Private attachment publication result is invalid.');
+    }
+    const descriptor = createHomeV2PrivateAttachmentDescriptor({
+      ciphertextHash: await sha256Hex(ciphertext),
+      ciphertextSize: ciphertext.length,
+      codec,
+      conversation: request.conversation,
+      identifier: request.identifier,
+      name: request.publisherName,
+      network: request.network,
+      service: request.service,
+      transactionSignature: published.transactionSignature,
+    });
+    return published.accepted === false
+      ? { ...published, descriptor }
+      : { accepted: true as const, descriptor, transactionSignature: published.transactionSignature };
+  } finally {
+    ciphertext.fill(0);
+    sourceBytes.fill(0);
+  }
+}
+
+async function readAndroidHomeV2PrivateAttachmentCiphertext(
+  request: HomeV2PrivateAttachmentDecryptRequest,
+  apiKey: string,
+) {
+  const { resource, ciphertext } = request.descriptor;
+  const url = `${getNodeApiUrlBase(request.nodeApiUrl)}/arbitrary/${encodeURIComponent(resource.service)}/${encodeURIComponent(resource.name)}/${encodeURIComponent(resource.identifier)}?rebuild=true`;
+  const response = await CapacitorHttp.request({
+    url,
+    method: 'GET',
+    headers: apiKey ? { 'X-API-KEY': apiKey } : undefined,
+    responseType: 'arraybuffer',
+    connectTimeout: REQUEST_TIMEOUT_MS,
+    readTimeout: 120_000,
+    disableRedirects: true,
+  });
+  if (response.url && new URL(response.url).toString() !== new URL(url).toString()) {
+    throw new Error('Private attachment response changed the approved resource URL.');
+  }
+  if (response.status < 200 || response.status >= 300 || typeof response.data !== 'string') {
+    throw new Error(`Private attachment request returned HTTP ${response.status}.`);
+  }
+  const bytes = base64ToBytes(response.data);
+  if (bytes.length !== ciphertext.size || bytes.length > 1024 * 1024 || await sha256Hex(bytes) !== ciphertext.hash) {
+    bytes.fill(0);
+    throw new Error('Private attachment ciphertext does not match its immutable descriptor.');
+  }
+  return bytes;
+}
+
+async function decryptAndroidHomeV2PrivateAttachment(
+  request: HomeV2PrivateAttachmentDecryptRequest,
+  signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
+) {
+  const isStillValid = request.isStillValid ?? (() => true);
+  const descriptor = request.descriptor;
+  const settings = descriptor.network === 'qortium' ? await readNodeSettings() : null;
+  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  let peerKey: Awaited<ReturnType<typeof readAndroidHomeV2DirectPublicKey>> | null = null;
+  let qpgcState: HomeV2QpgcGroupState | null = null;
+  let qortalState: AndroidQortalPrivateGroupState | null = null;
+  if (descriptor.conversation.kind === 'direct') {
+    peerKey = await readAndroidHomeV2DirectPublicKey(request.nodeApiUrl, descriptor.conversation.otherAddress, apiKey);
+  } else if (descriptor.network === 'qortium') {
+    qpgcState = await readAndroidHomeV2QpgcState(request.nodeApiUrl, descriptor.conversation.groupId, apiKey);
+    if (!qpgcState.memberPublicKeys.some((key) => base58Encode(key) === signingKey.publicKey58)) {
+      throw new Error('The selected account is not a current member of this private group.');
+    }
+  } else {
+    qortalState = await readAndroidQortalPrivateGroupState(request.nodeApiUrl, descriptor.conversation.groupId);
+    if (!qortalState.memberAddresses.includes(signingKey.address)) {
+      throw new Error('The selected account is not a current member of this private group.');
+    }
+  }
+  const encrypted = await readAndroidHomeV2PrivateAttachmentCiphertext(request, apiKey);
+  try {
+    if (!(await isStillValid())) throw new Error('The app, account, or node route changed during attachment fetch.');
+    let payload: { data: Uint8Array; filename: string; mediaType: string };
+    if (descriptor.conversation.kind === 'direct') {
+      const qenc = descriptor.network === 'qortal' ? getQortalPrivateChatDirectQencEnvelope(encrypted) : encrypted;
+      await assertPrivateChatAttachmentRecipients(qenc, [base58Decode(signingKey.publicKey58), peerKey!.bytes]);
+      payload = descriptor.network === 'qortal'
+        ? await decryptQortalPrivateChatDirectAttachment({ envelope: encrypted, selectedAccountSecretKey: signingKey.secretKey })
+        : await decryptPrivateChatAttachmentForRecipient({ envelope: encrypted, selectedAccountSecretKey: signingKey.secretKey });
+    } else if (descriptor.network === 'qortium') {
+      const envelope = parsePrivateChatAttachmentEnvelope(encrypted);
+      if (envelope.mode !== 'group' || envelope.groupId !== descriptor.conversation.groupId || !envelope.epochId || !envelope.keyId) {
+        throw new Error('Private attachment group context does not match its descriptor.');
+      }
+      const currentEpoch = qpgcState!.epochId.every((value, index) => value === envelope.epochId![index]);
+      const key = await resolveAndroidHomeV2QpgcKey({
+        accountId: request.accountId,
+        apiKey,
+        epochId: envelope.epochId,
+        groupId: descriptor.conversation.groupId,
+        keyId: envelope.keyId,
+        nodeApiUrl: request.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        ...(currentEpoch ? { state: qpgcState! } : {}),
+      });
+      if (!key) throw new Error('No matching private-group attachment key is available.');
+      try {
+        payload = await decryptPrivateChatGroupAttachment({
+          envelope: encrypted,
+          epochId: envelope.epochId,
+          groupId: descriptor.conversation.groupId,
+          groupKey: key.groupKey,
+          keyId: envelope.keyId,
+        });
+      } finally {
+        key.groupKey.fill(0);
+      }
+    } else {
+      const key = await resolveAndroidQortalPrivateGroupRing({
+        accountId: request.accountId,
+        nodeApiUrl: request.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        state: qortalState!,
+      });
+      if (!key) throw new Error('No matching Qortal private-group attachment key is available.');
+      try {
+        if (descriptor.codec === 'qortal-hub-group-image-v1') {
+          const data = decryptQortalHubPrivateGroupImage({ ciphertext: encrypted, keyRing: key.keyRing });
+          const mediaType = sniffPrivateChatAttachmentMediaType(data);
+          if (!isQortalHubCompatiblePrivateImageMediaType(mediaType)) throw new Error('Qortal private-group image has an unsupported decrypted media type.');
+          payload = { data, filename: `private-image.${mediaType.split('/')[1] === 'jpeg' ? 'jpg' : mediaType.split('/')[1]}`, mediaType };
+        } else {
+          payload = await decryptQortalPrivateChatGroupAttachment({ envelope: encrypted, keyRing: key.keyRing });
+        }
+      } finally {
+        wipeAndroidQortalPrivateGroupKeyRing(key.keyRing);
+      }
+    }
+    const mediaType = sniffPrivateChatAttachmentMediaType(payload.data);
+    if (!(await isStillValid())) {
+      payload.data.fill(0);
+      throw new Error('The app, account, or node route changed during attachment decryption.');
+    }
+    const result = { dataBase64: bytesToBase64(payload.data), fileName: payload.filename, mediaType };
+    payload.data.fill(0);
+    return result;
+  } finally {
+    encrypted.fill(0);
+  }
 }
 
 let androidHomeV2AutoUnlockAttempted = false;
@@ -12414,6 +14742,14 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       return { canceled: result.canceled, state: await buildAndroidHomeV2VaultState() };
     },
     getPrivateKeyAddress: getAddressFromPrivateKey,
+    async getSigningPublicKey(accountId) {
+      const signingKey = await getAccountSecretKey(accountId);
+      try {
+        return signingKey.publicKey58;
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
     async importPrivateKey(request) {
       if (!request.password || request.password !== request.passwordConfirmation) throw new Error('Passwords do not match.');
       await prepareMutation();
@@ -12434,12 +14770,16 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
     async removeAddress(addressId) {
       await prepareMutation();
       await removeWallet(addressId);
+      await removeAndroidQpgcAccountRecords(addressId);
+      await removeAndroidQortalPrivateGroupAccountRecords(addressId);
       return buildAndroidHomeV2VaultState();
     },
     async removeAccount({ accountId, password }) {
       await prepareMutation();
       await removeWallet(accountId, password);
       await HomeV2SecureStorage.remove({ accountId }).catch(() => undefined);
+      await removeAndroidQpgcAccountRecords(accountId);
+      await removeAndroidQortalPrivateGroupAccountRecords(accountId);
       const securityStore = await readAndroidHomeV2SecurityStore();
       delete securityStore.accounts[accountId];
       await writeAndroidHomeV2SecurityStore(securityStore);
@@ -12491,6 +14831,44 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       await HomeV2ProfileRecovery.requestRestore();
       return { restartRequired: true };
     },
+    async publishPublicResource(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        try {
+          return await publishAndroidHomeV2PublicResource(request, signingKey);
+        } catch (error) {
+          const status = error instanceof QdnUploadPostError
+            ? error.status
+            : typeof (error as { status?: unknown })?.status === 'number'
+              ? (error as { status: number }).status
+              : null;
+          if (status === 401 || status === 403 || status === 404 || status === 405) {
+            throw new Error(
+              `The selected ${request.network === 'qortal' ? 'Qortal' : 'Qortium'} node does not expose a compatible public QDN publish staging route.`,
+            );
+          }
+          throw error;
+        }
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async publishPrivateAttachment(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await publishAndroidHomeV2PrivateAttachment(request, signingKey);
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async decryptPrivateAttachment(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await decryptAndroidHomeV2PrivateAttachment(request, signingKey);
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
     async sendChatMessage(request) {
       const signingKey = await getAccountSecretKey(request.accountId);
       // isStillValid is optional on the contract (older callers), but Home's
@@ -12499,9 +14877,166 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       // that only ever loosens an already-optional recheck, never weakens a
       // check that was actually being enforced.
       const isStillValid = request.isStillValid ?? (() => true);
-      return request.network === 'qortium'
-        ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey, isStillValid)
-        : sendHomeV2QortalChatMessage(request.nodeApiUrl, request.txGroupId, request.message, signingKey, isStillValid);
+      const validateTarget = request.validateTarget
+        ? () => request.validateTarget!(signingKey.publicKey58)
+        : async () => undefined;
+      const chatRequest: HomeV2PublicChatRequest = {
+        action: request.action,
+        chatReference: request.chatReference ?? null,
+        message: request.message,
+        txGroupId: request.txGroupId,
+      };
+      try {
+        return await (request.network === 'qortium'
+          ? sendHomeV2QortiumChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget)
+          : sendHomeV2QortalChatMessage(request.nodeApiUrl, chatRequest, signingKey, isStillValid, validateTarget));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async readDirectChats(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await readAndroidHomeV2DirectChats(request, signingKey);
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async readPrivateGroupChats(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await readAndroidHomeV2PrivateGroupChats(request, signingKey);
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendDirectChat(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        const isStillValid = request.isStillValid ?? (() => true);
+        const settings = request.network === 'qortium' ? await readNodeSettings() : null;
+        const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+        const peerKey = await readAndroidHomeV2DirectPublicKey(
+          request.nodeApiUrl,
+          request.otherAddress,
+          apiKey,
+        );
+        const validateTarget = async () => {
+          const currentPeer = await readAndroidHomeV2DirectPublicKey(
+            request.nodeApiUrl,
+            request.otherAddress,
+            apiKey,
+          );
+          if (currentPeer.value !== peerKey.value) {
+            throw new Error('Recipient public key changed before signing.');
+          }
+          await request.validateTarget?.(signingKey.publicKey58, peerKey.value);
+        };
+        return await (request.network === 'qortium'
+          ? sendAndroidHomeV2QortiumDirectChat(
+              request.nodeApiUrl,
+              request,
+              peerKey.bytes,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            )
+          : sendAndroidHomeV2QortalDirectChat(
+              request.nodeApiUrl,
+              request,
+              peerKey.bytes,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            ));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendPrivateGroupChat(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      try {
+        return await sendAndroidHomeV2PrivateGroupChat(request, signingKey);
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendGroupMembership(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      const isStillValid = request.isStillValid ?? (() => true);
+      const validateTarget = request.validateTarget ?? (async () => undefined);
+      const membershipRequest: HomeV2GroupMembershipRequest = {
+        action: request.action,
+        groupId: request.groupId,
+      };
+      const target: HomeV2GroupMembershipTarget = {
+        groupId: request.groupId,
+        groupName: request.groupName,
+        isMintingGroup: false,
+        isOpen: request.isOpen,
+      };
+      try {
+        return await (request.network === 'qortium'
+          ? sendAndroidHomeV2QortiumGroupMembership(
+              request.nodeApiUrl,
+              membershipRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            )
+          : sendAndroidHomeV2QortalGroupMembership(
+              request.nodeApiUrl,
+              membershipRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            ));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
+    },
+    async sendGroupAdmin(request) {
+      const signingKey = await getAccountSecretKey(request.accountId);
+      const isStillValid = request.isStillValid ?? (() => true);
+      const validateTarget = request.validateTarget ?? (async () => undefined);
+      const adminRequest: HomeV2GroupAdminRequest = {
+        action: request.action,
+        groupId: request.groupId,
+        memberAddress: request.memberAddress,
+        reason: request.reason,
+        timeToLive: request.timeToLive,
+        wireAction: request.action === 'APPROVE_GROUP_JOIN_REQUEST' || request.action === 'INVITE_TO_GROUP'
+          ? 'GROUP_INVITE'
+          : request.action,
+      };
+      const target: HomeV2GroupAdminTarget = {
+        groupId: request.groupId,
+        groupName: request.groupName,
+        ownerAddress: request.ownerAddress,
+      };
+      try {
+        return await (request.network === 'qortium'
+          ? sendAndroidHomeV2QortiumGroupAdmin(
+              request.nodeApiUrl,
+              adminRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            )
+          : sendAndroidHomeV2QortalGroupAdmin(
+              request.nodeApiUrl,
+              adminRequest,
+              target,
+              signingKey,
+              isStillValid,
+              validateTarget,
+            ));
+      } finally {
+        signingKey.secretKey.fill(0);
+      }
     },
   };
 }

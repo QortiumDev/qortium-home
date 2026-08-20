@@ -45,6 +45,14 @@ for (const field of required) {
   )
 }
 
+for (const field of ['bridgeStates', 'displaySettings', 'managerRevisions']) {
+  assert.match(
+    shellSource,
+    new RegExp(`\\b${field}\\s*:`),
+    `WidgetShell must carry ${field} from its source tab into qdn-views:show`,
+  )
+}
+
 // nodeOrigin is what the sanitizer returns, not what it accepts. Sending it as
 // a request field is the specific mistake this test exists to prevent.
 assert.ok(
@@ -147,7 +155,7 @@ assert.match(
 // after the user answers.
 const widgetGate = bridgeSource.slice(
   bridgeSource.indexOf('async function requireWidgetPermission'),
-  bridgeSource.indexOf('async function handleOpenAsWidget'),
+  bridgeSource.indexOf('type PreparedWidgetLaunch'),
 )
 assert.ok(
   widgetGate.length > 0,
@@ -158,6 +166,28 @@ assert.equal(
   2,
   'the widget gate must check the live resource before the grant map and again after approval',
 )
+
+assert.match(
+  bridgeSource,
+  /readBoundedResponse\(response, 'GET', WIDGET_MANIFEST_MAX_BYTES\)/,
+  'widget manifests must be bounded while streaming, before parsing',
+)
+const appLaunch = bridgeSource.indexOf("if (action === 'OPEN_AS_WIDGET')")
+assert.ok(appLaunch >= 0, 'OPEN_AS_WIDGET dispatch must exist')
+const appLaunchBody = bridgeSource.slice(appLaunch, appLaunch + 600)
+assert.ok(
+  appLaunchBody.indexOf('prepareWidgetLaunch(context)') < appLaunchBody.indexOf('requireWidgetPermission('),
+  'a widget manifest must be discovered and validated before Home asks for permission',
+)
+for (const grantComponent of [
+  'context.windowId',
+  'context.tabId',
+  'context.resourceUrl',
+  "getHomeV2AppNetwork(protocol, 'OPEN_AS_WIDGET')",
+  'context.accountId',
+]) {
+  assert.ok(widgetGate.includes(grantComponent), `widget grant must bind ${grantComponent}`)
+}
 
 // A runtime region push must be validated by the same parser the manifest
 // uses, so an app cannot use it to declare a shape its manifest would have

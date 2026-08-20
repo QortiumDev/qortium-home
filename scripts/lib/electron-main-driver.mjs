@@ -258,8 +258,14 @@ export async function launchHome(options = {}) {
     // executed a single line of its own code.
     await main.send('Runtime.runIfWaitingForDebugger')
 
+    // Do not require('electron') from the inspector before Electron has
+    // installed its main-process module hook. On a fast restart that early
+    // require can resolve the npm package's executable-path export instead of
+    // the Electron API and cache the wrong value for every later evaluation.
+    // main.ts writes this milestone from app.whenReady(), so it is the same
+    // readiness boundary without touching the module loader prematurely.
     await waitUntil('the app to become ready', CONNECT_TIMEOUT_MS, async () =>
-      await main.evaluate(mainRequire("return require('electron').app.isReady()")) === true)
+      output.join('').includes('[startup] main process ready:'))
 
     return {
       child,

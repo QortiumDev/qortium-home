@@ -4,6 +4,8 @@ import {
   assertPublicArbitraryTransaction,
   assertPublicChatTransaction,
   assertPublicCreatePollTransaction,
+  assertPublicJoinGroupTransaction,
+  assertPublicLeaveGroupTransaction,
   assertPublicUpdatePollTransaction,
   assertPublicVoteOnPollTransaction,
 } from '../dist-electron/public-transaction-validation.js';
@@ -160,6 +162,30 @@ assert.doesNotThrow(() => assertPublicChatTransaction(
   buildChatBytes({ hasReference: 0 }),
   { ...chatExpected, chatReference: undefined },
 ));
+
+const joinBytes = concat(common(31), int32(12), int64(0));
+const joinExpected = { groupId: 12, publicKey, timestamp, txGroupId: 0 };
+assert.doesNotThrow(() => assertPublicJoinGroupTransaction(joinBytes, joinExpected));
+assert.throws(
+  () => assertPublicJoinGroupTransaction(joinBytes, { ...joinExpected, groupId: 13 }),
+  /group ID/,
+);
+assert.throws(
+  () => assertPublicJoinGroupTransaction(concat(joinBytes.slice(0, -8), sequence(32, 9), int64(0)), joinExpected),
+  /unapproved minting public key/,
+);
+const mintingPublicKey = sequence(32, 55);
+assert.doesNotThrow(() => assertPublicJoinGroupTransaction(
+  concat(joinBytes.slice(0, -8), mintingPublicKey, int64(0)),
+  { ...joinExpected, mintingPublicKey },
+));
+
+const leaveBytes = concat(common(32), int32(12), int64(0));
+assert.doesNotThrow(() => assertPublicLeaveGroupTransaction(leaveBytes, joinExpected));
+assert.throws(
+  () => assertPublicLeaveGroupTransaction(concat(leaveBytes, new Uint8Array([1])), joinExpected),
+  /trailing bytes/,
+);
 
 function arbitraryBytes({ method = 0, payments = 0, deleteShape = false } = {}) {
   const data = deleteShape ? new Uint8Array(0) : sequence(32, 33);

@@ -12,6 +12,17 @@ import type {
   HomeV2AppRequestContext,
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
+import {
+  getHomeV2AppNetwork,
+  getHomeV2BridgeStateDetails,
+  getHomeV2AppRouteDescriptor,
+  homeV2BridgeErrorPayload,
+  normalizeHomeV2BridgeError,
+} from '../../home-v2-live/app-runtime'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
 
 function waitForAnimationFrames(count: number) {
   return new Promise<void>((resolve) => {
@@ -42,7 +53,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   query.set('lang', snapshot.appearance.resolvedLanguage)
   query.set('textSize', snapshot.appearance.textSize)
   query.set('theme', snapshot.appearance.resolvedTheme)
-  query.set('uiStyle', 'classic')
+  query.set('uiStyle', 'modern')
   const queryString = query.toString()
   return {
     identity: resource.identity,
@@ -114,15 +125,25 @@ function DesktopAppStage(props: AppTabStageProps) {
       const launchAccountId = identityId.startsWith('home-v2:identity:')
         ? identityId.slice('home-v2:identity:'.length)
         : null
+      const accountId = launchAccountId === 'none' ? null : launchAccountId
       void bridge.show({
-        accountId: launchAccountId === 'none' ? null : launchAccountId,
+        accountId,
         bounds: { height: bounds.height, width: bounds.width, x: bounds.x, y: bounds.y },
+        bridgeStates: getHomeV2BridgeStateDetails({
+          accountId,
+          nodes: props.snapshot.nodes,
+          platform: 'desktop',
+        }),
         displaySettings: {
-          accent: props.snapshot.appearance.accent === 'clay' ? 'orange' : props.snapshot.appearance.accent,
+          // Apps receive the v2 accent set as-is, matching the render-URL
+          // `accent` query param above. Apps that predate `clay` simply don't
+          // recognize the value and fall back to their own default accent
+          // until they republish with clay support.
+          accent: props.snapshot.appearance.accent,
           language: props.snapshot.appearance.resolvedLanguage,
           textSize: props.snapshot.appearance.textSize,
           theme: props.snapshot.appearance.resolvedTheme,
-          ui: 'classic',
+          ui: 'modern',
         },
         nodeApiUrl: resolved.nodeApiUrl,
         renderUrl: resolved.url,
@@ -208,10 +229,41 @@ function AndroidAppStage(props: AppTabStageProps) {
   // security boundary of its own; see shouldCarryBridgeToken's doc comment
   // in QdnBridgeWebViewClient.java for the layer that actually is one.
   const liveResourcePathRef = useRef<string | null>(null)
+  const deliveredBridgeStateRevisionsRef = useRef<Record<string, string> | null>(null)
 
   useEffect(() => {
     liveResourcePathRef.current = resolved ? resolved.url : null
   }, [resolved, source])
+
+  useEffect(() => {
+    const frameWindow = frameRef.current?.contentWindow
+    if (!resolved || !source || !frameWindow) {
+      deliveredBridgeStateRevisionsRef.current = null
+      return
+    }
+    const identityId = String(resolved.tab.context.identityId)
+    const launchAccountId = identityId.startsWith('home-v2:identity:')
+      ? identityId.slice('home-v2:identity:'.length)
+      : null
+    const details = getHomeV2BridgeStateDetails({
+      accountId: launchAccountId === 'none' ? null : launchAccountId,
+      nodes: props.snapshot.nodes,
+      platform: 'android',
+    })
+    const next = Object.fromEntries(details.map((detail) => [detail.protocol, detail.revision]))
+    const previous = deliveredBridgeStateRevisionsRef.current
+    deliveredBridgeStateRevisionsRef.current = next
+    if (!previous) return
+    const targetOrigin = new URL(source).origin
+    for (const detail of details) {
+      if (previous[detail.protocol] === detail.revision) continue
+      frameWindow.postMessage({
+        type: 'qortium:bridge-state-changed',
+        bridgeToken: token,
+        detail,
+      }, targetOrigin)
+    }
+  }, [props.snapshot.nodes, resolved, source, token])
 
   useEffect(() => {
     if (!resolved) return
@@ -375,9 +427,25 @@ function AndroidAppStage(props: AppTabStageProps) {
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId, result,
         }, '*')
       }).catch((cause: unknown) => {
+        const rawAction = isRecord(data.request) && typeof data.request.action === 'string'
+          ? data.request.action.trim().toUpperCase()
+          : 'UNKNOWN'
+        const network = getHomeV2AppNetwork(protocol, rawAction)
+        const route = getHomeV2AppRouteDescriptor({
+          accountId: context.selectedAccountId,
+          network,
+          node: props.snapshot.nodes[network],
+          platform: 'android',
+          protocol,
+        })
+        const error = normalizeHomeV2BridgeError(cause, {
+          action: rawAction,
+          network,
+          routeRevision: route.revision,
+        })
         ;(event.source as Window | null)?.postMessage({
           type: 'qortium:qdn-response', bridgeToken: token, requestId: data.requestId,
-          error: { message: cause instanceof Error ? cause.message : 'App request failed.' },
+          error: homeV2BridgeErrorPayload(error),
         }, '*')
       })
     }
@@ -513,6 +581,7 @@ declare global {
   interface Window {
     homeV2Apps?: {
       accountLocked(): void
+      invalidateRuntime(request: unknown): void
       capture(request: { tabId: string }): Promise<string | null>
       destroy(request: { tabId: string }): Promise<void>
       hide(request: { tabId: string }): Promise<void>
@@ -522,9 +591,12 @@ declare global {
       openAsWidget(request: { tabId: string }): Promise<
         { ok: true; widgetId: string } | { ok: false; message: string }
       >
+      syncWidgets(request: unknown): Promise<void>
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void
+      onOpenResourceViewer(listener: (event: unknown) => void): () => void
+      onNotificationClicked(listener: (event: unknown) => void): () => void
       onPermissionRequest(listener: (event: unknown) => void): () => void
       onPermissionTimeout(listener: (event: unknown) => void): () => void
       onNavigationChanged(listener: (event: unknown) => void): () => void
