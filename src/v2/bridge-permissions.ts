@@ -136,11 +136,7 @@ export interface PermissionTransition {
 export type PermissionInvalidation =
   | { readonly kind: 'identity-changed'; readonly identityId: IdentityId }
   | { readonly kind: 'navigation-changed'; readonly tabId: TabId }
-  | {
-      readonly kind: 'node-changed'
-      readonly network: NetworkId
-      readonly nodeProfileRef: NodeProfileRef
-    }
+  | { readonly kind: 'node-changed'; readonly network: NetworkId }
   | { readonly kind: 'tab-closed'; readonly tabId: TabId }
   | { readonly kind: 'locked' }
 
@@ -313,10 +309,7 @@ export function invalidatePermissionState(
       case 'tab-closed':
         return prompt.context.tabId === change.tabId
       case 'node-changed':
-        return (
-          prompt.context.targetNetwork === change.network &&
-          prompt.context.nodeProfileRef === change.nodeProfileRef
-        )
+        return prompt.context.targetNetwork === change.network
     }
   }
   const affectsGrant = (grant: PermissionGrant): boolean => {
@@ -327,10 +320,7 @@ export function invalidatePermissionState(
       case 'tab-closed':
         return grant.scope === 'session' && grant.sourceTabId === change.tabId
       case 'node-changed':
-        return (
-          grant.targetNetwork === change.network &&
-          grant.nodeProfileRef === change.nodeProfileRef
-        )
+        return grant.targetNetwork === change.network
     }
   }
 

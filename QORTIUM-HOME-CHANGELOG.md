@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-20 - fix(apps): preserve focus and permission sessions
+
+Home 2 no longer hides and re-shows the active desktop app when routine node
+telemetry refreshes, and a delayed native-view hide can no longer pull desktop
+focus back to Home after the user moves to another window. Route-state updates
+still reach hosted apps through a separate bridge-state delivery path. Missing
+permissions from hidden app tabs are refused without switching tabs or raising
+trusted Home chrome, while duplicate prompts are suppressed and session grants
+are revoked only for the affected Home window, tab, account, or network. A
+clearly disclosed tab approval for chat changes now covers sending, editing,
+deleting, and reacting within the same public, direct, or private-group chat;
+key management, publishing, administration, and all existing target, ownership,
+route, signing, and rate-limit checks remain separate and unchanged.
+
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 
 Home 2 now carries forward the Core 1.7 compatibility protections from the

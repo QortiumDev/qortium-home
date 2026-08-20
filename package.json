@@ -73,7 +73,7 @@
     "test:home-v2-app-resource-discovery": "npm run build:electron && node dist-electron/home-v2-app-resource-discovery.test.js",
     "test:home-v2-app-actions": "npm run build:electron && node dist-electron/home-v2-app-actions.test.js",
     "test:home-v2-notification-contract": "npm run build:electron && node dist-electron/home-v2-notification-contract.test.js",
-    "test:home-v2-transaction-journal": "npm run build:electron && node dist-electron/home-v2-transaction-journal.test.js && node dist-electron/home-v2-transaction-journal-store.test.js && node dist-electron/home-v2-runtime-invalidation.test.js",
+    "test:home-v2-transaction-journal": "npm run build:electron && node dist-electron/home-v2-transaction-journal.test.js && node dist-electron/home-v2-transaction-journal-store.test.js && node dist-electron/home-v2-runtime-invalidation.test.js && node dist-electron/home-v2-session-grants.test.js",
     "test:home-v2-avatar-actions": "npm run build:electron && node dist-electron/home-v2-avatar-actions.test.js",
     "test:home-v2-chat-actions": "npm run build:electron && node dist-electron/home-v2-chat-actions.test.js",
     "test:home-v2-direct-chat-actions": "npm run build:electron && node dist-electron/home-v2-direct-chat-actions.test.js",

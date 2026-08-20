@@ -571,6 +571,20 @@ function testPermissionBrokerScopesAndInvalidation(): void {
   )
   assert.equal(hasPermissionGrant(qortalAlways, sameAppNewTabPrompt), true)
   assert.equal(
+    invalidatePermissionState(qortalAlways, {
+      kind: 'node-changed',
+      network: 'qortium',
+    }).grants.length,
+    1,
+  )
+  assert.equal(
+    invalidatePermissionState(qortalAlways, {
+      kind: 'node-changed',
+      network: 'qortal',
+    }).grants.length,
+    0,
+  )
+  assert.equal(
     invalidatePermissionState(qortalAlways, { kind: 'locked' }).grants.length,
     0,
   )
@@ -1313,6 +1327,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   const qdnViews = readFileSync('electron/qdn-views.ts', 'utf8')
   const qdnArchiveRender = readFileSync('electron/qdn-archive-render.ts', 'utf8')
   const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
+  const sessionGrants = readFileSync('electron/home-v2-session-grants.ts', 'utf8')
   const rateLimiter = readFileSync('electron/home-v2-send-rate-limiter.ts', 'utf8')
   const appTabStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
   const renderPathIdentity = readFileSync('src/v2/shell/render-path-identity.ts', 'utf8')
@@ -1373,6 +1388,13 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     /liveResourceMatchesGrant\(context\)[\s\S]{0,2400}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
+  assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)
+  assert.match(qdnViews, /if \(!window\.isDestroyed\(\) && window\.isFocused\(\)\)/)
+  assert.match(qdnViews, /qdn-views:updateBridgeStates/)
+  assert.match(appTabStage, /bridge\.updateBridgeStates/)
+  assert.match(sessionGrants, /return 'chat\.public\.mutate'/)
+  assert.match(sessionGrants, /return 'chat\.direct\.mutate'/)
+  assert.match(sessionGrants, /return 'chat\.private-group\.mutate'/)
 
   // Fix A, Android: the requestApp dispatcher still tracks the iframe's
   // self-reported live navigation location, now as UX/consistency
@@ -1545,14 +1567,15 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(liveApp, /androidChatSendRateLimiter[\s\S]{0,40}createHomeV2SendRateLimiter/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.checkAndRecordSend/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.reset\(\)/)
-  // H7B: both host surfaces revoke transient app authority on every runtime
-  // boundary and retain only opaque signed unknown outcomes across restart.
+  // H7B: both host surfaces revoke the affected transient app authority on
+  // each runtime boundary and retain only opaque signed unknown outcomes
+  // across restart. Node invalidation is explicitly network-scoped.
   assert.match(appBridge, /home-v2-app:invalidate-runtime/)
   assert.match(appBridge, /normalizeHomeV2RuntimeInvalidation/)
   assert.match(appBridge, /findStoredHomeV2PendingTransactionConflict/)
   assert.match(appBridge, /recordHomeV2PendingTransaction/)
   assert.match(liveApp, /invalidateAndroidRuntime\('account-changed'\)/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed'\)/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed', null, network\)/)
   assert.match(liveApp, /invalidateAndroidRuntime\('navigation-changed', tabId\)/)
   assert.match(liveApp, /invalidateAndroidRuntime\('tab-closed', tabId\)/)
   assert.match(liveApp, /findAndroidHomeV2PendingTransactionConflict/)
