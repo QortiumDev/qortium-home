@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - chore(release): prepare Home 2.0.0
+
+Prepares the first Home 2 prerelease under the existing Qortium Home desktop
+and Android application identities. The desktop package version and Android
+version name were already set to 2.0.0 when Home 2 became the production shell;
+this release step advances Android's internal version code from 37 to 38
+because the Home 1.7.0 maintenance release used code 37. This makes the Android
+2.0.0 package a valid in-place upgrade while leaving the public release pending
+the normal artifact builds, signing checks, and final prerelease verification.
+
 ### 2026-08-19 - feat(widgets): integrate widgets with Home 2
 
 Home 2 can now host desktop widgets published inside QDN apps: small,
