@@ -1780,7 +1780,7 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.accountUnlocked = request.isUnlocked;
-    queueQdnViewStateDelivery(entry);
+    return queueQdnViewStateDelivery(entry);
   });
 
   ipcMain.handle('qdn-views:postMessage', async (event, rawRequest: unknown) => {

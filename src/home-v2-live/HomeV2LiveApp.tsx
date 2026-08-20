@@ -102,8 +102,12 @@ import {
 } from '../../electron/home-v2-group-admin-actions'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
 import {
+  homeV2AccountReadPermissionDetails,
+  homeV2AccountReadPermissionSummary,
   createHomeV2SessionGrantStore,
+  homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
+  isHomeV2AccountReadAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import {
@@ -591,6 +595,9 @@ export function HomeV2LiveApp() {
     }
   >())
   const androidSessionAccountGrants = useRef(createHomeV2SessionGrantStore())
+  const androidPendingSessionGrantDecisions = useRef(
+    new Map<string, Promise<PermissionDecision>>(),
+  )
   // Fix B (security review finding 8): bounds how often an already-granted
   // tab can broadcast chat sends. Shares its constants/algorithm with
   // desktop's electron/home-v2-app-bridge.ts via home-v2-send-rate-limiter.ts.
@@ -608,6 +615,7 @@ export function HomeV2LiveApp() {
     network: NetworkId | null = null,
   ) => {
     setPermissionState((current) => {
+      if (kind === 'account-changed') return createPermissionState()
       if (kind === 'navigation-changed' || kind === 'tab-closed') {
         return invalidatePermissionState(current, {
           kind,
@@ -641,17 +649,13 @@ export function HomeV2LiveApp() {
   }, [isAndroidHost])
 
   useEffect(() => {
-    const fingerprint = JSON.stringify({
-      accountId: selectedAccountId,
-      accountUnlocked: accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.isUnlocked ?? false,
-    })
+    const fingerprint = selectedAccountId ?? 'none'
     const previous = accountRuntimeFingerprint.current
     accountRuntimeFingerprint.current = fingerprint
     if (previous === null || previous === fingerprint) return
     invalidateAndroidRuntime('account-changed')
     window.homeV2Apps?.invalidateRuntime({ kind: 'account-changed' })
   }, [
-    accountCatalogue.accounts,
     invalidateAndroidRuntime,
     selectedAccountId,
   ])
@@ -716,14 +720,15 @@ export function HomeV2LiveApp() {
 
   const handleAppNavigationChanged = useCallback(
     (tabId: TabId, navigation: AppTabNavigationSnapshot) => {
-      invalidateAndroidRuntime('navigation-changed', tabId)
-      window.homeV2Apps?.invalidateRuntime({ kind: 'navigation-changed', tabId })
+      // This event is same-app history/hash navigation. The native view blocks
+      // cross-resource navigation before it reaches this callback, so changing
+      // Chat routes must not revoke the tab's account-read consent.
       setAppNavigation((current) => ({
         ...current,
         [tabId]: navigation,
       }))
     },
-    [invalidateAndroidRuntime],
+    [],
   )
 
   const handleAppNavigationControllerChange = useCallback(
@@ -1267,6 +1272,7 @@ export function HomeV2LiveApp() {
         }
       })()
       const isWidgetPrompt = value.action === 'OPEN_AS_WIDGET'
+      const isAccountRead = isHomeV2AccountReadAction(value.action)
       const isChatWrite = isHomeV2PublicChatAction(value.action)
       const isDirectRead = isHomeV2DirectChatReadAction(value.action)
       const isDirectWrite = isHomeV2DirectChatWriteAction(value.action)
@@ -1294,6 +1300,8 @@ export function HomeV2LiveApp() {
         action: value.action,
         capability: isWidgetPrompt
           ? 'window.widget.open'
+          : isAccountRead
+          ? 'account.read'
           : isChatWrite
           ? 'chat.send'
           : isDirectWrite
@@ -1344,6 +1352,8 @@ export function HomeV2LiveApp() {
           ? 'Allow a floating window?'
           : isNotification
           ? 'Allow app notifications?'
+          : isAccountRead
+          ? 'Allow read-only account access?'
           : isJournalRead
             ? 'Allow pending transaction access?'
           : isJournalForget
@@ -1355,6 +1365,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to open a frameless window that stays above other applications.`
           : isNotification
           ? `${appTitle} wants to show system notifications until revoked in Settings.`
+          : isAccountRead
+          ? homeV2AccountReadPermissionSummary(appTitle)
           : isJournalRead
             ? `${appTitle} wants to read its retained unknown transaction outcomes for this account and chain.`
           : isJournalForget
@@ -1373,6 +1385,8 @@ export function HomeV2LiveApp() {
               { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
               { label: 'Scope', value: 'Until revoked in Settings' },
             ]
+          : isAccountRead
+            ? homeV2AccountReadPermissionDetails(account?.label ?? value.accountId)
           : isJournalRead
             ? [
                 { label: 'Account', value: account?.label ?? value.accountId },
@@ -1572,6 +1586,26 @@ export function HomeV2LiveApp() {
     [resolveAccountPermission],
   )
 
+  const queueAndroidSessionGrantPermission = useCallback(
+    (
+      grantKey: string,
+      prompt: Parameters<typeof queuePermissionPrompt>[1],
+      tabId: string,
+    ) => {
+      const existing = androidPendingSessionGrantDecisions.current.get(grantKey)
+      if (existing) return existing
+      const pending = queueAndroidPermissionPrompt(prompt, tabId)
+      androidPendingSessionGrantDecisions.current.set(grantKey, pending)
+      void pending.finally(() => {
+        if (androidPendingSessionGrantDecisions.current.get(grantKey) === pending) {
+          androidPendingSessionGrantDecisions.current.delete(grantKey)
+        }
+      })
+      return pending
+    },
+    [queueAndroidPermissionPrompt],
+  )
+
   const requestApp = useCallback(
     async (
       protocol: HomeV2AppBridgeProtocol,
@@ -1638,7 +1672,7 @@ export function HomeV2LiveApp() {
         const notificationRequest = normalizeHomeV2NotificationRequest(protocol, requestValue)
         if (!store.grants[parsedApp.identityKey]) {
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          const prompt = createPermissionPrompt({
             id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
             protocol,
             action: 'SHOW_NOTIFICATION',
@@ -1662,7 +1696,8 @@ export function HomeV2LiveApp() {
               { label: 'Scope', value: 'Until revoked in Settings' },
             ],
             allowedScopes: ['always'],
-          }), context.tabId)
+          })
+          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved || decision.scope !== 'always') {
             throw new Error('Notification permission was denied.')
           }
@@ -1730,22 +1765,25 @@ export function HomeV2LiveApp() {
         const forgetRequest = action === 'FORGET_PENDING_TRANSACTION'
           ? normalizeHomeV2ForgetPendingTransactionRequest(protocol, requestValue)
           : null
-        const grantKey = [
-          context.tabId,
-          parsedApp.identityKey,
+        const grantKey = homeV2PermissionGrantKey({
           accountId,
-          protocol,
+          accountUnlocked: account.isUnlocked,
           action,
-          forgetRequest?.signature ?? '',
-        ].join('|')
+          appIdentity: context.resourceLocation,
+          nodeRoute: 'route-independent',
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+          target: forgetRequest?.signature ? `signature:${forgetRequest.signature}` : '',
+        })
         const singleRequestOnly = action === 'FORGET_PENDING_TRANSACTION'
         if (singleRequestOnly || !androidSessionAccountGrants.current.has(grantKey)) {
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
-          const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
+          const prompt = createPermissionPrompt({
             id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
             protocol,
             action,
-            capability: singleRequestOnly ? 'transactions.pending.forget' : 'transactions.pending.read',
+            capability: singleRequestOnly ? 'transactions.pending.forget' : 'account.read',
             appId,
             appIdentityKey: parsedApp.identityKey,
             appTitle: parsedApp.title,
@@ -1757,20 +1795,26 @@ export function HomeV2LiveApp() {
               targetNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
-            title: singleRequestOnly ? 'Forget pending transaction?' : 'Allow pending transaction access?',
+            title: singleRequestOnly ? 'Forget pending transaction?' : 'Allow read-only account access?',
             summary: singleRequestOnly
               ? `${parsedApp.title} wants Home to forget one retained transaction after reconciliation.`
-              : `${parsedApp.title} wants to read its retained unknown transaction outcomes for this account and chain.`,
-            details: [
-              { label: 'Account', value: account.label },
-              { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
-              ...(forgetRequest ? [{ label: 'Signature', value: forgetRequest.signature }] : []),
-            ],
+              : homeV2AccountReadPermissionSummary(parsedApp.title),
+            details: singleRequestOnly
+              ? [
+                  { label: 'Account', value: account.label },
+                  { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+                  ...(forgetRequest ? [{ label: 'Signature', value: forgetRequest.signature }] : []),
+                ]
+              : homeV2AccountReadPermissionDetails(account.label),
             allowedScopes: singleRequestOnly ? ['single-request'] : ['single-request', 'session'],
-          }), context.tabId)
+          })
+          const decision = await (singleRequestOnly
+            ? queueAndroidPermissionPrompt(prompt, context.tabId)
+            : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           if (!singleRequestOnly && decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
               network: targetNetwork,
               tabId: context.tabId,
@@ -1997,35 +2041,66 @@ export function HomeV2LiveApp() {
           : action === 'OPEN_CHAT_ATTACHMENT_VIEWER'
             ? 'view'
             : 'stream'
-        const decision = await queueAndroidPermissionPrompt(createPermissionPrompt({
-          id: requestId,
-          protocol,
+        const readOnlyAttachment = isHomeV2AccountReadAction(action)
+        const grantKey = homeV2PermissionGrantKey({
+          accountId,
+          accountUnlocked: account.isUnlocked,
           action,
-          capability: 'chat.attachment',
-          appId,
-          appIdentityKey: parsedApp.identityKey,
-          appTitle: parsedApp.title,
-          context: {
+          appIdentity: context.resourceLocation,
+          nodeRoute,
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+          target: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}`,
+        })
+        if (!readOnlyAttachment || !androidSessionAccountGrants.current.has(grantKey)) {
+          const prompt = createPermissionPrompt({
+            id: requestId,
+            protocol,
+            action,
+            capability: readOnlyAttachment ? 'account.read' : 'chat.attachment',
             appId,
-            identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
-            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
-            tabId: brand<TabId>(context.tabId),
-            targetNetwork,
-            walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
-          },
-          title: `Allow private attachment ${operation}?`,
-          summary: `${parsedApp.title} wants to decrypt and ${operation} a private chat attachment.`,
-          details: [
-            { label: 'Account', value: account.label },
-            { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
-            { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
-            { label: 'Resource', value: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}` },
-            { label: 'Ciphertext size', value: `${descriptor.ciphertext.size.toLocaleString()} bytes` },
-            { label: 'Ciphertext SHA-256', value: descriptor.ciphertext.hash },
-          ],
-          allowedScopes: ['single-request'],
-        }), context.tabId)
-        if (!decision.approved) throw new Error('Private attachment access was denied.')
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:${accountId}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
+            },
+            title: readOnlyAttachment
+              ? 'Allow read-only account access?'
+              : `Allow private attachment ${operation}?`,
+            summary: readOnlyAttachment
+              ? homeV2AccountReadPermissionSummary(parsedApp.title)
+              : `${parsedApp.title} wants to decrypt and ${operation} a private chat attachment.`,
+            details: readOnlyAttachment
+              ? homeV2AccountReadPermissionDetails(account.label)
+              : [
+                  { label: 'Account', value: account.label },
+                  { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+                  { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+                  { label: 'Resource', value: `${descriptor.resource.service}/${descriptor.resource.name}/${descriptor.resource.identifier}` },
+                  { label: 'Ciphertext size', value: `${descriptor.ciphertext.size.toLocaleString()} bytes` },
+                  { label: 'Ciphertext SHA-256', value: descriptor.ciphertext.hash },
+                ],
+            allowedScopes: readOnlyAttachment ? ['single-request', 'session'] : ['single-request'],
+          })
+          const decision = await (readOnlyAttachment
+            ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
+            : queueAndroidPermissionPrompt(prompt, context.tabId))
+          if (!decision.approved) throw new Error('Private attachment access was denied.')
+          if (readOnlyAttachment && decision.scope === 'session') {
+            androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
+              hostWebContentsId: 'android',
+              network: targetNetwork,
+              tabId: context.tabId,
+            })
+          }
+        }
         const decrypted = await vaultClient.decryptPrivateAttachment({
           accountId,
           descriptor,
@@ -2355,16 +2430,17 @@ export function HomeV2LiveApp() {
         }
         const operationLabel = groupMembershipOperationLabel(action)
         const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
-        const grantKey = [
-          context.tabId,
-          context.resourceLocation,
+        const grantKey = homeV2PermissionGrantKey({
           accountId,
-          protocol,
+          accountUnlocked: account.isUnlocked,
           action,
-          account.isUnlocked,
+          appIdentity: context.resourceLocation,
           nodeRoute,
-          `group:${membershipRequest.groupId}`,
-        ].join('|')
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+          target: `group:${membershipRequest.groupId}`,
+        })
         if (!androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -2423,6 +2499,7 @@ export function HomeV2LiveApp() {
           if (!decision.approved) throw new Error('Account access was denied.')
           if (decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
               network: targetNetwork,
               tabId: context.tabId,
@@ -2718,16 +2795,17 @@ export function HomeV2LiveApp() {
                         : action === 'SEND_PRIVATE_GROUP_CHAT_REACTION'
                           ? 'React in a private group'
                           : 'Send a private-group message'
-        const grantKey = [
-          context.tabId,
-          context.resourceLocation,
+        const grantKey = homeV2PermissionGrantKey({
           accountId,
-          protocol,
-          homeV2PermissionGrantFamily(action),
-          account.isUnlocked,
+          accountUnlocked: account.isUnlocked,
+          action,
+          appIdentity: context.resourceLocation,
           nodeRoute,
-          `private-group:${groupId || 'active'}`,
-        ].join('|')
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+          target: `private-group:${groupId || 'active'}`,
+        })
         const singleRequestOnly = isWrite && (
           action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY' ||
           action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS' ||
@@ -2755,7 +2833,7 @@ export function HomeV2LiveApp() {
           })()
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
           const capability = !isWrite
-            ? 'chat.private-group.read'
+            ? 'account.read'
             : action === 'ROTATE_PRIVATE_GROUP_CHAT_KEY'
               ? 'chat.private-group.rotate'
               : action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY' || action === 'RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS'
@@ -2777,32 +2855,39 @@ export function HomeV2LiveApp() {
               targetNetwork: privateGroupNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
-            title: `Allow ${operationLabel.toLowerCase()}?`,
-            summary: `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
-            details: [
-              { label: 'Account', value: account.label },
-              { label: 'Operation', value: operationLabel },
-              ...(isWrite && !singleRequestOnly
-                ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this private group' }]
-                : []),
-              { label: 'Chain', value: privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal' },
-              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
-              ...(groupId ? [{ label: 'Group', value: String(groupId) }] : []),
-              ...(privateWriteRequest?.message
-                ? [{ label: 'Message', value: privateWriteRequest.message.slice(0, 180) }]
-                : []),
-              ...(privateWriteRequest?.chatReference
-                ? [{ label: 'Reference', value: privateWriteRequest.chatReference }]
-                : []),
-            ],
+            title: !isWrite ? 'Allow read-only account access?' : `Allow ${operationLabel.toLowerCase()}?`,
+            summary: !isWrite
+              ? homeV2AccountReadPermissionSummary(parsedApp.title)
+              : `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
+            details: !isWrite
+              ? homeV2AccountReadPermissionDetails(account.label)
+              : [
+                  { label: 'Account', value: account.label },
+                  { label: 'Operation', value: operationLabel },
+                  ...(!singleRequestOnly
+                    ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this private group' }]
+                    : []),
+                  { label: 'Chain', value: privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal' },
+                  { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+                  ...(groupId ? [{ label: 'Group', value: String(groupId) }] : []),
+                  ...(privateWriteRequest?.message
+                    ? [{ label: 'Message', value: privateWriteRequest.message.slice(0, 180) }]
+                    : []),
+                  ...(privateWriteRequest?.chatReference
+                    ? [{ label: 'Reference', value: privateWriteRequest.chatReference }]
+                    : []),
+                ],
             allowedScopes: singleRequestOnly
               ? ['single-request']
               : ['single-request', 'session'],
           })
-          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          const decision = await (!isWrite
+            ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
+            : queueAndroidPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           if (!singleRequestOnly && decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
               network: privateGroupNetwork,
               tabId: context.tabId,
@@ -2970,16 +3055,17 @@ export function HomeV2LiveApp() {
           : action === 'GET_PRIVATE_DIRECT_ACTIVE_CHATS'
             ? 'Read active direct conversations'
             : 'Read direct-message history'
-        const grantKey = [
-          context.tabId,
-          context.resourceLocation,
+        const grantKey = homeV2PermissionGrantKey({
           accountId,
-          protocol,
-          homeV2PermissionGrantFamily(action),
-          account.isUnlocked,
+          accountUnlocked: account.isUnlocked,
+          action,
+          appIdentity: context.resourceLocation,
           nodeRoute,
-          `direct:${otherAddress}`,
-        ].join('|')
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+          target: `direct:${otherAddress}`,
+        })
         if (!androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -3005,7 +3091,7 @@ export function HomeV2LiveApp() {
             id: requestId,
             protocol,
             action,
-            capability: isWrite ? 'chat.direct.send' : 'chat.direct.read',
+            capability: isWrite ? 'chat.direct.send' : 'account.read',
             appId,
             appIdentityKey: parsedApp.identityKey,
             appTitle: parsedApp.title,
@@ -3017,30 +3103,35 @@ export function HomeV2LiveApp() {
               targetNetwork,
               walletRef: brand<WalletRef>(`home-v2:wallet:${account.walletId}`),
             },
-            title: `Allow ${operationLabel.toLowerCase()}?`,
-            summary: `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`,
-            details: [
-              { label: 'Account', value: account.label },
-              { label: 'Operation', value: operationLabel },
-              ...(isWrite
-                ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this conversation' }]
-                : []),
-              { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
-              { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
-              { label: 'Conversation', value: otherAddress },
-              ...(directWriteRequest
-                ? [{ label: 'Message', value: directWriteRequest.message.slice(0, 180) }]
-                : []),
-              ...(directWriteRequest?.chatReference
-                ? [{ label: 'Reference', value: directWriteRequest.chatReference }]
-                : []),
-            ],
+            title: isWrite ? `Allow ${operationLabel.toLowerCase()}?` : 'Allow read-only account access?',
+            summary: isWrite
+              ? `${parsedApp.title} wants to ${operationLabel.toLowerCase()} as the selected account.`
+              : homeV2AccountReadPermissionSummary(parsedApp.title),
+            details: isWrite
+              ? [
+                  { label: 'Account', value: account.label },
+                  { label: 'Operation', value: operationLabel },
+                  { label: 'Tab approval', value: 'Send, edit, delete, and react in this conversation' },
+                  { label: 'Chain', value: targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+                  { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
+                  { label: 'Conversation', value: otherAddress },
+                  ...(directWriteRequest
+                    ? [{ label: 'Message', value: directWriteRequest.message.slice(0, 180) }]
+                    : []),
+                  ...(directWriteRequest?.chatReference
+                    ? [{ label: 'Reference', value: directWriteRequest.chatReference }]
+                    : []),
+                ]
+              : homeV2AccountReadPermissionDetails(account.label),
             allowedScopes: ['single-request', 'session'],
           })
-          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          const decision = await (isWrite
+            ? queueAndroidPermissionPrompt(prompt, context.tabId)
+            : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
           if (decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(action),
               hostWebContentsId: 'android',
               network: targetNetwork,
               tabId: context.tabId,
@@ -3157,16 +3248,17 @@ export function HomeV2LiveApp() {
         const targetChainLabel = targetNetwork === 'qortal' ? 'Qortal' : 'Qortium'
         const groupLabel = chatRequest.txGroupId === 0 ? 'General chat' : `Group ${chatRequest.txGroupId}`
         const operationLabel = publicChatOperationLabel(effectiveAction)
-        const grantKey = [
-          context.tabId,
-          context.resourceLocation,
+        const grantKey = homeV2PermissionGrantKey({
           accountId,
-          protocol,
-          homeV2PermissionGrantFamily(effectiveAction),
-          account.isUnlocked,
+          accountUnlocked: account.isUnlocked,
+          action: effectiveAction,
+          appIdentity: context.resourceLocation,
           nodeRoute,
-          `public-group:${chatRequest.txGroupId}`,
-        ].join('|')
+          principalId: 'android',
+          protocol,
+          tabId: context.tabId,
+          target: `public-group:${chatRequest.txGroupId}`,
+        })
         if (!androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -3250,6 +3342,7 @@ export function HomeV2LiveApp() {
           if (!decision.approved) throw new Error('Account access was denied.')
           if (decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
+              family: homeV2PermissionGrantFamily(effectiveAction),
               hostWebContentsId: 'android',
               network: targetNetwork,
               tabId: context.tabId,
@@ -3333,15 +3426,16 @@ export function HomeV2LiveApp() {
       if (!account) throw new Error('The selected account is no longer available.')
       const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
       const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
-      const grantKey = [
-        context.tabId,
-        context.resourceLocation,
-        context.selectedAccountId,
-        protocol,
-        homeV2PermissionGrantFamily(action),
-        account.isUnlocked,
+      const grantKey = homeV2PermissionGrantKey({
+        accountId: context.selectedAccountId,
+        accountUnlocked: account.isUnlocked,
+        action,
+        appIdentity: context.resourceLocation,
         nodeRoute,
-      ].join('|')
+        principalId: 'android',
+        protocol,
+        tabId: context.tabId,
+      })
       if (!androidSessionAccountGrants.current.has(grantKey)) {
         const requestId = brand<PermissionRequestId>(
           globalThis.crypto.randomUUID?.() ??
@@ -3360,7 +3454,7 @@ export function HomeV2LiveApp() {
           id: requestId,
           protocol,
           action,
-          capability: 'account.public.read',
+          capability: 'account.read',
           appId,
           appIdentityKey,
           appTitle,
@@ -3374,18 +3468,16 @@ export function HomeV2LiveApp() {
               ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
               : null,
           },
-          title: 'Allow account access?',
-          summary: `${appTitle} wants to read the selected account address and public identity data.`,
-          details: [
-            { label: 'Account', value: account?.label ?? context.selectedAccountId },
-            { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
-          ],
+          title: 'Allow read-only account access?',
+          summary: homeV2AccountReadPermissionSummary(appTitle),
+          details: homeV2AccountReadPermissionDetails(account?.label ?? context.selectedAccountId),
           allowedScopes: ['single-request', 'session'],
         })
-        const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+        const decision = await queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
         if (!decision.approved) throw new Error('Account access was denied.')
         if (decision.scope === 'session') {
           androidSessionAccountGrants.current.add(grantKey, {
+            family: homeV2PermissionGrantFamily(action),
             hostWebContentsId: 'android',
             network: targetNetwork,
             tabId: context.tabId,
@@ -3427,7 +3519,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [nodeClient, productState.tabs, queueAndroidPermissionPrompt, selectedAccountId, snapshot.nodes, vaultClient],
+    [nodeClient, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const refresh = useCallback(async () => {

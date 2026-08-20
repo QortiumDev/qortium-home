@@ -28,6 +28,7 @@ export function PermissionDialog({
 }: PermissionDialogProps) {
   const prompt = permissionState.pending[0]
   if (!prompt || prompt.context.tabId !== activeTabId) return null
+  const unifiedAccountRead = prompt.capability === 'account.read'
 
   return (
     <div className="home-v2-permission-backdrop">
@@ -41,10 +42,12 @@ export function PermissionDialog({
       >
         <div className="home-v2-permission-dialog__header">
           <div>
-            <span className="home-v2-protocol-badge">{prompt.protocol}</span>
+            <span className="home-v2-protocol-badge">
+              {unifiedAccountRead ? 'Qortal + Qortium' : prompt.protocol}
+            </span>
             <h2 id="home-v2-permission-title">{prompt.title}</h2>
           </div>
-          <NetworkBadge network={prompt.context.targetNetwork} />
+          {unifiedAccountRead ? null : <NetworkBadge network={prompt.context.targetNetwork} />}
         </div>
         <p>{prompt.summary}</p>
         <div className="home-v2-permission-context">
@@ -53,9 +56,9 @@ export function PermissionDialog({
           <span>Account</span>
           <strong>{prompt.context.identityId}</strong>
           <span>Network</span>
-          <strong>{networkLabels[prompt.context.targetNetwork]}</strong>
+          <strong>{unifiedAccountRead ? 'Qortal + Qortium' : networkLabels[prompt.context.targetNetwork]}</strong>
           <span>Action</span>
-          <strong>{prompt.action}</strong>
+          <strong>{unifiedAccountRead ? 'Read-only account access' : prompt.action}</strong>
         </div>
         <dl className="home-v2-permission-details">
           {prompt.details.map((detail) => (

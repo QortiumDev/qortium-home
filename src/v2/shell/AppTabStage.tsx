@@ -66,6 +66,7 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
 function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
   const node = tab ? snapshot.nodes[tab.context.sourceNetwork] : null
+  const nodeChecking = node?.state === 'unknown' && node.lastCheckedAt === null && !node.error
   const appearance = snapshot.appearance
 
   // Node polling rebuilds the full Home snapshot every few seconds. Only
@@ -74,11 +75,16 @@ function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot)
   // and lastCheckedAt must not hide/re-show the native WebContentsView or move
   // keyboard focus out of the app.
   return useMemo(() => {
+    if (nodeChecking) {
+      const networkLabel = tab?.context.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+      return { error: null, status: `Checking ${networkLabel}…`, value: null }
+    }
     try {
-      return { error: null, value: resolveRender(productState, snapshot) }
+      return { error: null, status: null, value: resolveRender(productState, snapshot) }
     } catch (cause) {
       return {
         error: cause instanceof Error ? cause.message : 'Unable to open this app.',
+        status: null,
         value: null,
       }
     }
@@ -93,6 +99,7 @@ function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot)
     node?.error,
     node?.mode,
     node?.nodeApiUrl,
+    nodeChecking,
     productState.activeTabId,
     tab?.context.identityId,
     tab?.context.resourceLocation,
@@ -227,6 +234,7 @@ function DesktopAppStage(props: AppTabStageProps) {
   return <section className="home-v2-app-stage home-v2-app-stage--live">
     <div ref={hostRef} className="home-v2-app-view-host" />
     {snapshotUrl ? <img className="home-v2-app-stage__snapshot" src={snapshotUrl} alt="" /> : null}
+    {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }
@@ -524,6 +532,7 @@ function AndroidAppStage(props: AppTabStageProps) {
       src={source}
       title="QDN app"
     /> : null}
+    {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }

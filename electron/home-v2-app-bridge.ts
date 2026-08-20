@@ -122,7 +122,9 @@ import {
 import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
 import {
   createHomeV2SessionGrantStore,
+  homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
+  isHomeV2AccountReadAction,
 } from './home-v2-session-grants.js'
 import {
   assertHomeV2OpenPublicGroup,
@@ -370,6 +372,7 @@ const pendingAccountReads = new Map<string, {
   readonly resolve: (decision: PermissionDecision) => void
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
+const pendingSessionGrantDecisions = new Map<string, Promise<PermissionDecision>>()
 const sessionAccountReadGrants = createHomeV2SessionGrantStore()
 // Fix B (security review finding 8): bounds how often an already-granted tab
 // can broadcast chat sends. See home-v2-send-rate-limiter.ts for the shared
@@ -513,26 +516,6 @@ function chatSendRateLimitKey(sender: WebContents, context: QdnViewContext) {
   return [sender.id, context.windowId, context.tabId, context.accountId ?? 'none'].join('|')
 }
 
-function accountGrantKey(
-  sender: WebContents,
-  context: QdnViewContext,
-  protocol: HomeV2AppBridgeProtocol,
-  action: AccountReadAction,
-  accountUnlocked: boolean,
-  nodeRoute: string,
-) {
-  return [
-    sender.id,
-    context.tabId,
-    context.accountId ?? 'none',
-    context.resourceUrl ?? 'unknown-app',
-    protocol,
-    homeV2PermissionGrantFamily(action),
-    accountUnlocked,
-    nodeRoute,
-  ].join('|')
-}
-
 function sameViewContext(left: QdnViewContext, right: QdnViewContext) {
   return left.accountId === right.accountId &&
     left.resourceUrl === right.resourceUrl &&
@@ -636,16 +619,7 @@ async function requireAccountReadPermission(
   const nodeBefore = routeIndependent ? null : await getHomeV2ReadableNode(targetNetwork)
   const nodeRoute = nodeBefore ? `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}` : 'route-independent'
   const accountUnlocked = isAccountUnlocked(context.accountId)
-  const grantKey = [
-    accountGrantKey(
-      sender,
-      context,
-      protocol,
-      action,
-      accountUnlocked,
-      nodeRoute,
-    ),
-    writeDetails?.kind === 'group' || writeDetails?.kind === 'private-group'
+  const grantTarget = writeDetails?.kind === 'group' || writeDetails?.kind === 'private-group'
       ? `group:${writeDetails.groupId}`
       : writeDetails?.kind === 'chat'
         ? `public-group:${writeDetails.groupId}`
@@ -653,59 +627,71 @@ async function requireAccountReadPermission(
         ? `direct:${writeDetails.otherAddress}`
         : writeDetails?.kind === 'journal'
           ? `signature:${writeDetails.signature}`
-        : '',
-  ].join('|')
-  const singleRequestOnly = writeDetails?.kind === 'publish' ||
+        : ''
+  const grantKey = homeV2PermissionGrantKey({
+    accountId: context.accountId,
+    accountUnlocked,
+    action,
+    appIdentity: context.resourceUrl ?? 'unknown-app',
+    nodeRoute,
+    principalId: sender.id,
+    protocol,
+    tabId: context.tabId,
+    target: grantTarget,
+  })
+  const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
+    (!isHomeV2AccountReadAction(action) && writeDetails?.kind === 'publish') ||
     writeDetails?.kind === 'journal' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
-  if (!isQdnViewVisible(context.windowId, context.tabId)) {
-    throw new Error('Open this app tab to review the requested permission.')
-  }
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
   }
-  if (!singleRequestOnly && Array.from(pendingAccountReads.values()).some(
-    (pending) => pending.hostWebContentsId === hostWindow.webContents.id && pending.grantKey === grantKey,
-  )) {
-    throw new Error('This permission request is already pending for the app tab.')
-  }
-  const requestId = randomUUID()
-  const decision = await new Promise<PermissionDecision>((resolve) => {
-    const timeout = setTimeout(() => {
-      pendingAccountReads.delete(requestId)
-      resolve({ approved: false, scope: null })
-      // The renderer's permission-prompt UI (queuePermissionPrompt) is only
-      // told about approval/denial via home-v2-app:permission-resolve, which
-      // normally originates FROM the renderer when the user clicks a button.
-      // On this main-process-initiated auto-deny, tell it explicitly so the
-      // prompt does not stay stuck on screen after the request has already
-      // been denied here (FIX #3, security review).
-      if (!hostWindow.isDestroyed()) {
-        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
-      }
-    }, 60_000)
-    pendingAccountReads.set(requestId, {
-      grantKey,
-      hostWebContentsId: hostWindow.webContents.id,
-      tabId: context.tabId,
-      targetNetwork,
-      resolve,
-      timeout,
-    })
-    hostWindow.webContents.send('home-v2-app:permission-request', {
-      accountId: context.accountId,
-      action,
-      appIdentityKey: context.resourceUrl ?? `home-v2-tab:${context.tabId}`,
-      appTitle: context.resourceUrl ?? 'QDN app',
-      protocol,
-      requestId,
-      resourceUrl: context.resourceUrl,
-      tabId: context.tabId,
-      targetNetwork,
-      ...(writeDetails?.kind === 'chat'
+  let ownsPendingDecision = false
+  let decisionPromise = !singleRequestOnly
+    ? pendingSessionGrantDecisions.get(grantKey)
+    : undefined
+  if (!decisionPromise) {
+    if (!isQdnViewVisible(context.windowId, context.tabId)) {
+      throw new Error('Open this app tab to review the requested permission.')
+    }
+    ownsPendingDecision = !singleRequestOnly
+    const requestId = randomUUID()
+    decisionPromise = new Promise<PermissionDecision>((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingAccountReads.delete(requestId)
+        resolve({ approved: false, scope: null })
+        // The renderer's permission-prompt UI (queuePermissionPrompt) is only
+        // told about approval/denial via home-v2-app:permission-resolve, which
+        // normally originates FROM the renderer when the user clicks a button.
+        // On this main-process-initiated auto-deny, tell it explicitly so the
+        // prompt does not stay stuck on screen after the request has already
+        // been denied here (FIX #3, security review).
+        if (!hostWindow.isDestroyed()) {
+          hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+        }
+      }, 60_000)
+      pendingAccountReads.set(requestId, {
+        grantKey,
+        hostWebContentsId: hostWindow.webContents.id,
+        tabId: context.tabId,
+        targetNetwork,
+        resolve,
+        timeout,
+      })
+      hostWindow.webContents.send('home-v2-app:permission-request', {
+        accountId: context.accountId,
+        action,
+        appIdentityKey: context.resourceUrl ?? `home-v2-tab:${context.tabId}`,
+        appTitle: context.resourceUrl ?? 'QDN app',
+        protocol,
+        requestId,
+        resourceUrl: context.resourceUrl,
+        tabId: context.tabId,
+        targetNetwork,
+        ...(writeDetails?.kind === 'chat'
         ? {
             writeKind: 'chat',
             chatGroupId: writeDetails.groupId,
@@ -769,9 +755,17 @@ async function requireAccountReadPermission(
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
-          : {}),
+            : {}),
+      })
     })
-  })
+    if (!singleRequestOnly) pendingSessionGrantDecisions.set(grantKey, decisionPromise)
+  }
+  let decision: PermissionDecision
+  try {
+    decision = await decisionPromise
+  } finally {
+    if (ownsPendingDecision) pendingSessionGrantDecisions.delete(grantKey)
+  }
   if (!decision.approved) throw new Error('Account access was denied.')
   const freshContext = getQdnViewContextForWebContents(sender)
   if (
@@ -783,10 +777,10 @@ async function requireAccountReadPermission(
   }
   if (action === 'UNLOCK_SELECTED_ACCOUNT') {
     assertHomeV2UnlockCompleted(context.accountId, isAccountUnlocked)
-  } else if (isAccountUnlocked(context.accountId) !== accountUnlocked) {
+  } else if (!isHomeV2AccountReadAction(action) && isAccountUnlocked(context.accountId) !== accountUnlocked) {
     throw new Error('Account lock state changed before approval completed.')
   }
-  if (!routeIndependent) {
+  if (!routeIndependent && !isHomeV2AccountReadAction(action)) {
     const nodeAfter = await getHomeV2ReadableNode(targetNetwork)
     if (`${nodeAfter.mode}|${nodeAfter.nodeApiUrl}` !== nodeRoute) {
       throw new Error('Account access node route changed before approval completed.')
@@ -794,6 +788,7 @@ async function requireAccountReadPermission(
   }
   if (!singleRequestOnly && decision.scope === 'session') {
     sessionAccountReadGrants.add(grantKey, {
+      family: homeV2PermissionGrantFamily(action),
       hostWebContentsId: context.windowId,
       network: targetNetwork,
       tabId: context.tabId,

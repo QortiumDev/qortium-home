@@ -372,6 +372,50 @@ async function testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp(): Promise<v
     }))
   }
 
+  const checkingSnapshot: HomeV2Snapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      qortium: {
+        ...homeV2Fixture.nodes.qortium,
+        capabilities: { admin: false, read: false, write: false },
+        error: null,
+        lastCheckedAt: null,
+        nodeApiUrl: null,
+        state: 'unknown',
+        statusText: 'Checking',
+      },
+    },
+  }
+  await act(async () => {
+    renderStage(checkingSnapshot)
+    await flushAsync()
+  })
+  assert.equal(container.querySelector('.home-v2-app-stage__status')?.textContent, 'Checking Qortium…')
+  assert.equal(container.querySelector('.home-v2-app-stage__error'), null)
+  assert.equal(showCalls.length, 0, 'the app view must wait for the initial node check')
+
+  const unavailableSnapshot: HomeV2Snapshot = {
+    ...checkingSnapshot,
+    nodes: {
+      ...checkingSnapshot.nodes,
+      qortium: {
+        ...checkingSnapshot.nodes.qortium,
+        error: 'Qortium is unavailable.',
+        lastCheckedAt: 1,
+        state: 'offline',
+        statusText: 'Unavailable',
+      },
+    },
+  }
+  await act(async () => {
+    renderStage(unavailableSnapshot)
+    await flushAsync()
+  })
+  assert.equal(container.querySelector('.home-v2-app-stage__status'), null)
+  assert.equal(container.querySelector('.home-v2-app-stage__error')?.textContent, 'Qortium is unavailable.')
+  assert.equal(showCalls.length, 0, 'a completed failed check must not show the app view')
+
   await act(async () => {
     renderStage(homeV2Fixture)
     await flushAsync()

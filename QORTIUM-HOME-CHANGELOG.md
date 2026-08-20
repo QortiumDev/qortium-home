@@ -48,6 +48,17 @@ deleting, and reacting within the same public, direct, or private-group chat;
 key management, publishing, administration, and all existing target, ownership,
 route, signing, and rate-limit checks remain separate and unchanged.
 
+A single clearly disclosed read-only account approval now covers the selected
+Home account on both Qortal and Qortium for that app tab, including account
+identity, direct messages, private groups, searches and attachments, and the
+app's pending transaction records. It survives locking, unlocking, node
+failover, and normal in-app navigation, while a real account change, tab
+closure, or Home restart still revokes it. Unlocking and every mutation remain
+separate. Restored app
+tabs now show a neutral node-checking state until the first connection check
+finishes, and unlock completion waits for the updated account state to reach
+the app before the original operation resumes.
+
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 
 Home 2 now carries forward the Core 1.7 compatibility protections from the

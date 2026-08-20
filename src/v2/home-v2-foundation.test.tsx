@@ -10,6 +10,7 @@ import {
   resolveHomeV2SystemLanguage,
 } from './appearance'
 import {
+  createPermissionPrompt,
   createPermissionState,
   hasPermissionGrant,
   invalidatePermissionState,
@@ -543,6 +544,62 @@ function testPermissionBrokerScopesAndInvalidation(): void {
     ),
   )
   assert.equal(hasPermissionGrant(qortalSession, sameAppNewTabPrompt), false)
+
+  const unifiedQortalPrompt = createPermissionPrompt({
+    ...qortalPermissionPromptFixture,
+    capability: 'account.read',
+    allowedScopes: ['single-request', 'session'],
+  })
+  const unifiedState = resolvePermissionPrompt(
+    queuePermissionPrompt(createPermissionState(), unifiedQortalPrompt),
+    unifiedQortalPrompt.id,
+    { approved: true, scope: 'session' },
+  ).state
+  const unifiedQortiumPrompt = createPermissionPrompt({
+    ...unifiedQortalPrompt,
+    id: fixtureIds.qdnPermissionRequest,
+    protocol: 'qdnRequest',
+    action: 'GET_SELECTED_ACCOUNT',
+    context: {
+      ...unifiedQortalPrompt.context,
+      nodeProfileRef: qdnPermissionPromptFixture.context.nodeProfileRef,
+      targetNetwork: 'qortium',
+    },
+  })
+  assert.equal(
+    hasPermissionGrant(unifiedState, unifiedQortiumPrompt),
+    true,
+    'one account.read approval must cover both Home protocols and chains',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, { kind: 'locked' }).grants.length,
+    1,
+    'locking must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'node-changed',
+      network: 'qortal',
+    }).grants.length,
+    1,
+    'node changes must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'navigation-changed',
+      tabId: unifiedQortalPrompt.context.tabId,
+    }).grants.length,
+    1,
+    'same-app navigation must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'tab-closed',
+      tabId: unifiedQortalPrompt.context.tabId,
+    }).grants.length,
+    0,
+    'closing the tab must revoke read-only account consent',
+  )
 
   const afterTabClose = invalidatePermissionState(qortalSession, {
     kind: 'tab-closed',
@@ -1391,7 +1448,14 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)
   assert.match(qdnViews, /if \(!window\.isDestroyed\(\) && window\.isFocused\(\)\)/)
   assert.match(qdnViews, /qdn-views:updateBridgeStates/)
+  assert.match(
+    qdnViews,
+    /qdn-views:updateAccountState'[\s\S]{0,1600}return queueQdnViewStateDelivery\(entry\)/,
+    'account-state IPC must not resolve before the app view receives the unlock state',
+  )
   assert.match(appTabStage, /bridge\.updateBridgeStates/)
+  assert.match(sessionGrants, /return 'account\.read'/)
+  assert.match(sessionGrants, /HOME_V2_ACCOUNT_READ_ACTIONS/)
   assert.match(sessionGrants, /return 'chat\.public\.mutate'/)
   assert.match(sessionGrants, /return 'chat\.direct\.mutate'/)
   assert.match(sessionGrants, /return 'chat\.private-group\.mutate'/)
@@ -1576,7 +1640,11 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(appBridge, /recordHomeV2PendingTransaction/)
   assert.match(liveApp, /invalidateAndroidRuntime\('account-changed'\)/)
   assert.match(liveApp, /invalidateAndroidRuntime\('node-changed', null, network\)/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('navigation-changed', tabId\)/)
+  assert.doesNotMatch(
+    liveApp,
+    /handleAppNavigationChanged[\s\S]{0,400}invalidateAndroidRuntime\('navigation-changed'/,
+    'same-app route changes must not revoke account-read consent',
+  )
   assert.match(liveApp, /invalidateAndroidRuntime\('tab-closed', tabId\)/)
   assert.match(liveApp, /findAndroidHomeV2PendingTransactionConflict/)
   assert.match(liveApp, /recordAndroidHomeV2PendingTransaction/)
