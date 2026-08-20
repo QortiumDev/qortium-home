@@ -62,6 +62,7 @@
     "smoke:desktop:qdn-api:packaged": "node scripts/smoke-desktop-qdn-api.mjs --packaged",
     "smoke:desktop:qdn-media-seek": "node scripts/smoke-desktop-qdn-media-seek.mjs",
     "smoke:desktop:qdn-write": "node scripts/smoke-desktop-qdn-write.mjs",
+    "smoke:desktop:widgets": "node scripts/smoke-desktop-widgets.mjs",
     "smoke:desktop:qdn-permissions": "node scripts/smoke-desktop-qdn-write.mjs --scenario=all",
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",
@@ -180,7 +181,17 @@
     "clean:v2-fixture": "node scripts/clean-home-v2-fixture.mjs",
     "postinstall": "node scripts/patch-local-notifications-receiver.mjs",
     "test:home-v2-account-security": "npm run build:electron && node scripts/test-home-v2-account-security.mjs",
-    "test:home-v2-profile-recovery": "npm run build:electron && node scripts/test-home-v2-profile-recovery.mjs"
+    "test:home-v2-profile-recovery": "npm run build:electron && node scripts/test-home-v2-profile-recovery.mjs",
+    "test:tray-menu": "node scripts/ensure-electron-build.mjs && node dist-electron/tray-menu.test.js",
+    "test:widget-manifest": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-manifest.test.js",
+    "test:widget-placement": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-placement.test.js",
+    "test:widget-region": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-region.test.js",
+    "test:widget-hit-testing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-hit-testing.test.js",
+    "test:widget-discovery": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-discovery.test.js",
+    "test:widget-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-launch.test.js",
+    "test:widget-shell-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-shell-contract.test.js",
+    "test:widget-sizing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-sizing.test.js",
+    "test:widget-snapping": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-snapping.test.js"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",

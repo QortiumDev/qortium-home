@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, type Session, type WebContents } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Notification,
+  webContents,
+  type Session,
+  type WebContents,
+} from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import nodePath from 'node:path'
@@ -11,9 +20,11 @@ import {
 } from './home-v2-node-bridge.js'
 import { nodeFetch } from './node-tls.js'
 import {
+  getQdnViewContextForTab,
   getQdnViewContextForWebContents,
   isQdnViewFocused,
   isQdnRenderUrlSameAppResource,
+  syncWidgetQdnViewState,
   type QdnViewContext,
 } from './qdn-views.js'
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js'
@@ -233,6 +244,7 @@ import {
   getHomeV2AppHostInfo,
   getHomeV2AppRouteDescriptor,
   getHomeV2AvailableAppActions,
+  getHomeV2ContextualAppActions,
   normalizeHomeV2BridgeError,
   type HomeV2AppHostInfo,
 } from './home-v2-app-runtime.js'
@@ -268,7 +280,43 @@ import {
   getSignatureFromSignedTransactionBytes,
 } from './qortal-payment.js'
 
+import {
+  buildWidgetRenderUrl,
+  discoverWidgetManifest,
+  parseWidgetResourceIdentity,
+} from './widget-discovery.js'
+import {
+  endWidgetDrag,
+  getWidgetState,
+  resizeWidget,
+  setWidgetRegions,
+  startWidgetDrag,
+} from './widget-interaction.js'
+import { normalizeRegion } from './widget-region.js'
+import {
+  WIDGET_MANIFEST_MAX_BYTES,
+  type WidgetManifest,
+} from './widget-manifest.js'
+import {
+  allocateWidgetId,
+  assertWidgetCapacity,
+  isWidgetTabId,
+  listWidgets,
+  registerWidget,
+} from './widget-registry.js'
+import { createWidgetWindow } from './widget-window.js'
+
 export { getHomeV2AppActions as getHomeV2ReadOnlyAppActions }
+
+// QdnViewContext.windowId is the host window's *webContents* id, not its
+// BrowserWindow id (see getOrCreateEntry in qdn-views.ts). The two sequences
+// only coincide for the first window, so resolving it as a window id silently
+// yields null for every window opened after it.
+function getContextWindow(context: QdnViewContext): BrowserWindow | null {
+  const hostContents = webContents.fromId(context.windowId)
+  if (!hostContents || hostContents.isDestroyed()) return null
+  return BrowserWindow.fromWebContents(hostContents)
+}
 
 // The Qortium CHAT memory-pow difficulty. Mirrors the private CHAT_POW_DIFFICULTY
 // constant in electron/qdn.ts and src/platform.ts (all three must stay equal;
@@ -347,7 +395,7 @@ async function requireHomeV2NotificationPermission(
     throw new Error('Notification app context changed before approval completed.')
   }
   if (hasNotificationGrant(appKey)) return
-  const hostWindow = BrowserWindow.fromId(context.windowId)
+  const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The notification request does not belong to an active Home window.')
   }
@@ -417,7 +465,7 @@ async function showHomeV2DesktopNotification(
     title: `${request.title} — ${homeV2NotificationAppName(appKey)} · ${chain}`,
   })
   notification.on('click', () => {
-    const hostWindow = BrowserWindow.fromId(context.windowId)
+    const hostWindow = getContextWindow(context)
     if (!hostWindow || hostWindow.isDestroyed()) return
     if (hostWindow.isMinimized()) hostWindow.restore()
     hostWindow.show()
@@ -592,7 +640,7 @@ async function requireAccountReadPermission(
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
-  const hostWindow = BrowserWindow.fromId(context.windowId)
+  const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
   }
@@ -1900,6 +1948,215 @@ async function sendHomeV2PublicChatAction(
   } finally {
     signingKey.secretKey.fill(0)
   }
+}
+
+const widgetGrants = new Set<string>()
+
+// A widget floats above every other application, which QDN-published content
+// cannot otherwise do, so opening one needs an explicit grant.
+//
+// `rereadContext` re-resolves the calling view once the user has answered, to
+// catch a tab that navigated or closed while the prompt was up. It is supplied
+// by the caller because the two entry points identify their view differently: an
+// app asking for itself is found by its own webContents, while the toolbar names
+// a tab and its request arrives on the Home shell's webContents, which is not a
+// QDN view at all. Looking the shell up as a view returns null every time, which
+// made the toolbar action fail for any app that did not already hold a grant.
+async function requireWidgetPermission(
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  rereadContext: () => QdnViewContext | null,
+) {
+  // Same defense-in-depth as requireAccountReadPermission: a widget grant is
+  // keyed off context.resourceUrl, so a view that navigated in-place to a
+  // different app's resource could otherwise open a floating window under the
+  // first app's grant. Refuse before the grant map is even consulted. This is
+  // the more privileged of the two capabilities, so it must not be the one
+  // place that skips the check.
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('The widget request context changed before approval completed.')
+  }
+
+  const grantKey = [
+    context.windowId,
+    context.tabId,
+    context.resourceUrl ?? 'unknown-resource',
+    protocol,
+    getHomeV2AppNetwork(protocol, 'OPEN_AS_WIDGET'),
+    context.accountId ?? 'none',
+  ].join('|')
+  if (widgetGrants.has(grantKey)) return
+
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The app request does not belong to an active Home window.')
+  }
+
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+    }, 60_000)
+    pendingAccountReads.set(requestId, {
+      hostWebContentsId: hostWindow.webContents.id,
+      tabId: context.tabId,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action: 'OPEN_AS_WIDGET',
+      appIdentityKey: grantKey,
+      appTitle: context.resourceUrl ?? 'QDN app',
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: getHomeV2AppNetwork(protocol, 'OPEN_AS_WIDGET'),
+    })
+  })
+
+  if (!decision.approved) throw new Error('Opening a widget was denied.')
+
+  const freshContext = rereadContext()
+  if (
+    !freshContext ||
+    !sameViewContext(context, freshContext) ||
+    // Re-checked after the answer as well: the view had the whole time the
+    // prompt was up to navigate somewhere else.
+    !liveResourceMatchesGrant(freshContext)
+  ) {
+    throw new Error('The widget request context changed before approval completed.')
+  }
+
+  // Only a session grant is remembered. "Allow once" has to mean once, or the
+  // two choices in the dialog are the same choice, and this is the capability
+  // that lets an app paint over every other application on the desktop.
+  if (decision.scope === 'session') widgetGrants.add(grantKey)
+}
+
+type PreparedWidgetLaunch = {
+  readonly appName: string
+  readonly manifest: WidgetManifest
+  readonly renderUrl: string
+}
+
+async function prepareWidgetLaunch(context: QdnViewContext): Promise<PreparedWidgetLaunch> {
+  if (isWidgetTabId(context.tabId)) {
+    throw new Error('A widget cannot open another widget.')
+  }
+  if (!context.resourceUrl) {
+    throw new Error('Only a published app can be opened as a widget.')
+  }
+
+  // Identity comes from the resource address rather than anything the app
+  // sends, so an app cannot ask for a widget pointed at someone else's resource.
+  const identity = parseWidgetResourceIdentity(context.resourceUrl)
+  const appName = identity.identifier ? `${identity.name}/${identity.identifier}` : identity.name
+  assertWidgetCapacity(context.resourceUrl)
+
+  const manifest = await discoverWidgetManifest(identity, async (routePath) => {
+    const response = await nodeFetch(`${context.nodeOrigin}${routePath}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) {
+      await response.body?.cancel()
+      return { ok: false, status: response.status, text: '' }
+    }
+    const result = await readBoundedResponse(response, 'GET', WIDGET_MANIFEST_MAX_BYTES)
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: result.body,
+    }
+  })
+  if (!manifest) throw new Error('This app does not publish a widget.')
+
+  const renderUrl = new URL(buildWidgetRenderUrl(context.nodeOrigin, identity, manifest.entry))
+  renderUrl.searchParams.set('accent', context.displaySettings.accent)
+  renderUrl.searchParams.set('lang', context.displaySettings.language)
+  renderUrl.searchParams.set('textSize', context.displaySettings.textSize)
+  renderUrl.searchParams.set('theme', context.displaySettings.theme)
+  renderUrl.searchParams.set('uiStyle', context.displaySettings.ui)
+  return { appName, manifest, renderUrl: renderUrl.toString() }
+}
+
+function handleOpenAsWidget(
+  context: QdnViewContext,
+  prepared: PreparedWidgetLaunch,
+): { widgetId: string } {
+  if (!context.resourceUrl) throw new Error('Only a published app can be opened as a widget.')
+  assertWidgetCapacity(context.resourceUrl)
+
+  const widgetId = allocateWidgetId()
+  const { opacity, window } = createWidgetWindow({
+    widgetId,
+    manifest: prepared.manifest,
+    renderUrl: prepared.renderUrl,
+    resourceUrl: context.resourceUrl,
+    nodeOrigin: context.nodeOrigin,
+    accountId: context.accountId,
+    bridgeStates: context.bridgeStates,
+    displaySettings: context.displaySettings,
+    managerRevisions: context.managerRevisions,
+  })
+
+  registerWidget({
+    widgetId,
+    appName: prepared.appName,
+    resourceUrl: context.resourceUrl,
+    manifest: prepared.manifest,
+    windowId: window.id,
+    region: normalizeRegion(prepared.manifest.shape),
+    // createWidgetWindow starts every widget transparent to clicks; the
+    // hit-test loop moves that from here. Opacity comes back from the window
+    // because a restored placement may have opened it already dimmed, and the
+    // tray reads this record to show which step is selected.
+    ignoringMouse: true,
+    opacity,
+    snappedEdges: [],
+  })
+
+  return { widgetId }
+}
+
+// No permission prompt: an app closing its own widget can only ever remove one
+// of its own windows.
+function handleWidgetClose(context: QdnViewContext): { closed: boolean } {
+  requireWidgetContext(context, 'WIDGET_CLOSE')
+  const window = getContextWindow(context)
+  if (!window || window.isDestroyed()) {
+    throw new Error('This widget no longer belongs to an open window.')
+  }
+  window.close()
+  return { closed: true }
+}
+
+// Every widget action is scoped to the widget it was called from. The id comes
+// out of the view's own tabId, never out of the request, so an app cannot drag,
+// resize or reshape somebody else's widget.
+function requireWidgetContext(context: QdnViewContext, action: string): string {
+  if (!isWidgetTabId(context.tabId)) {
+    throw new Error(`${action} is only available inside a widget.`)
+  }
+  const widgetId = context.tabId.slice('widget:'.length)
+  if (!widgetId) throw new Error(`${action} could not identify its widget.`)
+  return widgetId
+}
+
+function handleWidgetAction(context: QdnViewContext, action: string, request: Record<string, unknown>) {
+  const widgetId = requireWidgetContext(context, action)
+  const others = listWidgets()
+
+  if (action === 'WIDGET_SET_REGIONS') return setWidgetRegions(widgetId, request.shape)
+  if (action === 'WIDGET_START_DRAG') return startWidgetDrag(widgetId, others)
+  if (action === 'WIDGET_END_DRAG') return endWidgetDrag(widgetId)
+  if (action === 'WIDGET_RESIZE') {
+    return resizeWidget(widgetId, { height: request.height, width: request.width }, others)
+  }
+  return getWidgetState(widgetId)
 }
 
 function directChatOperationLabel(action: HomeV2DirectChatWriteAction) {
@@ -4416,7 +4673,7 @@ async function handleRequestWithRuntime(
           targetSession: sender.session,
         })
       }
-      const candidateWindow = BrowserWindow.fromId(context.windowId)
+      const candidateWindow = getContextWindow(context)
       const hostWindow = candidateWindow && !candidateWindow.isDestroyed() ? candidateWindow : null
       if (!hostWindow) throw new Error('The attachment request does not belong to an active Home window.')
       if (action === 'OPEN_CHAT_ATTACHMENT_VIEWER') {
@@ -4459,9 +4716,26 @@ async function handleRequestWithRuntime(
       decrypted.bytes.fill(0)
     }
   }
+  if (action === 'OPEN_AS_WIDGET') {
+    const prepared = await prepareWidgetLaunch(context)
+    await requireWidgetPermission(context, protocol, () => getQdnViewContextForWebContents(sender))
+    return handleOpenAsWidget(context, prepared)
+  }
+  if (action === 'WIDGET_CLOSE') {
+    return handleWidgetClose(context)
+  }
+  if (
+    action === 'WIDGET_END_DRAG' ||
+    action === 'WIDGET_GET_STATE' ||
+    action === 'WIDGET_RESIZE' ||
+    action === 'WIDGET_SET_REGIONS' ||
+    action === 'WIDGET_START_DRAG'
+  ) {
+    return handleWidgetAction(context, action, requestValue)
+  }
   if (action === 'OPEN_NEW_TAB') {
     const address = normalizeHomeV2OpenAddress(requestValue)
-    const hostWindow = BrowserWindow.fromId(context.windowId)
+    const hostWindow = getContextWindow(context)
     if (!hostWindow || hostWindow.isDestroyed()) {
       throw new Error('The app request does not belong to an active Home window.')
     }
@@ -4620,7 +4894,7 @@ async function handleRequestWithRuntime(
   }
   if (action === 'OPEN_QDN_RESOURCE_VIEWER') {
     const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
-    const hostWindow = BrowserWindow.fromId(context.windowId)
+    const hostWindow = getContextWindow(context)
     if (!hostWindow || hostWindow.isDestroyed()) {
       throw new Error('The resource viewer request does not belong to an active Home window.')
     }
@@ -4646,7 +4920,7 @@ async function handleRequestWithRuntime(
   }
   if (action === 'SAVE_QDN_RESOURCE') {
     const resource = getQdnResourceViewerRequest(requestValue as QdnAppRequest)
-    const candidateWindow = BrowserWindow.fromId(context.windowId)
+    const candidateWindow = getContextWindow(context)
     const hostWindow = candidateWindow && !candidateWindow.isDestroyed() ? candidateWindow : null
     if (!hostWindow) {
       throw new Error('The resource save request does not belong to an active Home window.')
@@ -4768,7 +5042,10 @@ async function handleRequest(
       requestValue,
       action,
       hostInfo,
-      getHomeV2AvailableAppActions(protocol, routes),
+      getHomeV2ContextualAppActions(
+        getHomeV2AvailableAppActions(protocol, routes),
+        isWidgetTabId(context.tabId) ? 'widget' : 'tab',
+      ),
     )
     try {
       const entry = context.accountId
@@ -4798,9 +5075,46 @@ async function handleRequest(
 }
 
 export function registerHomeV2AppBridgeIpcHandlers() {
+  // "Open as widget" in the toolbar. The shell names a tab; the app view's own
+  // context is then resolved in the main process, so the request cannot point
+  // at a resource the tab is not actually showing. The permission gate and the
+  // launch path are the same ones OPEN_AS_WIDGET uses.
+  //
+  // The result is a plain object rather than the qdn bridge envelope: that
+  // envelope exists so an app cannot forge an error back to itself, and this
+  // channel is only reachable from Home's own shell.
+  ipcMain.handle('home-v2-widgets:open', async (event, value: unknown) => {
+    try {
+      const tabId = stringField(value, 'tabId')
+      if (!tabId) throw new Error('Opening a widget needs a tab.')
+      // event.sender.id is the host window's webContents id, which is exactly
+      // what qdn-views keys its per-window view map by.
+      const context = getQdnViewContextForTab(event.sender.id, tabId)
+      if (!context) throw new Error('That tab is not showing a published app.')
+      const protocol = context.resourceUrl?.toLowerCase().startsWith('qortal://')
+        ? 'qortalRequest'
+        : 'qdnRequest'
+      const prepared = await prepareWidgetLaunch(context)
+      // Re-read by tab, not by sender: the sender here is the Home shell, which
+      // is not a QDN view and never resolves as one.
+      await requireWidgetPermission(
+        context,
+        protocol,
+        () => getQdnViewContextForTab(event.sender.id, tabId),
+      )
+      const { widgetId } = handleOpenAsWidget(context, prepared)
+      return { ok: true, widgetId }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+  ipcMain.handle('home-v2-widgets:sync-state', async (_event, value: unknown) => {
+    await syncWidgetQdnViewState(value)
+  })
   const invalidateRuntime = (hostWebContentsId: number, value: unknown) => {
     const invalidation = normalizeHomeV2RuntimeInvalidation(value)
     sessionAccountReadGrants.clear()
+    widgetGrants.clear()
     chatSendRateLimiter.reset()
     homeV2DesktopPublishSources.clear()
     clearHomeV2DesktopResourceStreams()

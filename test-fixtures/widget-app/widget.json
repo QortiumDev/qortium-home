@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "entry": "widget.html",
+  "defaultSize": { "width": 280, "height": 120 },
+  "minSize": { "width": 200, "height": 60 },
+  "maxSize": { "width": 560, "height": 240 },
+  "resizable": "both",
+  "shape": { "polygons": [[[0, 0], [1, 0], [1, 0.8], [0.5, 1], [0, 0.8]]] }
+}

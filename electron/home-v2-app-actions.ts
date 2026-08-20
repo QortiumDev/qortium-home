@@ -21,11 +21,21 @@ const COMMON_ACTIONS = [
   'GET_NODE_INFO',
   'GET_NODE_STATUS',
   'IS_USING_PUBLIC_NODE',
+  'OPEN_AS_WIDGET',
   'NOTIFICATION_HAS_PERMISSION',
   'OPEN_NEW_TAB',
   'SHOW_NOTIFICATION',
   'SHOW_ACTIONS',
   'WHICH_UI',
+  // The implemented catalogue contains both launch and widget-local actions.
+  // The runtime filters these by calling context before SHOW_ACTIONS exposes
+  // them to an app.
+  'WIDGET_CLOSE',
+  'WIDGET_END_DRAG',
+  'WIDGET_GET_STATE',
+  'WIDGET_RESIZE',
+  'WIDGET_SET_REGIONS',
+  'WIDGET_START_DRAG',
 ] as const
 
 const QDN_ACTIONS = [

@@ -541,6 +541,7 @@ type QortiumQdnDisplaySettings = {
   ui: 'classic' | 'modern' | 'fun';
   accent:
     | 'blue'
+    | 'clay'
     | 'cyan'
     | 'green'
     | 'orange'

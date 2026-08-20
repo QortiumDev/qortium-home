@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fixture widget host app</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b1a22; color: #eaf6ff; }
+      main { height: 100%; display: grid; place-items: center; font: 14px system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <!-- The tab-side face of the fixture app. It carries no script of its own:
+         QDN views serve app content under a CSP that blocks inline script, so
+         the smoke calls window.qdnRequest directly over CDP instead. -->
+    <main>Fixture app</main>
+  </body>
+</html>

@@ -14,6 +14,11 @@ export interface BrowserChromeProps {
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
+  /**
+   * Opens the named tab's app as a widget. Resolves to null on success, or to
+   * a message to show when the app has no widget face or the grant was refused.
+   */
+  readonly onOpenAsWidget?: (tabId: string) => Promise<string | null>
   readonly canGoBack?: boolean
   readonly canGoForward?: boolean
   readonly onGoBack?: () => void
@@ -66,6 +71,7 @@ export function BrowserChrome({
   onCloseTab,
   onNavigate,
   onOpenAddress,
+  onOpenAsWidget,
   canGoBack,
   canGoForward,
   onGoBack,
@@ -77,6 +83,8 @@ export function BrowserChrome({
   const [addressResult, setAddressResult] = useState<AddressOpenResult | null>(null)
   const [addressBusy, setAddressBusy] = useState(false)
   const [selectedChoice, setSelectedChoice] = useState('')
+  const [widgetBusy, setWidgetBusy] = useState(false)
+  const [widgetError, setWidgetError] = useState<string | null>(null)
   const addressRequest = useRef(0)
   useEffect(() => {
     addressRequest.current += 1
@@ -84,6 +92,7 @@ export function BrowserChrome({
     setAddressResult(null)
     setAddressBusy(false)
     setSelectedChoice('')
+    setWidgetError(null)
   }, [currentAddress])
   const submitAddress = async (requestedAddress = address) => {
     if (!onOpenAddress) return
@@ -219,6 +228,30 @@ export function BrowserChrome({
               {networkLabels[network]}
             </button>
           ))}
+          {onOpenAsWidget && productState.destination === 'tab' && productState.activeTabId ? (
+            <button
+              type="button"
+              className="home-v2-toolbar-button"
+              aria-label="Open as widget"
+              title={widgetError ?? 'Open as widget'}
+              data-tone={widgetError ? 'error' : undefined}
+              disabled={widgetBusy}
+              onClick={() => {
+                const tabId = productState.activeTabId
+                if (!tabId) return
+                setWidgetBusy(true)
+                setWidgetError(null)
+                // Whether the app publishes a widget face is only knowable from
+                // its manifest on the node, so the answer arrives here rather
+                // than in the button's enabled state.
+                void onOpenAsWidget(tabId)
+                  .then((message) => setWidgetError(message))
+                  .finally(() => setWidgetBusy(false))
+              }}
+            >
+              ⧉
+            </button>
+          ) : null}
           <button
             type="button"
             className="home-v2-toolbar-button"

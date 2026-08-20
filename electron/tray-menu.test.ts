@@ -1,0 +1,94 @@
+import assert from 'node:assert/strict'
+import {
+  buildTrayMenu,
+  TRAY_COMMAND_CLOSE_ALL_WIDGETS,
+  TRAY_COMMAND_OPEN_HOME,
+  TRAY_COMMAND_QUIT,
+  TRAY_LABEL_MAX_LENGTH,
+  TRAY_OPACITY_STEPS,
+  trayCloseWidgetCommand,
+  trayOpacityCommand,
+  trayTooltip,
+  trayWidgetLabel,
+  type TrayMenuNode,
+  type TrayWidgetSummary,
+} from './tray-menu.js'
+
+function widget(overrides: Partial<TrayWidgetSummary> = {}): TrayWidgetSummary {
+  return { widgetId: 'w1', appName: 'Radio', opacity: 1, ...overrides }
+}
+
+function commandIds(nodes: readonly TrayMenuNode[]): string[] {
+  return nodes.flatMap((node) => {
+    if (node.kind === 'command' || node.kind === 'radio') return [node.commandId]
+    if (node.kind === 'submenu') return commandIds(node.items)
+    return []
+  })
+}
+
+function labels(nodes: readonly TrayMenuNode[]): string[] {
+  return nodes.flatMap((node) => (node.kind === 'separator' ? [] : [node.label]))
+}
+
+// An empty inventory still offers a way back to Home and a way out.
+const empty = buildTrayMenu([])
+assert.ok(commandIds(empty).includes(TRAY_COMMAND_OPEN_HOME))
+assert.ok(commandIds(empty).includes(TRAY_COMMAND_QUIT))
+assert.ok(labels(empty).includes('No widgets open'))
+assert.ok(!commandIds(empty).includes(TRAY_COMMAND_CLOSE_ALL_WIDGETS))
+const emptyPlaceholder = empty.find((node) => node.kind === 'command' && node.commandId === 'no-widgets')
+assert.equal(emptyPlaceholder?.kind === 'command' && emptyPlaceholder.enabled, false)
+
+// Every live widget is listed by name with a close command of its own. This is
+// the guard against an invisible window with no way to dismiss it.
+const two = buildTrayMenu([
+  widget({ widgetId: 'a', appName: 'Radio' }),
+  widget({ widgetId: 'b', appName: 'Q-Player' }),
+])
+assert.ok(labels(two).includes('Radio'))
+assert.ok(labels(two).includes('Q-Player'))
+assert.ok(commandIds(two).includes(trayCloseWidgetCommand('a')))
+assert.ok(commandIds(two).includes(trayCloseWidgetCommand('b')))
+assert.ok(labels(two).includes('Close all 2 widgets'))
+
+// One widget reads as a singular action rather than "all 1 widgets".
+assert.ok(labels(buildTrayMenu([widget()])).includes('Close widget'))
+
+// A widget whose app never loaded is still listed. Nothing about the menu
+// depends on the state of its content.
+assert.ok(labels(buildTrayMenu([widget({ appName: 'Broken' })])).includes('Broken'))
+
+// Opacity offers every step, with exactly the current one checked.
+const dimmed = buildTrayMenu([widget({ widgetId: 'a', opacity: 0.75 })])
+for (const step of TRAY_OPACITY_STEPS) {
+  assert.ok(commandIds(dimmed).includes(trayOpacityCommand('a', step)))
+}
+type TrayRadioNode = Extract<TrayMenuNode, { kind: 'radio' }>
+const radios = (function collect(nodes: readonly TrayMenuNode[]): TrayRadioNode[] {
+  return nodes.flatMap((node) => {
+    if (node.kind === 'radio') return [node]
+    if (node.kind === 'submenu') return collect(node.items)
+    return []
+  })
+})(dimmed)
+assert.equal(radios.length, TRAY_OPACITY_STEPS.length)
+assert.deepEqual(
+  radios.filter((node) => node.checked).map((node) => node.label),
+  ['75%'],
+)
+
+// App names are published content, so they are untrusted display text.
+assert.equal(trayWidgetLabel('  Radio  '), 'Radio')
+assert.equal(trayWidgetLabel(''), 'Unnamed widget')
+assert.equal(trayWidgetLabel(undefined), 'Unnamed widget')
+assert.equal(trayWidgetLabel('a\0b\nc'), 'a b c')
+const long = trayWidgetLabel('x'.repeat(500))
+assert.equal(long.length, TRAY_LABEL_MAX_LENGTH)
+assert.ok(long.endsWith('…'))
+
+// The tooltip is the at-a-glance proof that Home is still running.
+assert.equal(trayTooltip([]), 'Qortium Home')
+assert.equal(trayTooltip([widget()]), 'Qortium Home - 1 widget')
+assert.equal(trayTooltip([widget({ widgetId: 'a' }), widget({ widgetId: 'b' })]), 'Qortium Home - 2 widgets')
+
+console.log('tray-menu tests passed')

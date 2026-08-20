@@ -101,6 +101,7 @@ import {
   normalizeHomeV2GroupAdminTarget,
 } from '../../electron/home-v2-group-admin-actions'
 import { createHomeV2SendRateLimiter } from '../../electron/home-v2-send-rate-limiter'
+import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import {
   homeV2NotificationChainLabel,
   homeV2NotificationSourceKey,
@@ -660,6 +661,34 @@ export function HomeV2LiveApp() {
     snapshot.nodes.qortium.nodeApiUrl,
   ])
 
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return
+    void bridge.syncWidgets({
+      bridgeStates: getHomeV2BridgeStateDetails({
+        accountId: selectedAccountId,
+        nodes: snapshot.nodes,
+        platform: 'desktop',
+      }),
+      displaySettings: {
+        accent: snapshot.appearance.accent,
+        language: snapshot.appearance.resolvedLanguage,
+        textSize: snapshot.appearance.textSize,
+        theme: snapshot.appearance.resolvedTheme,
+        ui: 'modern',
+      },
+    }).catch((error: unknown) => {
+      console.warn('Unable to update live widget state.', error)
+    })
+  }, [
+    selectedAccountId,
+    snapshot.appearance.accent,
+    snapshot.appearance.resolvedLanguage,
+    snapshot.appearance.resolvedTheme,
+    snapshot.appearance.textSize,
+    snapshot.nodes,
+  ])
+
   const applyVaultState = useCallback((state: HomeV2VaultState) => {
     const catalogue = vaultCatalogue(state)
     setVaultState(state)
@@ -983,6 +1012,20 @@ export function HomeV2LiveApp() {
     [snapshot.identity.id, snapshot.identity.selectedWallet],
   )
 
+  // Whether an app has a widget face is only knowable from the manifest it
+  // publishes, so the toolbar offers the action for any app tab and reports
+  // back here when the app turns out not to have one.
+  const openTabAsWidget = useCallback(async (tabId: string): Promise<string | null> => {
+    const bridge = window.homeV2Apps
+    if (!bridge) return 'Widgets are only available on desktop.'
+    try {
+      const result = await bridge.openAsWidget({ tabId })
+      return result.ok ? null : result.message
+    } catch (error) {
+      return error instanceof Error ? error.message : 'This app could not be opened as a widget.'
+    }
+  }, [])
+
   const openAddress = useCallback(
     async (address: string): Promise<AddressOpenResult> => {
       try {
@@ -1115,6 +1158,7 @@ export function HomeV2LiveApp() {
             value.action !== 'OPEN_CHAT_ATTACHMENT_VIEWER' &&
             value.action !== 'SAVE_CHAT_ATTACHMENT' &&
             value.action !== 'SHOW_NOTIFICATION' &&
+            value.action !== 'OPEN_AS_WIDGET' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
             !isHomeV2DirectChatWriteAction(value.action) &&
@@ -1122,7 +1166,9 @@ export function HomeV2LiveApp() {
             !isHomeV2PrivateGroupChatWriteAction(value.action) &&
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
-        (value.action !== 'SHOW_NOTIFICATION' && typeof value.accountId !== 'string') ||
+        (value.action !== 'SHOW_NOTIFICATION' &&
+          value.action !== 'OPEN_AS_WIDGET' &&
+          typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
         (value.targetNetwork !== 'qortal' && value.targetNetwork !== 'qortium') ||
         ((isHomeV2PublicChatAction(value.action) || isHomeV2GroupWriteAction(value.action)) &&
@@ -1204,6 +1250,7 @@ export function HomeV2LiveApp() {
           return 'QDN app'
         }
       })()
+      const isWidgetPrompt = value.action === 'OPEN_AS_WIDGET'
       const isChatWrite = isHomeV2PublicChatAction(value.action)
       const isDirectRead = isHomeV2DirectChatReadAction(value.action)
       const isDirectWrite = isHomeV2DirectChatWriteAction(value.action)
@@ -1226,7 +1273,9 @@ export function HomeV2LiveApp() {
         id: brand<PermissionRequestId>(value.requestId),
         protocol: value.protocol,
         action: value.action,
-        capability: isChatWrite
+        capability: isWidgetPrompt
+          ? 'window.widget.open'
+          : isChatWrite
           ? 'chat.send'
           : isDirectWrite
             ? 'chat.direct.send'
@@ -1260,7 +1309,9 @@ export function HomeV2LiveApp() {
         appTitle,
         context: {
           appId: brand<AppId>(`home-v2:permission-app:${appIdentityKey}`),
-          identityId: brand<IdentityId>(isNotification
+          identityId: brand<IdentityId>(isWidgetPrompt
+            ? `home-v2:identity:none`
+            : isNotification
             ? `home-v2:identity:app:${appIdentityKey}`
             : `home-v2:identity:${value.accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
@@ -1270,7 +1321,9 @@ export function HomeV2LiveApp() {
             ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
             : null,
         },
-        title: isNotification
+        title: isWidgetPrompt
+          ? 'Allow a floating window?'
+          : isNotification
           ? 'Allow app notifications?'
           : isJournalRead
             ? 'Allow pending transaction access?'
@@ -1279,7 +1332,9 @@ export function HomeV2LiveApp() {
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `Allow ${operationLabel.toLowerCase()}?`
           : 'Allow account access?',
-        summary: isNotification
+        summary: isWidgetPrompt
+          ? `${appTitle} wants to open a frameless window that stays above other applications.`
+          : isNotification
           ? `${appTitle} wants to show system notifications until revoked in Settings.`
           : isJournalRead
             ? `${appTitle} wants to read its retained unknown transaction outcomes for this account and chain.`
@@ -1288,7 +1343,12 @@ export function HomeV2LiveApp() {
           : isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment
           ? `${appTitle} wants to ${operationLabel.toLowerCase()} as the selected account.`
           : `${appTitle} wants to read the selected account address and public identity data.`,
-        details: isNotification
+        details: isWidgetPrompt
+          ? [
+              { label: 'App', value: appTitle },
+              { label: 'Window', value: 'Frameless, always on top, and drawn entirely by the app' },
+            ]
+          : isNotification
           ? [
               { label: 'App', value: appTitle },
               { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
@@ -1379,7 +1439,9 @@ export function HomeV2LiveApp() {
               { label: 'Account', value: account?.label ?? value.accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
             ],
-        allowedScopes: isNotification
+        allowedScopes: isWidgetPrompt
+          ? ['single-request', 'session']
+          : isNotification
           ? ['always']
           : value.writeSingleRequestOnly === true
           ? ['single-request']
@@ -3842,6 +3904,7 @@ export function HomeV2LiveApp() {
       }}
       onOpenApp={openApp}
       onOpenAddress={openAddress}
+      onOpenAsWidget={openTabAsWidget}
       onResolvePermission={resolveAccountPermission}
       canGoBack={activeNavigationPosition > 0}
       canGoForward={

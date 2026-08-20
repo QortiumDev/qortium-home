@@ -17,7 +17,11 @@ export default defineConfig({
     rollupOptions: {
       input: androidBuild
         ? resolve(import.meta.dirname, 'src/home-v2-live/android/index.html')
-        : resolve(import.meta.dirname, 'v2-live.html'),
+        : {
+            // Android has no widgets, so the widget page is desktop only.
+            main: resolve(import.meta.dirname, 'v2-live.html'),
+            widget: resolve(import.meta.dirname, 'widget.html'),
+          },
     },
   },
   plugins: [react()],

@@ -75,6 +75,7 @@ export interface HomeV2PrototypeProps {
   ) => Promise<unknown>
   readonly onOpenApp?: (app: AppDescriptor) => void
   readonly onOpenAddress?: (address: string) => Promise<AddressOpenResult>
+  readonly onOpenAsWidget?: (tabId: string) => Promise<string | null>
   readonly onAppNavigationChanged?: (
     tabId: ProductState['tabs'][number]['id'],
     snapshot: AppTabNavigationSnapshot,
@@ -798,6 +799,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onCloseTab={onCloseTab}
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
+        onOpenAsWidget={props.onOpenAsWidget}
         canGoBack={props.canGoBack}
         canGoForward={props.canGoForward}
         onGoBack={props.onGoBack}

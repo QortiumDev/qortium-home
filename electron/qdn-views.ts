@@ -35,7 +35,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME_VALUES = new Set(['dark', 'light']);
 const LANGUAGE_VALUES = new Set(['ar', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nb', 'nl', 'pl', 'pt', 'ro', 'ru', 'sv', 'zh-CN', 'zh-TW']);
 const TEXT_SIZE_VALUES = new Set(['extra-large', 'extra-small', 'huge', 'large', 'medium', 'small']);
-const ACCENT_VALUES = new Set(['blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
+const ACCENT_VALUES = new Set(['blue', 'clay', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']);
 const UI_VALUES = new Set(['classic', 'modern', 'fun']);
 // Exact Qortal node origins the cross-chain bridge can return for direct resource URLs. QDN apps
 // render from the node's own origin, so the rendered Content-Security-Policy must allow connecting
@@ -86,7 +86,7 @@ function relaxQdnAppCspForQortal(csp: string): string {
 export type QdnDisplaySettings = {
   language: 'ar' | 'de' | 'el' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'it' | 'ja' | 'ko' | 'nb' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
   textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
-  accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
+  accent: 'blue' | 'clay' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
   theme: 'dark' | 'light';
   ui: 'classic' | 'modern' | 'fun';
 };
@@ -148,7 +148,7 @@ type SanitizedShowRequest = {
   tabId: string;
 };
 
-type QdnBridgeStateDetail = {
+export type QdnBridgeStateDetail = {
   network: 'qortal' | 'qortium';
   protocol: 'qdnRequest' | 'qortalRequest';
   revision: string;
@@ -213,8 +213,10 @@ const watchedWindowIds = new Set<number>();
 
 export type QdnViewContext = {
   accountId: string | null;
+  bridgeStates: QdnBridgeStateDetail[];
   currentUrl: string | null;
   displaySettings: QdnDisplaySettings;
+  managerRevisions: QdnManagerRevisions | undefined;
   nodeOrigin: string;
   resourceUrl: string | null;
   tabId: string;
@@ -813,8 +815,10 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
       if (entry.view.webContents.id === webContents.id) {
         return {
           accountId: entry.accountId,
+          bridgeStates: entry.bridgeStates,
           currentUrl: getTrustedCurrentUrl(entry),
           displaySettings: entry.displaySettings,
+          managerRevisions: entry.managerRevisions,
           nodeOrigin: entry.nodeOrigin,
           resourceUrl: entry.resourceUrl,
           tabId: entry.tabId,
@@ -825,6 +829,57 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
   }
 
   return null;
+}
+
+// The "Open as widget" toolbar action is issued by the Home shell rather than
+// by the app, so the request names a tab instead of arriving on the app view's
+// own webContents. The host window is verified by the caller, so a shell can
+// only ever address a tab in its own window.
+// hostWebContentsId, not a BrowserWindow id: qdnViewsByWindow is keyed by the
+// host window's webContents id, and so is the windowId this returns. The two
+// sequences only coincide for the very first window, so mixing them up works in
+// testing and fails for every window opened afterwards.
+export function getQdnViewContextForTab(
+  hostWebContentsId: number,
+  tabId: string,
+): QdnViewContext | null {
+  const entry = qdnViewsByWindow.get(hostWebContentsId)?.get(tabId);
+
+  if (!entry) {
+    return null;
+  }
+
+  return {
+    accountId: entry.accountId,
+    bridgeStates: entry.bridgeStates,
+    currentUrl: getTrustedCurrentUrl(entry),
+    displaySettings: entry.displaySettings,
+    managerRevisions: entry.managerRevisions,
+    nodeOrigin: entry.nodeOrigin,
+    resourceUrl: entry.resourceUrl,
+    tabId: entry.tabId,
+    windowId: hostWebContentsId,
+  };
+}
+
+export function syncWidgetQdnViewState(value: unknown) {
+  if (!isRecord(value)) throw new Error('Widget runtime state is required.');
+  const displaySettings = sanitizeDisplaySettings(value.displaySettings);
+  const bridgeStates = sanitizeBridgeStates(value.bridgeStates);
+  const managerRevisions = value.managerRevisions === undefined
+    ? undefined
+    : validateQdnManagerRevisions(value.managerRevisions);
+  const deliveries: Promise<void>[] = [];
+  for (const windowViews of qdnViewsByWindow.values()) {
+    for (const entry of windowViews.values()) {
+      if (!entry.tabId.startsWith('widget:')) continue;
+      entry.displaySettings = displaySettings;
+      entry.bridgeStates = bridgeStates;
+      if (managerRevisions) entry.managerRevisions = managerRevisions;
+      deliveries.push(queueQdnViewStateDelivery(entry));
+    }
+  }
+  return Promise.all(deliveries).then(() => undefined);
 }
 
 function getQdnViewEntryForWebContents(webContents: WebContents): QdnViewEntry | null {

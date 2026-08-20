@@ -12,6 +12,7 @@ import {
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
+import { getHomeV2ContextualAppActions } from '../../electron/home-v2-app-runtime'
 
 const syncedStatus = {
   height: 123,
@@ -155,8 +156,10 @@ assert.equal(disabledQortiumActions.includes('FETCH_QORTAL_NODE_API'), true)
 assert.equal(disabledQortiumActions.includes('GET_HOST_INFO'), true)
 assert.deepEqual(
   await client.requestApp('qortalRequest', { action: 'SHOW_ACTIONS' }),
-  getHomeV2AppActions('qortalRequest'),
+  getHomeV2ContextualAppActions(getHomeV2AppActions('qortalRequest'), 'android'),
 )
+assert.equal(disabledQortiumActions.includes('OPEN_AS_WIDGET'), false)
+assert.equal(disabledQortiumActions.some((action) => action.startsWith('WIDGET_')), false)
 const disabledQortiumHostInfo = await client.requestApp(
   'qdnRequest',
   { action: 'GET_HOST_INFO' },

@@ -40,6 +40,7 @@ import {
   getHomeV2AppHostInfo,
   getHomeV2AppRouteDescriptor,
   getHomeV2AvailableAppActions,
+  getHomeV2ContextualAppActions,
   HOME_V2_ROUTE_INDEPENDENT_ACTIONS,
 } from '../../electron/home-v2-app-runtime'
 
@@ -669,7 +670,7 @@ export function createPortableNodeClient(
         const otherNode = await summary(otherNetwork, otherSettings)
         const qortalNode = network === 'qortal' ? selectedNode : otherNode
         const qortiumNode = network === 'qortium' ? selectedNode : otherNode
-        return [...getHomeV2AvailableAppActions(protocol, {
+        return [...getHomeV2ContextualAppActions(getHomeV2AvailableAppActions(protocol, {
           qortal: getHomeV2AppRouteDescriptor({
             accountId: context?.selectedAccountId,
             network: 'qortal',
@@ -684,7 +685,10 @@ export function createPortableNodeClient(
             platform: 'android',
             protocol: 'qdnRequest',
           }),
-        })]
+        }), 'android')]
+      }
+      if (action === 'OPEN_AS_WIDGET' || action.startsWith('WIDGET_')) {
+        throw new Error(`${action} is only available in Qortium Home desktop.`)
       }
       const implemented = getHomeV2AppActions(protocol).includes(action)
       const routeIndependent = (HOME_V2_ROUTE_INDEPENDENT_ACTIONS as readonly string[]).includes(action)

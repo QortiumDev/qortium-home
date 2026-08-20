@@ -43,6 +43,8 @@ import {
 } from './qdn.js';
 import { registerQdnViewIpcHandlers, syncQdnViewsForWindowZoom } from './qdn-views.js';
 import { registerQdnManagerPermissionStoreIpcHandlers } from './qdn-manager-permission-store.js';
+import { shouldLoadRendererFromDist } from './renderer-entry.js';
+import { destroyTray, installTray } from './tray.js';
 import { installNodeTlsForDefaultSessions } from './node-tls.js';
 import { registerSystemIpcHandlers } from './system.js';
 import { getZoomPercent, initZoom, resetZoom, setZoomPercent, zoomIn, zoomOut } from './zoom.js';
@@ -575,7 +577,7 @@ function createWindow(options: CreateWindowOptions = {}) {
     window.maximize();
   }
 
-  if (app.isPackaged) {
+  if (shouldLoadRendererFromDist()) {
     void window.loadFile(
       path.join(
         __dirname,
@@ -863,6 +865,10 @@ app.whenReady().then(() => {
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);
+    // Widgets outlive main Home windows, so Home can end up running with
+    // nothing on screen. The tray is what makes that state visible, and it is
+    // the only route to closing a widget whose app never painted.
+    installTray({ openHome: () => createWindow() });
     try {
       ensureHomeV2ProfileBackup();
       autoUnlockHomeV2SelectedAccount();
@@ -910,9 +916,17 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   cleanupQdnPreviewStagingDirs();
+  // A tray left behind outlives its process on Windows and leaves a dead icon
+  // in the notification area until the user hovers over it.
+  destroyTray();
 });
 
 app.on('window-all-closed', () => {
+  // A widget is a real BrowserWindow, so this does not fire while one is open.
+  // That is deliberate: widgets outlive main Home windows, which is what keeps
+  // a floating player running after you close Home. It also means Home can sit
+  // running with no main window, a state it never had before, and the tray
+  // installed at startup is what makes that state visible and exitable.
   if (process.platform !== 'darwin') {
     app.quit();
   }

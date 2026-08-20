@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - feat(widgets): integrate widgets with Home 2
+
+Home 2 can now host desktop widgets published inside QDN apps: small,
+transparent, always-on-top faces with declared click-through regions, native
+dragging and resizing, edge snapping, saved placement and opacity, and complete
+tray controls even when the main Home window is closed. Widget discovery and
+permissions are tied to the exact calling tab and published resource, manifests
+are size-bounded before parsing, duplicate instances of one resource are
+prevented, and each widget receives current Home 2 appearance and route state.
+The first widget contract is deliberately public and read-only apart from its
+own window controls; account, signing, publishing, notification, private-data,
+file-dialog, and other trusted-chrome actions stay in normal app tabs. Public
+author documentation, focused contract tests, an offline native smoke test,
+and packaged Linux verification cover the release path; Android floating
+windows remain out of scope.
+
 ### 2026-08-19 - feat(v2): pass the clay accent through to hosted app tabs unchanged
 
 Home 2's app tab stage no longer remaps the `clay` accent to `orange` in the

@@ -5,6 +5,7 @@ import {
   getHomeV2AppHostInfo,
   getHomeV2BridgeStateDetails,
   getHomeV2AvailableAppActions,
+  getHomeV2ContextualAppActions,
   homeV2BridgeErrorPayload,
   normalizeHomeV2BridgeError,
 } from './home-v2-app-runtime.js'
@@ -379,5 +380,52 @@ const androidViewHost = readRepoSource(
 )
 assert.equal(desktopViewHost.includes("CustomEvent('qortiumBridgeStateChanged'"), true)
 assert.equal(androidViewHost.includes("type: 'qortium:bridge-state-changed'"), true)
+
+const normalTabActions = getHomeV2ContextualAppActions(
+  getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  }),
+  'tab',
+)
+assert.equal(normalTabActions.includes('OPEN_AS_WIDGET'), true)
+assert.equal(normalTabActions.some((action) => action.startsWith('WIDGET_')), false)
+
+const widgetActions = getHomeV2ContextualAppActions(
+  getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  }),
+  'widget',
+)
+for (const action of [
+  'FETCH_NODE_API',
+  'GET_HOST_INFO',
+  'GET_QDN_RESOURCE_STATUS',
+  'SHOW_ACTIONS',
+  'WIDGET_CLOSE',
+  'WIDGET_GET_STATE',
+]) {
+  assert.equal(widgetActions.includes(action), true, `widget should advertise ${action}`)
+}
+for (const action of [
+  'GET_SELECTED_ACCOUNT',
+  'OPEN_AS_WIDGET',
+  'OPEN_NEW_TAB',
+  'PUBLISH_QDN_RESOURCE',
+  'SEND_CHAT_MESSAGE',
+  'SHOW_NOTIFICATION',
+]) {
+  assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
+}
+const androidActions = getHomeV2ContextualAppActions(
+  getHomeV2AvailableAppActions('qdnRequest', {
+    qortal: publicInfo.route,
+    qortium: publicInfo.route,
+  }),
+  'android',
+)
+assert.equal(androidActions.includes('OPEN_AS_WIDGET'), false)
+assert.equal(androidActions.some((action) => action.startsWith('WIDGET_')), false)
 
 console.log('Home v2 app runtime contract tests passed.')

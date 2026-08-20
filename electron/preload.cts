@@ -258,7 +258,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
       bounds: { height: number; width: number; x: number; y: number };
       displaySettings: {
         language: 'ar' | 'de' | 'el' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'it' | 'ja' | 'ko' | 'nb' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
-        accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
+        accent: 'blue' | 'clay' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
         textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
         ui: 'classic' | 'modern' | 'fun';
@@ -286,7 +286,7 @@ contextBridge.exposeInMainWorld('qortiumHome', {
     updateDisplaySettings: (request: {
       displaySettings: {
         language: 'ar' | 'de' | 'el' | 'en' | 'es' | 'et' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'it' | 'ja' | 'ko' | 'nb' | 'nl' | 'pl' | 'pt' | 'ro' | 'ru' | 'sv' | 'zh-CN' | 'zh-TW';
-        accent: 'blue' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
+        accent: 'blue' | 'clay' | 'cyan' | 'green' | 'orange' | 'pink' | 'purple' | 'red' | 'teal' | 'yellow';
         textSize: 'extra-large' | 'extra-small' | 'huge' | 'large' | 'medium' | 'small';
         theme: 'dark' | 'light';
         ui: 'classic' | 'modern' | 'fun';

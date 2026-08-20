@@ -588,6 +588,10 @@ declare global {
       navigate(request: { index: number; tabId: string }): Promise<boolean>
       reload(request: { tabId: string }): Promise<boolean>
       updateAccountState(request: { accountId: string; isUnlocked: boolean; tabId: string }): Promise<void>
+      openAsWidget(request: { tabId: string }): Promise<
+        { ok: true; widgetId: string } | { ok: false; message: string }
+      >
+      syncWidgets(request: unknown): Promise<void>
       resolvePermission(request: unknown): void
       show(request: unknown): Promise<void>
       onOpenAddress(listener: (event: unknown) => void): () => void

@@ -136,6 +136,51 @@ export function getHomeV2AvailableAppActions(
   }))
 }
 
+const WIDGET_LOCAL_ACTIONS = new Set<string>([
+  'WIDGET_CLOSE',
+  'WIDGET_END_DRAG',
+  'WIDGET_GET_STATE',
+  'WIDGET_RESIZE',
+  'WIDGET_SET_REGIONS',
+  'WIDGET_START_DRAG',
+])
+
+// Widget v1 deliberately has no trusted Home chrome for account, signing,
+// publishing, notification, viewer or file-picker prompts. Keep this an
+// allowlist-shaped predicate so a future write action is not accidentally
+// exposed merely because it was added to the normal tab catalogue.
+function isWidgetPublicReadAction(action: string) {
+  if (WIDGET_LOCAL_ACTIONS.has(action)) return true
+  if (action === 'SHOW_ACTIONS' || action === 'WHICH_UI' || action === 'IS_USING_PUBLIC_NODE') {
+    return true
+  }
+  if (action === 'GET_HOST_INFO' || action === 'GET_NODE_INFO' || action === 'GET_NODE_STATUS') {
+    return true
+  }
+  if (!/^(FETCH|GET|LIST|SEARCH|RESOLVE)_/.test(action)) return false
+  return !(
+    action.includes('PRIVATE_') ||
+    action.includes('CHAT_ATTACHMENT') ||
+    action === 'GET_PENDING_TRANSACTIONS' ||
+    action === 'GET_SELECTED_ACCOUNT' ||
+    action === 'GET_USER_ACCOUNT'
+  )
+}
+
+export function getHomeV2ContextualAppActions(
+  availableActions: readonly string[],
+  context: 'android' | 'tab' | 'widget',
+): readonly string[] {
+  const filtered = availableActions.filter((action) => {
+    if (context === 'widget') return action !== 'OPEN_AS_WIDGET' && isWidgetPublicReadAction(action)
+    if (context === 'android') return action !== 'OPEN_AS_WIDGET' && !WIDGET_LOCAL_ACTIONS.has(action)
+    return !WIDGET_LOCAL_ACTIONS.has(action)
+  })
+  return Object.freeze(context === 'widget'
+    ? [...new Set([...filtered, ...WIDGET_LOCAL_ACTIONS])]
+    : filtered)
+}
+
 export function getHomeV2AppHostInfo(input: {
   readonly accountId?: string | null
   readonly hostVersion?: string
