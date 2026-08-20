@@ -126,6 +126,7 @@ import {
   grantAppNotifications,
 } from '../notificationStore'
 import { resolveDualIdentity } from './identity-resolver'
+import { completeUnlockAfterAccountStatePropagation } from './unlock-account-state'
 import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
@@ -3529,29 +3530,28 @@ export function HomeV2LiveApp() {
             useRememberedUnlock: value.useRememberedUnlock,
           }).then(async (state) => {
             await commitVaultState(state)
-            for (const tab of productState.tabs) {
-              const boundId = String(tab.context.identityId).replace(/^home-v2:identity:/, '')
-              if (boundId === accountId || boundId.startsWith(`${accountId}:`)) {
-                void window.homeV2Apps?.updateAccountState({
-                  accountId: boundId,
-                  isUnlocked: true,
-                  tabId: tab.id,
-                })
-              }
-            }
-            const androidResolver = accountDialog.permissionRequestId
-              ? androidUnlockResolvers.current.get(accountDialog.permissionRequestId)
+            const permissionRequestId = accountDialog.permissionRequestId
+            const androidResolver = permissionRequestId
+              ? androidUnlockResolvers.current.get(permissionRequestId)
               : undefined
-            if (androidResolver && accountDialog.permissionRequestId) {
-              androidUnlockResolvers.current.delete(accountDialog.permissionRequestId)
-              await androidResolver.complete(state)
-            } else if (accountDialog.permissionRequestId) {
-              window.homeV2Apps?.resolvePermission({
-                approved: true,
-                requestId: accountDialog.permissionRequestId,
-                scope: 'single-request',
-              })
-            }
+            await completeUnlockAfterAccountStatePropagation({
+              accountId,
+              tabs: productState.tabs,
+              updateAccountState: (request) => window.homeV2Apps?.updateAccountState(request),
+              completeAndroid: androidResolver && permissionRequestId
+                ? async () => {
+                    androidUnlockResolvers.current.delete(permissionRequestId)
+                    await androidResolver.complete(state)
+                  }
+                : undefined,
+              resolveDesktop: !androidResolver && permissionRequestId
+                ? () => window.homeV2Apps?.resolvePermission({
+                    approved: true,
+                    requestId: permissionRequestId,
+                    scope: 'single-request',
+                  })
+                : undefined,
+            })
             setAccountDialog(null)
           }).catch((error: unknown) => {
             setAccountDialogError(error instanceof Error ? error.message : 'Unable to unlock the account.')

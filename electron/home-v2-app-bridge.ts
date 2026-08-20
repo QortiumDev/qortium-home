@@ -259,6 +259,7 @@ import {
   stampTransactionNonce,
 } from './accounts.js'
 import { createHomeV2SendRateLimiter } from './home-v2-send-rate-limiter.js'
+import { assertHomeV2UnlockCompleted } from './home-v2-unlock-contract.js'
 import { base58Decode, base58Encode } from './base58.js'
 import { computeHomeV2ChatNonce } from './home-v2-chat-pow.js'
 import { readableNodeErrorMessage } from './node-error-body.js'
@@ -752,9 +753,7 @@ async function requireAccountReadPermission(
     throw new Error('Account access context changed before approval completed.')
   }
   if (action === 'UNLOCK_SELECTED_ACCOUNT') {
-    if (!isAccountUnlocked(context.accountId)) {
-      throw new Error('The account was not unlocked.')
-    }
+    assertHomeV2UnlockCompleted(context.accountId, isAccountUnlocked)
   } else if (isAccountUnlocked(context.accountId) !== accountUnlocked) {
     throw new Error('Account lock state changed before approval completed.')
   }
