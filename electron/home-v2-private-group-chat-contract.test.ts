@@ -283,5 +283,13 @@ assert.match(androidVaultSource, /isAndroidQortalPrivateGroupStagingUnavailable/
 assert.match(androidVaultSource, /if \(!isAndroidQortalPrivateGroupStagingUnavailable\(error\)\) throw error/)
 assert.match(actionCatalogueSource, /'SEND_PRIVATE_GROUP_CHAT_REACTION'/)
 assert.match(actionCatalogueSource, /'GET_PRIVATE_GROUP_CHAT_STATE'/)
+for (const source of [desktopBridgeSource, androidVaultSource]) {
+  assert.match(source, /keyAvailable: !!key/,
+    'private-group state must expose account-relative key availability')
+  assert.match(source, /key\?\.groupKey\.fill\(0\)/,
+    'private-group state probing must wipe resolved key bytes')
+  assert.match(source, /persistedGroupKey && broadcastConfirmed/,
+    'an uncertain key-announcement broadcast must not make the local key sendable')
+}
 
 console.log('Home v2 private-group chat contract tests passed')

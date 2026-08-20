@@ -13514,7 +13514,23 @@ async function readAndroidHomeV2PrivateGroupChats(
   }
   const apiKey = getSendablePlatformNodeApiKey(settings, request.nodeApiUrl);
   if (request.action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
-    return readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId as number, apiKey);
+    const state = await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId as number, apiKey);
+    const key = await resolveAndroidHomeV2QpgcKey({
+      accountId: request.accountId,
+      apiKey,
+      epochId: state.epochId,
+      groupId: state.groupId,
+      nodeApiUrl: request.nodeApiUrl,
+      secretKey: signingKey.secretKey,
+      state,
+    });
+    try {
+      // `available` is the node's QPGC capability; `keyAvailable` is scoped
+      // to this account and epoch so Chat can gate a send before it fails.
+      return { ...state, keyAvailable: !!key };
+    } finally {
+      key?.groupKey.fill(0);
+    }
   }
   const groupsValue = request.action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
     ? await requestAndroidHomeV2ChatJson(
@@ -13712,7 +13728,11 @@ async function sendAndroidHomeV2PrivateGroupChat(
         validateTarget,
       }));
     }
-    if (persistedGroupKey) {
+    const broadcastConfirmed = results.every((result) => {
+      const record = result as Record<string, unknown>;
+      return record.accepted !== false && record.outcome !== 'unknown';
+    });
+    if (persistedGroupKey && broadcastConfirmed) {
       const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey);
       await persistAndroidQpgcKey({
         accountId: request.accountId,

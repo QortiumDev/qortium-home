@@ -59,6 +59,13 @@ tabs now show a neutral node-checking state until the first connection check
 finishes, and unlock completion waits for the updated account state to reach
 the app before the original operation resumes.
 
+Private-group state now distinguishes node-level QPGC availability from
+whether the selected account actually has the current group key. Desktop and
+Android apps can use that account-relative signal to prevent a doomed send and
+offer key recovery before any chat transaction is built. A newly rotated key
+is also kept unavailable locally when its announcement broadcast is uncertain;
+normal announcement discovery recovers it if the transaction later confirms.
+
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 
 Home 2 now carries forward the Core 1.7 compatibility protections from the

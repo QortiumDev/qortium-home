@@ -3693,7 +3693,24 @@ async function readHomeV2PrivateGroupChatAction(
   }
   try {
     if (action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
-      return await readHomeV2QpgcState(node.nodeApiUrl, request.groupId as number, apiKey)
+      const state = await readHomeV2QpgcState(node.nodeApiUrl, request.groupId as number, apiKey)
+      const key = await resolveHomeV2QpgcKey({
+        accountId,
+        apiKey,
+        epochId: state.epochId,
+        groupId: state.groupId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        state,
+      })
+      try {
+        // Core's `available` flag describes QPGC protocol availability. This
+        // separate account-relative flag tells the app whether this selected
+        // wallet can actually decrypt/send in the current epoch.
+        return { ...state, keyAvailable: !!key }
+      } finally {
+        key?.groupKey.fill(0)
+      }
     }
     const groupsValue = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
       ? await readHomeV2ChatJson(
@@ -3933,7 +3950,11 @@ async function sendHomeV2PrivateGroupChatAction(
         validateTarget: validateState,
       }))
     }
-    if (persistedGroupKey) {
+    const broadcastConfirmed = results.every((result) => {
+      const record = result as Record<string, unknown>
+      return record.accepted !== false && record.outcome !== 'unknown'
+    })
+    if (persistedGroupKey && broadcastConfirmed) {
       const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey)
       await persistQpgcKey({
         accountId,
