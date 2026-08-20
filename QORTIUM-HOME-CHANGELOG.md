@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
+
+Home 2 now carries forward the Core 1.7 compatibility protections from the
+Home 1 maintenance line. Compatible direct-release and test-JAR replacements
+self-reconcile against the installed files, activation-schedule metadata no
+longer creates a false Previewnet mismatch, and a rotated localhost Core
+certificate authority can refresh through the loopback-only bootstrap path
+without replaying writes. Home also waits for every matching QDN app tab to
+acknowledge its unlocked account state before resuming an app's unlock request
+on desktop or Android. Unrelated tabs remain untouched, and a failed state
+update leaves the permission request unapproved instead of resuming it against
+stale main-process state.
+
 ### 2026-08-19 - chore(release): prepare Home 2.0.0
 
 Prepares the first Home 2 prerelease under the existing Qortium Home desktop
