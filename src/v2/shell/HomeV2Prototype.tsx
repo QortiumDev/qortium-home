@@ -22,16 +22,17 @@ import type {
   PermissionState,
 } from '../bridge-permissions'
 import type { ProductState, ShellDestination } from '../product-model'
+import type { NewTabPreference } from '../new-tab-preference'
 import {
   AppTabStage,
   type AppTabNavigationController,
   type AppTabNavigationSnapshot,
 } from './AppTabStage'
-import { AppearanceSettingsPage } from './AppearanceSettingsPage'
 import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
+import { SettingsPage } from './SettingsPage'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppRequestContext,
@@ -61,6 +62,7 @@ export interface HomeV2PrototypeProps {
   readonly identityLookupBusy?: boolean
   readonly identityLookupError?: string | null
   readonly identityLookupInput?: string
+  readonly newTabPreference?: NewTabPreference
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly accountCatalogue?: HomeV2AccountCatalogue
   readonly vaultState?: HomeV2VaultState
@@ -124,6 +126,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
+  readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
 function NewTabPage(props: HomeV2PrototypeProps) {
@@ -811,6 +814,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onGoBack={props.onGoBack}
         onGoForward={props.onGoForward}
         onReload={props.onReload}
+        navigationDisabled={!!overlayOwnerTabId}
+        newTabPreference={props.newTabPreference}
       />
       <main
         className="home-v2-page-viewport"
@@ -832,14 +837,18 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             requestApp={props.requestApp}
           />
         ) : productState.destination === 'settings' ? (
-          <AppearanceSettingsPage
+          <SettingsPage
             appearance={snapshot.appearance}
             account={snapshot.account}
+            newTabPreference={
+              props.newTabPreference ?? { kind: 'search' }
+            }
             onSetTheme={props.onSetTheme}
             onSetAccent={props.onSetAccent}
             onSetTextSize={props.onSetTextSize}
             onSetAppZoom={props.onSetAppZoom}
             onSetLanguage={props.onSetLanguage}
+            onSetNewTabPreference={props.onSetNewTabPreference}
             onToggleRememberUnlock={props.onToggleRememberUnlock}
             onToggleLockOnExit={props.onToggleLockOnExit}
           />

@@ -11,6 +11,7 @@ export interface TabStripProps {
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
   readonly onNewTab?: () => void
+  readonly newTabDisabled?: boolean
 }
 
 const internalTabLabels: Readonly<
@@ -29,6 +30,7 @@ export function TabStrip({
   onCloseTab,
   onNavigate,
   onNewTab,
+  newTabDisabled,
 }: TabStripProps) {
   const internalDestination =
     productState.destination === 'tab' ? 'dashboard' : productState.destination
@@ -85,6 +87,7 @@ export function TabStrip({
         className="home-v2-new-tab"
         aria-label="New tab"
         title="New tab"
+        disabled={newTabDisabled}
         onClick={onNewTab}
       >
         +

@@ -66,6 +66,10 @@ preparation.
 - [x] Put Qortium first in public identity results on desktop and phone.
 - [x] Keep QDN app navigation in the existing browser address bar.
 - [x] Stop missing legacy avatars from presenting as long-running downloads.
+- [x] Add General, Appearance, and Account settings-section navigation.
+- [x] Persist a new-tab target of Search page, Dashboard, or a validated custom
+  Home/QDN app address without changing the saved-state version.
+- [x] Route custom new-tab targets through the guarded browser address pipeline.
 
 ## Required gates
 

@@ -22,6 +22,8 @@ export interface AppearanceSettingsPageProps {
   readonly onSetLanguage?: (language: HomeV2Language) => void
   readonly onToggleRememberUnlock?: () => void
   readonly onToggleLockOnExit?: () => void
+  readonly section?: 'account' | 'appearance' | 'all'
+  readonly showHeading?: boolean
 }
 
 function SettingRow({
@@ -54,30 +56,35 @@ export function AppearanceSettingsPage({
   onSetLanguage,
   onToggleRememberUnlock,
   onToggleLockOnExit,
+  section = 'all',
+  showHeading = true,
 }: AppearanceSettingsPageProps) {
   return (
     <section className="home-v2-settings-page">
-      <header className="home-v2-page-heading">
-        <h1>Settings</h1>
-      </header>
+      {showHeading ? (
+        <header className="home-v2-page-heading">
+          <h1>Settings</h1>
+        </header>
+      ) : null}
 
-      <section
-        className="home-v2-settings-panel"
-        aria-labelledby="appearance-title"
-      >
-        <div className="home-v2-settings-panel__heading">
-          <h2 id="appearance-title">Appearance</h2>
-          <p>Display settings apply to Home and supported QDN apps.</p>
-        </div>
-
-        <SettingRow
-          label="Theme"
-          description={
-            appearance.theme === 'system'
-              ? `Following system (${appearance.resolvedTheme}).`
-              : `Using ${appearance.resolvedTheme} mode.`
-          }
+      {section !== 'account' ? (
+        <section
+          className="home-v2-settings-panel"
+          aria-labelledby="appearance-title"
         >
+          <div className="home-v2-settings-panel__heading">
+            <h2 id="appearance-title">Appearance</h2>
+            <p>Display settings apply to Home and supported QDN apps.</p>
+          </div>
+
+          <SettingRow
+            label="Theme"
+            description={
+              appearance.theme === 'system'
+                ? `Following system (${appearance.resolvedTheme}).`
+                : `Using ${appearance.resolvedTheme} mode.`
+            }
+          >
           <select
             aria-label="Theme"
             value={appearance.theme}
@@ -92,9 +99,9 @@ export function AppearanceSettingsPage({
               </option>
             ))}
           </select>
-        </SettingRow>
+          </SettingRow>
 
-        <SettingRow
+          <SettingRow
           label="Accent"
           description="Used for focus, selection, and primary actions."
         >
@@ -122,9 +129,9 @@ export function AppearanceSettingsPage({
               ))}
             </select>
           </div>
-        </SettingRow>
+          </SettingRow>
 
-        <SettingRow
+          <SettingRow
           label="Text size"
           description="Changes interface and compatible app text."
         >
@@ -142,9 +149,9 @@ export function AppearanceSettingsPage({
               </option>
             ))}
           </select>
-        </SettingRow>
+          </SettingRow>
 
-        <SettingRow
+          <SettingRow
           label="Page zoom"
           description="Scales the complete browser and app surface."
         >
@@ -179,9 +186,9 @@ export function AppearanceSettingsPage({
               Reset
             </button>
           </div>
-        </SettingRow>
+          </SettingRow>
 
-        <SettingRow
+          <SettingRow
           label="Language"
           description="Uses the device language when set to System."
         >
@@ -199,10 +206,11 @@ export function AppearanceSettingsPage({
               </option>
             ))}
           </select>
-        </SettingRow>
-      </section>
+          </SettingRow>
+        </section>
+      ) : null}
 
-      {account.state !== 'none' ? (
+      {section !== 'appearance' && account.state !== 'none' ? (
         <section
           className="home-v2-settings-panel"
           aria-labelledby="account-security-title"

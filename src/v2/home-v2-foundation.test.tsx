@@ -28,6 +28,7 @@ import {
   buildAppResourceLocation,
   parseAppResourceLocation,
 } from './resource-location'
+import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
   createProductState,
   ProductModelError,
@@ -40,6 +41,7 @@ import {
   sanitizeHomeV2AppTitle,
 } from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
+import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
 import { PermissionDialog } from './shell/PermissionDialog'
 import {
@@ -1037,12 +1039,93 @@ function testStartupStatesAndAppearance(): void {
   assert.doesNotMatch(css, /#225b44/i)
 }
 
+function testSettingsScaffoldAndNewTabPreference(): void {
+  const settingsState = reduceProductState(createProductState(), {
+    type: 'navigate',
+    destination: 'settings',
+  })
+
+  for (const layout of ['desktop', 'phone'] as const) {
+    const html = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={settingsState}
+        permissionState={createPermissionState()}
+        layout={layout}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        onSetNewTabPreference={() => undefined}
+      />,
+    )
+    assert.match(html, new RegExp(`data-layout="${layout}"`))
+    assert.match(html, /aria-label="Settings sections"/)
+    const general = html.indexOf('>General</button>')
+    const appearance = html.indexOf('>Appearance</button>')
+    const account = html.indexOf('>Account</button>')
+    assert.notEqual(general, -1)
+    assert.notEqual(appearance, -1)
+    assert.notEqual(account, -1)
+    assert.ok(general < appearance && appearance < account)
+    assert.match(html, /aria-current="page">General<\/button>/)
+    assert.match(html, /<h2 id="general-settings-title">General<\/h2>/)
+    assert.match(html, />New tab</)
+    assert.match(html, /aria-label="New tab opens"/)
+    assert.match(html, /value="search" selected="">Search page<\/option>/)
+    assert.match(html, />Dashboard<\/option>/)
+    assert.match(html, />Custom address<\/option>/)
+    assert.doesNotMatch(html, /aria-label="Theme"/)
+    assert.doesNotMatch(html, /aria-label="Custom new-tab address"/)
+  }
+
+  const customHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      newTabPreference={{
+        address: 'qdn://APP/NameOnly',
+        kind: 'custom',
+      }}
+      onSetNewTabPreference={() => undefined}
+    />,
+  )
+  assert.match(customHtml, /aria-label="Custom new-tab address"/)
+  assert.ok(customHtml.includes('value="qdn://APP/NameOnly"'))
+  assert.match(customHtml, />Save</)
+
+  const noAccountHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{
+        ...homeV2Fixture,
+        account: {
+          ...homeV2Fixture.account,
+          state: 'none',
+          selectedIdentityId: null,
+        },
+      }}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="phone"
+    />,
+  )
+  assert.doesNotMatch(noAccountHtml, />Account<\/button>/)
+
+  const browserChromeSource = readFileSync(
+    'src/v2/shell/BrowserChrome.tsx',
+    'utf8',
+  )
+  assert.match(browserChromeSource, /newTabPreference\.kind === 'dashboard'/)
+  assert.match(browserChromeSource, /newTabPreference\.kind === 'custom'/)
+  assert.match(browserChromeSource, /setAddress\(newTabPreference\.address\)/)
+  assert.match(browserChromeSource, /newTabDisabled=\{navigationDisabled\}/)
+}
+
 function testAppearanceSettingsAndLegacyMigration(): void {
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',
     destination: 'settings',
   })
-  const html = renderToStaticMarkup(
+  const shellHtml = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={settingsState}
@@ -1050,14 +1133,20 @@ function testAppearanceSettingsAndLegacyMigration(): void {
       layout="desktop"
     />,
   )
+  const html = renderToStaticMarkup(
+    <AppearanceSettingsPage
+      appearance={homeV2Fixture.appearance}
+      account={homeV2Fixture.account}
+    />,
+  )
 
-  assert.match(html, /data-theme-preference="system"/)
-  assert.match(html, /data-accent="clay"/)
-  assert.match(html, /data-text-size="medium"/)
-  assert.match(html, /data-language="system"/)
-  assert.match(html, /data-resolved-language="en"/)
-  assert.match(html, /lang="en" dir="ltr"/)
-  assert.match(html, /--v2-app-zoom:1/)
+  assert.match(shellHtml, /data-theme-preference="system"/)
+  assert.match(shellHtml, /data-accent="clay"/)
+  assert.match(shellHtml, /data-text-size="medium"/)
+  assert.match(shellHtml, /data-language="system"/)
+  assert.match(shellHtml, /data-resolved-language="en"/)
+  assert.match(shellHtml, /lang="en" dir="ltr"/)
+  assert.match(shellHtml, /--v2-app-zoom:1/)
   assert.match(html, />Appearance</)
   assert.match(html, />Theme</)
   assert.match(html, />Accent</)
@@ -1079,18 +1168,13 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.doesNotMatch(html, />Modern</)
 
   const noAccountSettings = renderToStaticMarkup(
-    <HomeV2Prototype
-      snapshot={{
-        ...homeV2Fixture,
-        account: {
-          ...homeV2Fixture.account,
-          state: 'none',
-          selectedIdentityId: null,
-        },
+    <AppearanceSettingsPage
+      appearance={homeV2Fixture.appearance}
+      account={{
+        ...homeV2Fixture.account,
+        state: 'none',
+        selectedIdentityId: null,
       }}
-      productState={settingsState}
-      permissionState={createPermissionState()}
-      layout="desktop"
     />,
   )
   assert.doesNotMatch(noAccountSettings, />Account security</)
@@ -1790,6 +1874,7 @@ function testShellStateMigratesAddressSelection(): void {
       textSize: legacy.appearance.textSize,
       theme: legacy.appearance.theme,
     },
+    newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
     product: {
@@ -1834,6 +1919,7 @@ testDesktopAndPhoneContracts()
 testDualIdentityLookupContract()
 testProductMarkAssetsAndColorOwnership()
 testStartupStatesAndAppearance()
+testSettingsScaffoldAndNewTabPreference()
 testAppearanceSettingsAndLegacyMigration()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()

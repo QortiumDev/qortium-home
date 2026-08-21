@@ -49,6 +49,13 @@ showing a long-running spinner. Home first verifies that the named avatar
 resource exists, preserves bounded background loading for published images
 that are not local yet, and applies the same behavior on desktop and Android.
 
+Settings now has a small section navigator for General, Appearance, and the
+active account. General can choose whether the plus button opens the Search
+page, Dashboard, or a custom Home/QDN app address, and the choice is restored
+on the next launch. Custom addresses are checked before saving and then use the
+same guarded address bar flow as addresses entered by hand, including its
+identifier choices and error messages.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

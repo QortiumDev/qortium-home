@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { HomeV2Snapshot, NetworkId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
+import {
+  DEFAULT_NEW_TAB_PREFERENCE,
+  type NewTabPreference,
+} from '../new-tab-preference'
 import { networkLabels } from './NetworkBadge'
 import { NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
@@ -24,6 +28,8 @@ export interface BrowserChromeProps {
   readonly onGoBack?: () => void
   readonly onGoForward?: () => void
   readonly onReload?: () => void
+  readonly navigationDisabled?: boolean
+  readonly newTabPreference?: NewTabPreference
 }
 
 export type AddressOpenResult =
@@ -77,6 +83,8 @@ export function BrowserChrome({
   onGoBack,
   onGoForward,
   onReload,
+  navigationDisabled = false,
+  newTabPreference = DEFAULT_NEW_TAB_PREFERENCE,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(productState)
   const [address, setAddress] = useState(currentAddress)
@@ -95,7 +103,7 @@ export function BrowserChrome({
     setWidgetError(null)
   }, [currentAddress])
   const submitAddress = async (requestedAddress = address) => {
-    if (!onOpenAddress) return
+    if (!onOpenAddress || navigationDisabled) return
     const request = addressRequest.current + 1
     addressRequest.current = request
     setAddressBusy(true)
@@ -115,6 +123,19 @@ export function BrowserChrome({
       if (addressRequest.current === request) setAddressBusy(false)
     }
   }
+  const openNewTab = () => {
+    if (navigationDisabled) return
+    if (newTabPreference.kind === 'dashboard') {
+      onNavigate?.('dashboard')
+      return
+    }
+    if (newTabPreference.kind === 'custom') {
+      setAddress(newTabPreference.address)
+      void submitAddress(newTabPreference.address)
+      return
+    }
+    onNavigate?.('newtab')
+  }
   return (
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">
@@ -123,7 +144,8 @@ export function BrowserChrome({
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
           onNavigate={onNavigate}
-          onNewTab={() => onNavigate?.('newtab')}
+          onNewTab={openNewTab}
+          newTabDisabled={navigationDisabled}
         />
       </div>
       <div className="home-v2-browser-toolbar">
@@ -158,6 +180,7 @@ export function BrowserChrome({
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Address and search"
+            disabled={navigationDisabled}
             spellCheck={false}
             value={address}
             onChange={(event) => {
@@ -172,7 +195,7 @@ export function BrowserChrome({
             type="submit"
             aria-label="Go to address"
             title="Go to address"
-            disabled={addressBusy}
+            disabled={navigationDisabled || addressBusy}
           >
             {addressBusy ? 'Finding…' : 'Go'}
           </button>
@@ -186,6 +209,7 @@ export function BrowserChrome({
               <div className="home-v2-address__choice">
                 <select
                   aria-label="App resource identifier"
+                  disabled={navigationDisabled}
                   value={selectedChoice}
                   onChange={(event) => setSelectedChoice(event.target.value)}
                 >
@@ -197,7 +221,7 @@ export function BrowserChrome({
                 </select>
                 <button
                   type="button"
-                  disabled={!selectedChoice || addressBusy}
+                  disabled={navigationDisabled || !selectedChoice || addressBusy}
                   onClick={() => {
                     setAddress(selectedChoice)
                     void submitAddress(selectedChoice)
