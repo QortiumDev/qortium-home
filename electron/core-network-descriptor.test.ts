@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {
   QORTIUM_CORE_DESCRIPTOR,
+  QORTAL_CORE_DESCRIPTOR,
   getCoreApiKeyPath,
   getCoreFallbackSettingsPath,
   getCoreGithubApiBaseUrl,
@@ -12,7 +13,9 @@ import {
   getCoreHelperScriptPaths,
   getCoreHelperStartArguments,
   getCoreHelperStopArguments,
+  getCoreDirectJarArguments,
   getCoreLsofPidArgs,
+  getCoreSettingsPath,
   matchesCoreName,
   matchesCoreJarName,
   matchesCoreSettingsName,
@@ -34,7 +37,6 @@ assert.deepEqual(descriptor.localApi, {
   infoPath: '/admin/info',
   statusPath: '/admin/status',
   stopPath: '/admin/stop',
-  updatePath: '/admin/update',
   url: 'http://127.0.0.1:24891',
 });
 assert.deepEqual(descriptor.releaseChannels, {
@@ -93,14 +95,20 @@ assert.deepEqual(descriptor.managedI2p, {
   allowedTransportsField: 'allowedTransports',
   kind: 'runtime-settings',
 });
-assert.equal(descriptor.onChainUpdateStatusShape, 'qortium-v1');
+assert.deepEqual(descriptor.update, {
+  kind: 'admin-endpoint',
+  path: '/admin/update',
+  statusShape: 'qortium-v1',
+});
 assert.deepEqual(descriptor.storage, {
   currentCoreFileName: 'current.json',
   currentJavaFileName: 'current-java.json',
   dataDirectoryName: 'qortium-core',
   installDirectoryName: 'install',
   legacyDataDirectoryName: 'managed-core',
+  legacyManagedJavaDataDirectoryName: 'managed-core',
   logFileName: 'qortium.log',
+  managedJavaDataDirectoryName: 'qortium-core',
   runtimeChainFileName: 'runtime-chain.json',
   runtimeDirectoryName: 'runtime',
   runtimeEntryNames: [
@@ -225,6 +233,10 @@ assert.deepEqual(paths, {
   runtimePath: '/home/alice/.config/qortium-core/runtime',
 });
 assert.equal(
+  getCoreSettingsPath(descriptor, paths),
+  '/home/alice/.config/qortium-core/runtime/settings-preview-local.json',
+);
+assert.equal(
   resolveCoreDescriptorPaths(descriptor, {
     appDataPath: '/home/alice/.config',
     runtimeOverride: ' /srv/qortium-runtime ',
@@ -271,4 +283,117 @@ assert.deepEqual(getCoreHelperStopArguments(descriptor, '/srv/qortium/runtime'),
   '--runtime-dir=/srv/qortium/runtime',
 ]);
 
-console.log('Core network descriptor Qortium parity tests passed.');
+const qortal = QORTAL_CORE_DESCRIPTOR;
+
+assert.equal(qortal.id, 'qortal');
+assert.equal(qortal.label, 'Qortal');
+assert.deepEqual(qortal.github, {
+  apiRoot: 'https://api.github.com',
+  repository: 'Qortal/qortal',
+  userAgent: 'QortiumHome/1.0',
+});
+assert.deepEqual(qortal.localApi, {
+  infoPath: '/admin/info',
+  statusPath: '/admin/status',
+  stopPath: '/admin/stop',
+  url: 'http://127.0.0.1:12391',
+});
+assert.deepEqual(qortal.update, {
+  defaultEnabled: true,
+  kind: 'native-setting',
+  settingPath: '/admin/settings/autoUpdateEnabled',
+});
+assert.deepEqual(qortal.package, {
+  assetName: 'qortal.jar',
+  digestPolicy: 'required',
+  jarFileName: 'qortal.jar',
+  kind: 'bare-jar',
+});
+assert.deepEqual(qortal.releaseChannels, {
+  defaultChannel: 'stable',
+  kind: 'github-stable-only',
+  matchingReleasePageSize: 100,
+});
+assert.deepEqual(qortal.bootstrap, { kind: 'snapshot' });
+assert.deepEqual(qortal.chain, { kind: 'none' });
+assert.deepEqual(qortal.managedI2p, { kind: 'none' });
+assert.equal(qortal.runtimeSplit, false);
+assert.deepEqual(qortal.settings, { fileName: 'settings.json', location: 'cwd' });
+assert.equal(matchesCoreJarName(qortal, 'qortal.jar'), true);
+assert.equal(matchesCoreJarName(qortal, 'QORTAL.JAR'), true);
+assert.equal(matchesCoreJarName(qortal, 'qortal.zip'), false);
+assert.equal(matchesCoreJarName(qortal, 'qortium.jar'), false);
+assert.deepEqual(
+  resolveCoreProcessPaths(qortal, ['java', '-jar', './qortal.jar', './settings-local.json'], '/srv/qortal'),
+  {
+    jarPath: '/srv/qortal/qortal.jar',
+    settingsPath: '/srv/qortal/settings-local.json',
+  },
+);
+assert.deepEqual(resolveCoreProcessPaths(qortal, ['java', '-jar', './qortal.jar'], '/srv/qortal'), {
+  jarPath: '/srv/qortal/qortal.jar',
+  settingsPath: '/srv/qortal/settings.json',
+});
+assert.deepEqual(
+  resolveCoreProcessPaths(qortal, ['java', '-jar', '/opt/qortal/qortal.jar'], '/srv/qortal-data'),
+  {
+    jarPath: '/opt/qortal/qortal.jar',
+    settingsPath: '/srv/qortal-data/settings.json',
+  },
+);
+assert.deepEqual(getCoreLsofPidArgs(qortal), [
+  '-nP',
+  '-iTCP:12391',
+  '-sTCP:LISTEN',
+  '-t',
+]);
+assert.equal(getCoreApiKeyPath(qortal, '/srv/qortal'), '/srv/qortal/apikey.txt');
+assert.equal(resolveCoreApiKeyDirectory(qortal, {}, '/srv/qortal'), '/srv/qortal');
+assert.equal(getCoreGithubLatestReleaseUrl(qortal), 'https://api.github.com/repos/Qortal/qortal/releases/latest');
+assert.equal(
+  getCoreGithubReleasesUrl(qortal, qortal.releaseChannels.matchingReleasePageSize),
+  'https://api.github.com/repos/Qortal/qortal/releases?per_page=100',
+);
+assert.deepEqual(
+  getCoreDirectJarArguments(qortal, '/srv/qortal/qortal.jar', '/srv/qortal/settings.json'),
+  [
+    '-Djava.net.preferIPv4Stack=false',
+    '-XX:MaxRAMPercentage=50',
+    '-XX:+UseG1GC',
+    '-Xss1024k',
+    '-jar',
+    '/srv/qortal/qortal.jar',
+    '/srv/qortal/settings.json',
+  ],
+);
+assert.throws(
+  () => getCoreDirectJarArguments(descriptor, '/srv/qortium/qortium.jar', '/srv/qortium/settings.json'),
+  /does not use direct JAR launch/,
+);
+assert.throws(
+  () => getCoreHelperStartArguments(qortal, '/srv/qortal'),
+  /does not use helper scripts/,
+);
+
+const qortalPaths = resolveCoreDescriptorPaths(qortal, {
+  appDataPath: '/home/alice/.config',
+  userDataPath: '/home/alice/.config/Qortium Home',
+});
+assert.equal(qortalPaths.basePath, '/home/alice/.config/qortal-core');
+assert.equal(qortalPaths.installPath, '/home/alice/.config/qortal-core/install');
+assert.equal(qortalPaths.runtimePath, qortalPaths.installPath);
+assert.equal(qortalPaths.currentJavaPath, '/home/alice/.config/qortium-core/java/current-java.json');
+assert.equal(qortalPaths.javaBasePath, paths.javaBasePath);
+assert.equal(qortalPaths.legacyJavaBasePath, paths.legacyJavaBasePath);
+assert.equal(qortalPaths.legacyBasePath, null);
+assert.equal(getCoreSettingsPath(qortal, qortalPaths), '/home/alice/.config/qortal-core/install/settings.json');
+assert.equal(
+  resolveCoreDescriptorPaths(qortal, {
+    appDataPath: '/home/alice/.config',
+    runtimeOverride: '/tmp/must-not-split',
+    userDataPath: '/home/alice/.config/Qortium Home',
+  }).runtimePath,
+  qortalPaths.installPath,
+);
+
+console.log('Core network descriptor Qortium parity and Qortal contract tests passed.');

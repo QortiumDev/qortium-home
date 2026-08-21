@@ -2339,7 +2339,7 @@ async function requestManagedCoreUpdate(installedCore: InstalledCore, method: 'G
 
   try {
     const response = await fetch(
-      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.updatePath}`,
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.update.path}`,
       {
         headers: { 'X-API-KEY': apiKey },
         method,
@@ -3322,7 +3322,7 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
 
     try {
       const response = await fetch(
-        `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.updatePath}`,
+        `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.update.path}`,
         {
           headers: { 'X-API-KEY': apiKey },
           signal: abortController.signal,

@@ -82,6 +82,11 @@ preparation.
   downgrade confirmations, and operation locks per network, and by registering
   the existing Qortium manager as the only production entry. Unimplemented
   networks fail closed, and no Core controls are exposed to Home 2 yet.
+- [x] Add the E2 Qortal descriptor and stable-release trust boundary: exact
+  `qortal.jar`, mandatory SHA-256 metadata, positive declared size, fixed Qortal
+  GitHub URL, direct-JAR launch, shared managed Java, native update-setting
+  ownership, and no fabricated `/admin/update` capability. Manager registration,
+  download/install transactions, and adoption remain subsequent E2/E3 work.
 
 ## Required gates
 

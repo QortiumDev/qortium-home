@@ -81,6 +81,15 @@ Qortal manager fails closed until its real release and adoption pipelines are
 added. The classic Qortium controls now enter through that registered manager,
 while Home 2 still receives no Core-management preload or IPC capability.
 
+The Qortal side now has its own truthful descriptor and strict stable-release
+selector. Home recognizes Qortal's direct `qortal.jar` launch, normal API and
+stop endpoints, shared managed Java location, snapshot bootstrap, and native
+auto-update setting without claiming that Qortal implements Qortium's
+`/admin/update` API. A release qualifies only when one exact `qortal.jar` asset
+has a mandatory SHA-256 digest, positive safe size, and the matching official
+Qortal GitHub download URL. Download, installation, adoption, and UI wiring are
+still deliberately absent at this foundation stage.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

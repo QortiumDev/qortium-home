@@ -60,6 +60,7 @@ export type CoreZipWithPreviewHelpersPackage = {
 
 export type CoreBareJarPackage = {
   readonly assetName: string;
+  readonly digestPolicy: 'required';
   readonly jarFileName: string;
   readonly kind: 'bare-jar';
 };
@@ -121,7 +122,6 @@ export type CoreNetworkDescriptor = {
     readonly infoPath: string;
     readonly statusPath: string;
     readonly stopPath: string;
-    readonly updatePath: string;
     readonly url: string;
   };
   readonly managedI2p: {
@@ -130,7 +130,6 @@ export type CoreNetworkDescriptor = {
   } | {
     readonly kind: 'none';
   };
-  readonly onChainUpdateStatusShape: 'qortium-v1' | 'qortal-v1';
   readonly package: CorePackageStrategy;
   readonly processProbe: CoreProcessProbeDescriptor;
   readonly releaseChannels: {
@@ -141,6 +140,7 @@ export type CoreNetworkDescriptor = {
   } | {
     readonly defaultChannel: 'stable';
     readonly kind: 'github-stable-only';
+    readonly matchingReleasePageSize: number;
   };
   readonly runtimeSplit: boolean;
   readonly settings: {
@@ -153,12 +153,23 @@ export type CoreNetworkDescriptor = {
     readonly dataDirectoryName: string;
     readonly installDirectoryName: string;
     readonly legacyDataDirectoryName: string | null;
+    readonly legacyManagedJavaDataDirectoryName: string | null;
     readonly logFileName: string;
-    readonly runtimeChainFileName: string;
-    readonly runtimeDirectoryName: string;
+    readonly managedJavaDataDirectoryName: string;
+    readonly runtimeChainFileName: string | null;
+    readonly runtimeDirectoryName: string | null;
     readonly runtimeEntryNames: readonly string[];
-    readonly runtimeMigrationBlockedFileName: string;
+    readonly runtimeMigrationBlockedFileName: string | null;
     readonly runtimeOverrideEnvironmentVariable: string | null;
+  };
+  readonly update: {
+    readonly kind: 'admin-endpoint';
+    readonly path: string;
+    readonly statusShape: 'qortium-v1';
+  } | {
+    readonly defaultEnabled: boolean;
+    readonly kind: 'native-setting';
+    readonly settingPath: string;
   };
 };
 
@@ -242,14 +253,12 @@ export const QORTIUM_CORE_DESCRIPTOR = {
     infoPath: '/admin/info',
     statusPath: '/admin/status',
     stopPath: '/admin/stop',
-    updatePath: '/admin/update',
     url: 'http://127.0.0.1:24891',
   },
   managedI2p: {
     allowedTransportsField: 'allowedTransports',
     kind: 'runtime-settings',
   },
-  onChainUpdateStatusShape: 'qortium-v1',
   package: {
     fallbackAssetNameMatcher: {
       caseInsensitive: true,
@@ -302,7 +311,9 @@ export const QORTIUM_CORE_DESCRIPTOR = {
     dataDirectoryName: 'qortium-core',
     installDirectoryName: 'install',
     legacyDataDirectoryName: 'managed-core',
+    legacyManagedJavaDataDirectoryName: 'managed-core',
     logFileName: 'qortium.log',
+    managedJavaDataDirectoryName: 'qortium-core',
     runtimeChainFileName: 'runtime-chain.json',
     runtimeDirectoryName: 'runtime',
     runtimeEntryNames: [
@@ -323,6 +334,97 @@ export const QORTIUM_CORE_DESCRIPTOR = {
     ],
     runtimeMigrationBlockedFileName: 'runtime-migration-blocked.json',
     runtimeOverrideEnvironmentVariable: 'QORTIUM_HOME_CORE_RUNTIME_DIR',
+  },
+  update: {
+    kind: 'admin-endpoint',
+    path: '/admin/update',
+    statusShape: 'qortium-v1',
+  },
+} as const satisfies CoreNetworkDescriptor;
+
+export const QORTAL_CORE_DESCRIPTOR = {
+  bootstrap: { kind: 'snapshot' },
+  chain: { kind: 'none' },
+  github: {
+    apiRoot: 'https://api.github.com',
+    repository: 'Qortal/qortal',
+    userAgent: 'QortiumHome/1.0',
+  },
+  id: 'qortal',
+  label: 'Qortal',
+  launch: {
+    javaArguments: [
+      '-Djava.net.preferIPv4Stack=false',
+      '-XX:MaxRAMPercentage=50',
+      '-XX:+UseG1GC',
+      '-Xss1024k',
+    ],
+    kind: 'direct-jar',
+  },
+  localApi: {
+    infoPath: '/admin/info',
+    statusPath: '/admin/status',
+    stopPath: '/admin/stop',
+    url: 'http://127.0.0.1:12391',
+  },
+  managedI2p: { kind: 'none' },
+  package: {
+    assetName: 'qortal.jar',
+    digestPolicy: 'required',
+    jarFileName: 'qortal.jar',
+    kind: 'bare-jar',
+  },
+  processProbe: {
+    apiKeyFileName: 'apikey.txt',
+    apiKeyPathField: 'apiKeyPath',
+    apiPort: 12391,
+    fallbackSettingsFileName: 'settings.json',
+    jarArgument: '-jar',
+    jarNameMatcher: {
+      caseInsensitive: true,
+      kind: 'exact',
+      value: 'qortal.jar',
+    },
+    missingApiKeyPathFallback: 'cwd',
+    openSettingsNameMatcher: {
+      caseInsensitive: true,
+      kind: 'prefix-suffix',
+      prefix: 'settings',
+      suffix: '.json',
+    },
+    relativeApiKeyPathBase: 'cwd',
+    settingsArgumentOffsetFromJarFlag: 2,
+    settingsRequired: false,
+  },
+  releaseChannels: {
+    defaultChannel: 'stable',
+    kind: 'github-stable-only',
+    matchingReleasePageSize: 100,
+  },
+  runtimeSplit: false,
+  settings: {
+    fileName: 'settings.json',
+    location: 'cwd',
+  },
+  storage: {
+    currentCoreFileName: 'current.json',
+    currentJavaFileName: 'current-java.json',
+    dataDirectoryName: 'qortal-core',
+    installDirectoryName: 'install',
+    legacyDataDirectoryName: null,
+    legacyManagedJavaDataDirectoryName: 'managed-core',
+    logFileName: 'qortal.log',
+    managedJavaDataDirectoryName: 'qortium-core',
+    runtimeChainFileName: null,
+    runtimeDirectoryName: null,
+    runtimeEntryNames: [],
+    runtimeMigrationBlockedFileName: null,
+    runtimeOverrideEnvironmentVariable: null,
+  },
+  update: {
+    defaultEnabled: true,
+    kind: 'native-setting',
+    settingPath: '/admin/settings/autoUpdateEnabled',
   },
 } as const satisfies CoreNetworkDescriptor;
 
@@ -375,9 +477,16 @@ export function resolveCoreProcessPaths(
     return null;
   }
 
+  const resolvedJarPath = path.isAbsolute(jarPath) ? jarPath : path.resolve(cwd, jarPath);
+  const resolvedSettingsPath = settingsPath
+    ? path.isAbsolute(settingsPath)
+      ? settingsPath
+      : path.resolve(cwd, settingsPath)
+    : path.join(cwd, descriptor.settings.fileName);
+
   return {
-    jarPath: path.isAbsolute(jarPath) ? jarPath : path.resolve(cwd, jarPath),
-    settingsPath: path.isAbsolute(settingsPath) ? settingsPath : path.resolve(cwd, settingsPath),
+    jarPath: resolvedJarPath,
+    settingsPath: resolvedSettingsPath,
   };
 }
 
@@ -405,6 +514,16 @@ export function getCoreFallbackSettingsPath(descriptor: CoreNetworkDescriptor, j
   return path.join(path.dirname(jarPath), descriptor.processProbe.fallbackSettingsFileName);
 }
 
+export function getCoreSettingsPath(
+  descriptor: CoreNetworkDescriptor,
+  paths: Pick<CoreDescriptorPaths, 'installPath' | 'runtimePath'>,
+) {
+  return path.join(
+    descriptor.settings.location === 'runtime' ? paths.runtimePath : paths.installPath,
+    descriptor.settings.fileName,
+  );
+}
+
 export function getCoreLsofPidArgs(descriptor: CoreNetworkDescriptor) {
   return ['-nP', `-iTCP:${descriptor.processProbe.apiPort}`, '-sTCP:LISTEN', '-t'];
 }
@@ -417,16 +536,23 @@ export function resolveCoreDescriptorPaths(
   const legacyBasePath = descriptor.storage.legacyDataDirectoryName
     ? path.join(context.userDataPath, descriptor.storage.legacyDataDirectoryName)
     : null;
-  const javaBasePath = path.join(basePath, 'java');
-  const legacyJavaBasePath = legacyBasePath ? path.join(legacyBasePath, 'java') : null;
+  const javaBasePath = path.join(
+    context.appDataPath,
+    descriptor.storage.managedJavaDataDirectoryName,
+    'java',
+  );
+  const legacyJavaBasePath = descriptor.storage.legacyManagedJavaDataDirectoryName
+    ? path.join(context.userDataPath, descriptor.storage.legacyManagedJavaDataDirectoryName, 'java')
+    : null;
   const runtimeOverride = context.runtimeOverride?.trim();
+  const installPath = path.join(basePath, descriptor.storage.installDirectoryName);
 
   return {
     basePath,
     currentCorePath: path.join(basePath, descriptor.storage.currentCoreFileName),
     currentJavaPath: path.join(javaBasePath, descriptor.storage.currentJavaFileName),
     downloadsPath: path.join(basePath, 'downloads'),
-    installPath: path.join(basePath, descriptor.storage.installDirectoryName),
+    installPath,
     javaBasePath,
     javaVersionsPath: path.join(javaBasePath, 'versions'),
     legacyBasePath,
@@ -437,9 +563,11 @@ export function resolveCoreDescriptorPaths(
       ? path.join(legacyJavaBasePath, descriptor.storage.currentJavaFileName)
       : null,
     legacyJavaBasePath,
-    runtimePath: runtimeOverride
+    runtimePath: descriptor.runtimeSplit && runtimeOverride
       ? path.resolve(runtimeOverride)
-      : path.join(basePath, descriptor.storage.runtimeDirectoryName),
+      : descriptor.runtimeSplit && descriptor.storage.runtimeDirectoryName
+        ? path.join(basePath, descriptor.storage.runtimeDirectoryName)
+        : installPath,
   };
 }
 
@@ -471,6 +599,24 @@ function assertHelperScriptsLaunch(
   }
 
   return descriptor.launch;
+}
+
+function assertDirectJarLaunch(descriptor: CoreNetworkDescriptor): CoreDirectJarLaunchStrategy {
+  if (descriptor.launch.kind !== 'direct-jar') {
+    throw new Error(`${descriptor.label} Core does not use direct JAR launch.`);
+  }
+
+  return descriptor.launch;
+}
+
+export function getCoreDirectJarArguments(
+  descriptor: CoreNetworkDescriptor,
+  jarPath: string,
+  settingsPath: string,
+) {
+  const launch = assertDirectJarLaunch(descriptor);
+
+  return [...launch.javaArguments, descriptor.processProbe.jarArgument, jarPath, settingsPath];
 }
 
 export function getCoreHelperScriptPaths(
