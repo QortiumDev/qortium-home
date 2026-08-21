@@ -70,6 +70,11 @@ preparation.
 - [x] Persist a new-tab target of Search page, Dashboard, or a validated custom
   Home/QDN app address without changing the saved-state version.
 - [x] Route custom new-tab targets through the guarded browser address pipeline.
+- [x] Reuse Home's shared localization runtime for Home 2's static,
+  component-owned shell copy, with complete catalog and placeholder parity
+  across all 23 languages.
+- [x] Apply language and text direction at the Home 2 root, including lazy
+  catalog updates, persisted settings, and packaged Arabic RTL coverage.
 
 ## Required gates
 

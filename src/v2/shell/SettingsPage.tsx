@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { t } from '../../i18n'
 import type { HomeV2AppearanceSettings } from '../appearance'
 import type { AccountSessionSummary } from '../contracts'
 import {
@@ -51,10 +52,8 @@ function GeneralSettings({
       onSetNewTabPreference?.({ address, kind: 'custom' })
       setCustomAddress(address)
       setError(null)
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'The new-tab address is invalid.',
-      )
+    } catch {
+      setError(t('home2.settings.invalidNewTabAddress'))
     }
   }
 
@@ -64,31 +63,31 @@ function GeneralSettings({
       aria-labelledby="general-settings-title"
     >
       <div className="home-v2-settings-panel__heading">
-        <h2 id="general-settings-title">General</h2>
-        <p>Choose what Home opens when you press the plus button.</p>
+        <h2 id="general-settings-title">{t('home2.settings.general')}</h2>
+        <p>{t('home2.settings.newTabDescription')}</p>
       </div>
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
-          <strong>New tab</strong>
-          <span>QDN app addresses open through the browser address bar.</span>
+          <strong>{t('home2.settings.newTab')}</strong>
+          <span>{t('home2.settings.newTabHelp')}</span>
         </div>
         <div className="home-v2-setting-row__control home-v2-new-tab-setting">
           <select
-            aria-label="New tab opens"
+            aria-label={t('home2.settings.newTabOpens')}
             disabled={!onSetNewTabPreference}
             value={selectedKind}
             onChange={(event) =>
               selectKind(event.target.value as NewTabPreference['kind'])
             }
           >
-            <option value="search">Search page</option>
-            <option value="dashboard">Dashboard</option>
-            <option value="custom">Custom address</option>
+            <option value="search">{t('home2.settings.searchPage')}</option>
+            <option value="dashboard">{t('common.dashboard')}</option>
+            <option value="custom">{t('home2.settings.customAddress')}</option>
           </select>
           {selectedKind === 'custom' ? (
             <div className="home-v2-new-tab-custom-address">
               <input
-                aria-label="Custom new-tab address"
+                aria-label={t('home2.settings.customAddressLabel')}
                 autoComplete="off"
                 disabled={!onSetNewTabPreference}
                 placeholder="qdn://APP/Help or home://dashboard"
@@ -105,7 +104,7 @@ function GeneralSettings({
                 disabled={!onSetNewTabPreference || !customAddress.trim()}
                 onClick={saveCustomAddress}
               >
-                Save
+                {t('common.save')}
               </button>
             </div>
           ) : null}
@@ -122,20 +121,23 @@ export function SettingsPage(props: SettingsPageProps) {
     readonly id: HomeV2SettingsSectionId
     readonly label: string
   }> = [
-    { id: 'general', label: 'General' },
-    { id: 'appearance', label: 'Appearance' },
+    { id: 'general', label: t('home2.settings.general') },
+    { id: 'appearance', label: t('home2.settings.appearance') },
     ...(props.account.state === 'none'
       ? []
-      : [{ id: 'account' as const, label: 'Account' }]),
+      : [{ id: 'account' as const, label: t('account.menuLabel') }]),
   ]
 
   return (
     <section className="home-v2-settings-shell">
       <header className="home-v2-page-heading">
-        <h1>Settings</h1>
+        <h1>{t('common.settings')}</h1>
       </header>
       <div className="home-v2-settings-layout">
-        <nav className="home-v2-settings-nav" aria-label="Settings sections">
+        <nav
+          className="home-v2-settings-nav"
+          aria-label={t('home2.settings.sections')}
+        >
           {sections.map((candidate) => (
             <button
               type="button"

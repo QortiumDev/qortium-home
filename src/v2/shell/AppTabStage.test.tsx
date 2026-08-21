@@ -13,6 +13,10 @@
 import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import {
+  setTranslationLanguage,
+  subscribeTranslationChange,
+} from '../../i18n'
 import { AppTabStage, androidAppStageKey } from './AppTabStage'
 import { createProductState, reduceProductState } from '../product-model'
 import type { ProductState } from '../product-model'
@@ -364,10 +368,14 @@ async function testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp(): Promise<v
     },
   })
 
-  const renderStage = (snapshot: HomeV2Snapshot) => {
+  const renderStage = (
+    snapshot: HomeV2Snapshot,
+    translationVersion = 0,
+  ) => {
     root.render(React.createElement(AppTabStage, {
       productState: withAActive,
       snapshot,
+      translationVersion,
       requestApp: async () => null,
     }))
   }
@@ -394,6 +402,23 @@ async function testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp(): Promise<v
   assert.equal(container.querySelector('.home-v2-app-stage__status')?.textContent, 'Checking Qortium…')
   assert.equal(container.querySelector('.home-v2-app-stage__error'), null)
   assert.equal(showCalls.length, 0, 'the app view must wait for the initial node check')
+
+  await new Promise<void>((resolve) => {
+    const unsubscribe = subscribeTranslationChange(() => {
+      unsubscribe()
+      resolve()
+    })
+    setTranslationLanguage('fr')
+  })
+  await act(async () => {
+    renderStage(checkingSnapshot, 1)
+    await flushAsync()
+  })
+  assert.equal(
+    container.querySelector('.home-v2-app-stage__status')?.textContent,
+    'Vérification de Qortium…',
+    'a lazy-catalog revision must refresh memoized app-stage copy',
+  )
 
   const unavailableSnapshot: HomeV2Snapshot = {
     ...checkingSnapshot,

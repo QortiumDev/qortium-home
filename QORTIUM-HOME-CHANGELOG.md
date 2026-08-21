@@ -56,6 +56,15 @@ on the next launch. Custom addresses are checked before saving and then use the
 same guarded address bar flow as addresses entered by hand, including its
 identifier choices and error messages.
 
+Home 2's static browser chrome, new-tab page, Dashboard, Settings, account and
+permission controls, resource viewer, and component fallback labels now use
+the shared Home translation runtime. All 23 existing language catalogs carry
+the same Home 2 keys and placeholders, a language change updates lazy-loaded
+copy without restarting, and right-to-left languages set the shell direction
+as well as its text. Runtime-generated permission, identity, and node details
+remain a separate localization step. Existing language values exposed to QDN
+apps are unchanged.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

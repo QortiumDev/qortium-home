@@ -12,6 +12,7 @@ import type {
   HomeV2AppRequestContext,
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
+import { t } from '../../i18n'
 import {
   getHomeV2AppNetwork,
   getHomeV2BridgeStateDetails,
@@ -42,7 +43,9 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   if (!tab) throw new Error('No active app tab was selected.')
   const node = snapshot.nodes[tab.context.sourceNetwork]
   if (!node.capabilities.read || !node.nodeApiUrl) {
-    throw new Error(node.error ?? `${tab.context.sourceNetwork} is unavailable.`)
+    throw new Error(node.error ?? t('home2.app.networkUnavailable', {
+      network: tab.context.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium',
+    }))
   }
   const resource = parseAppResourceLocation(tab.context.resourceLocation)
   const name = resource.identity.name
@@ -63,7 +66,11 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   }
 }
 
-function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot) {
+function useResolvedRender(
+  productState: ProductState,
+  snapshot: HomeV2Snapshot,
+  translationVersion = 0,
+) {
   const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
   const node = tab ? snapshot.nodes[tab.context.sourceNetwork] : null
   const nodeChecking = node?.state === 'unknown' && node.lastCheckedAt === null && !node.error
@@ -77,13 +84,13 @@ function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot)
   return useMemo(() => {
     if (nodeChecking) {
       const networkLabel = tab?.context.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'
-      return { error: null, status: `Checking ${networkLabel}…`, value: null }
+      return { error: null, status: t('home2.app.checkingNetwork', { network: networkLabel }), value: null }
     }
     try {
       return { error: null, status: null, value: resolveRender(productState, snapshot) }
     } catch (cause) {
       return {
-        error: cause instanceof Error ? cause.message : 'Unable to open this app.',
+        error: cause instanceof Error ? cause.message : t('home2.app.unableToOpen'),
         status: null,
         value: null,
       }
@@ -101,6 +108,7 @@ function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot)
     node?.nodeApiUrl,
     nodeChecking,
     productState.activeTabId,
+    translationVersion,
     tab?.context.identityId,
     tab?.context.resourceLocation,
     tab?.context.sourceNetwork,
@@ -113,7 +121,11 @@ function DesktopAppStage(props: AppTabStageProps) {
   const resolvedTabIdRef = useRef<string | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [snapshotUrl, setSnapshotUrl] = useState('')
-  const resolution = useResolvedRender(props.productState, props.snapshot)
+  const resolution = useResolvedRender(
+    props.productState,
+    props.snapshot,
+    props.translationVersion,
+  )
   const resolved = resolution.value
 
   suspendedRef.current = props.suspended === true
@@ -209,7 +221,7 @@ function DesktopAppStage(props: AppTabStageProps) {
           if (!cancelled) setSnapshotUrl('')
         })
         .catch((cause: unknown) => {
-          if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : 'Unable to load this app.')
+          if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : t('home2.app.unableToLoad'))
         })
     }
     show()
@@ -247,7 +259,11 @@ function AndroidAppStage(props: AppTabStageProps) {
     crypto.getRandomValues(new Uint8Array(18)),
     (byte) => byte.toString(16).padStart(2, '0'),
   ).join(''))
-  const resolution = useResolvedRender(props.productState, props.snapshot)
+  const resolution = useResolvedRender(
+    props.productState,
+    props.snapshot,
+    props.translationVersion,
+  )
   const resolved = resolution.value
 
   // Fix A (finding 1) live-resource tracking: on Android every app on a node
@@ -368,7 +384,7 @@ function AndroidAppStage(props: AppTabStageProps) {
         setSource(proxied.toString())
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : 'Unable to prepare the app view.')
+        if (!cancelled) setRuntimeError(cause instanceof Error ? cause.message : t('home2.app.unableToPrepareView'))
       })
     return () => { cancelled = true }
   }, [props.reloadVersion, resolved, token])
@@ -530,7 +546,7 @@ function AndroidAppStage(props: AppTabStageProps) {
       ref={frameRef}
       className="home-v2-app-frame"
       src={source}
-      title="QDN app"
+      title={t('home2.app.frameTitle')}
     /> : null}
     {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
@@ -552,6 +568,7 @@ export interface AppTabNavigationController {
 export interface AppTabStageProps {
   readonly productState: ProductState
   readonly snapshot: HomeV2Snapshot
+  readonly translationVersion?: number
   readonly nodeClient?: HomeV2NodeClient | null
   readonly selectedAccountId?: string | null
   readonly reloadVersion?: number

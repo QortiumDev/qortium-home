@@ -19,6 +19,10 @@ const screenshotPath = path.resolve(
   process.env.QORTIUM_HOME_SETTINGS_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-settings.png',
 )
+const rtlScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_SETTINGS_RTL_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-settings-ar.png',
+)
 const profileDirectory = mkdtempSync(
   path.join(os.tmpdir(), 'qortium-home-v2-settings-smoke-'),
 )
@@ -233,8 +237,57 @@ try {
       address: 'home://newtab',
       kind: 'custom',
     })
+
+    await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
+    await waitUntil('Appearance settings section', () =>
+      evaluate(
+        client,
+        `(() => {
+          const button = document.querySelector('.home-v2-settings-nav button:nth-child(2)');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()`,
+      ),
+    )
+    await waitUntil('language selector', () =>
+      evaluate(
+        client,
+        `Boolean([...document.querySelectorAll('select')].find((select) =>
+          select.querySelector('option[value="ar"]')))` ,
+      ),
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const select = [...document.querySelectorAll('select')].find((candidate) =>
+          candidate.querySelector('option[value="ar"]'));
+        select.value = 'ar';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`,
+    )
+    await waitUntil('Arabic RTL shell', () =>
+      evaluate(
+        client,
+        `(() => {
+          const shell = document.querySelector('.home-v2-shell');
+          return shell?.getAttribute('dir') === 'rtl' &&
+            shell?.getAttribute('lang') === 'ar' &&
+            document.querySelector('.home-v2-page-heading h1')?.textContent === 'الإعدادات';
+        })()`,
+      ),
+    )
+    const rtlScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    writeFileSync(rtlScreenshotPath, Buffer.from(rtlScreenshot.data, 'base64'))
+    await delay(600)
+    const rtlPersisted = JSON.parse(
+      readFileSync(path.join(profileDirectory, 'home-v2-shell-state.json'), 'utf8'),
+    )
+    assert.equal(rtlPersisted.appearance.language, 'ar')
     console.log(
-      `Packaged Home settings/new-tab smoke passed; screenshot: ${screenshotPath}`,
+      `Packaged Home settings/new-tab/i18n smoke passed; screenshots: ${screenshotPath}, ${rtlScreenshotPath}`,
     )
   } finally {
     client.close()

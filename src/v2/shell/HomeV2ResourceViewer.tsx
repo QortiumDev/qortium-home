@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Download, ExternalLink, X } from 'lucide-react'
 
+import { t } from '../../i18n'
 import type { NetworkId } from '../contracts'
 import './home-v2-resource-viewer.css'
 
@@ -57,7 +58,7 @@ export function HomeV2ResourceViewer({ resource, onClose }: HomeV2ResourceViewer
   return (
     <div className="home-v2-resource-overlay" role="presentation">
       <section
-        aria-label="Public resource viewer"
+        aria-label={t('home2.resourceViewer.ariaLabel')}
         aria-modal="true"
         className="home-v2-resource-viewer"
         role="dialog"
@@ -65,13 +66,15 @@ export function HomeV2ResourceViewer({ resource, onClose }: HomeV2ResourceViewer
         <header>
           <div>
             <span className="home-v2-resource-viewer__eyebrow">
-              Public {resource.network === 'qortal' ? 'Qortal' : 'Qortium'} resource
+              {t('home2.resourceViewer.publicResource', {
+                network: resource.network === 'qortal' ? 'Qortal' : 'Qortium',
+              })}
             </span>
             <h2>{resource.filename ?? resource.name}</h2>
             <p title={coordinate}>{coordinate}</p>
           </div>
           <button
-            aria-label="Close resource viewer"
+            aria-label={t('home2.resourceViewer.close')}
             className="home-v2-resource-viewer__icon-button"
             onClick={onClose}
             type="button"
@@ -82,17 +85,17 @@ export function HomeV2ResourceViewer({ resource, onClose }: HomeV2ResourceViewer
 
         <div className="home-v2-resource-viewer__content">
           {kind === 'image' ? (
-            <img alt={resource.filename ?? `${resource.name} resource`} src={resource.streamUrl} />
+            <img alt={resource.filename ?? t('home2.resourceViewer.resourceAlt', { name: resource.name })} src={resource.streamUrl} />
           ) : kind === 'audio' ? (
             <audio controls preload="metadata" src={resource.streamUrl} />
           ) : kind === 'video' ? (
             <video controls playsInline preload="metadata" src={resource.streamUrl} />
           ) : kind === 'pdf' ? (
-            <iframe sandbox="" src={resource.streamUrl} title={resource.filename ?? 'PDF resource'} />
+            <iframe sandbox="" src={resource.streamUrl} title={resource.filename ?? t('home2.resourceViewer.pdfResource')} />
           ) : (
             <div className="home-v2-resource-viewer__download-panel">
               <Download aria-hidden="true" size={34} />
-              <p>This file is kept outside the page. Save it or open the public resource explicitly.</p>
+              <p>{t('home2.resourceViewer.downloadDescription')}</p>
             </div>
           )}
         </div>
@@ -105,7 +108,7 @@ export function HomeV2ResourceViewer({ resource, onClose }: HomeV2ResourceViewer
             target="_blank"
           >
             <ExternalLink aria-hidden="true" size={17} />
-            Open or save resource
+            {t('home2.resourceViewer.openOrSave')}
           </a>
         </footer>
       </section>

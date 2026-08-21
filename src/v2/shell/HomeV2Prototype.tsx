@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
+import { t, type TranslationKey } from '../../i18n'
+import { translateMainProcessMessage } from '../../mainProcessMessage'
 import {
   isHomeV2RtlLanguage,
   type HomeV2Accent,
@@ -23,6 +25,7 @@ import type {
 } from '../bridge-permissions'
 import type { ProductState, ShellDestination } from '../product-model'
 import type { NewTabPreference } from '../new-tab-preference'
+import { useHomeV2Translation } from '../i18n'
 import {
   AppTabStage,
   type AppTabNavigationController,
@@ -132,28 +135,28 @@ export interface HomeV2PrototypeProps {
 function NewTabPage(props: HomeV2PrototypeProps) {
   const result = props.identityLookup
   const stateLabel = props.identityLookupBusy
-    ? 'Searching'
+    ? t('home2.newTab.state.searching')
     : result?.state === 'conflict'
-      ? 'Name conflict'
+      ? t('home2.newTab.state.conflict')
       : result?.state === 'partial'
-        ? 'Partial result'
+        ? t('home2.newTab.state.partial')
         : result?.state === 'not-found'
-          ? 'Not found'
+          ? t('home2.newTab.state.notFound')
           : result?.state === 'unavailable'
-            ? 'Unavailable'
+            ? t('home2.newTab.state.unavailable')
             : result
-              ? 'Resolved'
-              : 'Public lookup'
+              ? t('home2.newTab.state.resolved')
+              : t('home2.newTab.state.publicLookup')
   return (
     <section className="home-v2-new-tab-page" aria-labelledby="new-tab-title">
       <header className="home-v2-new-tab-intro">
         <span className="home-v2-eyebrow">home://newtab</span>
-        <h1 id="new-tab-title">Search Qortium and Qortal</h1>
-        <p>Find a public account by its registered name or chain address.</p>
+        <h1 id="new-tab-title">{t('home2.newTab.title')}</h1>
+        <p>{t('home2.newTab.subtitle')}</p>
       </header>
       <div className="home-v2-panel home-v2-identity-lookup">
       <div className="home-v2-section-heading">
-        <h2>Registered accounts</h2>
+        <h2>{t('home2.newTab.registeredAccounts')}</h2>
         <span className="home-v2-lookup-state" data-lookup-state={result?.state ?? 'idle'}>
           {stateLabel}
         </span>
@@ -166,12 +169,12 @@ function NewTabPage(props: HomeV2PrototypeProps) {
         }}
       >
         <label>
-          <span>Address or name</span>
+          <span>{t('home2.newTab.addressOrName')}</span>
           <input
-            aria-label="Account address or name"
+            aria-label={t('home2.newTab.inputLabel')}
             autoComplete="off"
             disabled={!props.onIdentityLookupInput}
-            placeholder="Enter a Qortium or Qortal address or name"
+            placeholder={t('home2.newTab.placeholder')}
             spellCheck={false}
             value={props.identityLookupInput ?? ''}
             onChange={(event) => props.onIdentityLookupInput?.(event.target.value)}
@@ -186,7 +189,9 @@ function NewTabPage(props: HomeV2PrototypeProps) {
             !(props.identityLookupInput ?? '').trim()
           }
         >
-          {props.identityLookupBusy ? 'Searching…' : 'Search'}
+          {props.identityLookupBusy
+            ? t('home2.newTab.searching')
+            : t('home2.newTab.search')}
         </button>
       </form>
       <div className="home-v2-identity-result" aria-live="polite">
@@ -223,21 +228,24 @@ function NewTabPage(props: HomeV2PrototypeProps) {
                       <strong>
                         {identity.primaryName ??
                           (identity.state === 'not-found'
-                            ? 'Name not registered'
+                            ? t('home2.identity.nameNotRegistered')
                             : identity.state === 'unavailable'
-                              ? 'Node unavailable'
-                              : 'No primary name')}
+                              ? t('home2.identity.nodeUnavailable')
+                              : t('home2.identity.noPrimaryName'))}
                       </strong>
                       {identity.address ? <code>{identity.address}</code> : null}
                       <small>
                         {identity.names.length > 0
-                          ? `Names: ${identity.names.join(', ')}`
+                          ? t('home2.identity.names', {
+                              names: identity.names.join(', '),
+                            })
                           : identity.detail}
                       </small>
                       {identity.avatar ? (
                         <small>
-                          Avatar: {identity.avatar.service}/{identity.avatar.name}/
-                          {identity.avatar.identifier}
+                          {t('home2.identity.avatar', {
+                            coordinate: `${identity.avatar.service}/${identity.avatar.name}/${identity.avatar.identifier}`,
+                          })}
                         </small>
                       ) : null}
                     </div>
@@ -248,7 +256,7 @@ function NewTabPage(props: HomeV2PrototypeProps) {
           </>
         ) : (
           <p className="home-v2-lookup-placeholder">
-            Search Qortium and Qortal public name records. Matching names are grouped only when their owner address is the same.
+            {t('home2.newTab.placeholderDescription')}
           </p>
         )}
       </div>
@@ -257,11 +265,11 @@ function NewTabPage(props: HomeV2PrototypeProps) {
   )
 }
 
-const nodeModeLabels: Readonly<Record<NodeConnectionMode, string>> = {
-  disabled: 'Disabled',
-  local: 'Local',
-  public: 'Public',
-  custom: 'Custom',
+const nodeModeLabelKeys: Readonly<Record<NodeConnectionMode, TranslationKey>> = {
+  disabled: 'home2.node.mode.disabled',
+  local: 'home2.node.mode.local',
+  public: 'home2.node.mode.public',
+  custom: 'home2.node.mode.custom',
 }
 
 function IdentityPresence({
@@ -293,8 +301,10 @@ function IdentityPresence({
       )}
       <div className="home-v2-presence__details">
         <NetworkBadge network={network} />
-        <strong>{presence.primaryName ?? 'No registered name'}</strong>
-        <code>{presence.address ?? 'No address on this network'}</code>
+        <strong>
+          {presence.primaryName ?? t('home2.identity.noRegisteredName')}
+        </strong>
+        <code>{presence.address ?? t('home2.identity.noAddress')}</code>
       </div>
     </article>
   )
@@ -319,7 +329,11 @@ function NodeCard({
       <header>
         <div>
           <NetworkBadge network={network} />
-          <h3>{networkLabels[network]} connection</h3>
+          <h3>
+            {t('home2.node.connectionTitle', {
+              network: networkLabels[network],
+            })}
+          </h3>
         </div>
         <span className="home-v2-node-state" data-node-state={node.state}>
           <span className="home-v2-status-dot" aria-hidden="true" />
@@ -327,23 +341,25 @@ function NodeCard({
         </span>
       </header>
       <label className="home-v2-node-mode-control">
-        <span>Connection mode</span>
+        <span>{t('home2.node.connectionMode')}</span>
         <select
-          aria-label={`${networkLabels[network]} connection mode`}
+          aria-label={t('home2.node.connectionModeFor', {
+            network: networkLabels[network],
+          })}
           value={node.mode}
           onChange={(event) =>
             onSetNodeMode?.(network, event.target.value as NodeConnectionMode)
           }
         >
-          {(Object.keys(nodeModeLabels) as NodeConnectionMode[]).map((mode) => (
+          {(Object.keys(nodeModeLabelKeys) as NodeConnectionMode[]).map((mode) => (
             <option
               key={mode}
               value={mode}
               disabled={mode === 'custom' && !node.customConfigured}
             >
-              {nodeModeLabels[mode]}
+              {t(nodeModeLabelKeys[mode])}
               {mode === 'custom' && !node.customConfigured
-                ? ' (not configured)'
+                ? ` (${t('home2.node.notConfigured')})`
                 : ''}
             </option>
           ))}
@@ -352,19 +368,23 @@ function NodeCard({
       <div className="home-v2-node-detail">
         <span>
           {node.mode === 'disabled'
-            ? 'No connection'
-            : `${nodeModeLabels[node.mode]} · ${node.label}`}
+            ? t('home2.node.noConnection')
+            : `${t(nodeModeLabelKeys[node.mode])} · ${node.label}`}
         </span>
         <small>
           {node.error ??
             ([
               node.height === null
                 ? null
-                : `Height ${node.height.toLocaleString()}`,
-              node.peerCount === null ? null : `${node.peerCount} peers`,
+                : t('home2.node.height', {
+                    height: node.height.toLocaleString(),
+                  }),
+              node.peerCount === null
+                ? null
+                : t('home2.node.peers', { count: node.peerCount }),
             ]
               .filter(Boolean)
-              .join(' · ') || 'Waiting for node status')}
+              .join(' · ') || t('home2.node.waitingForStatus'))}
         </small>
         <small>{node.localCoreStatusText}</small>
       </div>
@@ -375,7 +395,7 @@ function NodeCard({
             className="home-v2-link-button"
             onClick={() => onConfigureCustomNode(network)}
           >
-            Configure
+            {t('home2.node.configure')}
           </button>
         ) : (
           <span aria-hidden="true" />
@@ -386,7 +406,7 @@ function NodeCard({
             className="home-v2-link-button"
             onClick={() => onRefreshNode(network)}
           >
-            Refresh
+            {t('common.refresh')}
           </button>
         ) : (
           <span aria-hidden="true" />
@@ -464,27 +484,31 @@ function AccountCard({
   return (
     <section className="home-v2-panel home-v2-account-panel">
       <div className="home-v2-section-heading">
-        <h2>Account</h2>
+        <h2>{t('account.menuLabel')}</h2>
         <span
           className="home-v2-lock-state"
           data-account-state={snapshot.account.state}
         >
-          {!hasAccount ? 'Not selected' : isLocked ? 'Locked' : 'Unlocked'}
+          {!hasAccount
+            ? t('home2.account.notSelected')
+            : isLocked
+              ? t('account.statusLocked')
+              : t('account.statusUnlocked')}
         </span>
       </div>
       <div className="home-v2-account-control-row">
         <label className="home-v2-account-select">
-          <span>Selected account</span>
+          <span>{t('home2.account.selected')}</span>
           <select
-            aria-label="Selected account"
+            aria-label={t('home2.account.selected')}
             value={selectedValue}
             disabled={!onSelectAccount && !onCreateAccount && !onImportAccount}
             onChange={(event) =>
               handleSelection(event.target.value as HomeV2AccountSelection)
             }
           >
-            <optgroup label="Accounts">
-              <option value="none">No account selected</option>
+            <optgroup label={t('account.title')}>
+              <option value="none">{t('account.noAccountSelected')}</option>
               {vaultState ? (
                 accountOptions.map((account) => (
                   <option value={`account:${account.id}`} key={account.id}>
@@ -495,10 +519,10 @@ function AccountCard({
                 <option value="current">{snapshot.identity.displayLabel}</option>
               )}
             </optgroup>
-            <optgroup label="Account actions">
-              <option value="create" disabled={!onCreateAccount}>Create account…</option>
-              <option value="import" disabled={!onImportAccount}>Import account…</option>
-              <option value="private" disabled={!onAccountManage}>Import private key…</option>
+            <optgroup label={t('home2.account.actions')}>
+              <option value="create" disabled={!onCreateAccount}>{t('home2.account.create')}</option>
+              <option value="import" disabled={!onImportAccount}>{t('home2.account.import')}</option>
+              <option value="private" disabled={!onAccountManage}>{t('home2.account.importPrivateKey')}</option>
             </optgroup>
           </select>
         </label>
@@ -521,18 +545,18 @@ function AccountCard({
           }
         >
           {!hasAccount
-            ? 'New Account'
+            ? t('home2.account.new')
             : isLocked
-              ? 'Unlock account'
-              : 'Lock account'}
+              ? t('home2.account.unlock')
+              : t('home2.account.lock')}
         </button>
       </div>
       {selectedVaultAccount && selectedVaultAccount.addresses.length > 1 ? (
         <div className="home-v2-account-secondary-row">
           <label className="home-v2-account-select">
-            <span>Selected address</span>
+            <span>{t('home2.account.selectedAddress')}</span>
             <select
-              aria-label="Selected address"
+              aria-label={t('home2.account.selectedAddress')}
               value={vaultState?.selectedAddressId ?? selectedVaultAccount.addresses[0].id}
               onChange={(event) => onSelectAddress?.(event.target.value)}
             >
@@ -544,22 +568,22 @@ function AccountCard({
             </select>
           </label>
           <label className="home-v2-account-select">
-            <span>Manage</span>
+            <span>{t('home2.account.manage')}</span>
             <select
-              aria-label="Manage account"
+              aria-label={t('home2.account.manageLabel')}
               defaultValue=""
               onChange={(event) => {
                 if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
                 event.target.value = ''
               }}
             >
-              <option value="" disabled>Choose an action…</option>
-              <option value="rename">Rename account…</option>
-              <option value="export">Export wallet backup…</option>
-              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>Add address</option>
-              <option value="remove-address" disabled={(vaultState?.selectedAddressId ?? selectedVaultAccount.id) === selectedVaultAccount.id}>Remove selected address…</option>
-              <option value="import-private-key">Import private key…</option>
-              <option value="remove-account">Remove account…</option>
+              <option value="" disabled>{t('home2.account.chooseAction')}</option>
+              <option value="rename">{t('home2.account.rename')}</option>
+              <option value="export">{t('home2.account.exportWallet')}</option>
+              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>{t('home2.account.addAddress')}</option>
+              <option value="remove-address" disabled={(vaultState?.selectedAddressId ?? selectedVaultAccount.id) === selectedVaultAccount.id}>{t('home2.account.removeAddress')}</option>
+              <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
+              <option value="remove-account">{t('home2.account.remove')}</option>
             </select>
           </label>
         </div>
@@ -567,27 +591,29 @@ function AccountCard({
         <div className="home-v2-account-secondary-row home-v2-account-secondary-row--single">
           <span className="home-v2-account-address">{selectedVaultAccount.addresses[0]?.address}</span>
           <label className="home-v2-account-select">
-            <span>Manage</span>
+            <span>{t('home2.account.manage')}</span>
             <select
-              aria-label="Manage account"
+              aria-label={t('home2.account.manageLabel')}
               defaultValue=""
               onChange={(event) => {
                 if (event.target.value) onAccountManage?.(event.target.value as HomeV2AccountManageAction)
                 event.target.value = ''
               }}
             >
-              <option value="" disabled>Choose an action…</option>
-              <option value="rename">Rename account…</option>
-              <option value="export">Export wallet backup…</option>
-              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>Add address</option>
-              <option value="import-private-key">Import private key…</option>
-              <option value="remove-account">Remove account…</option>
+              <option value="" disabled>{t('home2.account.chooseAction')}</option>
+              <option value="rename">{t('home2.account.rename')}</option>
+              <option value="export">{t('home2.account.exportWallet')}</option>
+              <option value="add-address" disabled={!selectedVaultAccount.supportsDerivedAddresses || !selectedVaultAccount.isUnlocked}>{t('home2.account.addAddress')}</option>
+              <option value="import-private-key">{t('home2.account.importPrivateKey')}</option>
+              <option value="remove-account">{t('home2.account.remove')}</option>
             </select>
           </label>
         </div>
       ) : null}
       {vaultState?.readiness === 'recovery' ? (
-        <p className="home-v2-account-recovery" role="alert">{vaultState.recoveryMessage ?? 'Account changes are unavailable until profile recovery is complete.'}</p>
+        <p className="home-v2-account-recovery" role="alert">
+          {vaultState.recoveryMessage ?? t('home2.account.recoveryRequired')}
+        </p>
       ) : null}
       <div className="home-v2-account-content">
         {hasAccount ? (
@@ -607,8 +633,8 @@ function AccountCard({
           </div>
         ) : (
           <div className="home-v2-account-placeholder">
-            <strong>No account selected</strong>
-            <span>Public apps and connection controls remain available.</span>
+            <strong>{t('account.noAccountSelected')}</strong>
+            <span>{t('home2.account.publicControlsAvailable')}</span>
           </div>
         )}
       </div>
@@ -634,7 +660,7 @@ function AppCard({
       </div>
       <div
         className="home-v2-app-card__actions"
-        aria-label={`${app.title} availability`}
+        aria-label={t('home2.account.availability', { app: app.title })}
       >
         <div className="home-v2-app-card__networks">
           {app.targetNetworks.map((network) => (
@@ -646,7 +672,7 @@ function AppCard({
           disabled={!onOpenApp}
           onClick={() => onOpenApp?.(app)}
         >
-          Open
+          {t('common.open')}
         </button>
       </div>
     </article>
@@ -661,16 +687,16 @@ function InternalPage({
     'tab' | 'dashboard' | 'newtab' | 'settings'
   >
 }) {
-  const copy = {
-    activity: ['Activity', 'Downloads, notifications, and recent actions.'],
-    apps: ['Apps', 'Browse, search, and organize QDN apps.'],
+  const copy: Record<typeof destination, readonly [TranslationKey, TranslationKey]> = {
+    activity: ['home2.activity', 'home2.internal.activityDescription'],
+    apps: ['home2.apps', 'home2.internal.appsDescription'],
   } as const
   return (
     <section className="home-v2-internal-page">
       <span className="home-v2-eyebrow">home://{destination}</span>
-      <h1>{copy[destination][0]}</h1>
-      <p>{copy[destination][1]}</p>
-      <small>Not connected in this offline preview.</small>
+      <h1>{t(copy[destination][0])}</h1>
+      <p>{t(copy[destination][1])}</p>
+      <small>{t('home2.internal.offlinePreview')}</small>
     </section>
   )
 }
@@ -687,9 +713,11 @@ function Dashboard(props: HomeV2PrototypeProps) {
   return (
     <div className="home-v2-dashboard">
       <header className="home-v2-dashboard-intro">
-        <h1>Dashboard</h1>
+        <h1>{t('common.dashboard')}</h1>
         {props.surfaceNotice ? (
-          <span className="home-v2-surface-notice">{props.surfaceNotice}</span>
+          <span className="home-v2-surface-notice">
+            {translateMainProcessMessage(props.surfaceNotice)}
+          </span>
         ) : null}
       </header>
 
@@ -699,7 +727,7 @@ function Dashboard(props: HomeV2PrototypeProps) {
       >
         <div className="home-v2-section-heading">
           <div>
-            <h2 id="connections-title">Connections</h2>
+            <h2 id="connections-title">{t('connections.title')}</h2>
           </div>
         </div>
         <div className="home-v2-node-grid">
@@ -725,14 +753,14 @@ function Dashboard(props: HomeV2PrototypeProps) {
       <section className="home-v2-launcher" aria-labelledby="pinned-apps-title">
         <div className="home-v2-section-heading">
           <div>
-            <h2 id="pinned-apps-title">Pinned apps</h2>
+            <h2 id="pinned-apps-title">{t('home2.dashboard.pinnedApps')}</h2>
           </div>
           <button
             type="button"
             className="home-v2-link-button"
             onClick={() => props.onNavigate?.('apps')}
           >
-            Browse apps
+            {t('home2.account.browseApps')}
           </button>
         </div>
         <div className="home-v2-app-grid">
@@ -746,6 +774,9 @@ function Dashboard(props: HomeV2PrototypeProps) {
 }
 
 export function HomeV2Prototype(props: HomeV2PrototypeProps) {
+  const translationVersion = useHomeV2Translation(
+    props.snapshot.appearance.resolvedLanguage,
+  )
   const {
     snapshot,
     productState,
@@ -826,6 +857,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           <AppTabStage
             productState={productState}
             snapshot={snapshot}
+            translationVersion={translationVersion}
             nodeClient={props.nodeClient}
             selectedAccountId={props.selectedAccountId}
             reloadVersion={props.appReloadVersion}

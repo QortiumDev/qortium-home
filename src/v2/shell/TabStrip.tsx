@@ -1,5 +1,6 @@
 import type { TabId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
+import { t, type TranslationKey } from '../../i18n'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { HomeMark } from './ProductMarks'
 
@@ -14,14 +15,14 @@ export interface TabStripProps {
   readonly newTabDisabled?: boolean
 }
 
-const internalTabLabels: Readonly<
-  Record<Exclude<ShellDestination, 'tab'>, string>
+const internalTabLabelKeys: Readonly<
+  Record<Exclude<ShellDestination, 'tab'>, TranslationKey>
 > = {
-  activity: 'Activity',
-  apps: 'Apps',
-  dashboard: 'Dashboard',
-  newtab: 'New tab',
-  settings: 'Settings',
+  activity: 'home2.activity',
+  apps: 'home2.apps',
+  dashboard: 'common.dashboard',
+  newtab: 'home2.tabs.newTab',
+  settings: 'common.settings',
 }
 
 export function TabStrip({
@@ -34,9 +35,9 @@ export function TabStrip({
 }: TabStripProps) {
   const internalDestination =
     productState.destination === 'tab' ? 'dashboard' : productState.destination
-  const internalLabel = internalTabLabels[internalDestination]
+  const internalLabel = t(internalTabLabelKeys[internalDestination])
   return (
-    <div className="home-v2-tabs" role="tablist" aria-label="Browser tabs">
+    <div className="home-v2-tabs" role="tablist" aria-label={t('tabs.listLabel')}>
       <div
         className={`home-v2-tab home-v2-tab--dashboard${
           productState.destination !== 'tab' ? ' is-active' : ''
@@ -74,7 +75,10 @@ export function TabStrip({
             <button
               type="button"
               className="home-v2-tab__close"
-              aria-label={`Close ${tab.title} from ${networkLabels[tab.context.sourceNetwork]}`}
+              aria-label={t('home2.tabs.closeFrom', {
+                label: tab.title,
+                network: networkLabels[tab.context.sourceNetwork],
+              })}
               onClick={() => onCloseTab?.(tab.id)}
             >
               ×
@@ -85,8 +89,8 @@ export function TabStrip({
       <button
         type="button"
         className="home-v2-new-tab"
-        aria-label="New tab"
-        title="New tab"
+        aria-label={t('home2.tabs.newTab')}
+        title={t('home2.tabs.newTab')}
         disabled={newTabDisabled}
         onClick={onNewTab}
       >
