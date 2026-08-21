@@ -123,7 +123,7 @@ export function BrowserChrome({
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
           onNavigate={onNavigate}
-          onNewTab={() => onNavigate?.('dashboard')}
+          onNewTab={() => onNavigate?.('newtab')}
         />
       </div>
       <div className="home-v2-browser-toolbar">

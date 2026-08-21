@@ -126,7 +126,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetLanguage?: (language: HomeV2Language) => void
 }
 
-function IdentityLookupCard(props: HomeV2PrototypeProps) {
+function NewTabPage(props: HomeV2PrototypeProps) {
   const result = props.identityLookup
   const stateLabel = props.identityLookupBusy
     ? 'Searching'
@@ -142,9 +142,15 @@ function IdentityLookupCard(props: HomeV2PrototypeProps) {
               ? 'Resolved'
               : 'Public lookup'
   return (
-    <section className="home-v2-panel home-v2-identity-lookup" aria-labelledby="identity-lookup-title">
+    <section className="home-v2-new-tab-page" aria-labelledby="new-tab-title">
+      <header className="home-v2-new-tab-intro">
+        <span className="home-v2-eyebrow">home://newtab</span>
+        <h1 id="new-tab-title">Search Qortium and Qortal</h1>
+        <p>Find a public account by its registered name or chain address.</p>
+      </header>
+      <div className="home-v2-panel home-v2-identity-lookup">
       <div className="home-v2-section-heading">
-        <h2 id="identity-lookup-title">Account lookup</h2>
+        <h2>Registered accounts</h2>
         <span className="home-v2-lookup-state" data-lookup-state={result?.state ?? 'idle'}>
           {stateLabel}
         </span>
@@ -162,7 +168,7 @@ function IdentityLookupCard(props: HomeV2PrototypeProps) {
             aria-label="Account address or name"
             autoComplete="off"
             disabled={!props.onIdentityLookupInput}
-            placeholder="Enter a Qortal or Qortium address or name"
+            placeholder="Enter a Qortium or Qortal address or name"
             spellCheck={false}
             value={props.identityLookupInput ?? ''}
             onChange={(event) => props.onIdentityLookupInput?.(event.target.value)}
@@ -194,12 +200,13 @@ function IdentityLookupCard(props: HomeV2PrototypeProps) {
               {result.message}
             </p>
             <div className="home-v2-identity-network-grid">
-              {(['qortal', 'qortium'] as const).map((network) => {
+              {(['qortium', 'qortal'] as const).map((network) => {
                 const identity = result.networks[network]
                 return (
                   <article
                     className="home-v2-identity-network"
                     data-identity-state={identity.state}
+                    data-network={network}
                     key={network}
                   >
                     <VisibleIdentityAvatar
@@ -238,9 +245,10 @@ function IdentityLookupCard(props: HomeV2PrototypeProps) {
           </>
         ) : (
           <p className="home-v2-lookup-placeholder">
-            Search public name records across both networks. Matching names are grouped only when their owner address is the same.
+            Search Qortium and Qortal public name records. Matching names are grouped only when their owner address is the same.
           </p>
         )}
+      </div>
       </div>
     </section>
   )
@@ -647,7 +655,7 @@ function InternalPage({
 }: {
   readonly destination: Exclude<
     ShellDestination,
-    'tab' | 'dashboard' | 'settings'
+    'tab' | 'dashboard' | 'newtab' | 'settings'
   >
 }) {
   const copy = {
@@ -708,8 +716,6 @@ function Dashboard(props: HomeV2PrototypeProps) {
           />
         </div>
       </section>
-
-      <IdentityLookupCard {...props} />
 
       <AccountCard {...props} />
 
@@ -840,6 +846,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         ) : productState.destination === 'dashboard' ||
           productState.destination === 'tab' ? (
           <Dashboard {...props} />
+        ) : productState.destination === 'newtab' ? (
+          <NewTabPage {...props} />
         ) : (
           <InternalPage destination={productState.destination} />
         )}

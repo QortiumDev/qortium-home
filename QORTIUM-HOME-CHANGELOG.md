@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(shell): add the Home 2.1 new-tab search
+
+Home's plus button now opens a dedicated new-tab page for finding public
+accounts by registered name or chain address across Qortium and Qortal. The
+standalone lookup has moved off Dashboard, Qortium results appear first, and
+the selected-account card keeps its existing cross-network identity details.
+Open QDN app tabs remain available when New tab is selected, and the new
+internal destination is restored safely without changing the saved-state
+format. QDN app and Home addresses continue to use the browser address bar.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

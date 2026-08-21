@@ -282,6 +282,28 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(dashboard.activeTabId, null)
   assert.equal(dashboard.destination, 'dashboard')
 
+  const newTab = reduceProductState(withBothSources, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
+  assert.equal(newTab.tabs.length, 2)
+  assert.equal(newTab.activeTabId, null)
+  assert.equal(newTab.destination, 'newtab')
+  const restoredNewTab = restoreProductState(
+    JSON.parse(JSON.stringify(newTab)),
+  )
+  assert.equal(restoredNewTab.destination, 'newtab')
+  assert.equal(restoredNewTab.activeTabId, null)
+  assert.equal(restoredNewTab.tabs.length, 2)
+
+  const restoredFutureDestination = restoreProductState({
+    ...JSON.parse(JSON.stringify(newTab)),
+    destination: 'future-page',
+  })
+  assert.equal(restoredFutureDestination.destination, 'dashboard')
+  assert.equal(restoredFutureDestination.activeTabId, null)
+  assert.equal(restoredFutureDestination.tabs.length, 2)
+
   const afterClose = reduceProductState(
     reduceProductState(dashboard, {
       type: 'activate-tab',
@@ -672,12 +694,27 @@ function testPermissionBrokerScopesAndInvalidation(): void {
 }
 
 function testDesktopAndPhoneContracts(): void {
+  const lookup = createDualIdentityLookup()
+  const selectedAccountLookup: DualIdentityLookupResult = {
+    ...lookup,
+    networks: {
+      qortium: {
+        ...lookup.networks.qortium,
+        primaryName: 'Zulu selected account',
+      },
+      qortal: {
+        ...lookup.networks.qortal,
+        primaryName: 'Yankee selected account',
+      },
+    },
+  }
   const desktop = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="desktop"
+      selectedAccountLookup={selectedAccountLookup}
     />,
   )
   const phone = renderToStaticMarkup(
@@ -686,6 +723,7 @@ function testDesktopAndPhoneContracts(): void {
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="phone"
+      selectedAccountLookup={selectedAccountLookup}
     />,
   )
 
@@ -722,8 +760,16 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, />AliceQ</)
     assert.match(html, />Alice</)
     assert.match(html, />Pinned apps</)
-    assert.match(html, />Account lookup</)
-    assert.match(html, /aria-label="Account address or name"/)
+    assert.doesNotMatch(html, />Account lookup</)
+    assert.doesNotMatch(html, /aria-label="Account address or name"/)
+    assert.match(
+      html,
+      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Z<\/div>/,
+    )
+    assert.match(
+      html,
+      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Y<\/div>/,
+    )
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)
     assert.match(html, />Disabled</)
@@ -744,10 +790,10 @@ function testDesktopAndPhoneContracts(): void {
   }
 }
 
-function testDualIdentityLookupContract(): void {
+function createDualIdentityLookup(): DualIdentityLookupResult {
   const qortalAddress = 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH'
   const qortiumAddress = 'QwbXDZs6N7YmfTaHoHX2FCTiDtUjsLH22E'
-  const lookup: DualIdentityLookupResult = {
+  return {
     inputKind: 'name',
     message: 'This name belongs to different addresses. The results are not merged.',
     networks: {
@@ -781,11 +827,19 @@ function testDualIdentityLookupContract(): void {
     sharedAddress: null,
     state: 'conflict',
   }
+}
+
+function testDualIdentityLookupContract(): void {
+  const lookup = createDualIdentityLookup()
+  const productState = reduceProductState(homeV2ProductFixture, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
   for (const layout of ['desktop', 'phone'] as const) {
     const html = renderToStaticMarkup(
       <HomeV2Prototype
         snapshot={homeV2Fixture}
-        productState={createProductState()}
+        productState={productState}
         permissionState={createPermissionState()}
         layout={layout}
         identityLookup={lookup}
@@ -794,12 +848,25 @@ function testDualIdentityLookupContract(): void {
         onIdentityLookupSubmit={() => undefined}
       />,
     )
+    assert.match(html, /value="home:\/\/newtab"/)
+    assert.match(html, /aria-label="New tab"/)
+    assert.match(html, />Registered accounts</)
+    assert.match(html, /aria-label="Account address or name"/)
     assert.match(html, /data-lookup-state="conflict"/)
     assert.match(html, />Name conflict</)
     assert.match(html, /results are not merged/)
-    assert.match(html, new RegExp(qortalAddress))
-    assert.match(html, new RegExp(qortiumAddress))
+    assert.match(html, new RegExp(lookup.networks.qortal.address ?? ''))
+    assert.match(html, new RegExp(lookup.networks.qortium.address ?? ''))
     assert.match(html, /qortal_avatar/)
+    const qortium = html.search(
+      /class="home-v2-identity-network"[^>]*data-network="qortium"/,
+    )
+    const qortal = html.search(
+      /class="home-v2-identity-network"[^>]*data-network="qortal"/,
+    )
+    assert.notEqual(qortium, -1, 'new-tab lookup must identify Qortium results')
+    assert.notEqual(qortal, -1, 'new-tab lookup must identify Qortal results')
+    assert.ok(qortium < qortal, 'new-tab lookup must render Qortium first')
   }
 }
 
@@ -1731,6 +1798,28 @@ function testShellStateMigratesAddressSelection(): void {
       tabs: legacy.product.tabs,
     },
   })
+
+  const newTabProduct = reduceProductState(homeV2ProductFixture, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
+  const serializedNewTab = serializeHomeV2ShellState({
+    ...legacy,
+    product: newTabProduct,
+  })
+  assert.equal(serializedNewTab.version, 2)
+  assert.equal(serializedNewTab.product.destination, 'newtab')
+  assert.equal(serializedNewTab.product.activeTabId, null)
+  assert.equal(serializedNewTab.product.tabs.length, 2)
+  const restoredNewTab = parseHomeV2ShellState(
+    JSON.parse(JSON.stringify(serializedNewTab)),
+    'light',
+    'en',
+  )
+  assert.equal(restoredNewTab.version, 2)
+  assert.equal(restoredNewTab.product.destination, 'newtab')
+  assert.equal(restoredNewTab.product.activeTabId, null)
+  assert.equal(restoredNewTab.product.tabs.length, 2)
 }
 
 await testMockHostFailsClosed()

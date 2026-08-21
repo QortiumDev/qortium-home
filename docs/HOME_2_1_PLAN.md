@@ -60,7 +60,11 @@ preparation.
 - [x] Put Qortium first in toolbar node pills, node cards, and account presence.
 - [x] Add DOM-order regression coverage for those three surfaces.
 - [x] Replace obsolete initial-state wording without changing runtime behavior.
-- [x] Keep the account-lookup result grid for the following relocation tranche.
+- [x] Relocate public account lookup from Dashboard to `home://newtab`.
+- [x] Make `+` switch the single internal slot to New tab without closing apps.
+- [x] Persist the additive `newtab` destination with safe older-reader fallback.
+- [x] Put Qortium first in public identity results on desktop and phone.
+- [x] Keep QDN app navigation in the existing browser address bar.
 
 ## Required gates
 

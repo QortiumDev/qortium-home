@@ -19,6 +19,7 @@ const internalTabLabels: Readonly<
   activity: 'Activity',
   apps: 'Apps',
   dashboard: 'Dashboard',
+  newtab: 'New tab',
   settings: 'Settings',
 }
 
@@ -82,7 +83,7 @@ export function TabStrip({
       <button
         type="button"
         className="home-v2-new-tab"
-        aria-label="New Dashboard tab"
+        aria-label="New tab"
         title="New tab"
         onClick={onNewTab}
       >

@@ -537,6 +537,8 @@
 .home-v2-dashboard h1,
 .home-v2-dashboard h2,
 .home-v2-dashboard h3,
+.home-v2-new-tab-page h1,
+.home-v2-new-tab-page h2,
 .home-v2-internal-page h1,
 .home-v2-app-stage h2 {
   margin: 0;
@@ -559,6 +561,7 @@
 }
 
 .home-v2-dashboard p,
+.home-v2-new-tab-page p,
 .home-v2-internal-page p,
 .home-v2-app-stage p {
   margin: 7px 0 0;
@@ -940,6 +943,29 @@
 .home-v2-panel {
   border-radius: 17px;
   padding: 22px;
+}
+
+.home-v2-new-tab-page {
+  display: grid;
+  width: min(880px, 100%);
+  margin: 5vh auto 0;
+  gap: 24px;
+}
+
+.home-v2-new-tab-intro {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.home-v2-new-tab-intro h1 {
+  font-size: clamp(30px, 5vw, 46px);
+  font-weight: 650;
+}
+
+.home-v2-new-tab-intro p {
+  margin-top: 0;
 }
 
 .home-v2-account-panel {

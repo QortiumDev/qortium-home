@@ -1050,7 +1050,7 @@ export function HomeV2LiveApp() {
   const openAddress = useCallback(
     async (address: string): Promise<AddressOpenResult> => {
       try {
-        const internal = /^home:\/\/(dashboard|apps|activity|settings)\/?$/i.exec(
+        const internal = /^home:\/\/(dashboard|apps|activity|newtab|settings)\/?$/i.exec(
           address.trim(),
         )
         if (internal) {
@@ -1061,6 +1061,7 @@ export function HomeV2LiveApp() {
               | 'activity'
               | 'apps'
               | 'dashboard'
+              | 'newtab'
               | 'settings',
           })
           return { status: 'opened' }

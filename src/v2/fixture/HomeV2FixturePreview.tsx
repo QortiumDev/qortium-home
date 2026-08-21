@@ -27,7 +27,11 @@ import {
   type PermissionPrompt,
   type PermissionRequestId,
 } from '../bridge-permissions'
-import { createProductState, reduceProductState } from '../product-model'
+import {
+  createProductState,
+  reduceProductState,
+  type ShellDestination,
+} from '../product-model'
 import {
   HomeV2Prototype,
   type HomeV2Layout,
@@ -205,7 +209,7 @@ export function HomeV2FixturePreview() {
   }
 
   const navigate = (
-    destination: 'activity' | 'apps' | 'dashboard' | 'settings',
+    destination: Exclude<ShellDestination, 'tab'>,
   ) => {
     if (productState.activeTabId) {
       setPermissionState((current) =>

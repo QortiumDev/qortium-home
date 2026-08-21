@@ -11,6 +11,7 @@ export type ShellDestination =
   | 'activity'
   | 'apps'
   | 'dashboard'
+  | 'newtab'
   | 'settings'
   | 'tab'
 
@@ -92,6 +93,7 @@ const destinations = new Set<ShellDestination>([
   'activity',
   'apps',
   'dashboard',
+  'newtab',
   'settings',
   'tab',
 ])
