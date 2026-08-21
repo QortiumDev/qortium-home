@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   QORTIUM_CORE_DESCRIPTOR,
+  QORTAL_CORE_DESCRIPTOR,
   type CoreNetworkDescriptor,
 } from './core-network-descriptor.js';
 import {
@@ -183,6 +184,33 @@ try {
       { cwd: processRoot, files: [qortalJarPath, settingsPath] },
     )?.apiKey,
     'process-key',
+  );
+
+  const qortalCwd = path.join(processRoot, 'qortal-cwd');
+  mkdirSync(qortalCwd);
+  writeFileSync(path.join(qortalCwd, 'settings.json'), '{}\n');
+  writeFileSync(path.join(qortalCwd, 'apikey.txt'), 'qortal-process-key\n', { mode: 0o600 });
+  assert.deepEqual(
+    deriveRunningCoreKeyFromProcessFiles(
+      {
+        descriptor: QORTAL_CORE_DESCRIPTOR,
+        expectedApiKeyDirectory: qortalCwd,
+        expectedJarPath: qortalJarPath,
+      },
+      407,
+      { cwd: qortalCwd, files: [qortalJarPath] },
+    ),
+    {
+      apiKey: 'qortal-process-key',
+      apiKeyDirectory: qortalCwd,
+      created: false,
+      cwd: qortalCwd,
+      jarPath: qortalJarPath,
+      path: path.join(qortalCwd, 'apikey.txt'),
+      pid: 407,
+      settingsPath: path.join(qortalCwd, 'settings.json'),
+    },
+    'the lsof fallback must resolve Qortal settings from the JVM cwd, not the JAR directory',
   );
 
   const qortiumJarLink = path.join(processRoot, 'qortium-link.jar');

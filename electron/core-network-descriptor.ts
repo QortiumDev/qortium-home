@@ -510,8 +510,14 @@ export function getCoreApiKeyPath(descriptor: CoreNetworkDescriptor, directory: 
   return path.join(directory, descriptor.processProbe.apiKeyFileName);
 }
 
-export function getCoreFallbackSettingsPath(descriptor: CoreNetworkDescriptor, jarPath: string) {
-  return path.join(path.dirname(jarPath), descriptor.processProbe.fallbackSettingsFileName);
+export function getCoreFallbackSettingsPath(
+  descriptor: CoreNetworkDescriptor,
+  jarPath: string,
+  cwd = path.dirname(jarPath),
+) {
+  const basePath = descriptor.settings.location === 'cwd' ? cwd : path.dirname(jarPath);
+
+  return path.join(basePath, descriptor.processProbe.fallbackSettingsFileName);
 }
 
 export function getCoreSettingsPath(

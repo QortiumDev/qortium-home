@@ -349,6 +349,10 @@ assert.deepEqual(getCoreLsofPidArgs(qortal), [
 ]);
 assert.equal(getCoreApiKeyPath(qortal, '/srv/qortal'), '/srv/qortal/apikey.txt');
 assert.equal(resolveCoreApiKeyDirectory(qortal, {}, '/srv/qortal'), '/srv/qortal');
+assert.equal(
+  getCoreFallbackSettingsPath(qortal, '/opt/qortal/qortal.jar', '/srv/qortal-data'),
+  '/srv/qortal-data/settings.json',
+);
 assert.equal(getCoreGithubLatestReleaseUrl(qortal), 'https://api.github.com/repos/Qortal/qortal/releases/latest');
 assert.equal(
   getCoreGithubReleasesUrl(qortal, qortal.releaseChannels.matchingReleasePageSize),

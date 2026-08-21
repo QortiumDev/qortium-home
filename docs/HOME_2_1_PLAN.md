@@ -85,8 +85,37 @@ preparation.
 - [x] Add the E2 Qortal descriptor and stable-release trust boundary: exact
   `qortal.jar`, mandatory SHA-256 metadata, positive declared size, fixed Qortal
   GitHub URL, direct-JAR launch, shared managed Java, native update-setting
-  ownership, and no fabricated `/admin/update` capability. Manager registration,
-  download/install transactions, and adoption remain subsequent E2/E3 work.
+  ownership, and no fabricated `/admin/update` capability.
+- [x] Add verified Qortal JAR staging with exclusive partial files, exact
+  received-size and SHA-256 checks, embedded release-version matching, and
+  alias-safe same-directory promotion.
+- [x] Add the standalone JAR-only atomic initial-install/update transaction,
+  including rollback and explicit incomplete-recovery reporting while leaving
+  all non-JAR Qortal files untouched.
+- [x] Add fail-closed Home-managed initial settings/API-key setup and separate
+  metadata commit/rollback, binding the record to the activated JAR without
+  placing key material in metadata.
+- [x] Add the canonical-target cooperative cross-process operation lease, JAR
+  target fingerprint/revalidation state, and Qortal-syntax-compatible
+  stopped/live update-ownership detection. Proven-dead locks are retained for
+  explicit recovery; immediate process/JAR revalidation remains required
+  because Qortal Hub does not honor the lease.
+- [x] Add a standalone Qortal lifecycle coordinator that composes those
+  primitives behind the lease, binds start/stop/update to the managed JAR
+  record, preserves Qortal's literal `settings.json` launch behavior, and keeps
+  native-update and adopted-install mutation fail closed. Its strong runtime
+  authority seams remain deliberately injected and unregistered. Unconsumed
+  unique candidates are retained for explicit recovery because pathname unlink
+  cannot prove that the inspected inode still owns the name.
+- [x] Register the separate Qortal manager internally after Electron finalizes
+  its data paths. Its Linux production adapter binds `/proc` PID/start identity,
+  exact argv/cwd/JAR, the 12391 listener, JAR-matching mainnet info/status,
+  effective-settings API-key proof, authenticated stop, and shared managed or
+  OpenJDK Java. Listener-holder enumeration uses the current local user as its
+  trust boundary and fails closed when no visible process maps a listening
+  socket. Registration adds no Home 2 IPC/preload controls.
+- [ ] Add equivalent fail-closed process/listener authority adapters for macOS
+  and Windows. Adoption and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 

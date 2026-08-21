@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { selectQortalJarRelease } from './qortal-release-policy.js';
+import {
+  matchesQortalJarReleaseIdentity,
+  selectQortalJarRelease,
+} from './qortal-release-policy.js';
 
 const DIGEST = 'a'.repeat(64);
 const URL = 'https://github.com/Qortal/qortal/releases/download/v6.1.9/qortal.jar';
@@ -32,6 +35,37 @@ assert.deepEqual(selectQortalJarRelease(release()), {
   },
   tagName: 'v6.1.9',
 });
+
+const selectedRelease = selectQortalJarRelease(release());
+assert.ok(selectedRelease);
+assert.equal(
+  matchesQortalJarReleaseIdentity(selectedRelease, {
+    buildTimestamp: '2026-08-21T00:00:00Z',
+    buildVersion: '6.1.9-a1b2c3d4',
+    commit: 'a1b2c3d4',
+    semver: '6.1.9',
+  }),
+  true,
+);
+assert.equal(
+  matchesQortalJarReleaseIdentity(selectedRelease, {
+    buildTimestamp: '',
+    buildVersion: '6.1.8-a1b2c3d4',
+    commit: 'a1b2c3d4',
+    semver: '6.1.8',
+  }),
+  false,
+);
+assert.equal(
+  matchesQortalJarReleaseIdentity(selectedRelease, {
+    buildTimestamp: '',
+    buildVersion: '6.1.8-a1b2c3d4',
+    commit: 'a1b2c3d4',
+    semver: '6.1.9',
+  }),
+  false,
+);
+assert.equal(matchesQortalJarReleaseIdentity(selectedRelease, null), false);
 
 for (const invalid of [
   null,

@@ -19,6 +19,7 @@ import {
   isManagedCoreRuntimeRunning,
   isManagedCoreUsingI2p,
   registerCoreManagerIpcHandlers,
+  registerProductionCoreManagerEntries,
 } from './core-manager.js';
 import {
   registerI2pdManagerIpcHandlers,
@@ -858,6 +859,7 @@ app.whenReady().then(() => {
 
   logStartupMilestone('main process ready');
   installNodeTlsForDefaultSessions();
+  registerProductionCoreManagerEntries();
 
   if (IS_HOME_V2) {
     registerAccountIpcHandlers();

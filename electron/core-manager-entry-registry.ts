@@ -10,12 +10,17 @@ export class NetworkManagerEntryRegistry<
 
   constructor(entries: readonly Entry[]) {
     for (const entry of entries) {
-      if (this.#entries.has(entry.networkId)) {
-        throw new Error(`A Core manager is already registered for ${entry.networkId}.`);
-      }
-
-      this.#entries.set(entry.networkId, entry);
+      this.register(entry);
     }
+  }
+
+  register(entry: Entry) {
+    if (this.#entries.has(entry.networkId)) {
+      throw new Error(`A Core manager is already registered for ${entry.networkId}.`);
+    }
+
+    this.#entries.set(entry.networkId, entry);
+    return entry;
   }
 
   get(networkId: NetworkId) {

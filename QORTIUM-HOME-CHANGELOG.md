@@ -34,6 +34,71 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(core): build verified Qortal lifecycle foundations
+
+Home now has a fail-closed staging path for Qortal releases. It writes into an
+exclusive partial file, requires the exact declared byte count and SHA-256
+digest, and then checks the JAR's embedded build version against the selected
+stable release before the candidate can advance. Partial and destination paths
+must resolve to distinct names in the same staging directory.
+
+The matching install primitive changes only `qortal.jar`: it uses atomic
+same-directory renames for initial installs and updates, preserves Qortal's
+settings, API key, database, data, lists, and logs, and restores the previous
+JAR and metadata when activation fails. Cross-device copy fallbacks, symlinked
+JAR endpoints, stale backup collisions, and incomplete rollback are rejected or
+reported explicitly. Linux process discovery also now finds Qortal's default
+`settings.json` in the Java process's working directory when the JAR lives
+elsewhere.
+
+A fresh Home-managed install can now add Qortal's minimal settings file and a
+private pre-seeded API key, then commit a separate managed-install record only
+after the activated JAR's size, digest, and embedded identity are rechecked.
+Update rollback restores the prior record exactly, while fresh-install rollback
+removes only files that this transaction created. The key itself is never
+copied into metadata.
+
+JAR mutations now have a cooperative cross-process filesystem lease keyed by
+network and the canonical target. It uses exclusive private lock files,
+refuses live or uncertain owners, and retains proven-dead locks for explicit
+recovery rather than risking deletion of a replacement lock. Target snapshots
+record the canonical path, filesystem identity, digest, and uncached embedded
+JAR identity so a future manager can revalidate immediately before mutation.
+Qortal's stopped settings chain can also be read with its comment,
+trailing-comma, `userPath`, and default-value behavior to decide whether
+updates belong to Qortal itself, Home, or neither when evidence is uncertain.
+This is an update-ownership projection, not proof that every unrelated setting
+will pass Qortal's complete configuration validation.
+
+These remain main-process foundations only. No Qortal lifecycle is registered
+or exposed to Home 2.
+
+That composition now has a standalone, fail-closed coordinator. It serializes
+install, update, start, and stop; rechecks process, readiness, policy, release,
+candidate, and managed-JAR evidence inside the lease; launches Java without a
+caller-controlled shell from the install directory with literal
+`settings.json`; and permits authenticated stop only for positively Home-owned
+processes. Same-version and downgrade updates are refused, native Qortal update
+ownership wins, and adopted installs remain observation-only. The coordinator
+deliberately requires strong process, listener, Java, readiness, and API seams
+that are not implemented yet, so it is tested but not registered or reachable.
+Verified per-operation candidates that are not consumed are retained for
+explicit recovery: Node cannot safely unlink a pathname only if it still names
+the inode that Home inspected.
+
+The coordinator now has a Linux production adapter and is registered internally
+after Electron finalizes its data paths. Runtime control requires stable
+`/proc` PID/start identity, exact Qortal argv/cwd/JAR, and no second visible
+holder of listener 12391 within the current local-user trust boundary, plus
+JAR-matching mainnet `/admin/info` and structurally valid
+`/admin/status`, and unchanged authority after probing. API-key control follows
+Qortal's effective `userPath` settings, requires a private Home-owned Base58
+key, disables local-auth bypass, verifies the key live, and rechecks authority
+before `/admin/stop`. Qortal shares the verified managed Java runtime and only
+accepts an OpenJDK system fallback after resolving and probing the exact
+executable under the sanitized launch environment. Home 2 still exposes no
+Core lifecycle IPC.
+
 ### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
 
 Home's plus button now opens a dedicated new-tab page for finding public
