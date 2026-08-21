@@ -212,16 +212,6 @@
   background: var(--v2-chrome-deep);
 }
 
-.home-v2-window-brand {
-  display: flex;
-  min-width: max-content;
-  align-items: center;
-  gap: 8px;
-  padding: 0 7px 8px 2px;
-  color: var(--v2-muted);
-  font-size: 12px;
-}
-
 .home-v2-home-mark {
   display: inline-grid;
   width: 22px;
@@ -240,12 +230,6 @@
 
 .home-v2-shell[data-theme='dark'] .home-v2-home-mark img {
   filter: invert(1);
-}
-
-.home-v2-window-brand__mark {
-  width: 24px;
-  height: 24px;
-  flex-basis: 24px;
 }
 
 .home-v2-tabs {
@@ -1528,7 +1512,6 @@
   margin: 0 auto;
 }
 
-.home-v2-shell[data-layout='phone'] .home-v2-window-brand strong,
 .home-v2-shell[data-layout='phone'] .home-v2-node-pill,
 .home-v2-shell[data-layout='phone'] .home-v2-account-button {
   font-size: 0;
@@ -1622,7 +1605,6 @@
 }
 
 @media (max-width: 760px) {
-  .home-v2-window-brand strong,
   .home-v2-node-pill,
   .home-v2-account-button {
     font-size: 0;

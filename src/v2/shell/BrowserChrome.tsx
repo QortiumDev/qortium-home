@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { HomeV2Snapshot, NetworkId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
 import { networkLabels } from './NetworkBadge'
-import { HomeMark, NetworkMark } from './ProductMarks'
+import { NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
 
 export interface BrowserChromeProps {
@@ -118,10 +118,6 @@ export function BrowserChrome({
   return (
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">
-        <div className="home-v2-window-brand" aria-label="Qortium Home 2.0">
-          <HomeMark className="home-v2-window-brand__mark" />
-          <strong>Qortium Home</strong>
-        </div>
         <TabStrip
           productState={productState}
           onActivateTab={onActivateTab}
@@ -214,11 +210,12 @@ export function BrowserChrome({
           ) : null}
         </form>
         <div className="home-v2-browser-actions">
-          {(['qortal', 'qortium'] as const).map((network) => (
+          {(['qortium', 'qortal'] as const).map((network) => (
             <button
               key={network}
               type="button"
               className="home-v2-node-pill"
+              data-network={network}
               data-node-tone={nodeTone(snapshot, network)}
               title={`${networkLabels[network]}: ${snapshot.nodes[network].statusText}`}
               onClick={() => onNavigate?.('dashboard')}

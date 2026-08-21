@@ -692,6 +692,15 @@ function testDesktopAndPhoneContracts(): void {
   assert.match(desktop, /data-layout="desktop"/)
   assert.match(desktop, /data-theme="light"/)
   assert.match(phone, /data-layout="phone"/)
+  const assertNetworkOrder = (html: string, className: string): void => {
+    const qortium = html.indexOf(
+      `class="${className}" data-network="qortium"`,
+    )
+    const qortal = html.indexOf(`class="${className}" data-network="qortal"`)
+    assert.notEqual(qortium, -1, `${className} must render Qortium`)
+    assert.notEqual(qortal, -1, `${className} must render Qortal`)
+    assert.ok(qortium < qortal, `${className} must render Qortium first`)
+  }
   for (const html of [desktop, phone]) {
     assert.match(html, /class="home-v2-browser-chrome"/)
     assert.match(html, /home-v2-home-mark/)
@@ -706,6 +715,7 @@ function testDesktopAndPhoneContracts(): void {
       'browser chrome must wrap the Dashboard rather than live inside it',
     )
     assert.doesNotMatch(html, /home-v2-sidebar/)
+    assert.doesNotMatch(html, /home-v2-window-brand/)
     assert.doesNotMatch(html, />Home</)
     assert.match(html, />Qortal</)
     assert.match(html, />Qortium</)
@@ -728,6 +738,9 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, /fixture:tab:chat/)
     assert.match(html, /fixture:tab:qortal-compat/)
     assert.doesNotMatch(html, /role="dialog"/)
+    assertNetworkOrder(html, 'home-v2-node-pill')
+    assertNetworkOrder(html, 'home-v2-node-card')
+    assertNetworkOrder(html, 'home-v2-presence')
   }
 }
 
@@ -825,6 +838,7 @@ function testProductMarkAssetsAndColorOwnership(): void {
   assert.doesNotMatch(qortiumRule[1], /accent/)
   assert.match(css, /\.home-v2-status-dot/)
   assert.match(css, /data-theme='dark'[\s\S]*?\.home-v2-home-mark img/)
+  assert.doesNotMatch(css, /home-v2-window-brand/)
 }
 
 function testStartupStatesAndAppearance(): void {
@@ -1275,6 +1289,10 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   }
 
   assert.equal(packageJson.build.appId, 'org.qortium.home')
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /Account integration is not enabled in this build|Not connected in this build/,
+  )
   assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
   assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
   const androidV2VaultStart = platform.indexOf('// Home v2 public CHAT writes')
