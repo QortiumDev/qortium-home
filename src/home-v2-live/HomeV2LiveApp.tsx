@@ -1238,8 +1238,9 @@ export function HomeV2LiveApp() {
       ) {
         return
       }
-      const account = typeof value.accountId === 'string'
-        ? accountCatalogueRef.current.accounts.find((candidate) => candidate.id === value.accountId)
+      const accountId = typeof value.accountId === 'string' ? value.accountId : ''
+      const account = accountId
+        ? accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         : undefined
       if (value.action === 'UNLOCK_SELECTED_ACCOUNT') {
         if (!account || value.protocol !== 'qdnRequest') {
@@ -1340,7 +1341,7 @@ export function HomeV2LiveApp() {
             ? `home-v2:identity:none`
             : isNotification
             ? `home-v2:identity:app:${appIdentityKey}`
-            : `home-v2:identity:${value.accountId}`),
+            : `home-v2:identity:${accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
           tabId: brand<TabId>(value.tabId),
           targetNetwork: value.targetNetwork,
@@ -1386,23 +1387,23 @@ export function HomeV2LiveApp() {
               { label: 'Scope', value: 'Until revoked in Settings' },
             ]
           : isAccountRead
-            ? homeV2AccountReadPermissionDetails(account?.label ?? value.accountId)
+            ? homeV2AccountReadPermissionDetails(account?.label ?? accountId)
           : isJournalRead
             ? [
-                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
                 { label: 'Data', value: 'Signatures and targets of this app’s unknown transaction outcomes' },
               ]
           : isJournalForget
             ? [
-                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Operation', value: operationLabel },
                 { label: 'Chain', value: String(value.writeTargetChainLabel) },
                 { label: 'Signature', value: String(value.journalSignature) },
               ]
           : isChatWrite
           ? [
-              { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Account', value: account?.label ?? accountId },
               { label: 'Operation', value: operationLabel },
               ...(isChatMutationGrant
                 ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this chat' }]
@@ -1415,7 +1416,7 @@ export function HomeV2LiveApp() {
             ]
           : isDirectRead || isDirectWrite
             ? [
-                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Operation', value: operationLabel },
                 ...(isChatMutationGrant
                   ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this conversation' }]
@@ -1432,7 +1433,7 @@ export function HomeV2LiveApp() {
               ]
           : isPrivateGroupRead || isPrivateGroupWrite
             ? [
-                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Operation', value: operationLabel },
                 ...(isChatMutationGrant
                   ? [{ label: 'Tab approval', value: 'Send, edit, delete, and react in this private group' }]
@@ -1451,7 +1452,7 @@ export function HomeV2LiveApp() {
               ]
           : isGroupWrite
             ? [
-                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Operation', value: operationLabel },
                 { label: 'Chain', value: String(value.writeTargetChainLabel) },
                 { label: 'Route', value: String(value.writeRouteLabel) },
@@ -1468,7 +1469,7 @@ export function HomeV2LiveApp() {
               ]
           : isPublish || isPrivateAttachment
             ? [
-                { label: 'Account', value: account?.label ?? value.accountId },
+                { label: 'Account', value: account?.label ?? accountId },
                 { label: 'Operation', value: operationLabel },
                 { label: 'Chain', value: String(value.writeTargetChainLabel) },
                 { label: 'Route', value: String(value.writeRouteLabel) },
@@ -1478,7 +1479,7 @@ export function HomeV2LiveApp() {
                 { label: 'SHA-256', value: String(value.publishContentHash) },
               ]
             : [
-              { label: 'Account', value: account?.label ?? value.accountId },
+              { label: 'Account', value: account?.label ?? accountId },
               { label: 'Data', value: 'Address, public key when available, lock state, and public name' },
             ],
         allowedScopes: isWidgetPrompt
@@ -2751,31 +2752,6 @@ export function HomeV2LiveApp() {
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}`
         const groupId = privateRequest.groupId ?? 0
         const senderPublicKey = await vaultClient.getSigningPublicKey(accountId)
-        const readState = async (requestedGroupId: number) => {
-          if (privateGroupNetwork !== 'qortium') throw new Error('QPGC state is available only on Qortium.')
-          const response = await nodeClient.requestApp(
-            protocol,
-            {
-              action: 'FETCH_NODE_API',
-              maxBytes: 2 * 1024 * 1024,
-              path: `/chat/private/group/state/${encodeURIComponent(String(requestedGroupId))}`,
-            },
-            context,
-          )
-          const value = isRecord(response) && 'data' in response ? response.data : response
-          return normalizeHomeV2QpgcGroupState(value, requestedGroupId)
-        }
-        const initialState = privateGroupNetwork === 'qortium' && groupId > 0 ? await readState(groupId) : null
-        if (
-          initialState &&
-          !initialState.memberPublicKeys.some((member) => base58Encode(member) === senderPublicKey)
-        ) throw Object.assign(new Error('The selected account is not a current member of this private group.'), {
-          action,
-          code: 'NOT_GROUP_MEMBER',
-          network: 'qortium',
-          retryable: false,
-          target: { groupId, kind: 'group' },
-        })
         const operationLabel = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
           ? 'Read active private-group chats'
           : action === 'GET_PRIVATE_GROUP_CHAT_STATE'
@@ -2930,12 +2906,11 @@ export function HomeV2LiveApp() {
           if (currentSenderPublicKey !== senderPublicKey) {
             throw new Error('Private-group participant identity changed before signing.')
           }
-          if (privateGroupNetwork === 'qortal') return
-          if (!initialState) throw new Error('Private-group participant identity changed before signing.')
-          const current = await readState(privateWriteRequest.groupId)
-          if (base58Encode(current.epochId) !== currentEpochId || currentEpochId !== base58Encode(initialState.epochId)) {
-            throw new Error('Private-group membership changed before signing.')
-          }
+          // The vault helper re-reads the dedicated private-group state and
+          // compares its epoch immediately before signing. Do not duplicate
+          // that check through generic FETCH_NODE_API: `/chat/private/...`
+          // deliberately remains outside the app-visible read allowlist.
+          void currentEpochId
         }
         if (!singleRequestOnly) {
           const rateLimitDecision = androidChatSendRateLimiter.current.checkAndRecordSend(

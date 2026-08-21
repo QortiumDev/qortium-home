@@ -65,6 +65,7 @@ const latency = new Map([
 ])
 const unavailable = new Set<string>()
 const requestCount = new Map<string, number>()
+let currentNow = 1_700_000_000_000
 let lastRequestedUrl = ''
 let lastRequestedBinaryUrl = ''
 let lastRequestedBinaryTimeoutMs: number | undefined
@@ -117,16 +118,17 @@ const dependencies: PortableNodeClientDependencies = {
   async requestBinary(url, timeoutMs) {
     lastRequestedBinaryUrl = url
     lastRequestedBinaryTimeoutMs = timeoutMs
+    const headers: Record<string, string> = {
+      'content-type': 'application/octet-stream',
+    }
+    if (url.includes('/addresses/')) {
+      headers['x-qortium-avatar-identifier'] = 'current-pointer'
+      headers['x-qortium-avatar-name'] = 'Current publisher'
+      headers['x-qortium-avatar-service'] = 'THUMBNAIL'
+    }
     return {
       data: 'iVBORw0KGgo=',
-      headers: url.includes('/addresses/')
-        ? {
-            'content-type': 'application/octet-stream',
-            'x-qortium-avatar-identifier': 'current-pointer',
-            'x-qortium-avatar-name': 'Current publisher',
-            'x-qortium-avatar-service': 'THUMBNAIL',
-          }
-        : { 'content-type': 'application/octet-stream' },
+      headers,
       status: 200,
     }
   },
@@ -134,7 +136,7 @@ const dependencies: PortableNodeClientDependencies = {
     savedResource = { fileName, mimeType, size: bytes.byteLength }
     return { canceled: false }
   },
-  now: () => 1_700_000_000_000,
+  now: () => currentNow,
 }
 
 const client = createPortableNodeClient(dependencies)
@@ -390,6 +392,18 @@ requestCount.clear()
 const failedOver = (await client.getSnapshot()) as Snapshot
 assert.equal(failedOver.nodes.qortal.nodeApiUrl, 'https://ext-node.qortal.link')
 assert.equal(requestCount.has('https://ext-node.qortal.link'), true)
+
+// A momentary failure across every public seed must not erase a route that was
+// just verified. Android actions use getSnapshot() for their approval and
+// signing context; dropping the route during one probe cycle otherwise makes
+// an online node appear unavailable and aborts the action before its prompt.
+unavailable.add('https://ext-node.qortal.link')
+const transientFailure = (await client.getSnapshot()) as Snapshot
+assert.equal(transientFailure.nodes.qortal.nodeApiUrl, 'https://ext-node.qortal.link')
+currentNow += 30_001
+const expiredFailure = (await client.getSnapshot()) as Snapshot
+assert.equal(expiredFailure.nodes.qortal.nodeApiUrl, null)
+unavailable.clear()
 
 await assert.rejects(
   () => client.setCustomUrl('qortal', 'http://remote.example:12391'),

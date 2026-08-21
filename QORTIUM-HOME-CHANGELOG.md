@@ -70,6 +70,25 @@ locally when its announcement broadcast is uncertain; Home records that control
 signature while proving that the user's message was not submitted, so retrying
 the message is safe and retained announcement discovery can reconcile the key.
 
+Android Home 2 now keeps the node route selected by its portable Qortal/Qortium
+connection client authoritative through public and direct chat, private-group
+reads and writes, private attachments, and group membership or administration.
+Those helpers no longer perform a second legacy Qortium node discovery or
+borrow a legacy node API key, preventing valid requests from being rejected
+when the two independent public-node selectors chose different healthy nodes.
+Private-group state validation also stays on the dedicated permissioned vault
+path instead of routing Home's own `/chat/private/...` request through the
+generic app read allowlist, which intentionally excludes private API routes.
+The Android connection client also retains a recently verified public route
+through a brief failed health-probe cycle instead of reporting the network
+unavailable between successful checks. Android's renderer policy now permits
+only Home's same-origin memory-proof worker, allowing CHAT proof-of-work to run
+without opening general network or cross-origin worker access.
+The Android app bridge now also keeps every CHAT proof-of-work mutation open
+for the same long-running window as ordinary message sends, so private-group,
+direct, edit, delete, reaction, and key-management requests do not time out in
+the hosted app while Home is still computing and may still broadcast them.
+
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 
 Home 2 now carries forward the Core 1.7 compatibility protections from the

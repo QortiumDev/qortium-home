@@ -1264,6 +1264,8 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   const main = readFileSync('electron/main.ts', 'utf8')
   const qortalNodeSettings = readFileSync('electron/qortal-node-settings.ts', 'utf8')
   const qortiumNodeSettings = readFileSync('electron/node-settings.ts', 'utf8')
+  const homeV2LiveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  const androidHtml = readFileSync('src/home-v2-live/android/index.html', 'utf8')
   const platform = readFileSync('src/platform.ts', 'utf8')
   const html = readFileSync('v2-live.html', 'utf8')
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
@@ -1275,6 +1277,36 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.equal(packageJson.build.appId, 'org.qortium.home')
   assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
   assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
+  const androidV2VaultStart = platform.indexOf('// Home v2 public CHAT writes')
+  assert.notEqual(androidV2VaultStart, -1)
+  const androidV2VaultSource = platform.slice(androidV2VaultStart)
+  assert.match(androidV2VaultSource, /const ANDROID_HOME_V2_NODE_API_KEY = '';/)
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /readNodeSettings\(/,
+    'Home 2 Android vault helpers must keep the portable node client route authoritative instead of rediscovering the legacy route',
+  )
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /getSendablePlatformNodeApiKey\(/,
+    'Home 2 Android vault helpers must not graft a legacy node API key onto the portable route',
+  )
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /resolveNodeApiUrl\(/,
+    'Home 2 Android vault helpers must not independently select a second Qortium node',
+  )
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /action:\s*['"]FETCH_NODE_API['"][\s\S]{0,300}\/chat\/private\//,
+    'Android private-group validation must stay behind the permissioned vault instead of bypassing the generic read allowlist',
+  )
+  assert.match(
+    androidHtml,
+    /worker-src 'self'/,
+    'Android Home must permit its same-origin memory-PoW worker',
+  )
+  assert.doesNotMatch(androidHtml, /worker-src (?!'self')/)
   assert.match(preload, /exposeInMainWorld\('homeV2Nodes'/)
   assert.match(preload, /home-v2-nodes:getSnapshot/)
   assert.match(preload, /home-v2-nodes:setMode/)

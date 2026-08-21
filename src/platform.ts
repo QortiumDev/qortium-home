@@ -12449,6 +12449,15 @@ async function buildAndroidHomeV2VaultState(): Promise<HomeV2VaultState> {
 // seconds — memory-pow) and rechecked once more immediately before signing,
 // so a context change mid-PoW cancels the send instead of silently signing
 // and broadcasting under a stale account/node/tab.
+//
+// Home 2's portable Android node client owns the selected route and does not
+// carry authenticated custom-node credentials. These helpers must therefore
+// use the explicit nodeApiUrl supplied by HomeV2LiveApp and no API key. Never
+// rediscover through the legacy NODE_SETTINGS_KEY here: its independent
+// sticky public-node choice can differ from the v2 client, and its API key
+// belongs to a separate authority domain.
+const ANDROID_HOME_V2_NODE_API_KEY = '';
+
 async function sendHomeV2QortiumChatMessage(
   nodeApiUrl: string,
   request: HomeV2PublicChatRequest,
@@ -12456,19 +12465,8 @@ async function sendHomeV2QortiumChatMessage(
   isStillValid: () => boolean | Promise<boolean>,
   validateTarget: () => Promise<void>,
 ) {
-  const settings = await readNodeSettings();
-  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
-  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
-    throw new Error('The selected Qortium route changed before the chat action could start.');
-  }
-  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
-  const isRouteStillValid = async () => {
-    if (!(await isStillValid())) return false;
-    const currentSettings = await readNodeSettings();
-    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
-    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
-      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
-  };
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
+  const isRouteStillValid = async () => !!(await isStillValid());
   const timestamp = Date.now();
   const buildRequest = buildHomeV2QortiumPublicChatBuildBody({
     request,
@@ -12635,19 +12633,8 @@ async function sendAndroidHomeV2QortiumDirectChat(
   isStillValid: () => boolean | Promise<boolean>,
   validateTarget: () => Promise<void>,
 ) {
-  const settings = await readNodeSettings();
-  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
-  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
-    throw new Error('The selected Qortium route changed before the direct-message action could start.');
-  }
-  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
-  const isRouteStillValid = async () => {
-    if (!(await isStillValid())) return false;
-    const currentSettings = await readNodeSettings();
-    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
-    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
-      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
-  };
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
+  const isRouteStillValid = async () => !!(await isStillValid());
   const timestamp = Date.now();
   const envelope = await encryptQdm1Message({
     nonce: getRandomBytes(12),
@@ -12764,8 +12751,7 @@ async function readAndroidHomeV2DirectChats(
   request: import('./home-v2-live/vault-client').HomeV2DirectChatReadRequest,
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
 ) {
-  const settings = request.network === 'qortium' ? await readNodeSettings() : null;
-  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
   const query = new URLSearchParams();
   query.set('encoding', 'BASE64');
   if (request.hasChatReference !== undefined) query.set('haschatreference', String(request.hasChatReference));
@@ -13509,12 +13495,7 @@ async function readAndroidHomeV2PrivateGroupChats(
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
 ) {
   if (request.network === 'qortal') return readAndroidHomeV2QortalPrivateGroupChats(request, signingKey);
-  const settings = await readNodeSettings();
-  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
-  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(request.nodeApiUrl)) {
-    throw new Error('The selected Qortium route changed before the private-group read.');
-  }
-  const apiKey = getSendablePlatformNodeApiKey(settings, request.nodeApiUrl);
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
   if (request.action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
     const state = await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId as number, apiKey);
     const key = await resolveAndroidHomeV2QpgcKey({
@@ -13592,20 +13573,9 @@ async function sendAndroidHomeV2PrivateGroupChat(
   signingKey: { address: string; publicKey58: string; secretKey: Uint8Array },
 ) {
   if (request.network === 'qortal') return sendAndroidHomeV2QortalPrivateGroupChat(request, signingKey);
-  const settings = await readNodeSettings();
-  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
-  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(request.nodeApiUrl)) {
-    throw new Error('The selected Qortium route changed before the private-group action.');
-  }
-  const apiKey = getSendablePlatformNodeApiKey(settings, request.nodeApiUrl);
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
   const isStillValid = request.isStillValid ?? (() => true);
-  const isRouteStillValid = async () => {
-    if (!(await isStillValid())) return false;
-    const currentSettings = await readNodeSettings();
-    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
-    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(request.nodeApiUrl) &&
-      getSendablePlatformNodeApiKey(currentSettings, request.nodeApiUrl) === apiKey;
-  };
+  const isRouteStillValid = async () => !!(await isStillValid());
   const state = await readAndroidHomeV2QpgcState(request.nodeApiUrl, request.groupId, apiKey);
   const publicKey = base58Decode(signingKey.publicKey58);
   if (!state.memberPublicKeys.some((member) => member.every((value, index) => value === publicKey[index]))) {
@@ -13838,19 +13808,8 @@ async function sendAndroidHomeV2QortiumGroupMembership(
   isStillValid: () => boolean | Promise<boolean>,
   validateTarget: () => Promise<void>,
 ) {
-  const settings = await readNodeSettings();
-  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
-  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
-    throw new Error('The selected Qortium route changed before the group action could start.');
-  }
-  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
-  const isRouteStillValid = async () => {
-    if (!(await isStillValid())) return false;
-    const currentSettings = await readNodeSettings();
-    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
-    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
-      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
-  };
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
+  const isRouteStillValid = async () => !!(await isStillValid());
   const timestamp = Date.now();
   let unsignedText: string;
   try {
@@ -14067,19 +14026,8 @@ async function sendAndroidHomeV2QortiumGroupAdmin(
   isStillValid: () => boolean | Promise<boolean>,
   validateTarget: () => Promise<void>,
 ) {
-  const settings = await readNodeSettings();
-  const resolvedNodeApiUrl = await resolveNodeApiUrl(settings);
-  if (getNodeApiUrlBase(resolvedNodeApiUrl) !== getNodeApiUrlBase(nodeApiUrl)) {
-    throw new Error('The selected Qortium route changed before the group action could start.');
-  }
-  const apiKey = getSendablePlatformNodeApiKey(settings, nodeApiUrl);
-  const isRouteStillValid = async () => {
-    if (!(await isStillValid())) return false;
-    const currentSettings = await readNodeSettings();
-    const currentNodeApiUrl = await resolveNodeApiUrl(currentSettings).catch(() => '');
-    return getNodeApiUrlBase(currentNodeApiUrl) === getNodeApiUrlBase(nodeApiUrl) &&
-      getSendablePlatformNodeApiKey(currentSettings, nodeApiUrl) === apiKey;
-  };
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
+  const isRouteStillValid = async () => !!(await isStillValid());
   const timestamp = Date.now();
   const unsignedBytes = buildUnsignedQortiumGroupAdminTransactionBytes({
     request,
@@ -14428,8 +14376,7 @@ async function publishAndroidHomeV2PrivateAttachment(
   if (await readAndroidHomeV2PrimaryPublisherName(request.nodeApiUrl, signingKey.address) !== request.publisherName) {
     throw new Error('The selected account primary name changed before attachment encryption.');
   }
-  const settings = request.network === 'qortium' ? await readNodeSettings() : null;
-  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
   const peerBaseline = request.conversation.kind === 'direct'
     ? await readAndroidHomeV2DirectPublicKey(request.nodeApiUrl, request.conversation.otherAddress, apiKey)
     : null;
@@ -14592,8 +14539,7 @@ async function decryptAndroidHomeV2PrivateAttachment(
 ) {
   const isStillValid = request.isStillValid ?? (() => true);
   const descriptor = request.descriptor;
-  const settings = descriptor.network === 'qortium' ? await readNodeSettings() : null;
-  const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+  const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
   let peerKey: Awaited<ReturnType<typeof readAndroidHomeV2DirectPublicKey>> | null = null;
   let qpgcState: HomeV2QpgcGroupState | null = null;
   let qortalState: AndroidQortalPrivateGroupState | null = null;
@@ -14976,8 +14922,7 @@ export function createAndroidHomeV2VaultClient(): HomeV2VaultClient {
       const signingKey = await getAccountSecretKey(request.accountId);
       try {
         const isStillValid = request.isStillValid ?? (() => true);
-        const settings = request.network === 'qortium' ? await readNodeSettings() : null;
-        const apiKey = settings ? getSendablePlatformNodeApiKey(settings, request.nodeApiUrl) : '';
+        const apiKey = ANDROID_HOME_V2_NODE_API_KEY;
         const peerKey = await readAndroidHomeV2DirectPublicKey(
           request.nodeApiUrl,
           request.otherAddress,
