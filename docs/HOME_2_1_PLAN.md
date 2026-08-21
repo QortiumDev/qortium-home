@@ -100,10 +100,17 @@ preparation.
   stopped/live update-ownership detection. Proven-dead locks are retained for
   explicit recovery; immediate process/JAR revalidation remains required
   because Qortal Hub does not honor the lease.
+- [x] Add a standalone Qortal lifecycle coordinator that composes those
+  primitives behind the lease, binds start/stop/update to the managed JAR
+  record, preserves Qortal's literal `settings.json` launch behavior, and keeps
+  native-update and adopted-install mutation fail closed. Its strong runtime
+  authority seams remain deliberately injected and unregistered. Unconsumed
+  unique candidates are retained for explicit recovery because pathname unlink
+  cannot prove that the inspected inode still owns the name.
 - [ ] Build and register a separate Qortal manager that composes these
-  foundations with direct launch, readiness, process ownership, update-policy
-  revalidation, and shared Java. Adoption and Home 2 controls remain subsequent
-  E2/E3 work.
+  foundations with production strong process/listener proof, effective-settings
+  and exact API-key resolution, readiness identity checks, shared Java, and a
+  launch receipt. Adoption and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 

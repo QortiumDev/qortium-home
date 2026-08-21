@@ -70,9 +70,21 @@ updates belong to Qortal itself, Home, or neither when evidence is uncertain.
 This is an update-ownership projection, not proof that every unrelated setting
 will pass Qortal's complete configuration validation.
 
-These remain main-process foundations only. A separate Qortal manager still
-needs to combine them with process ownership and readiness checks before any
-Qortal lifecycle is registered or exposed to Home 2.
+These remain main-process foundations only. No Qortal lifecycle is registered
+or exposed to Home 2.
+
+That composition now has a standalone, fail-closed coordinator. It serializes
+install, update, start, and stop; rechecks process, readiness, policy, release,
+candidate, and managed-JAR evidence inside the lease; launches Java without a
+caller-controlled shell from the install directory with literal
+`settings.json`; and permits authenticated stop only for positively Home-owned
+processes. Same-version and downgrade updates are refused, native Qortal update
+ownership wins, and adopted installs remain observation-only. The coordinator
+deliberately requires strong process, listener, Java, readiness, and API seams
+that are not implemented yet, so it is tested but not registered or reachable.
+Verified per-operation candidates that are not consumed are retained for
+explicit recovery: Node cannot safely unlink a pathname only if it still names
+the inode that Home inspected.
 
 ### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
 

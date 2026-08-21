@@ -301,6 +301,23 @@ async function readSecureDirectoryIdentity(
   return { dev: stats.dev, ino: stats.ino };
 }
 
+export async function validateQortalManagedInstallDirectories(
+  paths: QortalManagedInstallPaths,
+  options: { operations?: Partial<QortalManagedInstallOperations> } = {},
+) {
+  const operations: QortalManagedInstallOperations = {
+    ...DEFAULT_OPERATIONS,
+    ...options.operations,
+  };
+  assertManagedPathLayout(paths);
+  const [baseIdentity, installIdentity] = await Promise.all([
+    readSecureDirectoryIdentity(paths.basePath, operations),
+    readSecureDirectoryIdentity(paths.installPath, operations),
+  ]);
+
+  return { baseIdentity, installIdentity };
+}
+
 export class QortalManagedInstallAtomicWriteError extends AggregateError {
   readonly destinationPath: string;
   readonly temporaryPath: string;
@@ -515,17 +532,13 @@ export async function prepareQortalManagedInstall(
     ...options.operations,
   };
 
-  assertManagedPathLayout(input.paths);
-
   if (!matchesQortalJarReleaseIdentity(input.release, input.identity)) {
     throw new Error('The Qortal release and JAR identity do not match.');
   }
 
   const paths = input.paths;
-  const [baseIdentity, installIdentity] = await Promise.all([
-    readSecureDirectoryIdentity(paths.basePath, operations),
-    readSecureDirectoryIdentity(paths.installPath, operations),
-  ]);
+  const { baseIdentity, installIdentity } =
+    await validateQortalManagedInstallDirectories(paths, { operations });
   const jarState = await inspectPath(paths.jarPath, operations);
   const metadataState = await inspectPath(paths.currentMetadataPath, operations);
   let previousMetadata: MetadataSnapshot | null = null;
