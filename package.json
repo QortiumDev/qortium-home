@@ -93,6 +93,7 @@
     "test:home-v2-app-runtime": "npm run build:electron && node dist-electron/home-v2-app-runtime.test.js",
     "test:home-v2-core-bridge-client": "npm run build:electron && node dist-electron/home-v2-core-bridge-client.test.js",
     "test:home-v2-identity-resolver": "esbuild src/home-v2-live/identity-resolver.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/home-v2-identity-resolver.test.js && node dist-electron/home-v2-identity-resolver.test.js",
+    "test:home-v2-visible-identity-avatar": "esbuild src/v2/shell/VisibleIdentityAvatar.test.tsx --bundle --platform=node --format=esm --external:react --external:react-dom --external:react-dom/client --outfile=dist-electron/visible-identity-avatar.test.js && node scripts/run-visible-identity-avatar-test.mjs",
     "test:home-v2-unlock-account-state": "esbuild src/home-v2-live/unlock-account-state.test.ts --bundle --platform=node --format=esm --outfile=dist-electron/home-v2-unlock-account-state.test.js && node dist-electron/home-v2-unlock-account-state.test.js",
     "test:qdn-resource-identity": "node scripts/ensure-electron-build.mjs && node dist-electron/qdn-resource-identity.test.js",
     "test:home-v2-send-rate-limiter": "node scripts/ensure-electron-build.mjs && node dist-electron/home-v2-send-rate-limiter.test.js",

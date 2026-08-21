@@ -65,6 +65,7 @@ preparation.
 - [x] Persist the additive `newtab` destination with safe older-reader fallback.
 - [x] Put Qortium first in public identity results on desktop and phone.
 - [x] Keep QDN app navigation in the existing browser address bar.
+- [x] Stop missing legacy avatars from presenting as long-running downloads.
 
 ## Required gates
 

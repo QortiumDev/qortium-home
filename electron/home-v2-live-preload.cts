@@ -11,7 +11,12 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
   readIdentity: (
     network: 'qortal' | 'qortium',
     request: {
-      kind: 'accountAvatarInfo' | 'name' | 'namesByAddress' | 'primaryName'
+      kind:
+        | 'accountAvatarInfo'
+        | 'legacyAvatarResource'
+        | 'name'
+        | 'namesByAddress'
+        | 'primaryName'
       value: string
     },
   ) => ipcRenderer.invoke('home-v2-nodes:readIdentity', network, request),

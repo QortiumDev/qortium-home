@@ -34,7 +34,7 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
-### 2026-08-21 - feat(shell): add the Home 2.1 new-tab search
+### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
 
 Home's plus button now opens a dedicated new-tab page for finding public
 accounts by registered name or chain address across Qortium and Qortal. The
@@ -43,6 +43,11 @@ the selected-account card keeps its existing cross-network identity details.
 Open QDN app tabs remain available when New tab is selected, and the new
 internal destination is restored safely without changing the saved-state
 format. QDN app and Home addresses continue to use the browser address bar.
+
+Missing legacy avatars now fall back promptly to an account initial instead of
+showing a long-running spinner. Home first verifies that the named avatar
+resource exists, preserves bounded background loading for published images
+that are not local yet, and applies the same behavior on desktop and Android.
 
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
