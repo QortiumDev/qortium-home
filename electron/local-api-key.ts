@@ -357,7 +357,7 @@ export function deriveRunningCoreKeyFromProcessFiles(
       ? path.isAbsolute(openSettingsPath)
         ? openSettingsPath
         : path.resolve(cwd, openSettingsPath)
-      : getCoreFallbackSettingsPath(query.descriptor, absoluteJarPath);
+      : getCoreFallbackSettingsPath(query.descriptor, absoluteJarPath, cwd);
 
     const candidateDirectories: string[] = [];
 

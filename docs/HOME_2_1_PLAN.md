@@ -85,8 +85,17 @@ preparation.
 - [x] Add the E2 Qortal descriptor and stable-release trust boundary: exact
   `qortal.jar`, mandatory SHA-256 metadata, positive declared size, fixed Qortal
   GitHub URL, direct-JAR launch, shared managed Java, native update-setting
-  ownership, and no fabricated `/admin/update` capability. Manager registration,
-  download/install transactions, and adoption remain subsequent E2/E3 work.
+  ownership, and no fabricated `/admin/update` capability.
+- [x] Add verified Qortal JAR staging with exclusive partial files, exact
+  received-size and SHA-256 checks, embedded release-version matching, and
+  alias-safe same-directory promotion.
+- [x] Add the standalone JAR-only atomic initial-install/update transaction,
+  including rollback and explicit incomplete-recovery reporting while leaving
+  all non-JAR Qortal files untouched.
+- [ ] Integrate those primitives behind the per-network operation lock, initial
+  settings/API-key setup, runtime and update-ownership revalidation, and a real
+  Qortal manager entry. Adoption and Home 2 controls remain subsequent E2/E3
+  work.
 
 ## Required gates
 

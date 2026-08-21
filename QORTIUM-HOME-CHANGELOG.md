@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(core): add verified Qortal JAR transactions
+
+Home now has a fail-closed staging path for Qortal releases. It writes into an
+exclusive partial file, requires the exact declared byte count and SHA-256
+digest, and then checks the JAR's embedded build version against the selected
+stable release before the candidate can advance. Partial and destination paths
+must resolve to distinct names in the same staging directory.
+
+The matching install primitive changes only `qortal.jar`: it uses atomic
+same-directory renames for initial installs and updates, preserves Qortal's
+settings, API key, database, data, lists, and logs, and restores the previous
+JAR and metadata when activation fails. Cross-device copy fallbacks, symlinked
+JAR endpoints, stale backup collisions, and incomplete rollback are rejected or
+reported explicitly. Linux process discovery also now finds Qortal's default
+`settings.json` in the Java process's working directory when the JAR lives
+elsewhere. These are main-process foundations only; Qortal manager registration,
+the outer operation lock, initial settings setup, and Home 2 controls remain
+deliberately unwired.
+
 ### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
 
 Home's plus button now opens a dedicated new-tab page for finding public

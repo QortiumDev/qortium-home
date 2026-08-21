@@ -1,3 +1,6 @@
+import type { CoreJarIdentity } from './core-jar-identity.js';
+import { getCoreSemver } from './core-version.js';
+
 const QORTAL_JAR_NAME = 'qortal.jar' as const;
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
 const SAFE_RELEASE_TAG = /^v[a-z0-9._-]+$/i;
@@ -74,4 +77,15 @@ export function selectQortalJarRelease(value: unknown): QortalJarRelease | null 
     },
     tagName,
   };
+}
+
+export function matchesQortalJarReleaseIdentity(
+  release: QortalJarRelease,
+  identity: CoreJarIdentity | null,
+) {
+  if (!identity || getCoreSemver(identity.buildVersion) !== identity.semver) {
+    return false;
+  }
+
+  return release.tagName === `v${identity.semver}`;
 }
