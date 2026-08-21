@@ -29,6 +29,7 @@ import {
 import { runCoreInstallTransaction } from './core-install-transaction.js';
 import { NetworkManagerEntryRegistry } from './core-manager-entry-registry.js';
 import { CoreManagerStateRegistry } from './core-manager-state.js';
+import { resolveCoreNativeObserverPath } from './core-native-observer-path.js';
 import {
   compareCoreVersions,
   coreCommitsMatch,
@@ -45,7 +46,14 @@ import { movePath } from './filesystem-move.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { selectManagedJavaBinary } from './managed-java-asset.js';
 import type { QortalCoreManager } from './qortal-core-manager.js';
-import { createProductionQortalCoreManager } from './qortal-core-runtime.js';
+import {
+  createProductionQortalCoreManager,
+  type QortalCoreRuntimeOperations,
+} from './qortal-core-runtime.js';
+import {
+  observeMacosCoreListenerOwners,
+  observeMacosQortalProcesses,
+} from './macos-core-observation.js';
 import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
 import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
@@ -4016,6 +4024,34 @@ export function registerQortalCoreManagerEntry(manager: QortalCoreManager) {
   return coreManagerEntries.register(manager);
 }
 
+function qortalPlatformRuntimeOverrides(): Partial<QortalCoreRuntimeOperations> {
+  if (process.platform !== 'darwin') return {};
+  const resolution = resolveCoreNativeObserverPath({
+    appPath: app.getAppPath(),
+    arch: process.arch,
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+  });
+  if (resolution.kind !== 'resolved' || (process.arch !== 'x64' && process.arch !== 'arm64')) {
+    const reason = resolution.kind === 'unknown'
+      ? resolution.reason
+      : `The native Core observer is unsupported on ${process.platform}/${process.arch}.`;
+    return {
+      inspectListener: async () => ({ kind: 'unknown', reason }),
+      inspectProcesses: async () => ({ kind: 'unknown', processes: [], reason }),
+    };
+  }
+  const observer = { arch: process.arch, helperPath: resolution.executablePath } as const;
+  return {
+    inspectListener: async () => await observeMacosCoreListenerOwners(12391, observer),
+    inspectProcesses: async (paths) => await observeMacosQortalProcesses({
+      ...observer,
+      selectedJarPath: paths.jarPath,
+    }),
+  };
+}
+
 export function registerProductionCoreManagerEntries() {
   const existing = coreManagerEntries.get('qortal');
   if (existing) return existing;
@@ -4031,6 +4067,7 @@ export function registerProductionCoreManagerEntries() {
       userAgent: QORTAL_CORE_DESCRIPTOR.github.userAgent,
     },
     resolveSharedQortalJavaForLaunch,
+    qortalPlatformRuntimeOverrides(),
   ));
 }
 
