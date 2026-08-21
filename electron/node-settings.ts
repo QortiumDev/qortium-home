@@ -6,7 +6,8 @@ import {
   isManagedCoreRuntimeRunning,
   scheduleManagedCoreUpdateCheck,
 } from './core-manager.js';
-import { withCoreInstallLock } from './core-install-lock.js';
+import { withCoreInstallLockForNetwork } from './core-install-lock.js';
+import { QORTIUM_CORE_DESCRIPTOR } from './core-network-descriptor.js';
 import { userMessage } from './user-message.js';
 import {
   ensurePreviewApiKey,
@@ -1192,30 +1193,34 @@ function checkCoreUpdateStatus() {
 }
 
 async function installCoreUpdate() {
-  const status = await withCoreInstallLock('on-chain', async () => {
-    const settings = readNodeSettings();
-    const status = await requestProtectedNodeJson(
-      settings,
-      '/admin/update',
-      'GET',
-      userMessage('core.error.onChainCheckFailed'),
-    );
+  const status = await withCoreInstallLockForNetwork(
+    QORTIUM_CORE_DESCRIPTOR.id,
+    'on-chain',
+    async () => {
+      const settings = readNodeSettings();
+      const status = await requestProtectedNodeJson(
+        settings,
+        '/admin/update',
+        'GET',
+        userMessage('core.error.onChainCheckFailed'),
+      );
 
-    if (
-      status &&
-      typeof status === 'object' &&
-      String((status as { autoUpdateMode?: unknown }).autoUpdateMode).toUpperCase() === 'INSTALL'
-    ) {
-      return status;
-    }
+      if (
+        status &&
+        typeof status === 'object' &&
+        String((status as { autoUpdateMode?: unknown }).autoUpdateMode).toUpperCase() === 'INSTALL'
+      ) {
+        return status;
+      }
 
-    return await requestProtectedNodeJson(
-      settings,
-      '/admin/update',
-      'POST',
-      userMessage('core.error.onChainInstallFailed'),
-    );
-  });
+      return await requestProtectedNodeJson(
+        settings,
+        '/admin/update',
+        'POST',
+        userMessage('core.error.onChainInstallFailed'),
+      );
+    },
+  );
 
   scheduleManagedCoreUpdateCheck();
   return status;

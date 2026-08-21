@@ -74,6 +74,13 @@ cache. Existing Qortium APIs and behavior remain the compatibility path; this
 is groundwork for the later Qortal lifecycle and adoption work, not exposure of
 those controls to Home 2 yet.
 
+Core's in-memory layout, update scheduling, downgrade confirmations, and
+install operations are now isolated by network as well. A keyed manager
+registry contains only the existing Qortium implementation, so requesting a
+Qortal manager fails closed until its real release and adoption pipelines are
+added. The classic Qortium controls now enter through that registered manager,
+while Home 2 still receives no Core-management preload or IPC capability.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

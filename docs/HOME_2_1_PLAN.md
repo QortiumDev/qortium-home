@@ -78,6 +78,10 @@ preparation.
 - [x] Establish the Qortium-first Core network descriptor and isolate local
   Core API-key discovery caches by network and runtime target, while retaining
   the existing Qortium lifecycle APIs as compatibility wrappers.
+- [x] Finish the E1 manager boundary by keying lifecycle/update state,
+  downgrade confirmations, and operation locks per network, and by registering
+  the existing Qortium manager as the only production entry. Unimplemented
+  networks fail closed, and no Core controls are exposed to Home 2 yet.
 
 ## Required gates
 
