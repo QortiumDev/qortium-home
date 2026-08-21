@@ -44,6 +44,10 @@ import {
 import { movePath } from './filesystem-move.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { selectManagedJavaBinary } from './managed-java-asset.js';
+import type { QortalCoreManager } from './qortal-core-manager.js';
+import { createProductionQortalCoreManager } from './qortal-core-runtime.js';
+import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
+import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { userMessage } from './user-message.js';
 import {
@@ -52,6 +56,7 @@ import {
 } from './managed-child-process.js';
 import {
   QORTIUM_CORE_DESCRIPTOR,
+  QORTAL_CORE_DESCRIPTOR,
   getCoreGithubCommitUrl,
   getCoreGithubLatestReleaseUrl,
   getCoreGithubReleasesUrl,
@@ -2085,6 +2090,33 @@ async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<
   };
 }
 
+/**
+ * Internal cross-network launch selection. Qortal shares Qortium's verified
+ * managed Temurin install and the same supported-system-Java fallback, while
+ * retaining its own launch and lifecycle policy.
+ */
+export async function resolveSharedCoreJavaForLaunch() {
+  const java = await getJavaStatus({ ensureLayout: false });
+
+  if (
+    !java.available ||
+    !java.path.trim() ||
+    (java.source !== 'managed' && java.source !== 'system')
+  ) {
+    return null;
+  }
+
+  return { command: java.path, source: java.source } as const;
+}
+
+async function resolveSharedQortalJavaForLaunch() {
+  const java = await resolveSharedCoreJavaForLaunch();
+  if (!java) return null;
+  const environment = sanitizeManagedChildEnvironment();
+  const command = await resolveVerifiedOpenJdkJava(java.command, environment);
+  return command ? { ...java, command } : null;
+}
+
 function getJavaRuntimeEnv(java: JavaStatus) {
   const environment = sanitizeManagedChildEnvironment();
 
@@ -3929,9 +3961,9 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   return await getStatus();
 }
 
-export type CoreManagerEntry = {
+export type QortiumCoreManagerEntry = {
   readonly descriptor: CoreNetworkDescriptor;
-  readonly networkId: CoreNetworkId;
+  readonly networkId: 'qortium';
   checkReleases: typeof checkReleases;
   checkUpdates(): Promise<CoreStatus>;
   getManagedPreviewPath: typeof getQortiumManagedCorePreviewPath;
@@ -3948,7 +3980,7 @@ export type CoreManagerEntry = {
   stop: typeof stopCore;
 };
 
-const qortiumCoreManagerEntry: CoreManagerEntry = Object.freeze({
+const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
   descriptor: CORE_DESCRIPTOR,
   networkId: CORE_DESCRIPTOR.id,
   checkReleases,
@@ -3974,9 +4006,33 @@ const qortiumCoreManagerEntry: CoreManagerEntry = Object.freeze({
   stop: stopCore,
 });
 
+export type CoreManagerEntry = QortiumCoreManagerEntry | QortalCoreManager;
+
 const coreManagerEntries = new NetworkManagerEntryRegistry<CoreNetworkId, CoreManagerEntry>([
   qortiumCoreManagerEntry,
 ]);
+
+export function registerQortalCoreManagerEntry(manager: QortalCoreManager) {
+  return coreManagerEntries.register(manager);
+}
+
+export function registerProductionCoreManagerEntries() {
+  const existing = coreManagerEntries.get('qortal');
+  if (existing) return existing;
+
+  const paths = resolveQortalManagedInstallPaths({
+    appDataPath: app.getPath('appData'),
+    userDataPath: app.getPath('userData'),
+  });
+  return registerQortalCoreManagerEntry(createProductionQortalCoreManager(
+    {
+      lockRoot: path.join(paths.basePath, 'operation-locks'),
+      paths,
+      userAgent: QORTAL_CORE_DESCRIPTOR.github.userAgent,
+    },
+    resolveSharedQortalJavaForLaunch,
+  ));
+}
 
 export function getCoreManagerEntry(networkId: CoreNetworkId) {
   return coreManagerEntries.get(networkId);
@@ -3990,30 +4046,40 @@ export function requireCoreManagerEntry(networkId: CoreNetworkId) {
   return coreManagerEntries.require(networkId);
 }
 
+function requireQortiumCoreManagerEntry() {
+  const manager = requireCoreManagerEntry('qortium');
+
+  if (manager.networkId !== 'qortium') {
+    throw new Error('The Qortium Core manager registry entry has the wrong network identity.');
+  }
+
+  return manager;
+}
+
 // Existing callers remain source-compatible while entering through the keyed
 // Qortium registration. E2 can add a Qortal entry without changing these v1
 // compatibility contracts or pretending that it exists before it does.
 export function getManagedCorePreviewPath() {
-  return requireCoreManagerEntry('qortium').getManagedPreviewPath();
+  return requireQortiumCoreManagerEntry().getManagedPreviewPath();
 }
 
 export function getManagedCoreRuntimePath() {
-  return requireCoreManagerEntry('qortium').getManagedRuntimePath();
+  return requireQortiumCoreManagerEntry().getManagedRuntimePath();
 }
 
 export function isManagedCoreRuntimeRunning() {
-  return requireCoreManagerEntry('qortium').isManagedRuntimeRunning();
+  return requireQortiumCoreManagerEntry().isManagedRuntimeRunning();
 }
 
 export function scheduleManagedCoreUpdateCheck() {
-  requireCoreManagerEntry('qortium').scheduleUpdateCheck();
+  requireQortiumCoreManagerEntry().scheduleUpdateCheck();
 }
 
 export function isManagedCoreUsingI2p() {
-  return requireCoreManagerEntry('qortium').isManagedCoreUsingI2p();
+  return requireQortiumCoreManagerEntry().isManagedCoreUsingI2p();
 }
 
-function ensureCoreUpdateEngineStarted(manager: CoreManagerEntry) {
+function ensureCoreUpdateEngineStarted(manager: QortiumCoreManagerEntry) {
   if (
     coreManagerStates.ensureUpdateInterval(manager.networkId, () => {
       const interval = setInterval(() => {
@@ -4031,7 +4097,7 @@ function ensureCoreUpdateEngineStarted(manager: CoreManagerEntry) {
 }
 
 export function registerCoreManagerIpcHandlers() {
-  const manager = requireCoreManagerEntry('qortium');
+  const manager = requireQortiumCoreManagerEntry();
 
   ipcMain.handle('core:checkReleases', () => manager.checkReleases());
   ipcMain.handle('core:getStatus', () => manager.getStatus());

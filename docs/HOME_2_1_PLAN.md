@@ -107,10 +107,15 @@ preparation.
   authority seams remain deliberately injected and unregistered. Unconsumed
   unique candidates are retained for explicit recovery because pathname unlink
   cannot prove that the inspected inode still owns the name.
-- [ ] Build and register a separate Qortal manager that composes these
-  foundations with production strong process/listener proof, effective-settings
-  and exact API-key resolution, readiness identity checks, shared Java, and a
-  launch receipt. Adoption and Home 2 controls remain subsequent E2/E3 work.
+- [x] Register the separate Qortal manager internally after Electron finalizes
+  its data paths. Its Linux production adapter binds `/proc` PID/start identity,
+  exact argv/cwd/JAR, the 12391 listener, JAR-matching mainnet info/status,
+  effective-settings API-key proof, authenticated stop, and shared managed or
+  OpenJDK Java. Listener-holder enumeration uses the current local user as its
+  trust boundary and fails closed when no visible process maps a listening
+  socket. Registration adds no Home 2 IPC/preload controls.
+- [ ] Add equivalent fail-closed process/listener authority adapters for macOS
+  and Windows. Adoption and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 

@@ -38,6 +38,18 @@ export type QortalSettingsPolicyOptions = {
   platform?: NodeJS.Platform;
 };
 
+export type QortalEffectiveSettingsResult =
+  | {
+      kind: 'resolved';
+      settings: Record<string, unknown>;
+      settingsPath: string;
+    }
+  | {
+      kind: 'unknown';
+      reason: string;
+      settingsPath?: string;
+    };
+
 const DEFAULT_OPERATIONS: QortalSettingsPolicyOperations = {
   readFile: async (settingsPath, maxBytes) => {
     const handle = await open(settingsPath, 'r');
@@ -192,16 +204,14 @@ function resolveJvmSettingsPath(
 }
 
 /**
- * Extracts update ownership from the effective stopped-node settings chain.
- * This mirrors Qortal's file preprocessing and userPath resolution, but does
- * not duplicate validation of unrelated Settings fields. A manager must still
- * establish process/readiness safety before starting or mutating the node.
+ * Resolves the exact settings object Qortal reaches after repeatedly applying
+ * `userPath`. This is shared by stopped update-policy and API-key authority so
+ * the two security decisions cannot drift onto different configuration files.
  */
-export async function detectQortalUpdateOwnershipFromSettings(
+export async function resolveEffectiveQortalSettings(
   originalSettingsFilename: string,
   options: QortalSettingsPolicyOptions = {},
-): Promise<QortalUpdateOwnershipDecision> {
-  const detectedAt = checkedAt(options.checkedAt);
+): Promise<QortalEffectiveSettingsResult> {
   const maxBytes = requireBoundedInteger(
     options.maxBytes ?? DEFAULT_MAX_SETTINGS_BYTES,
     'maxBytes',
@@ -224,7 +234,7 @@ export async function detectQortalUpdateOwnershipFromSettings(
     !originalSettingsFilename.trim() ||
     originalSettingsFilename.includes('\0')
   ) {
-    return unknown(detectedAt, 'The original settings filename was empty or invalid.');
+    return { kind: 'unknown', reason: 'The original settings filename was empty or invalid.' };
   }
 
   const visited = new Set<string>();
@@ -238,37 +248,48 @@ export async function detectQortalUpdateOwnershipFromSettings(
       const candidatePath = resolveJvmSettingsPath(cwd, originalSettingsFilename, userPath);
       canonicalSettingsPath = await operations.realpath(candidatePath);
     } catch {
-      return unknown(detectedAt, 'The effective settings path could not be resolved.');
+      return { kind: 'unknown', reason: 'The effective settings path could not be resolved.' };
     }
 
     const canonicalIdentity = normalizeCanonicalPath(canonicalSettingsPath, platform);
 
     if (visited.has(canonicalIdentity)) {
-      return unknown(detectedAt, 'The settings userPath chain contains a cycle.', canonicalSettingsPath);
+      return {
+        kind: 'unknown',
+        reason: 'The settings userPath chain contains a cycle.',
+        settingsPath: canonicalSettingsPath,
+      };
     }
-
     visited.add(canonicalIdentity);
 
     let rawSettings: string;
-
     try {
       rawSettings = await operations.readFile(canonicalSettingsPath, maxBytes);
     } catch (error) {
-      if (error instanceof QortalSettingsSizeError) {
-        return unknown(detectedAt, 'The effective settings file exceeded the byte limit.', canonicalSettingsPath);
-      }
-
-      return unknown(detectedAt, 'The effective settings file could not be read.', canonicalSettingsPath);
+      return {
+        kind: 'unknown',
+        reason: error instanceof QortalSettingsSizeError
+          ? 'The effective settings file exceeded the byte limit.'
+          : 'The effective settings file could not be read.',
+        settingsPath: canonicalSettingsPath,
+      };
     }
 
     if (Buffer.byteLength(rawSettings, 'utf8') > maxBytes) {
-      return unknown(detectedAt, 'The effective settings file exceeded the byte limit.', canonicalSettingsPath);
+      return {
+        kind: 'unknown',
+        reason: 'The effective settings file exceeded the byte limit.',
+        settingsPath: canonicalSettingsPath,
+      };
     }
 
     const settings = parseQortalSettingsText(rawSettings);
-
     if (!settings) {
-      return unknown(detectedAt, 'The effective settings file was malformed.', canonicalSettingsPath);
+      return {
+        kind: 'unknown',
+        reason: 'The effective settings file was malformed.',
+        settingsPath: canonicalSettingsPath,
+      };
     }
 
     if (Object.prototype.hasOwnProperty.call(settings, 'userPath') && settings.userPath !== null) {
@@ -277,37 +298,66 @@ export async function detectQortalUpdateOwnershipFromSettings(
         !settings.userPath.trim() ||
         settings.userPath.includes('\0')
       ) {
-        return unknown(detectedAt, 'The settings userPath was empty or invalid.', canonicalSettingsPath);
+        return {
+          kind: 'unknown',
+          reason: 'The settings userPath was empty or invalid.',
+          settingsPath: canonicalSettingsPath,
+        };
       }
-
       if (userPathDepth >= maxUserPathDepth) {
-        return unknown(detectedAt, 'The settings userPath chain exceeded the depth limit.', canonicalSettingsPath);
+        return {
+          kind: 'unknown',
+          reason: 'The settings userPath chain exceeded the depth limit.',
+          settingsPath: canonicalSettingsPath,
+        };
       }
-
       userPath = settings.userPath;
       userPathDepth += 1;
       continue;
     }
 
-    if (!Object.prototype.hasOwnProperty.call(settings, 'autoUpdateEnabled')) {
-      return decision(QORTAL_AUTO_UPDATE_DEFAULT, 'default', {
-        checkedAt: detectedAt,
-        settingsPath: canonicalSettingsPath,
-        usedDefault: true,
-      });
-    }
+    return { kind: 'resolved', settings, settingsPath: canonicalSettingsPath };
+  }
+}
 
-    if (settings.autoUpdateEnabled !== true && settings.autoUpdateEnabled !== false) {
-      return unknown(
-        detectedAt,
-        'The settings autoUpdateEnabled value was not an exact boolean.',
-        canonicalSettingsPath,
-      );
-    }
+/**
+ * Extracts update ownership from the effective stopped-node settings chain.
+ * This mirrors Qortal's file preprocessing and userPath resolution, but does
+ * not duplicate validation of unrelated Settings fields. A manager must still
+ * establish process/readiness safety before starting or mutating the node.
+ */
+export async function detectQortalUpdateOwnershipFromSettings(
+  originalSettingsFilename: string,
+  options: QortalSettingsPolicyOptions = {},
+): Promise<QortalUpdateOwnershipDecision> {
+  const detectedAt = checkedAt(options.checkedAt);
+  const effective = await resolveEffectiveQortalSettings(originalSettingsFilename, options);
 
-    return decision(settings.autoUpdateEnabled, 'settings-file', {
+  if (effective.kind === 'unknown') {
+    return unknown(detectedAt, effective.reason, effective.settingsPath);
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(effective.settings, 'autoUpdateEnabled')) {
+    return decision(QORTAL_AUTO_UPDATE_DEFAULT, 'default', {
       checkedAt: detectedAt,
-      settingsPath: canonicalSettingsPath,
+      settingsPath: effective.settingsPath,
+      usedDefault: true,
     });
   }
+
+  if (
+    effective.settings.autoUpdateEnabled !== true &&
+    effective.settings.autoUpdateEnabled !== false
+  ) {
+    return unknown(
+      detectedAt,
+      'The settings autoUpdateEnabled value was not an exact boolean.',
+      effective.settingsPath,
+    );
+  }
+
+  return decision(effective.settings.autoUpdateEnabled, 'settings-file', {
+    checkedAt: detectedAt,
+    settingsPath: effective.settingsPath,
+  });
 }

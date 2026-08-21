@@ -86,6 +86,19 @@ Verified per-operation candidates that are not consumed are retained for
 explicit recovery: Node cannot safely unlink a pathname only if it still names
 the inode that Home inspected.
 
+The coordinator now has a Linux production adapter and is registered internally
+after Electron finalizes its data paths. Runtime control requires stable
+`/proc` PID/start identity, exact Qortal argv/cwd/JAR, and no second visible
+holder of listener 12391 within the current local-user trust boundary, plus
+JAR-matching mainnet `/admin/info` and structurally valid
+`/admin/status`, and unchanged authority after probing. API-key control follows
+Qortal's effective `userPath` settings, requires a private Home-owned Base58
+key, disables local-auth bypass, verifies the key live, and rechecks authority
+before `/admin/stop`. Qortal shares the verified managed Java runtime and only
+accepts an OpenJDK system fallback after resolving and probing the exact
+executable under the sanitized launch environment. Home 2 still exposes no
+Core lifecycle IPC.
+
 ### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
 
 Home's plus button now opens a dedicated new-tab page for finding public

@@ -6,6 +6,7 @@ import {
   detectQortalUpdateOwnershipFromLiveResponse,
   detectQortalUpdateOwnershipFromSettings,
   parseQortalSettingsText,
+  resolveEffectiveQortalSettings,
   resolveQortalUpdateOwnershipWithLiveResponse,
   type QortalUpdateOwnershipDecision,
 } from './qortal-settings-policy.js';
@@ -154,6 +155,14 @@ await withRoot('relative-user-path', async (root) => {
   });
   assertDecision(result, { enabled: false, ownership: 'home-github', source: 'settings-file' });
   assert.equal(result.detection.settingsPath, path.join(root, 'profile', 'config', 'settings.json'));
+  const effective = await resolveEffectiveQortalSettings(path.join('config', 'settings.json'), {
+    cwd: root,
+  });
+  assert.equal(effective.kind, 'resolved');
+  if (effective.kind === 'resolved') {
+    assert.equal(effective.settingsPath, path.join(root, 'profile', 'config', 'settings.json'));
+    assert.deepEqual(effective.settings, { autoUpdateEnabled: false });
+  }
 });
 
 await withRoot('final-chain-default-wins', async (root) => {

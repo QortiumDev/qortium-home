@@ -297,6 +297,11 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
   let waitAuthority: QortalRuntimeAuthority | null = null;
   const result = await manager({
     inspectRuntime: async () => RUNNING,
+    readApiKey: async (paths, authority) => {
+      assert.equal(paths, PATHS);
+      assert.equal(authority, AUTHORITY);
+      return 'private-test-key';
+    },
     stopWithApiKey: async (input) => { assert.equal(input.apiKey, 'private-test-key');
       assert.equal(input.url, 'http://127.0.0.1:12391/admin/stop'); stopAuthority = input.expectedAuthority; },
     waitForStopped: async (_paths, authority) => { waitAuthority = authority; return STOPPED; },

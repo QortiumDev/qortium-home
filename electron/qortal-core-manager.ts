@@ -157,7 +157,10 @@ export type QortalCoreManagerOperations = {
   inspectRuntime(paths: QortalManagedInstallPaths): Promise<QortalRuntimeObservation>;
   prepareCommand(command: string, args: readonly string[], platform?: NodeJS.Platform, appDir?: string): ManagedChildCommand;
   prepareInstall: typeof prepareQortalManagedInstall;
-  readApiKey(apiKeyPath: string): Promise<string | null>;
+  readApiKey(
+    paths: QortalManagedInstallPaths,
+    expectedAuthority: QortalRuntimeAuthority,
+  ): Promise<string | null>;
   readLiveAutoUpdate(paths: QortalManagedInstallPaths): Promise<unknown>;
   readTargetState: typeof readCoreJarTargetState;
   resolveJava(paths: QortalManagedInstallPaths): Promise<QortalJavaSelection | null>;
@@ -203,7 +206,7 @@ async function inspectManagedInstall(paths: QortalManagedInstallPaths): Promise<
 }
 
 const DEFAULT_OPERATIONS: Omit<QortalCoreManagerOperations,
-  'inspectRuntime' | 'readLiveAutoUpdate' | 'resolveJava' | 'spawnProcess' |
+  'inspectRuntime' | 'readApiKey' | 'readLiveAutoUpdate' | 'resolveJava' | 'spawnProcess' |
   'stopWithApiKey' | 'waitForReadiness' | 'waitForStopped'> = {
   createCandidatePaths: (paths) => {
     const token = randomBytes(12).toString('hex');
@@ -216,12 +219,6 @@ const DEFAULT_OPERATIONS: Omit<QortalCoreManagerOperations,
   inspectInstall: inspectManagedInstall,
   prepareCommand: prepareManagedLongLivedCommand,
   prepareInstall: prepareQortalManagedInstall,
-  readApiKey: async (apiKeyPath) => {
-    try {
-      const value = (await readFile(apiKeyPath, 'utf8')).trim();
-      return value.length >= 8 ? value : null;
-    } catch { return null; }
-  },
   readTargetState: readCoreJarTargetState,
   runInstallTransaction: runCoreJarInstallTransaction,
   selectRelease: selectQortalJarRelease,
@@ -566,7 +563,7 @@ export class QortalCoreManager {
         }
         const target = await this.operations.readTargetState(this.config.paths.jarPath);
         if (install.kind !== 'home-managed' || !targetMatches(target, install.record)) return (completed = blocked('target-changed', 'The managed JAR does not match its record.'));
-        const apiKey = await this.operations.readApiKey(this.config.paths.apiKeyPath);
+        const apiKey = await this.operations.readApiKey(this.config.paths, runtime.authority);
         if (!apiKey) return (completed = blocked('api-key-unavailable', 'The managed API key is unavailable.'));
         await this.operations.validateDirectories(this.config.paths);
         const finalInstall = await this.operations.inspectInstall(this.config.paths);

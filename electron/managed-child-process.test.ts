@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
 } from './managed-child-process.js';
+import {
+  isSupportedOpenJdkVersionOutput,
+  resolveExecutableOnPath,
+  resolveVerifiedOpenJdkJava,
+} from './qortal-java-launch.js';
 
 const appDir = '/tmp/user/1000/.mount_QortiumFixture';
 const source = {
@@ -95,5 +102,29 @@ assert.deepEqual(
   prepareManagedLongLivedCommand('C:\\i2pd.exe', ['--conf=C:\\conf'], 'win32'),
   { command: 'C:\\i2pd.exe', args: ['--conf=C:\\conf'] },
 );
+
+assert.equal(isSupportedOpenJdkVersionOutput('openjdk version "17.0.15" 2025-04-15'), true);
+assert.equal(isSupportedOpenJdkVersionOutput('java version "21.0.1"'), false);
+assert.equal(isSupportedOpenJdkVersionOutput('openjdk version "11.0.25"'), false);
+const javaFixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'qortium-home-java-'));
+try {
+  const hiddenBin = path.join(javaFixtureRoot, 'hidden');
+  const launchBin = path.join(javaFixtureRoot, 'launch');
+  await Promise.all([mkdir(hiddenBin), mkdir(launchBin)]);
+  await Promise.all([
+    writeFile(path.join(hiddenBin, 'java'), '#!/bin/sh\necho \'java version "21.0.1"\' >&2\n'),
+    writeFile(path.join(launchBin, 'java'), '#!/bin/sh\necho \'openjdk version "21.0.7"\' >&2\n'),
+  ]);
+  await Promise.all([
+    chmod(path.join(hiddenBin, 'java'), 0o700),
+    chmod(path.join(launchBin, 'java'), 0o700),
+  ]);
+  const launchEnvironment = { PATH: launchBin };
+  assert.equal(await resolveExecutableOnPath('java', launchEnvironment), path.join(launchBin, 'java'));
+  assert.equal(await resolveVerifiedOpenJdkJava('java', launchEnvironment), path.join(launchBin, 'java'));
+  assert.equal(await resolveVerifiedOpenJdkJava(path.join(hiddenBin, 'java'), launchEnvironment), null);
+} finally {
+  await rm(javaFixtureRoot, { force: true, recursive: true });
+}
 
 console.log('Managed child-process environment tests passed.');
