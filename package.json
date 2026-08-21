@@ -117,6 +117,7 @@
     "test:qortal-managed-install": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-managed-install.test.js",
     "test:qortal-core-manager": "node scripts/ensure-electron-build.mjs && node --unhandled-rejections=strict dist-electron/qortal-core-manager.test.js",
     "test:qortal-core-runtime": "node scripts/ensure-electron-build.mjs && node --unhandled-rejections=strict dist-electron/qortal-core-runtime.test.js",
+    "test:qortal-java-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-java-launch.test.js",
     "test:qortal-settings-policy": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-settings-policy.test.js",
     "test:node-ca-bootstrap": "node scripts/ensure-electron-build.mjs && node dist-electron/node-ca-bootstrap.test.js",
     "test:node-cert-trust": "node scripts/ensure-electron-build.mjs && node dist-electron/node-cert-trust.test.js",
