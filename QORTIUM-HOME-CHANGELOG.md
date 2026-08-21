@@ -34,7 +34,7 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
-### 2026-08-21 - feat(core): add verified Qortal JAR transactions
+### 2026-08-21 - feat(core): build verified Qortal lifecycle foundations
 
 Home now has a fail-closed staging path for Qortal releases. It writes into an
 exclusive partial file, requires the exact declared byte count and SHA-256
@@ -49,9 +49,30 @@ JAR and metadata when activation fails. Cross-device copy fallbacks, symlinked
 JAR endpoints, stale backup collisions, and incomplete rollback are rejected or
 reported explicitly. Linux process discovery also now finds Qortal's default
 `settings.json` in the Java process's working directory when the JAR lives
-elsewhere. These are main-process foundations only; Qortal manager registration,
-the outer operation lock, initial settings setup, and Home 2 controls remain
-deliberately unwired.
+elsewhere.
+
+A fresh Home-managed install can now add Qortal's minimal settings file and a
+private pre-seeded API key, then commit a separate managed-install record only
+after the activated JAR's size, digest, and embedded identity are rechecked.
+Update rollback restores the prior record exactly, while fresh-install rollback
+removes only files that this transaction created. The key itself is never
+copied into metadata.
+
+JAR mutations now have a cooperative cross-process filesystem lease keyed by
+network and the canonical target. It uses exclusive private lock files,
+refuses live or uncertain owners, and retains proven-dead locks for explicit
+recovery rather than risking deletion of a replacement lock. Target snapshots
+record the canonical path, filesystem identity, digest, and uncached embedded
+JAR identity so a future manager can revalidate immediately before mutation.
+Qortal's stopped settings chain can also be read with its comment,
+trailing-comma, `userPath`, and default-value behavior to decide whether
+updates belong to Qortal itself, Home, or neither when evidence is uncertain.
+This is an update-ownership projection, not proof that every unrelated setting
+will pass Qortal's complete configuration validation.
+
+These remain main-process foundations only. A separate Qortal manager still
+needs to combine them with process ownership and readiness checks before any
+Qortal lifecycle is registered or exposed to Home 2.
 
 ### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
 

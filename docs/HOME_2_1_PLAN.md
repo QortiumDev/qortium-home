@@ -92,10 +92,18 @@ preparation.
 - [x] Add the standalone JAR-only atomic initial-install/update transaction,
   including rollback and explicit incomplete-recovery reporting while leaving
   all non-JAR Qortal files untouched.
-- [ ] Integrate those primitives behind the per-network operation lock, initial
-  settings/API-key setup, runtime and update-ownership revalidation, and a real
-  Qortal manager entry. Adoption and Home 2 controls remain subsequent E2/E3
-  work.
+- [x] Add fail-closed Home-managed initial settings/API-key setup and separate
+  metadata commit/rollback, binding the record to the activated JAR without
+  placing key material in metadata.
+- [x] Add the canonical-target cooperative cross-process operation lease, JAR
+  target fingerprint/revalidation state, and Qortal-syntax-compatible
+  stopped/live update-ownership detection. Proven-dead locks are retained for
+  explicit recovery; immediate process/JAR revalidation remains required
+  because Qortal Hub does not honor the lease.
+- [ ] Build and register a separate Qortal manager that composes these
+  foundations with direct launch, readiness, process ownership, update-policy
+  revalidation, and shared Java. Adoption and Home 2 controls remain subsequent
+  E2/E3 work.
 
 ## Required gates
 

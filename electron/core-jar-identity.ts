@@ -158,17 +158,23 @@ async function readIdentity(jarPath: string): Promise<CoreJarIdentity | null> {
   };
 }
 
+export async function readCoreJarIdentityUncached(
+  jarPath: string,
+): Promise<CoreJarIdentity | null> {
+  return await readIdentity(jarPath).catch(() => null);
+}
+
 export async function readCoreJarIdentity(jarPath: string): Promise<CoreJarIdentity | null> {
   try {
     const jarStat = await stat(jarPath);
-    const key = `${jarPath}\0${jarStat.mtimeMs}\0${jarStat.size}`;
+    const key = `${jarPath}\0${jarStat.dev}\0${jarStat.ino}\0${jarStat.mtimeMs}\0${jarStat.size}`;
     const cached = identityCache.get(jarPath);
 
     if (cached?.key === key) {
       return cached.identity;
     }
 
-    const identity = await readIdentity(jarPath).catch(() => null);
+    const identity = await readCoreJarIdentityUncached(jarPath);
 
     identityCache.set(jarPath, { identity, key });
     return identity;
