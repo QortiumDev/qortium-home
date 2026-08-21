@@ -59,16 +59,24 @@
   pointer-events: none;
 }
 
-.home-v2-app-stage__error {
+.home-v2-app-stage__error,
+.home-v2-app-stage__status {
   position: absolute;
   inset: 1rem;
   display: grid;
   place-items: center;
   padding: 1rem;
-  color: var(--v2-danger);
   background: var(--v2-surface);
   border: 1px solid var(--v2-line);
   border-radius: 0.75rem;
+}
+
+.home-v2-app-stage__error {
+  color: var(--v2-danger);
+}
+
+.home-v2-app-stage__status {
+  color: var(--v2-muted);
 }
 
 .home-v2-shell[data-theme='dark'] {

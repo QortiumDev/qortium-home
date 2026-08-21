@@ -511,7 +511,10 @@ Home consumes Core C0-C4 and owns the portable lifecycle:
 - read atomic group state and fail closed above 39 members or when a public key
   is missing;
 - recover recipient-wrapped keys, encrypt/decrypt messages, create/relay key
-  requests and announcements, and rotate on membership changes; and
+  requests and announcements, and rotate on membership changes;
+- automatically create and announce a missing current-epoch key on the first
+  message mutation, then continue that same approved mutation without exposing
+  key-management controls to the app or user; and
 - build, attest, PoW, sign, and broadcast every control/message through the
   selected local/custom/public route.
 

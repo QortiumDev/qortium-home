@@ -10,6 +10,7 @@ import {
   resolveHomeV2SystemLanguage,
 } from './appearance'
 import {
+  createPermissionPrompt,
   createPermissionState,
   hasPermissionGrant,
   invalidatePermissionState,
@@ -544,6 +545,62 @@ function testPermissionBrokerScopesAndInvalidation(): void {
   )
   assert.equal(hasPermissionGrant(qortalSession, sameAppNewTabPrompt), false)
 
+  const unifiedQortalPrompt = createPermissionPrompt({
+    ...qortalPermissionPromptFixture,
+    capability: 'account.read',
+    allowedScopes: ['single-request', 'session'],
+  })
+  const unifiedState = resolvePermissionPrompt(
+    queuePermissionPrompt(createPermissionState(), unifiedQortalPrompt),
+    unifiedQortalPrompt.id,
+    { approved: true, scope: 'session' },
+  ).state
+  const unifiedQortiumPrompt = createPermissionPrompt({
+    ...unifiedQortalPrompt,
+    id: fixtureIds.qdnPermissionRequest,
+    protocol: 'qdnRequest',
+    action: 'GET_SELECTED_ACCOUNT',
+    context: {
+      ...unifiedQortalPrompt.context,
+      nodeProfileRef: qdnPermissionPromptFixture.context.nodeProfileRef,
+      targetNetwork: 'qortium',
+    },
+  })
+  assert.equal(
+    hasPermissionGrant(unifiedState, unifiedQortiumPrompt),
+    true,
+    'one account.read approval must cover both Home protocols and chains',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, { kind: 'locked' }).grants.length,
+    1,
+    'locking must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'node-changed',
+      network: 'qortal',
+    }).grants.length,
+    1,
+    'node changes must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'navigation-changed',
+      tabId: unifiedQortalPrompt.context.tabId,
+    }).grants.length,
+    1,
+    'same-app navigation must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'tab-closed',
+      tabId: unifiedQortalPrompt.context.tabId,
+    }).grants.length,
+    0,
+    'closing the tab must revoke read-only account consent',
+  )
+
   const afterTabClose = invalidatePermissionState(qortalSession, {
     kind: 'tab-closed',
     tabId: fixtureIds.qortalCompatTab,
@@ -570,6 +627,20 @@ function testPermissionBrokerScopesAndInvalidation(): void {
     1,
   )
   assert.equal(hasPermissionGrant(qortalAlways, sameAppNewTabPrompt), true)
+  assert.equal(
+    invalidatePermissionState(qortalAlways, {
+      kind: 'node-changed',
+      network: 'qortium',
+    }).grants.length,
+    1,
+  )
+  assert.equal(
+    invalidatePermissionState(qortalAlways, {
+      kind: 'node-changed',
+      network: 'qortal',
+    }).grants.length,
+    0,
+  )
   assert.equal(
     invalidatePermissionState(qortalAlways, { kind: 'locked' }).grants.length,
     0,
@@ -1193,6 +1264,8 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   const main = readFileSync('electron/main.ts', 'utf8')
   const qortalNodeSettings = readFileSync('electron/qortal-node-settings.ts', 'utf8')
   const qortiumNodeSettings = readFileSync('electron/node-settings.ts', 'utf8')
+  const homeV2LiveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  const androidHtml = readFileSync('src/home-v2-live/android/index.html', 'utf8')
   const platform = readFileSync('src/platform.ts', 'utf8')
   const html = readFileSync('v2-live.html', 'utf8')
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
@@ -1204,6 +1277,36 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.equal(packageJson.build.appId, 'org.qortium.home')
   assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
   assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
+  const androidV2VaultStart = platform.indexOf('// Home v2 public CHAT writes')
+  assert.notEqual(androidV2VaultStart, -1)
+  const androidV2VaultSource = platform.slice(androidV2VaultStart)
+  assert.match(androidV2VaultSource, /const ANDROID_HOME_V2_NODE_API_KEY = '';/)
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /readNodeSettings\(/,
+    'Home 2 Android vault helpers must keep the portable node client route authoritative instead of rediscovering the legacy route',
+  )
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /getSendablePlatformNodeApiKey\(/,
+    'Home 2 Android vault helpers must not graft a legacy node API key onto the portable route',
+  )
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /resolveNodeApiUrl\(/,
+    'Home 2 Android vault helpers must not independently select a second Qortium node',
+  )
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /action:\s*['"]FETCH_NODE_API['"][\s\S]{0,300}\/chat\/private\//,
+    'Android private-group validation must stay behind the permissioned vault instead of bypassing the generic read allowlist',
+  )
+  assert.match(
+    androidHtml,
+    /worker-src 'self'/,
+    'Android Home must permit its same-origin memory-PoW worker',
+  )
+  assert.doesNotMatch(androidHtml, /worker-src (?!'self')/)
   assert.match(preload, /exposeInMainWorld\('homeV2Nodes'/)
   assert.match(preload, /home-v2-nodes:getSnapshot/)
   assert.match(preload, /home-v2-nodes:setMode/)
@@ -1313,6 +1416,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   const qdnViews = readFileSync('electron/qdn-views.ts', 'utf8')
   const qdnArchiveRender = readFileSync('electron/qdn-archive-render.ts', 'utf8')
   const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
+  const sessionGrants = readFileSync('electron/home-v2-session-grants.ts', 'utf8')
   const rateLimiter = readFileSync('electron/home-v2-send-rate-limiter.ts', 'utf8')
   const appTabStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
   const renderPathIdentity = readFileSync('src/v2/shell/render-path-identity.ts', 'utf8')
@@ -1373,6 +1477,20 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     /liveResourceMatchesGrant\(context\)[\s\S]{0,2400}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
+  assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)
+  assert.match(qdnViews, /if \(!window\.isDestroyed\(\) && window\.isFocused\(\)\)/)
+  assert.match(qdnViews, /qdn-views:updateBridgeStates/)
+  assert.match(
+    qdnViews,
+    /qdn-views:updateAccountState'[\s\S]{0,1600}return queueQdnViewStateDelivery\(entry\)/,
+    'account-state IPC must not resolve before the app view receives the unlock state',
+  )
+  assert.match(appTabStage, /bridge\.updateBridgeStates/)
+  assert.match(sessionGrants, /return 'account\.read'/)
+  assert.match(sessionGrants, /HOME_V2_ACCOUNT_READ_ACTIONS/)
+  assert.match(sessionGrants, /return 'chat\.public\.mutate'/)
+  assert.match(sessionGrants, /return 'chat\.direct\.mutate'/)
+  assert.match(sessionGrants, /return 'chat\.private-group\.mutate'/)
 
   // Fix A, Android: the requestApp dispatcher still tracks the iframe's
   // self-reported live navigation location, now as UX/consistency
@@ -1545,15 +1663,20 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(liveApp, /androidChatSendRateLimiter[\s\S]{0,40}createHomeV2SendRateLimiter/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.checkAndRecordSend/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.reset\(\)/)
-  // H7B: both host surfaces revoke transient app authority on every runtime
-  // boundary and retain only opaque signed unknown outcomes across restart.
+  // H7B: both host surfaces revoke the affected transient app authority on
+  // each runtime boundary and retain only opaque signed unknown outcomes
+  // across restart. Node invalidation is explicitly network-scoped.
   assert.match(appBridge, /home-v2-app:invalidate-runtime/)
   assert.match(appBridge, /normalizeHomeV2RuntimeInvalidation/)
   assert.match(appBridge, /findStoredHomeV2PendingTransactionConflict/)
   assert.match(appBridge, /recordHomeV2PendingTransaction/)
   assert.match(liveApp, /invalidateAndroidRuntime\('account-changed'\)/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed'\)/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('navigation-changed', tabId\)/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed', null, network\)/)
+  assert.doesNotMatch(
+    liveApp,
+    /handleAppNavigationChanged[\s\S]{0,400}invalidateAndroidRuntime\('navigation-changed'/,
+    'same-app route changes must not revoke account-read consent',
+  )
   assert.match(liveApp, /invalidateAndroidRuntime\('tab-closed', tabId\)/)
   assert.match(liveApp, /findAndroidHomeV2PendingTransactionConflict/)
   assert.match(liveApp, /recordAndroidHomeV2PendingTransaction/)

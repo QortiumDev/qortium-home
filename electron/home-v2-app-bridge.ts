@@ -23,6 +23,7 @@ import {
   getQdnViewContextForTab,
   getQdnViewContextForWebContents,
   isQdnViewFocused,
+  isQdnViewVisible,
   isQdnRenderUrlSameAppResource,
   syncWidgetQdnViewState,
   type QdnViewContext,
@@ -120,6 +121,12 @@ import {
 } from './home-v2-transaction-journal-store.js'
 import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidation.js'
 import {
+  createHomeV2SessionGrantStore,
+  homeV2PermissionGrantKey,
+  homeV2PermissionGrantFamily,
+  isHomeV2AccountReadAction,
+} from './home-v2-session-grants.js'
+import {
   assertHomeV2OpenPublicGroup,
   buildHomeV2QortiumPublicChatBuildBody,
   createHomeV2UnknownChatBroadcastResult,
@@ -146,12 +153,14 @@ import {
 } from './home-v2-direct-chat-contract.js'
 import {
   computeQpgcKeyId,
+  createQpgcAutomaticKeySetupUnknownResult,
   createQpgcKeyAnnouncement,
   createQpgcKeyRequest,
   decryptQpgcMessage,
   decryptQpgcStoredKey,
   encryptQpgcMessage,
   encryptQpgcStoredKey,
+  isQpgcBroadcastConfirmed,
   parseQpgcEnvelope,
   serializeQpgcEnvelope,
   unwrapQpgcAnnouncementForRecipient,
@@ -358,12 +367,15 @@ type PermissionDecision = {
 }
 
 const pendingAccountReads = new Map<string, {
+  readonly grantKey?: string
   readonly hostWebContentsId: number
   readonly tabId: string
+  readonly targetNetwork?: HomeV2AppNetwork
   readonly resolve: (decision: PermissionDecision) => void
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
-const sessionAccountReadGrants = new Set<string>()
+const pendingSessionGrantDecisions = new Map<string, Promise<PermissionDecision>>()
+const sessionAccountReadGrants = createHomeV2SessionGrantStore()
 // Fix B (security review finding 8): bounds how often an already-granted tab
 // can broadcast chat sends. See home-v2-send-rate-limiter.ts for the shared
 // constants/algorithm (also used by Android's requestApp in
@@ -396,9 +408,18 @@ async function requireHomeV2NotificationPermission(
     throw new Error('Notification app context changed before approval completed.')
   }
   if (hasNotificationGrant(appKey)) return
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the requested notification permission.')
+  }
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The notification request does not belong to an active Home window.')
+  }
+  const grantKey = `notification|${context.windowId}|${context.tabId}|${appKey}|${protocol}`
+  if (Array.from(pendingAccountReads.values()).some(
+    (pending) => pending.hostWebContentsId === hostWindow.webContents.id && pending.grantKey === grantKey,
+  )) {
+    throw new Error('This notification permission request is already pending for the app tab.')
   }
   const requestId = randomUUID()
   const decision = await new Promise<PermissionDecision>((resolve) => {
@@ -410,6 +431,7 @@ async function requireHomeV2NotificationPermission(
       }
     }, 60_000)
     pendingAccountReads.set(requestId, {
+      grantKey,
       hostWebContentsId: hostWindow.webContents.id,
       tabId: context.tabId,
       resolve,
@@ -494,26 +516,6 @@ async function showHomeV2DesktopNotification(
 // throttle — the SAME rate-limit bucket as this one.
 function chatSendRateLimitKey(sender: WebContents, context: QdnViewContext) {
   return [sender.id, context.windowId, context.tabId, context.accountId ?? 'none'].join('|')
-}
-
-function accountGrantKey(
-  sender: WebContents,
-  context: QdnViewContext,
-  protocol: HomeV2AppBridgeProtocol,
-  action: AccountReadAction,
-  accountUnlocked: boolean,
-  nodeRoute: string,
-) {
-  return [
-    sender.id,
-    context.tabId,
-    context.accountId ?? 'none',
-    context.resourceUrl ?? 'unknown-app',
-    protocol,
-    action,
-    accountUnlocked,
-    nodeRoute,
-  ].join('|')
 }
 
 function sameViewContext(left: QdnViewContext, right: QdnViewContext) {
@@ -619,24 +621,28 @@ async function requireAccountReadPermission(
   const nodeBefore = routeIndependent ? null : await getHomeV2ReadableNode(targetNetwork)
   const nodeRoute = nodeBefore ? `${nodeBefore.mode}|${nodeBefore.nodeApiUrl}` : 'route-independent'
   const accountUnlocked = isAccountUnlocked(context.accountId)
-  const grantKey = [
-    accountGrantKey(
-      sender,
-      context,
-      protocol,
-      action,
-      accountUnlocked,
-      nodeRoute,
-    ),
-    writeDetails?.kind === 'group' || writeDetails?.kind === 'private-group'
+  const grantTarget = writeDetails?.kind === 'group' || writeDetails?.kind === 'private-group'
       ? `group:${writeDetails.groupId}`
+      : writeDetails?.kind === 'chat'
+        ? `public-group:${writeDetails.groupId}`
       : writeDetails?.kind === 'direct'
         ? `direct:${writeDetails.otherAddress}`
         : writeDetails?.kind === 'journal'
           ? `signature:${writeDetails.signature}`
-        : '',
-  ].join('|')
-  const singleRequestOnly = writeDetails?.kind === 'publish' ||
+        : ''
+  const grantKey = homeV2PermissionGrantKey({
+    accountId: context.accountId,
+    accountUnlocked,
+    action,
+    appIdentity: context.resourceUrl ?? 'unknown-app',
+    nodeRoute,
+    principalId: sender.id,
+    protocol,
+    tabId: context.tabId,
+    target: grantTarget,
+  })
+  const singleRequestOnly = action === 'UNLOCK_SELECTED_ACCOUNT' ||
+    (!isHomeV2AccountReadAction(action) && writeDetails?.kind === 'publish') ||
     writeDetails?.kind === 'journal' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
@@ -645,38 +651,49 @@ async function requireAccountReadPermission(
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
   }
-  const requestId = randomUUID()
-  const decision = await new Promise<PermissionDecision>((resolve) => {
-    const timeout = setTimeout(() => {
-      pendingAccountReads.delete(requestId)
-      resolve({ approved: false, scope: null })
-      // The renderer's permission-prompt UI (queuePermissionPrompt) is only
-      // told about approval/denial via home-v2-app:permission-resolve, which
-      // normally originates FROM the renderer when the user clicks a button.
-      // On this main-process-initiated auto-deny, tell it explicitly so the
-      // prompt does not stay stuck on screen after the request has already
-      // been denied here (FIX #3, security review).
-      if (!hostWindow.isDestroyed()) {
-        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
-      }
-    }, 60_000)
-    pendingAccountReads.set(requestId, {
-      hostWebContentsId: hostWindow.webContents.id,
-      tabId: context.tabId,
-      resolve,
-      timeout,
-    })
-    hostWindow.webContents.send('home-v2-app:permission-request', {
-      accountId: context.accountId,
-      action,
-      appIdentityKey: context.resourceUrl ?? `home-v2-tab:${context.tabId}`,
-      appTitle: context.resourceUrl ?? 'QDN app',
-      protocol,
-      requestId,
-      resourceUrl: context.resourceUrl,
-      tabId: context.tabId,
-      targetNetwork,
-      ...(writeDetails?.kind === 'chat'
+  let ownsPendingDecision = false
+  let decisionPromise = !singleRequestOnly
+    ? pendingSessionGrantDecisions.get(grantKey)
+    : undefined
+  if (!decisionPromise) {
+    if (!isQdnViewVisible(context.windowId, context.tabId)) {
+      throw new Error('Open this app tab to review the requested permission.')
+    }
+    ownsPendingDecision = !singleRequestOnly
+    const requestId = randomUUID()
+    decisionPromise = new Promise<PermissionDecision>((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingAccountReads.delete(requestId)
+        resolve({ approved: false, scope: null })
+        // The renderer's permission-prompt UI (queuePermissionPrompt) is only
+        // told about approval/denial via home-v2-app:permission-resolve, which
+        // normally originates FROM the renderer when the user clicks a button.
+        // On this main-process-initiated auto-deny, tell it explicitly so the
+        // prompt does not stay stuck on screen after the request has already
+        // been denied here (FIX #3, security review).
+        if (!hostWindow.isDestroyed()) {
+          hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+        }
+      }, 60_000)
+      pendingAccountReads.set(requestId, {
+        grantKey,
+        hostWebContentsId: hostWindow.webContents.id,
+        tabId: context.tabId,
+        targetNetwork,
+        resolve,
+        timeout,
+      })
+      hostWindow.webContents.send('home-v2-app:permission-request', {
+        accountId: context.accountId,
+        action,
+        appIdentityKey: context.resourceUrl ?? `home-v2-tab:${context.tabId}`,
+        appTitle: context.resourceUrl ?? 'QDN app',
+        protocol,
+        requestId,
+        resourceUrl: context.resourceUrl,
+        tabId: context.tabId,
+        targetNetwork,
+        ...(writeDetails?.kind === 'chat'
         ? {
             writeKind: 'chat',
             chatGroupId: writeDetails.groupId,
@@ -740,9 +757,17 @@ async function requireAccountReadPermission(
                 writeSingleRequestOnly: true,
                 writeTargetChainLabel: writeDetails.targetChainLabel,
               }
-          : {}),
+            : {}),
+      })
     })
-  })
+    if (!singleRequestOnly) pendingSessionGrantDecisions.set(grantKey, decisionPromise)
+  }
+  let decision: PermissionDecision
+  try {
+    decision = await decisionPromise
+  } finally {
+    if (ownsPendingDecision) pendingSessionGrantDecisions.delete(grantKey)
+  }
   if (!decision.approved) throw new Error('Account access was denied.')
   const freshContext = getQdnViewContextForWebContents(sender)
   if (
@@ -754,16 +779,23 @@ async function requireAccountReadPermission(
   }
   if (action === 'UNLOCK_SELECTED_ACCOUNT') {
     assertHomeV2UnlockCompleted(context.accountId, isAccountUnlocked)
-  } else if (isAccountUnlocked(context.accountId) !== accountUnlocked) {
+  } else if (!isHomeV2AccountReadAction(action) && isAccountUnlocked(context.accountId) !== accountUnlocked) {
     throw new Error('Account lock state changed before approval completed.')
   }
-  if (!routeIndependent) {
+  if (!routeIndependent && !isHomeV2AccountReadAction(action)) {
     const nodeAfter = await getHomeV2ReadableNode(targetNetwork)
     if (`${nodeAfter.mode}|${nodeAfter.nodeApiUrl}` !== nodeRoute) {
       throw new Error('Account access node route changed before approval completed.')
     }
   }
-  if (!singleRequestOnly && decision.scope === 'session') sessionAccountReadGrants.add(grantKey)
+  if (!singleRequestOnly && decision.scope === 'session') {
+    sessionAccountReadGrants.add(grantKey, {
+      family: homeV2PermissionGrantFamily(action),
+      hostWebContentsId: context.windowId,
+      network: targetNetwork,
+      tabId: context.tabId,
+    })
+  }
 }
 
 function homeV2PublishSourceBinding(input: {
@@ -1985,10 +2017,18 @@ async function requireWidgetPermission(
     context.accountId ?? 'none',
   ].join('|')
   if (widgetGrants.has(grantKey)) return
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the floating-window permission.')
+  }
 
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
     throw new Error('The app request does not belong to an active Home window.')
+  }
+  if (Array.from(pendingAccountReads.values()).some(
+    (pending) => pending.hostWebContentsId === hostWindow.webContents.id && pending.grantKey === grantKey,
+  )) {
+    throw new Error('This floating-window permission request is already pending for the app tab.')
   }
 
   const requestId = randomUUID()
@@ -1998,6 +2038,7 @@ async function requireWidgetPermission(
       resolve({ approved: false, scope: null })
     }, 60_000)
     pendingAccountReads.set(requestId, {
+      grantKey,
       hostWebContentsId: hostWindow.webContents.id,
       tabId: context.tabId,
       resolve,
@@ -2407,7 +2448,6 @@ async function sendHomeV2DirectChatAction(
     operationLabel: directChatOperationLabel(action),
     otherAddress: request.otherAddress,
     routeLabel: `${node.mode} · ${node.nodeApiUrl}`,
-    singleRequestOnly: true,
     targetChainLabel: network === 'qortal' ? 'Qortal' : 'Qortium',
   })
   const rateLimitDecision = chatSendRateLimiter.checkAndRecordSend(chatSendRateLimitKey(sender, context))
@@ -3655,7 +3695,24 @@ async function readHomeV2PrivateGroupChatAction(
   }
   try {
     if (action === 'GET_PRIVATE_GROUP_CHAT_STATE') {
-      return await readHomeV2QpgcState(node.nodeApiUrl, request.groupId as number, apiKey)
+      const state = await readHomeV2QpgcState(node.nodeApiUrl, request.groupId as number, apiKey)
+      const key = await resolveHomeV2QpgcKey({
+        accountId,
+        apiKey,
+        epochId: state.epochId,
+        groupId: state.groupId,
+        nodeApiUrl: node.nodeApiUrl,
+        secretKey: signingKey.secretKey,
+        state,
+      })
+      try {
+        // Core's `available` flag describes QPGC protocol availability. This
+        // separate account-relative flag tells the app whether this selected
+        // wallet can actually decrypt/send in the current epoch.
+        return { ...state, keyAvailable: !!key }
+      } finally {
+        key?.groupKey.fill(0)
+      }
     }
     const groupsValue = action === 'GET_PRIVATE_GROUP_ACTIVE_CHATS'
       ? await readHomeV2ChatJson(
@@ -3793,6 +3850,7 @@ async function sendHomeV2PrivateGroupChatAction(
     })
   }
   let persistedGroupKey: Uint8Array | null = null
+  let automaticKeyAnnouncementSignature: string | null = null
   try {
     let envelopes: Uint8Array[] = []
     if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
@@ -3852,7 +3910,7 @@ async function sendHomeV2PrivateGroupChatAction(
         memberPublicKeys: state.memberPublicKeys,
       })]
     } else {
-      const key = await resolveHomeV2QpgcKey({
+      let key = await resolveHomeV2QpgcKey({
         accountId,
         apiKey,
         epochId: state.epochId,
@@ -3861,13 +3919,47 @@ async function sendHomeV2PrivateGroupChatAction(
         secretKey: signingKey.secretKey,
         state,
       })
-      if (!key) throw createHomeV2BridgeError('No private-group key is available. Request or rotate the key first.', {
-        action,
-        code: 'MISSING_GROUP_KEY',
-        network: 'qortium',
-        retryable: false,
-        target: { kind: 'group', groupId: request.groupId },
-      })
+      if (!key) {
+        persistedGroupKey = new Uint8Array(randomBytes(32))
+        const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey)
+        const announcementResult = await sendHomeV2QpgcEnvelope({
+          apiKey,
+          chatReference: null,
+          envelope: await createQpgcKeyAnnouncement({
+            announcerSecretKey: signingKey.secretKey,
+            epochId: state.epochId,
+            groupId: request.groupId,
+            groupKey: persistedGroupKey,
+            memberPublicKeys: state.memberPublicKeys,
+          }),
+          groupId: request.groupId,
+          isStillValid,
+          nodeApiUrl: node.nodeApiUrl,
+          signingKey,
+          validateTarget: validateState,
+        })
+        if (!isQpgcBroadcastConfirmed(announcementResult)) {
+          return createQpgcAutomaticKeySetupUnknownResult(announcementResult)
+        }
+        automaticKeyAnnouncementSignature = announcementResult.signature
+        try {
+          await persistQpgcKey({
+            accountId,
+            epochId: state.epochId,
+            groupId: request.groupId,
+            groupKey: persistedGroupKey,
+            keyId,
+            secretKey: signingKey.secretKey,
+          })
+        } catch (error) {
+          console.warn('[home-v2-app] Unable to cache an automatically announced private-group key:', error)
+        }
+        key = {
+          epochId: new Uint8Array(state.epochId),
+          groupKey: new Uint8Array(persistedGroupKey),
+          keyId: new Uint8Array(keyId),
+        }
+      }
       try {
         envelopes = [await encryptQpgcMessage({
           epochId: key.epochId,
@@ -3895,7 +3987,8 @@ async function sendHomeV2PrivateGroupChatAction(
         validateTarget: validateState,
       }))
     }
-    if (persistedGroupKey) {
+    const broadcastConfirmed = results.every(isQpgcBroadcastConfirmed)
+    if (persistedGroupKey && !automaticKeyAnnouncementSignature && broadcastConfirmed) {
       const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey)
       await persistQpgcKey({
         accountId,
@@ -3906,7 +3999,14 @@ async function sendHomeV2PrivateGroupChatAction(
         secretKey: signingKey.secretKey,
       })
     }
-    return results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results }
+    const result = results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results }
+    return automaticKeyAnnouncementSignature && isHomeV2AppRecord(result)
+      ? Object.freeze({
+          ...result,
+          keyAnnouncementSignature: automaticKeyAnnouncementSignature,
+          keyBootstrapped: true,
+        })
+      : result
   } finally {
     persistedGroupKey?.fill(0)
     signingKey.secretKey.fill(0)
@@ -5112,14 +5212,20 @@ export function registerHomeV2AppBridgeIpcHandlers() {
   })
   const invalidateRuntime = (hostWebContentsId: number, value: unknown) => {
     const invalidation = normalizeHomeV2RuntimeInvalidation(value)
-    sessionAccountReadGrants.clear()
+    sessionAccountReadGrants.invalidate(hostWebContentsId, invalidation)
     widgetGrants.clear()
-    chatSendRateLimiter.reset()
+    // Retain rate history across navigation and route invalidations so an app
+    // cannot bypass the send ceiling by causing either event. Account changes
+    // and locks end the signing context and may safely reset all buckets.
+    if (invalidation.kind === 'account-changed' || invalidation.kind === 'locked') {
+      chatSendRateLimiter.reset()
+    }
     homeV2DesktopPublishSources.clear()
     clearHomeV2DesktopResourceStreams()
     for (const [requestId, pending] of pendingAccountReads) {
       if (pending.hostWebContentsId !== hostWebContentsId) continue
       if (invalidation.tabId && pending.tabId !== invalidation.tabId) continue
+      if (invalidation.network && pending.targetNetwork !== invalidation.network) continue
       pendingAccountReads.delete(requestId)
       clearTimeout(pending.timeout)
       pending.resolve({ approved: false, scope: null })

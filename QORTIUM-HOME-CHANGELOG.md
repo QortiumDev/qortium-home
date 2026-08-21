@@ -34,6 +34,61 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-20 - fix(apps): preserve focus and permission sessions
+
+Home 2 no longer hides and re-shows the active desktop app when routine node
+telemetry refreshes, and a delayed native-view hide can no longer pull desktop
+focus back to Home after the user moves to another window. Route-state updates
+still reach hosted apps through a separate bridge-state delivery path. Missing
+permissions from hidden app tabs are refused without switching tabs or raising
+trusted Home chrome, while duplicate prompts are suppressed and session grants
+are revoked only for the affected Home window, tab, account, or network. A
+clearly disclosed tab approval for chat changes now covers sending, editing,
+deleting, and reacting within the same public, direct, or private-group chat;
+key management, publishing, administration, and all existing target, ownership,
+route, signing, and rate-limit checks remain separate and unchanged.
+
+A single clearly disclosed read-only account approval now covers the selected
+Home account on both Qortal and Qortium for that app tab, including account
+identity, direct messages, private groups, searches and attachments, and the
+app's pending transaction records. It survives locking, unlocking, node
+failover, and normal in-app navigation, while a real account change, tab
+closure, or Home restart still revokes it. Unlocking and every mutation remain
+separate. Restored app
+tabs now show a neutral node-checking state until the first connection check
+finishes, and unlock completion waits for the updated account state to reach
+the app before the original operation resumes.
+
+Private-group state now distinguishes node-level QPGC availability from
+whether the selected account actually has the current group key. Desktop and
+Android automatically create and announce a Qortium group key for all current
+members when the first message, edit, delete, or reaction finds no usable key,
+then continue the original operation without another app action or permission
+prompt. Manual key controls remain a Qortal compatibility concern, not normal
+Qortium user workflow. A newly announced or rotated key is kept unavailable
+locally when its announcement broadcast is uncertain; Home records that control
+signature while proving that the user's message was not submitted, so retrying
+the message is safe and retained announcement discovery can reconcile the key.
+
+Android Home 2 now keeps the node route selected by its portable Qortal/Qortium
+connection client authoritative through public and direct chat, private-group
+reads and writes, private attachments, and group membership or administration.
+Those helpers no longer perform a second legacy Qortium node discovery or
+borrow a legacy node API key, preventing valid requests from being rejected
+when the two independent public-node selectors chose different healthy nodes.
+Private-group state validation also stays on the dedicated permissioned vault
+path instead of routing Home's own `/chat/private/...` request through the
+generic app read allowlist, which intentionally excludes private API routes.
+The Android connection client also retains a recently verified public route
+through a brief failed health-probe cycle instead of reporting the network
+unavailable between successful checks. Android's renderer policy now permits
+only Home's same-origin memory-proof worker, allowing CHAT proof-of-work to run
+without opening general network or cross-origin worker access.
+The Android app bridge now also keeps every CHAT proof-of-work mutation open
+for the same long-running window as ordinary message sends, so private-group,
+direct, edit, delete, reaction, and key-management requests do not time out in
+the hosted app while Home is still computing and may still broadcast them.
+
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 
 Home 2 now carries forward the Core 1.7 compatibility protections from the

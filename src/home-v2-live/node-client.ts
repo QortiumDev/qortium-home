@@ -138,6 +138,7 @@ const PUBLIC_NODE_URLS = {
 
 const PUBLIC_READ_PATH =
   '/arbitrary/resources/search?mode=ALL&limit=1&includestatus=false&includemetadata=false'
+const RECENT_READABLE_NODE_TTL_MS = 30_000
 const SETTINGS_PREFIX = 'home-v2-live-node:'
 const AVATAR_MAX_BYTES = 500 * 1024
 const WALLET_STORE_KEY = 'qortium-home-wallet-store'
@@ -504,7 +505,7 @@ export function createPortableNodeClient(
 ): HomeV2NodeClient {
   const stickyPublicUrls: Partial<Record<NetworkId, string>> = {}
   const recentReadableNodes: Partial<
-    Record<NetworkId, { nodeApiUrl: string; verifiedAt: number }>
+    Record<NetworkId, { nodeApiUrl: string; status: unknown; verifiedAt: number }>
   > = {}
 
   async function readSettings(network: NetworkId) {
@@ -536,7 +537,6 @@ export function createPortableNodeClient(
     if (stickyUrl) {
       const sticky = await probe(network, stickyUrl)
       if (sticky) return sticky
-      delete stickyPublicUrls[network]
     }
     const candidates = (
       await Promise.all(PUBLIC_NODE_URLS[network].map((url) => probe(network, url)))
@@ -571,9 +571,20 @@ export function createPortableNodeClient(
       return emptySummary(network, settings, checkedAt, 'Configure a custom node URL.')
     }
     const nodeApiUrl = settings.mode === 'public' ? null : settings.customUrl
-    const result = nodeApiUrl
+    let result = nodeApiUrl
       ? await probe(network, nodeApiUrl)
       : await resolvePublic(network)
+    const freshlyVerified = !!result
+    if (!result && settings.mode === 'public') {
+      const recent = recentReadableNodes[network]
+      if (recent && dependencies.now() - recent.verifiedAt < RECENT_READABLE_NODE_TTL_MS) {
+        result = {
+          latencyMs: 0,
+          nodeApiUrl: recent.nodeApiUrl,
+          status: recent.status,
+        }
+      }
+    }
     if (!result) {
       return emptySummary(
         network,
@@ -582,9 +593,12 @@ export function createPortableNodeClient(
         `No healthy ${network === 'qortal' ? 'Qortal' : 'Qortium'} node was available.`,
       )
     }
-    recentReadableNodes[network] = {
-      nodeApiUrl: result.nodeApiUrl,
-      verifiedAt: dependencies.now(),
+    if (freshlyVerified) {
+      recentReadableNodes[network] = {
+        nodeApiUrl: result.nodeApiUrl,
+        status: result.status,
+        verifiedAt: dependencies.now(),
+      }
     }
     const status = result.status
     return {
@@ -625,7 +639,7 @@ export function createPortableNodeClient(
     const nodeApiUrl =
       settings.mode === 'custom'
         ? settings.customUrl
-        : recent && dependencies.now() - recent.verifiedAt < 30_000
+        : recent && dependencies.now() - recent.verifiedAt < RECENT_READABLE_NODE_TTL_MS
           ? recent.nodeApiUrl
           : (await resolvePublic(network))?.nodeApiUrl ?? ''
     if (!nodeApiUrl) throw new Error(`No healthy ${network} node was available.`)

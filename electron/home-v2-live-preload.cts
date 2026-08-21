@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld('homeV2Apps', {
   reload: (request: unknown) => ipcRenderer.invoke('qdn-views:reload', request),
   updateAccountState: (request: unknown) =>
     ipcRenderer.invoke('qdn-views:updateAccountState', request),
+  updateBridgeStates: (request: unknown) =>
+    ipcRenderer.invoke('qdn-views:updateBridgeStates', request),
   show: (request: unknown) => ipcRenderer.invoke('qdn-views:show', request),
   openAsWidget: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:open', request),
   syncWidgets: (request: unknown) => ipcRenderer.invoke('home-v2-widgets:sync-state', request),

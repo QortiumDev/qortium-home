@@ -63,26 +63,78 @@ function resolveRender(productState: ProductState, snapshot: HomeV2Snapshot) {
   }
 }
 
+function useResolvedRender(productState: ProductState, snapshot: HomeV2Snapshot) {
+  const tab = productState.tabs.find((candidate) => candidate.id === productState.activeTabId)
+  const node = tab ? snapshot.nodes[tab.context.sourceNetwork] : null
+  const nodeChecking = node?.state === 'unknown' && node.lastCheckedAt === null && !node.error
+  const appearance = snapshot.appearance
+
+  // Node polling rebuilds the full Home snapshot every few seconds. Only
+  // recompute the app document when a fact that can change its URL or bridge
+  // route changes; telemetry such as height, peers, sync progress, status text,
+  // and lastCheckedAt must not hide/re-show the native WebContentsView or move
+  // keyboard focus out of the app.
+  return useMemo(() => {
+    if (nodeChecking) {
+      const networkLabel = tab?.context.sourceNetwork === 'qortal' ? 'Qortal' : 'Qortium'
+      return { error: null, status: `Checking ${networkLabel}…`, value: null }
+    }
+    try {
+      return { error: null, status: null, value: resolveRender(productState, snapshot) }
+    } catch (cause) {
+      return {
+        error: cause instanceof Error ? cause.message : 'Unable to open this app.',
+        status: null,
+        value: null,
+      }
+    }
+  }, [
+    appearance.accent,
+    appearance.resolvedLanguage,
+    appearance.resolvedTheme,
+    appearance.textSize,
+    node?.capabilities.read,
+    node?.customAuthenticated,
+    node?.customConfigured,
+    node?.error,
+    node?.mode,
+    node?.nodeApiUrl,
+    nodeChecking,
+    productState.activeTabId,
+    tab?.context.identityId,
+    tab?.context.resourceLocation,
+    tab?.context.sourceNetwork,
+  ])
+}
+
 function DesktopAppStage(props: AppTabStageProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const suspendedRef = useRef(props.suspended === true)
   const resolvedTabIdRef = useRef<string | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [snapshotUrl, setSnapshotUrl] = useState('')
-  const resolution = useMemo(() => {
-    try {
-      return { error: null, value: resolveRender(props.productState, props.snapshot) }
-    } catch (cause) {
-      return {
-        error: cause instanceof Error ? cause.message : 'Unable to open this app.',
-        value: null,
-      }
-    }
-  }, [props.productState, props.snapshot])
+  const resolution = useResolvedRender(props.productState, props.snapshot)
   const resolved = resolution.value
 
   suspendedRef.current = props.suspended === true
   resolvedTabIdRef.current = resolved ? String(resolved.tab.id) : null
+
+  useEffect(() => {
+    const bridge = window.homeV2Apps
+    if (!bridge || !resolved) return
+    const identityId = String(resolved.tab.context.identityId)
+    const launchAccountId = identityId.startsWith('home-v2:identity:')
+      ? identityId.slice('home-v2:identity:'.length)
+      : null
+    void bridge.updateBridgeStates({
+      bridgeStates: getHomeV2BridgeStateDetails({
+        accountId: launchAccountId === 'none' ? null : launchAccountId,
+        nodes: props.snapshot.nodes,
+        platform: 'desktop',
+      }),
+      tabId: resolved.tab.id,
+    })
+  }, [props.snapshot.nodes, resolved])
 
   useEffect(() => {
     const host = hostRef.current
@@ -177,11 +229,12 @@ function DesktopAppStage(props: AppTabStageProps) {
         void bridge.hide({ tabId: resolved.tab.id })
       }
     }
-  }, [props.snapshot.appearance, props.suspended, resolved])
+  }, [props.suspended, resolved])
 
   return <section className="home-v2-app-stage home-v2-app-stage--live">
     <div ref={hostRef} className="home-v2-app-view-host" />
     {snapshotUrl ? <img className="home-v2-app-stage__snapshot" src={snapshotUrl} alt="" /> : null}
+    {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }
@@ -194,16 +247,7 @@ function AndroidAppStage(props: AppTabStageProps) {
     crypto.getRandomValues(new Uint8Array(18)),
     (byte) => byte.toString(16).padStart(2, '0'),
   ).join(''))
-  const resolution = useMemo(() => {
-    try {
-      return { error: null, value: resolveRender(props.productState, props.snapshot) }
-    } catch (cause) {
-      return {
-        error: cause instanceof Error ? cause.message : 'Unable to open this app.',
-        value: null,
-      }
-    }
-  }, [props.productState, props.snapshot])
+  const resolution = useResolvedRender(props.productState, props.snapshot)
   const resolved = resolution.value
 
   // Fix A (finding 1) live-resource tracking: on Android every app on a node
@@ -488,6 +532,7 @@ function AndroidAppStage(props: AppTabStageProps) {
       src={source}
       title="QDN app"
     /> : null}
+    {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
     {resolution.error || runtimeError ? <div className="home-v2-app-stage__error">{resolution.error ?? runtimeError}</div> : null}
   </section>
 }
@@ -588,6 +633,7 @@ declare global {
       navigate(request: { index: number; tabId: string }): Promise<boolean>
       reload(request: { tabId: string }): Promise<boolean>
       updateAccountState(request: { accountId: string; isUnlocked: boolean; tabId: string }): Promise<void>
+      updateBridgeStates(request: unknown): Promise<void>
       openAsWidget(request: { tabId: string }): Promise<
         { ok: true; widgetId: string } | { ok: false; message: string }
       >

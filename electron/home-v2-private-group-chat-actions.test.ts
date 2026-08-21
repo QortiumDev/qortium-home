@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   computeQpgcEpochId,
   computeQpgcKeyId,
+  createQpgcAutomaticKeySetupUnknownResult,
   createQpgcKeyAnnouncement,
   createQpgcKeyRequest,
   createQpgcRotationRequest,
@@ -14,6 +15,7 @@ import {
   deriveQpgcWrappingKey,
   encryptQpgcMessage,
   encryptQpgcStoredKey,
+  isQpgcBroadcastConfirmed,
   parseQpgcEnvelope,
   QPGC_MAX_MEMBERS,
   QPGC_MAX_MESSAGE_PLAINTEXT_BYTES,
@@ -35,6 +37,26 @@ const fixturePath = configuredCoreRepository
   : fileURLToPath(new URL(`../../qortium-core/${fixtureRelativePath}`, import.meta.url))
 const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'))
 const qpgc = fixture.qpgc
+
+const unknownKeySetup = createQpgcAutomaticKeySetupUnknownResult({
+  accepted: false,
+  error: 'node timed out',
+  outcome: 'unknown',
+  signature: 'signed-announcement',
+  timestamp: 123,
+})
+assert.equal(isQpgcBroadcastConfirmed({ signature: 'accepted' }), true)
+assert.equal(isQpgcBroadcastConfirmed(unknownKeySetup), false)
+assert.deepEqual(unknownKeySetup, {
+  accepted: false,
+  error: 'Private-group key setup outcome is unknown. Your message was not submitted; retrying the message is safe.',
+  errorType: 'KEY_ANNOUNCEMENT_BROADCAST_OUTCOME_UNKNOWN',
+  messageSubmitted: false,
+  outcome: 'unknown',
+  signature: 'signed-announcement',
+  stage: 'key-announcement',
+  timestamp: 123,
+})
 const aliceSecret = hex(fixture.accounts.alice.privateKey)
 const alicePublic = hex(fixture.accounts.alice.publicKey)
 const bobSecret = hex(fixture.accounts.bob.privateKey)

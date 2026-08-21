@@ -36,6 +36,25 @@ public class QdnBridgeWebViewClientTest {
         assertTrue(homeV2.contains("qortiumBridgeStateChanged"));
         assertTrue(homeV2.contains("data.bridgeToken!==bridgeToken"));
         assertTrue(homeV2.contains("Object.keys(data.error)"));
+        for (String action : Arrays.asList(
+            "SEND_CHAT_MESSAGE",
+            "SEND_CHAT_EDIT",
+            "SEND_CHAT_DELETE",
+            "SEND_CHAT_REACTION",
+            "SEND_DIRECT_CHAT_MESSAGE",
+            "SEND_DIRECT_CHAT_EDIT",
+            "SEND_DIRECT_CHAT_DELETE",
+            "SEND_DIRECT_CHAT_REACTION",
+            "REQUEST_PRIVATE_GROUP_CHAT_KEY",
+            "RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS",
+            "ROTATE_PRIVATE_GROUP_CHAT_KEY",
+            "SEND_PRIVATE_GROUP_CHAT_MESSAGE",
+            "SEND_PRIVATE_GROUP_CHAT_EDIT",
+            "SEND_PRIVATE_GROUP_CHAT_DELETE",
+            "SEND_PRIVATE_GROUP_CHAT_REACTION"
+        )) {
+            assertTrue(action + " must use the long Android bridge timeout", homeV2.contains(action + ":1"));
+        }
     }
 
     @Test

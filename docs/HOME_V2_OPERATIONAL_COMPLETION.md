@@ -36,6 +36,8 @@ The journal contains only:
 - bridge protocol and authoritative chain;
 - exact mutation action;
 - signed transaction signature and timestamp;
+- the optional `key-announcement` stage when an automatic QPGC bootstrap is
+  uncertain and the user message is known not to have been submitted;
 - creation time; and
 - a normalized group, direct-address, public-resource, or operation target.
 
@@ -71,6 +73,15 @@ retained signature in its message; the app should query the journal, search the
 selected chain for that signature, update its delivery state, and then forget
 the entry. Forgetting is explicit because absence from one node's retained
 window is not proof that a signed transaction was never accepted.
+
+An automatic Qortium private-group bootstrap is a bounded exception to the
+same-target retry block. Home broadcasts the key announcement before building
+the user mutation. If that control outcome is unknown, the retained entry is
+marked `stage: "key-announcement"` and the bridge result proves
+`messageSubmitted: false`. Retrying the original mutation is therefore safe:
+it either discovers the retained key or announces another key, and QPGC
+messages bind their exact key ID. The app forgets the setup entry once a usable
+current-epoch key is observed.
 
 ## Route and platform matrix
 
