@@ -1,3 +1,5 @@
+import type { ConcreteLanguageSetting } from '../displaySettings'
+
 export type HomeV2ThemePreference = 'system' | 'light' | 'dark'
 export type HomeV2ResolvedTheme = 'light' | 'dark'
 export type HomeV2Accent =
@@ -18,32 +20,8 @@ export type HomeV2TextSize =
   | 'large'
   | 'extra-large'
   | 'huge'
-export type HomeV2Language =
-  | 'system'
-  | 'ar'
-  | 'de'
-  | 'el'
-  | 'en'
-  | 'es'
-  | 'et'
-  | 'fi'
-  | 'fr'
-  | 'he'
-  | 'hi'
-  | 'hu'
-  | 'it'
-  | 'ja'
-  | 'ko'
-  | 'nb'
-  | 'nl'
-  | 'pl'
-  | 'pt'
-  | 'ro'
-  | 'ru'
-  | 'sv'
-  | 'zh-CN'
-  | 'zh-TW'
-export type HomeV2ResolvedLanguage = Exclude<HomeV2Language, 'system'>
+export type HomeV2Language = 'system' | ConcreteLanguageSetting
+export type HomeV2ResolvedLanguage = ConcreteLanguageSetting
 
 export interface HomeV2AppearanceSettings {
   readonly theme: HomeV2ThemePreference
@@ -65,41 +43,41 @@ export interface LegacyDisplaySettingsInput {
 }
 
 export const homeV2ThemeOptions = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
+  { value: 'system', labelKey: 'display.theme.system' },
+  { value: 'light', labelKey: 'display.theme.light' },
+  { value: 'dark', labelKey: 'display.theme.dark' },
 ] as const satisfies readonly {
   readonly value: HomeV2ThemePreference
-  readonly label: string
+  readonly labelKey: import('../i18n').TranslationKey
 }[]
 
 export const homeV2AccentOptions = [
-  { value: 'clay', label: 'Clay', swatch: '#9a6750' },
-  { value: 'green', label: 'Green', swatch: '#39775a' },
-  { value: 'blue', label: 'Blue', swatch: '#4a6f9e' },
-  { value: 'orange', label: 'Orange', swatch: '#b76c35' },
-  { value: 'purple', label: 'Purple', swatch: '#765c91' },
-  { value: 'red', label: 'Red', swatch: '#a64f4b' },
-  { value: 'teal', label: 'Teal', swatch: '#397879' },
-  { value: 'cyan', label: 'Cyan', swatch: '#3e7d91' },
-  { value: 'pink', label: 'Pink', swatch: '#9a5875' },
-  { value: 'yellow', label: 'Yellow', swatch: '#a57d2f' },
+  { value: 'clay', labelKey: 'home2.settings.clay', swatch: '#9a6750' },
+  { value: 'green', labelKey: 'display.accent.green', swatch: '#39775a' },
+  { value: 'blue', labelKey: 'display.accent.blue', swatch: '#4a6f9e' },
+  { value: 'orange', labelKey: 'display.accent.orange', swatch: '#b76c35' },
+  { value: 'purple', labelKey: 'display.accent.purple', swatch: '#765c91' },
+  { value: 'red', labelKey: 'display.accent.red', swatch: '#a64f4b' },
+  { value: 'teal', labelKey: 'display.accent.teal', swatch: '#397879' },
+  { value: 'cyan', labelKey: 'display.accent.cyan', swatch: '#3e7d91' },
+  { value: 'pink', labelKey: 'display.accent.pink', swatch: '#9a5875' },
+  { value: 'yellow', labelKey: 'display.accent.yellow', swatch: '#a57d2f' },
 ] as const satisfies readonly {
   readonly value: HomeV2Accent
-  readonly label: string
+  readonly labelKey: import('../i18n').TranslationKey
   readonly swatch: string
 }[]
 
 export const homeV2TextSizeOptions = [
-  { value: 'extra-small', label: 'Extra small' },
-  { value: 'small', label: 'Small' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'large', label: 'Large' },
-  { value: 'extra-large', label: 'Extra large' },
-  { value: 'huge', label: 'Huge' },
+  { value: 'extra-small', labelKey: 'home2.settings.textSize.extraSmall' },
+  { value: 'small', labelKey: 'display.textSize.small' },
+  { value: 'medium', labelKey: 'display.textSize.medium' },
+  { value: 'large', labelKey: 'display.textSize.large' },
+  { value: 'extra-large', labelKey: 'home2.settings.textSize.extraLarge' },
+  { value: 'huge', labelKey: 'display.textSize.huge' },
 ] as const satisfies readonly {
   readonly value: HomeV2TextSize
-  readonly label: string
+  readonly labelKey: import('../i18n').TranslationKey
 }[]
 
 export const homeV2LanguageOptions = [

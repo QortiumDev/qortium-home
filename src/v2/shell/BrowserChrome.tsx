@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { t } from '../../i18n'
 import type { HomeV2Snapshot, NetworkId } from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
+import {
+  DEFAULT_NEW_TAB_PREFERENCE,
+  type NewTabPreference,
+} from '../new-tab-preference'
 import { networkLabels } from './NetworkBadge'
 import { NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
@@ -24,6 +29,8 @@ export interface BrowserChromeProps {
   readonly onGoBack?: () => void
   readonly onGoForward?: () => void
   readonly onReload?: () => void
+  readonly navigationDisabled?: boolean
+  readonly newTabPreference?: NewTabPreference
 }
 
 export type AddressOpenResult =
@@ -57,9 +64,9 @@ function browserAddress(productState: ProductState): string {
 }
 
 function accountLabel(snapshot: HomeV2Snapshot) {
-  if (snapshot.account.state === 'none') return 'No account'
+  if (snapshot.account.state === 'none') return t('account.noAccount')
   if (snapshot.account.state === 'locked') {
-    return `${snapshot.identity.displayLabel} · Locked`
+    return `${snapshot.identity.displayLabel} · ${t('account.statusLocked')}`
   }
   return snapshot.identity.displayLabel
 }
@@ -77,6 +84,8 @@ export function BrowserChrome({
   onGoBack,
   onGoForward,
   onReload,
+  navigationDisabled = false,
+  newTabPreference = DEFAULT_NEW_TAB_PREFERENCE,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(productState)
   const [address, setAddress] = useState(currentAddress)
@@ -95,7 +104,7 @@ export function BrowserChrome({
     setWidgetError(null)
   }, [currentAddress])
   const submitAddress = async (requestedAddress = address) => {
-    if (!onOpenAddress) return
+    if (!onOpenAddress || navigationDisabled) return
     const request = addressRequest.current + 1
     addressRequest.current = request
     setAddressBusy(true)
@@ -108,12 +117,28 @@ export function BrowserChrome({
     } catch (error) {
       if (addressRequest.current !== request) return
       setAddressResult({
-        message: error instanceof Error ? error.message : 'Unable to open this address.',
+        message:
+          error instanceof Error
+            ? error.message
+            : t('home2.browser.openAddressFailed'),
         status: 'error',
       })
     } finally {
       if (addressRequest.current === request) setAddressBusy(false)
     }
+  }
+  const openNewTab = () => {
+    if (navigationDisabled) return
+    if (newTabPreference.kind === 'dashboard') {
+      onNavigate?.('dashboard')
+      return
+    }
+    if (newTabPreference.kind === 'custom') {
+      setAddress(newTabPreference.address)
+      void submitAddress(newTabPreference.address)
+      return
+    }
+    onNavigate?.('newtab')
   }
   return (
     <header className="home-v2-browser-chrome">
@@ -123,24 +148,28 @@ export function BrowserChrome({
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
           onNavigate={onNavigate}
-          onNewTab={() => onNavigate?.('dashboard')}
+          onNewTab={openNewTab}
+          newTabDisabled={navigationDisabled}
         />
       </div>
       <div className="home-v2-browser-toolbar">
-        <div className="home-v2-browser-controls" aria-label="Page navigation">
-          <button type="button" disabled={!canGoBack} aria-label="Back" title="Back" onClick={onGoBack}>
+        <div
+          className="home-v2-browser-controls"
+          aria-label={t('home2.browser.pageNavigation')}
+        >
+          <button type="button" disabled={!canGoBack} aria-label={t('common.back')} title={t('common.back')} onClick={onGoBack}>
             ←
           </button>
-          <button type="button" disabled={!canGoForward} aria-label="Forward" title="Forward" onClick={onGoForward}>
+          <button type="button" disabled={!canGoForward} aria-label={t('common.forward')} title={t('common.forward')} onClick={onGoForward}>
             →
           </button>
-          <button type="button" aria-label="Reload" title="Reload" onClick={onReload}>
+          <button type="button" aria-label={t('home2.browser.reload')} title={t('home2.browser.reload')} onClick={onReload}>
             ↻
           </button>
           <button
             type="button"
-            aria-label="Dashboard"
-            title="Dashboard"
+            aria-label={t('common.dashboard')}
+            title={t('common.dashboard')}
             onClick={() => onNavigate?.('dashboard')}
           >
             ⌂
@@ -148,7 +177,7 @@ export function BrowserChrome({
         </div>
         <form
           className="home-v2-address"
-          aria-label="Address and search"
+          aria-label={t('home2.browser.addressAndSearch')}
           onSubmit={(event) => {
             event.preventDefault()
             void submitAddress()
@@ -157,7 +186,8 @@ export function BrowserChrome({
         >
           <span aria-hidden="true">⌕</span>
           <input
-            aria-label="Address and search"
+            aria-label={t('home2.browser.addressAndSearch')}
+            disabled={navigationDisabled}
             spellCheck={false}
             value={address}
             onChange={(event) => {
@@ -170,11 +200,11 @@ export function BrowserChrome({
           />
           <button
             type="submit"
-            aria-label="Go to address"
-            title="Go to address"
-            disabled={addressBusy}
+            aria-label={t('home2.browser.goToAddress')}
+            title={t('home2.browser.goToAddress')}
+            disabled={navigationDisabled || addressBusy}
           >
-            {addressBusy ? 'Finding…' : 'Go'}
+            {addressBusy ? t('home2.browser.finding') : t('home2.browser.go')}
           </button>
           {addressResult?.status === 'error' ? (
             <div className="home-v2-address__result" data-tone="error" role="alert">
@@ -185,7 +215,8 @@ export function BrowserChrome({
               <span>{addressResult.message}</span>
               <div className="home-v2-address__choice">
                 <select
-                  aria-label="App resource identifier"
+                  aria-label={t('home2.browser.appResourceIdentifier')}
+                  disabled={navigationDisabled}
                   value={selectedChoice}
                   onChange={(event) => setSelectedChoice(event.target.value)}
                 >
@@ -197,13 +228,13 @@ export function BrowserChrome({
                 </select>
                 <button
                   type="button"
-                  disabled={!selectedChoice || addressBusy}
+                  disabled={navigationDisabled || !selectedChoice || addressBusy}
                   onClick={() => {
                     setAddress(selectedChoice)
                     void submitAddress(selectedChoice)
                   }}
                 >
-                  Open
+                  {t('common.open')}
                 </button>
               </div>
             </div>
@@ -229,8 +260,8 @@ export function BrowserChrome({
             <button
               type="button"
               className="home-v2-toolbar-button"
-              aria-label="Open as widget"
-              title={widgetError ?? 'Open as widget'}
+              aria-label={t('home2.browser.openAsWidget')}
+              title={widgetError ?? t('home2.browser.openAsWidget')}
               data-tone={widgetError ? 'error' : undefined}
               disabled={widgetBusy}
               onClick={() => {
@@ -252,8 +283,8 @@ export function BrowserChrome({
           <button
             type="button"
             className="home-v2-toolbar-button"
-            aria-label="Apps"
-            title="Apps"
+            aria-label={t('home2.apps')}
+            title={t('home2.apps')}
             onClick={() => onNavigate?.('apps')}
           >
             ◫
@@ -261,8 +292,8 @@ export function BrowserChrome({
           <button
             type="button"
             className="home-v2-toolbar-button"
-            aria-label="Settings"
-            title="Settings"
+            aria-label={t('common.settings')}
+            title={t('common.settings')}
             onClick={() => onNavigate?.('settings')}
           >
             ⚙

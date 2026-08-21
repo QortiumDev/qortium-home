@@ -1,14 +1,31 @@
 import { userMessage } from './user-message.js';
+import type { CoreNetworkId } from './core-network-descriptor.js';
 
 export type CoreInstallChannel = 'github' | 'helpers' | 'on-chain';
 
-let activeChannel: CoreInstallChannel | null = null;
+const activeChannels = new Map<CoreNetworkId, CoreInstallChannel>();
 
+/** @deprecated Use isCoreInstallActiveForNetwork with an explicit network ID. */
 export function isCoreInstallActive() {
-  return activeChannel !== null;
+  return isCoreInstallActiveForNetwork('qortium');
 }
 
+export function isCoreInstallActiveForNetwork(networkId: CoreNetworkId) {
+  return activeChannels.has(networkId);
+}
+
+/** @deprecated Use withCoreInstallLockForNetwork with an explicit network ID. */
 export async function withCoreInstallLock<T>(channel: CoreInstallChannel, operation: () => Promise<T>): Promise<T> {
+  return await withCoreInstallLockForNetwork('qortium', channel, operation);
+}
+
+export async function withCoreInstallLockForNetwork<T>(
+  networkId: CoreNetworkId,
+  channel: CoreInstallChannel,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const activeChannel = activeChannels.get(networkId);
+
   if (activeChannel) {
     throw new Error(
       userMessage(
@@ -21,12 +38,12 @@ export async function withCoreInstallLock<T>(channel: CoreInstallChannel, operat
     );
   }
 
-  activeChannel = channel;
+  activeChannels.set(networkId, channel);
 
   try {
     return await operation();
   } finally {
-    activeChannel = null;
+    activeChannels.delete(networkId);
   }
 }
 

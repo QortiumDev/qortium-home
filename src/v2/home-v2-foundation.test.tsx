@@ -28,6 +28,7 @@ import {
   buildAppResourceLocation,
   parseAppResourceLocation,
 } from './resource-location'
+import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
   createProductState,
   ProductModelError,
@@ -40,6 +41,7 @@ import {
   sanitizeHomeV2AppTitle,
 } from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
+import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
 import { PermissionDialog } from './shell/PermissionDialog'
 import {
@@ -281,6 +283,28 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(dashboard.tabs.length, 2)
   assert.equal(dashboard.activeTabId, null)
   assert.equal(dashboard.destination, 'dashboard')
+
+  const newTab = reduceProductState(withBothSources, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
+  assert.equal(newTab.tabs.length, 2)
+  assert.equal(newTab.activeTabId, null)
+  assert.equal(newTab.destination, 'newtab')
+  const restoredNewTab = restoreProductState(
+    JSON.parse(JSON.stringify(newTab)),
+  )
+  assert.equal(restoredNewTab.destination, 'newtab')
+  assert.equal(restoredNewTab.activeTabId, null)
+  assert.equal(restoredNewTab.tabs.length, 2)
+
+  const restoredFutureDestination = restoreProductState({
+    ...JSON.parse(JSON.stringify(newTab)),
+    destination: 'future-page',
+  })
+  assert.equal(restoredFutureDestination.destination, 'dashboard')
+  assert.equal(restoredFutureDestination.activeTabId, null)
+  assert.equal(restoredFutureDestination.tabs.length, 2)
 
   const afterClose = reduceProductState(
     reduceProductState(dashboard, {
@@ -672,12 +696,27 @@ function testPermissionBrokerScopesAndInvalidation(): void {
 }
 
 function testDesktopAndPhoneContracts(): void {
+  const lookup = createDualIdentityLookup()
+  const selectedAccountLookup: DualIdentityLookupResult = {
+    ...lookup,
+    networks: {
+      qortium: {
+        ...lookup.networks.qortium,
+        primaryName: 'Zulu selected account',
+      },
+      qortal: {
+        ...lookup.networks.qortal,
+        primaryName: 'Yankee selected account',
+      },
+    },
+  }
   const desktop = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="desktop"
+      selectedAccountLookup={selectedAccountLookup}
     />,
   )
   const phone = renderToStaticMarkup(
@@ -686,6 +725,7 @@ function testDesktopAndPhoneContracts(): void {
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="phone"
+      selectedAccountLookup={selectedAccountLookup}
     />,
   )
 
@@ -722,8 +762,16 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, />AliceQ</)
     assert.match(html, />Alice</)
     assert.match(html, />Pinned apps</)
-    assert.match(html, />Account lookup</)
-    assert.match(html, /aria-label="Account address or name"/)
+    assert.doesNotMatch(html, />Account lookup</)
+    assert.doesNotMatch(html, /aria-label="Account address or name"/)
+    assert.match(
+      html,
+      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Z<\/div>/,
+    )
+    assert.match(
+      html,
+      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Y<\/div>/,
+    )
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)
     assert.match(html, />Disabled</)
@@ -744,10 +792,10 @@ function testDesktopAndPhoneContracts(): void {
   }
 }
 
-function testDualIdentityLookupContract(): void {
+function createDualIdentityLookup(): DualIdentityLookupResult {
   const qortalAddress = 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH'
   const qortiumAddress = 'QwbXDZs6N7YmfTaHoHX2FCTiDtUjsLH22E'
-  const lookup: DualIdentityLookupResult = {
+  return {
     inputKind: 'name',
     message: 'This name belongs to different addresses. The results are not merged.',
     networks: {
@@ -781,11 +829,19 @@ function testDualIdentityLookupContract(): void {
     sharedAddress: null,
     state: 'conflict',
   }
+}
+
+function testDualIdentityLookupContract(): void {
+  const lookup = createDualIdentityLookup()
+  const productState = reduceProductState(homeV2ProductFixture, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
   for (const layout of ['desktop', 'phone'] as const) {
     const html = renderToStaticMarkup(
       <HomeV2Prototype
         snapshot={homeV2Fixture}
-        productState={createProductState()}
+        productState={productState}
         permissionState={createPermissionState()}
         layout={layout}
         identityLookup={lookup}
@@ -794,12 +850,25 @@ function testDualIdentityLookupContract(): void {
         onIdentityLookupSubmit={() => undefined}
       />,
     )
+    assert.match(html, /value="home:\/\/newtab"/)
+    assert.match(html, /aria-label="New tab"/)
+    assert.match(html, />Registered accounts</)
+    assert.match(html, /aria-label="Account address or name"/)
     assert.match(html, /data-lookup-state="conflict"/)
     assert.match(html, />Name conflict</)
     assert.match(html, /results are not merged/)
-    assert.match(html, new RegExp(qortalAddress))
-    assert.match(html, new RegExp(qortiumAddress))
+    assert.match(html, new RegExp(lookup.networks.qortal.address ?? ''))
+    assert.match(html, new RegExp(lookup.networks.qortium.address ?? ''))
     assert.match(html, /qortal_avatar/)
+    const qortium = html.search(
+      /class="home-v2-identity-network"[^>]*data-network="qortium"/,
+    )
+    const qortal = html.search(
+      /class="home-v2-identity-network"[^>]*data-network="qortal"/,
+    )
+    assert.notEqual(qortium, -1, 'new-tab lookup must identify Qortium results')
+    assert.notEqual(qortal, -1, 'new-tab lookup must identify Qortal results')
+    assert.ok(qortium < qortal, 'new-tab lookup must render Qortium first')
   }
 }
 
@@ -970,12 +1039,93 @@ function testStartupStatesAndAppearance(): void {
   assert.doesNotMatch(css, /#225b44/i)
 }
 
+function testSettingsScaffoldAndNewTabPreference(): void {
+  const settingsState = reduceProductState(createProductState(), {
+    type: 'navigate',
+    destination: 'settings',
+  })
+
+  for (const layout of ['desktop', 'phone'] as const) {
+    const html = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={settingsState}
+        permissionState={createPermissionState()}
+        layout={layout}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        onSetNewTabPreference={() => undefined}
+      />,
+    )
+    assert.match(html, new RegExp(`data-layout="${layout}"`))
+    assert.match(html, /aria-label="Settings sections"/)
+    const general = html.indexOf('>General</button>')
+    const appearance = html.indexOf('>Appearance</button>')
+    const account = html.indexOf('>Account</button>')
+    assert.notEqual(general, -1)
+    assert.notEqual(appearance, -1)
+    assert.notEqual(account, -1)
+    assert.ok(general < appearance && appearance < account)
+    assert.match(html, /aria-current="page">General<\/button>/)
+    assert.match(html, /<h2 id="general-settings-title">General<\/h2>/)
+    assert.match(html, />New tab</)
+    assert.match(html, /aria-label="New tab opens"/)
+    assert.match(html, /value="search" selected="">Search page<\/option>/)
+    assert.match(html, />Dashboard<\/option>/)
+    assert.match(html, />Custom address<\/option>/)
+    assert.doesNotMatch(html, /aria-label="Theme"/)
+    assert.doesNotMatch(html, /aria-label="Custom new-tab address"/)
+  }
+
+  const customHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      newTabPreference={{
+        address: 'qdn://APP/NameOnly',
+        kind: 'custom',
+      }}
+      onSetNewTabPreference={() => undefined}
+    />,
+  )
+  assert.match(customHtml, /aria-label="Custom new-tab address"/)
+  assert.ok(customHtml.includes('value="qdn://APP/NameOnly"'))
+  assert.match(customHtml, />Save</)
+
+  const noAccountHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{
+        ...homeV2Fixture,
+        account: {
+          ...homeV2Fixture.account,
+          state: 'none',
+          selectedIdentityId: null,
+        },
+      }}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="phone"
+    />,
+  )
+  assert.doesNotMatch(noAccountHtml, />Account<\/button>/)
+
+  const browserChromeSource = readFileSync(
+    'src/v2/shell/BrowserChrome.tsx',
+    'utf8',
+  )
+  assert.match(browserChromeSource, /newTabPreference\.kind === 'dashboard'/)
+  assert.match(browserChromeSource, /newTabPreference\.kind === 'custom'/)
+  assert.match(browserChromeSource, /setAddress\(newTabPreference\.address\)/)
+  assert.match(browserChromeSource, /newTabDisabled=\{navigationDisabled\}/)
+}
+
 function testAppearanceSettingsAndLegacyMigration(): void {
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',
     destination: 'settings',
   })
-  const html = renderToStaticMarkup(
+  const shellHtml = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={settingsState}
@@ -983,14 +1133,20 @@ function testAppearanceSettingsAndLegacyMigration(): void {
       layout="desktop"
     />,
   )
+  const html = renderToStaticMarkup(
+    <AppearanceSettingsPage
+      appearance={homeV2Fixture.appearance}
+      account={homeV2Fixture.account}
+    />,
+  )
 
-  assert.match(html, /data-theme-preference="system"/)
-  assert.match(html, /data-accent="clay"/)
-  assert.match(html, /data-text-size="medium"/)
-  assert.match(html, /data-language="system"/)
-  assert.match(html, /data-resolved-language="en"/)
-  assert.match(html, /lang="en" dir="ltr"/)
-  assert.match(html, /--v2-app-zoom:1/)
+  assert.match(shellHtml, /data-theme-preference="system"/)
+  assert.match(shellHtml, /data-accent="clay"/)
+  assert.match(shellHtml, /data-text-size="medium"/)
+  assert.match(shellHtml, /data-language="system"/)
+  assert.match(shellHtml, /data-resolved-language="en"/)
+  assert.match(shellHtml, /lang="en" dir="ltr"/)
+  assert.match(shellHtml, /--v2-app-zoom:1/)
   assert.match(html, />Appearance</)
   assert.match(html, />Theme</)
   assert.match(html, />Accent</)
@@ -1012,18 +1168,13 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.doesNotMatch(html, />Modern</)
 
   const noAccountSettings = renderToStaticMarkup(
-    <HomeV2Prototype
-      snapshot={{
-        ...homeV2Fixture,
-        account: {
-          ...homeV2Fixture.account,
-          state: 'none',
-          selectedIdentityId: null,
-        },
+    <AppearanceSettingsPage
+      appearance={homeV2Fixture.appearance}
+      account={{
+        ...homeV2Fixture.account,
+        state: 'none',
+        selectedIdentityId: null,
       }}
-      productState={settingsState}
-      permissionState={createPermissionState()}
-      layout="desktop"
     />,
   )
   assert.doesNotMatch(noAccountSettings, />Account security</)
@@ -1723,6 +1874,7 @@ function testShellStateMigratesAddressSelection(): void {
       textSize: legacy.appearance.textSize,
       theme: legacy.appearance.theme,
     },
+    newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
     product: {
@@ -1731,6 +1883,28 @@ function testShellStateMigratesAddressSelection(): void {
       tabs: legacy.product.tabs,
     },
   })
+
+  const newTabProduct = reduceProductState(homeV2ProductFixture, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
+  const serializedNewTab = serializeHomeV2ShellState({
+    ...legacy,
+    product: newTabProduct,
+  })
+  assert.equal(serializedNewTab.version, 2)
+  assert.equal(serializedNewTab.product.destination, 'newtab')
+  assert.equal(serializedNewTab.product.activeTabId, null)
+  assert.equal(serializedNewTab.product.tabs.length, 2)
+  const restoredNewTab = parseHomeV2ShellState(
+    JSON.parse(JSON.stringify(serializedNewTab)),
+    'light',
+    'en',
+  )
+  assert.equal(restoredNewTab.version, 2)
+  assert.equal(restoredNewTab.product.destination, 'newtab')
+  assert.equal(restoredNewTab.product.activeTabId, null)
+  assert.equal(restoredNewTab.product.tabs.length, 2)
 }
 
 await testMockHostFailsClosed()
@@ -1745,6 +1919,7 @@ testDesktopAndPhoneContracts()
 testDualIdentityLookupContract()
 testProductMarkAssetsAndColorOwnership()
 testStartupStatesAndAppearance()
+testSettingsScaffoldAndNewTabPreference()
 testAppearanceSettingsAndLegacyMigration()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()

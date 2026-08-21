@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { t } from '../../i18n'
 import {
   homeV2AccentOptions,
   homeV2LanguageOptions,
@@ -22,6 +23,8 @@ export interface AppearanceSettingsPageProps {
   readonly onSetLanguage?: (language: HomeV2Language) => void
   readonly onToggleRememberUnlock?: () => void
   readonly onToggleLockOnExit?: () => void
+  readonly section?: 'account' | 'appearance' | 'all'
+  readonly showHeading?: boolean
 }
 
 function SettingRow({
@@ -54,170 +57,190 @@ export function AppearanceSettingsPage({
   onSetLanguage,
   onToggleRememberUnlock,
   onToggleLockOnExit,
+  section = 'all',
+  showHeading = true,
 }: AppearanceSettingsPageProps) {
+  const resolvedThemeLabel = t(
+    appearance.resolvedTheme === 'dark'
+      ? 'display.theme.dark'
+      : 'display.theme.light',
+  )
   return (
     <section className="home-v2-settings-page">
-      <header className="home-v2-page-heading">
-        <h1>Settings</h1>
-      </header>
+      {showHeading ? (
+        <header className="home-v2-page-heading">
+          <h1>{t('common.settings')}</h1>
+        </header>
+      ) : null}
 
-      <section
-        className="home-v2-settings-panel"
-        aria-labelledby="appearance-title"
-      >
-        <div className="home-v2-settings-panel__heading">
-          <h2 id="appearance-title">Appearance</h2>
-          <p>Display settings apply to Home and supported QDN apps.</p>
-        </div>
-
-        <SettingRow
-          label="Theme"
-          description={
-            appearance.theme === 'system'
-              ? `Following system (${appearance.resolvedTheme}).`
-              : `Using ${appearance.resolvedTheme} mode.`
-          }
+      {section !== 'account' ? (
+        <section
+          className="home-v2-settings-panel"
+          aria-labelledby="appearance-title"
         >
-          <select
-            aria-label="Theme"
-            value={appearance.theme}
-            disabled={!onSetTheme}
-            onChange={(event) =>
-              onSetTheme?.(event.target.value as HomeV2ThemePreference)
+          <div className="home-v2-settings-panel__heading">
+            <h2 id="appearance-title">{t('home2.settings.appearance')}</h2>
+            <p>{t('home2.settings.appearanceDescription')}</p>
+          </div>
+
+          <SettingRow
+            label={t('display.themeLabel')}
+            description={
+              appearance.theme === 'system'
+                ? t('home2.settings.followingSystem', {
+                    theme: resolvedThemeLabel,
+                  })
+                : t('home2.settings.usingMode', {
+                    theme: resolvedThemeLabel,
+                  })
             }
           >
-            {homeV2ThemeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </SettingRow>
-
-        <SettingRow
-          label="Accent"
-          description="Used for focus, selection, and primary actions."
-        >
-          <div className="home-v2-accent-select">
-            <span
-              aria-hidden="true"
-              style={{
-                background: homeV2AccentOptions.find(
-                  (option) => option.value === appearance.accent,
-                )?.swatch,
-              }}
-            />
             <select
-              aria-label="Accent"
-              value={appearance.accent}
-              disabled={!onSetAccent}
+              aria-label={t('display.themeLabel')}
+              value={appearance.theme}
+              disabled={!onSetTheme}
               onChange={(event) =>
-                onSetAccent?.(event.target.value as HomeV2Accent)
+                onSetTheme?.(event.target.value as HomeV2ThemePreference)
               }
             >
-              {homeV2AccentOptions.map((option) => (
+              {homeV2ThemeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
-          </div>
-        </SettingRow>
+          </SettingRow>
 
-        <SettingRow
-          label="Text size"
-          description="Changes interface and compatible app text."
-        >
-          <select
-            aria-label="Text size"
-            value={appearance.textSize}
-            disabled={!onSetTextSize}
-            onChange={(event) =>
-              onSetTextSize?.(event.target.value as HomeV2TextSize)
-            }
+          <SettingRow
+            label={t('display.accentLabel')}
+            description={t('home2.settings.accentDescription')}
           >
-            {homeV2TextSizeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </SettingRow>
+            <div className="home-v2-accent-select">
+              <span
+                aria-hidden="true"
+                style={{
+                  background: homeV2AccentOptions.find(
+                    (option) => option.value === appearance.accent,
+                  )?.swatch,
+                }}
+              />
+              <select
+                aria-label={t('display.accentLabel')}
+                value={appearance.accent}
+                disabled={!onSetAccent}
+                onChange={(event) =>
+                  onSetAccent?.(event.target.value as HomeV2Accent)
+                }
+              >
+                {homeV2AccentOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </SettingRow>
 
-        <SettingRow
-          label="Page zoom"
-          description="Scales the complete browser and app surface."
-        >
-          <div className="home-v2-zoom-control" aria-label="Page zoom">
-            <button
-              type="button"
-              aria-label="Zoom out"
-              disabled={!onSetAppZoom || appearance.appZoom <= 50}
-              onClick={() =>
-                onSetAppZoom?.(Math.max(50, appearance.appZoom - 10))
+          <SettingRow
+            label={t('display.textSizeLabel')}
+            description={t('home2.settings.textSizeDescription')}
+          >
+            <select
+              aria-label={t('display.textSizeLabel')}
+              value={appearance.textSize}
+              disabled={!onSetTextSize}
+              onChange={(event) =>
+                onSetTextSize?.(event.target.value as HomeV2TextSize)
               }
             >
-              −
-            </button>
-            <output>{appearance.appZoom}%</output>
-            <button
-              type="button"
-              aria-label="Zoom in"
-              disabled={!onSetAppZoom || appearance.appZoom >= 200}
-              onClick={() =>
-                onSetAppZoom?.(Math.min(200, appearance.appZoom + 10))
+              {homeV2TextSizeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </select>
+          </SettingRow>
+
+          <SettingRow
+            label={t('home2.settings.pageZoom')}
+            description={t('home2.settings.pageZoomDescription')}
+          >
+            <div
+              className="home-v2-zoom-control"
+              aria-label={t('home2.settings.pageZoom')}
+            >
+              <button
+                type="button"
+                aria-label={t('display.appZoomOut')}
+                disabled={!onSetAppZoom || appearance.appZoom <= 50}
+                onClick={() =>
+                  onSetAppZoom?.(Math.max(50, appearance.appZoom - 10))
+                }
+              >
+                −
+              </button>
+              <output>{appearance.appZoom}%</output>
+              <button
+                type="button"
+                aria-label={t('display.appZoomIn')}
+                disabled={!onSetAppZoom || appearance.appZoom >= 200}
+                onClick={() =>
+                  onSetAppZoom?.(Math.min(200, appearance.appZoom + 10))
+                }
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="home-v2-zoom-reset"
+                disabled={!onSetAppZoom || appearance.appZoom === 100}
+                onClick={() => onSetAppZoom?.(100)}
+              >
+                {t('display.appZoomReset')}
+              </button>
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            label={t('display.languageLabel')}
+            description={t('home2.settings.languageDescription')}
+          >
+            <select
+              aria-label={t('display.languageLabel')}
+              value={appearance.language}
+              disabled={!onSetLanguage}
+              onChange={(event) =>
+                onSetLanguage?.(event.target.value as HomeV2Language)
               }
             >
-              +
-            </button>
-            <button
-              type="button"
-              className="home-v2-zoom-reset"
-              disabled={!onSetAppZoom || appearance.appZoom === 100}
-              onClick={() => onSetAppZoom?.(100)}
-            >
-              Reset
-            </button>
-          </div>
-        </SettingRow>
+              {homeV2LanguageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.value === 'system'
+                    ? t('home2.settings.systemLanguage')
+                    : option.label}
+                </option>
+              ))}
+            </select>
+          </SettingRow>
+        </section>
+      ) : null}
 
-        <SettingRow
-          label="Language"
-          description="Uses the device language when set to System."
-        >
-          <select
-            aria-label="Language"
-            value={appearance.language}
-            disabled={!onSetLanguage}
-            onChange={(event) =>
-              onSetLanguage?.(event.target.value as HomeV2Language)
-            }
-          >
-            {homeV2LanguageOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </SettingRow>
-      </section>
-
-      {account.state !== 'none' ? (
+      {section !== 'appearance' && account.state !== 'none' ? (
         <section
           className="home-v2-settings-panel"
           aria-labelledby="account-security-title"
         >
           <div className="home-v2-settings-panel__heading">
-            <h2 id="account-security-title">Account security</h2>
-            <p>Control how the selected account locks on this device.</p>
+            <h2 id="account-security-title">{t('home2.settings.accountSecurity')}</h2>
+            <p>{t('home2.settings.accountSecurityDescription')}</p>
           </div>
 
           <SettingRow
-            label="Remember unlock"
+            label={t('home2.settings.rememberUnlock')}
             description={
               account.secureStorageAvailable
-                ? 'Use secure device storage instead of asking on every start.'
-                : 'Secure device storage is unavailable.'
+                ? t('home2.settings.rememberUnlockDescription')
+                : t('home2.settings.secureStorageUnavailable')
             }
           >
             <label className="home-v2-toggle-control">
@@ -228,13 +251,19 @@ export function AppearanceSettingsPage({
                 readOnly={!onToggleRememberUnlock}
                 onChange={onToggleRememberUnlock}
               />
-              <span>{account.rememberUnlock ? 'Enabled' : 'Disabled'}</span>
+              <span>
+                {t(
+                  account.rememberUnlock
+                    ? 'home2.settings.enabled'
+                    : 'home2.settings.disabled',
+                )}
+              </span>
             </label>
           </SettingRow>
 
           <SettingRow
-            label="Lock on exit"
-            description="Require an unlock after Home closes. Enabled by default."
+            label={t('home2.settings.lockOnExit')}
+            description={t('home2.settings.lockOnExitDescription')}
           >
             <label className="home-v2-toggle-control">
               <input
@@ -244,7 +273,13 @@ export function AppearanceSettingsPage({
                 readOnly={!onToggleLockOnExit}
                 onChange={onToggleLockOnExit}
               />
-              <span>{account.lockOnExit ? 'Enabled' : 'Disabled'}</span>
+              <span>
+                {t(
+                  account.lockOnExit
+                    ? 'home2.settings.enabled'
+                    : 'home2.settings.disabled',
+                )}
+              </span>
             </label>
           </SettingRow>
         </section>

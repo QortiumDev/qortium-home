@@ -34,6 +34,11 @@ import {
   fetchHomeV2AvatarAction,
   type HomeV2AvatarAction,
 } from '../../electron/home-v2-avatar-actions'
+import {
+  buildHomeV2IdentityReadPath,
+  type HomeV2IdentityReadKind,
+  type HomeV2IdentityReadRequest,
+} from '../../electron/home-v2-identity-read'
 import { getAvatarDescriptorFromHeaders } from '../../electron/qdn-group-avatar-input'
 import {
   createHomeV2BridgeError,
@@ -83,16 +88,7 @@ export interface HomeV2AppRequestContext {
   readonly tabId: string
 }
 
-export type HomeV2IdentityReadKind =
-  | 'accountAvatarInfo'
-  | 'name'
-  | 'namesByAddress'
-  | 'primaryName'
-
-export interface HomeV2IdentityReadRequest {
-  readonly kind: HomeV2IdentityReadKind
-  readonly value: string
-}
+export type { HomeV2IdentityReadKind, HomeV2IdentityReadRequest }
 
 export interface HomeV2IdentityReadResponse {
   readonly data: unknown
@@ -344,24 +340,6 @@ export function parseHomeV2AvatarResponse(response: {
     contentLength: bytes.byteLength,
     contentType,
     status: 'ready',
-  }
-}
-
-function identityPath(request: HomeV2IdentityReadRequest) {
-  const value = request.value.trim()
-  if (!value || value.length > 128) {
-    throw new Error('Identity lookup values must contain 1 to 128 characters.')
-  }
-  const encoded = encodeURIComponent(value)
-  switch (request.kind) {
-    case 'name':
-      return `/names/${encoded}`
-    case 'namesByAddress':
-      return `/names/address/${encoded}?limit=0`
-    case 'primaryName':
-      return `/names/primary/${encoded}`
-    case 'accountAvatarInfo':
-      return `/addresses/${encoded}/avatar/info`
   }
 }
 
@@ -1060,7 +1038,7 @@ export function createPortableNodeClient(
         return { data: { message: `No healthy ${network} node was available.` }, status: 503 }
       }
       const response = await dependencies.requestJson(
-        `${nodeApiUrl}${identityPath(request)}`,
+        `${nodeApiUrl}${buildHomeV2IdentityReadPath(network, request)}`,
       )
       return { data: response.data, status: response.status }
     },

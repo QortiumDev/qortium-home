@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { t, type TranslationKey } from '../../i18n'
 
 export type AccountDialogMode =
   | 'create'
@@ -43,14 +44,14 @@ export function AccountDialog({
   const [useRememberedUnlock, setUseRememberedUnlock] = useState(
     mode === 'unlock' && rememberedUnlockAvailable === true,
   )
-  const titles: Record<AccountDialogMode, string> = {
-    create: 'Create account',
-    'enable-remember': 'Enable remembered unlock',
-    'import-private-key': 'Import private key',
-    'import-wallet-label': 'Import wallet file',
-    'remove-account': 'Remove account',
-    rename: 'Rename account',
-    unlock: 'Unlock account',
+  const titleKeys: Record<AccountDialogMode, TranslationKey> = {
+    create: 'home2.accountDialog.title.create',
+    'enable-remember': 'home2.accountDialog.title.enableRemember',
+    'import-private-key': 'home2.accountDialog.title.importPrivateKey',
+    'import-wallet-label': 'home2.accountDialog.title.importWalletFile',
+    'remove-account': 'home2.accountDialog.title.removeAccount',
+    rename: 'home2.accountDialog.title.renameAccount',
+    unlock: 'home2.accountDialog.title.unlockAccount',
   }
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -64,53 +65,53 @@ export function AccountDialog({
       <section className="home-v2-dialog home-v2-account-dialog" role="dialog" aria-modal="true" aria-labelledby="home-v2-account-dialog-title">
         <header>
           <div>
-            <span className="home-v2-eyebrow">Account</span>
-            <h2 id="home-v2-account-dialog-title">{titles[mode]}</h2>
+            <span className="home-v2-eyebrow">{t('account.menuLabel')}</span>
+            <h2 id="home-v2-account-dialog-title">{t(titleKeys[mode])}</h2>
           </div>
-          <button type="button" className="home-v2-dialog-close" aria-label="Close" disabled={busy} onClick={onCancel}>×</button>
+          <button type="button" className="home-v2-dialog-close" aria-label={t('home2.common.close')} disabled={busy} onClick={onCancel}>×</button>
         </header>
         <form onSubmit={submit}>
           {mode === 'remove-account' ? (
-            <p>Remove <strong>{accountLabel}</strong> from this device? Keep an exported wallet backup before continuing.</p>
+            <p>{t('home2.accountDialog.removePrompt', { account: accountLabel ?? '' })}</p>
           ) : null}
           {mode === 'enable-remember' ? (
-            <p>Confirm the account password once. Home will store only device-encrypted unlock material, never the password.</p>
+            <p>{t('home2.accountDialog.enableRememberDescription')}</p>
           ) : null}
           {needsLabel ? (
             <label>
-              <span>Account label</span>
+              <span>{t('home2.accountDialog.accountLabel')}</span>
               <input autoFocus maxLength={120} required value={label} onChange={(event) => setLabel(event.target.value)} />
             </label>
           ) : null}
           {mode === 'import-private-key' ? (
             <label>
-              <span>Private key</span>
+              <span>{t('account.privateKey')}</span>
               <textarea autoComplete="off" maxLength={256} required rows={3} value={privateKey} onChange={(event) => setPrivateKey(event.target.value)} />
             </label>
           ) : null}
           {mode === 'unlock' && rememberedUnlockAvailable ? (
             <label className="home-v2-checkbox-row">
               <input type="checkbox" checked={useRememberedUnlock} onChange={(event) => setUseRememberedUnlock(event.target.checked)} />
-              <span>Use device-protected remembered unlock</span>
+              <span>{t('home2.accountDialog.useRememberedUnlock')}</span>
             </label>
           ) : null}
           {needsPassword ? (
             <label>
-              <span>{mode === 'remove-account' ? 'Password (required while locked)' : 'Password'}</span>
+              <span>{mode === 'remove-account' ? t('home2.accountDialog.passwordRequiredWhileLocked') : t('common.password')}</span>
               <input autoComplete={needsNewPassword ? 'new-password' : 'current-password'} autoFocus={!needsLabel} required={mode !== 'remove-account'} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
             </label>
           ) : null}
           {needsNewPassword ? (
             <label>
-              <span>Confirm password</span>
+              <span>{t('account.confirmPassword')}</span>
               <input autoComplete="new-password" required type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} />
             </label>
           ) : null}
           {error ? <p className="home-v2-dialog-error" role="alert">{error}</p> : null}
           <footer>
-            <button type="button" className="home-v2-secondary-button" disabled={busy} onClick={onCancel}>Cancel</button>
+            <button type="button" className="home-v2-secondary-button" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
             <button type="submit" className={mode === 'remove-account' ? 'home-v2-danger-button' : 'home-v2-primary-button'} disabled={busy}>
-              {busy ? 'Working…' : mode === 'remove-account' ? 'Remove account' : 'Continue'}
+              {busy ? t('home2.common.working') : mode === 'remove-account' ? t('home2.accountDialog.removeAccount') : t('home2.common.continue')}
             </button>
           </footer>
         </form>

@@ -13,6 +13,7 @@ import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
 import { getHomeV2ContextualAppActions } from '../../electron/home-v2-app-runtime'
+import { buildHomeV2IdentityReadPath } from '../../electron/home-v2-identity-read'
 
 const syncedStatus = {
   height: 123,
@@ -443,6 +444,29 @@ assert.throws(
     }),
   /does not match/,
 )
+const qortalAvatarSearchPath = buildHomeV2IdentityReadPath('qortal', {
+  kind: 'legacyAvatarResource',
+  value: 'Alice Smith',
+})
+const qortalAvatarSearchUrl = new URL(qortalAvatarSearchPath, 'https://node.invalid')
+assert.equal(qortalAvatarSearchUrl.pathname, '/arbitrary/resources/search')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('service'), 'THUMBNAIL')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('name'), 'Alice Smith')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('identifier'), 'qortal_avatar')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('exactmatchnames'), 'true')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('mode'), 'ALL')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('includestatus'), 'false')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('includemetadata'), 'false')
+assert.equal(qortalAvatarSearchUrl.searchParams.get('limit'), '1')
+
+const qortiumAvatarSearchPath = buildHomeV2IdentityReadPath('qortium', {
+  kind: 'legacyAvatarResource',
+  value: 'Alice Smith',
+})
+const qortiumAvatarSearchUrl = new URL(qortiumAvatarSearchPath, 'https://node.invalid')
+assert.equal(qortiumAvatarSearchUrl.pathname, qortalAvatarSearchUrl.pathname)
+assert.equal(qortiumAvatarSearchUrl.searchParams.get('identifier'), 'avatar')
+assert.equal(qortiumAvatarSearchUrl.searchParams.get('name'), 'Alice Smith')
 assert.match(buildHomeV2AppResourceSearchPath('Trust'), /name=Trust/)
 assert.deepEqual(
   parseHomeV2AppResourceCandidates(
@@ -759,6 +783,24 @@ const identity = await client.readIdentity('qortal', {
   value: 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH',
 })
 assert.equal(identity.status, 200)
+
+await client.readIdentity('qortal', {
+  kind: 'legacyAvatarResource',
+  value: 'Alice Smith',
+})
+assert.equal(
+  `${new URL(lastRequestedUrl).pathname}${new URL(lastRequestedUrl).search}`,
+  qortalAvatarSearchPath,
+)
+
+await client.readIdentity('qortium', {
+  kind: 'legacyAvatarResource',
+  value: 'Alice Smith',
+})
+assert.equal(
+  `${new URL(lastRequestedUrl).pathname}${new URL(lastRequestedUrl).search}`,
+  qortiumAvatarSearchPath,
+)
 
 await assert.rejects(
   () => client.readIdentity('qortal', { kind: 'name', value: '' }),

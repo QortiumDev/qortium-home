@@ -27,7 +27,15 @@ import {
   type PermissionPrompt,
   type PermissionRequestId,
 } from '../bridge-permissions'
-import { createProductState, reduceProductState } from '../product-model'
+import {
+  createProductState,
+  reduceProductState,
+  type ShellDestination,
+} from '../product-model'
+import {
+  DEFAULT_NEW_TAB_PREFERENCE,
+  type NewTabPreference,
+} from '../new-tab-preference'
 import {
   HomeV2Prototype,
   type HomeV2Layout,
@@ -137,6 +145,8 @@ export function HomeV2FixturePreview() {
     undefined,
     createProductState,
   )
+  const [newTabPreference, setNewTabPreference] =
+    useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
   const [permissionState, setPermissionState] = useState(createPermissionState)
   const [layout, setLayout] = useState<HomeV2Layout>('desktop')
   const [appearance, setAppearance] = useState<HomeV2AppearanceSettings>({
@@ -205,7 +215,7 @@ export function HomeV2FixturePreview() {
   }
 
   const navigate = (
-    destination: 'activity' | 'apps' | 'dashboard' | 'settings',
+    destination: Exclude<ShellDestination, 'tab'>,
   ) => {
     if (productState.activeTabId) {
       setPermissionState((current) =>
@@ -374,6 +384,7 @@ export function HomeV2FixturePreview() {
           productState={productState}
           permissionState={permissionState}
           layout={layout}
+          newTabPreference={newTabPreference}
           onOpenApp={openApp}
           onActivateTab={(tabId) => {
             dispatchProduct({ type: 'activate-tab', tabId })
@@ -416,6 +427,7 @@ export function HomeV2FixturePreview() {
           onSetTextSize={setTextSize}
           onSetAppZoom={setAppZoom}
           onSetLanguage={setLanguage}
+          onSetNewTabPreference={setNewTabPreference}
         />
       </div>
     </div>

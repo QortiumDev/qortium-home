@@ -36,6 +36,11 @@ import type {
   TabId,
 } from '../v2/contracts'
 import { createProductState, reduceProductState } from '../v2/product-model'
+import {
+  DEFAULT_NEW_TAB_PREFERENCE,
+  parseHomeV2InternalAddress,
+  type NewTabPreference,
+} from '../v2/new-tab-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import {
   HomeV2ResourceViewer,
@@ -518,6 +523,8 @@ export function HomeV2LiveApp() {
     undefined,
     createProductState,
   )
+  const [newTabPreference, setNewTabPreference] =
+    useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
   // Live mirror of productState so long-running async work (e.g. the chat-send
   // context recheck that spans a tens-of-seconds memory-pow) sees the CURRENT
   // tab set, not the snapshot captured when the request started. Without this
@@ -871,6 +878,7 @@ export function HomeV2LiveApp() {
           appearance: restored.appearance,
         }))
         dispatchProduct({ type: 'restore', state: restored.product })
+        setNewTabPreference(restored.newTabPreference)
         setRestoredAccountId(restored.selectedAccountId)
         setRestoredAddressId(restored.selectedAddressId)
         setUseCatalogueActiveAccount(rawState === null || rawState === undefined)
@@ -937,6 +945,7 @@ export function HomeV2LiveApp() {
         serializeHomeV2ShellState({
           version: 2,
           appearance: snapshot.appearance,
+          newTabPreference,
           selectedAccountId:
             accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
           selectedAddressId: selectedAccountId,
@@ -948,6 +957,7 @@ export function HomeV2LiveApp() {
   }, [
     accountCatalogueReady,
     nodeClient,
+    newTabPreference,
     productState,
     selectedAccountId,
     shellStateReady,
@@ -1050,18 +1060,12 @@ export function HomeV2LiveApp() {
   const openAddress = useCallback(
     async (address: string): Promise<AddressOpenResult> => {
       try {
-        const internal = /^home:\/\/(dashboard|apps|activity|settings)\/?$/i.exec(
-          address.trim(),
-        )
+        const internal = parseHomeV2InternalAddress(address)
         if (internal) {
           setShellNotice(null)
           dispatchProduct({
             type: 'navigate',
-            destination: internal[1].toLowerCase() as
-              | 'activity'
-              | 'apps'
-              | 'dashboard'
-              | 'settings',
+            destination: internal,
           })
           return { status: 'opened' }
         }
@@ -3940,6 +3944,7 @@ export function HomeV2LiveApp() {
       identityLookupBusy={identityLookupBusy}
       identityLookupError={identityLookupError}
       identityLookupInput={identityInput}
+      newTabPreference={newTabPreference}
       loadVisibleAvatar={loadVisibleAvatar}
       accountCatalogue={accountCatalogue}
       vaultState={vaultState}
@@ -4097,6 +4102,7 @@ export function HomeV2LiveApp() {
             language === 'system' ? currentSystemLanguage() : language,
         })
       }
+      onSetNewTabPreference={setNewTabPreference}
     />
   )
 }

@@ -22,11 +22,13 @@ import {
 } from './core-runtime-files.js';
 import { readCoreJarIdentity, type CoreJarIdentity } from './core-jar-identity.js';
 import {
-  isCoreInstallActive,
+  isCoreInstallActiveForNetwork,
   isOnChainCoreInstallActive,
-  withCoreInstallLock,
+  withCoreInstallLockForNetwork,
 } from './core-install-lock.js';
 import { runCoreInstallTransaction } from './core-install-transaction.js';
+import { NetworkManagerEntryRegistry } from './core-manager-entry-registry.js';
+import { CoreManagerStateRegistry } from './core-manager-state.js';
 import {
   compareCoreVersions,
   coreCommitsMatch,
@@ -48,38 +50,25 @@ import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
 } from './managed-child-process.js';
+import {
+  QORTIUM_CORE_DESCRIPTOR,
+  getCoreGithubCommitUrl,
+  getCoreGithubLatestReleaseUrl,
+  getCoreGithubReleasesUrl,
+  getCoreGithubTaggedReleaseUrl,
+  getCoreHelperScriptPaths,
+  getCoreHelperStartArguments,
+  getCoreHelperStopArguments,
+  matchesCoreName,
+  resolveCoreDescriptorPaths,
+  type CoreNetworkDescriptor,
+  type CoreNetworkId,
+} from './core-network-descriptor.js';
 
-const CORE_REPOSITORY = 'QortiumDev/qortium-core';
-const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
-const GITHUB_USER_AGENT = 'QortiumHome/1.0';
-const MANAGED_CORE_DIR = 'managed-core';
-const CORE_DATA_DIR = 'qortium-core';
-const CORE_INSTALL_DIR = 'install';
-const CORE_RUNTIME_DIR = 'runtime';
-const CORE_CHAIN_FILE = 'previewchain.json';
-const CURRENT_CORE_FILE = 'current.json';
-const CURRENT_JAVA_FILE = 'current-java.json';
-const RUNTIME_CHAIN_FILE = 'runtime-chain.json';
-const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
-const QORTIUM_PREVIEWNET_INITIAL_PEERS = [
-  '146.103.42.59:24892',
-  '185.207.104.78:24892',
-  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
-  '80.241.221.139:24892',
-  '3u25ana5e5hvriqqiuh6fcetxezsqm7la276ljtjxaoxt767n4hq.b32.i2p',
-  'zqcackxkhjzfbbc6daigc73zqhzdpgwua3mjc7xgn3hwjed5z3ca.b32.i2p',
-];
-const QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS = [
-  '146.103.42.59:24894',
-  '185.207.104.78:24894',
-  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
-  '80.241.221.139:24894',
-  'qhk6g5hl7vqf5fmlgj6knbajtiszotaf2w26fwjapsr75kbz7fma.b32.i2p',
-  'hg3seiuul4pcz6a2svatdahzudphbm464vwqcmiejc77kumglwaq.b32.i2p',
-];
-const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
-const LOCAL_CORE_STATUS_PATH = '/admin/status';
-const LOCAL_CORE_INFO_PATH = '/admin/info';
+// E1 starts with one fully described Qortium instance. Compatibility exports
+// remain Qortium wrappers, while the keyed manager registry below fails closed
+// for networks that do not yet have a production descriptor and pipeline.
+const CORE_DESCRIPTOR = QORTIUM_CORE_DESCRIPTOR;
 const START_TIMEOUT_MS = 120_000;
 const STOP_TIMEOUT_MS = 45_000;
 const STATUS_TIMEOUT_MS = 2_500;
@@ -101,30 +90,14 @@ const DOWNGRADE_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const ADOPTIUM_ASSETS_TIMEOUT_MS = 10_000;
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_ASSETS_API_BASE_URL = 'https://api.adoptium.net/v3/assets/latest';
-const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
-const RUNTIME_ENTRY_NAMES = [
-  'apikey.txt',
-  'db-preview',
-  'data-preview',
-  'i2p',
-  'lists',
-  'qortium-backup-preview',
-  'qortal-backup-preview',
-  'qortium.log',
-  'run-error.log',
-  'run.log',
-  'run.pid',
-  'settings-preview-local.json',
-  'settings-preview-seed-local.json',
-  'settings-preview-seed-netcup-local.json',
-];
-const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set([
-  'checkpoints',
-  'featureTriggers',
-  'featureTriggerScheduleEnforcementHeight',
-  'onlineAccountsSignatureV2Height',
-  'assetOrderBoundsHeight',
-]);
+const CORE_RUNTIME_DIR_OVERRIDE = CORE_DESCRIPTOR.storage.runtimeOverrideEnvironmentVariable
+  ? process.env[CORE_DESCRIPTOR.storage.runtimeOverrideEnvironmentVariable]?.trim()
+  : undefined;
+const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set<string>(
+  CORE_DESCRIPTOR.chain.kind === 'file'
+    ? CORE_DESCRIPTOR.chain.compatibilityHashExcludedFields
+    : [],
+);
 
 type CoreChannel = 'prerelease' | 'stable';
 type JavaArchiveType = 'tar.gz' | 'zip';
@@ -371,16 +344,18 @@ class DowngradeConfirmationRequiredError extends Error {
   }
 }
 
-const downgradeConfirmations = new Map<string, DowngradeConfirmation>();
+const coreManagerStates = new CoreManagerStateRegistry<
+  CoreNetworkId,
+  CoreUpdateEngineStatus,
+  DowngradeConfirmation
+>(() => ({ available: null, helpersOutOfSync: null }));
+
+function getCoreManagerState(descriptor: CoreNetworkDescriptor = CORE_DESCRIPTOR) {
+  return coreManagerStates.forNetwork(descriptor.id);
+}
 
 function mintDowngradeConfirmation(targetVersion: string, installedVersion: string) {
   const now = Date.now();
-
-  for (const [token, confirmation] of downgradeConfirmations) {
-    if (Date.parse(confirmation.expiresAt) <= now) {
-      downgradeConfirmations.delete(token);
-    }
-  }
 
   const confirmation: DowngradeConfirmation = {
     expiresAt: new Date(now + DOWNGRADE_CONFIRMATION_TTL_MS).toISOString(),
@@ -389,7 +364,7 @@ function mintDowngradeConfirmation(targetVersion: string, installedVersion: stri
     token: randomBytes(32).toString('hex'),
   };
 
-  downgradeConfirmations.set(confirmation.token, confirmation);
+  coreManagerStates.storeDowngradeConfirmation(CORE_DESCRIPTOR.id, confirmation, now);
   return confirmation;
 }
 
@@ -398,14 +373,11 @@ function consumeDowngradeConfirmation(request: CoreInstallRequest, targetVersion
     return false;
   }
 
-  const confirmation = downgradeConfirmations.get(request.downgradeToken);
-
-  if (!confirmation) {
-    return false;
-  }
-
-  downgradeConfirmations.delete(request.downgradeToken);
-  return confirmation.targetVersion === targetVersion && Date.parse(confirmation.expiresAt) > Date.now();
+  return coreManagerStates.consumeDowngradeConfirmation(
+    CORE_DESCRIPTOR.id,
+    request.downgradeToken,
+    targetVersion,
+  );
 }
 
 type RunScriptOptions = {
@@ -439,61 +411,89 @@ function canonicalJsonStringify(value: unknown): string {
     .join(',')}}`;
 }
 
+function getCoreDescriptorPaths() {
+  return resolveCoreDescriptorPaths(CORE_DESCRIPTOR, {
+    appDataPath: app.getPath('appData'),
+    runtimeOverride: CORE_RUNTIME_DIR_OVERRIDE,
+    userDataPath: app.getPath('userData'),
+  });
+}
+
 function getCoreBasePath() {
-  return path.join(app.getPath('appData'), CORE_DATA_DIR);
+  return getCoreDescriptorPaths().basePath;
 }
 
 function getLegacyCoreBasePath() {
-  return path.join(app.getPath('userData'), MANAGED_CORE_DIR);
+  const legacyBasePath = getCoreDescriptorPaths().legacyBasePath;
+
+  if (!legacyBasePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy storage layout.`);
+  }
+
+  return legacyBasePath;
 }
 
 function getCoreDownloadsPath() {
-  return path.join(getCoreBasePath(), 'downloads');
+  return getCoreDescriptorPaths().downloadsPath;
 }
 
 function getCoreInstallPath() {
-  return path.join(getCoreBasePath(), CORE_INSTALL_DIR);
+  return getCoreDescriptorPaths().installPath;
 }
 
 function getJavaBasePath() {
-  return path.join(getCoreBasePath(), 'java');
+  return getCoreDescriptorPaths().javaBasePath;
 }
 
 function getLegacyJavaBasePath() {
-  return path.join(getLegacyCoreBasePath(), 'java');
+  const legacyJavaBasePath = getCoreDescriptorPaths().legacyJavaBasePath;
+
+  if (!legacyJavaBasePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy Java layout.`);
+  }
+
+  return legacyJavaBasePath;
 }
 
 function getJavaVersionsPath() {
-  return path.join(getJavaBasePath(), 'versions');
+  return getCoreDescriptorPaths().javaVersionsPath;
 }
 
 function getCurrentCorePath() {
-  return path.join(getCoreBasePath(), CURRENT_CORE_FILE);
+  return getCoreDescriptorPaths().currentCorePath;
 }
 
 function getLegacyCurrentCorePath() {
-  return path.join(getLegacyCoreBasePath(), CURRENT_CORE_FILE);
+  const legacyCurrentCorePath = getCoreDescriptorPaths().legacyCurrentCorePath;
+
+  if (!legacyCurrentCorePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy metadata path.`);
+  }
+
+  return legacyCurrentCorePath;
 }
 
 function getCurrentJavaPath() {
-  return path.join(getJavaBasePath(), CURRENT_JAVA_FILE);
+  return getCoreDescriptorPaths().currentJavaPath;
 }
 
 function getLegacyCurrentJavaPath() {
-  return path.join(getLegacyJavaBasePath(), CURRENT_JAVA_FILE);
+  const legacyCurrentJavaPath = getCoreDescriptorPaths().legacyCurrentJavaPath;
+
+  if (!legacyCurrentJavaPath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy Java metadata path.`);
+  }
+
+  return legacyCurrentJavaPath;
 }
 
 function getCoreRuntimePath() {
-  if (CORE_RUNTIME_DIR_OVERRIDE) {
-    return path.resolve(CORE_RUNTIME_DIR_OVERRIDE);
-  }
-
-  return path.join(getCoreBasePath(), CORE_RUNTIME_DIR);
+  return getCoreDescriptorPaths().runtimePath;
 }
 
 function getCoreLogPaths(runtimePath: string): CoreLogPaths {
   const logPaths: CoreLogPaths = {
-    appLogPath: path.join(runtimePath, 'qortium.log'),
+    appLogPath: path.join(runtimePath, CORE_DESCRIPTOR.storage.logFileName),
     launcherLogPath: path.join(runtimePath, 'run.log'),
   };
 
@@ -509,11 +509,11 @@ function getRunPidPath(runtimePath: string) {
 }
 
 function getRuntimeChainPath(runtimePath: string) {
-  return path.join(runtimePath, RUNTIME_CHAIN_FILE);
+  return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeChainFileName);
 }
 
 function getRuntimeMigrationBlockedPath(runtimePath: string) {
-  return path.join(runtimePath, RUNTIME_MIGRATION_BLOCKED_FILE);
+  return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeMigrationBlockedFileName);
 }
 
 function normalizeFilesystemPath(value: string) {
@@ -553,7 +553,7 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
 
   await mkdir(destinationPath, { recursive: true });
 
-  for (const entryName of RUNTIME_ENTRY_NAMES) {
+  for (const entryName of CORE_DESCRIPTOR.storage.runtimeEntryNames) {
     const sourceEntryPath = path.join(sourcePath, entryName);
 
     if (!existsSync(sourceEntryPath)) {
@@ -619,7 +619,7 @@ async function persistReconciledCoreMetadata(
   modifiedSinceInstall: boolean,
   reconciledAt: string,
 ) {
-  if (isCoreInstallActive()) {
+  if (isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)) {
     return;
   }
 
@@ -636,7 +636,7 @@ async function persistReconciledCoreMetadata(
       latestCore.installPath !== installedCore.installPath ||
       latestCore.jarPath !== installedCore.jarPath ||
       latestCore.tagName !== installedCore.tagName ||
-      isCoreInstallActive()
+      isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)
     ) {
       return;
     }
@@ -651,7 +651,7 @@ async function persistReconciledCoreMetadata(
       reconciledAt: latestCore.reconciledAt ?? reconciledAt,
     };
 
-    if (isCoreInstallActive()) {
+    if (isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)) {
       return;
     }
 
@@ -662,7 +662,11 @@ async function persistReconciledCoreMetadata(
 }
 
 async function ensureBootstrapPeers(installPath: string, options: { strict?: boolean } = {}) {
-  const settingsPath = path.join(installPath, 'preview', 'settings-preview.json');
+  if (CORE_DESCRIPTOR.bootstrap.kind !== 'peer-injection') {
+    return;
+  }
+
+  const settingsPath = path.join(installPath, CORE_DESCRIPTOR.bootstrap.settingsRelativePath);
 
   if (!existsSync(settingsPath)) {
     const message = `Unable to ensure Previewnet bootstrap peers; settings template was not found at ${settingsPath}.`;
@@ -700,10 +704,13 @@ async function ensureBootstrapPeers(installPath: string, options: { strict?: boo
   }
 
   const settings = parsedSettings as Record<string, unknown>;
-  const initialPeers = mergeBootstrapPeerList(settings.initialPeers, QORTIUM_PREVIEWNET_INITIAL_PEERS);
+  const initialPeers = mergeBootstrapPeerList(
+    settings.initialPeers,
+    [...CORE_DESCRIPTOR.bootstrap.initialPeers],
+  );
   const initialDataPeers = mergeBootstrapPeerList(
     settings.initialDataPeers,
-    QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS,
+    [...CORE_DESCRIPTOR.bootstrap.initialDataPeers],
   );
 
   if (!initialPeers.changed && !initialDataPeers.changed) {
@@ -737,13 +744,19 @@ function getCoreCompatiblePreviewChainSha256(parsedChain: Record<string, unknown
 }
 
 async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRuntimeChainIdentity> {
-  const previewChainPath = path.join(previewPath, CORE_CHAIN_FILE);
+  if (CORE_DESCRIPTOR.chain.kind !== 'file') {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core does not use a chain identity file.`);
+  }
+
+  const previewChainPath = path.join(previewPath, CORE_DESCRIPTOR.chain.fileName);
   let previewChainBytes: Buffer;
 
   try {
     previewChainBytes = await readFile(previewChainPath);
   } catch {
-    throw new Error(`The installed Core release is missing ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+    throw new Error(
+      `The installed Core release is missing ${CORE_DESCRIPTOR.chain.fileName}; runtime chain compatibility cannot be verified.`,
+    );
   }
 
   let networkId = 'unknown';
@@ -759,7 +772,9 @@ async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRu
     parsedChain = parsedPreviewChain;
     networkId = getString(parsedChain.networkId) || networkId;
   } catch {
-    throw new Error(`The installed Core release has an invalid ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+    throw new Error(
+      `The installed Core release has an invalid ${CORE_DESCRIPTOR.chain.fileName}; runtime chain compatibility cannot be verified.`,
+    );
   }
 
   return {
@@ -1045,7 +1060,7 @@ async function fetchGithubJson<T>(url: string) {
   const response = await fetch(url, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': GITHUB_USER_AGENT,
+      'User-Agent': CORE_DESCRIPTOR.github.userAgent,
     },
   });
 
@@ -1067,14 +1082,25 @@ function normalizeGithubRelease(value: unknown): GithubRelease | null {
 }
 
 function selectReleaseAsset(release: GithubRelease): CoreReleaseAsset | null {
-  if (!Array.isArray(release.assets)) {
+  if (
+    !Array.isArray(release.assets) ||
+    CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers'
+  ) {
     return null;
   }
 
   const assets = release.assets.filter(isObject) as GithubAsset[];
   const selectedAsset =
-    assets.find((asset) => getString(asset.name) === 'qortium-preview.zip') ??
-    assets.find((asset) => /^qortium.*\.zip$/i.test(getString(asset.name)));
+    assets.find(
+      (asset) =>
+        getString(asset.name) === CORE_DESCRIPTOR.package.preferredAssetName,
+    ) ??
+    assets.find((asset) =>
+      matchesCoreName(
+        CORE_DESCRIPTOR.package.fallbackAssetNameMatcher,
+        getString(asset.name),
+      ),
+    );
 
   if (!selectedAsset) {
     return null;
@@ -1113,7 +1139,7 @@ function releaseToSummary(channel: CoreChannel, value: unknown): CoreReleaseSumm
     return {
       available: false,
       channel,
-      message: `The latest ${channel} release does not include a supported Qortium zip asset.`,
+      message: `The latest ${channel} release does not include a supported ${CORE_DESCRIPTOR.label} zip asset.`,
     };
   }
 
@@ -1137,7 +1163,7 @@ async function resolveReleaseCommit(summary: CoreReleaseSummary): Promise<CoreRe
 
   try {
     const commit = await fetchGithubJson<GithubCommit>(
-      `${GITHUB_API_BASE_URL}/commits/${encodeURIComponent(summary.tagName)}`,
+      getCoreGithubCommitUrl(CORE_DESCRIPTOR, summary.tagName),
     );
     const commitTimestamp = getString(commit?.commit?.committer?.date) || getString(commit?.commit?.author?.date);
 
@@ -1152,13 +1178,28 @@ async function resolveReleaseCommit(summary: CoreReleaseSummary): Promise<CoreRe
 }
 
 async function getLatestStableRelease(): Promise<CoreReleaseSummary> {
-  const release = await fetchGithubJson<unknown>(`${GITHUB_API_BASE_URL}/releases/latest`);
+  const release = await fetchGithubJson<unknown>(
+    getCoreGithubLatestReleaseUrl(CORE_DESCRIPTOR),
+  );
 
   return await resolveReleaseCommit(releaseToSummary('stable', release));
 }
 
 async function getLatestPrerelease(): Promise<CoreReleaseSummary> {
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=20`);
+  if (CORE_DESCRIPTOR.releaseChannels.kind !== 'github-stable-and-prerelease') {
+    return {
+      available: false,
+      channel: 'prerelease',
+      message: `No prerelease channel is configured for ${CORE_DESCRIPTOR.label} Core.`,
+    };
+  }
+
+  const releases = await fetchGithubJson<unknown[]>(
+    getCoreGithubReleasesUrl(
+      CORE_DESCRIPTOR,
+      CORE_DESCRIPTOR.releaseChannels.prereleasePageSize,
+    ),
+  );
   const release = Array.isArray(releases)
     ? releases.find((candidate) => {
         const normalizedCandidate = normalizeGithubRelease(candidate);
@@ -1171,7 +1212,13 @@ async function getLatestPrerelease(): Promise<CoreReleaseSummary> {
 }
 
 async function getReleaseMatchingCoreVersion(semver: string): Promise<AvailableCoreRelease | null> {
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=100`);
+  const matchingReleasePageSize =
+    CORE_DESCRIPTOR.releaseChannels.kind === 'github-stable-and-prerelease'
+      ? CORE_DESCRIPTOR.releaseChannels.matchingReleasePageSize
+      : 100;
+  const releases = await fetchGithubJson<unknown[]>(
+    getCoreGithubReleasesUrl(CORE_DESCRIPTOR, matchingReleasePageSize),
+  );
   const normalizedReleases = (Array.isArray(releases) ? releases : [])
     .map(normalizeGithubRelease)
     .filter((release): release is GithubRelease => !!release && release.draft !== true);
@@ -1193,7 +1240,7 @@ async function getReleaseMatchingCoreVersion(semver: string): Promise<AvailableC
   for (const tagName of [`v${semver}`, semver]) {
     const release = normalizeGithubRelease(
       await fetchGithubJson<unknown>(
-        `${GITHUB_API_BASE_URL}/releases/tags/${encodeURIComponent(tagName)}`,
+        getCoreGithubTaggedReleaseUrl(CORE_DESCRIPTOR, tagName),
       ),
     );
 
@@ -1375,11 +1422,11 @@ async function readInstalledCore(): Promise<InstalledCore | null> {
   return await readInstalledCoreMetadata();
 }
 
-export async function getManagedCorePreviewPath() {
+async function getQortiumManagedCorePreviewPath() {
   return (await readInstalledCore())?.previewPath ?? null;
 }
 
-export async function getManagedCoreRuntimePath() {
+async function getQortiumManagedCoreRuntimePath() {
   return (await readInstalledCore())?.runtimePath ?? null;
 }
 
@@ -1415,7 +1462,7 @@ async function waitForPidExit(pid: number, timeoutMs: number) {
   return !isPidRunning(pid);
 }
 
-export async function isManagedCoreRuntimeRunning() {
+async function isQortiumManagedCoreRuntimeRunning() {
   const installedCore = await readInstalledCore();
 
   if (!installedCore) {
@@ -1425,7 +1472,7 @@ export async function isManagedCoreRuntimeRunning() {
   return await isInstalledCoreRunning(installedCore);
 }
 
-export function scheduleManagedCoreUpdateCheck() {
+function scheduleQortiumManagedCoreUpdateCheck() {
   setTimeout(() => {
     void runCoreUpdateEngine();
   }, 1_000).unref();
@@ -1435,7 +1482,7 @@ export function scheduleManagedCoreUpdateCheck() {
 // managed i2pd router *should* be up to serve Core's fallback transport. Used to
 // reconcile the router with Core (on Home launch / quit) so i2pd's lifetime
 // tracks Core's, not Home's window.
-export async function isManagedCoreUsingI2p(): Promise<boolean> {
+async function isQortiumManagedCoreUsingI2p(): Promise<boolean> {
   const installedCore = await readInstalledCore();
 
   if (!installedCore || !(await isInstalledCoreRunning(installedCore))) {
@@ -1498,7 +1545,11 @@ async function stopLegacyInstalledCore(installedCore: InstalledCore, runtimePath
   });
 
   try {
-    await runScript(stopScript, [`--runtime-dir=${runtimePath}`], installedCore.previewPath);
+    await runScript(
+      stopScript,
+      getCoreHelperStopArguments(CORE_DESCRIPTOR, runtimePath),
+      installedCore.previewPath,
+    );
     await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), getCoreLogPaths(runtimePath)));
@@ -1637,8 +1688,6 @@ async function migrateRootRuntimeEntriesIfSafe(installedCore: InstalledCore | nu
   }
 }
 
-let coreLayoutMigrationPromise: Promise<void> | null = null;
-
 async function migrateCoreLayout() {
   await mkdir(getCoreBasePath(), { recursive: true });
   await cleanupStaleCoreOperationDirectories();
@@ -1677,14 +1726,7 @@ async function cleanupStaleCoreOperationDirectories() {
 }
 
 async function ensureCoreLayout() {
-  if (!coreLayoutMigrationPromise) {
-    coreLayoutMigrationPromise = migrateCoreLayout().catch((error) => {
-      coreLayoutMigrationPromise = null;
-      throw error;
-    });
-  }
-
-  await coreLayoutMigrationPromise;
+  await coreManagerStates.ensureLayout(CORE_DESCRIPTOR.id, migrateCoreLayout);
 }
 
 function getJavaPlatform(): JavaPlatform | null {
@@ -1888,27 +1930,19 @@ async function refreshManagedJavaUpdateInfo(installedJava: ManagedJava): Promise
   return refreshed;
 }
 
-let managedJavaRefreshInFlight = false;
-
 function scheduleManagedJavaUpdateRefresh(installedJava: ManagedJava) {
-  if (managedJavaRefreshInFlight) {
-    return;
-  }
-
-  managedJavaRefreshInFlight = true;
-  void refreshManagedJavaUpdateInfo(installedJava)
-    .then((refreshed) => {
-      if (
-        refreshed.latestKnownVersion !== installedJava.latestKnownVersion ||
-        refreshed.upgradeCheckedAt !== installedJava.upgradeCheckedAt
-      ) {
-        void publishCoreStatus();
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      managedJavaRefreshInFlight = false;
-    });
+  coreManagerStates.scheduleManagedJavaRefresh(CORE_DESCRIPTOR.id, async () => {
+    await refreshManagedJavaUpdateInfo(installedJava)
+      .then((refreshed) => {
+        if (
+          refreshed.latestKnownVersion !== installedJava.latestKnownVersion ||
+          refreshed.upgradeCheckedAt !== installedJava.upgradeCheckedAt
+        ) {
+          void publishCoreStatus();
+        }
+      })
+      .catch(() => {});
+  });
 }
 
 // Opt-in (update-settings.json, off by default): updates the Home-managed JRE —
@@ -2082,7 +2116,10 @@ async function fetchCoreBuildInfo(
   signal: AbortSignal,
 ): Promise<{ buildVersion?: string; runningCommit?: string; runningVersion?: string }> {
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_INFO_PATH}`, { signal });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.infoPath}`,
+      { signal },
+    );
 
     if (!response.ok) {
       return {};
@@ -2113,14 +2150,17 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_STATUS_PATH}`, {
-      signal: abortController.signal,
-    });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.statusPath}`,
+      {
+        signal: abortController.signal,
+      },
+    );
     const text = await response.text();
 
     if (!response.ok) {
       return {
-        localApiUrl: LOCAL_CORE_API_URL,
+        localApiUrl: CORE_DESCRIPTOR.localApi.url,
         owner: 'unknown',
         running: false,
         status: text,
@@ -2131,14 +2171,14 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
 
     return {
       ...buildInfo,
-      localApiUrl: LOCAL_CORE_API_URL,
+      localApiUrl: CORE_DESCRIPTOR.localApi.url,
       owner: 'unknown',
       running: true,
       status: text ? (JSON.parse(text) as unknown) : null,
     };
   } catch {
     return {
-      localApiUrl: LOCAL_CORE_API_URL,
+      localApiUrl: CORE_DESCRIPTOR.localApi.url,
       owner: 'unknown',
       running: false,
       status: null,
@@ -2278,11 +2318,6 @@ type OnChainUpdateCandidate = {
 
 type CoreUpdateCandidate = GithubUpdateCandidate | OnChainUpdateCandidate;
 
-let coreUpdateEngineStatus: CoreUpdateEngineStatus = { available: null, helpersOutOfSync: null };
-let coreUpdateEnginePromise: Promise<void> | null = null;
-let coreUpdateEngineRerunPromise: Promise<void> | null = null;
-let coreUpdateInterval: NodeJS.Timeout | null = null;
-
 function getManagedCoreApiKey(installedCore: InstalledCore) {
   return (
     readRunningLocalCoreApiKey()?.apiKey ??
@@ -2303,11 +2338,14 @@ async function requestManagedCoreUpdate(installedCore: InstalledCore, method: 'G
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-      headers: { 'X-API-KEY': apiKey },
-      method,
-      signal: abortController.signal,
-    });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.update.path}`,
+      {
+        headers: { 'X-API-KEY': apiKey },
+        method,
+        signal: abortController.signal,
+      },
+    );
     const text = await response.text();
 
     if (!response.ok) {
@@ -2460,7 +2498,7 @@ async function runCoreUpdateEnginePass() {
   }
 
   if (!installedCore) {
-    coreUpdateEngineStatus = {
+    getCoreManagerState().updateEngineStatus = {
       available: null,
       checkedAt,
       error: errors.length > 0 ? errors.join(' ') : undefined,
@@ -2523,7 +2561,7 @@ async function runCoreUpdateEnginePass() {
   let onChainInstallActive =
     candidate?.channel === 'on-chain' && isOnChainCoreInstallActive(candidate.status);
 
-  coreUpdateEngineStatus = {
+  getCoreManagerState().updateEngineStatus = {
     available: candidate
       ? toCoreUpdateAvailability(
           candidate,
@@ -2552,7 +2590,9 @@ async function runCoreUpdateEnginePass() {
     helperRelease &&
     updateSettings.coreUpdatePolicy === 'install'
   ) {
-    await withCoreInstallLock('helpers', () => refreshCoreHelpersUnlocked(helperRelease));
+    await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'helpers', () =>
+      refreshCoreHelpersUnlocked(helperRelease),
+    );
     installedCore = (await readInstalledCore()) ?? installedCore;
     candidate = selectCoreUpdateCandidate(
       getGithubUpdateCandidate(githubRelease, installedCore),
@@ -2571,14 +2611,22 @@ async function runCoreUpdateEnginePass() {
       return;
     }
 
-    coreUpdateEngineStatus.available = toCoreUpdateAvailability(candidate, 'installing');
-    await withCoreInstallLock('on-chain', () => requestManagedCoreUpdate(installedCore, 'POST'));
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
+      available: toCoreUpdateAvailability(candidate, 'installing'),
+    };
+    await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'on-chain', () =>
+      requestManagedCoreUpdate(installedCore, 'POST'),
+    );
     return;
   }
 
-  coreUpdateEngineStatus.available = toCoreUpdateAvailability(candidate, 'installing');
+  getCoreManagerState().updateEngineStatus = {
+    ...getCoreManagerState().updateEngineStatus,
+    available: toCoreUpdateAvailability(candidate, 'installing'),
+  };
   await installCore({ channel: candidate.githubChannel });
-  coreUpdateEngineStatus = {
+  getCoreManagerState().updateEngineStatus = {
     available: null,
     checkedAt: new Date().toISOString(),
     error: errors.length > 0 ? errors.join(' ') : undefined,
@@ -2599,50 +2647,37 @@ async function publishCoreStatus() {
 }
 
 function runCoreUpdateEngine() {
-  if (coreUpdateEnginePromise) {
-    return coreUpdateEnginePromise;
-  }
-
-  coreUpdateEnginePromise = (async () => {
-    try {
-      await runCoreUpdateEnginePass();
-    } catch (error) {
-      console.warn('Qortium Core update policy check failed.', error);
-      coreUpdateEngineStatus = {
-        ...coreUpdateEngineStatus,
-        available:
-          coreUpdateEngineStatus.available?.action === 'installing'
-            ? { ...coreUpdateEngineStatus.available, action: 'available' }
-            : coreUpdateEngineStatus.available,
-        checkedAt: new Date().toISOString(),
-        error: getErrorMessage(error),
-      };
-    }
-
-    await publishCoreStatus().catch((error) => {
-      console.warn('Unable to publish Qortium Core update status.', error);
-    });
-  })().finally(() => {
-    coreUpdateEnginePromise = null;
-  });
-
-  return coreUpdateEnginePromise;
+  return coreManagerStates.runUpdateEngine(CORE_DESCRIPTOR.id, runCoreUpdateEnginePassAndPublish);
 }
 
 function runCoreUpdateEngineAfterPolicyChange() {
-  if (!coreUpdateEnginePromise) {
-    return runCoreUpdateEngine();
+  return coreManagerStates.runUpdateEngineAfterPolicyChange(
+    CORE_DESCRIPTOR.id,
+    runCoreUpdateEnginePassAndPublish,
+  );
+}
+
+async function runCoreUpdateEnginePassAndPublish() {
+  try {
+    await runCoreUpdateEnginePass();
+  } catch (error) {
+    console.warn('Qortium Core update policy check failed.', error);
+    const currentStatus = getCoreManagerState().updateEngineStatus;
+
+    getCoreManagerState().updateEngineStatus = {
+      ...currentStatus,
+      available:
+        currentStatus.available?.action === 'installing'
+          ? { ...currentStatus.available, action: 'available' }
+          : currentStatus.available,
+      checkedAt: new Date().toISOString(),
+      error: getErrorMessage(error),
+    };
   }
 
-  if (!coreUpdateEngineRerunPromise) {
-    coreUpdateEngineRerunPromise = coreUpdateEnginePromise
-      .then(() => runCoreUpdateEngine())
-      .finally(() => {
-        coreUpdateEngineRerunPromise = null;
-      });
-  }
-
-  return coreUpdateEngineRerunPromise;
+  await publishCoreStatus().catch((error) => {
+    console.warn('Unable to publish Qortium Core update status.', error);
+  });
 }
 
 async function getStatus(): Promise<CoreStatus> {
@@ -2665,7 +2700,7 @@ async function getStatus(): Promise<CoreStatus> {
   // every status refresh instead of treating the launch-time layout check as a
   // permanent installation identity. Compatible changes self-reconcile the
   // runtime metadata; genuinely different chain data remains blocked.
-  if (installed && !isCoreInstallActive()) {
+  if (installed && !isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)) {
     try {
       await ensureInstalledCoreRuntimeChain(installed, { recordIfMissing: true });
       blockedRuntime = null;
@@ -2687,7 +2722,7 @@ async function getStatus(): Promise<CoreStatus> {
   const runtimeBlocked = blockedRuntime ?? (await readRuntimeMigrationBlocked(getCoreRuntimePath()));
 
   return {
-    coreUpdate: coreUpdateEngineStatus,
+    coreUpdate: getCoreManagerState().updateEngineStatus,
     supported: process.platform === 'linux' || process.platform === 'darwin' || process.platform === 'win32',
     installed,
     java,
@@ -2711,7 +2746,7 @@ async function downloadFile(
   const response = await fetch(asset.downloadUrl, {
     headers: {
       Accept: 'application/octet-stream,*/*',
-      'User-Agent': GITHUB_USER_AGENT,
+      'User-Agent': CORE_DESCRIPTOR.github.userAgent,
     },
   });
 
@@ -2759,6 +2794,10 @@ async function downloadFile(
 }
 
 async function findExtractedCorePaths(versionPath: string) {
+  if (CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers') {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core does not use an extracted helper package.`);
+  }
+
   const candidates = [versionPath];
   const entries = await readdir(versionPath, { withFileTypes: true });
 
@@ -2769,8 +2808,11 @@ async function findExtractedCorePaths(versionPath: string) {
   }
 
   for (const candidate of candidates) {
-    const jarPath = path.join(candidate, 'qortium.jar');
-    const previewPath = path.join(candidate, 'preview');
+    const jarPath = path.join(candidate, CORE_DESCRIPTOR.package.jarFileName);
+    const previewPath = path.join(
+      candidate,
+      CORE_DESCRIPTOR.package.previewDirectoryName,
+    );
 
     if (existsSync(jarPath) && existsSync(previewPath)) {
       return {
@@ -2781,7 +2823,9 @@ async function findExtractedCorePaths(versionPath: string) {
     }
   }
 
-  throw new Error('Installed Core release did not contain qortium.jar and preview scripts.');
+  throw new Error(
+    `Installed Core release did not contain ${CORE_DESCRIPTOR.package.jarFileName} and preview scripts.`,
+  );
 }
 
 async function chmodPreviewScripts(previewPath: string) {
@@ -2821,7 +2865,11 @@ async function listReleaseHelperFiles(
     const relativePath = path.relative(installPath, sourcePath);
     const [topLevelEntry = ''] = relativePath.split(path.sep);
 
-    if (topLevelEntry.toLowerCase() === CORE_RUNTIME_DIR || entry.name.toLowerCase() === 'qortium.jar') {
+    if (
+      topLevelEntry.toLowerCase() ===
+        CORE_DESCRIPTOR.storage.runtimeDirectoryName.toLowerCase() ||
+      entry.name.toLowerCase() === CORE_DESCRIPTOR.package.jarFileName.toLowerCase()
+    ) {
       continue;
     }
 
@@ -2891,8 +2939,8 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
     !installedCore.jarSemver ||
     wereHelpersRefreshedForCoreVersion(installedCore)
   ) {
-    coreUpdateEngineStatus = {
-      ...coreUpdateEngineStatus,
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
       helpersOutOfSync: null,
     };
     return await getStatus();
@@ -3035,8 +3083,8 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
       throw error;
     }
 
-    coreUpdateEngineStatus = {
-      ...coreUpdateEngineStatus,
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
       checkedAt: new Date().toISOString(),
       helpersOutOfSync: null,
     };
@@ -3059,7 +3107,9 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
 }
 
 async function refreshCoreHelpers() {
-  return await withCoreInstallLock('helpers', () => refreshCoreHelpersUnlocked());
+  return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'helpers', () =>
+    refreshCoreHelpersUnlocked(),
+  );
 }
 
 async function findJavaExecutable(installPath: string) {
@@ -3224,8 +3274,8 @@ async function installJava() {
       await rm(previousJava.installPath, { recursive: true, force: true }).catch(() => {});
     }
 
-    coreUpdateEngineStatus = {
-      ...coreUpdateEngineStatus,
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
       javaUpdatePendingRestart: false,
     };
 
@@ -3250,7 +3300,7 @@ function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
     return request.channel;
   }
 
-  return 'prerelease';
+  return CORE_DESCRIPTOR.releaseChannels.defaultChannel;
 }
 
 async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCore: InstalledCore | null) {
@@ -3271,10 +3321,13 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
     const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-        headers: { 'X-API-KEY': apiKey },
-        signal: abortController.signal,
-      });
+      const response = await fetch(
+        `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.update.path}`,
+        {
+          headers: { 'X-API-KEY': apiKey },
+          signal: abortController.signal,
+        },
+      );
       const text = await response.text();
 
       if (!response.ok) {
@@ -3523,8 +3576,8 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     percent: 100,
   });
 
-  coreUpdateEngineStatus = {
-    ...coreUpdateEngineStatus,
+  getCoreManagerState().updateEngineStatus = {
+    ...getCoreManagerState().updateEngineStatus,
     available: null,
     checkedAt: new Date().toISOString(),
     error: undefined,
@@ -3534,7 +3587,9 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
 }
 
 async function installCore(request: CoreInstallRequest) {
-  return await withCoreInstallLock('github', () => installCoreUnlocked(request));
+  return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'github', () =>
+    installCoreUnlocked(request),
+  );
 }
 
 function quoteWindowsCommandArg(arg: string) {
@@ -3622,15 +3677,19 @@ async function waitForRuntimeState(running: boolean, timeoutMs: number, action: 
 }
 
 function getStartScript(previewPath: string) {
-  return process.platform === 'win32'
-    ? path.join(previewPath, 'start.bat')
-    : path.join(previewPath, 'start.sh');
+  return getCoreHelperScriptPaths(
+    CORE_DESCRIPTOR,
+    previewPath,
+    process.platform,
+  ).startScriptPath;
 }
 
 function getStopScript(previewPath: string) {
-  return process.platform === 'win32'
-    ? path.join(previewPath, 'stop.bat')
-    : path.join(previewPath, 'stop.sh');
+  return getCoreHelperScriptPaths(
+    CORE_DESCRIPTOR,
+    previewPath,
+    process.platform,
+  ).stopScriptPath;
 }
 
 // Whether the managed Core has I2P enabled, read from its on-disk participant
@@ -3639,10 +3698,17 @@ function getStopScript(previewPath: string) {
 // true on any uncertainty so we never suppress the fallback by accident; only a
 // list that positively excludes I2P (e.g. ["IP"]) returns false.
 async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
+  if (CORE_DESCRIPTOR.managedI2p.kind !== 'runtime-settings') {
+    return false;
+  }
+
   try {
-    const raw = await readFile(path.join(runtimePath, 'settings-preview-local.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { allowedTransports?: unknown };
-    const list = parsed.allowedTransports;
+    const raw = await readFile(
+      path.join(runtimePath, CORE_DESCRIPTOR.settings.fileName),
+      'utf8',
+    );
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const list = parsed[CORE_DESCRIPTOR.managedI2p.allowedTransportsField];
 
     if (!Array.isArray(list) || list.length === 0) {
       return true;
@@ -3688,7 +3754,10 @@ async function startCore(options: { quiet?: boolean } = {}) {
   // is ready when Core looks for it. Best-effort — never blocks Core startup.
   // Skip it when the node has I2P disabled (IP-only): no point running a router
   // Core won't use.
-  if (await isCoreI2pEnabled(installedCore.runtimePath)) {
+  if (
+    CORE_DESCRIPTOR.managedI2p.kind === 'runtime-settings' &&
+    (await isCoreI2pEnabled(installedCore.runtimePath))
+  ) {
     await startI2pdIfManaged();
   }
 
@@ -3713,7 +3782,7 @@ async function startCore(options: { quiet?: boolean } = {}) {
     ensurePreviewApiKey(installedCore.runtimePath);
     await runScript(
       startScript,
-      ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
+      getCoreHelperStartArguments(CORE_DESCRIPTOR, installedCore.runtimePath),
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
       { stdio: 'ignore' },
@@ -3779,9 +3848,12 @@ async function stopCoreViaApi(installedCore: InstalledCore | null) {
     );
   }
 
-  const response = await fetch(`${LOCAL_CORE_API_URL}/admin/stop`, {
-    headers: { 'X-API-KEY': apiKey },
-  });
+  const response = await fetch(
+    `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.stopPath}`,
+    {
+      headers: { 'X-API-KEY': apiKey },
+    },
+  );
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -3813,7 +3885,7 @@ async function stopCore(options: { quiet?: boolean } = {}) {
     if (isHomeOwned && installedCore && stopScript && existsSync(stopScript)) {
       await runScript(
         stopScript,
-        [`--runtime-dir=${installedCore.runtimePath}`],
+        getCoreHelperStopArguments(CORE_DESCRIPTOR, installedCore.runtimePath),
         installedCore.previewPath,
         getJavaRuntimeEnv(await getJavaStatus()),
       );
@@ -3841,7 +3913,9 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   }
 
   // Stop the router we started alongside Core (no-op for an external router).
-  await stopI2pdIfManaged();
+  if (CORE_DESCRIPTOR.managedI2p.kind === 'runtime-settings') {
+    await stopI2pdIfManaged();
+  }
 
   if (!options.quiet) {
     publishProgress({
@@ -3855,16 +3929,119 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   return await getStatus();
 }
 
+export type CoreManagerEntry = {
+  readonly descriptor: CoreNetworkDescriptor;
+  readonly networkId: CoreNetworkId;
+  checkReleases: typeof checkReleases;
+  checkUpdates(): Promise<CoreStatus>;
+  getManagedPreviewPath: typeof getQortiumManagedCorePreviewPath;
+  getManagedRuntimePath: typeof getQortiumManagedCoreRuntimePath;
+  getStatus: typeof getStatus;
+  install: typeof installCore;
+  installJava: typeof installJava;
+  isManagedCoreUsingI2p: typeof isQortiumManagedCoreUsingI2p;
+  isManagedRuntimeRunning: typeof isQortiumManagedCoreRuntimeRunning;
+  refreshHelpers: typeof refreshCoreHelpers;
+  scheduleUpdateCheck: typeof scheduleQortiumManagedCoreUpdateCheck;
+  setUpdateSettings(request: unknown): Promise<CoreStatus>;
+  start: typeof startCore;
+  stop: typeof stopCore;
+};
+
+const qortiumCoreManagerEntry: CoreManagerEntry = Object.freeze({
+  descriptor: CORE_DESCRIPTOR,
+  networkId: CORE_DESCRIPTOR.id,
+  checkReleases,
+  async checkUpdates() {
+    await runCoreUpdateEngine();
+    return await getStatus();
+  },
+  getManagedPreviewPath: getQortiumManagedCorePreviewPath,
+  getManagedRuntimePath: getQortiumManagedCoreRuntimePath,
+  getStatus,
+  install: installCore,
+  installJava,
+  isManagedCoreUsingI2p: isQortiumManagedCoreUsingI2p,
+  isManagedRuntimeRunning: isQortiumManagedCoreRuntimeRunning,
+  refreshHelpers: refreshCoreHelpers,
+  scheduleUpdateCheck: scheduleQortiumManagedCoreUpdateCheck,
+  async setUpdateSettings(request: unknown) {
+    await setCoreUpdateSettings(isObject(request) ? request : {});
+    await runCoreUpdateEngineAfterPolicyChange();
+    return await getStatus();
+  },
+  start: startCore,
+  stop: stopCore,
+});
+
+const coreManagerEntries = new NetworkManagerEntryRegistry<CoreNetworkId, CoreManagerEntry>([
+  qortiumCoreManagerEntry,
+]);
+
+export function getCoreManagerEntry(networkId: CoreNetworkId) {
+  return coreManagerEntries.get(networkId);
+}
+
+export function listCoreManagerNetworkIds() {
+  return coreManagerEntries.listNetworkIds();
+}
+
+export function requireCoreManagerEntry(networkId: CoreNetworkId) {
+  return coreManagerEntries.require(networkId);
+}
+
+// Existing callers remain source-compatible while entering through the keyed
+// Qortium registration. E2 can add a Qortal entry without changing these v1
+// compatibility contracts or pretending that it exists before it does.
+export function getManagedCorePreviewPath() {
+  return requireCoreManagerEntry('qortium').getManagedPreviewPath();
+}
+
+export function getManagedCoreRuntimePath() {
+  return requireCoreManagerEntry('qortium').getManagedRuntimePath();
+}
+
+export function isManagedCoreRuntimeRunning() {
+  return requireCoreManagerEntry('qortium').isManagedRuntimeRunning();
+}
+
+export function scheduleManagedCoreUpdateCheck() {
+  requireCoreManagerEntry('qortium').scheduleUpdateCheck();
+}
+
+export function isManagedCoreUsingI2p() {
+  return requireCoreManagerEntry('qortium').isManagedCoreUsingI2p();
+}
+
+function ensureCoreUpdateEngineStarted(manager: CoreManagerEntry) {
+  if (
+    coreManagerStates.ensureUpdateInterval(manager.networkId, () => {
+      const interval = setInterval(() => {
+        void manager.checkUpdates();
+      }, CORE_UPDATE_CHECK_INTERVAL_MS);
+
+      interval.unref();
+      return interval;
+    })
+  ) {
+    setTimeout(() => {
+      void manager.checkUpdates();
+    }, 0).unref();
+  }
+}
+
 export function registerCoreManagerIpcHandlers() {
-  ipcMain.handle('core:checkReleases', () => checkReleases());
-  ipcMain.handle('core:getStatus', () => getStatus());
+  const manager = requireCoreManagerEntry('qortium');
+
+  ipcMain.handle('core:checkReleases', () => manager.checkReleases());
+  ipcMain.handle('core:getStatus', () => manager.getStatus());
   ipcMain.handle('core:install', async (_event, request: CoreInstallRequest = {}) => {
     try {
-      return await installCore(request);
+      return await manager.install(request);
     } catch (error) {
       if (error instanceof DowngradeConfirmationRequiredError) {
         return {
-          ...(await getStatus()),
+          ...(await manager.getStatus()),
           downgradeConfirmation: error.confirmation,
         };
       }
@@ -3872,28 +4049,18 @@ export function registerCoreManagerIpcHandlers() {
       throw error;
     }
   });
-  ipcMain.handle('core:installJava', () => installJava());
-  ipcMain.handle('core:refreshHelpers', () => refreshCoreHelpers());
+  ipcMain.handle('core:installJava', () => manager.installJava());
+  ipcMain.handle('core:refreshHelpers', () => manager.refreshHelpers());
   ipcMain.handle('core:setJavaAutoUpdate', async (_event, enabled: unknown) => {
-    await setCoreUpdateSettings({ javaUpdatePolicy: enabled === true ? 'install' : 'off' });
-    await runCoreUpdateEngineAfterPolicyChange();
-    return await getStatus();
+    return await manager.setUpdateSettings({
+      javaUpdatePolicy: enabled === true ? 'install' : 'off',
+    });
   });
   ipcMain.handle('core:setUpdatePolicy', async (_event, request: unknown) => {
-    await setCoreUpdateSettings(isObject(request) ? request : {});
-    await runCoreUpdateEngineAfterPolicyChange();
-    return await getStatus();
+    return await manager.setUpdateSettings(request);
   });
-  ipcMain.handle('core:start', () => startCore());
-  ipcMain.handle('core:stop', () => stopCore());
+  ipcMain.handle('core:start', () => manager.start());
+  ipcMain.handle('core:stop', () => manager.stop());
 
-  if (!coreUpdateInterval) {
-    coreUpdateInterval = setInterval(() => {
-      void runCoreUpdateEngine();
-    }, CORE_UPDATE_CHECK_INTERVAL_MS);
-    coreUpdateInterval.unref();
-    setTimeout(() => {
-      void runCoreUpdateEngine();
-    }, 0).unref();
-  }
+  ensureCoreUpdateEngineStarted(manager);
 }

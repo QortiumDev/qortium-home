@@ -54,15 +54,12 @@ import {
   normalizeHomeV2AppResourceName,
   parseHomeV2AppResourceCandidates,
 } from './home-v2-app-resource-discovery.js'
+import {
+  buildHomeV2IdentityReadPath,
+} from './home-v2-identity-read.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
-type IdentityReadKind =
-  | 'accountAvatarInfo'
-  | 'name'
-  | 'namesByAddress'
-  | 'primaryName'
-
 const IDENTITY_RESPONSE_LIMIT = 256 * 1024
 const SNAPSHOT_CACHE_MS = 30_000
 
@@ -143,6 +140,7 @@ function normalizeIdentityReadRequest(value: unknown) {
   const kind = value.kind
   if (
     kind !== 'accountAvatarInfo' &&
+    kind !== 'legacyAvatarResource' &&
     kind !== 'name' &&
     kind !== 'namesByAddress' &&
     kind !== 'primaryName'
@@ -154,23 +152,6 @@ function normalizeIdentityReadRequest(value: unknown) {
     throw new Error('Identity lookup values must contain 1 to 128 characters.')
   }
   return { kind, value: rawValue } as const
-}
-
-function identityPath(request: {
-  readonly kind: IdentityReadKind
-  readonly value: string
-}) {
-  const encoded = encodeURIComponent(request.value)
-  switch (request.kind) {
-    case 'name':
-      return `/names/${encoded}`
-    case 'namesByAddress':
-      return `/names/address/${encoded}?limit=0`
-    case 'primaryName':
-      return `/names/primary/${encoded}`
-    case 'accountAvatarInfo':
-      return `/addresses/${encoded}/avatar/info`
-  }
 }
 
 async function readBoundedText(response: Response) {
@@ -498,10 +479,13 @@ export async function readHomeV2Identity(network: NetworkId, requestValue: unkno
     }
   }
   try {
-    const response = await nodeFetch(`${node.nodeApiUrl}${identityPath(request)}`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(5_000),
-    })
+    const response = await nodeFetch(
+      `${node.nodeApiUrl}${buildHomeV2IdentityReadPath(network, request)}`,
+      {
+        method: 'GET',
+        signal: AbortSignal.timeout(5_000),
+      },
+    )
     const text = await readBoundedText(response)
     let data: unknown = null
     if (text) {

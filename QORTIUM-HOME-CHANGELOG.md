@@ -34,6 +34,62 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
+
+Home's plus button now opens a dedicated new-tab page for finding public
+accounts by registered name or chain address across Qortium and Qortal. The
+standalone lookup has moved off Dashboard, Qortium results appear first, and
+the selected-account card keeps its existing cross-network identity details.
+Open QDN app tabs remain available when New tab is selected, and the new
+internal destination is restored safely without changing the saved-state
+format. QDN app and Home addresses continue to use the browser address bar.
+
+Missing legacy avatars now fall back promptly to an account initial instead of
+showing a long-running spinner. Home first verifies that the named avatar
+resource exists, preserves bounded background loading for published images
+that are not local yet, and applies the same behavior on desktop and Android.
+
+Settings now has a small section navigator for General, Appearance, and the
+active account. General can choose whether the plus button opens the Search
+page, Dashboard, or a custom Home/QDN app address, and the choice is restored
+on the next launch. Custom addresses are checked before saving and then use the
+same guarded address bar flow as addresses entered by hand, including its
+identifier choices and error messages.
+
+Home 2's static browser chrome, new-tab page, Dashboard, Settings, account and
+permission controls, resource viewer, and component fallback labels now use
+the shared Home translation runtime. All 23 existing language catalogs carry
+the same Home 2 keys and placeholders, a language change updates lazy-loaded
+copy without restarting, and right-to-left languages set the shell direction
+as well as its text. Runtime-generated permission, identity, and node details
+remain a separate localization step. Existing language values exposed to QDN
+apps are unchanged.
+
+Core management now derives the existing Qortium storage, release archive,
+Previewnet chain, bootstrap, local API, helper-script, and i2pd behavior from a
+typed network descriptor instead of scattered single-network constants. Local
+Core API-key discovery is also isolated by network and optional runtime target,
+with stale asynchronous lookups prevented from repopulating an invalidated
+cache. Existing Qortium APIs and behavior remain the compatibility path; this
+is groundwork for the later Qortal lifecycle and adoption work, not exposure of
+those controls to Home 2 yet.
+
+Core's in-memory layout, update scheduling, downgrade confirmations, and
+install operations are now isolated by network as well. A keyed manager
+registry contains only the existing Qortium implementation, so requesting a
+Qortal manager fails closed until its real release and adoption pipelines are
+added. The classic Qortium controls now enter through that registered manager,
+while Home 2 still receives no Core-management preload or IPC capability.
+
+The Qortal side now has its own truthful descriptor and strict stable-release
+selector. Home recognizes Qortal's direct `qortal.jar` launch, normal API and
+stop endpoints, shared managed Java location, snapshot bootstrap, and native
+auto-update setting without claiming that Qortal implements Qortium's
+`/admin/update` API. A release qualifies only when one exact `qortal.jar` asset
+has a mandatory SHA-256 digest, positive safe size, and the matching official
+Qortal GitHub download URL. Download, installation, adoption, and UI wiring are
+still deliberately absent at this foundation stage.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

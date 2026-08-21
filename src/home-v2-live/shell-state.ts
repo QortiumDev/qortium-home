@@ -9,10 +9,16 @@ import {
   restoreProductState,
   type ProductState,
 } from '../v2/product-model'
+import {
+  DEFAULT_NEW_TAB_PREFERENCE,
+  parseNewTabPreference,
+  type NewTabPreference,
+} from '../v2/new-tab-preference'
 
 export interface HomeV2ShellState {
   readonly version: 2
   readonly appearance: HomeV2AppearanceSettings
+  readonly newTabPreference: NewTabPreference
   readonly selectedAccountId: string | null
   readonly selectedAddressId: string | null
   readonly product: ProductState
@@ -31,6 +37,7 @@ export function createHomeV2ShellState(
     appearance: Object.freeze(
       migrateLegacyAppearance(null, systemTheme, systemLanguage),
     ),
+    newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
     selectedAccountId: null,
     selectedAddressId: null,
     product: createProductState(),
@@ -70,6 +77,7 @@ export function parseHomeV2ShellState(
         systemLanguage,
       ),
     ),
+    newTabPreference: parseNewTabPreference(value.newTabPreference),
     selectedAccountId,
     selectedAddressId,
     product: restoreProductState(value.product),
@@ -86,6 +94,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
       textSize: state.appearance.textSize,
       theme: state.appearance.theme,
     },
+    newTabPreference: state.newTabPreference,
     selectedAccountId: state.selectedAccountId,
     selectedAddressId: state.selectedAddressId,
     product: {

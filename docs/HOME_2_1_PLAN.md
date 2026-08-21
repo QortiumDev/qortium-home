@@ -60,7 +60,33 @@ preparation.
 - [x] Put Qortium first in toolbar node pills, node cards, and account presence.
 - [x] Add DOM-order regression coverage for those three surfaces.
 - [x] Replace obsolete initial-state wording without changing runtime behavior.
-- [x] Keep the account-lookup result grid for the following relocation tranche.
+- [x] Relocate public account lookup from Dashboard to `home://newtab`.
+- [x] Make `+` switch the single internal slot to New tab without closing apps.
+- [x] Persist the additive `newtab` destination with safe older-reader fallback.
+- [x] Put Qortium first in public identity results on desktop and phone.
+- [x] Keep QDN app navigation in the existing browser address bar.
+- [x] Stop missing legacy avatars from presenting as long-running downloads.
+- [x] Add General, Appearance, and Account settings-section navigation.
+- [x] Persist a new-tab target of Search page, Dashboard, or a validated custom
+  Home/QDN app address without changing the saved-state version.
+- [x] Route custom new-tab targets through the guarded browser address pipeline.
+- [x] Reuse Home's shared localization runtime for Home 2's static,
+  component-owned shell copy, with complete catalog and placeholder parity
+  across all 23 languages.
+- [x] Apply language and text direction at the Home 2 root, including lazy
+  catalog updates, persisted settings, and packaged Arabic RTL coverage.
+- [x] Establish the Qortium-first Core network descriptor and isolate local
+  Core API-key discovery caches by network and runtime target, while retaining
+  the existing Qortium lifecycle APIs as compatibility wrappers.
+- [x] Finish the E1 manager boundary by keying lifecycle/update state,
+  downgrade confirmations, and operation locks per network, and by registering
+  the existing Qortium manager as the only production entry. Unimplemented
+  networks fail closed, and no Core controls are exposed to Home 2 yet.
+- [x] Add the E2 Qortal descriptor and stable-release trust boundary: exact
+  `qortal.jar`, mandatory SHA-256 metadata, positive declared size, fixed Qortal
+  GitHub URL, direct-JAR launch, shared managed Java, native update-setting
+  ownership, and no fabricated `/admin/update` capability. Manager registration,
+  download/install transactions, and adoption remain subsequent E2/E3 work.
 
 ## Required gates
 
