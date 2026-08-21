@@ -61,10 +61,14 @@ the app before the original operation resumes.
 
 Private-group state now distinguishes node-level QPGC availability from
 whether the selected account actually has the current group key. Desktop and
-Android apps can use that account-relative signal to prevent a doomed send and
-offer key recovery before any chat transaction is built. A newly rotated key
-is also kept unavailable locally when its announcement broadcast is uncertain;
-normal announcement discovery recovers it if the transaction later confirms.
+Android automatically create and announce a Qortium group key for all current
+members when the first message, edit, delete, or reaction finds no usable key,
+then continue the original operation without another app action or permission
+prompt. Manual key controls remain a Qortal compatibility concern, not normal
+Qortium user workflow. A newly announced or rotated key is kept unavailable
+locally when its announcement broadcast is uncertain; Home records that control
+signature while proving that the user's message was not submitted, so retrying
+the message is safe and retained announcement discovery can reconcile the key.
 
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 

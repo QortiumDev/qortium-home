@@ -250,12 +250,14 @@ import {
 } from '../electron/home-v2-direct-chat-contract';
 import {
   computeQpgcKeyId,
+  createQpgcAutomaticKeySetupUnknownResult,
   createQpgcKeyAnnouncement,
   createQpgcKeyRequest,
   decryptQpgcMessage,
   decryptQpgcStoredKey,
   encryptQpgcMessage,
   encryptQpgcStoredKey,
+  isQpgcBroadcastConfirmed,
   parseQpgcEnvelope,
   serializeQpgcEnvelope,
   unwrapQpgcAnnouncementForRecipient,
@@ -13630,6 +13632,7 @@ async function sendAndroidHomeV2PrivateGroupChat(
     await request.validateTarget?.(signingKey.publicKey58, base58Encode(state.epochId));
   };
   let persistedGroupKey: Uint8Array | null = null;
+  let automaticKeyAnnouncementSignature: string | null = null;
   try {
     let envelopes: Uint8Array[] = [];
     if (request.action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
@@ -13686,7 +13689,7 @@ async function sendAndroidHomeV2PrivateGroupChat(
         memberPublicKeys: state.memberPublicKeys,
       })];
     } else {
-      const key = await resolveAndroidHomeV2QpgcKey({
+      let key = await resolveAndroidHomeV2QpgcKey({
         accountId: request.accountId,
         apiKey,
         epochId: state.epochId,
@@ -13695,12 +13698,47 @@ async function sendAndroidHomeV2PrivateGroupChat(
         secretKey: signingKey.secretKey,
         state,
       });
-      if (!key) throw androidQpgcBridgeError(
-        'No private-group key is available. Request or rotate the key first.',
-        'MISSING_GROUP_KEY',
-        request.action,
-        request.groupId,
-      );
+      if (!key) {
+        persistedGroupKey = getRandomBytes(32);
+        const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey);
+        const announcementResult = await sendAndroidHomeV2QpgcEnvelope({
+          apiKey,
+          chatReference: null,
+          envelope: await createQpgcKeyAnnouncement({
+            announcerSecretKey: signingKey.secretKey,
+            epochId: state.epochId,
+            groupId: request.groupId,
+            groupKey: persistedGroupKey,
+            memberPublicKeys: state.memberPublicKeys,
+          }),
+          groupId: request.groupId,
+          isStillValid: isRouteStillValid,
+          nodeApiUrl: request.nodeApiUrl,
+          signingKey,
+          validateTarget,
+        });
+        if (!isQpgcBroadcastConfirmed(announcementResult)) {
+          return createQpgcAutomaticKeySetupUnknownResult(announcementResult);
+        }
+        automaticKeyAnnouncementSignature = announcementResult.signature;
+        try {
+          await persistAndroidQpgcKey({
+            accountId: request.accountId,
+            epochId: state.epochId,
+            groupId: request.groupId,
+            groupKey: persistedGroupKey,
+            keyId,
+            secretKey: signingKey.secretKey,
+          });
+        } catch (error) {
+          console.warn('[home-v2-app] Unable to cache an automatically announced private-group key:', error);
+        }
+        key = {
+          epochId: new Uint8Array(state.epochId),
+          groupKey: new Uint8Array(persistedGroupKey),
+          keyId: new Uint8Array(keyId),
+        };
+      }
       try {
         envelopes = [await encryptQpgcMessage({
           epochId: key.epochId,
@@ -13728,11 +13766,8 @@ async function sendAndroidHomeV2PrivateGroupChat(
         validateTarget,
       }));
     }
-    const broadcastConfirmed = results.every((result) => {
-      const record = result as Record<string, unknown>;
-      return record.accepted !== false && record.outcome !== 'unknown';
-    });
-    if (persistedGroupKey && broadcastConfirmed) {
+    const broadcastConfirmed = results.every(isQpgcBroadcastConfirmed);
+    if (persistedGroupKey && !automaticKeyAnnouncementSignature && broadcastConfirmed) {
       const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey);
       await persistAndroidQpgcKey({
         accountId: request.accountId,
@@ -13743,7 +13778,14 @@ async function sendAndroidHomeV2PrivateGroupChat(
         secretKey: signingKey.secretKey,
       });
     }
-    return results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results };
+    const result = results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results };
+    return automaticKeyAnnouncementSignature && isRecord(result)
+      ? {
+          ...result,
+          keyAnnouncementSignature: automaticKeyAnnouncementSignature,
+          keyBootstrapped: true,
+        }
+      : result;
   } finally {
     persistedGroupKey?.fill(0);
   }

@@ -140,6 +140,16 @@ key, native path, or attachment bytes enter the journal. See
 [Home 2 Chat operational completion](HOME_V2_OPERATIONAL_COMPLETION.md) for the
 lifecycle, retention, duplicate-prevention, and platform/route matrix.
 
+Qortium private-group sends are the narrow exception to the same-target block:
+when no current-epoch key exists, Home first creates and broadcasts an
+independent `KEY_ANNOUNCEMENT`, then submits the requested message mutation only
+after that broadcast is accepted. If the announcement outcome is unknown, the
+journal entry carries `stage: "key-announcement"`, the result carries
+`messageSubmitted: false`, and another attempt of the original message remains
+safe because no message transaction was built or submitted. The announcement
+signature is still retained until the app observes a usable current-epoch key
+and explicitly forgets it.
+
 The Home-data manager actions are `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`,
 `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, `NOTIFICATION_MANAGER_HAS_PERMISSION`,
 `NOTIFICATION_MANAGER_GET`, `NOTIFICATION_MANAGER_SET_MUTED`,

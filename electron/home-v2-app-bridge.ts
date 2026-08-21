@@ -153,12 +153,14 @@ import {
 } from './home-v2-direct-chat-contract.js'
 import {
   computeQpgcKeyId,
+  createQpgcAutomaticKeySetupUnknownResult,
   createQpgcKeyAnnouncement,
   createQpgcKeyRequest,
   decryptQpgcMessage,
   decryptQpgcStoredKey,
   encryptQpgcMessage,
   encryptQpgcStoredKey,
+  isQpgcBroadcastConfirmed,
   parseQpgcEnvelope,
   serializeQpgcEnvelope,
   unwrapQpgcAnnouncementForRecipient,
@@ -3848,6 +3850,7 @@ async function sendHomeV2PrivateGroupChatAction(
     })
   }
   let persistedGroupKey: Uint8Array | null = null
+  let automaticKeyAnnouncementSignature: string | null = null
   try {
     let envelopes: Uint8Array[] = []
     if (action === 'REQUEST_PRIVATE_GROUP_CHAT_KEY') {
@@ -3907,7 +3910,7 @@ async function sendHomeV2PrivateGroupChatAction(
         memberPublicKeys: state.memberPublicKeys,
       })]
     } else {
-      const key = await resolveHomeV2QpgcKey({
+      let key = await resolveHomeV2QpgcKey({
         accountId,
         apiKey,
         epochId: state.epochId,
@@ -3916,13 +3919,47 @@ async function sendHomeV2PrivateGroupChatAction(
         secretKey: signingKey.secretKey,
         state,
       })
-      if (!key) throw createHomeV2BridgeError('No private-group key is available. Request or rotate the key first.', {
-        action,
-        code: 'MISSING_GROUP_KEY',
-        network: 'qortium',
-        retryable: false,
-        target: { kind: 'group', groupId: request.groupId },
-      })
+      if (!key) {
+        persistedGroupKey = new Uint8Array(randomBytes(32))
+        const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey)
+        const announcementResult = await sendHomeV2QpgcEnvelope({
+          apiKey,
+          chatReference: null,
+          envelope: await createQpgcKeyAnnouncement({
+            announcerSecretKey: signingKey.secretKey,
+            epochId: state.epochId,
+            groupId: request.groupId,
+            groupKey: persistedGroupKey,
+            memberPublicKeys: state.memberPublicKeys,
+          }),
+          groupId: request.groupId,
+          isStillValid,
+          nodeApiUrl: node.nodeApiUrl,
+          signingKey,
+          validateTarget: validateState,
+        })
+        if (!isQpgcBroadcastConfirmed(announcementResult)) {
+          return createQpgcAutomaticKeySetupUnknownResult(announcementResult)
+        }
+        automaticKeyAnnouncementSignature = announcementResult.signature
+        try {
+          await persistQpgcKey({
+            accountId,
+            epochId: state.epochId,
+            groupId: request.groupId,
+            groupKey: persistedGroupKey,
+            keyId,
+            secretKey: signingKey.secretKey,
+          })
+        } catch (error) {
+          console.warn('[home-v2-app] Unable to cache an automatically announced private-group key:', error)
+        }
+        key = {
+          epochId: new Uint8Array(state.epochId),
+          groupKey: new Uint8Array(persistedGroupKey),
+          keyId: new Uint8Array(keyId),
+        }
+      }
       try {
         envelopes = [await encryptQpgcMessage({
           epochId: key.epochId,
@@ -3950,11 +3987,8 @@ async function sendHomeV2PrivateGroupChatAction(
         validateTarget: validateState,
       }))
     }
-    const broadcastConfirmed = results.every((result) => {
-      const record = result as Record<string, unknown>
-      return record.accepted !== false && record.outcome !== 'unknown'
-    })
-    if (persistedGroupKey && broadcastConfirmed) {
+    const broadcastConfirmed = results.every(isQpgcBroadcastConfirmed)
+    if (persistedGroupKey && !automaticKeyAnnouncementSignature && broadcastConfirmed) {
       const keyId = await computeQpgcKeyId(request.groupId, state.epochId, persistedGroupKey)
       await persistQpgcKey({
         accountId,
@@ -3965,7 +3999,14 @@ async function sendHomeV2PrivateGroupChatAction(
         secretKey: signingKey.secretKey,
       })
     }
-    return results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results }
+    const result = results.length === 1 ? results[0] : { accepted: true, relayed: results.length, results }
+    return automaticKeyAnnouncementSignature && isHomeV2AppRecord(result)
+      ? Object.freeze({
+          ...result,
+          keyAnnouncementSignature: automaticKeyAnnouncementSignature,
+          keyBootstrapped: true,
+        })
+      : result
   } finally {
     persistedGroupKey?.fill(0)
     signingKey.secretKey.fill(0)
