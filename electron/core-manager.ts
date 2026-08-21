@@ -48,38 +48,23 @@ import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
 } from './managed-child-process.js';
+import {
+  QORTIUM_CORE_DESCRIPTOR,
+  getCoreGithubCommitUrl,
+  getCoreGithubLatestReleaseUrl,
+  getCoreGithubReleasesUrl,
+  getCoreGithubTaggedReleaseUrl,
+  getCoreHelperScriptPaths,
+  getCoreHelperStartArguments,
+  getCoreHelperStopArguments,
+  matchesCoreName,
+  resolveCoreDescriptorPaths,
+} from './core-network-descriptor.js';
 
-const CORE_REPOSITORY = 'QortiumDev/qortium-core';
-const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
-const GITHUB_USER_AGENT = 'QortiumHome/1.0';
-const MANAGED_CORE_DIR = 'managed-core';
-const CORE_DATA_DIR = 'qortium-core';
-const CORE_INSTALL_DIR = 'install';
-const CORE_RUNTIME_DIR = 'runtime';
-const CORE_CHAIN_FILE = 'previewchain.json';
-const CURRENT_CORE_FILE = 'current.json';
-const CURRENT_JAVA_FILE = 'current-java.json';
-const RUNTIME_CHAIN_FILE = 'runtime-chain.json';
-const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
-const QORTIUM_PREVIEWNET_INITIAL_PEERS = [
-  '146.103.42.59:24892',
-  '185.207.104.78:24892',
-  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
-  '80.241.221.139:24892',
-  '3u25ana5e5hvriqqiuh6fcetxezsqm7la276ljtjxaoxt767n4hq.b32.i2p',
-  'zqcackxkhjzfbbc6daigc73zqhzdpgwua3mjc7xgn3hwjed5z3ca.b32.i2p',
-];
-const QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS = [
-  '146.103.42.59:24894',
-  '185.207.104.78:24894',
-  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
-  '80.241.221.139:24894',
-  'qhk6g5hl7vqf5fmlgj6knbajtiszotaf2w26fwjapsr75kbz7fma.b32.i2p',
-  'hg3seiuul4pcz6a2svatdahzudphbm464vwqcmiejc77kumglwaq.b32.i2p',
-];
-const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
-const LOCAL_CORE_STATUS_PATH = '/admin/status';
-const LOCAL_CORE_INFO_PATH = '/admin/info';
+// E1 starts with one fully described Qortium instance. Public manager APIs
+// remain Qortium wrappers until the singleton operation state is keyed by
+// network; later E2/E3 work can add Qortal without copying these constants.
+const CORE_DESCRIPTOR = QORTIUM_CORE_DESCRIPTOR;
 const START_TIMEOUT_MS = 120_000;
 const STOP_TIMEOUT_MS = 45_000;
 const STATUS_TIMEOUT_MS = 2_500;
@@ -101,30 +86,14 @@ const DOWNGRADE_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const ADOPTIUM_ASSETS_TIMEOUT_MS = 10_000;
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_ASSETS_API_BASE_URL = 'https://api.adoptium.net/v3/assets/latest';
-const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
-const RUNTIME_ENTRY_NAMES = [
-  'apikey.txt',
-  'db-preview',
-  'data-preview',
-  'i2p',
-  'lists',
-  'qortium-backup-preview',
-  'qortal-backup-preview',
-  'qortium.log',
-  'run-error.log',
-  'run.log',
-  'run.pid',
-  'settings-preview-local.json',
-  'settings-preview-seed-local.json',
-  'settings-preview-seed-netcup-local.json',
-];
-const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set([
-  'checkpoints',
-  'featureTriggers',
-  'featureTriggerScheduleEnforcementHeight',
-  'onlineAccountsSignatureV2Height',
-  'assetOrderBoundsHeight',
-]);
+const CORE_RUNTIME_DIR_OVERRIDE = CORE_DESCRIPTOR.storage.runtimeOverrideEnvironmentVariable
+  ? process.env[CORE_DESCRIPTOR.storage.runtimeOverrideEnvironmentVariable]?.trim()
+  : undefined;
+const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set<string>(
+  CORE_DESCRIPTOR.chain.kind === 'file'
+    ? CORE_DESCRIPTOR.chain.compatibilityHashExcludedFields
+    : [],
+);
 
 type CoreChannel = 'prerelease' | 'stable';
 type JavaArchiveType = 'tar.gz' | 'zip';
@@ -439,61 +408,89 @@ function canonicalJsonStringify(value: unknown): string {
     .join(',')}}`;
 }
 
+function getCoreDescriptorPaths() {
+  return resolveCoreDescriptorPaths(CORE_DESCRIPTOR, {
+    appDataPath: app.getPath('appData'),
+    runtimeOverride: CORE_RUNTIME_DIR_OVERRIDE,
+    userDataPath: app.getPath('userData'),
+  });
+}
+
 function getCoreBasePath() {
-  return path.join(app.getPath('appData'), CORE_DATA_DIR);
+  return getCoreDescriptorPaths().basePath;
 }
 
 function getLegacyCoreBasePath() {
-  return path.join(app.getPath('userData'), MANAGED_CORE_DIR);
+  const legacyBasePath = getCoreDescriptorPaths().legacyBasePath;
+
+  if (!legacyBasePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy storage layout.`);
+  }
+
+  return legacyBasePath;
 }
 
 function getCoreDownloadsPath() {
-  return path.join(getCoreBasePath(), 'downloads');
+  return getCoreDescriptorPaths().downloadsPath;
 }
 
 function getCoreInstallPath() {
-  return path.join(getCoreBasePath(), CORE_INSTALL_DIR);
+  return getCoreDescriptorPaths().installPath;
 }
 
 function getJavaBasePath() {
-  return path.join(getCoreBasePath(), 'java');
+  return getCoreDescriptorPaths().javaBasePath;
 }
 
 function getLegacyJavaBasePath() {
-  return path.join(getLegacyCoreBasePath(), 'java');
+  const legacyJavaBasePath = getCoreDescriptorPaths().legacyJavaBasePath;
+
+  if (!legacyJavaBasePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy Java layout.`);
+  }
+
+  return legacyJavaBasePath;
 }
 
 function getJavaVersionsPath() {
-  return path.join(getJavaBasePath(), 'versions');
+  return getCoreDescriptorPaths().javaVersionsPath;
 }
 
 function getCurrentCorePath() {
-  return path.join(getCoreBasePath(), CURRENT_CORE_FILE);
+  return getCoreDescriptorPaths().currentCorePath;
 }
 
 function getLegacyCurrentCorePath() {
-  return path.join(getLegacyCoreBasePath(), CURRENT_CORE_FILE);
+  const legacyCurrentCorePath = getCoreDescriptorPaths().legacyCurrentCorePath;
+
+  if (!legacyCurrentCorePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy metadata path.`);
+  }
+
+  return legacyCurrentCorePath;
 }
 
 function getCurrentJavaPath() {
-  return path.join(getJavaBasePath(), CURRENT_JAVA_FILE);
+  return getCoreDescriptorPaths().currentJavaPath;
 }
 
 function getLegacyCurrentJavaPath() {
-  return path.join(getLegacyJavaBasePath(), CURRENT_JAVA_FILE);
+  const legacyCurrentJavaPath = getCoreDescriptorPaths().legacyCurrentJavaPath;
+
+  if (!legacyCurrentJavaPath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy Java metadata path.`);
+  }
+
+  return legacyCurrentJavaPath;
 }
 
 function getCoreRuntimePath() {
-  if (CORE_RUNTIME_DIR_OVERRIDE) {
-    return path.resolve(CORE_RUNTIME_DIR_OVERRIDE);
-  }
-
-  return path.join(getCoreBasePath(), CORE_RUNTIME_DIR);
+  return getCoreDescriptorPaths().runtimePath;
 }
 
 function getCoreLogPaths(runtimePath: string): CoreLogPaths {
   const logPaths: CoreLogPaths = {
-    appLogPath: path.join(runtimePath, 'qortium.log'),
+    appLogPath: path.join(runtimePath, CORE_DESCRIPTOR.storage.logFileName),
     launcherLogPath: path.join(runtimePath, 'run.log'),
   };
 
@@ -509,11 +506,11 @@ function getRunPidPath(runtimePath: string) {
 }
 
 function getRuntimeChainPath(runtimePath: string) {
-  return path.join(runtimePath, RUNTIME_CHAIN_FILE);
+  return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeChainFileName);
 }
 
 function getRuntimeMigrationBlockedPath(runtimePath: string) {
-  return path.join(runtimePath, RUNTIME_MIGRATION_BLOCKED_FILE);
+  return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeMigrationBlockedFileName);
 }
 
 function normalizeFilesystemPath(value: string) {
@@ -553,7 +550,7 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
 
   await mkdir(destinationPath, { recursive: true });
 
-  for (const entryName of RUNTIME_ENTRY_NAMES) {
+  for (const entryName of CORE_DESCRIPTOR.storage.runtimeEntryNames) {
     const sourceEntryPath = path.join(sourcePath, entryName);
 
     if (!existsSync(sourceEntryPath)) {
@@ -662,7 +659,11 @@ async function persistReconciledCoreMetadata(
 }
 
 async function ensureBootstrapPeers(installPath: string, options: { strict?: boolean } = {}) {
-  const settingsPath = path.join(installPath, 'preview', 'settings-preview.json');
+  if (CORE_DESCRIPTOR.bootstrap.kind !== 'peer-injection') {
+    return;
+  }
+
+  const settingsPath = path.join(installPath, CORE_DESCRIPTOR.bootstrap.settingsRelativePath);
 
   if (!existsSync(settingsPath)) {
     const message = `Unable to ensure Previewnet bootstrap peers; settings template was not found at ${settingsPath}.`;
@@ -700,10 +701,13 @@ async function ensureBootstrapPeers(installPath: string, options: { strict?: boo
   }
 
   const settings = parsedSettings as Record<string, unknown>;
-  const initialPeers = mergeBootstrapPeerList(settings.initialPeers, QORTIUM_PREVIEWNET_INITIAL_PEERS);
+  const initialPeers = mergeBootstrapPeerList(
+    settings.initialPeers,
+    [...CORE_DESCRIPTOR.bootstrap.initialPeers],
+  );
   const initialDataPeers = mergeBootstrapPeerList(
     settings.initialDataPeers,
-    QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS,
+    [...CORE_DESCRIPTOR.bootstrap.initialDataPeers],
   );
 
   if (!initialPeers.changed && !initialDataPeers.changed) {
@@ -737,13 +741,19 @@ function getCoreCompatiblePreviewChainSha256(parsedChain: Record<string, unknown
 }
 
 async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRuntimeChainIdentity> {
-  const previewChainPath = path.join(previewPath, CORE_CHAIN_FILE);
+  if (CORE_DESCRIPTOR.chain.kind !== 'file') {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core does not use a chain identity file.`);
+  }
+
+  const previewChainPath = path.join(previewPath, CORE_DESCRIPTOR.chain.fileName);
   let previewChainBytes: Buffer;
 
   try {
     previewChainBytes = await readFile(previewChainPath);
   } catch {
-    throw new Error(`The installed Core release is missing ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+    throw new Error(
+      `The installed Core release is missing ${CORE_DESCRIPTOR.chain.fileName}; runtime chain compatibility cannot be verified.`,
+    );
   }
 
   let networkId = 'unknown';
@@ -759,7 +769,9 @@ async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRu
     parsedChain = parsedPreviewChain;
     networkId = getString(parsedChain.networkId) || networkId;
   } catch {
-    throw new Error(`The installed Core release has an invalid ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+    throw new Error(
+      `The installed Core release has an invalid ${CORE_DESCRIPTOR.chain.fileName}; runtime chain compatibility cannot be verified.`,
+    );
   }
 
   return {
@@ -1045,7 +1057,7 @@ async function fetchGithubJson<T>(url: string) {
   const response = await fetch(url, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': GITHUB_USER_AGENT,
+      'User-Agent': CORE_DESCRIPTOR.github.userAgent,
     },
   });
 
@@ -1067,14 +1079,25 @@ function normalizeGithubRelease(value: unknown): GithubRelease | null {
 }
 
 function selectReleaseAsset(release: GithubRelease): CoreReleaseAsset | null {
-  if (!Array.isArray(release.assets)) {
+  if (
+    !Array.isArray(release.assets) ||
+    CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers'
+  ) {
     return null;
   }
 
   const assets = release.assets.filter(isObject) as GithubAsset[];
   const selectedAsset =
-    assets.find((asset) => getString(asset.name) === 'qortium-preview.zip') ??
-    assets.find((asset) => /^qortium.*\.zip$/i.test(getString(asset.name)));
+    assets.find(
+      (asset) =>
+        getString(asset.name) === CORE_DESCRIPTOR.package.preferredAssetName,
+    ) ??
+    assets.find((asset) =>
+      matchesCoreName(
+        CORE_DESCRIPTOR.package.fallbackAssetNameMatcher,
+        getString(asset.name),
+      ),
+    );
 
   if (!selectedAsset) {
     return null;
@@ -1113,7 +1136,7 @@ function releaseToSummary(channel: CoreChannel, value: unknown): CoreReleaseSumm
     return {
       available: false,
       channel,
-      message: `The latest ${channel} release does not include a supported Qortium zip asset.`,
+      message: `The latest ${channel} release does not include a supported ${CORE_DESCRIPTOR.label} zip asset.`,
     };
   }
 
@@ -1137,7 +1160,7 @@ async function resolveReleaseCommit(summary: CoreReleaseSummary): Promise<CoreRe
 
   try {
     const commit = await fetchGithubJson<GithubCommit>(
-      `${GITHUB_API_BASE_URL}/commits/${encodeURIComponent(summary.tagName)}`,
+      getCoreGithubCommitUrl(CORE_DESCRIPTOR, summary.tagName),
     );
     const commitTimestamp = getString(commit?.commit?.committer?.date) || getString(commit?.commit?.author?.date);
 
@@ -1152,13 +1175,28 @@ async function resolveReleaseCommit(summary: CoreReleaseSummary): Promise<CoreRe
 }
 
 async function getLatestStableRelease(): Promise<CoreReleaseSummary> {
-  const release = await fetchGithubJson<unknown>(`${GITHUB_API_BASE_URL}/releases/latest`);
+  const release = await fetchGithubJson<unknown>(
+    getCoreGithubLatestReleaseUrl(CORE_DESCRIPTOR),
+  );
 
   return await resolveReleaseCommit(releaseToSummary('stable', release));
 }
 
 async function getLatestPrerelease(): Promise<CoreReleaseSummary> {
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=20`);
+  if (CORE_DESCRIPTOR.releaseChannels.kind !== 'github-stable-and-prerelease') {
+    return {
+      available: false,
+      channel: 'prerelease',
+      message: `No prerelease channel is configured for ${CORE_DESCRIPTOR.label} Core.`,
+    };
+  }
+
+  const releases = await fetchGithubJson<unknown[]>(
+    getCoreGithubReleasesUrl(
+      CORE_DESCRIPTOR,
+      CORE_DESCRIPTOR.releaseChannels.prereleasePageSize,
+    ),
+  );
   const release = Array.isArray(releases)
     ? releases.find((candidate) => {
         const normalizedCandidate = normalizeGithubRelease(candidate);
@@ -1171,7 +1209,13 @@ async function getLatestPrerelease(): Promise<CoreReleaseSummary> {
 }
 
 async function getReleaseMatchingCoreVersion(semver: string): Promise<AvailableCoreRelease | null> {
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=100`);
+  const matchingReleasePageSize =
+    CORE_DESCRIPTOR.releaseChannels.kind === 'github-stable-and-prerelease'
+      ? CORE_DESCRIPTOR.releaseChannels.matchingReleasePageSize
+      : 100;
+  const releases = await fetchGithubJson<unknown[]>(
+    getCoreGithubReleasesUrl(CORE_DESCRIPTOR, matchingReleasePageSize),
+  );
   const normalizedReleases = (Array.isArray(releases) ? releases : [])
     .map(normalizeGithubRelease)
     .filter((release): release is GithubRelease => !!release && release.draft !== true);
@@ -1193,7 +1237,7 @@ async function getReleaseMatchingCoreVersion(semver: string): Promise<AvailableC
   for (const tagName of [`v${semver}`, semver]) {
     const release = normalizeGithubRelease(
       await fetchGithubJson<unknown>(
-        `${GITHUB_API_BASE_URL}/releases/tags/${encodeURIComponent(tagName)}`,
+        getCoreGithubTaggedReleaseUrl(CORE_DESCRIPTOR, tagName),
       ),
     );
 
@@ -1498,7 +1542,11 @@ async function stopLegacyInstalledCore(installedCore: InstalledCore, runtimePath
   });
 
   try {
-    await runScript(stopScript, [`--runtime-dir=${runtimePath}`], installedCore.previewPath);
+    await runScript(
+      stopScript,
+      getCoreHelperStopArguments(CORE_DESCRIPTOR, runtimePath),
+      installedCore.previewPath,
+    );
     await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), getCoreLogPaths(runtimePath)));
@@ -2082,7 +2130,10 @@ async function fetchCoreBuildInfo(
   signal: AbortSignal,
 ): Promise<{ buildVersion?: string; runningCommit?: string; runningVersion?: string }> {
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_INFO_PATH}`, { signal });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.infoPath}`,
+      { signal },
+    );
 
     if (!response.ok) {
       return {};
@@ -2113,14 +2164,17 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_STATUS_PATH}`, {
-      signal: abortController.signal,
-    });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.statusPath}`,
+      {
+        signal: abortController.signal,
+      },
+    );
     const text = await response.text();
 
     if (!response.ok) {
       return {
-        localApiUrl: LOCAL_CORE_API_URL,
+        localApiUrl: CORE_DESCRIPTOR.localApi.url,
         owner: 'unknown',
         running: false,
         status: text,
@@ -2131,14 +2185,14 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
 
     return {
       ...buildInfo,
-      localApiUrl: LOCAL_CORE_API_URL,
+      localApiUrl: CORE_DESCRIPTOR.localApi.url,
       owner: 'unknown',
       running: true,
       status: text ? (JSON.parse(text) as unknown) : null,
     };
   } catch {
     return {
-      localApiUrl: LOCAL_CORE_API_URL,
+      localApiUrl: CORE_DESCRIPTOR.localApi.url,
       owner: 'unknown',
       running: false,
       status: null,
@@ -2303,11 +2357,14 @@ async function requestManagedCoreUpdate(installedCore: InstalledCore, method: 'G
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-      headers: { 'X-API-KEY': apiKey },
-      method,
-      signal: abortController.signal,
-    });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.updatePath}`,
+      {
+        headers: { 'X-API-KEY': apiKey },
+        method,
+        signal: abortController.signal,
+      },
+    );
     const text = await response.text();
 
     if (!response.ok) {
@@ -2711,7 +2768,7 @@ async function downloadFile(
   const response = await fetch(asset.downloadUrl, {
     headers: {
       Accept: 'application/octet-stream,*/*',
-      'User-Agent': GITHUB_USER_AGENT,
+      'User-Agent': CORE_DESCRIPTOR.github.userAgent,
     },
   });
 
@@ -2759,6 +2816,10 @@ async function downloadFile(
 }
 
 async function findExtractedCorePaths(versionPath: string) {
+  if (CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers') {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core does not use an extracted helper package.`);
+  }
+
   const candidates = [versionPath];
   const entries = await readdir(versionPath, { withFileTypes: true });
 
@@ -2769,8 +2830,11 @@ async function findExtractedCorePaths(versionPath: string) {
   }
 
   for (const candidate of candidates) {
-    const jarPath = path.join(candidate, 'qortium.jar');
-    const previewPath = path.join(candidate, 'preview');
+    const jarPath = path.join(candidate, CORE_DESCRIPTOR.package.jarFileName);
+    const previewPath = path.join(
+      candidate,
+      CORE_DESCRIPTOR.package.previewDirectoryName,
+    );
 
     if (existsSync(jarPath) && existsSync(previewPath)) {
       return {
@@ -2781,7 +2845,9 @@ async function findExtractedCorePaths(versionPath: string) {
     }
   }
 
-  throw new Error('Installed Core release did not contain qortium.jar and preview scripts.');
+  throw new Error(
+    `Installed Core release did not contain ${CORE_DESCRIPTOR.package.jarFileName} and preview scripts.`,
+  );
 }
 
 async function chmodPreviewScripts(previewPath: string) {
@@ -2821,7 +2887,11 @@ async function listReleaseHelperFiles(
     const relativePath = path.relative(installPath, sourcePath);
     const [topLevelEntry = ''] = relativePath.split(path.sep);
 
-    if (topLevelEntry.toLowerCase() === CORE_RUNTIME_DIR || entry.name.toLowerCase() === 'qortium.jar') {
+    if (
+      topLevelEntry.toLowerCase() ===
+        CORE_DESCRIPTOR.storage.runtimeDirectoryName.toLowerCase() ||
+      entry.name.toLowerCase() === CORE_DESCRIPTOR.package.jarFileName.toLowerCase()
+    ) {
       continue;
     }
 
@@ -3250,7 +3320,7 @@ function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
     return request.channel;
   }
 
-  return 'prerelease';
+  return CORE_DESCRIPTOR.releaseChannels.defaultChannel;
 }
 
 async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCore: InstalledCore | null) {
@@ -3271,10 +3341,13 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
     const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-        headers: { 'X-API-KEY': apiKey },
-        signal: abortController.signal,
-      });
+      const response = await fetch(
+        `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.updatePath}`,
+        {
+          headers: { 'X-API-KEY': apiKey },
+          signal: abortController.signal,
+        },
+      );
       const text = await response.text();
 
       if (!response.ok) {
@@ -3622,15 +3695,19 @@ async function waitForRuntimeState(running: boolean, timeoutMs: number, action: 
 }
 
 function getStartScript(previewPath: string) {
-  return process.platform === 'win32'
-    ? path.join(previewPath, 'start.bat')
-    : path.join(previewPath, 'start.sh');
+  return getCoreHelperScriptPaths(
+    CORE_DESCRIPTOR,
+    previewPath,
+    process.platform,
+  ).startScriptPath;
 }
 
 function getStopScript(previewPath: string) {
-  return process.platform === 'win32'
-    ? path.join(previewPath, 'stop.bat')
-    : path.join(previewPath, 'stop.sh');
+  return getCoreHelperScriptPaths(
+    CORE_DESCRIPTOR,
+    previewPath,
+    process.platform,
+  ).stopScriptPath;
 }
 
 // Whether the managed Core has I2P enabled, read from its on-disk participant
@@ -3639,10 +3716,17 @@ function getStopScript(previewPath: string) {
 // true on any uncertainty so we never suppress the fallback by accident; only a
 // list that positively excludes I2P (e.g. ["IP"]) returns false.
 async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
+  if (CORE_DESCRIPTOR.managedI2p.kind !== 'runtime-settings') {
+    return false;
+  }
+
   try {
-    const raw = await readFile(path.join(runtimePath, 'settings-preview-local.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { allowedTransports?: unknown };
-    const list = parsed.allowedTransports;
+    const raw = await readFile(
+      path.join(runtimePath, CORE_DESCRIPTOR.settings.fileName),
+      'utf8',
+    );
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const list = parsed[CORE_DESCRIPTOR.managedI2p.allowedTransportsField];
 
     if (!Array.isArray(list) || list.length === 0) {
       return true;
@@ -3688,7 +3772,10 @@ async function startCore(options: { quiet?: boolean } = {}) {
   // is ready when Core looks for it. Best-effort — never blocks Core startup.
   // Skip it when the node has I2P disabled (IP-only): no point running a router
   // Core won't use.
-  if (await isCoreI2pEnabled(installedCore.runtimePath)) {
+  if (
+    CORE_DESCRIPTOR.managedI2p.kind === 'runtime-settings' &&
+    (await isCoreI2pEnabled(installedCore.runtimePath))
+  ) {
     await startI2pdIfManaged();
   }
 
@@ -3713,7 +3800,7 @@ async function startCore(options: { quiet?: boolean } = {}) {
     ensurePreviewApiKey(installedCore.runtimePath);
     await runScript(
       startScript,
-      ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
+      getCoreHelperStartArguments(CORE_DESCRIPTOR, installedCore.runtimePath),
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
       { stdio: 'ignore' },
@@ -3779,9 +3866,12 @@ async function stopCoreViaApi(installedCore: InstalledCore | null) {
     );
   }
 
-  const response = await fetch(`${LOCAL_CORE_API_URL}/admin/stop`, {
-    headers: { 'X-API-KEY': apiKey },
-  });
+  const response = await fetch(
+    `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.stopPath}`,
+    {
+      headers: { 'X-API-KEY': apiKey },
+    },
+  );
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -3813,7 +3903,7 @@ async function stopCore(options: { quiet?: boolean } = {}) {
     if (isHomeOwned && installedCore && stopScript && existsSync(stopScript)) {
       await runScript(
         stopScript,
-        [`--runtime-dir=${installedCore.runtimePath}`],
+        getCoreHelperStopArguments(CORE_DESCRIPTOR, installedCore.runtimePath),
         installedCore.previewPath,
         getJavaRuntimeEnv(await getJavaStatus()),
       );
@@ -3841,7 +3931,9 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   }
 
   // Stop the router we started alongside Core (no-op for an external router).
-  await stopI2pdIfManaged();
+  if (CORE_DESCRIPTOR.managedI2p.kind === 'runtime-settings') {
+    await stopI2pdIfManaged();
+  }
 
   if (!options.quiet) {
     publishProgress({

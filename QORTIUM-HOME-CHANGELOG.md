@@ -65,6 +65,15 @@ as well as its text. Runtime-generated permission, identity, and node details
 remain a separate localization step. Existing language values exposed to QDN
 apps are unchanged.
 
+Core management now derives the existing Qortium storage, release archive,
+Previewnet chain, bootstrap, local API, helper-script, and i2pd behavior from a
+typed network descriptor instead of scattered single-network constants. Local
+Core API-key discovery is also isolated by network and optional runtime target,
+with stale asynchronous lookups prevented from repopulating an invalidated
+cache. Existing Qortium APIs and behavior remain the compatibility path; this
+is groundwork for the later Qortal lifecycle and adoption work, not exposure of
+those controls to Home 2 yet.
+
 ### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
 
 Home now has one clear browser tab row instead of an extra Home brand block that

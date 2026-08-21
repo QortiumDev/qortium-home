@@ -75,6 +75,9 @@ preparation.
   across all 23 languages.
 - [x] Apply language and text direction at the Home 2 root, including lazy
   catalog updates, persisted settings, and packaged Arabic RTL coverage.
+- [x] Establish the Qortium-first Core network descriptor and isolate local
+  Core API-key discovery caches by network and runtime target, while retaining
+  the existing Qortium lifecycle APIs as compatibility wrappers.
 
 ## Required gates
 
