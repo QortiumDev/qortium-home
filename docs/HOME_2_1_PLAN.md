@@ -114,8 +114,16 @@ preparation.
   OpenJDK Java. Listener-holder enumeration uses the current local user as its
   trust boundary and fails closed when no visible process maps a listening
   socket. Registration adds no Home 2 IPC/preload controls.
-- [ ] Add equivalent fail-closed process/listener authority adapters for macOS
-  and Windows. Adoption and Home 2 controls remain subsequent E2/E3 work.
+- [x] Add fail-closed macOS process/listener authority through a narrow
+  versioned native helper. The packaged adapter binds the current effective
+  UID, boot-session plus microsecond PID birth identity, raw argv, canonical
+  cwd/JAR evidence, and complete listener-holder/socket evidence. Both x64 and
+  arm64 helpers are built as exact executable resources; x64 compilation,
+  live process/IPv4/IPv6 listener probes, symlink refusal, and packaged-bundle
+  verification pass on macOS 12.7.6. Real Qortal start/relaunch/readiness/stop
+  acceptance remains a release gate rather than an implementation claim.
+- [ ] Add equivalent fail-closed authority and secure API-key evidence for
+  Windows. Adoption and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 
