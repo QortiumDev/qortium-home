@@ -1,6 +1,6 @@
 # Qortium App Versioning Standard (QAVS)
 
-Status: draft v1 (2026-07-11). Adoption is voluntary — nothing here is enforced.
+Status: draft v1 (updated 2026-08-21). Adoption is voluntary — nothing here is enforced.
 Apps that do not follow this standard keep working exactly as before.
 
 ## The problem this solves
@@ -9,19 +9,25 @@ Qortium Core and Qortium Home evolve together and regularly add new
 app-facing features (new `qdnRequest` actions, new bridged Core API
 behavior). Users currently have no easy way to tell whether a QDN app was
 built for the platform they are running. This standard gives every version
-number a fixed meaning so that compatibility can be read — by people and by
-Qortium Home itself — from the numbers alone.
+field a fixed meaning so that compatibility can be read — by people and by
+Qortium Home itself — from app manifests and host metadata.
 
 ## Version format: X.Y.Z
 
 Every component (Core, Home, and each QDN app) uses a three-part version.
 
-### For the platform (Core and Home)
+### For platform compatibility
 
-- **X.Y is the platform level.** Core and Home releases share the same X.Y
-  by convention; a new Y means the app-facing surface gained new features.
-- **Z** is for smaller platform updates that do not change the app-facing
-  surface (fixes, internal changes).
+- **X.Y is the platform level advertised to apps.** A new Y means the
+  app-facing surface gained features that apps may need to require.
+- Core and Home release versions may share that X.Y by convention, but the
+  host's explicit `platformVersion` is authoritative. Do not infer the
+  compatibility level from Home's release version.
+- Home uses normal release semantics for its own version: a minor release may
+  add substantial shell or managed-service features while retaining the same
+  app-facing platform level.
+- **Z** is for smaller releases when a component's X.Y does track the platform
+  level and the app-facing surface is unchanged.
 - **X** is reserved for era-level changes (e.g. Previewnet → mainnet).
 
 The *app-facing surface* means everything an app can observe through the
@@ -45,11 +51,12 @@ the bridge.
 ## The compatibility rule: ≤, not =
 
 > An app is compatible with a host when the app's **X.Y is less than or
-> equal to** the host's X.Y.
+> equal to** the host's advertised `platformVersion`.
 
-- `chat 1.4.x` on Home 1.6 → **compatible** (Home keeps old features working).
-- `chat 1.5.x` on Home 1.4 → **may not work** (app uses features the host
-  lacks).
+- `chat 1.4.x` with host `platformVersion: "1.6"` → **compatible** (the host
+  keeps old features working).
+- `chat 1.5.x` with host `platformVersion: "1.4"` → **may not work** (the app
+  uses features the host lacks).
 
 Do not teach users "the versions should match" — a working app on an old
 level would look broken.
@@ -95,15 +102,20 @@ enforcement.
 Hosts that support this standard answer the `qdnRequest` action
 `GET_HOST_INFO` with:
 
+For example, the planned Home 2.1.0 response remains at platform level 2.0
+only if its final bridge audit finds no new advertised actions or observable
+semantics:
+
 ```json
 {
   "hostName": "qortium-home",
-  "hostVersion": "1.4.0",
-  "platformVersion": "1.4"
+  "hostVersion": "2.1.0",
+  "platformVersion": "2.0"
 }
 ```
 
-- `platformVersion` is the host's platform level (its own X.Y).
+- `platformVersion` is the host's authoritative compatibility level. It can
+  differ from `hostVersion` when Home adds substantial non-app-facing features.
 - Apps can use this to gate optional features ("hide this button on hosts
   below 1.5") instead of failing mysteriously. `GET_NODE_INFO` continues to
   report the Core version.
@@ -115,14 +127,14 @@ Hosts that support this standard answer the `qdnRequest` action
 When Home opens (or lists) an APP resource it tries to read
 `qortium-app.json` and compares the app's X.Y to its own platform level:
 
-- app X.Y ≤ host X.Y → **Compatible** badge.
-- app X.Y > host X.Y → **Needs Home X.Y+** badge (the app may still partly
-  work).
+- app X.Y ≤ advertised platform X.Y → **Compatible** badge.
+- app X.Y > advertised platform X.Y → **Needs platform X.Y+** badge (the app
+  may still partly work).
 - no manifest / unparseable → no badge (unversioned).
 
 ## Adopting the standard in an existing app
 
-1. Pick the current platform level (as of this writing: **1.4**).
+1. Pick the current platform level (as of this writing: **2.0**).
 2. Set the app's version to `<level>.0` (e.g. chat `1.0.3` → `1.4.0`) at its
    next republish, wire the single-source version into `qortium-app.json`,
    and bump Z freely from then on.

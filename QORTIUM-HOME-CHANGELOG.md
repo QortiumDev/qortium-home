@@ -34,6 +34,23 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
+
+Home now has one clear browser tab row instead of an extra Home brand block that
+looked like a second tab. Qortium appears first in the toolbar node controls,
+connection cards, and selected-account presence, with regression coverage
+preserving that ordering on desktop and phone layouts. Obsolete startup wording
+no longer claims that account integration or Reticulum is unavailable in the
+build.
+
+The canonical project plan now identifies 2.0.0 as the shipped baseline and
+tracks the combined feature cycle as Home 2.1.0. The release plan preserves
+Home's slim QDN-app-focused boundary, makes managed Qortal Core a release gate,
+and records the safe implementation sequence and cross-platform checks. Home's
+application release version is now distinct from its advertised QAVS platform
+level; the level may stay at 2.0 only if a final bridge audit proves that no new
+app-facing action or observable behavior ships.
+
 ### 2026-08-20 - fix(apps): preserve focus and permission sessions
 
 Home 2 no longer hides and re-shows the active desktop app when routine node

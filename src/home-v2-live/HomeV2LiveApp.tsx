@@ -289,7 +289,7 @@ function initialSnapshot(): HomeV2Snapshot {
           names: [],
           primaryName: null,
           avatar: null,
-          detail: 'Account integration is not enabled in this build.',
+          detail: null,
         },
         qortium: {
           network: 'qortium',
@@ -298,7 +298,7 @@ function initialSnapshot(): HomeV2Snapshot {
           names: [],
           primaryName: null,
           avatar: null,
-          detail: 'Account integration is not enabled in this build.',
+          detail: null,
         },
       },
     },
@@ -308,7 +308,7 @@ function initialSnapshot(): HomeV2Snapshot {
     reticulum: {
       state: 'disabled',
       enabled: false,
-      statusText: 'Not connected in this build',
+      statusText: 'Disabled',
     },
   }
 }

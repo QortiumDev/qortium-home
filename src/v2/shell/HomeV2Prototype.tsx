@@ -267,7 +267,7 @@ function IdentityPresence({
   const presence = snapshot.identity.presences[network]
   const publicIdentity = lookup?.networks[network]
   return (
-    <article className="home-v2-presence">
+    <article className="home-v2-presence" data-network={network}>
       {publicIdentity ? (
         <VisibleIdentityAvatar
           identity={publicIdentity}
@@ -583,13 +583,13 @@ function AccountCard({
           <div className="home-v2-presence-list">
             <IdentityPresence
               snapshot={snapshot}
-              network="qortal"
+              network="qortium"
               lookup={selectedAccountLookup}
               loader={loadVisibleAvatar}
             />
             <IdentityPresence
               snapshot={snapshot}
-              network="qortium"
+              network="qortal"
               lookup={selectedAccountLookup}
               loader={loadVisibleAvatar}
             />
@@ -694,14 +694,14 @@ function Dashboard(props: HomeV2PrototypeProps) {
         <div className="home-v2-node-grid">
           <NodeCard
             snapshot={snapshot}
-            network="qortal"
+            network="qortium"
             onSetNodeMode={onSetNodeMode}
             onRefreshNode={onRefreshNode}
             onConfigureCustomNode={onConfigureCustomNode}
           />
           <NodeCard
             snapshot={snapshot}
-            network="qortium"
+            network="qortal"
             onSetNodeMode={onSetNodeMode}
             onRefreshNode={onRefreshNode}
             onConfigureCustomNode={onConfigureCustomNode}
