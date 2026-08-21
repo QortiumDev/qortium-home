@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - fix(widgets): preserve transparent QDN view backgrounds
+
+Fixed QDN widgets showing an opaque white rectangle around shaped or partially
+transparent widget faces. The widget window and its shell already used a
+transparent background, but the Electron `WebContentsView` hosting the
+widget's QDN page defaults to an opaque white background of its own,
+independent of the host window. Home now gives widget `WebContentsView`s an
+explicit transparent native background while leaving the background behavior
+of normal app tabs untouched.
+
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 
 Home 2 now carries forward the Core 1.7 compatibility protections from the
