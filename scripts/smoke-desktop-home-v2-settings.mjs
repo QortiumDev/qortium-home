@@ -23,6 +23,14 @@ const rtlScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_SETTINGS_RTL_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-settings-ar.png',
 )
+const coreScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_CORE_SETTINGS_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-core-settings.png',
+)
+const coreDashboardScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_CORE_DASHBOARD_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-core-dashboard.png',
+)
 const profileDirectory = mkdtempSync(
   path.join(os.tmpdir(), 'qortium-home-v2-settings-smoke-'),
 )
@@ -147,6 +155,25 @@ try {
     await waitUntil('Home shell controls', () =>
       evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
     )
+    const dashboardCoreCards = await waitUntil('Dashboard Core management', () =>
+      evaluate(
+        client,
+        `(() => {
+          const cards = [...document.querySelectorAll('.home-v2-core-card')];
+          return cards.length === 2
+            ? cards.map((card) => card.getAttribute('data-network'))
+            : null;
+        })()`,
+      ),
+    )
+    assert.deepEqual(dashboardCoreCards, ['qortium', 'qortal'])
+    const dashboardScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    writeFileSync(
+      coreDashboardScreenshotPath,
+      Buffer.from(dashboardScreenshot.data, 'base64'),
+    )
     await evaluate(
       client,
       `document.querySelector('button[aria-label="Settings"]').click()`,
@@ -170,6 +197,33 @@ try {
       options: ['Search page', 'Dashboard', 'Custom address'],
       value: 'search',
     })
+
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'Runtime')).click()`,
+    )
+    const coreCards = await waitUntil('Core management settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const cards = [...document.querySelectorAll('.home-v2-core-card')];
+          return cards.length === 2 ? cards.map((card) => ({
+            control: card.getAttribute('data-control'),
+            network: card.getAttribute('data-network'),
+            runtime: card.getAttribute('data-runtime')
+          })) : null;
+        })()`,
+      ),
+    )
+    assert.deepEqual(coreCards.map((card) => card.network), ['qortium', 'qortal'])
+    const coreScreenshot = await client.send('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(coreScreenshotPath, Buffer.from(coreScreenshot.data, 'base64'))
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'General')).click()`,
+    )
 
     await evaluate(
       client,
@@ -243,7 +297,8 @@ try {
       evaluate(
         client,
         `(() => {
-          const button = document.querySelector('.home-v2-settings-nav button:nth-child(2)');
+          const button = [...document.querySelectorAll('.home-v2-settings-nav button')]
+            .find((candidate) => candidate.textContent.trim() === 'Appearance');
           if (!button) return false;
           button.click();
           return true;
@@ -287,7 +342,7 @@ try {
     )
     assert.equal(rtlPersisted.appearance.language, 'ar')
     console.log(
-      `Packaged Home settings/new-tab/i18n smoke passed; screenshots: ${screenshotPath}, ${rtlScreenshotPath}`,
+      `Packaged Home settings/Core/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${rtlScreenshotPath}`,
     )
   } finally {
     client.close()

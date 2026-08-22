@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -28,8 +28,6 @@ import type {
   IdentityId,
   NetworkId,
   NodeConnectionMode,
-  NodeProfileRef,
-  NodeSummary,
   DualIdentityLookupResult,
   NetworkAddress,
   WalletRef,
@@ -63,6 +61,10 @@ import type {
   HomeV2NodeClient,
 } from './node-client'
 import type { HomeV2VaultClient } from './vault-client'
+import {
+  parseHomeV2NodesSnapshot,
+  useHomeV2NodeCoreController,
+} from './node-core-controller'
 import {
   getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
@@ -192,14 +194,6 @@ function isHomeV2GroupWriteAction(action: string) {
   return isHomeV2GroupMembershipAction(action) || isHomeV2GroupAdminAction(action)
 }
 
-function nullableString(value: unknown) {
-  return typeof value === 'string' ? value : null
-}
-
-function nullableNumber(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
 // Android permission-prompt machinery (FIX #3, security review): desktop's
 // main process already auto-denies a pending account/chat-send permission
 // request after 60s (electron/home-v2-app-bridge.ts requireAccountReadPermission).
@@ -237,32 +231,7 @@ const plannedApps: readonly AppDescriptor[] = [
   },
 ]
 
-function initialNode(network: NetworkId): NodeSummary {
-  return {
-    ref: brand<NodeProfileRef>(`home-v2:node:${network}`),
-    network,
-    label: 'Checking configured node',
-    mode: 'local',
-    state: 'unknown',
-    statusText: 'Checking',
-    isTrusted: true,
-    customAuthenticated: false,
-    customConfigured: false,
-    customUrl: null,
-    localCoreState: 'not-detected',
-    localCoreStatusText: 'Checking local Core',
-    nodeApiUrl: null,
-    height: null,
-    peerCount: null,
-    syncPercent: null,
-    syncPhase: null,
-    lastCheckedAt: null,
-    error: null,
-    capabilities: { admin: false, read: false, write: false },
-  }
-}
-
-function initialSnapshot(): HomeV2Snapshot {
+function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
   const resolvedTheme =
     typeof window !== 'undefined' &&
     window.matchMedia?.('(prefers-color-scheme: dark)').matches
@@ -307,7 +276,6 @@ function initialSnapshot(): HomeV2Snapshot {
         },
       },
     },
-    nodes: { qortal: initialNode('qortal'), qortium: initialNode('qortium') },
     apps: plannedApps,
     recentItems: [],
     reticulum: {
@@ -400,86 +368,6 @@ function accountIdentity(
   }
 }
 
-function parseNodeSummary(value: unknown, network: NetworkId): NodeSummary {
-  if (!isRecord(value) || value.network !== network) {
-    throw new Error(`Invalid ${network} node snapshot.`)
-  }
-  const mode = value.mode
-  const state = value.state
-  if (
-    mode !== 'disabled' &&
-    mode !== 'local' &&
-    mode !== 'public' &&
-    mode !== 'custom'
-  ) {
-    throw new Error(`Invalid ${network} node mode.`)
-  }
-  if (
-    state !== 'online' &&
-    state !== 'syncing' &&
-    state !== 'offline' &&
-    state !== 'unknown'
-  ) {
-    throw new Error(`Invalid ${network} node state.`)
-  }
-  const capabilities = isRecord(value.capabilities) ? value.capabilities : {}
-  return Object.freeze({
-    ref: brand<NodeProfileRef>(String(value.ref ?? `home-v2:node:${network}`)),
-    network,
-    label: String(value.label ?? 'Configured node'),
-    mode,
-    state,
-    statusText: String(value.statusText ?? 'Unknown'),
-    isTrusted: value.isTrusted === true,
-    customAuthenticated: value.customAuthenticated === true,
-    customConfigured: value.customConfigured === true,
-    customUrl: nullableString(value.customUrl),
-    localCoreState:
-      value.localCoreState === 'running' ||
-      value.localCoreState === 'installed' ||
-      value.localCoreState === 'not-detected' ||
-      value.localCoreState === 'unsupported'
-        ? value.localCoreState
-        : 'not-detected',
-    localCoreStatusText: String(
-      value.localCoreStatusText ?? 'Local Core status unavailable',
-    ),
-    nodeApiUrl: nullableString(value.nodeApiUrl),
-    height: nullableNumber(value.height),
-    peerCount: nullableNumber(value.peerCount),
-    syncPercent: nullableNumber(value.syncPercent),
-    syncPhase: nullableString(value.syncPhase),
-    lastCheckedAt: nullableNumber(value.lastCheckedAt),
-    error: nullableString(value.error),
-    capabilities: Object.freeze({
-      admin: capabilities.admin === true,
-      read: capabilities.read === true,
-      write: capabilities.write === true,
-    }),
-  })
-}
-
-function parseNodesSnapshot(value: unknown) {
-  if (!isRecord(value) || value.version !== 1 || !isRecord(value.nodes)) {
-    throw new Error('Invalid Home v2 node snapshot.')
-  }
-  return Object.freeze({
-    qortal: parseNodeSummary(value.nodes.qortal, 'qortal'),
-    qortium: parseNodeSummary(value.nodes.qortium, 'qortium'),
-  })
-}
-
-function unavailableNode(node: NodeSummary, error: unknown): NodeSummary {
-  return {
-    ...node,
-    state: node.mode === 'disabled' ? 'offline' : 'unknown',
-    statusText: node.mode === 'disabled' ? 'Disabled' : 'Unavailable',
-    error:
-      error instanceof Error ? error.message : 'Unable to refresh node status.',
-    capabilities: { admin: false, read: false, write: false },
-  }
-}
-
 function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerState | null {
   if (
     !isRecord(value) ||
@@ -533,8 +421,7 @@ export function HomeV2LiveApp() {
   productStateRef.current = productState
   const androidLastNotificationAt = useRef(new Map<string, number>())
   const androidNextNotificationId = useRef((Date.now() % 2_000_000_000) + 1)
-  const [snapshot, setSnapshot] = useState(initialSnapshot)
-  const [busyNetwork, setBusyNetwork] = useState<NetworkId | null>(null)
+  const [snapshotState, setSnapshot] = useState(initialSnapshot)
   const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
   const [customUrl, setCustomUrl] = useState('')
   const [customError, setCustomError] = useState<string | null>(null)
@@ -561,6 +448,14 @@ export function HomeV2LiveApp() {
   const [appReloadVersion, setAppReloadVersion] = useState(0)
   const [nodeClient, setNodeClient] = useState<HomeV2NodeClient | null>(
     () => window.homeV2Nodes ?? null,
+  )
+  const nodeCoreController = useHomeV2NodeCoreController({
+    coreClient: window.homeV2CoreManagers ?? null,
+    nodeClient,
+  })
+  const snapshot = useMemo<HomeV2Snapshot>(
+    () => ({ ...snapshotState, nodes: nodeCoreController.nodes }),
+    [nodeCoreController.nodes, snapshotState],
   )
   const [vaultClient, setVaultClient] = useState<HomeV2VaultClient | null>(
     () => window.homeV2Vault ?? null,
@@ -848,18 +743,12 @@ export function HomeV2LiveApp() {
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        setSnapshot((current) => ({
-          ...current,
-          nodes: {
-            qortal: unavailableNode(current.nodes.qortal, error),
-            qortium: unavailableNode(current.nodes.qortium, error),
-          },
-        }))
+        nodeCoreController.markNodesUnavailable(error)
       })
     return () => {
       cancelled = true
     }
-  }, [nodeClient])
+  }, [nodeClient, nodeCoreController.markNodesUnavailable])
 
   useEffect(() => {
     if (!nodeClient) return
@@ -1917,7 +1806,7 @@ export function HomeV2LiveApp() {
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
@@ -1942,7 +1831,7 @@ export function HomeV2LiveApp() {
         const isStillValid = async () => {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
-          const currentNode = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           return !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
@@ -2155,7 +2044,7 @@ export function HomeV2LiveApp() {
         const account = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
         if (!account) throw new Error('The selected account is no longer available.')
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
@@ -2243,7 +2132,7 @@ export function HomeV2LiveApp() {
         const isStillValid = async () => {
           const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           const currentAccount = accountCatalogueRef.current.accounts.find((candidate) => candidate.id === accountId)
-          const currentNode = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          const currentNode = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           return !!currentTab &&
             currentTab.context.resourceLocation === context.resourceLocation &&
             String(currentTab.context.identityId) === `home-v2:identity:${accountId}` &&
@@ -2338,7 +2227,7 @@ export function HomeV2LiveApp() {
           (candidate) => candidate.id === context.selectedAccountId,
         )
         if (!account) throw new Error('The selected account is no longer available.')
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot()).qortium
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
         const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
         const requestId = `android-unlock:${globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
         setAccountDialogError(null)
@@ -2366,7 +2255,7 @@ export function HomeV2LiveApp() {
               const freshAccount = vaultCatalogue(state).accounts.find(
                 (candidate) => candidate.id === context.selectedAccountId,
               )
-              const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot()).qortium
+              const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot()).qortium
               if (
                 !freshTab ||
                 freshTab.context.resourceLocation !== context.resourceLocation ||
@@ -2409,7 +2298,7 @@ export function HomeV2LiveApp() {
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
@@ -2514,7 +2403,7 @@ export function HomeV2LiveApp() {
           const freshAccount = accountCatalogueRef.current.accounts.find(
             (candidate) => candidate.id === accountId,
           )
-          const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           if (
             selectedAccountId !== accountId ||
             !freshTab ||
@@ -2540,7 +2429,7 @@ export function HomeV2LiveApp() {
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
-          const nodeNow = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          const nodeNow = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           return `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
         }
         if (!(await checkStillValid())) {
@@ -2576,7 +2465,7 @@ export function HomeV2LiveApp() {
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
@@ -2704,7 +2593,7 @@ export function HomeV2LiveApp() {
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
-          const nodeNow = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          const nodeNow = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           return `${nodeNow.mode}|${nodeNow.nodeApiUrl ?? ''}` === nodeRoute
         }
         if (!(await checkStillValid())) {
@@ -2749,7 +2638,7 @@ export function HomeV2LiveApp() {
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const privateGroupNetwork = protocol === 'qdnRequest' ? 'qortium' : 'qortal'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[privateGroupNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[privateGroupNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${privateGroupNetwork === 'qortium' ? 'Qortium' : 'Qortal'} is unavailable.`)
         }
@@ -2883,7 +2772,7 @@ export function HomeV2LiveApp() {
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
-          const nodesNow = await nodeClient.getSnapshot().then(parseNodesSnapshot).catch(() => null)
+          const nodesNow = await nodeClient.getSnapshot().then(parseHomeV2NodesSnapshot).catch(() => null)
           const currentNode = nodesNow?.[privateGroupNetwork]
           return !!currentNode?.nodeApiUrl && `${currentNode.mode}|${currentNode.nodeApiUrl}` === nodeRoute
         }
@@ -2955,7 +2844,7 @@ export function HomeV2LiveApp() {
         if (!account) throw new Error('The selected account is no longer available.')
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
@@ -3126,7 +3015,7 @@ export function HomeV2LiveApp() {
             freshTab.context.resourceLocation !== context.resourceLocation ||
             !freshAccount?.isUnlocked
           ) return false
-          const nodeNow = await nodeClient.getSnapshot().then(parseNodesSnapshot).catch(() => null)
+          const nodeNow = await nodeClient.getSnapshot().then(parseHomeV2NodesSnapshot).catch(() => null)
           const summary = nodeNow?.[targetNetwork]
           return !!summary?.nodeApiUrl && `${summary.mode}|${summary.nodeApiUrl}` === nodeRoute
         }
@@ -3187,7 +3076,7 @@ export function HomeV2LiveApp() {
         // also avoids prompting for a send that cannot possibly proceed.
         if (!account.isUnlocked) throw new Error('The selected account is locked.')
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
-        const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBefore.nodeApiUrl || !nodeBefore.capabilities.read) {
           throw new Error(nodeBefore.error ?? `${targetNetwork} is unavailable.`)
         }
@@ -3331,7 +3220,7 @@ export function HomeV2LiveApp() {
           const freshAccount = accountCatalogueRef.current.accounts.find(
             (candidate) => candidate.id === accountId,
           )
-          const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+          const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
           if (
             selectedAccountId !== accountId ||
             !freshTab ||
@@ -3374,11 +3263,11 @@ export function HomeV2LiveApp() {
           ) {
             return false
           }
-          const nodeNow = await nodeClient.getSnapshot().then(parseNodesSnapshot).catch(() => null)
+          const nodeNow = await nodeClient.getSnapshot().then(parseHomeV2NodesSnapshot).catch(() => null)
           const nodeSummary = nodeNow?.[targetNetwork]
           return !!nodeSummary?.nodeApiUrl && `${nodeSummary.mode}|${nodeSummary.nodeApiUrl}` === nodeRoute
         }
-        const nodeBeforeSend = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeBeforeSend = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (!nodeBeforeSend.nodeApiUrl || !(await checkChatSendStillValid())) {
           throw new Error('Account access context changed before approval completed.')
         }
@@ -3403,7 +3292,7 @@ export function HomeV2LiveApp() {
         (candidate) => candidate.id === context.selectedAccountId,
       )
       if (!account) throw new Error('The selected account is no longer available.')
-      const nodeBefore = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+      const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
       const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
       const grantKey = homeV2PermissionGrantKey({
         accountId: context.selectedAccountId,
@@ -3466,7 +3355,7 @@ export function HomeV2LiveApp() {
         const freshAccount = accountCatalogueRef.current.accounts.find(
           (candidate) => candidate.id === context.selectedAccountId,
         )
-        const nodeAfter = parseNodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
+        const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
         if (
           selectedAccountId !== context.selectedAccountId ||
           !freshTab ||
@@ -3501,62 +3390,14 @@ export function HomeV2LiveApp() {
     [nodeClient, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
-  const refresh = useCallback(async () => {
-    if (!nodeClient) return
-    try {
-      const nodes = parseNodesSnapshot(await nodeClient.getSnapshot())
-      setSnapshot((current) => ({ ...current, nodes }))
-    } catch (error) {
-      setSnapshot((current) => ({
-        ...current,
-        nodes: {
-          qortal: unavailableNode(current.nodes.qortal, error),
-          qortium: unavailableNode(current.nodes.qortium, error),
-        },
-      }))
-    }
-  }, [nodeClient])
-
-  useEffect(() => {
-    void refresh()
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh()
-    }, 15_000)
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void refresh()
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-    }
-  }, [refresh])
-
   const setNodeMode = async (
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => {
-    if (!nodeClient) return
     invalidateAndroidRuntime('node-changed', null, network)
     window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed', network })
-    setBusyNetwork(network)
     setIdentityLookup(null)
-    try {
-      const nodes = parseNodesSnapshot(
-        await nodeClient.setMode(network, mode),
-      )
-      setSnapshot((current) => ({ ...current, nodes }))
-    } catch (error) {
-      setSnapshot((current) => ({
-        ...current,
-        nodes: {
-          ...current.nodes,
-          [network]: unavailableNode(current.nodes[network], error),
-        },
-      }))
-    } finally {
-      setBusyNetwork(null)
-    }
+    await nodeCoreController.setNodeMode(network, mode)
   }
 
   const openCustomNode = (network: NetworkId) => {
@@ -3566,24 +3407,18 @@ export function HomeV2LiveApp() {
   }
 
   const saveCustomNode = async () => {
-    if (!customNetwork || !nodeClient) return
+    if (!customNetwork) return
     invalidateAndroidRuntime('node-changed', null, customNetwork)
     window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed', network: customNetwork })
-    setBusyNetwork(customNetwork)
     setIdentityLookup(null)
     setCustomError(null)
     try {
-      const nodes = parseNodesSnapshot(
-        await nodeClient.setCustomUrl(customNetwork, customUrl),
-      )
-      setSnapshot((current) => ({ ...current, nodes }))
-      setCustomNetwork(null)
+      const saved = await nodeCoreController.saveCustomNode(customNetwork, customUrl)
+      if (saved) setCustomNetwork(null)
     } catch (error) {
       setCustomError(
         error instanceof Error ? error.message : 'Unable to save the custom node.',
       )
-    } finally {
-      setBusyNetwork(null)
     }
   }
 
@@ -3809,7 +3644,7 @@ export function HomeV2LiveApp() {
           <button
             type="button"
             className="home-v2-secondary-button"
-            disabled={busyNetwork !== null}
+            disabled={nodeCoreController.nodeBusyNetwork !== null}
             onClick={() => setCustomNetwork(null)}
           >
             Cancel
@@ -3817,7 +3652,9 @@ export function HomeV2LiveApp() {
           <button
             type="button"
             className="home-v2-primary-button"
-            disabled={busyNetwork !== null || !customUrl.trim()}
+            disabled={
+              nodeCoreController.nodeBusyNetwork !== null || !customUrl.trim()
+            }
             onClick={() => void saveCustomNode()}
           >
             Save
@@ -3934,8 +3771,8 @@ export function HomeV2LiveApp() {
       permissionState={permissionState}
       layout={window.homeV2Nodes ? 'desktop' : 'phone'}
       surfaceNotice={
-        busyNetwork
-          ? `Updating ${busyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
+        nodeCoreController.nodeBusyNetwork
+          ? `Updating ${nodeCoreController.nodeBusyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
           : shellNotice ?? 'Accounts, connections, and QDN apps'
       }
       overlay={customNodeDialog ?? accountDialogOverlay ?? resourceViewerOverlay}
@@ -3952,6 +3789,18 @@ export function HomeV2LiveApp() {
       selectedAccountLookup={selectedAccountLookup}
       appReloadVersion={appReloadVersion}
       nodeClient={nodeClient}
+      coreManagement={{
+        available: nodeCoreController.coreAvailable,
+        busyActions: nodeCoreController.coreBusyActions,
+        lastActions: nodeCoreController.coreLastActions,
+        statuses: nodeCoreController.coreStatuses,
+        onAction: (network, action) => {
+          void nodeCoreController.runCoreAction(network, action)
+        },
+        onRefresh: () => {
+          void nodeCoreController.refreshCoreStatuses()
+        },
+      }}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })
@@ -3982,7 +3831,7 @@ export function HomeV2LiveApp() {
       onNavigate={(destination) =>
         dispatchProduct({ type: 'navigate', destination })
       }
-      onRefreshNode={() => void refresh()}
+      onRefreshNode={() => void nodeCoreController.refreshNodes()}
       onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
       onConfigureCustomNode={openCustomNode}
       onIdentityLookupInput={(value) => {
@@ -4079,7 +3928,7 @@ export function HomeV2LiveApp() {
             setAppReloadVersion((current) => current + 1)
           }
         } else {
-          void refresh()
+          void nodeCoreController.refreshAll()
         }
       }}
       onSetTheme={(theme: HomeV2ThemePreference) =>

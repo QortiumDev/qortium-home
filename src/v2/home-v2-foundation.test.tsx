@@ -44,6 +44,7 @@ import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
 import { PermissionDialog } from './shell/PermissionDialog'
+import type { HomeV2CoreManagement } from './shell/CoreManagerCards'
 import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
@@ -1120,6 +1121,85 @@ function testSettingsScaffoldAndNewTabPreference(): void {
   assert.match(browserChromeSource, /newTabDisabled=\{navigationDisabled\}/)
 }
 
+function testCoreManagementRenderingAndAndroidDegrade(): void {
+  const coreManagement: HomeV2CoreManagement = {
+    available: true,
+    busyActions: { qortal: null, qortium: null },
+    lastActions: { qortal: null, qortium: null },
+    statuses: {
+      qortium: {
+        capabilities: { canStart: false, canStop: true },
+        control: 'full',
+        install: 'home-managed',
+        issue: null,
+        network: 'qortium',
+        revision: 1,
+        runtime: 'running',
+        schema: 'home-v2-core-manager',
+      },
+      qortal: {
+        capabilities: { canStart: true, canStop: false },
+        control: 'api-only',
+        install: 'adopted',
+        issue: null,
+        network: 'qortal',
+        revision: 1,
+        runtime: 'stopped',
+        schema: 'home-v2-core-manager',
+      },
+    },
+    onAction: () => undefined,
+    onRefresh: () => undefined,
+  }
+  const dashboard = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      coreManagement={coreManagement}
+    />,
+  )
+  const managementStart = dashboard.indexOf('data-home-v2-core-management="desktop"')
+  const qortium = dashboard.indexOf('data-network="qortium"', managementStart)
+  const qortal = dashboard.indexOf('data-network="qortal"', managementStart)
+  assert.ok(managementStart >= 0 && qortium > managementStart && qortal > qortium)
+  assert.match(dashboard, /Qortium Core running · managed by Home/)
+  assert.match(dashboard, />Stop Core</)
+  assert.match(dashboard, /Adopted Qortal Core · stopped/)
+  assert.match(dashboard, />Start Core</)
+
+  const settingsState = reduceProductState(createProductState(), {
+    type: 'navigate',
+    destination: 'settings',
+  })
+  const settings = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      coreManagement={coreManagement}
+    />,
+  )
+  const general = settings.indexOf('>General</button>')
+  const runtime = settings.indexOf('>Runtime</button>')
+  const appearance = settings.indexOf('>Appearance</button>')
+  assert.ok(general >= 0 && runtime > general && appearance > runtime)
+
+  const android = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="phone"
+      coreManagement={{ ...coreManagement, available: false }}
+    />,
+  )
+  assert.doesNotMatch(android, /data-home-v2-core-management/)
+  assert.doesNotMatch(android, />Start Core|>Stop Core/)
+}
+
 function testAppearanceSettingsAndLegacyMigration(): void {
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',
@@ -1938,6 +2018,7 @@ testDualIdentityLookupContract()
 testProductMarkAssetsAndColorOwnership()
 testStartupStatesAndAppearance()
 testSettingsScaffoldAndNewTabPreference()
+testCoreManagementRenderingAndAndroidDegrade()
 testAppearanceSettingsAndLegacyMigration()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()

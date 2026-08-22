@@ -10,13 +10,22 @@ import {
   AppearanceSettingsPage,
   type AppearanceSettingsPageProps,
 } from './AppearanceSettingsPage'
+import {
+  CoreManagerCards,
+  type HomeV2CoreManagement,
+} from './CoreManagerCards'
 
-export type HomeV2SettingsSectionId = 'general' | 'appearance' | 'account'
+export type HomeV2SettingsSectionId =
+  | 'general'
+  | 'core'
+  | 'appearance'
+  | 'account'
 
 export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly appearance: HomeV2AppearanceSettings
   readonly account: AccountSessionSummary
   readonly newTabPreference: NewTabPreference
+  readonly coreManagement?: HomeV2CoreManagement
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
@@ -122,6 +131,9 @@ export function SettingsPage(props: SettingsPageProps) {
     readonly label: string
   }> = [
     { id: 'general', label: t('home2.settings.general') },
+    ...(props.coreManagement?.available
+      ? [{ id: 'core' as const, label: t('core.runtimeLabel') }]
+      : []),
     { id: 'appearance', label: t('home2.settings.appearance') },
     ...(props.account.state === 'none'
       ? []
@@ -155,13 +167,24 @@ export function SettingsPage(props: SettingsPageProps) {
               newTabPreference={props.newTabPreference}
               onSetNewTabPreference={props.onSetNewTabPreference}
             />
-          ) : (
+          ) : section === 'core' && props.coreManagement?.available ? (
+            <section
+              className="home-v2-settings-panel home-v2-core-settings"
+              aria-labelledby="core-settings-title"
+            >
+              <div className="home-v2-settings-panel__heading">
+                <h2 id="core-settings-title">{t('home2.core.title')}</h2>
+                <p>{t('home2.core.settingsDescription')}</p>
+              </div>
+              <CoreManagerCards management={props.coreManagement} />
+            </section>
+          ) : section === 'appearance' || section === 'account' ? (
             <AppearanceSettingsPage
               {...props}
               section={section}
               showHeading={false}
             />
-          )}
+          ) : null}
         </div>
       </div>
     </section>

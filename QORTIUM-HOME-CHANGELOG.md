@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 Core management UI
+
+Home 2 now shows Qortium-first Core management cards on the desktop Dashboard
+and in a new Runtime settings section. Each card uses only the sender-gated,
+redacted manager status added in the preceding change: it can refresh status,
+offer Start or Stop only when the manager authorizes that action, explain
+managed versus authenticated API control, and report bounded outcomes without
+showing paths, process details, keys, or raw manager failures. Stopping a Core
+that Home controls only through its authenticated API requires an explicit
+in-app confirmation and never kills the process directly. Starting or stopping
+a Core does not silently change the selected Public, Local, or Custom node
+connection.
+
+The renderer now validates every versioned Core status and action result,
+rejects stale polling responses, prevents overlapping actions using the same
+serialization rules as the main process, and refreshes node state after a Core
+action. The large live shell no longer owns node polling and mutation state;
+that wiring is isolated in a tested node/Core controller before more management
+panels are added. Android deliberately omits the desktop lifecycle controls
+while retaining its existing portable node status. The new static interface
+copy is translated across all 23 catalogs. Install/update, Java, i2pd,
+transport, and policy controls remain later parts of the 2.1 roadmap.
+
 ### 2026-08-22 - feat(core): add gated Home 2 lifecycle controls
 
 Home 2 now has a small desktop-only bridge for reading the state of Qortium and
