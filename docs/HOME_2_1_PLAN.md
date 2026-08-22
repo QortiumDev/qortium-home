@@ -1,6 +1,6 @@
 # Qortium Home 2.1.0 delivery plan
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 Status: active. Home 2.0.0 at `5606faa` is the implementation baseline.
 
@@ -145,6 +145,17 @@ preparation.
   no-reparse/private-DACL helper when available; any existing record that cannot
   be read securely remains unknown. No Home 2 IPC or renderer controls are
   exposed yet.
+- [x] Extend E3 with guarded adopted-runtime control and explicit selection
+  persistence. Supported POSIX hosts publish a private, atomic no-clobber
+  selected record under Home app data, bound to the exact JAR and a bounded
+  `settings.json` digest; Windows selection writes remain disabled until a
+  native no-reparse/private-directory writer exists. A valid adopted runtime
+  now starts as direct Java with its own cwd and literal `settings.json`, and
+  stops only through the authenticated Qortal API with its existing key. Home
+  revalidates record, target, process, listener, and API authority around each
+  control boundary, never runs foreign scripts or kills an adopted PID, and
+  leaves it running on Home exit. Adopted install/update mutation, Home 2
+  IPC/renderer controls, and real packaged lifecycle acceptance remain open.
 
 ## Required gates
 

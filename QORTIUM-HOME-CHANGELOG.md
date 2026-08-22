@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): control adopted Qortal runtimes
+
+Home can now retain an explicitly selected existing Qortal installation in its
+own private app data on supported POSIX systems, without writing metadata or
+API keys into the adopted directory. The selection is published atomically
+without replacing another selection and binds the exact Qortal JAR plus a
+bounded digest of `settings.json`; changed, aliased, stale, insecure, or racing
+evidence remains blocked. Windows selection writes stay disabled until Home has
+a native no-reparse, private-directory writer, while securely reading an
+already present record remains supported.
+
+A valid adopted installation can now be started directly with Java from its
+own directory and stopped only through Qortal's authenticated API using its
+existing key. Home rechecks the selected files and process/listener authority
+at each launch and stop boundary, never invokes foreign scripts, never kills an
+adopted PID, and leaves Qortal running when Home exits. Install and update
+mutation, Home 2 IPC and renderer controls, Windows record creation, and real
+packaged-app lifecycle acceptance remain later gates.
+
 ### 2026-08-21 - fix(core): resolve Windows secure-file drive paths
 
 Home's Windows helper can now securely open ordinary drive-letter paths after

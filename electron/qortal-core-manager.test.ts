@@ -9,6 +9,7 @@ import {
   type QortalInstallObservation,
   type QortalRuntimeAuthority,
   type QortalRuntimeObservation,
+  type QortalRuntimeTarget,
   type QortalSpawnOptions,
 } from './qortal-core-manager.js';
 import type { QortalManagedInstallRecordV1 } from './qortal-managed-install.js';
@@ -62,6 +63,11 @@ const CANDIDATE_TARGET: CoreJarTargetState = { ...FILE_TARGET, canonicalPath: UN
 const UPDATE_CANDIDATE_TARGET: CoreJarTargetState = { ...CANDIDATE_TARGET, identity: UPDATE_IDENTITY,
   sha256: UPDATE_RELEASE.asset.digest };
 const HOME_INSTALL: QortalInstallObservation = { kind: 'home-managed', record: RECORD };
+const HOME_TARGET: QortalRuntimeTarget = {
+  installPath: PATHS.installPath,
+  jarPath: PATHS.jarPath,
+  owner: 'home-managed',
+};
 const STOPPED: QortalRuntimeObservation = { state: 'stopped' };
 const AUTHORITY: QortalRuntimeAuthority = {
   canonicalCwd: PATHS.installPath,
@@ -94,7 +100,11 @@ function stateFor(targetPath: string, update = false): CoreJarTargetState {
   return FILE_TARGET;
 }
 
-function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = false) {
+function manager(
+  overrides: Partial<QortalCoreManagerOperations> = {},
+  update = false,
+  configOverrides: Partial<ConstructorParameters<typeof QortalCoreManager>[0]> = {},
+) {
   const lifecycle: Lifecycle = {
     createCandidatePaths: () => ({ candidateJarPath: UNIQUE_CANDIDATE, partialPath: `${UNIQUE_CANDIDATE}.partial` }),
     detectStoppedOwnership: async () => FALSE_POLICY,
@@ -126,7 +136,7 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
     ...overrides,
   };
   return new QortalCoreManager({ adoptedRecordPath: ADOPTED_RECORD_PATH,
-    lockRoot: LOCK_ROOT, paths: PATHS, userAgent: 'QortiumHome/test' }, lifecycle);
+    lockRoot: LOCK_ROOT, paths: PATHS, userAgent: 'QortiumHome/test', ...configOverrides }, lifecycle);
 }
 
 {
@@ -246,7 +256,7 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
   const result = await manager({
     prepareCommand: (command, args) => { assert.equal(command, '/usr/bin/java'); preparedArgs = args;
       return { command: '/bin/bash', args: ['-c', 'exec "$@"', 'managed', command, ...args] }; },
-    spawnProcess: async (command, args, options) => { spawnCalls.push({ command, args, options });
+    spawnProcess: async (_target, command, args, options) => { spawnCalls.push({ command, args, options });
       return { pid: AUTHORITY.pid, startIdentity: AUTHORITY.startIdentity, unref: () => {} }; },
     waitForReadiness: async (_paths, receipt) => { receiptSeen = receipt.pid === AUTHORITY.pid &&
       receipt.startIdentity === AUTHORITY.startIdentity; return RUNNING; },
@@ -300,12 +310,13 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
   let waitAuthority: QortalRuntimeAuthority | null = null;
   const result = await manager({
     inspectRuntime: async () => RUNNING,
-    readApiKey: async (paths, authority) => {
-      assert.equal(paths, PATHS);
+    readApiKey: async (target, authority) => {
+      assert.deepEqual(target, HOME_TARGET);
       assert.equal(authority, AUTHORITY);
       return 'private-test-key';
     },
     stopWithApiKey: async (input) => { assert.equal(input.apiKey, 'private-test-key');
+      assert.deepEqual(input.target, HOME_TARGET);
       assert.equal(input.url, 'http://127.0.0.1:12391/admin/stop'); stopAuthority = input.expectedAuthority; },
     waitForStopped: async (_paths, authority) => { waitAuthority = authority; return STOPPED; },
   }).stop();
@@ -347,7 +358,8 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
     adoptedAt: '2026-08-21T20:00:00.000Z',
     adoptedJar: { buildVersion: IDENTITY.buildVersion, canonicalPath: '/foreign/qortal.jar',
       semver: IDENTITY.semver, sha256: RELEASE.asset.digest, size: RELEASE.asset.size },
-    adoptedSettings: { canonicalPath: '/foreign/settings.json', mtimeMs: 1, size: 2 },
+    adoptedSettings: { canonicalPath: '/foreign/settings.json', mtimeMs: 1,
+      sha256: `sha256:${'b'.repeat(64)}`, size: 2 },
     detectedBy: 'user-selected', installPath: '/foreign', jarPath: '/foreign/qortal.jar',
     networkId: 'qortal', settingsPath: '/foreign/settings.json', source: 'adopted', version: 1,
   } satisfies QortalAdoptedInstallRecordV1;
@@ -355,22 +367,147 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
     canonicalInstallPath: '/foreign', hubHint: false,
     jarState: { ...FILE_TARGET, canonicalPath: '/foreign/qortal.jar' }, origins: ['user-selected'],
     runningProcessMatch: false,
-    settingsState: { canonicalPath: '/foreign/settings.json', dev: 1, ino: 2, mtimeMs: 1, size: 2 },
+    settingsState: { canonicalPath: '/foreign/settings.json', dev: 1, ino: 2, mtimeMs: 1,
+      sha256: adoptedRecord.adoptedSettings.sha256, size: 2 },
   } satisfies QortalInstallCandidate;
   const adopted: QortalInstallObservation = { candidate: adoptedCandidate, kind: 'adopted', record: adoptedRecord };
+  const adoptedTargetState = { ...FILE_TARGET, canonicalPath: adoptedRecord.jarPath };
+  const adoptedAuthority: QortalRuntimeAuthority = {
+    ...AUTHORITY,
+    canonicalCwd: adoptedRecord.installPath,
+    canonicalJarPath: adoptedRecord.jarPath,
+    owner: 'external',
+  };
+  let prepared = false;
+  let spawned: { command: string; args: readonly string[]; cwd: string } | null = null;
   const adoptedManager = manager({ inspectInstall: async () => adopted,
+    prepareCommand: () => { prepared = true; throw new Error('adopted launch must remain direct'); },
+    readTargetState: async () => adoptedTargetState,
+    spawnProcess: async (_target, command, args, options) => {
+      spawned = { command, args, cwd: options.cwd };
+      return { pid: adoptedAuthority.pid, startIdentity: adoptedAuthority.startIdentity, unref: () => {} };
+    },
     stageCandidate: async () => { mutated = true; throw new Error('must not stage'); },
-    stopWithApiKey: async () => { mutated = true; } });
+    stopWithApiKey: async () => { mutated = true; },
+    waitForReadiness: async () => ({ authority: adoptedAuthority, state: 'running' }),
+  });
   const status = await adoptedManager.getStatus();
   assert.deepEqual(status.capabilities,
-    { canInitialInstall: false, canStart: false, canStop: false, canUpdate: false });
+    { canInitialInstall: false, canStart: true, canStop: false, canUpdate: false });
   assert.equal(status.updateOwnership.ownership, 'home-github');
-  for (const result of [await adoptedManager.install('release'), await adoptedManager.update('release'),
-    await adoptedManager.start(), await adoptedManager.stop()]) {
+  for (const result of [await adoptedManager.install('release'), await adoptedManager.update('release')]) {
     assert.equal(result.kind, 'blocked');
     if (result.kind === 'blocked') assert.equal(result.code, 'adopted-unsupported');
   }
+  assert.equal((await adoptedManager.start()).kind, 'started');
+  assert.equal(prepared, false);
+  assert.deepEqual(spawned, { command: '/usr/bin/java',
+    args: ['-jar', adoptedRecord.jarPath, 'settings.json'], cwd: adoptedRecord.installPath });
+
+  let launchBoundaryReads = 0;
+  let launchBoundarySpawned = false;
+  const changedAdoptedTargetState = { ...adoptedTargetState, sha256: `sha256:${'c'.repeat(64)}` };
+  const launchBoundary = await manager({
+    inspectInstall: async () => adopted,
+    readTargetState: async () => {
+      launchBoundaryReads += 1;
+      return launchBoundaryReads === 3 ? changedAdoptedTargetState : adoptedTargetState;
+    },
+    spawnProcess: async () => { launchBoundarySpawned = true;
+      return { pid: adoptedAuthority.pid, startIdentity: adoptedAuthority.startIdentity, unref: () => {} }; },
+  }).start();
+  assert.equal(launchBoundary.kind, 'blocked');
+  if (launchBoundary.kind === 'blocked') assert.equal(launchBoundary.code, 'target-changed');
+  assert.equal(launchBoundarySpawned, false,
+    'a target mutation after the final stopped proof must prevent adopted launch');
+
+  let runtimeBarrierReads = 0;
+  let runtimeBarrierSpawned = false;
+  const competingRuntime = await manager({
+    inspectInstall: async () => adopted,
+    inspectRuntime: async () => {
+      runtimeBarrierReads += 1;
+      return runtimeBarrierReads === 3
+        ? { authority: adoptedAuthority, state: 'running' }
+        : STOPPED;
+    },
+    readTargetState: async () => adoptedTargetState,
+    spawnProcess: async () => { runtimeBarrierSpawned = true;
+      return { pid: adoptedAuthority.pid, startIdentity: adoptedAuthority.startIdentity, unref: () => {} }; },
+  }).start();
+  assert.equal(competingRuntime.kind, 'blocked');
+  if (competingRuntime.kind === 'blocked') assert.equal(competingRuntime.code, 'process-active');
+  assert.equal(runtimeBarrierSpawned, false,
+    'a competing runtime at the spawn-adjacent absence proof must prevent adopted launch');
+
+  let confirmationReads = 0;
+  let confirmationSpawned = false;
+  const postLaunchMutation = await manager({
+    inspectInstall: async () => adopted,
+    readTargetState: async () => {
+      confirmationReads += 1;
+      return confirmationReads === 4 ? changedAdoptedTargetState : adoptedTargetState;
+    },
+    spawnProcess: async () => { confirmationSpawned = true;
+      return { pid: adoptedAuthority.pid, startIdentity: adoptedAuthority.startIdentity, unref: () => {} }; },
+    waitForReadiness: async () => ({ authority: adoptedAuthority, state: 'running' }),
+  }).start();
+  assert.equal(confirmationSpawned, true);
+  assert.equal(postLaunchMutation.kind, 'start-unconfirmed');
+
+  const stop = await adoptedManager.stop();
+  assert.equal(stop.kind, 'blocked');
+  if (stop.kind === 'blocked') assert.equal(stop.code, 'process-ownership-unproven');
   assert.equal(mutated, false);
+
+  let lockedTarget = '';
+  let keyTarget: QortalRuntimeTarget | null = null;
+  let stopTarget: QortalRuntimeTarget | null = null;
+  const runningAdoptedManager = manager({
+    inspectInstall: async () => adopted,
+    inspectRuntime: async () => ({ authority: adoptedAuthority, state: 'running' }),
+    readApiKey: async (target) => { keyTarget = target; return 'private-test-key'; },
+    readTargetState: async () => adoptedTargetState,
+    stopWithApiKey: async (input) => { stopTarget = input.target; },
+    waitForStopped: async () => STOPPED,
+    withOperationLock: async (request, operation) => {
+      lockedTarget = request.targetPath;
+      return await operation({ canonicalTarget: request.targetPath, key: 'key',
+        lockPath: path.join(LOCK_ROOT, 'key.lock'), ownerToken: 'a'.repeat(64) });
+    },
+  });
+  const runningStatus = await runningAdoptedManager.getStatus();
+  assert.deepEqual(runningStatus.capabilities,
+    { canInitialInstall: false, canStart: false, canStop: true, canUpdate: false });
+  assert.equal((await runningAdoptedManager.stop()).kind, 'stopped');
+  const expectedAdoptedTarget: QortalRuntimeTarget = {
+    installPath: adoptedRecord.installPath,
+    jarPath: adoptedRecord.jarPath,
+    owner: 'external',
+  };
+  assert.equal(lockedTarget, adoptedRecord.jarPath);
+  assert.deepEqual(keyTarget, expectedAdoptedTarget);
+  assert.deepEqual(stopTarget, expectedAdoptedTarget);
+
+  let persistenceCalled = false;
+  const persistenceManager = manager({
+    inspectInstall: async () => ({ kind: 'missing' }),
+    persistAdoptedSelection: async (candidate, detectedBy, paths, options) => {
+      persistenceCalled = candidate === adoptedCandidate && detectedBy === 'user-selected' && paths === PATHS &&
+        typeof options?.operations?.readSecureRecord === 'function';
+      return { kind: 'unchanged', record: adoptedRecord };
+    },
+  }, false, { readAdoptedRecord: async () => Buffer.from('{}') });
+  const persistence = await persistenceManager.persistAdoptedSelection(adoptedCandidate, 'user-selected');
+  assert.equal(persistence.kind, 'unchanged');
+  assert.equal(persistenceCalled, true);
+
+  let dormantSelectionCalled = false;
+  const managedSelection = await manager({
+    persistAdoptedSelection: async () => { dormantSelectionCalled = true; return { kind: 'persisted', record: adoptedRecord }; },
+  }).persistAdoptedSelection(adoptedCandidate, 'user-selected');
+  assert.equal(managedSelection.kind, 'blocked');
+  assert.equal(dormantSelectionCalled, false);
 }
 
 assert.equal(manager().descriptor.launch.kind, 'direct-jar');
