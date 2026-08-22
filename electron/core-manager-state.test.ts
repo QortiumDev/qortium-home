@@ -68,6 +68,49 @@ await javaGate.promise;
 await new Promise<void>((resolve) => setImmediate(resolve));
 assert.equal(registry.forNetwork('alpha').managedJavaRefreshInFlight, false);
 
+const installGate = deferred<string>();
+let installRuns = 0;
+const firstInstall = registry.runManagedJavaInstall('alpha', async () => {
+  installRuns += 1;
+  return await installGate.promise;
+});
+assert.equal(
+  registry.runManagedJavaInstall('alpha', async () => {
+    installRuns += 1;
+    return 'unexpected';
+  }),
+  firstInstall,
+);
+installGate.resolve('installed');
+assert.equal(await firstInstall, 'installed');
+assert.equal(installRuns, 1);
+assert.equal(registry.forNetwork('alpha').managedJavaInstallPromise, null);
+
+await assert.rejects(
+  registry.runManagedJavaInstall('alpha', async () => { throw new Error('install failed') }),
+  /install failed/,
+);
+assert.equal(
+  await registry.runManagedJavaInstall('alpha', async () => 'retry installed'),
+  'retry installed',
+);
+
+const metadataGate = deferred<void>();
+const metadataOrder: string[] = [];
+const firstMetadataWrite = registry.queueManagedJavaMetadataMutation('alpha', async () => {
+  metadataOrder.push('first-start');
+  await metadataGate.promise;
+  metadataOrder.push('first-end');
+});
+const secondMetadataWrite = registry.queueManagedJavaMetadataMutation('alpha', async () => {
+  metadataOrder.push('second');
+});
+await new Promise<void>((resolve) => setImmediate(resolve));
+assert.deepEqual(metadataOrder, ['first-start']);
+metadataGate.resolve();
+await Promise.all([firstMetadataWrite, secondMetadataWrite]);
+assert.deepEqual(metadataOrder, ['first-start', 'first-end', 'second']);
+
 const failedRefresh = deferred<void>();
 assert.equal(
   registry.scheduleManagedJavaRefresh('alpha', async () => {

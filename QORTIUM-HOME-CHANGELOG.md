@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 Core maintenance
+
+Desktop Runtime settings can now install a verified Qortium Preview Core or
+update an existing Home-managed Core when its own release channel has a
+strictly newer version. Home performs release discovery itself, re-checks the
+exact official tagged release before download, requires its canonical SHA-256
+and positive byte size, and verifies both while streaming. The page receives
+only the release channel, version, capability, and bounded outcome; it cannot
+supply a URL, digest, path, downgrade approval, reinstall request, or Qortal
+mutation. Core must be stopped before this manual install or update.
+
+The same panel can install managed Java when Java is missing, unsupported, or
+behind Home's managed target. Java versions now publish as immutable,
+single-flight generations through atomic metadata. A delayed update check can
+no longer point Home back to an older generation, and installation never
+deletes or overwrites files that a running Qortium or Qortal Core may still be
+using. Automatic Core/Java policies, Qortal installation, i2pd/transport,
+Android Core maintenance, retired Java cleanup, signing, and publication stay
+outside this change.
+
 ### 2026-08-22 - feat(updates): persist Home 2 update policy
 
 Home 2 now remembers the selected Home release channel and automatic-update

@@ -747,6 +747,21 @@
   padding: 18px;
 }
 
+.home-v2-core-maintenance {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--home-v2-border) 72%, transparent);
+}
+
+.home-v2-core-maintenance__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
 .home-v2-node-card,
 .home-v2-panel,
 .home-v2-app-card,

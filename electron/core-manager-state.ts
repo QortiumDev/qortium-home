@@ -7,6 +7,8 @@ export type CoreManagerConfirmation = {
 export type CoreManagerNetworkState<Status, Confirmation extends CoreManagerConfirmation> = {
   coreLayoutMigrationPromise: Promise<void> | null;
   downgradeConfirmations: Map<string, Confirmation>;
+  managedJavaInstallPromise: Promise<unknown> | null;
+  managedJavaMetadataQueue: Promise<void>;
   managedJavaRefreshInFlight: boolean;
   updateEnginePromise: Promise<void> | null;
   updateEngineRerunPromise: Promise<void> | null;
@@ -33,6 +35,8 @@ export class CoreManagerStateRegistry<
       state = {
         coreLayoutMigrationPromise: null,
         downgradeConfirmations: new Map<string, Confirmation>(),
+        managedJavaInstallPromise: null,
+        managedJavaMetadataQueue: Promise.resolve(),
         managedJavaRefreshInFlight: false,
         updateEnginePromise: null,
         updateEngineRerunPromise: null,
@@ -75,6 +79,31 @@ export class CoreManagerStateRegistry<
         state.managedJavaRefreshInFlight = false;
       });
     return true;
+  }
+
+  runManagedJavaInstall<Result>(networkId: NetworkId, install: () => Promise<Result>) {
+    const state = this.forNetwork(networkId);
+
+    if (state.managedJavaInstallPromise) {
+      return state.managedJavaInstallPromise as Promise<Result>;
+    }
+
+    const promise = Promise.resolve().then(install).finally(() => {
+      if (state.managedJavaInstallPromise === promise) {
+        state.managedJavaInstallPromise = null;
+      }
+    });
+
+    state.managedJavaInstallPromise = promise;
+    return promise;
+  }
+
+  queueManagedJavaMetadataMutation<Result>(networkId: NetworkId, mutate: () => Promise<Result>) {
+    const state = this.forNetwork(networkId);
+    const result = state.managedJavaMetadataQueue.then(mutate, mutate);
+
+    state.managedJavaMetadataQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   runUpdateEngine(networkId: NetworkId, run: () => Promise<void>) {

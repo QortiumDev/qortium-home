@@ -111,6 +111,9 @@ function assertRedacted(value: unknown) {
       throw new Error('unauthorized')
     },
     {
+      getMaintenanceStatus: async () => { serviceCalls += 1; return {} as never },
+      checkMaintenanceRelease: async () => { serviceCalls += 1; return {} as never },
+      runMaintenanceAction: async () => { serviceCalls += 1; return {} as never },
       getStatus: async () => { serviceCalls += 1; return {} as never },
       start: async () => { serviceCalls += 1; return {} as never },
       stop: async () => { serviceCalls += 1; return {} as never },
@@ -120,7 +123,153 @@ function assertRedacted(value: unknown) {
     () => handlers.start({} as IpcMainInvokeEvent, { network: 'qortal' }),
     /unauthorized/,
   )
+  assert.throws(
+    () => handlers.runMaintenanceAction({} as IpcMainInvokeEvent, { raw: '/secret' }),
+    /unauthorized/,
+  )
   assert.equal(serviceCalls, 0)
+}
+
+function maintenanceManager(options: {
+  installed?: Record<string, unknown> | null
+  java?: Record<string, unknown>
+  onInstall?: (request: unknown) => Promise<unknown>
+  onInstallJava?: () => Promise<unknown>
+  observedRuntime?: 'running' | 'stopped' | 'unknown'
+  release?: Record<string, unknown>
+  runtime?: Record<string, unknown>
+} = {}) {
+  const status = () => qortiumStatus({
+    installed: options.installed === undefined
+      ? null
+      : options.installed,
+    java: options.java ?? {
+      available: false,
+      majorVersion: null,
+      managedJavaTarget: 25,
+      managedUpgradeAvailable: false,
+      path: '/secret/java',
+      source: 'missing',
+      version: null,
+    },
+    runtime: options.runtime ?? { owner: 'home', running: false },
+  })
+  const unavailable = {
+    available: false,
+    channel: 'stable',
+    message: '/secret/raw release error',
+  }
+  return {
+    checkReleases: async () => ({
+      prerelease: options.release ?? unavailable,
+      stable: options.release ?? unavailable,
+    }),
+    getStatus: async () => status(),
+    getMaintenanceRuntimeStateForHomeV2: async () => options.observedRuntime ?? 'stopped',
+    install: options.onInstall ?? (async () => status()),
+    installJava: options.onInstallJava ?? (async () => status()),
+    networkId: 'qortium',
+    startForHomeV2: async () => status(),
+    stopForHomeV2: async () => status(),
+  } as unknown as CoreManagerEntry
+}
+
+{
+  const service = createHomeV2CoreManagerService(() => maintenanceManager())
+  await assert.rejects(service.getMaintenanceStatus({}), /exact Core maintenance request/i)
+  await assert.rejects(
+    service.checkMaintenanceRelease({
+      channel: 'stable',
+      revision: 1,
+      schema: 'home-v2-core-maintenance-release-request',
+    }),
+    /exact Core maintenance release request/i,
+  )
+}
+
+{
+  const manager = maintenanceManager()
+  const service = createHomeV2CoreManagerService(() => manager)
+  const status = await service.getMaintenanceStatus({
+    revision: 1,
+    schema: 'home-v2-core-maintenance-request',
+  })
+  assert.equal(status.capabilities.canInitialInstall, true)
+  assert.equal(status.capabilities.canInstallJava, true)
+  assert.equal(status.core.installedVersion, null)
+  assert.equal(status.java.source, 'missing')
+  assertRedacted(status)
+}
+
+{
+  const release = {
+    asset: { digest: '/secret/digest', downloadUrl: '/secret/url', name: 'secret.zip', size: 123 },
+    available: true,
+    channel: 'prerelease',
+    commit: 'a'.repeat(40),
+    commitTimestamp: '/secret/time',
+    htmlUrl: '/secret/html',
+    name: '/secret/name',
+    publishedAt: '/secret/published',
+    tagName: 'v1.2.3',
+  }
+  let installRequest: unknown = null
+  const manager = maintenanceManager({
+    onInstall: async (request) => { installRequest = request; return {} },
+    release,
+  })
+  const service = createHomeV2CoreManagerService(() => manager)
+  const checked = await service.checkMaintenanceRelease({
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release-request',
+  })
+  assert.deepEqual(checked, {
+    action: 'initial-install',
+    available: true,
+    channel: 'prerelease',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release',
+    tag: 'v1.2.3',
+  })
+  assertRedacted(checked)
+  const result = await service.runMaintenanceAction({
+    action: 'initial-install',
+    channel: 'prerelease',
+    expectedTag: 'v1.2.3',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  assert.equal(result.outcome, 'completed')
+  assert.deepEqual(installRequest, {
+    channel: 'prerelease',
+    expectedTag: 'v1.2.3',
+    mode: 'initial-install',
+  })
+  assertRedacted(result)
+}
+
+{
+  const manager = maintenanceManager({
+    installed: { channel: 'stable', jarSemver: '1.2.3', tagName: 'v1.2.3' },
+    release: {
+      asset: { digest: '/secret', downloadUrl: '/secret', name: 'secret', size: 1 },
+      available: true,
+      channel: 'stable',
+      commit: 'a'.repeat(40),
+      commitTimestamp: '',
+      htmlUrl: '',
+      name: '',
+      publishedAt: '',
+      tagName: 'v1.2.3',
+    },
+  })
+  const checked = await createHomeV2CoreManagerService(() => manager).checkMaintenanceRelease({
+    revision: 1,
+    schema: 'home-v2-core-maintenance-release-request',
+  })
+  assert.equal(checked.channel, 'stable')
+  assert.equal(checked.action, 'none')
+  assertRedacted(checked)
 }
 
 {
