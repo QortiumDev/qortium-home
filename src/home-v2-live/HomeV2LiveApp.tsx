@@ -65,6 +65,7 @@ import {
   parseHomeV2NodesSnapshot,
   useHomeV2NodeCoreController,
 } from './node-core-controller'
+import { useHomeV2AppUpdates } from './app-update-controller'
 import {
   getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
@@ -453,6 +454,7 @@ export function HomeV2LiveApp() {
     coreClient: window.homeV2CoreManagers ?? null,
     nodeClient,
   })
+  const appUpdates = useHomeV2AppUpdates()
   const snapshot = useMemo<HomeV2Snapshot>(
     () => ({ ...snapshotState, nodes: nodeCoreController.nodes }),
     [nodeCoreController.nodes, snapshotState],
@@ -3801,6 +3803,7 @@ export function HomeV2LiveApp() {
           void nodeCoreController.refreshCoreStatuses()
         },
       }}
+      appUpdates={appUpdates.available ? appUpdates : undefined}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })

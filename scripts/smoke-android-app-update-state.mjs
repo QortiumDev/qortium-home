@@ -21,12 +21,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  assertScenarioState,
-  appUpdatePreferencesKey,
   buildFetchStubSource,
   buildScenarioFixture,
-  buildUpdateCardStateSource,
-  getScenarioExpectations,
   parseScenarioArgument,
 } from './lib/app-update-scenarios.mjs';
 
@@ -148,14 +144,15 @@ function getDebugApkPath() {
   return path.join(debugDir, apk);
 }
 
-async function getAttachedDevice() {
+async function getAttachedDevice(emulatorOnly = false) {
   const { stdout } = await adb(['devices']);
   const serials = stdout
     .split(/\r?\n/)
     .slice(1)
     .map((line) => line.trim().split(/\s+/))
     .filter((parts) => parts[1] === 'device')
-    .map((parts) => parts[0]);
+    .map((parts) => parts[0])
+    .filter((serial) => !emulatorOnly || serial.startsWith('emulator-'));
 
   if (process.env.QORTIUM_HOME_ANDROID_SERIAL) {
     return serials.includes(process.env.QORTIUM_HOME_ANDROID_SERIAL)
@@ -204,7 +201,7 @@ async function launchEmulatorIfNeeded() {
 
   emulator.unref();
 
-  const serial = await waitUntil('emulator to attach', appTimeoutMs, () => getAttachedDevice());
+  const serial = await waitUntil('emulator to attach', appTimeoutMs, () => getAttachedDevice(true));
 
   await waitUntil('emulator boot', appTimeoutMs, async () => {
     const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed']);
@@ -402,59 +399,43 @@ async function getMainPageTarget(port) {
 // A fresh install lands on the onboarding flow, which renders instead of the
 // dashboard. Skipping is idempotent: once the flag is stored, later launches
 // go straight to the dashboard and this is a no-op.
-async function skipWelcomeIfPresent(client) {
-  // Poll for whichever surface renders first. Clicking the moment the script
-  // connects raced the initial render: the button did not exist yet, and the
-  // dashboard card that was waited for afterwards could never appear because
-  // the welcome flow was still up.
-  const outcome = await waitUntil('welcome flow or dashboard', appTimeoutMs, () =>
+async function openHomeUpdateSettings(client) {
+  await waitUntil('Home 2 settings control', appTimeoutMs, () =>
+    evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
+  );
+  await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`);
+  await waitUntil('Runtime settings navigation', appTimeoutMs, () =>
     evaluate(
       client,
       `(() => {
-        if (document.querySelector('.dashboard-card--updates')) {
-          return 'dashboard';
-        }
-
-        const button = [...document.querySelectorAll('.welcome-page button')]
-          .find((item) => item.textContent?.trim() === 'Skip setup');
-
-        if (button) {
-          button.click();
-          return 'skipped';
-        }
-
-        return null;
+        const button = [...document.querySelectorAll('.home-v2-settings-nav button')]
+          .find((candidate) => candidate.textContent?.trim() === 'Runtime');
+        if (!button) return false;
+        button.click();
+        return true;
       })()`,
     ),
   );
-
-  if (outcome === 'skipped') {
-    log('Skipped the welcome flow.');
-
-    await waitUntil('Home update card', appTimeoutMs, () =>
-      evaluate(client, `!!document.querySelector('.dashboard-card--updates')`),
-    );
-  }
+  await waitUntil('Home 2 Android update settings', appTimeoutMs, () =>
+    evaluate(client, `Boolean(document.querySelector('[data-home-v2-app-updates="android"]'))`),
+  );
 }
-
-// Android keeps the preferences blob in Capacitor Preferences
-// (SharedPreferences), so it is seeded and read through the plugin.
-const storedDownloadTagExpression = `
-  (async () => {
-    try {
-      const stored = await window.Capacitor.Plugins.Preferences.get({ key: '${appUpdatePreferencesKey}' });
-
-      return JSON.parse(stored?.value || '{}').downloadedUpdate?.releaseTag ?? null;
-    } catch {
-      return null;
-    }
-  })()
-`;
 
 async function waitForSettledStatus(client, label) {
   // 'Checking' is the pre-result state; settling on it would assert nothing.
   return waitUntil(label, updateStatusTimeoutMs, async () => {
-    const state = await evaluate(client, buildUpdateCardStateSource(storedDownloadTagExpression));
+    const state = await evaluate(client, `(() => {
+      const panel = document.querySelector('[data-home-v2-app-updates="android"]');
+      if (!panel) return null;
+      return {
+        actions: [...panel.querySelectorAll('[data-home-v2-update-action]')]
+          .map((button) => button.textContent?.trim() ?? ''),
+        latest: [...panel.querySelectorAll('.home-v2-update-details > div')]
+          .find((row) => row.querySelector('dt')?.textContent?.trim() === 'Latest')
+          ?.querySelector('dd')?.textContent?.trim() ?? null,
+        status: panel.querySelector('.home-v2-settings-panel__heading p')?.textContent?.trim() ?? '',
+      };
+    })()`);
 
     return state && state.status && state.status !== 'Checking' ? state : null;
   });
@@ -467,9 +448,7 @@ async function runScenario({ client, environment, scenario, selectAsset }) {
 
   assert(!!asset, `No stubbed asset matches ${environment.platform.os}; the harness cannot seed a download.`);
 
-  // 'off' suppresses the automatic check on mount, so the seeded state cannot
-  // be consumed (and cleared) by a real GitHub check before the stub is in place.
-  const { preferences, release } = buildScenarioFixture({
+  const { release } = buildScenarioFixture({
     asset,
     currentVersion,
     fail,
@@ -477,36 +456,37 @@ async function runScenario({ client, environment, scenario, selectAsset }) {
     scenario,
   });
 
-  log(
-    `Scenario ${scenario}: installed ${currentVersion}, stubbed release ${release.tag_name}, seeded download ${asset.name}.`,
-  );
-
-  await evaluate(
-    client,
-    `window.Capacitor.Plugins.Preferences.set({
-      key: '${appUpdatePreferencesKey}',
-      value: ${JSON.stringify(JSON.stringify(preferences))},
-    })`,
-  );
+  log(`Scenario ${scenario}: installed ${currentVersion}, stubbed release ${release.tag_name}.`);
 
   await client.send('Page.reload', { ignoreCache: true });
-  await skipWelcomeIfPresent(client);
+  await openHomeUpdateSettings(client);
 
   // Applied after load because CapacitorHttp replaces window.fetch during
   // startup; a pre-load bootstrap would be silently overwritten.
   await evaluate(client, buildFetchStubSource(release));
-  await evaluate(client, `document.querySelector('.dashboard-card--updates .dashboard-card__header-button').click()`);
+  await waitUntil('enabled Home 2 update check', updateStatusTimeoutMs, () =>
+    evaluate(
+      client,
+      `Boolean(document.querySelector('[data-home-v2-update-action="check"]:not(:disabled)'))`,
+    ),
+  );
+  await evaluate(client, `document.querySelector('[data-home-v2-update-action="check"]').click()`);
 
   const state = await waitForSettledStatus(client, `Home update status (${scenario})`);
 
   log(`Scenario ${scenario}: status "${state.status}", actions [${state.actions.join(', ')}].`);
+  assert(
+    state.latest === release.tag_name,
+    `Scenario ${scenario}: expected fixture tag ${release.tag_name}, found ${state.latest}.`,
+  );
 
-  assertScenarioState({
-    assert,
-    expectations: getScenarioExpectations({ platformOs: environment.platform.os, release, scenario }),
-    scenario,
-    state,
-  });
+  if (scenario === 'installed') {
+    assert(state.status.includes('up to date'), `Scenario ${scenario}: unexpected status ${state.status}.`);
+    assert(!state.actions.includes('Download update'), `Scenario ${scenario}: Download update was offered.`);
+  } else {
+    assert(state.status.includes('available'), `Scenario ${scenario}: unexpected status ${state.status}.`);
+    assert(state.actions.includes('Download update'), `Scenario ${scenario}: Download update was not offered.`);
+  }
 
   log(`Scenario ${scenario} passed.`);
 }
@@ -562,7 +542,7 @@ async function main() {
     try {
       await client.send('Runtime.enable');
       await client.send('Page.enable');
-      await skipWelcomeIfPresent(client);
+      await openHomeUpdateSettings(client);
 
       const environment = await waitUntil('Home update environment', cdpTimeoutMs, async () => {
         const value = await evaluate(

@@ -853,7 +853,7 @@ interface Window {
       ) => Promise<QortiumAppUpdateDownloadResult>;
       getEnvironment: () => Promise<QortiumAppUpdateEnvironment>;
       onDownloadProgress: (callback: (progress: QortiumAppUpdateDownloadProgress) => void) => () => void;
-      openDownloadedFile: (filePath: string) => Promise<void>;
+      openDownloadedFile: (filePath: string, expectedDigest?: string) => Promise<void>;
       openReleasePage: (url: string) => Promise<void>;
       showDownloadedFile: (filePath: string) => Promise<void>;
     };

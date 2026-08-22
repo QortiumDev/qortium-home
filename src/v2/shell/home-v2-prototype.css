@@ -1453,6 +1453,11 @@
   min-width: 0;
 }
 
+.home-v2-runtime-settings {
+  display: grid;
+  gap: 16px;
+}
+
 .home-v2-page-heading h1,
 .home-v2-settings-panel h2 {
   margin: 0;
@@ -1545,6 +1550,61 @@
 
 .home-v2-setting-row select {
   min-width: 210px;
+}
+
+.home-v2-update-controls {
+  align-items: center;
+  gap: 10px;
+}
+
+.home-v2-update-details {
+  display: grid;
+  margin: 0;
+  padding: 6px 22px;
+}
+
+.home-v2-update-details > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.45fr) minmax(0, 1fr);
+  gap: 18px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--v2-line);
+}
+
+.home-v2-update-details > div:last-child {
+  border-bottom: 0;
+}
+
+.home-v2-update-details dt {
+  color: var(--v2-muted);
+  font-size: calc(12px * var(--v2-type-scale));
+}
+
+.home-v2-update-details dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: calc(13px * var(--v2-type-scale));
+  font-weight: 650;
+}
+
+.home-v2-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 22px;
+  border-top: 1px solid var(--v2-line);
+}
+
+.home-v2-update-message {
+  margin: 0;
+  padding: 0 22px 18px;
+  color: var(--v2-muted);
+  font-size: calc(12px * var(--v2-type-scale));
+}
+
+.home-v2-update-message[data-tone='error'] {
+  color: var(--v2-danger);
 }
 
 .home-v2-zoom-control {
@@ -1823,6 +1883,16 @@
 .home-v2-shell[data-layout='phone'] .home-v2-setting-row__control,
 .home-v2-shell[data-layout='phone'] .home-v2-accent-select {
   justify-content: flex-start;
+}
+
+.home-v2-shell[data-layout='phone'] .home-v2-update-controls,
+.home-v2-shell[data-layout='phone'] .home-v2-update-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.home-v2-shell[data-layout='phone'] .home-v2-update-actions button {
+  width: 100%;
 }
 
 .home-v2-shell[data-layout='phone'] .home-v2-setting-row select {

@@ -34,6 +34,27 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(updates): restore Home 2 application updates
+
+Home 2 now exposes Qortium Home update checks and verified downloads in the
+Runtime settings section on desktop and Android. Desktop release discovery and
+asset selection run in the main process through a new sender-gated, versioned
+bridge; widgets, subframes, navigated documents, extra request fields, raw
+GitHub data, download URLs, and filesystem paths are not accepted or returned.
+Home re-fetches the fixed official release immediately before download, accepts
+only the matching platform package, requires GitHub SHA-256 metadata, enforces
+the declared byte size, and gives the renderer only a short-lived opaque handle
+for revealing the verified file.
+
+Android retains its native APK path while applying the same official-release,
+digest, size, and signed-APK rules. The installer now re-hashes the canonical
+app-private APK immediately before handing it to Android, so a missing,
+changed, unsigned, misplaced, or non-APK file cannot reach the package
+installer. The Android update-state and installer smokes now exercise the
+shipped Home 2 screen, and CI explicitly assembles the debug APK. Core/Java,
+i2pd/transport, Home auto-download policy, signing, publishing, and release
+work remain separate roadmap tranches.
+
 ### 2026-08-22 - feat(core): add Home 2 Core management UI
 
 Home 2 now shows Qortium-first Core management cards on the desktop Dashboard

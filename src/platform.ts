@@ -524,7 +524,7 @@ type QortalNodeCandidate = {
 };
 
 type UpdateInstallerPlugin = {
-  installApk: (request: { filePath: string }) => Promise<{ opened?: boolean }>;
+  installApk: (request: { expectedDigest: string; filePath: string }) => Promise<{ opened?: boolean }>;
 };
 
 type QdnFileSaverPlugin = {
@@ -1264,14 +1264,22 @@ async function downloadUpdateAssetInternal(request: QortiumAppUpdateDownloadRequ
 
   const normalizedRequest = normalizeUpdateDownloadRequest(request);
 
+  if (!normalizedRequest.asset.digest) {
+    throw new Error('The selected update has no trusted SHA-256 digest.');
+  }
+
   if (enforceNewer) {
     assertFallbackUpdateIsNewer(normalizedRequest.releaseTag);
   }
 
   const base64Asset = await fetchAssetAsBase64(normalizedRequest.asset);
+  const downloadedSize = base64ToBytes(base64Asset).byteLength;
+  if (downloadedSize !== normalizedRequest.asset.size) {
+    throw new Error('Update download size did not match the trusted GitHub asset metadata.');
+  }
   const digest = await hashBase64(base64Asset);
 
-  if (normalizedRequest.asset.digest && normalizedRequest.asset.digest !== digest) {
+  if (normalizedRequest.asset.digest !== digest) {
     throw new Error('Downloaded update did not match the expected GitHub asset digest.');
   }
 
@@ -1308,7 +1316,7 @@ async function downloadUpdateAssetInternal(request: QortiumAppUpdateDownloadRequ
     fileName,
     filePath: fileUri.uri,
     releaseTag: normalizedRequest.releaseTag,
-    size: fileStatus.size || base64ToBytes(base64Asset).byteLength,
+    size: fileStatus.size || downloadedSize,
   };
 }
 
@@ -11886,15 +11894,22 @@ function createFallbackApi(): PlatformApi {
       onDownloadProgress() {
         return () => {};
       },
-      async openDownloadedFile(filePath) {
+      async openDownloadedFile(filePath, expectedDigest) {
         if (isAndroid()) {
           const normalizedFilePath = getString(filePath);
+          const normalizedExpectedDigest = normalizeUpdateDigest(expectedDigest ?? null);
 
           if (!normalizedFilePath) {
             throw new Error('Downloaded update path is required.');
           }
+          if (!normalizedExpectedDigest) {
+            throw new Error('A verified SHA-256 digest is required before installing an update.');
+          }
 
-          await UpdateInstaller.installApk({ filePath: normalizedFilePath });
+          await UpdateInstaller.installApk({
+            expectedDigest: normalizedExpectedDigest,
+            filePath: normalizedFilePath,
+          });
           return;
         }
 
