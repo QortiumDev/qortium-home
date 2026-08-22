@@ -18,6 +18,7 @@
 #include <iphlpapi.h>
 #include <sddl.h>
 #include <shellapi.h>
+#include <tcpmib.h>
 #include <tlhelp32.h>
 #include <windows.h>
 #include <winsock2.h>
