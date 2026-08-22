@@ -140,6 +140,9 @@ try {
   let qortalStartCalls = 0
   let qortalStopCalls = 0
   const coreClient: HomeV2CoreManagerClient = {
+    getMaintenanceStatus: async () => ({} as never),
+    checkMaintenanceRelease: async () => ({} as never),
+    runMaintenanceAction: async () => ({} as never),
     getStatus: async (network) => coreStatus(network, network === 'qortal' ? 'running' : 'stopped'),
     start: async (network) => {
       if (network === 'qortal') {

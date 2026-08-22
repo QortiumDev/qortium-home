@@ -207,6 +207,18 @@ preparation.
   complete discovery/download/receipt/install boundary is native and opaque.
   Release notes, signing, publication, Core/Java/i2pd update surfaces, and that
   Android native prerequisite remain open.
+- [x] Add the manual Qortium Core maintenance slice to desktop Runtime
+  settings. Release discovery stays main-process-owned and selects the default
+  Preview channel for initial install or the installed channel for a strictly
+  newer update; exact official URLs, canonical SHA-256, positive size, tagged
+  release revalidation, and exact-byte download verification are mandatory.
+  The sender-gated renderer receives only version/channel/capability results
+  and cannot request a downgrade, reinstall, raw asset, or Qortal mutation.
+  Managed Java installs are single-flighted and publish immutable generations
+  through atomic, generation-aware metadata so neither Core can lose files it
+  already mapped. Automatic Core/Java policies, i2pd/transport, Qortal
+  install/update, Android Core maintenance, and retired-Java cleanup remain
+  later tranches.
 
 ## Required gates
 

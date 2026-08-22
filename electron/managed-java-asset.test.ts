@@ -94,6 +94,10 @@ assert.equal(selectManagedJavaBinary([{ ...buildRelease(), version: {} }], LINUX
 // managed runtime becomes the interpreter that runs Core, so this asserts the
 // wiring that a null digest used to bypass.
 const coreManagerSource = readFileSync(path.join(repoRoot, 'electron/core-manager.ts'), 'utf8');
+const verifiedDownloadSource = readFileSync(
+  path.join(repoRoot, 'electron/core-verified-download.ts'),
+  'utf8',
+);
 const javaArchiveAsset = /const archive: DownloadAsset = \{([^}]*)\}/.exec(coreManagerSource)?.[1];
 
 assert(javaArchiveAsset, 'The managed Java download asset was not found in core-manager.ts.');
@@ -101,13 +105,45 @@ assert(
   javaArchiveAsset.includes('digest: javaBinary.checksum'),
   'The managed Java download must be verified against the checksum Adoptium published for it.',
 );
+assert.match(
+  coreManagerSource,
+  /sameManagedJavaGeneration\(current, expected\)/,
+  'Managed Java refreshes must compare the captured and current generation before publishing metadata.',
+);
+assert.match(
+  coreManagerSource,
+  /javaStatus\.majorVersion !== MANAGED_JAVA_TARGET_MAJOR_VERSION/,
+  'Managed Java activation must require the exact managed target major version.',
+);
+assert.match(
+  coreManagerSource,
+  /!isNewerJavaVersion\(javaStatus\.version, currentGeneration\.version\)/,
+  'Managed Java updates must refuse an equal or older fetched runtime.',
+);
+assert.match(
+  coreManagerSource,
+  /sameManagedJavaGeneration\(currentGeneration, expectedGeneration\)/,
+  'Managed Java activation must revalidate the selected generation after download.',
+);
+assert.doesNotMatch(
+  coreManagerSource,
+  /rm\(previousJava\.installPath/,
+  'Installing managed Java must not remove the generation another Core may still be using.',
+);
+assert.match(
+  coreManagerSource,
+  /runManagedJavaInstall[\s\S]{0,180}installJavaUnlocked/,
+  'Managed Java installation must be single-flighted.',
+);
 assert(
   javaArchiveAsset.includes('downloadUrl: javaBinary.downloadUrl'),
   'The managed Java download must come from the same Adoptium record as its checksum.',
 );
 assert(
-  coreManagerSource.includes("asset.digest !== digest"),
-  'downloadFile must still compare the computed digest against the expected one.',
+  coreManagerSource.includes('downloadVerifiedCoreAsset') &&
+    verifiedDownloadSource.includes('digest !== input.asset.digest') &&
+    verifiedDownloadSource.includes('receivedBytes !== input.asset.size'),
+  'downloadFile must compare both the computed digest and exact byte count against the expected asset.',
 );
 
 console.log('Managed Java asset selection tests passed.');

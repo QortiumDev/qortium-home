@@ -12,7 +12,9 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
     createHomeV2CoreManagerService(requireCoreManagerEntry),
   )
   ipcMain.handle('home-v2-core-manager:getStatus', handlers.getStatus)
+  ipcMain.handle('home-v2-core-manager:getMaintenanceStatus', handlers.getMaintenanceStatus)
+  ipcMain.handle('home-v2-core-manager:checkMaintenanceRelease', handlers.checkMaintenanceRelease)
+  ipcMain.handle('home-v2-core-manager:runMaintenanceAction', handlers.runMaintenanceAction)
   ipcMain.handle('home-v2-core-manager:start', handlers.start)
   ipcMain.handle('home-v2-core-manager:stop', handlers.stop)
 }
-

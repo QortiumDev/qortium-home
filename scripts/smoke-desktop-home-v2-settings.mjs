@@ -172,6 +172,10 @@ try {
       ),
     )
     assert.deepEqual(dashboardCoreCards, ['qortium', 'qortal'])
+    assert.equal(
+      await evaluate(client, `document.querySelector('.home-v2-core-maintenance') === null`),
+      true,
+    )
     const dashboardScreenshot = await client.send('Page.captureScreenshot', {
       format: 'png',
     })
@@ -222,6 +226,24 @@ try {
       ),
     )
     assert.deepEqual(coreCards.map((card) => card.network), ['qortium', 'qortal'])
+    const maintenancePanel = await waitUntil('Qortium Core maintenance settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const panel = document.querySelector('.home-v2-core-maintenance');
+          const update = document.querySelector('[data-home-v2-app-updates="desktop"]');
+          const check = [...(panel?.querySelectorAll('button') ?? [])]
+            .find((button) => button.textContent.trim() === 'Check release');
+          return panel && update && check && panel.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              !panel.querySelector('select') &&
+              typeof window.homeV2CoreManagers?.getMaintenanceStatus === 'function'
+            ? { heading: panel.querySelector('h3')?.textContent, text: panel.textContent }
+            : null;
+        })()`,
+      ),
+    )
+    assert.equal(maintenancePanel.heading, 'Qortium Core maintenance')
+    assert.doesNotMatch(maintenancePanel.text, /Qortal.*(?:install|update)|policy|i2pd|transport/i)
     const updatePanel = await waitUntil('Home update settings', () =>
       evaluate(
         client,

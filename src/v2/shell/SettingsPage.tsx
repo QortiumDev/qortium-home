@@ -15,6 +15,7 @@ import {
   type HomeV2CoreManagement,
 } from './CoreManagerCards'
 import { HomeUpdateSettings } from './HomeUpdateSettings'
+import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 
 export type HomeV2SettingsSectionId =
@@ -183,6 +184,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     <p>{t('home2.core.settingsDescription')}</p>
                   </div>
                   <CoreManagerCards management={props.coreManagement} />
+                  <CoreMaintenancePanel management={props.coreManagement} />
                 </section>
               ) : null}
               {props.appUpdates?.available ? (

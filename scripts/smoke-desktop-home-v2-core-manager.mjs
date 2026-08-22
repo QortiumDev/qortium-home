@@ -102,6 +102,16 @@ function assertStatus(value, network) {
   assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|jarPath|pid|record|runtimePath|token/i)
 }
 
+function assertMaintenanceStatus(value) {
+  assert.deepEqual(Object.keys(value).sort(), ['capabilities', 'core', 'java', 'revision', 'schema'])
+  assert.equal(value.schema, 'home-v2-core-maintenance')
+  assert.equal(value.revision, 1)
+  assert.deepEqual(Object.keys(value.capabilities).sort(), ['canInitialInstall', 'canInstallJava'])
+  assert.deepEqual(Object.keys(value.core).sort(), ['channel', 'installedVersion', 'runtime'])
+  assert.deepEqual(Object.keys(value.java).sort(), ['source', 'updateAvailable', 'version'])
+  assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|commit|digest|download|jarPath|pid|record|runtimePath|token|url/i)
+}
+
 try {
   assert.equal(existsSync(appImage), true, `AppImage not found at ${appImage}`)
   const port = await getFreePort()
@@ -127,6 +137,19 @@ try {
     )
     assertStatus(status, network)
   }
+  const maintenance = await evaluate(page, 'window.homeV2CoreManagers.getMaintenanceStatus()')
+  assertMaintenanceStatus(maintenance)
+  assert.equal(
+    await evaluate(
+      page,
+      `(() => {
+        const bridge = window.homeV2CoreManagers;
+        return typeof bridge.checkMaintenanceRelease === 'function' &&
+          typeof bridge.runMaintenanceAction === 'function';
+      })()`,
+    ),
+    true,
+  )
   assert.equal(
     await evaluate(
       page,

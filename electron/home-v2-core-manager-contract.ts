@@ -6,6 +6,7 @@ import type {
   QortalStartResult,
   QortalStopResult,
 } from './qortal-core-manager.js'
+import { compareCoreVersions } from './core-version.js'
 
 export type HomeV2CoreNetwork = 'qortal' | 'qortium'
 export type HomeV2CoreInstallKind =
@@ -63,8 +64,45 @@ export type HomeV2CoreManagerActionResult = {
   readonly warning: 'operation-lock-release-failed' | null
 }
 
+export type HomeV2CoreMaintenanceStatus = {
+  readonly capabilities: {
+    readonly canInitialInstall: boolean
+    readonly canInstallJava: boolean
+  }
+  readonly core: {
+    readonly channel: 'prerelease' | 'stable' | null
+    readonly installedVersion: string | null
+    readonly runtime: HomeV2CoreRuntimeState
+  }
+  readonly java: {
+    readonly source: 'managed' | 'missing' | 'system' | 'unsupported'
+    readonly updateAvailable: boolean
+    readonly version: string | null
+  }
+  readonly revision: 1
+  readonly schema: 'home-v2-core-maintenance'
+}
+
+export type HomeV2CoreMaintenanceRelease = {
+  readonly action: 'initial-install' | 'none' | 'strict-update'
+  readonly available: boolean
+  readonly channel: 'prerelease' | 'stable'
+  readonly revision: 1
+  readonly schema: 'home-v2-core-maintenance-release'
+  readonly tag: string | null
+}
+
+export type HomeV2CoreMaintenanceActionResult = {
+  readonly code: 'action-not-allowed' | 'operation-failed' | 'operation-in-progress' | 'release-changed' | null
+  readonly outcome: 'blocked' | 'completed' | 'failed'
+  readonly revision: 1
+  readonly schema: 'home-v2-core-maintenance-action'
+  readonly status: HomeV2CoreMaintenanceStatus
+}
+
 type CoreManagerResolver = (network: HomeV2CoreNetwork) => CoreManagerEntry
 type CoreAction = 'start' | 'stop'
+type MaintenanceAction = 'initial-install' | 'install-java' | 'strict-update'
 
 const inFlightNetworks = new Set<HomeV2CoreNetwork>()
 let startInFlight = false
@@ -81,6 +119,111 @@ export function normalizeHomeV2CoreManagerRequest(value: unknown) {
     throw new Error('Choose Qortal or Qortium.')
   }
   return { network: value.network } as const
+}
+
+function normalizeMaintenanceEmptyRequest(value: unknown) {
+  if (!isRecord(value) || value.schema !== 'home-v2-core-maintenance-request' ||
+    value.revision !== 1 || Object.keys(value).length !== 2) {
+    throw new Error('An exact Core maintenance request is required.')
+  }
+}
+
+function normalizeMaintenanceReleaseRequest(value: unknown) {
+  if (!isRecord(value) || value.schema !== 'home-v2-core-maintenance-release-request' ||
+    value.revision !== 1 || Object.keys(value).length !== 2) {
+    throw new Error('An exact Core maintenance release request is required.')
+  }
+}
+
+function normalizeMaintenanceMutationRequest(value: unknown) {
+  if (!isRecord(value) || value.schema !== 'home-v2-core-maintenance-mutation-request' ||
+    value.revision !== 1 ||
+    (value.action !== 'initial-install' && value.action !== 'strict-update' && value.action !== 'install-java') ||
+    (value.action === 'install-java'
+      ? Object.keys(value).length !== 3 || 'channel' in value || 'expectedTag' in value
+      : Object.keys(value).length !== 5 ||
+        (value.channel !== 'stable' && value.channel !== 'prerelease') ||
+        typeof value.expectedTag !== 'string' || !/^v?[a-z0-9][a-z0-9._-]*$/i.test(value.expectedTag))) {
+    throw new Error('An exact Core maintenance mutation request is required.')
+  }
+  return value as {
+    action: MaintenanceAction
+    channel?: 'prerelease' | 'stable'
+    expectedTag?: string
+  }
+}
+
+function qortiumMaintenanceStatus(
+  value: unknown,
+  observedRuntime?: HomeV2CoreRuntimeState,
+): HomeV2CoreMaintenanceStatus {
+  const status = isRecord(value) ? value : {}
+  const installed = isRecord(status.installed) ? status.installed : null
+  const runtime = isRecord(status.runtime) ? status.runtime : null
+  const java = isRecord(status.java) ? status.java : null
+  const supported = status.supported === true
+  const runtimeState: HomeV2CoreRuntimeState = observedRuntime ?? (!runtime
+    ? 'unknown'
+    : runtime.running === true
+      ? 'running'
+      : 'unknown')
+  const javaSource = java?.source === 'managed' || java?.source === 'system' ||
+    java?.source === 'unsupported' || java?.source === 'missing'
+    ? java.source
+    : 'missing'
+
+  return {
+    capabilities: {
+      canInitialInstall: supported && !installed && runtimeState === 'stopped',
+      canInstallJava: supported && (
+        javaSource === 'missing' || javaSource === 'unsupported' ||
+        (javaSource === 'system' && typeof java?.majorVersion === 'number' &&
+          typeof java?.managedJavaTarget === 'number' && java.majorVersion < java.managedJavaTarget) ||
+        (javaSource === 'managed' && java?.managedUpgradeAvailable === true)
+      ),
+    },
+    core: {
+      channel: installed?.channel === 'stable' || installed?.channel === 'prerelease'
+        ? installed.channel
+        : null,
+      installedVersion:
+        typeof installed?.jarSemver === 'string' && installed.jarSemver.trim()
+          ? installed.jarSemver.trim()
+          : typeof installed?.tagName === 'string' && installed.tagName.trim()
+            ? installed.tagName.trim()
+            : null,
+      runtime: runtimeState,
+    },
+    java: {
+      source: javaSource,
+      updateAvailable: java?.managedUpgradeAvailable === true,
+      version: typeof java?.version === 'string' && java.version.trim() ? java.version.trim() : null,
+    },
+    revision: 1,
+    schema: 'home-v2-core-maintenance',
+  }
+}
+
+async function readMaintenanceStatus(resolveManager: CoreManagerResolver) {
+  try {
+    const manager = resolveManager('qortium')
+    if (manager.networkId !== 'qortium') throw new Error('wrong manager')
+    const [status, runtime] = await Promise.all([
+      manager.getStatus(),
+      manager.getMaintenanceRuntimeStateForHomeV2(),
+    ])
+    return qortiumMaintenanceStatus(status, runtime)
+  } catch {
+    return qortiumMaintenanceStatus(null)
+  }
+}
+
+function maintenanceActionResult(
+  status: HomeV2CoreMaintenanceStatus,
+  outcome: HomeV2CoreMaintenanceActionResult['outcome'],
+  code: HomeV2CoreMaintenanceActionResult['code'],
+): HomeV2CoreMaintenanceActionResult {
+  return { code, outcome, revision: 1, schema: 'home-v2-core-maintenance-action', status }
 }
 
 function unavailableStatus(
@@ -348,8 +491,125 @@ async function runAction(
   }
 }
 
+async function checkMaintenanceRelease(
+  channel: 'prerelease' | 'stable',
+  resolveManager: CoreManagerResolver,
+): Promise<HomeV2CoreMaintenanceRelease> {
+  try {
+    const manager = resolveManager('qortium')
+    if (manager.networkId !== 'qortium') throw new Error('wrong manager')
+    const releases = await manager.checkReleases()
+    const release = releases[channel]
+    const status = await manager.getStatus()
+    const installed = isRecord(status) && isRecord(status.installed) ? status.installed : null
+    const installedVersion = installed &&
+      (typeof installed.jarSemver === 'string' || typeof installed.tagName === 'string')
+      ? (typeof installed.jarSemver === 'string' ? installed.jarSemver : installed.tagName as string)
+      : null
+    const verifiedRelease = release.available && /^[0-9a-f]{40}$/i.test(release.commit)
+    let action: HomeV2CoreMaintenanceRelease['action'] = 'none'
+    if (verifiedRelease && release.available) {
+      if (!installedVersion) {
+        action = 'initial-install'
+      } else if ((compareCoreVersions(release.tagName, installedVersion) ?? 0) > 0) {
+        action = 'strict-update'
+      }
+    }
+
+    return {
+      action,
+      available: verifiedRelease,
+      channel,
+      revision: 1,
+      schema: 'home-v2-core-maintenance-release',
+      tag: verifiedRelease && release.available ? release.tagName : null,
+    }
+  } catch {
+    return {
+      action: 'none',
+      available: false,
+      channel,
+      revision: 1,
+      schema: 'home-v2-core-maintenance-release',
+      tag: null,
+    }
+  }
+}
+
+async function runMaintenanceAction(
+  request: ReturnType<typeof normalizeMaintenanceMutationRequest>,
+  resolveManager: CoreManagerResolver,
+) {
+  if (inFlightNetworks.has('qortium')) {
+    return maintenanceActionResult(
+      await readMaintenanceStatus(resolveManager),
+      'blocked',
+      'operation-in-progress',
+    )
+  }
+
+  inFlightNetworks.add('qortium')
+  try {
+    const manager = resolveManager('qortium')
+    if (manager.networkId !== 'qortium') {
+      return maintenanceActionResult(await readMaintenanceStatus(resolveManager), 'blocked', 'action-not-allowed')
+    }
+
+    if (request.action === 'install-java') {
+      const status = await readMaintenanceStatus(() => manager)
+      if (!status.capabilities.canInstallJava) {
+        return maintenanceActionResult(status, 'blocked', 'action-not-allowed')
+      }
+      await manager.installJava()
+      return maintenanceActionResult(await readMaintenanceStatus(() => manager), 'completed', null)
+    }
+
+    const release = await checkMaintenanceRelease(request.channel!, () => manager)
+    if (release.tag !== request.expectedTag || release.action !== request.action) {
+      return maintenanceActionResult(
+        await readMaintenanceStatus(() => manager),
+        'blocked',
+        'release-changed',
+      )
+    }
+
+    const status = await readMaintenanceStatus(() => manager)
+    if (status.core.runtime !== 'stopped' ||
+      (request.action === 'initial-install' && !status.capabilities.canInitialInstall)) {
+      return maintenanceActionResult(status, 'blocked', 'action-not-allowed')
+    }
+
+    await manager.install({
+      channel: request.channel,
+      expectedTag: request.expectedTag,
+      mode: request.action,
+    })
+    return maintenanceActionResult(await readMaintenanceStatus(() => manager), 'completed', null)
+  } catch {
+    return maintenanceActionResult(
+      await readMaintenanceStatus(resolveManager),
+      'failed',
+      'operation-failed',
+    )
+  } finally {
+    inFlightNetworks.delete('qortium')
+  }
+}
+
 export function createHomeV2CoreManagerService(resolveManager: CoreManagerResolver) {
   return {
+    async getMaintenanceStatus(value: unknown) {
+      normalizeMaintenanceEmptyRequest(value)
+      return await readMaintenanceStatus(resolveManager)
+    },
+    async checkMaintenanceRelease(value: unknown) {
+      normalizeMaintenanceReleaseRequest(value)
+      const status = await readMaintenanceStatus(resolveManager)
+      return await checkMaintenanceRelease(status.core.channel ?? 'prerelease', resolveManager)
+    },
+    async runMaintenanceAction(value: unknown) {
+      return await runMaintenanceAction(normalizeMaintenanceMutationRequest(value), resolveManager)
+    },
     async getStatus(value: unknown) {
       const { network } = normalizeHomeV2CoreManagerRequest(value)
       return await readStatus(network, resolveManager)
@@ -370,6 +630,18 @@ export function createAuthorizedHomeV2CoreManagerHandlers(
   service: ReturnType<typeof createHomeV2CoreManagerService>,
 ) {
   return {
+    getMaintenanceStatus(event: IpcMainInvokeEvent, value: unknown) {
+      assertAuthorized(event)
+      return service.getMaintenanceStatus(value)
+    },
+    checkMaintenanceRelease(event: IpcMainInvokeEvent, value: unknown) {
+      assertAuthorized(event)
+      return service.checkMaintenanceRelease(value)
+    },
+    runMaintenanceAction(event: IpcMainInvokeEvent, value: unknown) {
+      assertAuthorized(event)
+      return service.runMaintenanceAction(value)
+    },
     getStatus(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)
       return service.getStatus(value)

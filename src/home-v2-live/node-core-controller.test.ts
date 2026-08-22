@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import {
+  parseHomeV2CoreMaintenanceActionResult,
+  parseHomeV2CoreMaintenanceRelease,
+  parseHomeV2CoreMaintenanceStatus,
   parseHomeV2CoreManagerActionResult,
   parseHomeV2CoreManagerStatus,
 } from './core-manager-client'
@@ -30,6 +33,28 @@ assert.deepEqual(
 assert.throws(() =>
   parseHomeV2CoreManagerStatus({ ...qortiumStatus, revision: 2 }, 'qortium'),
 )
+
+const maintenanceStatus = {
+  capabilities: { canInitialInstall: true, canInstallJava: true },
+  core: { channel: null, installedVersion: null, runtime: 'stopped' },
+  java: { source: 'missing', updateAvailable: false, version: null },
+  revision: 1,
+  schema: 'home-v2-core-maintenance',
+} as const
+assert.deepEqual(parseHomeV2CoreMaintenanceStatus(maintenanceStatus), maintenanceStatus)
+assert.throws(() => parseHomeV2CoreMaintenanceStatus({ ...maintenanceStatus, java: { path: '/secret' } }))
+const maintenanceRelease = {
+  action: 'initial-install', available: true, channel: 'prerelease', revision: 1,
+  schema: 'home-v2-core-maintenance-release', tag: 'v1.2.3',
+} as const
+assert.deepEqual(parseHomeV2CoreMaintenanceRelease(maintenanceRelease), maintenanceRelease)
+assert.throws(() => parseHomeV2CoreMaintenanceRelease({ ...maintenanceRelease, action: 'downgrade' }))
+const maintenanceAction = {
+  code: null, outcome: 'completed', revision: 1,
+  schema: 'home-v2-core-maintenance-action', status: maintenanceStatus,
+} as const
+assert.deepEqual(parseHomeV2CoreMaintenanceActionResult(maintenanceAction), maintenanceAction)
+assert.throws(() => parseHomeV2CoreMaintenanceActionResult({ ...maintenanceAction, code: '/secret/raw' }))
 assert.throws(() =>
   parseHomeV2CoreManagerStatus({ ...qortiumStatus, runtime: 'starting' }, 'qortium'),
 )
