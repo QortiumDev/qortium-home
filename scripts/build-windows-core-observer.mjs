@@ -72,7 +72,7 @@ function visualStudioEnvironment(vcVars64) {
     throw new Error('Visual Studio reported an unsafe developer-command path.');
   }
   const command = `call "${vcVars64}" >nul && set`;
-  const result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', command], {
+  const result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', command], {
     cwd: repoRoot,
     encoding: 'utf8',
     shell: false,
