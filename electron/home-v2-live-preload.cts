@@ -40,6 +40,15 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
 })
 
+contextBridge.exposeInMainWorld('homeV2CoreManagers', {
+  getStatus: (network: 'qortal' | 'qortium') =>
+    ipcRenderer.invoke('home-v2-core-manager:getStatus', { network }),
+  start: (network: 'qortal' | 'qortium') =>
+    ipcRenderer.invoke('home-v2-core-manager:start', { network }),
+  stop: (network: 'qortal' | 'qortium') =>
+    ipcRenderer.invoke('home-v2-core-manager:stop', { network }),
+})
+
 contextBridge.exposeInMainWorld('homeV2Vault', {
   addAddress: (accountId: string) => ipcRenderer.invoke('home-v2-vault:addAddress', accountId),
   create: (request: unknown) => ipcRenderer.invoke('home-v2-vault:create', request),

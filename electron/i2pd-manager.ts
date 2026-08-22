@@ -116,8 +116,14 @@ type InstalledI2pd = {
 
 // Module-level supervision handle for the i2pd we spawned.
 let managedChild: ChildProcess | null = null;
+let legacyI2pdRendererEventsEnabled = true;
+
+export function disableLegacyI2pdRendererEvents() {
+  legacyI2pdRendererEventsEnabled = false;
+}
 
 function publishProgress(progress: I2pdProgress) {
+  if (!legacyI2pdRendererEventsEnabled) return;
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send('i2pd:progress', progress);

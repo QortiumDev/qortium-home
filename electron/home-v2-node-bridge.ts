@@ -1,4 +1,5 @@
-import { ipcMain, type WebContents } from 'electron'
+import { ipcMain } from 'electron'
+import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
 import {
   getLocalNodeStatusForHomeV2,
   getNodeSettingsForHomeV2,
@@ -63,8 +64,6 @@ type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
 const IDENTITY_RESPONSE_LIMIT = 256 * 1024
 const SNAPSHOT_CACHE_MS = 30_000
 
-const authorizedSenderIds = new Set<number>()
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -83,12 +82,6 @@ function numberField(value: unknown, key: string) {
 
 function booleanField(value: unknown, key: string) {
   return isRecord(value) && value[key] === true
-}
-
-function assertAuthorized(sender: WebContents) {
-  if (!authorizedSenderIds.has(sender.id)) {
-    throw new Error('Home v2 node data is only available to an authorized Home v2 window.')
-  }
 }
 
 function requiredString(value: unknown, field: string, maxLength = 240) {
@@ -611,26 +604,21 @@ export async function readResolvedHomeV2Avatar(
   }
 }
 
-export function authorizeHomeV2NodeBridge(sender: WebContents) {
-  authorizedSenderIds.add(sender.id)
-  sender.once('destroyed', () => authorizedSenderIds.delete(sender.id))
-}
-
 export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle('home-v2-nodes:getSnapshot', (event) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return getSnapshot()
   })
   ipcMain.handle('home-v2-accounts:list', (event) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return getHomeV2AccountCatalogue()
   })
   ipcMain.handle('home-v2-vault:getState', (event) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return getHomeV2VaultState()
   })
   ipcMain.handle('home-v2-vault:select', (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Account selection is required.')
     prepareAccountMutation()
     return selectHomeV2Account(
@@ -639,15 +627,15 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     )
   })
   ipcMain.handle('home-v2-vault:selectWalletFile', (event) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return selectWalletFile(event)
   })
   ipcMain.handle('home-v2-vault:discardLoadedWallet', (event, token: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     discardLoadedWallet(requiredString(token, 'Import token'))
   })
   ipcMain.handle('home-v2-vault:saveLoadedWallet', (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Wallet import details are required.')
     prepareAccountMutation()
     saveLoadedWallet(
@@ -657,7 +645,7 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     return getHomeV2VaultState()
   })
   ipcMain.handle('home-v2-vault:create', async (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('New account details are required.')
     const password = assertMatchingPasswords(value.password, value.passwordConfirmation)
     prepareAccountMutation()
@@ -665,11 +653,11 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     return { canceled: result.canceled, state: getHomeV2VaultState() }
   })
   ipcMain.handle('home-v2-vault:getPrivateKeyAddress', (event, privateKey: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return getAddressFromPrivateKey(requiredString(privateKey, 'Private key', 256))
   })
   ipcMain.handle('home-v2-vault:importPrivateKey', async (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Private-key import details are required.')
     const password = assertMatchingPasswords(value.password, value.passwordConfirmation)
     prepareAccountMutation()
@@ -682,11 +670,11 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     return { canceled: result.canceled, state: getHomeV2VaultState() }
   })
   ipcMain.handle('home-v2-vault:export', async (event, accountId: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return exportWallet(event, requiredString(accountId, 'Account'))
   })
   ipcMain.handle('home-v2-vault:rename', (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Account rename details are required.')
     prepareAccountMutation()
     return renameHomeV2Account(
@@ -695,19 +683,19 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     )
   })
   ipcMain.handle('home-v2-vault:addAddress', (event, accountId: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     prepareAccountMutation()
     addDerivedAddress(requiredString(accountId, 'Account'))
     return getHomeV2VaultState()
   })
   ipcMain.handle('home-v2-vault:removeAddress', async (event, addressId: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     prepareAccountMutation()
     await removeWallet(requiredString(addressId, 'Address'))
     return getHomeV2VaultState()
   })
   ipcMain.handle('home-v2-vault:removeAccount', async (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Account removal details are required.')
     prepareAccountMutation()
     await removeWallet(
@@ -717,7 +705,7 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     return getHomeV2VaultState()
   })
   ipcMain.handle('home-v2-vault:unlock', async (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Account unlock details are required.')
     prepareAccountMutation()
     return unlockHomeV2Account({
@@ -727,12 +715,12 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     })
   })
   ipcMain.handle('home-v2-vault:lock', (event, accountId: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     prepareAccountMutation()
     return lockHomeV2Account(requiredString(accountId, 'Account'), true)
   })
   ipcMain.handle('home-v2-vault:updateSecurity', async (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     if (!isRecord(value)) throw new Error('Account security settings are required.')
     prepareAccountMutation()
     return updateHomeV2SecuritySettings({
@@ -743,43 +731,43 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     })
   })
   ipcMain.handle('home-v2-vault:requestRestore', (event) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     requestHomeV2ProfileRestore()
     return { restartRequired: true }
   })
   ipcMain.handle(
     'home-v2-nodes:listAppResources',
     (event, networkValue: unknown, nameValue: unknown) => {
-      assertAuthorized(event.sender)
+      assertAuthorizedHomeV2Sender(event)
       return listAppResources(normalizeNetwork(networkValue), nameValue)
     },
   )
   ipcMain.handle('home-v2-shell:getState', (event) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     return readHomeV2ShellState()
   })
   ipcMain.handle('home-v2-shell:saveState', (event, value: unknown) => {
-    assertAuthorized(event.sender)
+    assertAuthorizedHomeV2Sender(event)
     writeHomeV2ShellState(value)
   })
   ipcMain.handle(
     'home-v2-nodes:readIdentity',
     (event, networkValue: unknown, requestValue: unknown) => {
-      assertAuthorized(event.sender)
+      assertAuthorizedHomeV2Sender(event)
       return readHomeV2Identity(normalizeNetwork(networkValue), requestValue)
     },
   )
   ipcMain.handle(
     'home-v2-nodes:readAvatar',
     (event, networkValue: unknown, requestValue: unknown) => {
-      assertAuthorized(event.sender)
+      assertAuthorizedHomeV2Sender(event)
       return readHomeV2Avatar(normalizeNetwork(networkValue), requestValue)
     },
   )
   ipcMain.handle(
     'home-v2-nodes:setMode',
     async (event, networkValue: unknown, modeValue: unknown) => {
-      assertAuthorized(event.sender)
+      assertAuthorizedHomeV2Sender(event)
       const network = normalizeNetwork(networkValue)
       const mode = normalizeMode(modeValue)
       if (network === 'qortal') {
@@ -794,7 +782,7 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
   ipcMain.handle(
     'home-v2-nodes:setCustomUrl',
     async (event, networkValue: unknown, customUrlValue: unknown) => {
-      assertAuthorized(event.sender)
+      assertAuthorizedHomeV2Sender(event)
       const network = normalizeNetwork(networkValue)
       if (typeof customUrlValue !== 'string' || !customUrlValue.trim()) {
         throw new Error('Enter a custom node URL.')
