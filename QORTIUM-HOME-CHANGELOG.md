@@ -51,7 +51,9 @@ existing key. Home rechecks the selected files and process/listener authority
 at each launch and stop boundary, never invokes foreign scripts, never kills an
 adopted PID, and leaves Qortal running when Home exits. Install and update
 mutation, Home 2 IPC and renderer controls, Windows record creation, and real
-packaged-app lifecycle acceptance remain later gates.
+packaged-app lifecycle acceptance remain later gates. Packaged Linux starts use
+Home's controlled argument-preserving wrapper solely to close inherited
+AppImage descriptors before it replaces itself with the exact Java command.
 
 ### 2026-08-21 - fix(core): resolve Windows secure-file drive paths
 

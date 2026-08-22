@@ -381,7 +381,9 @@ function manager(
   let prepared = false;
   let spawned: { command: string; args: readonly string[]; cwd: string } | null = null;
   const adoptedManager = manager({ inspectInstall: async () => adopted,
-    prepareCommand: () => { prepared = true; throw new Error('adopted launch must remain direct'); },
+    prepareCommand: (command, args) => { prepared = true; return {
+      command: '/bin/bash', args: ['-c', 'exec "$@"', 'home-adopted', command, ...args],
+    }; },
     readTargetState: async () => adoptedTargetState,
     spawnProcess: async (_target, command, args, options) => {
       spawned = { command, args, cwd: options.cwd };
@@ -400,9 +402,10 @@ function manager(
     if (result.kind === 'blocked') assert.equal(result.code, 'adopted-unsupported');
   }
   assert.equal((await adoptedManager.start()).kind, 'started');
-  assert.equal(prepared, false);
-  assert.deepEqual(spawned, { command: '/usr/bin/java',
-    args: ['-jar', adoptedRecord.jarPath, 'settings.json'], cwd: adoptedRecord.installPath });
+  assert.equal(prepared, true);
+  assert.deepEqual(spawned, { command: '/bin/bash',
+    args: ['-c', 'exec "$@"', 'home-adopted', '/usr/bin/java', '-jar', adoptedRecord.jarPath, 'settings.json'],
+    cwd: adoptedRecord.installPath });
 
   let launchBoundaryReads = 0;
   let launchBoundarySpawned = false;

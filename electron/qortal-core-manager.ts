@@ -658,9 +658,10 @@ export class QortalCoreManager {
         const args = target.owner === 'external'
           ? ['-jar', path.resolve(target.jarPath), SETTINGS_ARGUMENT]
           : getCoreDirectJarArguments(QORTAL_CORE_DESCRIPTOR, path.resolve(target.jarPath), SETTINGS_ARGUMENT);
-        const command = target.owner === 'external'
-          ? { args, command: java.command }
-          : this.operations.prepareCommand(java.command, args, process.platform, process.env.APPDIR);
+        // The controlled Linux AppImage wrapper closes inherited resource
+        // descriptors and then execs this exact Java argv. On ordinary Linux,
+        // macOS, and Windows prepareCommand remains a direct spawn.
+        const command = this.operations.prepareCommand(java.command, args, process.platform, process.env.APPDIR);
         await this.validateLifecycleDirectories(target);
         const finalInstall = await this.operations.inspectInstall(this.config.paths);
         if (finalInstall.kind !== 'home-managed' && finalInstall.kind !== 'adopted') {

@@ -154,8 +154,11 @@ preparation.
   stops only through the authenticated Qortal API with its existing key. Home
   revalidates record, target, process, listener, and API authority around each
   control boundary, never runs foreign scripts or kills an adopted PID, and
-  leaves it running on Home exit. Adopted install/update mutation, Home 2
-  IPC/renderer controls, and real packaged lifecycle acceptance remain open.
+  leaves it running on Home exit. Packaged Linux uses Home's controlled
+  argument-preserving wrapper to close inherited AppImage descriptors before
+  `exec` replaces it with the exact Java process. Adopted install/update
+  mutation, Home 2 IPC/renderer controls, and real packaged lifecycle
+  acceptance remain open.
 
 ## Required gates
 
