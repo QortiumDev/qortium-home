@@ -14,6 +14,12 @@ import { CoreOperationLockReleaseError, withCoreOperationLock } from './core-ope
 import { getCoreDirectJarArguments, QORTAL_CORE_DESCRIPTOR } from './core-network-descriptor.js';
 import { compareCoreVersions } from './core-version.js';
 import {
+  inspectRecordedQortalAdoptedInstall,
+  readQortalAdoptedInstallRecord,
+  type QortalAdoptedInstallRecordV1,
+  type QortalInstallCandidate,
+} from './qortal-install-source.js';
+import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
   type ManagedChildCommand,
@@ -39,7 +45,7 @@ const SETTINGS_ARGUMENT = 'settings.json' as const;
 export type QortalInstallObservation =
   | { kind: 'missing' }
   | { kind: 'home-managed'; record: QortalManagedInstallRecordV1 }
-  | { kind: 'adopted'; reason: string }
+  | { candidate: QortalInstallCandidate; kind: 'adopted'; record: QortalAdoptedInstallRecordV1 }
   | { kind: 'unknown'; reason: string };
 
 export type QortalRuntimeAuthority = {
@@ -144,8 +150,10 @@ export type QortalCoreManagerStatus = {
   updateOwnership: QortalUpdateOwnershipDecision;
 };
 export type QortalCoreManagerConfig = {
+  adoptedRecordPath: string;
   lockRoot: string;
   paths: QortalManagedInstallPaths;
+  readAdoptedRecord?(recordPath: string, maxBytes: number): Promise<Buffer>;
   userAgent: string;
 };
 export type QortalCoreManagerOperations = {
@@ -203,6 +211,26 @@ async function inspectManagedInstall(paths: QortalManagedInstallPaths): Promise<
   } catch {
     return { kind: 'unknown', reason: 'The managed-install metadata could not be read.' };
   }
+}
+
+export async function inspectQortalInstallSource(
+  paths: QortalManagedInstallPaths,
+  adoptedRecordPath: string,
+  options: Parameters<typeof readQortalAdoptedInstallRecord>[1] = {},
+): Promise<QortalInstallObservation> {
+  const managed = await inspectManagedInstall(paths);
+  if (managed.kind !== 'missing') return managed;
+  const selected = await readQortalAdoptedInstallRecord(adoptedRecordPath, options);
+  if (selected.kind === 'missing') return managed;
+  if (selected.kind === 'unknown') return selected;
+  const inspected = await inspectRecordedQortalAdoptedInstall(selected.record, paths, options);
+  if (inspected.kind === 'candidate') {
+    return { candidate: inspected.candidate, kind: 'adopted', record: selected.record };
+  }
+  return inspected.kind === 'unknown' ? inspected : {
+    kind: 'unknown',
+    reason: 'The recorded adopted Qortal install is no longer present.',
+  };
 }
 
 const DEFAULT_OPERATIONS: Omit<QortalCoreManagerOperations,
@@ -318,14 +346,27 @@ export class QortalCoreManager {
     lifecycle: Pick<QortalCoreManagerOperations, 'inspectRuntime' | 'readLiveAutoUpdate' |
       'readApiKey' | 'resolveJava' | 'spawnProcess' | 'stopWithApiKey' | 'waitForReadiness' | 'waitForStopped'> &
       Partial<QortalCoreManagerOperations>) {
-    this.operations = { ...DEFAULT_OPERATIONS, ...lifecycle };
+    this.operations = {
+      ...DEFAULT_OPERATIONS,
+      inspectInstall: async (paths) => await inspectQortalInstallSource(paths, config.adoptedRecordPath, {
+        operations: config.readAdoptedRecord ? { readSecureRecord: config.readAdoptedRecord } : {},
+      }),
+      ...lifecycle,
+    };
   }
 
-  private async ownership(runtime: QortalRuntimeObservation) {
+  private async ownership(
+    runtime: QortalRuntimeObservation,
+    install: Extract<QortalInstallObservation, { kind: 'adopted' | 'home-managed' }>,
+  ) {
     if (runtime.state === 'stopped') {
-      return await this.operations.detectStoppedOwnership(SETTINGS_ARGUMENT, { cwd: this.config.paths.installPath });
+      const cwd = install.kind === 'adopted'
+        ? install.candidate.canonicalInstallPath
+        : this.config.paths.installPath;
+      return await this.operations.detectStoppedOwnership(SETTINGS_ARGUMENT, { cwd });
     }
-    if (runtime.state !== 'running' || !expectedRuntime(runtime.authority, this.config.paths)) {
+    if (install.kind !== 'home-managed' || runtime.state !== 'running' ||
+        !expectedRuntime(runtime.authority, this.config.paths)) {
       return unknownOwnership('Qortal runtime authority/readiness is uncertain.');
     }
     try { return this.operations.detectLiveOwnership(await this.operations.readLiveAutoUpdate(this.config.paths)); }
@@ -336,7 +377,10 @@ export class QortalCoreManager {
     const [install, runtime] = await Promise.all([
       this.operations.inspectInstall(this.config.paths), this.operations.inspectRuntime(this.config.paths),
     ]);
-    const updateOwnership = install.kind === 'missing' ? unknownOwnership('Qortal is not installed.') : await this.ownership(runtime);
+    const updateOwnership = install.kind === 'home-managed' || install.kind === 'adopted'
+      ? await this.ownership(runtime, install) :
+      unknownOwnership(install.kind === 'missing' ? 'Qortal is not installed.' :
+        'Qortal install evidence is uncertain.');
     const targetOk = install.kind === 'home-managed' && targetMatches(
       await this.operations.readTargetState(this.config.paths.jarPath), install.record);
     const runningOwned = runtime.state === 'running' && expectedRuntime(runtime.authority, this.config.paths);
@@ -435,10 +479,13 @@ export class QortalCoreManager {
       const initialInstall = await this.operations.inspectInstall(this.config.paths);
       const installGuard = installBlock(initialInstall, 'home-managed');
       if (installGuard) return installGuard;
+      if (initialInstall.kind !== 'home-managed') {
+        return blocked('install-not-home-managed', 'The Qortal install must be Home-managed.');
+      }
       const initialRuntime = await this.operations.inspectRuntime(this.config.paths);
       const runtimeGuard = stoppedBlock(initialRuntime);
       if (runtimeGuard) return runtimeGuard;
-      const initialPolicyGuard = policyBlock(await this.ownership(initialRuntime));
+      const initialPolicyGuard = policyBlock(await this.ownership(initialRuntime, initialInstall));
       if (initialPolicyGuard) return initialPolicyGuard;
       await this.ensureDirectories();
       const targetBefore = await this.operations.readTargetState(this.config.paths.jarPath);
@@ -452,7 +499,7 @@ export class QortalCoreManager {
         op: 'github-update', targetPath: this.config.paths.jarPath }, async () => {
         let guard = await this.installBarrier('home-managed', targetBefore, staged!);
         if (guard) return (completed = guard);
-        guard = policyBlock(await this.ownership({ state: 'stopped' }));
+        guard = policyBlock(await this.ownership({ state: 'stopped' }, initialInstall));
         if (guard) return (completed = guard);
         const callbacks = await this.operations.prepareInstall({ identity: staged!.candidate.identity,
           kind: 'update', paths: this.config.paths, release });
@@ -465,7 +512,7 @@ export class QortalCoreManager {
         if (!this.operations.statesMatch(staged!.receipt, finalCandidate) || !candidateMatches(finalCandidate, staged!.candidate)) {
           return (completed = blocked('candidate-changed', 'The candidate changed at the transaction boundary.'));
         }
-        guard = policyBlock(await this.ownership({ state: 'stopped' }));
+        guard = policyBlock(await this.ownership({ state: 'stopped' }, initialInstall));
         if (guard) return (completed = guard);
         // Hub does not honor Home's lease. This strong absence proof must be
         // the final operation before the filesystem transaction begins.

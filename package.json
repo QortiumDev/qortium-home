@@ -117,6 +117,7 @@
     "test:qortal-jar-candidate": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-jar-candidate.test.js",
     "test:qortal-release-policy": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-release-policy.test.js",
     "test:qortal-managed-install": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-managed-install.test.js",
+    "test:qortal-install-source": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-install-source.test.js",
     "test:qortal-core-manager": "node scripts/ensure-electron-build.mjs && node --unhandled-rejections=strict dist-electron/qortal-core-manager.test.js",
     "test:qortal-core-runtime": "node scripts/ensure-electron-build.mjs && node --unhandled-rejections=strict dist-electron/qortal-core-runtime.test.js",
     "test:qortal-java-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-java-launch.test.js",

@@ -133,6 +133,18 @@ preparation.
   release gates; the sanitized native-host acceptance is tracked in
   [issue #312](https://github.com/QortiumDev/qortium-home/issues/312). Adoption
   and Home 2 controls remain subsequent E2/E3 work.
+- [x] Add E3's internal adopted-install discovery and selected-record boundary:
+  canonicalize and deduplicate explicit path, running-process, and Qortal Hub
+  hints; keep multiple foreign candidates separate for user selection; store
+  selected metadata only under Home app data; and revalidate exact JAR/settings
+  identity without writing into the adopted directory. The production manager
+  recognizes valid selected records but keeps install/update/start/stop disabled
+  until adopted runtime authority is added. For a proven-stopped node it already
+  derives conditional update ownership from the adopted settings. Windows
+  record reads use the native
+  no-reparse/private-DACL helper when available; any existing record that cannot
+  be read securely remains unknown. No Home 2 IPC or renderer controls are
+  exposed yet.
 
 ## Required gates
 
