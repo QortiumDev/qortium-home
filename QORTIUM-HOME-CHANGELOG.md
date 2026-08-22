@@ -45,7 +45,9 @@ An explicitly selected adopted installation can be represented by a strict
 Home-app-data record containing its canonical paths and adoption-time JAR and
 settings identity. The internal Qortal manager now recognizes a valid record,
 but deliberately exposes no install, update, start, or stop capability for it
-yet. Missing, aliased, malformed, insecure, changed, or ambiguous evidence
+yet. When the node is proven stopped, Home can already classify whether its
+settings leave updates with Qortal or would allow future Home-managed updates.
+Missing, aliased, malformed, insecure, changed, or ambiguous evidence
 continues to fail closed, and observation never writes into the adopted Qortal
 directory. No Home 2 preload, IPC, or renderer controls are added by this
 change.

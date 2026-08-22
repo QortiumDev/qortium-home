@@ -364,7 +364,7 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
   const status = await adoptedManager.getStatus();
   assert.deepEqual(status.capabilities,
     { canInitialInstall: false, canStart: false, canStop: false, canUpdate: false });
-  assert.equal(status.updateOwnership.ownership, 'observe-only');
+  assert.equal(status.updateOwnership.ownership, 'home-github');
   for (const result of [await adoptedManager.install('release'), await adoptedManager.update('release'),
     await adoptedManager.start(), await adoptedManager.stop()]) {
     assert.equal(result.kind, 'blocked');

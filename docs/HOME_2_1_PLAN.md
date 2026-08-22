@@ -139,7 +139,9 @@ preparation.
   selected metadata only under Home app data; and revalidate exact JAR/settings
   identity without writing into the adopted directory. The production manager
   recognizes valid selected records but keeps install/update/start/stop disabled
-  until adopted runtime authority is added. Windows record reads use the native
+  until adopted runtime authority is added. For a proven-stopped node it already
+  derives conditional update ownership from the adopted settings. Windows
+  record reads use the native
   no-reparse/private-DACL helper when available; any existing record that cannot
   be read securely remains unknown. No Home 2 IPC or renderer controls are
   exposed yet.
