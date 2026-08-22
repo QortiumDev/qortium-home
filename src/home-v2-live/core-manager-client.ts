@@ -22,6 +22,12 @@ import type {
   HomeV2QortalMaintenanceRelease,
   HomeV2QortalMaintenanceStatus,
 } from '../../electron/home-v2-qortal-maintenance-contract'
+import type {
+  HomeV2TransportMaintenanceAction,
+  HomeV2TransportMaintenanceActionResult,
+  HomeV2TransportMaintenanceStatus,
+  HomeV2TransportMode,
+} from '../../electron/home-v2-transport-maintenance-contract'
 
 export type {
   HomeV2CoreMaintenanceActionResult,
@@ -34,6 +40,10 @@ export type {
   HomeV2QortalMaintenanceDiscovery,
   HomeV2QortalMaintenanceRelease,
   HomeV2QortalMaintenanceStatus,
+  HomeV2TransportMaintenanceAction,
+  HomeV2TransportMaintenanceActionResult,
+  HomeV2TransportMaintenanceStatus,
+  HomeV2TransportMode,
 }
 
 export type HomeV2QortalMaintenanceAction = 'initial-install' | 'strict-update'
@@ -392,6 +402,182 @@ export function parseHomeV2QortalMaintenanceActionResult(
   }) as HomeV2QortalMaintenanceActionResult
 }
 
+const transportModes = new Set<HomeV2TransportMode>([
+  'direct-and-i2p',
+  'direct-only',
+  'i2p-only',
+  'unknown',
+])
+const transportRouterStates = new Set<HomeV2TransportMaintenanceStatus['router']['state']>([
+  'external-running',
+  'managed-running',
+  'managed-stopped',
+  'missing',
+  'unsupported',
+  'unknown',
+])
+const transportRouterMaintenance = new Set<HomeV2TransportMaintenanceStatus['router']['maintenance']>([
+  'install',
+  'none',
+  'start',
+  'unavailable',
+  'update',
+])
+const transportIssues = new Set<NonNullable<HomeV2TransportMaintenanceStatus['issue']>>([
+  'manager-unavailable',
+  'status-unavailable',
+  'unsupported-platform',
+  'version-unavailable',
+])
+const transportActionCodes = new Set<NonNullable<HomeV2TransportMaintenanceActionResult['code']>>([
+  'action-not-allowed',
+  'action-unconfirmed',
+  'core-install-missing',
+  'core-runtime-not-stopped',
+  'core-runtime-unknown',
+  'external-router-active',
+  'i2p-router-required',
+  'operation-failed',
+  'operation-in-progress',
+  'router-unsupported',
+  'status-unavailable',
+  'target-changed',
+])
+
+function isBoundedTransportVersion(value: unknown): value is string | null {
+  return value === null || (
+    typeof value === 'string' && value.length > 0 && value.length <= 128 &&
+    value.trim() === value && !/[\u0000-\u001f\u007f]/.test(value)
+  )
+}
+
+export function parseHomeV2TransportMaintenanceStatus(
+  value: unknown,
+): HomeV2TransportMaintenanceStatus {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'capabilities',
+    'core',
+    'issue',
+    'network',
+    'revision',
+    'router',
+    'schema',
+    'transportMode',
+  ]) || value.schema !== 'home-v2-transport-maintenance' || value.revision !== 1 ||
+    value.network !== 'qortium' || !transportModes.has(value.transportMode as HomeV2TransportMode) ||
+    !(value.issue === null || transportIssues.has(value.issue as NonNullable<HomeV2TransportMaintenanceStatus['issue']>)) ||
+    !isRecord(value.core) || !hasExactKeys(value.core, ['install', 'runtime']) ||
+    !['installed', 'missing', 'unknown'].includes(String(value.core.install)) ||
+    !['running', 'stopped', 'unknown'].includes(String(value.core.runtime)) ||
+    !isRecord(value.router) || !hasExactKeys(value.router, ['maintenance', 'state', 'version']) ||
+    !transportRouterStates.has(value.router.state as HomeV2TransportMaintenanceStatus['router']['state']) ||
+    !transportRouterMaintenance.has(value.router.maintenance as HomeV2TransportMaintenanceStatus['router']['maintenance']) ||
+    !isBoundedTransportVersion(value.router.version) ||
+    !isRecord(value.capabilities) || !hasExactKeys(value.capabilities, [
+      'canEnsureRouter',
+      'canSetDirectAndI2p',
+      'canSetDirectOnly',
+      'canSetI2pOnly',
+    ]) || Object.values(value.capabilities).some((entry) => typeof entry !== 'boolean')) {
+    throw new Error('Invalid Home 2 transport maintenance status.')
+  }
+
+  const issue = value.issue as HomeV2TransportMaintenanceStatus['issue']
+  const install = value.core.install as HomeV2TransportMaintenanceStatus['core']['install']
+  const runtime = value.core.runtime as HomeV2TransportMaintenanceStatus['core']['runtime']
+  const routerState = value.router.state as HomeV2TransportMaintenanceStatus['router']['state']
+  const maintenance = value.router.maintenance as HomeV2TransportMaintenanceStatus['router']['maintenance']
+  const version = value.router.version as string | null
+  const mode = value.transportMode as HomeV2TransportMode
+  const capabilities = value.capabilities as Record<string, boolean>
+  const fatalIssue = issue === 'manager-unavailable' || issue === 'status-unavailable'
+  const routerReady = routerState === 'external-running' || routerState === 'managed-running'
+  const canChangeStoppedCore = install === 'installed' && runtime === 'stopped' &&
+    mode !== 'unknown' && !fatalIssue
+  const canEnsureRouter = install === 'installed' && runtime === 'stopped' && issue === null &&
+    (maintenance === 'install' || maintenance === 'start' || maintenance === 'update')
+  const routerShapeCoherent = routerState === 'external-running'
+    ? maintenance === 'none' && version === null
+    : routerState === 'managed-running'
+      ? version !== null && (maintenance === 'none' || maintenance === 'update' || maintenance === 'unavailable')
+      : routerState === 'managed-stopped'
+        ? version !== null && (maintenance === 'start' || maintenance === 'update' || maintenance === 'unavailable')
+        : routerState === 'missing'
+          ? maintenance === 'install' && version === null
+          : maintenance === 'unavailable' && version === null
+
+  if (!routerShapeCoherent ||
+    ((routerState === 'unsupported') !== (issue === 'unsupported-platform')) ||
+    (issue === 'version-unavailable' && !(
+      routerState === 'unknown' ||
+      ((routerState === 'managed-running' || routerState === 'managed-stopped') &&
+        maintenance === 'unavailable')
+    )) ||
+    (routerState === 'unknown' && issue === null) ||
+    (fatalIssue && (
+      install !== 'unknown' || runtime !== 'unknown' || mode !== 'unknown' || routerState !== 'unknown'
+    )) ||
+    (install !== 'installed' && mode !== 'unknown') ||
+    capabilities.canEnsureRouter !== canEnsureRouter ||
+    capabilities.canSetDirectOnly !== canChangeStoppedCore ||
+    capabilities.canSetDirectAndI2p !== (canChangeStoppedCore && routerReady) ||
+    capabilities.canSetI2pOnly !== (canChangeStoppedCore && routerReady)) {
+    throw new Error('Invalid Home 2 transport maintenance status.')
+  }
+
+  return Object.freeze({
+    capabilities: Object.freeze({
+      canEnsureRouter: capabilities.canEnsureRouter,
+      canSetDirectAndI2p: capabilities.canSetDirectAndI2p,
+      canSetDirectOnly: capabilities.canSetDirectOnly,
+      canSetI2pOnly: capabilities.canSetI2pOnly,
+    }),
+    core: Object.freeze({ install, runtime }),
+    issue,
+    network: 'qortium',
+    revision: 1,
+    router: Object.freeze({ maintenance, state: routerState, version }),
+    schema: 'home-v2-transport-maintenance',
+    transportMode: mode,
+  })
+}
+
+export function parseHomeV2TransportMaintenanceActionResult(
+  value: unknown,
+): HomeV2TransportMaintenanceActionResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'code',
+    'network',
+    'outcome',
+    'revision',
+    'schema',
+    'status',
+    'warning',
+  ]) || value.schema !== 'home-v2-transport-maintenance-action' || value.revision !== 1 ||
+    value.network !== 'qortium' ||
+    !['blocked', 'completed', 'failed', 'unconfirmed'].includes(String(value.outcome)) ||
+    !(value.code === null || transportActionCodes.has(value.code as NonNullable<HomeV2TransportMaintenanceActionResult['code']>)) ||
+    !(value.warning === null || value.warning === 'cleanup-incomplete') ||
+    (value.outcome === 'completed' && value.code !== null) ||
+    (value.outcome === 'failed' && (value.code !== 'operation-failed' || value.warning !== null)) ||
+    (value.outcome === 'unconfirmed' && (value.code !== 'action-unconfirmed' || value.warning !== null)) ||
+    (value.outcome === 'blocked' && (
+      value.code === null || value.code === 'action-unconfirmed' || value.code === 'operation-failed' ||
+      value.warning !== null
+    ))) {
+    throw new Error('Invalid Home 2 transport maintenance action result.')
+  }
+  return Object.freeze({
+    code: value.code,
+    network: 'qortium',
+    outcome: value.outcome,
+    revision: 1,
+    schema: 'home-v2-transport-maintenance-action',
+    status: parseHomeV2TransportMaintenanceStatus(value.status),
+    warning: value.warning,
+  }) as HomeV2TransportMaintenanceActionResult
+}
+
 const policyActivityStates = new Set([
   'available',
   'checking',
@@ -516,6 +702,11 @@ export interface HomeV2CoreManagerClient {
     action: HomeV2QortalMaintenanceAction,
     expectedTag: string,
   ): Promise<HomeV2QortalMaintenanceActionResult>
+  getTransportMaintenanceStatus?(): Promise<HomeV2TransportMaintenanceStatus>
+  runTransportMaintenanceAction?(
+    action: HomeV2TransportMaintenanceAction,
+    transportMode: Exclude<HomeV2TransportMode, 'unknown'> | null,
+  ): Promise<HomeV2TransportMaintenanceActionResult>
 }
 
 declare global {

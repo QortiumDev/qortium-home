@@ -17,7 +17,6 @@ import { autoUnlockHomeV2SelectedAccount, registerAccountIpcHandlers } from './a
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import {
   disableLegacyCoreManagerRendererEvents,
-  isManagedCoreRuntimeRunning,
   isManagedCoreUsingI2p,
   registerCoreManagerIpcHandlers,
   registerProductionCoreManagerEntries,
@@ -26,6 +25,7 @@ import {
   disableLegacyI2pdRendererEvents,
   registerI2pdManagerIpcHandlers,
   startIfManaged as startI2pdIfManaged,
+  stopRetainedChildForAppQuit as stopI2pdForAppQuit,
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
@@ -829,11 +829,11 @@ function registerWindowIpcHandlers() {
   });
 }
 
-// Reconcile the managed i2pd router with Core on launch, enforcing the invariant
-// "i2pd runs iff Core is running and I2P is enabled". This self-heals a router
-// left over from a previous session: if Core is up and using I2P we (re)start /
-// re-adopt it; otherwise we stop an orphan that outlived a Core shutdown that
-// happened while Home was closed. Best-effort — I2P is only a fallback transport.
+// Reconcile Home's current-process i2pd supervision with Core on launch. When
+// Core is running with I2P enabled, start the strict managed generation only if
+// no SAM router is already present. Otherwise stop only the child retained by
+// this Home process. A router surviving another Home process is treated as
+// external and is never adopted or signalled. Best-effort: I2P is a fallback.
 async function reconcileI2pdWithCore(): Promise<void> {
   try {
     if (await isManagedCoreUsingI2p()) {
@@ -892,6 +892,10 @@ app.whenReady().then(() => {
       console.error('Home 2.0 profile backup or account auto-unlock was unavailable.', error);
     }
     createWindow();
+    // Home 2 uses the same host-owned Qortium Core/i2pd lifecycle as the legacy
+    // shell. Reconcile once after the production managers are registered; the
+    // Home 2 bridge remains invoke-only and does not re-enable legacy events.
+    void reconcileI2pdWithCore();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -948,13 +952,11 @@ app.on('window-all-closed', () => {
   }
 });
 
-// The managed i2pd router tracks Core's lifetime, not Home's window. Core is
-// designed to keep running after Home closes, so on quit we stop i2pd ONLY when
-// Core is also stopped — otherwise we'd strand a still-running Core without its
-// I2P fallback transport. When we leave i2pd running, the detached router holds
-// the SAM port for Core and the next Home launch reconciles it (see app.whenReady
-// below). Defer the quit until this check runs.
-const QUIT_I2PD_SHUTDOWN_TIMEOUT_MS = 4000;
+// Never intentionally lose the ChildProcess authority needed to stop Home's
+// router safely. A normal quit therefore stops only the live child retained by
+// this process, even when Core remains running; the next Home launch can start
+// the strict managed generation again. A router left by a crash is treated as
+// external rather than adopted from mutable PID evidence.
 let i2pdShutdownComplete = false;
 app.on('before-quit', (event) => {
   // A redundant second instance (no lock) never started the shared i2pd/Core, so
@@ -966,24 +968,18 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   void (async () => {
     try {
-      // Bound the shutdown so a hung i2pd/Core check can never block the quit and
-      // leave the user force-killing the app — which is what orphans the helper
-      // processes and the AppImage FUSE mount in the first place.
-      await Promise.race([
-        (async () => {
-          if (!(await isManagedCoreRuntimeRunning())) {
-            await stopI2pdIfManaged();
-          }
-        })(),
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, QUIT_I2PD_SHUTDOWN_TIMEOUT_MS);
-        }),
-      ]);
+      // The manager has its own bounded SIGTERM wait. Await it in full so the
+      // app never discards the only safe ChildProcess authority at a shorter
+      // outer timeout.
+      await stopI2pdForAppQuit();
     } catch {
-      // Quit regardless of any i2pd shutdown error.
-    } finally {
-      i2pdShutdownComplete = true;
-      app.quit();
+      // Keep Home alive with its ChildProcess authority intact. A later quit
+      // retries the bounded stop; force termination remains the user's explicit
+      // escape hatch if the child cannot be stopped.
+      console.error('Home could not confirm that its managed i2pd child stopped; quit was cancelled.');
+      return;
     }
+    i2pdShutdownComplete = true;
+    app.quit();
   })();
 });

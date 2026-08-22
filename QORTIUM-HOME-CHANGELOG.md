@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 transport maintenance
+
+Desktop Runtime settings can now choose Qortium Core's Direct + I2P, Direct
+only, or I2P only transport mode while Core is stopped. Home preserves every
+unrelated Core setting, writes the selected transport list through a private
+atomic replacement, and rechecks the installed Core target, unchanged settings,
+and strongly stopped runtime immediately before activation. Modes that use I2P
+remain unavailable until a local router completes a real bounded SAM handshake;
+a successful local SAM exchange is described only as router readiness, not proof
+of I2P reachability or privacy.
+
+Home can also install, start, and update its own pinned i2pd build on supported
+desktop targets. The main process selects an exact Qortium release asset for the
+current OS and architecture, requires its fixed byte size and SHA-256 digest,
+extracts it into an immutable generation, and re-hashes the selected binary
+before each launch. Home supervises only the child process it started in the
+current session: it never adopts PID files, scans process command lines, exposes
+paths or process details to the renderer, or stops another local router. Router
+and Core mutations share the Home 2 maintenance coordinator and report success
+only after a fresh status confirms the requested state. Android Core/i2pd
+management, retired-generation cleanup, signing, publication, and live network
+acceptance remain outside this change.
+
 ### 2026-08-22 - feat(core): add Home 2 Qortal maintenance
 
 Desktop Runtime settings can now install a verified stable Qortal Core into

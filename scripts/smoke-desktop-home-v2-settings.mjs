@@ -251,6 +251,25 @@ try {
     )
     assert.equal(maintenancePanel.heading, 'Qortium Core maintenance')
     assert.doesNotMatch(maintenancePanel.text, /Qortal.*(?:install|update)|policy|i2pd|transport/i)
+    const transportMaintenancePanel = await waitUntil('Qortium transport maintenance settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const qortium = document.querySelector('.home-v2-core-maintenance:not(.home-v2-transport-maintenance):not(.home-v2-qortal-maintenance)');
+          const transport = document.querySelector('[data-home-v2-transport-maintenance="desktop"]');
+          const qortal = document.querySelector('.home-v2-qortal-maintenance[data-network="qortal"]');
+          return qortium && transport && qortal &&
+              qortium.compareDocumentPosition(transport) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              transport.compareDocumentPosition(qortal) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              typeof window.homeV2CoreManagers?.getTransportMaintenanceStatus === 'function' &&
+              typeof window.homeV2CoreManagers?.runTransportMaintenanceAction === 'function'
+            ? { heading: transport.querySelector('h3')?.textContent, text: transport.textContent }
+            : null;
+        })()`,
+      ),
+    )
+    assert.equal(transportMaintenancePanel.heading, 'Qortium transport and I2P')
+    assert.match(transportMaintenancePanel.text, /Install Qortium Core/)
     const qortalMaintenancePanel = await waitUntil('Qortal Core maintenance settings', () =>
       evaluate(
         client,
