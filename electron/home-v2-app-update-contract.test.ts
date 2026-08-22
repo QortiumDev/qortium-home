@@ -23,24 +23,28 @@ const checkRequest = {
   channel: 'stable',
   revision: 1,
   schema: 'home-v2-app-update-check-request',
+  settingsGeneration: null,
 } as const
 const releaseRequest = {
   ...checkRequest,
   releaseTag: 'v2.1.0',
   schema: 'home-v2-app-update-download-request',
+  settingsGeneration: null,
 }
 let fetchCount = 0
 let revealPath = ''
 const service = createHomeV2AppUpdateService({
-  downloadAsset: async ({ asset, releaseTag }) => ({
-    canOpen: true,
-    canReveal: true,
-    digestVerified: true,
-    fileName: asset.name,
-    filePath: '/private/update.AppImage',
-    releaseTag,
-    size: asset.size,
-  }),
+  downloadAsset: async ({ asset, releaseTag }) => {
+    return {
+      canOpen: true,
+      canReveal: true,
+      digestVerified: true,
+      fileName: asset.name,
+      filePath: '/private/update.AppImage',
+      releaseTag,
+      size: asset.size,
+    }
+  },
   fetchRelease: async () => {
     fetchCount += 1
     return release
@@ -51,6 +55,11 @@ const service = createHomeV2AppUpdateService({
   }),
   now: () => new Date('2026-08-22T12:00:00Z'),
   openReleasePage: async () => undefined,
+  readSettings: async () => ({
+    generation: 2,
+    homeUpdatePolicy: 'auto-download',
+    releaseChannel: 'stable',
+  }),
   revealDownloadedFile: async (filePath) => { revealPath = filePath },
   uuid: () => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
 })
@@ -62,12 +71,46 @@ assert.equal(first.state, 'available')
 assert.equal(JSON.stringify(first).includes('downloadUrl'), false)
 assert.equal(JSON.stringify(first).includes('/private/'), false)
 
-assert.throws(() => service.check({ ...checkRequest, extra: true }), /exact/)
-assert.throws(() => service.check({ ...checkRequest, revision: 2 }), /schema/)
+await assert.rejects(service.check({ ...checkRequest, extra: true }), /exact/)
+await assert.rejects(service.check({ ...checkRequest, revision: 2 }), /schema/)
+const automaticCheck = await service.check({ ...checkRequest, settingsGeneration: 2 })
+assert.equal(automaticCheck.state, 'available')
+const rejectedAutomaticCheck = await service.check({ ...checkRequest, settingsGeneration: 3 })
+assert.equal(rejectedAutomaticCheck.issue, 'settings-changed')
 
 const downloaded = await service.download(releaseRequest)
 assert.equal(downloaded.outcome, 'completed')
 assert.equal(downloaded.download?.digestVerified, true)
+const automatic = await service.download({ ...releaseRequest, settingsGeneration: 2 })
+assert.equal(automatic.outcome, 'completed')
+const rejectedAutomatic = await service.download({ ...releaseRequest, settingsGeneration: 3 })
+assert.equal(rejectedAutomatic.code, 'settings-changed')
+
+let revocationReads = 0
+let revokedDownloadCalls = 0
+const revocationService = createHomeV2AppUpdateService({
+  downloadAsset: async () => {
+    revokedDownloadCalls += 1
+    throw new Error('A revoked automatic update reached the download boundary.')
+  },
+  fetchRelease: async () => release,
+  getEnvironment: () => ({
+    currentVersion: '2.0.0',
+    platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+  }),
+  openReleasePage: async () => undefined,
+  readSettings: async () => {
+    revocationReads += 1
+    return revocationReads === 1
+      ? { generation: 2, homeUpdatePolicy: 'auto-download' as const, releaseChannel: 'stable' as const }
+      : { generation: 3, homeUpdatePolicy: 'off' as const, releaseChannel: 'stable' as const }
+  },
+  revealDownloadedFile: async () => undefined,
+})
+const revoked = await revocationService.download({ ...releaseRequest, settingsGeneration: 2 })
+assert.equal(revoked.code, 'settings-changed')
+assert.equal(revocationReads, 2)
+assert.equal(revokedDownloadCalls, 0)
 assert.equal(JSON.stringify(downloaded).includes('/private/'), false)
 const revealed = await service.reveal({
   downloadId: downloaded.download!.downloadId,

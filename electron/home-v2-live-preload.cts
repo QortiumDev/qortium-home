@@ -50,18 +50,37 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
 })
 
 contextBridge.exposeInMainWorld('homeV2AppUpdates', {
-  check: (channel: 'prerelease' | 'stable') =>
+  claimAutomatic: () =>
+    ipcRenderer.invoke('home-v2-app-update:claim-automatic', {
+      revision: 1,
+      schema: 'home-v2-app-update-automatic-claim-request',
+    }),
+  getSettings: () =>
+    ipcRenderer.invoke('home-v2-app-update:get-settings', {
+      revision: 1,
+      schema: 'home-v2-app-update-settings-get-request',
+    }),
+  check: (
+    channel: 'prerelease' | 'stable',
+    settingsGeneration: number | null = null,
+  ) =>
     ipcRenderer.invoke('home-v2-app-update:check', {
       channel,
       revision: 1,
       schema: 'home-v2-app-update-check-request',
+      settingsGeneration,
     }),
-  download: (channel: 'prerelease' | 'stable', releaseTag: string) =>
+  download: (
+    channel: 'prerelease' | 'stable',
+    releaseTag: string,
+    settingsGeneration: number | null = null,
+  ) =>
     ipcRenderer.invoke('home-v2-app-update:download', {
       channel,
       releaseTag,
       revision: 1,
       schema: 'home-v2-app-update-download-request',
+      settingsGeneration,
     }),
   reveal: (downloadId: string) =>
     ipcRenderer.invoke('home-v2-app-update:reveal', {
@@ -76,6 +95,18 @@ contextBridge.exposeInMainWorld('homeV2AppUpdates', {
       revision: 1,
       schema: 'home-v2-app-update-open-release-request',
     }),
+  setSettings: (
+    expectedGeneration: number,
+    settings: {
+      homeUpdatePolicy: 'auto-download' | 'notify' | 'off'
+      releaseChannel: 'prerelease' | 'stable'
+    },
+  ) => ipcRenderer.invoke('home-v2-app-update:set-settings', {
+    expectedGeneration,
+    revision: 1,
+    schema: 'home-v2-app-update-settings-set-request',
+    settings,
+  }),
 })
 
 contextBridge.exposeInMainWorld('homeV2Vault', {

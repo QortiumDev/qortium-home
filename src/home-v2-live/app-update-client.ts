@@ -1,4 +1,15 @@
 export type HomeV2AppUpdateChannel = 'prerelease' | 'stable'
+export type HomeV2AppUpdateSettings = {
+  readonly generation: number
+  readonly homeUpdatePolicy: 'auto-download' | 'notify' | 'off'
+  readonly releaseChannel: HomeV2AppUpdateChannel
+  readonly revision: 1
+  readonly schema: 'home-v2-app-update-settings'
+}
+export type HomeV2AppUpdateAutomaticClaim = Omit<HomeV2AppUpdateSettings, 'schema'> & {
+  readonly claimed: boolean
+  readonly schema: 'home-v2-app-update-automatic-claim'
+}
 export type HomeV2AppUpdateIssue =
   | 'download-failed'
   | 'download-not-found'
@@ -8,6 +19,7 @@ export type HomeV2AppUpdateIssue =
   | 'release-changed'
   | 'release-not-found'
   | 'release-unavailable'
+  | 'settings-changed'
   | 'unsupported-platform'
 
 export type HomeV2AppUpdateCheck = {
@@ -56,10 +68,57 @@ export type HomeV2AppUpdateActionResult = {
 }
 
 export interface HomeV2AppUpdateClient {
-  check(channel: HomeV2AppUpdateChannel): Promise<unknown>
-  download(channel: HomeV2AppUpdateChannel, releaseTag: string): Promise<unknown>
+  check(
+    channel: HomeV2AppUpdateChannel,
+    settingsGeneration?: number | null,
+  ): Promise<unknown>
+  claimAutomatic(): Promise<unknown>
+  download(
+    channel: HomeV2AppUpdateChannel,
+    releaseTag: string,
+    settingsGeneration?: number | null,
+  ): Promise<unknown>
+  getSettings(): Promise<unknown>
   openReleasePage(channel: HomeV2AppUpdateChannel, releaseTag: string): Promise<unknown>
   reveal(downloadId: string): Promise<unknown>
+  setSettings(
+    expectedGeneration: number,
+    settings: Pick<HomeV2AppUpdateSettings, 'homeUpdatePolicy' | 'releaseChannel'>,
+  ): Promise<unknown>
+}
+
+export function parseHomeV2AppUpdateAutomaticClaim(
+  value: unknown,
+): HomeV2AppUpdateAutomaticClaim {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'claimed',
+      'generation',
+      'homeUpdatePolicy',
+      'releaseChannel',
+      'revision',
+      'schema',
+    ]) ||
+    value.schema !== 'home-v2-app-update-automatic-claim' ||
+    value.revision !== 1 ||
+    typeof value.claimed !== 'boolean' ||
+    !Number.isSafeInteger(value.generation) ||
+    (value.generation as number) < 0 ||
+    (value.homeUpdatePolicy !== 'off' &&
+      value.homeUpdatePolicy !== 'notify' &&
+      value.homeUpdatePolicy !== 'auto-download') ||
+    (value.releaseChannel !== 'stable' && value.releaseChannel !== 'prerelease') ||
+    (value.claimed && value.homeUpdatePolicy === 'off')
+  ) throw new Error('The automatic Home update claim was malformed.')
+  return {
+    claimed: value.claimed,
+    generation: value.generation as number,
+    homeUpdatePolicy: value.homeUpdatePolicy,
+    releaseChannel: value.releaseChannel,
+    revision: 1,
+    schema: 'home-v2-app-update-automatic-claim',
+  }
 }
 
 const issues = new Set<HomeV2AppUpdateIssue>([
@@ -71,6 +130,7 @@ const issues = new Set<HomeV2AppUpdateIssue>([
   'release-changed',
   'release-not-found',
   'release-unavailable',
+  'settings-changed',
   'unsupported-platform',
 ])
 
@@ -92,6 +152,34 @@ function parseIssue(value: unknown) {
   return value === null || issues.has(value as HomeV2AppUpdateIssue)
     ? (value as HomeV2AppUpdateIssue | null)
     : undefined
+}
+
+export function parseHomeV2AppUpdateSettings(value: unknown): HomeV2AppUpdateSettings {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'generation',
+      'homeUpdatePolicy',
+      'releaseChannel',
+      'revision',
+      'schema',
+    ]) ||
+    value.schema !== 'home-v2-app-update-settings' ||
+    value.revision !== 1 ||
+    !Number.isSafeInteger(value.generation) ||
+    (value.generation as number) < 0 ||
+    (value.homeUpdatePolicy !== 'off' &&
+      value.homeUpdatePolicy !== 'notify' &&
+      value.homeUpdatePolicy !== 'auto-download') ||
+    (value.releaseChannel !== 'stable' && value.releaseChannel !== 'prerelease')
+  ) throw new Error('Home update settings were malformed.')
+  return {
+    generation: value.generation as number,
+    homeUpdatePolicy: value.homeUpdatePolicy,
+    releaseChannel: value.releaseChannel,
+    revision: 1,
+    schema: 'home-v2-app-update-settings',
+  }
 }
 
 function parsePlatform(value: unknown): QortiumAppUpdatePlatform | null {

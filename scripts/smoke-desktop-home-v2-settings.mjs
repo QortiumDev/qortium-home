@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -156,6 +156,7 @@ try {
   const client = new CdpClient(target.webSocketDebuggerUrl)
   try {
     await client.send('Runtime.enable')
+    await client.send('Page.enable')
     await waitUntil('Home shell controls', () =>
       evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
     )
@@ -227,15 +228,74 @@ try {
         `(() => {
           const panel = document.querySelector('[data-home-v2-app-updates="desktop"]');
           const channel = panel?.querySelector('select[aria-label="Release channel"]');
+          const policy = panel?.querySelector('select[aria-label="Update policy"]');
           const check = panel?.querySelector('[data-home-v2-update-action="check"]');
-          return panel && channel && check && typeof window.homeV2AppUpdates?.check === 'function'
-            ? { channel: channel.value, check: check.textContent.trim() }
+          return panel && channel && policy && !policy.disabled && check &&
+              typeof window.homeV2AppUpdates?.check === 'function' &&
+              typeof window.homeV2AppUpdates?.claimAutomatic === 'function' &&
+              typeof window.homeV2AppUpdates?.getSettings === 'function' &&
+              typeof window.homeV2AppUpdates?.setSettings === 'function'
+            ? { channel: channel.value, check: check.textContent.trim(), policy: policy.value }
             : null;
         })()`,
       ),
     )
     assert.equal(updatePanel.channel, 'stable')
+    assert.equal(updatePanel.policy, 'notify')
     assert.equal(['Check for updates', 'Checking'].includes(updatePanel.check), true)
+    await evaluate(
+      client,
+      `(() => {
+        const select = document.querySelector('select[aria-label="Update policy"]');
+        select.value = 'off';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`,
+    )
+    const savedUpdateSettings = await waitUntil('persisted Home update policy', () =>
+      evaluate(
+        client,
+        `window.homeV2AppUpdates.getSettings().then((settings) =>
+          settings.homeUpdatePolicy === 'off' ? settings : null)`,
+      ),
+    )
+    assert.equal(savedUpdateSettings.releaseChannel, 'stable')
+    assert.equal(savedUpdateSettings.generation >= 1, true)
+    const updateSettingsPath = path.join(profileDirectory, 'home-v2-app-update-settings.json')
+    const storedUpdateSettings = JSON.parse(readFileSync(updateSettingsPath, 'utf8'))
+    assert.equal(storedUpdateSettings.schema, 'qortium-home-v2-app-update-settings')
+    assert.equal(storedUpdateSettings.version, 1)
+    assert.equal(storedUpdateSettings.homeUpdatePolicy, 'off')
+    assert.equal(statSync(updateSettingsPath).mode & 0o777, 0o600)
+    await client.send('Page.reload', { ignoreCache: true })
+    await waitUntil('reloaded Home shell controls', () =>
+      evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
+    await waitUntil('reloaded Runtime settings navigation', () =>
+      evaluate(
+        client,
+        `(() => {
+          const button = [...document.querySelectorAll('.home-v2-settings-nav button')]
+            .find((candidate) => candidate.textContent.trim() === 'Runtime');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()`,
+      ),
+    )
+    const rehydratedUpdateSettings = await waitUntil('rehydrated Home update policy', () =>
+      evaluate(
+        client,
+        `(() => {
+          const policy = document.querySelector('select[aria-label="Update policy"]');
+          return policy?.value === 'off'
+            ? window.homeV2AppUpdates.getSettings()
+            : null;
+        })()`,
+      ),
+    )
+    assert.equal(rehydratedUpdateSettings.generation, savedUpdateSettings.generation)
+    assert.equal(rehydratedUpdateSettings.homeUpdatePolicy, 'off')
     const coreScreenshot = await client.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(coreScreenshotPath, Buffer.from(coreScreenshot.data, 'base64'))
     writeFileSync(updateScreenshotPath, Buffer.from(coreScreenshot.data, 'base64'))

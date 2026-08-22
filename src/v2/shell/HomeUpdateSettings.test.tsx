@@ -25,9 +25,12 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
     } : null,
     downloadUpdate: async () => undefined,
     formattedSize: '123 bytes',
+    homeUpdatePolicy: 'notify',
+    isAndroid: os === 'android',
     message: null,
     openDownloaded: async () => undefined,
     openReleasePage: async () => undefined,
+    preferencesLoaded: true,
     result: {
       asset: { digestAvailable: true, name: os === 'android' ? 'Home.apk' : 'Home.AppImage', size: 123 },
       channel: 'stable',
@@ -41,16 +44,31 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
       state: 'available',
     },
     setChannel: () => undefined,
+    setHomeUpdatePolicy: () => undefined,
   } as HomeV2AppUpdates
 }
 
 await act(async () => { root.render(<HomeUpdateSettings updates={fixture('linux')} />) })
 assert.equal(rootElement.querySelector('[data-home-v2-app-updates="desktop"]') !== null, true)
+assert.equal((rootElement.querySelector('[data-home-v2-update-policy]') as HTMLSelectElement).value, 'notify')
+assert.equal(
+  rootElement.querySelector('[data-home-v2-update-policy]')?.getAttribute('aria-labelledby'),
+  'home-update-policy-label',
+)
+assert.equal(rootElement.querySelector('[role="status"][aria-live="polite"]') !== null, true)
+assert.deepEqual(
+  [...rootElement.querySelectorAll('[data-home-v2-update-policy] option')].map((option) => option.textContent),
+  ['Off', 'Notify only', 'Download automatically'],
+)
 assert.equal(rootElement.querySelector('[data-home-v2-update-action="download"]')?.textContent?.trim(), 'Download update')
 assert.equal(rootElement.textContent?.includes('Show file'), false)
 
 await act(async () => { root.render(<HomeUpdateSettings updates={fixture('android', true)} />) })
 assert.equal(rootElement.querySelector('[data-home-v2-app-updates="android"]') !== null, true)
+assert.equal(
+  (rootElement.querySelector('[data-home-v2-update-policy] option[value="auto-download"]') as HTMLOptionElement).disabled,
+  true,
+)
 assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]')?.textContent?.trim(), 'Install APK')
 assert.equal(rootElement.textContent?.includes('Start Core'), false)
 

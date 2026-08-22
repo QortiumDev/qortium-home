@@ -538,6 +538,8 @@ async function main() {
 
     const target = await getMainPageTarget(port);
     const client = new CdpClient(target.webSocketDebuggerUrl);
+    const preferencesKey = 'qortium-home-app-update-preferences';
+    let originalUpdatePreferences = null;
 
     try {
       await client.send('Runtime.enable');
@@ -558,10 +560,106 @@ async function main() {
         `Expected an Android platform, found ${JSON.stringify(environment.platform.os)}.`,
       );
 
+      originalUpdatePreferences = await evaluate(
+        client,
+        `window.Capacitor.Plugins.Preferences.get({ key: ${JSON.stringify(preferencesKey)} })`,
+      );
+      const seededAutomaticPreferences = JSON.stringify({
+        downloadedUpdate: null,
+        homeUpdatePolicy: 'auto-download',
+        releaseChannel: 'stable',
+        revision: 1,
+        schema: 'home-v2-app-update-preferences',
+      });
+      await evaluate(
+        client,
+        `window.Capacitor.Plugins.Preferences.set({
+          key: ${JSON.stringify(preferencesKey)},
+          value: ${JSON.stringify(seededAutomaticPreferences)}
+        })`,
+      );
+      await client.send('Page.reload', { ignoreCache: true });
+      await openHomeUpdateSettings(client);
+      await waitUntil('Android automatic policy downgrade', appTimeoutMs, () =>
+        evaluate(client, `(async () => {
+          const select = document.querySelector('select[aria-label="Update policy"]');
+          const stored = await window.Capacitor.Plugins.Preferences.get({
+            key: ${JSON.stringify(preferencesKey)}
+          });
+          return select?.value === 'notify' &&
+            JSON.parse(stored.value ?? '{}').homeUpdatePolicy === 'notify';
+        })()`),
+      );
+      assert(
+        !(await evaluate(
+          client,
+          `Boolean(document.querySelector('[data-home-v2-update-action="open"]'))`,
+        )),
+        'Android automatic policy downgrade unexpectedly produced a downloaded update.',
+      );
+
+      const androidPolicy = await waitUntil('Android update policy controls', appTimeoutMs, () =>
+        evaluate(client, `(() => {
+          const select = document.querySelector('select[aria-label="Update policy"]');
+          const automatic = select?.querySelector('option[value="auto-download"]');
+          return select && !select.disabled && automatic
+            ? { automaticDisabled: automatic.disabled, value: select.value }
+            : null;
+        })()`),
+      );
+      assert(androidPolicy.automaticDisabled, 'Android automatic download must remain disabled.');
+      assert(
+        !(await evaluate(
+          client,
+          `Boolean(document.querySelector('[data-home-v2-update-action="open"]'))`,
+        )),
+        'Android automatic policy downgrade produced a downloaded update after startup settled.',
+      );
+      await evaluate(client, `(() => {
+        const select = document.querySelector('select[aria-label="Update policy"]');
+        select.value = 'off';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await waitUntil('saved Android update policy', appTimeoutMs, () =>
+        evaluate(client, `(async () => {
+          const stored = await window.Capacitor.Plugins.Preferences.get({
+            key: ${JSON.stringify(preferencesKey)}
+          });
+          return JSON.parse(stored.value ?? '{}').homeUpdatePolicy === 'off';
+        })()`),
+      );
+      await client.send('Page.reload', { ignoreCache: true });
+      await openHomeUpdateSettings(client);
+      await waitUntil('persisted Android update policy', appTimeoutMs, () =>
+        evaluate(
+          client,
+          `document.querySelector('select[aria-label="Update policy"]')?.value === 'off'`,
+        ),
+      );
+
       for (const scenario of scenarios) {
         await runScenario({ client, environment, scenario, selectAsset: selectCompatibleUpdateAsset });
       }
     } finally {
+      if (originalUpdatePreferences) {
+        await evaluate(
+          client,
+          originalUpdatePreferences.value == null
+            ? `window.Capacitor.Plugins.Preferences.remove({ key: ${JSON.stringify(preferencesKey)} })`
+            : `window.Capacitor.Plugins.Preferences.set({
+                key: ${JSON.stringify(preferencesKey)},
+              value: ${JSON.stringify(originalUpdatePreferences.value)}
+            })`,
+        );
+        const restored = await evaluate(
+          client,
+          `window.Capacitor.Plugins.Preferences.get({ key: ${JSON.stringify(preferencesKey)} })`,
+        );
+        assert(
+          (restored?.value ?? null) === (originalUpdatePreferences.value ?? null),
+          'Android update preferences were not restored after the smoke test.',
+        );
+      }
       client.close();
     }
   } finally {
