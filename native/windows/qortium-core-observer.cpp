@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -168,6 +169,34 @@ static_assert(sizeof(RemoteUnicodeString64) == 16,
 struct TcpSnapshot {
   std::set<DWORD> pids;
 };
+
+// Some current Windows SDK configurations expose MIB_TCP6ROW_OWNER_PID but
+// omit the corresponding one-element table typedef. Keep the documented
+// GetExtendedTcpTable layout explicit and compile-time checked.
+struct Tcp6OwnerPidRow {
+  UCHAR localAddress[16];
+  DWORD localScopeId;
+  DWORD dwLocalPort;
+  UCHAR remoteAddress[16];
+  DWORD remoteScopeId;
+  DWORD remotePort;
+  DWORD dwState;
+  DWORD dwOwningPid;
+};
+
+struct Tcp6OwnerPidTable {
+  DWORD dwNumEntries;
+  Tcp6OwnerPidRow table[1];
+};
+
+static_assert(sizeof(Tcp6OwnerPidRow) == 56,
+              "Unexpected IPv6 owner row layout");
+static_assert(offsetof(Tcp6OwnerPidRow, dwLocalPort) == 20,
+              "Unexpected IPv6 local-port offset");
+static_assert(offsetof(Tcp6OwnerPidRow, dwState) == 48,
+              "Unexpected IPv6 state offset");
+static_assert(offsetof(Tcp6OwnerPidRow, dwOwningPid) == 52,
+              "Unexpected IPv6 owner-PID offset");
 
 struct FileIdentity {
   std::uint64_t volumeSerial = 0;
@@ -758,8 +787,8 @@ bool tcpSnapshot(unsigned port, TcpSnapshot *output) {
   std::set<DWORD> pids;
   if (!appendTcpTable<MIB_TCPTABLE_OWNER_PID>(
           AF_INET, TCP_TABLE_OWNER_PID_LISTENER, port, &pids) ||
-      !appendTcpTable<MIB_TCP6TABLE_OWNER_PID>(
-          AF_INET6, TCP_TABLE_OWNER_PID_LISTENER, port, &pids))
+      !appendTcpTable<Tcp6OwnerPidTable>(AF_INET6, TCP_TABLE_OWNER_PID_LISTENER,
+                                         port, &pids))
     return false;
   output->pids = std::move(pids);
   return true;
