@@ -124,13 +124,15 @@ preparation.
   acceptance remains a release gate rather than an implementation claim.
 - [x] Add validated fail-closed Windows x64 authority through the same narrow
   native-helper boundary. The adapter binds current-user SID,
-  stable FILETIME PID birth identity, conservatively parsed raw-command-line and PEB cwd
-  evidence, IPv4/IPv6 listener owners, and a no-reparse stable-file/private-DACL
-  API-key read. Unsupported layouts and ambiguous command lines remain
-  unknown. MSVC `/W4 /WX`, PE x64, native self-test, packaged-resource,
+  stable FILETIME PID birth identity, conservatively parsed raw command line,
+  PEB cwd evidence, IPv4/IPv6 listener owners, and a no-reparse
+  stable-file/private-DACL API-key read. Unsupported layouts and ambiguous
+  command lines remain unknown. MSVC `/W4 /WX`, PE x64, native self-test, packaged-resource,
   protocol/adapter, Java-resolution, and real Windows install-lock CI pass. A
   real-Qortal start/relaunch/readiness/stop pass and signed artifact remain
-  release gates. Adoption and Home 2 controls remain subsequent E2/E3 work.
+  release gates; the sanitized native-host acceptance is tracked in
+  [issue #312](https://github.com/QortiumDev/qortium-home/issues/312). Adoption
+  and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 
