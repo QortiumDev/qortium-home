@@ -41,6 +41,28 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
 })
 
 contextBridge.exposeInMainWorld('homeV2CoreManagers', {
+  getQortalMaintenanceStatus: () =>
+    ipcRenderer.invoke('home-v2-qortal-maintenance:getStatus', {
+      network: 'qortal',
+      revision: 1,
+      schema: 'home-v2-qortal-maintenance-request',
+    }),
+  checkQortalMaintenanceRelease: () =>
+    ipcRenderer.invoke('home-v2-qortal-maintenance:checkRelease', {
+      network: 'qortal',
+      revision: 1,
+      schema: 'home-v2-qortal-maintenance-release-request',
+    }),
+  runQortalMaintenanceAction: (
+    action: 'initial-install' | 'strict-update',
+    expectedTag: string,
+  ) => ipcRenderer.invoke('home-v2-qortal-maintenance:runAction', {
+    action,
+    expectedTag,
+    network: 'qortal',
+    revision: 1,
+    schema: 'home-v2-qortal-maintenance-mutation-request',
+  }),
   getMaintenanceStatus: () =>
     ipcRenderer.invoke('home-v2-core-manager:getMaintenanceStatus', {
       revision: 1,

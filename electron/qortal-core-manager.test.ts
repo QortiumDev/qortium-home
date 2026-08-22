@@ -38,16 +38,19 @@ const IDENTITY = {
   commit: '108bf191d42d710ec617f535af30cfd82fc03c87',
   semver: '6.1.9',
 };
-const UPDATE_IDENTITY = { ...IDENTITY, buildVersion: '6.2.0-abcdef1234', commit: 'abcdef1234', semver: '6.2.0' };
+const UPDATE_COMMIT = `abcdef1234${'0'.repeat(30)}`;
+const UPDATE_IDENTITY = { ...IDENTITY, buildVersion: '6.2.0-abcdef1234', commit: UPDATE_COMMIT, semver: '6.2.0' };
 const RELEASE: QortalJarRelease = {
   asset: { digest: `sha256:${'a'.repeat(64)}`,
     downloadUrl: 'https://github.com/Qortal/qortal/releases/download/v6.1.9/qortal.jar',
     name: 'qortal.jar', size: 100 },
+  commit: IDENTITY.commit,
   tagName: 'v6.1.9',
 };
 const UPDATE_RELEASE: QortalJarRelease = {
   asset: { ...RELEASE.asset, digest: `sha256:${'d'.repeat(64)}`,
     downloadUrl: 'https://github.com/Qortal/qortal/releases/download/v6.2.0/qortal.jar' },
+  commit: UPDATE_COMMIT,
   tagName: 'v6.2.0',
 };
 const RECORD: QortalManagedInstallRecordV1 = {
@@ -174,6 +177,26 @@ function manager(
   assert.deepEqual(events.filter((event) => event.startsWith('stage:')), [`stage:${path.basename(UNIQUE_CANDIDATE)}`]);
   assert.equal(events.at(-1), `transaction:${path.basename(UNIQUE_CANDIDATE)}`);
   assert(events.filter((event) => event === 'validate').length >= 3);
+}
+
+{
+  let collisionReads = 0;
+  let transactionRan = false;
+  const result = await manager({
+    inspectExternalInstallCollision: async () => (++collisionReads === 1 ? 'clear' : 'detected'),
+    inspectInstall: async () => ({ kind: 'missing' }),
+    readTargetState: async (targetPath) => path.resolve(targetPath) === path.resolve(PATHS.jarPath)
+      ? MISSING_TARGET
+      : CANDIDATE_TARGET,
+    runInstallTransaction: async () => {
+      transactionRan = true;
+      throw new Error('must not transact after an external install appears');
+    },
+  }).install('release');
+  assert.equal(result.kind, 'blocked');
+  if (result.kind === 'blocked') assert.equal(result.code, 'external-install-detected');
+  assert.equal(collisionReads, 2, 'external-install collision must be rechecked after staging/preparation');
+  assert.equal(transactionRan, false);
 }
 
 {

@@ -89,7 +89,7 @@ export type QortalCandidatePaths = { candidateJarPath: string; partialPath: stri
 
 export type QortalManagerBlockCode =
   | 'adopted-unsupported' | 'api-key-unavailable' | 'candidate-changed'
-  | 'install-not-home-managed' | 'install-not-missing' | 'invalid-release'
+  | 'external-install-detected' | 'install-not-home-managed' | 'install-not-missing' | 'invalid-release'
   | 'java-unavailable' | 'launch-authority-invalid' | 'process-active'
   | 'process-ownership-unproven' | 'process-state-unknown' | 'release-not-newer'
   | 'target-changed' | 'update-node-native' | 'update-ownership-unknown';
@@ -170,6 +170,7 @@ export type QortalCoreManagerOperations = {
   detectLiveOwnership: typeof detectQortalUpdateOwnershipFromLiveResponse;
   detectStoppedOwnership: typeof detectQortalUpdateOwnershipFromSettings;
   ensureDirectory(targetPath: string): Promise<void>;
+  inspectExternalInstallCollision(): Promise<'clear' | 'detected' | 'unknown'>;
   inspectInstall(paths: QortalManagedInstallPaths): Promise<QortalInstallObservation>;
   inspectRuntime(target: QortalRuntimeTarget): Promise<QortalRuntimeObservation>;
   prepareCommand(command: string, args: readonly string[], platform?: NodeJS.Platform, appDir?: string): ManagedChildCommand;
@@ -254,6 +255,7 @@ const DEFAULT_OPERATIONS: Omit<QortalCoreManagerOperations,
   detectLiveOwnership: detectQortalUpdateOwnershipFromLiveResponse,
   detectStoppedOwnership: detectQortalUpdateOwnershipFromSettings,
   ensureDirectory: async (targetPath) => { await mkdir(targetPath, { mode: 0o700, recursive: true }); },
+  inspectExternalInstallCollision: async () => 'clear',
   inspectInstall: inspectManagedInstall,
   prepareCommand: prepareManagedLongLivedCommand,
   prepareInstall: prepareQortalManagedInstall,
@@ -512,6 +514,17 @@ export class QortalCoreManager {
     const candidate = await this.operations.readTargetState(staged.paths.candidateJarPath);
     if (!this.operations.statesMatch(staged.receipt, candidate) || !candidateMatches(candidate, staged.candidate)) {
       return blocked('candidate-changed', 'The verified Qortal candidate changed before the transaction.');
+    }
+    if (expected === 'missing') {
+      const collision = await this.operations.inspectExternalInstallCollision();
+      if (collision !== 'clear') {
+        return blocked(
+          'external-install-detected',
+          collision === 'detected'
+            ? 'Another Qortal installation was detected.'
+            : 'Another Qortal installation could not be ruled out.',
+        );
+      }
     }
     return stoppedBlock(await this.operations.inspectRuntime(defaultRuntimeTarget(this.config.paths)));
   }

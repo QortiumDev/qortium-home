@@ -12,6 +12,7 @@ import { readCoreJarIdentityUncached, type CoreJarIdentity } from './core-jar-id
 import { QORTAL_CORE_DESCRIPTOR } from './core-network-descriptor.js';
 import {
   QortalCoreManager,
+  type QortalCoreManagerOperations,
   type QortalJavaSelection,
   type QortalLaunchReceipt,
   type QortalRuntimeAuthority,
@@ -412,6 +413,10 @@ export function createProductionQortalCoreManager(
   config: ConstructorParameters<typeof QortalCoreManager>[0],
   resolveJava: () => Promise<QortalJavaSelection | null>,
   overrides: Partial<QortalCoreRuntimeOperations> = {},
+  managerOverrides: Partial<QortalCoreManagerOperations> = {},
 ) {
-  return new QortalCoreManager(config, createQortalCoreRuntimeOperations(resolveJava, overrides));
+  return new QortalCoreManager(config, {
+    ...createQortalCoreRuntimeOperations(resolveJava, overrides),
+    ...managerOverrides,
+  });
 }

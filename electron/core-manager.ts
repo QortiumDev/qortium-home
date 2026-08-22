@@ -69,6 +69,7 @@ import {
 import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
 import { resolveQortalAdoptedInstallRecordPath } from './qortal-install-source.js';
 import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
+import { probeProductionQortalExternalInstallCollision } from './home-v2-qortal-maintenance-discovery.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { userMessage } from './user-message.js';
 import {
@@ -4337,6 +4338,10 @@ export function registerProductionCoreManagerEntries() {
     },
     resolveSharedQortalJavaForLaunch,
     runtimeOverrides,
+    {
+      inspectExternalInstallCollision: async () =>
+        await probeProductionQortalExternalInstallCollision(paths),
+    },
   ));
 }
 

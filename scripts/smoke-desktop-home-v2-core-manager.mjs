@@ -112,6 +112,33 @@ function assertMaintenanceStatus(value) {
   assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|commit|digest|download|jarPath|pid|record|runtimePath|token|url/i)
 }
 
+function assertQortalMaintenanceStatus(value) {
+  assert.deepEqual(Object.keys(value).sort(), [
+    'capabilities',
+    'discovery',
+    'install',
+    'installedVersion',
+    'issue',
+    'network',
+    'revision',
+    'runtime',
+    'schema',
+    'updateAuthority',
+  ])
+  assert.equal(value.network, 'qortal')
+  assert.equal(value.schema, 'home-v2-qortal-maintenance')
+  assert.equal(value.revision, 1)
+  assert.deepEqual(Object.keys(value.capabilities).sort(), [
+    'canCheckRelease',
+    'canInitialInstall',
+    'canUpdate',
+  ])
+  assert.doesNotMatch(
+    JSON.stringify(value),
+    /apiKey|cause|commit|digest|download|jarPath|pid|rawRelease|record|runtimePath|token|url/i,
+  )
+}
+
 function assertUpdatePolicy(value) {
   assert.deepEqual(Object.keys(value).sort(), [
     'activity',
@@ -158,6 +185,11 @@ try {
   }
   const maintenance = await evaluate(page, 'window.homeV2CoreManagers.getMaintenanceStatus()')
   assertMaintenanceStatus(maintenance)
+  const qortalMaintenance = await evaluate(
+    page,
+    'window.homeV2CoreManagers.getQortalMaintenanceStatus()',
+  )
+  assertQortalMaintenanceStatus(qortalMaintenance)
   const updatePolicy = await evaluate(page, 'window.homeV2CoreManagers.getUpdatePolicy()')
   assertUpdatePolicy(updatePolicy)
   const setPolicyResult = await evaluate(
@@ -197,6 +229,9 @@ try {
         const bridge = window.homeV2CoreManagers;
         return typeof bridge.checkMaintenanceRelease === 'function' &&
           typeof bridge.runMaintenanceAction === 'function' &&
+          typeof bridge.getQortalMaintenanceStatus === 'function' &&
+          typeof bridge.checkQortalMaintenanceRelease === 'function' &&
+          typeof bridge.runQortalMaintenanceAction === 'function' &&
           typeof bridge.getUpdatePolicy === 'function' &&
           typeof bridge.setUpdatePolicy === 'function';
       })()`,
