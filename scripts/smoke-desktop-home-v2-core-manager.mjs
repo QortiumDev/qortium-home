@@ -139,6 +139,24 @@ function assertQortalMaintenanceStatus(value) {
   )
 }
 
+function assertTransportMaintenanceStatus(value) {
+  assert.deepEqual(Object.keys(value).sort(), [
+    'capabilities', 'core', 'issue', 'network', 'revision', 'router', 'schema', 'transportMode',
+  ])
+  assert.equal(value.network, 'qortium')
+  assert.equal(value.schema, 'home-v2-transport-maintenance')
+  assert.equal(value.revision, 1)
+  assert.deepEqual(Object.keys(value.capabilities).sort(), [
+    'canEnsureRouter', 'canSetDirectAndI2p', 'canSetDirectOnly', 'canSetI2pOnly',
+  ])
+  assert.deepEqual(Object.keys(value.core).sort(), ['install', 'runtime'])
+  assert.deepEqual(Object.keys(value.router).sort(), ['maintenance', 'state', 'version'])
+  assert.doesNotMatch(
+    JSON.stringify(value),
+    /apiKey|binaryPath|cause|digest|download|externalBinaryPath|jarPath|pid|record|runtimePath|samHost|samPort|token|url/i,
+  )
+}
+
 function assertUpdatePolicy(value) {
   assert.deepEqual(Object.keys(value).sort(), [
     'activity',
@@ -190,6 +208,11 @@ try {
     'window.homeV2CoreManagers.getQortalMaintenanceStatus()',
   )
   assertQortalMaintenanceStatus(qortalMaintenance)
+  const transportMaintenance = await evaluate(
+    page,
+    'window.homeV2CoreManagers.getTransportMaintenanceStatus()',
+  )
+  assertTransportMaintenanceStatus(transportMaintenance)
   const updatePolicy = await evaluate(page, 'window.homeV2CoreManagers.getUpdatePolicy()')
   assertUpdatePolicy(updatePolicy)
   const setPolicyResult = await evaluate(
@@ -232,6 +255,8 @@ try {
           typeof bridge.getQortalMaintenanceStatus === 'function' &&
           typeof bridge.checkQortalMaintenanceRelease === 'function' &&
           typeof bridge.runQortalMaintenanceAction === 'function' &&
+          typeof bridge.getTransportMaintenanceStatus === 'function' &&
+          typeof bridge.runTransportMaintenanceAction === 'function' &&
           typeof bridge.getUpdatePolicy === 'function' &&
           typeof bridge.setUpdatePolicy === 'function';
       })()`,

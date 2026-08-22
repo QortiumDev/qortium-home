@@ -1,61 +1,42 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { chmod, open, rename, rm } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import extract from 'extract-zip';
-import { extract as extractTar } from 'tar';
+import {
+  installPinnedI2pd,
+  readI2pdManagedInstall,
+  type I2pdManagedInstall,
+} from './i2pd-managed-install.js';
+import {
+  classifyI2pdRelease,
+  getPinnedI2pdRelease,
+  type I2pdPinnedRelease,
+} from './i2pd-release-policy.js';
+import {
+  I2PD_SAM_MAX_REPLY_BYTES,
+  isValidI2pdSamHelloReplyLine,
+} from './i2pd-sam-protocol.js';
 import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
 } from './managed-child-process.js';
 
-// Managed i2pd for desktop. Downloads a verified i2pd binary from our build repo
-// (QortiumDev/qortium-i2pd), installs it under Home's managed data area, writes a
-// loopback-only SAM config, and supervises it as a child process so Qortium Core
-// can use I2P as a fallback transport over SAM v3 on 127.0.0.1:7656.
-//
-// Mirrors electron/core-manager.ts conventions (paths under appData, streamed
-// download + sha256 verification, versioned install, progress broadcast, IPC
-// group). Desktop-only — Android connects to a remote node and never manages a
-// local Core or i2pd.
-//
-// SCAFFOLD STATUS — implemented: target resolution, manifest fetch, download +
-// sha256 verify (against manifest.json), extract, chmod, config generation,
-// existing-SAM detection, supervised start/stop, status. TODO before shipping:
-//   - macOS: re-ad-hoc-sign after install if the signature is missing (CI ad-hoc
-//     signs already and Node fetch doesn't quarantine, so usually fine).
-//   - Readiness beyond "SAM port open" (Core itself verifies LeaseSet; Home could
-//     surface warming-up vs reachable by scraping Core's I2P logs — see the 1.1.2
-//     log strings: "I2P fallback up at", "up, destination ...; LeaseSet published").
-//   - Preserve i2pd's own router keys across binary updates.
-//   - Download retry/backoff + offline handling (cf. core-manager downloadFile).
-
-const I2PD_REPOSITORY = 'QortiumDev/qortium-i2pd';
-const I2PD_RELEASE_BASE = `https://github.com/${I2PD_REPOSITORY}/releases/download`;
-const GITHUB_USER_AGENT = 'QortiumHome/1.0';
-// The i2pd build this Home version manages. Bump to ship a newer router.
-const PINNED_RELEASE = '2.60.0-q2';
+// Desktop-only managed i2pd. The immutable installer owns release provenance
+// and generation validation; this module owns only the child it spawned during
+// this Home process. An already-running SAM router is treated as external and
+// is never inspected, adopted, signalled, or identified by executable path.
 
 const I2PD_DATA_DIR = 'qortium-i2pd';
-const CURRENT_I2PD_FILE = 'current.json';
-
 const DEFAULT_SAM_HOST = '127.0.0.1';
 const DEFAULT_SAM_PORT = 7656;
-// I2P fallback is a reachability path, not a fast one — give it bandwidth headroom
-// (the default 'L' makes leaseset resolution fail; the plan calls for >= O/X).
 const I2PD_BANDWIDTH_CLASS = 'X';
 
 const SAM_PROBE_TIMEOUT_MS = 2_000;
 const START_TIMEOUT_MS = 60_000;
 const START_POLL_INTERVAL_MS = 1_000;
 const STOP_TIMEOUT_MS = 10_000;
-const DOWNLOAD_MAX_ATTEMPTS = 3;
-const DOWNLOAD_RETRY_BASE_MS = 1_000;
 
 export type I2pdProgressAction =
   | 'checking'
@@ -72,11 +53,10 @@ export type I2pdProgress = {
   percent?: number;
 };
 
-// How i2pd is being provided: 'managed' = Home runs it; 'external' = some other
-// SAM bridge is already listening (a standalone operator's i2pd / Whonix), which
-// Home must not clobber; 'none' = no router available.
 export type I2pdMode = 'managed' | 'external' | 'none';
 
+// The path fields remain for the legacy renderer contract, but are always
+// null. Host filesystem and process details must not cross this boundary.
 export type I2pdStatus = {
   supported: boolean;
   installed: boolean;
@@ -89,34 +69,29 @@ export type I2pdStatus = {
   externalBinaryPath: string | null;
 };
 
-type I2pdTarget = {
-  os: 'linux' | 'macos' | 'windows';
-  arch: string;
-  /** manifest.json key, e.g. "linux-x86_64" / "macos-arm64" / "windows-x64". */
-  key: string;
-  archiveType: 'zip' | 'tar.gz';
-  binaryName: 'i2pd' | 'i2pd.exe';
-};
+export type I2pdMaintenanceInspection = Readonly<{
+  install: 'installed' | 'missing' | 'unknown';
+  installedVersion: string | null;
+  managedProcessActive: boolean;
+  maintenance: 'install' | 'none' | 'start' | 'unavailable' | 'update';
+  router:
+    | 'external-running'
+    | 'managed-running'
+    | 'managed-stopped'
+    | 'missing'
+    | 'unsupported'
+    | 'unknown';
+  supported: boolean;
+}>;
 
-type I2pdManifestEntry = { asset: string; sha256: string };
-type I2pdManifest = {
-  version: string;
-  builtFrom: string;
-  targets: Record<string, I2pdManifestEntry>;
-};
-
-type InstalledI2pd = {
-  version: string;
-  target: string;
-  asset: string;
-  sha256: string;
-  binaryPath: string;
-  installedAt: string;
-};
-
-// Module-level supervision handle for the i2pd we spawned.
 let managedChild: ChildProcess | null = null;
+// Immutable snapshot of the exact strict generation used by managedChild. It
+// keeps status truthful if current.json is changed while that child is alive.
+let managedChildInstall: I2pdManagedInstall | null = null;
 let legacyI2pdRendererEventsEnabled = true;
+let mutationTail: Promise<void> = Promise.resolve();
+let installInFlight: Promise<I2pdStatus> | null = null;
+let appShutdownRequested = false;
 
 export function disableLegacyI2pdRendererEvents() {
   legacyI2pdRendererEventsEnabled = false;
@@ -135,274 +110,138 @@ function getI2pdBasePath() {
   return path.join(app.getPath('appData'), I2PD_DATA_DIR);
 }
 
-function getI2pdDownloadsPath() {
-  return path.join(getI2pdBasePath(), 'downloads');
-}
-
-function getI2pdVersionsPath() {
-  return path.join(getI2pdBasePath(), 'versions');
-}
-
-// Runtime data dir for the router itself (i2pd datadir + generated conf + keys).
-function getI2pdRuntimePath() {
-  return path.join(getI2pdBasePath(), 'runtime');
-}
-
-function getI2pdConfPath() {
-  return path.join(getI2pdRuntimePath(), 'i2pd.conf');
-}
-
-function getI2pdLogPath() {
-  return path.join(getI2pdRuntimePath(), 'i2pd.log');
-}
-
-function getI2pdPidPath() {
-  return path.join(getI2pdRuntimePath(), 'i2pd.pid');
-}
-
-function getCurrentI2pdPath() {
-  return path.join(getI2pdBasePath(), CURRENT_I2PD_FILE);
-}
-
-// Maps this machine to a manifest target key, mirroring core-manager's Java
-// platform/arch mapping (darwin->macos, win32->windows; x64->x86_64,
-// arm64->aarch64 on Linux but arm64 on macOS, matching our release naming).
-function getI2pdTarget(): I2pdTarget | null {
-  const platform = process.platform;
-  const arch = process.arch;
-
-  const os: I2pdTarget['os'] | null =
-    platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : platform === 'linux' ? 'linux' : null;
-  if (!os) {
-    return null;
-  }
-
-  let mappedArch: string | null = null;
-  if (arch === 'x64') {
-    mappedArch = 'x86_64';
-  } else if (arch === 'arm64') {
-    mappedArch = os === 'macos' ? 'arm64' : 'aarch64';
-  }
-  if (!mappedArch) {
-    return null;
-  }
-
-  // We only build/publish windows-x64 today.
-  if (os === 'windows' && mappedArch !== 'x86_64') {
-    return null;
-  }
-
+function managedInstallInput() {
   return {
-    os,
-    arch: mappedArch,
-    key: `${os}-${mappedArch}`,
-    archiveType: os === 'windows' ? 'zip' : 'tar.gz',
-    binaryName: os === 'windows' ? 'i2pd.exe' : 'i2pd',
-  };
+    arch: process.arch,
+    basePath: getI2pdBasePath(),
+    platform: process.platform,
+  } as const;
 }
 
-async function ensureLayout() {
-  await mkdir(getI2pdBasePath(), { recursive: true });
-  await mkdir(getI2pdDownloadsPath(), { recursive: true });
-  await mkdir(getI2pdVersionsPath(), { recursive: true });
-  await mkdir(getI2pdRuntimePath(), { recursive: true });
+async function readInstalledI2pd(): Promise<I2pdManagedInstall | null> {
+  return await readI2pdManagedInstall(managedInstallInput());
 }
 
-async function fetchManifest(tag: string): Promise<I2pdManifest> {
-  const url = `${I2PD_RELEASE_BASE}/${tag}/manifest.json`;
-  const response = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': GITHUB_USER_AGENT },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Could not fetch the i2pd release manifest (HTTP ${response.status}).`);
-  }
-
-  const manifest = (await response.json()) as I2pdManifest;
-  if (!manifest || typeof manifest !== 'object' || !manifest.targets) {
-    throw new Error('The i2pd release manifest was malformed.');
-  }
-
-  return manifest;
+function isLiveChild(child: ChildProcess | null): child is ChildProcess {
+  return child !== null && child.exitCode === null && child.signalCode === null;
 }
 
-// A deterministic verification failure — the wrong bytes for a pinned hash (bad
-// pin or tampering). Never retried, unlike transient network errors.
-class ChecksumError extends Error {}
-
-// Streamed download to a temp file with sha256 verification against the
-// manifest's expected hex, then an atomic rename into place — so a half-finished
-// or corrupt download can never be mistaken for a good binary.
-async function downloadAndVerify(tag: string, entry: I2pdManifestEntry, destinationPath: string) {
-  const url = `${I2PD_RELEASE_BASE}/${tag}/${entry.asset}`;
-  const tempPath = `${destinationPath}.part`;
-  const response = await fetch(url, {
-    headers: { Accept: 'application/octet-stream,*/*', 'User-Agent': GITHUB_USER_AGENT },
-  });
-
-  if (!response.ok || !response.body) {
-    throw new Error(`i2pd download failed with HTTP ${response.status}.`);
-  }
-
-  const totalBytes = Number(response.headers.get('content-length')) || 0;
-  const hash = createHash('sha256');
-  let receivedBytes = 0;
-  const progressStream = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      receivedBytes += chunk.length;
-      hash.update(chunk);
-      publishProgress({
-        action: 'downloading',
-        kind: 'info',
-        message: `Downloading ${entry.asset}.`,
-        percent: totalBytes ? Math.floor((receivedBytes / totalBytes) * 100) : undefined,
-      });
-      callback(null, chunk);
-    },
-  });
-
-  try {
-    await pipeline(
-      Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-      progressStream,
-      createWriteStream(tempPath),
-    );
-  } catch (error) {
-    await rm(tempPath, { force: true });
-    throw error;
-  }
-
-  const digest = hash.digest('hex');
-  if (digest !== entry.sha256) {
-    await rm(tempPath, { force: true });
-    throw new ChecksumError(`Downloaded i2pd did not match the expected sha256 (got ${digest}).`);
-  }
-
-  await rename(tempPath, destinationPath);
+function relinquishManagedChild(child: ChildProcess) {
+  if (managedChild !== child) return;
+  managedChild = null;
+  managedChildInstall = null;
 }
 
-// Retry transient download failures (network blips, 5xx, dropped streams) with
-// exponential backoff + jitter. A ChecksumError is deterministic and is never
-// retried.
-async function downloadWithRetry(tag: string, entry: I2pdManifestEntry, destinationPath: string) {
-  for (let attempt = 1; attempt <= DOWNLOAD_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      await downloadAndVerify(tag, entry, destinationPath);
-      return;
-    } catch (error) {
-      if (error instanceof ChecksumError || attempt === DOWNLOAD_MAX_ATTEMPTS) {
-        throw error;
-      }
-      const delay = DOWNLOAD_RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
-      publishProgress({
-        action: 'downloading',
-        kind: 'info',
-        message: `Download attempt ${attempt} failed; retrying in ${Math.round(delay / 1000)}s.`,
-      });
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-}
-
-async function extractArchive(archiveType: I2pdTarget['archiveType'], archivePath: string, destination: string) {
-  if (archiveType === 'zip') {
-    await extract(archivePath, { dir: destination });
-    return;
-  }
-  await extractTar({ cwd: destination, file: archivePath });
-}
-
-// Remove stale version dirs after a successful install, keeping only the current
-// one. Operates ONLY on versions/ — never on runtime/, which holds i2pd's router
-// identity (router.keys) and netDb and must persist across binary updates.
-async function pruneOldVersions(keepDirName: string) {
-  const versionsPath = getI2pdVersionsPath();
-  const entries = await readdir(versionsPath, { withFileTypes: true }).catch(() => []);
-
-  for (const entry of entries) {
-    if (entry.isDirectory() && entry.name !== keepDirName) {
-      await rm(path.join(versionsPath, entry.name), { recursive: true, force: true }).catch(() => undefined);
-    }
-  }
-}
-
-async function readInstalledI2pd(): Promise<InstalledI2pd | null> {
-  try {
-    const raw = await readFile(getCurrentI2pdPath(), 'utf8');
-    const parsed = JSON.parse(raw) as InstalledI2pd;
-    if (parsed?.binaryPath && existsSync(parsed.binaryPath)) {
-      return parsed;
-    }
-  } catch {
-    // Not installed yet, or the record/binary is gone.
-  }
+function currentManagedChild(): ChildProcess | null {
+  if (!managedChild) return null;
+  if (isLiveChild(managedChild)) return managedChild;
+  relinquishManagedChild(managedChild);
   return null;
 }
 
-export async function install(): Promise<I2pdStatus> {
-  const target = getI2pdTarget();
-  if (!target) {
-    throw new Error(`Managed i2pd is not available for ${process.platform}/${process.arch}.`);
-  }
-
-  await ensureLayout();
-  publishProgress({ action: 'checking', kind: 'info', message: 'Checking the i2pd release.', percent: 2 });
-
-  const manifest = await fetchManifest(PINNED_RELEASE);
-  const entry = manifest.targets[target.key];
-  if (!entry) {
-    throw new Error(`The i2pd release ${PINNED_RELEASE} has no asset for ${target.key}.`);
-  }
-
-  const archivePath = path.join(getI2pdDownloadsPath(), entry.asset);
-  await downloadWithRetry(PINNED_RELEASE, entry, archivePath);
-
-  publishProgress({ action: 'extracting', kind: 'info', message: 'Installing i2pd.', percent: 90 });
-  const versionDirName = `${PINNED_RELEASE}-${target.key}`;
-  const versionPath = path.join(getI2pdVersionsPath(), versionDirName);
-  await rm(versionPath, { recursive: true, force: true });
-  await mkdir(versionPath, { recursive: true });
-  await extractArchive(target.archiveType, archivePath, versionPath);
-
-  const binaryPath = path.join(versionPath, target.binaryName);
-  if (!existsSync(binaryPath)) {
-    throw new Error(`The i2pd archive did not contain ${target.binaryName}.`);
-  }
-  if (process.platform !== 'win32') {
-    await chmod(binaryPath, 0o755);
-  }
-  // TODO(macos): if `codesign -dv` shows no signature, re-ad-hoc-sign here
-  // (`codesign --force -s - <binaryPath>`) for Apple Silicon. CI already ad-hoc
-  // signs and Node-fetched files aren't quarantined, so this is usually a no-op.
-
-  const installed: InstalledI2pd = {
-    version: PINNED_RELEASE,
-    target: target.key,
-    asset: entry.asset,
-    sha256: entry.sha256,
-    binaryPath,
-    installedAt: new Date().toISOString(),
-  };
-  await writeFile(getCurrentI2pdPath(), JSON.stringify(installed, null, 2), 'utf8');
-
-  // Best-effort cleanup of superseded binaries (keeps runtime/ untouched).
-  await pruneOldVersions(versionDirName);
-
-  publishProgress({ action: 'idle', kind: 'success', message: 'i2pd installed.', percent: 100 });
-  return getStatus();
+function runMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = mutationTail.then(operation, operation);
+  mutationTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
-// Generate a minimal, loopback-only i2pd config: SAM enabled for Core, proxies
-// and web console off (never exposed), bandwidth headroom for the fallback.
-async function writeI2pdConf() {
+function installedMatchesPinnedRelease(
+  installed: I2pdManagedInstall,
+  release: I2pdPinnedRelease,
+) {
+  const { record } = installed;
+  return record.version === release.version &&
+    record.target === release.target &&
+    record.archiveType === release.archiveType &&
+    record.assetName === release.assetName &&
+    record.archiveSha256 === release.sha256 &&
+    record.archiveSize === release.size &&
+    record.binaryName === release.binaryName;
+}
+
+async function readStrictPinnedInstall(): Promise<I2pdManagedInstall | null> {
+  const release = getPinnedI2pdRelease(process.platform, process.arch);
+  if (!release) {
+    throw new Error('Managed i2pd is unavailable on this platform.');
+  }
+  const installed = await readInstalledI2pd();
+  if (!installed) return null;
+  const decision = classifyI2pdRelease(
+    installed.record.version,
+    process.platform,
+    process.arch,
+  );
+  if (decision.action !== 'none' || decision.reason !== 'installed-current' ||
+    !installedMatchesPinnedRelease(installed, release)) {
+    throw new Error('The managed i2pd installation is not the pinned release.');
+  }
+  return installed;
+}
+
+function sameInstalledGeneration(
+  left: I2pdManagedInstall,
+  right: I2pdManagedInstall,
+) {
+  return left.binaryPath === right.binaryPath &&
+    left.generationPath === right.generationPath &&
+    left.record.generation === right.record.generation &&
+    left.record.binarySha256 === right.record.binarySha256 &&
+    left.record.binarySize === right.record.binarySize &&
+    left.record.installedAt === right.record.installedAt;
+}
+
+// A successful TCP connection is insufficient: another local service may own
+// the port. Prove a SAM v3 endpoint with a bounded HELLO exchange instead.
+function probeSamBridge(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: DEFAULT_SAM_HOST, port: DEFAULT_SAM_PORT });
+    let settled = false;
+    let received = Buffer.alloc(0);
+
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+
+    socket.setTimeout(SAM_PROBE_TIMEOUT_MS);
+    socket.setNoDelay(true);
+    socket.once('connect', () => {
+      socket.write('HELLO VERSION MIN=3.0 MAX=3.3\n');
+    });
+    socket.on('data', (chunk: Buffer) => {
+      if (received.length + chunk.length > I2PD_SAM_MAX_REPLY_BYTES) {
+        finish(false);
+        return;
+      }
+      received = Buffer.concat([received, chunk]);
+      const newline = received.indexOf(0x0a);
+      if (newline === -1) return;
+      finish(isValidI2pdSamHelloReplyLine(received.subarray(0, newline)));
+    });
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    socket.once('end', () => finish(false));
+    socket.once('close', () => finish(false));
+  });
+}
+
+async function writeI2pdConf(installed: I2pdManagedInstall) {
+  const runtimePath = installed.paths.runtimePath;
+  const confPath = path.join(runtimePath, 'i2pd.conf');
+  const tempPath = path.join(
+    runtimePath,
+    `.i2pd.conf.${randomBytes(16).toString('hex')}.tmp`,
+  );
   const conf = [
-    '# Generated by Qortium Home — do not edit; regenerated on each managed start.',
+    '# Generated by Qortium Home; regenerated on each managed start.',
     `bandwidth = ${I2PD_BANDWIDTH_CLASS}`,
-    // Log to i2pd's own file, not via Home's stdout pipe: the router is spawned
-    // detached so it can outlive Home (it tracks Core's lifetime, not Home's
-    // window), and a piped stdout would break the moment Home exits.
     'log = file',
-    `logfile = ${getI2pdLogPath()}`,
+    'logfile = i2pd.log',
     '',
     '[sam]',
     'enabled = true',
@@ -419,264 +258,380 @@ async function writeI2pdConf() {
     'enabled = false',
     '',
   ].join('\n');
-  await writeFile(getI2pdConfPath(), conf, 'utf8');
-}
 
-// True when something is already listening on the SAM bridge (managed or not).
-function probeSamBridge(host = DEFAULT_SAM_HOST, port = DEFAULT_SAM_PORT): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host, port });
-    let settled = false;
-    const finish = (value: boolean) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve(value);
-    };
-    socket.setTimeout(SAM_PROBE_TIMEOUT_MS);
-    socket.once('connect', () => finish(true));
-    socket.once('timeout', () => finish(false));
-    socket.once('error', () => finish(false));
-  });
-}
-
-async function readPidFile(): Promise<number | null> {
+  let handle;
   try {
-    const pid = Number.parseInt((await readFile(getI2pdPidPath(), 'utf8')).trim(), 10);
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
+    handle = await open(tempPath, 'wx', 0o600);
+    await handle.writeFile(conf, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    if (process.platform !== 'win32') await chmod(tempPath, 0o600);
+    await rename(tempPath, confPath);
+    if (process.platform !== 'win32') await chmod(confPath, 0o600);
   } catch (error) {
-    // EPERM means the process exists but we can't signal it — still alive.
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    await handle?.close().catch(() => undefined);
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
   }
 }
 
-// Is `pid` one of OUR i2pd processes? We match our runtime datadir on the command
-// line (passed as --datadir=<runtime>) so a reused pid for an unrelated process
-// isn't mistaken for ours. Best-effort liveness-only on Windows.
-function isOurI2pd(pid: number): boolean {
-  if (!isPidAlive(pid)) {
-    return false;
-  }
-  if (process.platform === 'win32') {
-    return true;
-  }
-  try {
-    const out = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-    return out.includes(getI2pdRuntimePath());
-  } catch {
-    return false;
-  }
-}
-
-function findExternalI2pdBinaryPath(): string | null {
-  if (process.platform === 'win32') {
-    return null;
-  }
-
-  try {
-    const out = execFileSync('ps', ['-eo', 'args='], { encoding: 'utf8' });
-    const runtimePath = getI2pdRuntimePath();
-
-    for (const rawLine of out.split('\n')) {
-      const line = rawLine.trim();
-      if (!line || line.includes(runtimePath)) {
-        continue;
-      }
-
-      const match = line.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
-      const binaryPath = match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
-      if (binaryPath && path.basename(binaryPath).startsWith('i2pd')) {
-        return binaryPath;
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-// The pid of the managed router we're responsible for: our live child, or an
-// orphan we previously spawned (recovered from the pidfile after a Home restart
-// or crash) so we can still stop it instead of treating it as someone else's.
-async function getManagedPid(): Promise<number | null> {
-  if (managedChild && managedChild.exitCode === null && !managedChild.killed && managedChild.pid) {
-    return managedChild.pid;
-  }
-  const pid = await readPidFile();
-  return pid !== null && isOurI2pd(pid) ? pid : null;
-}
-
-async function isManagedRunning(): Promise<boolean> {
-  return (await getManagedPid()) !== null;
-}
-
-export async function getStatus(): Promise<I2pdStatus> {
-  const target = getI2pdTarget();
-  const installed = await readInstalledI2pd();
-  const managedRunning = (await getManagedPid()) !== null;
-  const samUp = managedRunning ? true : await probeSamBridge();
-
-  const mode: I2pdMode = managedRunning ? 'managed' : samUp ? 'external' : 'none';
-
-  return {
-    supported: target !== null,
-    installed: installed !== null,
-    version: installed?.version ?? null,
-    running: managedRunning || samUp,
-    mode,
-    samHost: DEFAULT_SAM_HOST,
-    samPort: DEFAULT_SAM_PORT,
-    binaryPath: installed?.binaryPath ?? null,
-    externalBinaryPath: mode === 'external' ? findExternalI2pdBinaryPath() : null,
-  };
-}
-
-// Spawn the router child (no waiting). Returns once the process is launched.
-async function launchI2pd(installed: InstalledI2pd) {
-  await ensureLayout();
-  await writeI2pdConf();
-
-  // Spawn detached so the router survives Home closing: i2pd's lifetime should
-  // track Core's, not Home's window. On Unix `detached` puts it in its own
-  // process group so it doesn't receive Home's terminal signals; `unref` lets
-  // Home exit without waiting on it. stdio is ignored because the router writes
-  // its own logfile (see writeI2pdConf) — a piped stream would die with Home.
+function launchI2pd(installed: I2pdManagedInstall) {
+  const runtimePath = installed.paths.runtimePath;
+  const confPath = path.join(runtimePath, 'i2pd.conf');
   const launch = prepareManagedLongLivedCommand(installed.binaryPath, [
-    `--datadir=${getI2pdRuntimePath()}`,
-    `--conf=${getI2pdConfPath()}`,
+    `--datadir=${runtimePath}`,
+    `--conf=${confPath}`,
   ]);
-  const child = spawn(launch.command, launch.args, {
-    cwd: getI2pdRuntimePath(),
+  const child = spawn(launch.command, [...launch.args], {
+    cwd: runtimePath,
     env: sanitizeManagedChildEnvironment(),
     windowsHide: true,
     detached: true,
     stdio: 'ignore',
   });
-  child.once('exit', () => {
-    if (managedChild === child) {
-      managedChild = null;
-    }
-  });
-  child.unref();
+
   managedChild = child;
-  if (child.pid !== undefined) {
-    await writeFile(getI2pdPidPath(), String(child.pid), 'utf8').catch(() => undefined);
+  managedChildInstall = installed;
+  // An error event is not proof of exit (it can also report a failed signal).
+  // Keep the listener to prevent an unhandled event, but relinquish authority
+  // only on the process lifecycle's exit/close proof.
+  child.once('error', () => undefined);
+  child.once('exit', () => relinquishManagedChild(child));
+  child.once('close', () => relinquishManagedChild(child));
+  child.unref();
+}
+
+async function prepareAndLaunchManagedI2pd() {
+  if (appShutdownRequested) throw new Error('Home is shutting down.');
+  if (currentManagedChild()) return;
+  if (await probeSamBridge()) return;
+
+  const selected = await readStrictPinnedInstall();
+  if (!selected) throw new Error('Install i2pd before starting it.');
+  await writeI2pdConf(selected);
+
+  // Recheck the collision after filesystem work, then re-read and re-hash the
+  // exact active generation as the final asynchronous authority gate before
+  // the synchronous command construction and spawn.
+  if (await probeSamBridge()) return;
+  const revalidated = await readStrictPinnedInstall();
+  if (!revalidated || !sameInstalledGeneration(selected, revalidated)) {
+    throw new Error('The managed i2pd installation changed before startup.');
+  }
+  if (appShutdownRequested) throw new Error('Home is shutting down.');
+  launchI2pd(revalidated);
+}
+
+async function inspectMaintenanceImpl(): Promise<I2pdMaintenanceInspection> {
+  const release = getPinnedI2pdRelease(process.platform, process.arch);
+  if (!release) {
+    return {
+      install: 'missing',
+      installedVersion: null,
+      managedProcessActive: false,
+      maintenance: 'unavailable',
+      router: 'unsupported',
+      supported: false,
+    };
+  }
+
+  let child = currentManagedChild();
+  const samReady = await probeSamBridge();
+  // The child can exit while the bounded protocol probe is in flight.
+  child = currentManagedChild();
+  const managedOwned = child !== null;
+  let installed: I2pdManagedInstall | null;
+  try {
+    installed = await readInstalledI2pd();
+  } catch {
+    return {
+      install: 'unknown',
+      installedVersion: managedOwned ? managedChildInstall?.record.version ?? null : null,
+      managedProcessActive: managedOwned,
+      maintenance: 'unavailable',
+      router: managedOwned
+        ? samReady ? 'managed-running' : 'managed-stopped'
+        : samReady ? 'external-running' : 'unknown',
+      supported: true,
+    };
+  }
+
+  const reportedVersion = managedOwned
+    ? managedChildInstall?.record.version ?? null
+    : installed?.record.version ?? null;
+  if (!installed) {
+    return {
+      install: managedOwned ? 'unknown' : 'missing',
+      installedVersion: reportedVersion,
+      managedProcessActive: managedOwned,
+      maintenance: managedOwned ? 'unavailable' : 'install',
+      router: managedOwned
+        ? samReady ? 'managed-running' : 'managed-stopped'
+        : samReady ? 'external-running' : 'missing',
+      supported: true,
+    };
+  }
+
+  const decision = classifyI2pdRelease(
+    installed.record.version,
+    process.platform,
+    process.arch,
+  );
+  const current = decision.action === 'none' &&
+    decision.reason === 'installed-current' &&
+    installedMatchesPinnedRelease(installed, release);
+  const liveGenerationStillCurrent = !managedOwned || (
+    managedChildInstall !== null &&
+    sameInstalledGeneration(managedChildInstall, installed)
+  );
+  const maintenance = !liveGenerationStillCurrent
+    ? 'unavailable' as const
+    : decision.action === 'update'
+      ? 'update' as const
+      : current
+        ? samReady ? 'none' as const : 'start' as const
+        : 'unavailable' as const;
+
+  return {
+    install: 'installed',
+    installedVersion: reportedVersion,
+    managedProcessActive: managedOwned,
+    maintenance,
+    router: managedOwned
+      ? samReady ? 'managed-running' : 'managed-stopped'
+      : samReady ? 'external-running' : 'managed-stopped',
+    supported: true,
+  };
+}
+
+export async function inspectMaintenance(): Promise<I2pdMaintenanceInspection> {
+  try {
+    return await inspectMaintenanceImpl();
+  } catch {
+    const supported = getPinnedI2pdRelease(process.platform, process.arch) !== null;
+    if (!supported) {
+      return {
+        install: 'missing',
+        installedVersion: null,
+        managedProcessActive: false,
+        maintenance: 'unavailable',
+        router: 'unsupported',
+        supported: false,
+      };
+    }
+    const managedOwned = currentManagedChild() !== null;
+    return {
+      install: 'unknown',
+      installedVersion: managedOwned ? managedChildInstall?.record.version ?? null : null,
+      managedProcessActive: managedOwned,
+      maintenance: 'unavailable',
+      router: managedOwned ? 'managed-stopped' : 'unknown',
+      supported: true,
+    };
   }
 }
 
-// User-facing start: launch and wait for the SAM bridge so the UI reflects a
-// usable router. (Tunnel build + LeaseSet publication — what Core needs for a
-// session — take longer; this only confirms i2pd accepted SAM connections.)
-export async function start(): Promise<I2pdStatus> {
-  if (await isManagedRunning()) {
-    return getStatus();
+export async function getStatus(): Promise<I2pdStatus> {
+  const inspection = await inspectMaintenance();
+  const managedOwned = inspection.router === 'managed-running' ||
+    currentManagedChild() !== null;
+  const mode: I2pdMode = managedOwned
+    ? 'managed'
+    : inspection.router === 'external-running'
+      ? 'external'
+      : 'none';
+  return {
+    supported: inspection.supported,
+    installed: inspection.install === 'installed',
+    version: inspection.installedVersion,
+    running: inspection.router === 'managed-running' ||
+      inspection.router === 'external-running',
+    mode,
+    samHost: DEFAULT_SAM_HOST,
+    samPort: DEFAULT_SAM_PORT,
+    binaryPath: null,
+    externalBinaryPath: null,
+  };
+}
+
+async function installImpl(): Promise<I2pdStatus> {
+  if (!getPinnedI2pdRelease(process.platform, process.arch)) {
+    throw new Error('Managed i2pd is unavailable on this platform.');
   }
-
-  // Respect an existing SAM bridge (standalone operator / Whonix): don't start a
-  // conflicting managed router.
-  if (await probeSamBridge()) {
-    return getStatus();
+  if (currentManagedChild()) {
+    throw new Error('Stop the managed i2pd router before installing an update.');
   }
+  publishProgress({
+    action: 'checking',
+    kind: 'info',
+    message: 'Checking the pinned i2pd release.',
+    percent: 2,
+  });
+  publishProgress({
+    action: 'downloading',
+    kind: 'info',
+    message: 'Downloading verified i2pd.',
+    percent: 5,
+  });
+  await installPinnedI2pd(managedInstallInput());
+  publishProgress({
+    action: 'idle',
+    kind: 'success',
+    message: 'i2pd installed.',
+    percent: 100,
+  });
+  return await getStatus();
+}
 
-  const installed = await readInstalledI2pd();
-  if (!installed) {
-    throw new Error('Install i2pd before starting it.');
-  }
+export function install(): Promise<I2pdStatus> {
+  if (installInFlight) return installInFlight;
+  installInFlight = runMutation(installImpl);
+  void installInFlight.finally(() => {
+    installInFlight = null;
+  }).catch(() => undefined);
+  return installInFlight;
+}
 
-  publishProgress({ action: 'starting', kind: 'info', message: 'Starting i2pd.', percent: 10 });
-  await launchI2pd(installed);
-
+async function waitForSamReady(child: ChildProcess): Promise<I2pdStatus> {
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!(await isManagedRunning())) {
-      throw new Error('i2pd exited during startup; see the i2pd log.');
+    if (currentManagedChild() !== child) {
+      throw new Error('i2pd exited during startup.');
     }
     if (await probeSamBridge()) {
-      publishProgress({ action: 'idle', kind: 'success', message: 'i2pd is running.', percent: 100 });
-      return getStatus();
+      publishProgress({
+        action: 'idle',
+        kind: 'success',
+        message: 'i2pd is running.',
+        percent: 100,
+      });
+      return await getStatus();
     }
     await new Promise((resolve) => setTimeout(resolve, START_POLL_INTERVAL_MS));
   }
-
-  throw new Error('i2pd did not open its SAM bridge in time.');
+  const stopped = await terminateManagedChild(child);
+  throw new Error(stopped
+    ? 'i2pd did not complete its SAM handshake in time and was stopped.'
+    : 'i2pd did not complete its SAM handshake in time and remains supervised.');
 }
 
-export async function stop(): Promise<I2pdStatus> {
-  // Kill by pid so this works for both our live child and an orphan we adopted
-  // from the pidfile after a restart.
-  const pid = await getManagedPid();
-  if (pid === null) {
-    managedChild = null;
-    await rm(getI2pdPidPath(), { force: true }).catch(() => undefined);
-    return getStatus();
+async function startImpl(waitForReady: boolean): Promise<I2pdStatus> {
+  if (appShutdownRequested) throw new Error('Home is shutting down.');
+  const existing = currentManagedChild();
+  if (existing) {
+    return waitForReady ? await waitForSamReady(existing) : await getStatus();
   }
+  if (await probeSamBridge()) return await getStatus();
 
-  publishProgress({ action: 'stopping', kind: 'info', message: 'Stopping i2pd.', percent: 10 });
-
-  for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
-    if (!isPidAlive(pid)) {
-      break;
-    }
-    try {
-      process.kill(pid, signal);
-    } catch {
-      break;
-    }
-    const deadline = Date.now() + STOP_TIMEOUT_MS;
-    while (Date.now() < deadline && isPidAlive(pid)) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  }
-
-  managedChild = null;
-  await rm(getI2pdPidPath(), { force: true }).catch(() => undefined);
-  publishProgress({ action: 'idle', kind: 'success', message: 'i2pd is stopped.', percent: 100 });
-  return getStatus();
+  publishProgress({
+    action: 'starting',
+    kind: 'info',
+    message: 'Starting i2pd.',
+    percent: 10,
+  });
+  await prepareAndLaunchManagedI2pd();
+  const child = currentManagedChild();
+  if (!child || !waitForReady) return await getStatus();
+  return await waitForSamReady(child);
 }
 
-// Best-effort: bring up the managed router (if installed) before Core, so its SAM
-// bridge is ready when Core looks for it. Never throws — I2P is a fallback and
-// must not block Core startup (direct TCP stays active either way). No-op when
-// i2pd isn't installed (the user enables it from Settings) or another SAM bridge
-// is already up (start() handles that).
+export function start(): Promise<I2pdStatus> {
+  return runMutation(() => startImpl(true));
+}
+
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (!isLiveChild(child)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (exited: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off('exit', onExit);
+      child.off('close', onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(!isLiveChild(child)), timeoutMs);
+    child.once('exit', onExit);
+    child.once('close', onExit);
+    if (!isLiveChild(child)) finish(true);
+  });
+}
+
+async function terminateManagedChild(child: ChildProcess) {
+  if (!isLiveChild(child)) {
+    relinquishManagedChild(child);
+    return true;
+  }
+  const signalSent = child.kill('SIGTERM');
+  if (!signalSent && isLiveChild(child)) {
+    throw new Error('Unable to send SIGTERM to the managed i2pd child.');
+  }
+  if (!(await waitForChildExit(child, STOP_TIMEOUT_MS))) return false;
+  relinquishManagedChild(child);
+  return true;
+}
+
+async function stopImpl(): Promise<I2pdStatus> {
+  const child = currentManagedChild();
+  if (!child) return await getStatus();
+
+  publishProgress({
+    action: 'stopping',
+    kind: 'info',
+    message: 'Stopping i2pd.',
+    percent: 10,
+  });
+  if (!(await terminateManagedChild(child))) {
+    throw new Error('Managed i2pd did not exit after SIGTERM; it remains supervised.');
+  }
+  publishProgress({
+    action: 'idle',
+    kind: 'success',
+    message: 'i2pd is stopped.',
+    percent: 100,
+  });
+  return await getStatus();
+}
+
+export function stop(): Promise<I2pdStatus> {
+  return runMutation(stopImpl);
+}
+
+// Core integration is best-effort: I2P is an optional fallback. It still uses
+// the strict record, collision, serialization, and child-ownership gates.
 export async function startIfManaged(): Promise<void> {
   try {
-    if (!getI2pdTarget() || (await isManagedRunning())) {
-      return;
-    }
-    // Don't clobber an existing/operator router.
-    if (await probeSamBridge()) {
-      return;
-    }
-    const installed = await readInstalledI2pd();
-    if (!installed) {
-      return;
-    }
-    // Launch without waiting for SAM readiness — Core retries SAM on its own, so
-    // this must not delay Core startup.
-    await launchI2pd(installed);
+    await runMutation(async () => {
+      const inspection = await inspectMaintenance();
+      if (inspection.maintenance !== 'start') return;
+      await startImpl(false);
+    });
   } catch {
-    // Swallow — never block Core on the I2P fallback.
+    // Never block Core startup on the optional I2P fallback.
   }
 }
 
-// Best-effort stop of the router we started (app quit / managed Core stop). Only
-// affects the child Home spawned; an external/operator router is left untouched.
 export async function stopIfManaged(): Promise<void> {
   try {
-    await stop();
+    await runMutation(stopImpl);
   } catch {
-    // Ignore — shutting down anyway.
+    // Never block Core/app shutdown on the optional I2P fallback.
+  }
+}
+
+// App quit cannot safely queue behind a 60-second startup readiness wait: that
+// would let Electron exit while the retained child remains alive. Revoke any
+// launch before its final synchronous gate, then directly stop the one child
+// whose ChildProcess authority this Home process still holds.
+export async function stopRetainedChildForAppQuit(): Promise<void> {
+  appShutdownRequested = true;
+  const child = currentManagedChild();
+  if (!child) return;
+  if (!(await terminateManagedChild(child))) {
+    throw new Error('Managed i2pd did not exit during Home shutdown.');
   }
 }
 

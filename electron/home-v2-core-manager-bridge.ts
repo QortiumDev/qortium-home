@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron'
 import { requireCoreManagerEntry } from './core-manager.js'
 import { assertAuthorizedHomeV2Sender } from './home-v2-authorized-senders.js'
+import { homeV2CoreOperationCoordinator } from './home-v2-core-operation-coordinator.js'
 import {
   createAuthorizedHomeV2CoreManagerHandlers,
   createHomeV2CoreManagerService,
@@ -22,6 +23,17 @@ import {
   createHomeV2QortalMaintenanceService,
 } from './home-v2-qortal-maintenance-contract.js'
 import { probeHomeV2QortalInstallDiscovery } from './home-v2-qortal-maintenance-discovery.js'
+import {
+  createAuthorizedHomeV2TransportMaintenanceHandlers,
+  createHomeV2TransportMaintenanceService,
+} from './home-v2-transport-maintenance-contract.js'
+import { createHomeV2TransportMaintenanceDependencies } from './home-v2-transport-maintenance-adapter.js'
+import {
+  inspectMaintenance as inspectI2pdMaintenance,
+  install as installI2pd,
+  start as startI2pd,
+  stopIfManaged as stopI2pdIfManaged,
+} from './i2pd-manager.js'
 
 export function registerHomeV2CoreManagerBridgeIpcHandlers() {
   const handlers = createAuthorizedHomeV2CoreManagerHandlers(
@@ -67,6 +79,26 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
     if (result.code !== 'operation-in-progress') void scheduler.trigger()
     return result
   })
+  const transportMaintenanceHandlers = createAuthorizedHomeV2TransportMaintenanceHandlers(
+    assertAuthorizedHomeV2Sender,
+    createHomeV2TransportMaintenanceService(createHomeV2TransportMaintenanceDependencies({
+      acquireInteractiveLease: () =>
+        homeV2CoreOperationCoordinator.tryBeginInteractive(['qortium']),
+      inspectRouter: inspectI2pdMaintenance,
+      installRouter: installI2pd,
+      resolveManager: () => requireCoreManagerEntry('qortium'),
+      startRouter: startI2pd,
+      stopManagedRouter: stopI2pdIfManaged,
+    })),
+  )
+  ipcMain.handle(
+    'home-v2-core-manager:getTransportMaintenanceStatus',
+    transportMaintenanceHandlers.getStatus,
+  )
+  ipcMain.handle(
+    'home-v2-core-manager:runTransportMaintenanceAction',
+    transportMaintenanceHandlers.runAction,
+  )
   const policyHandlers = createAuthorizedHomeV2CoreUpdatePolicyHandlers(
     assertAuthorizedHomeV2Sender,
     createHomeV2CoreUpdatePolicyService({

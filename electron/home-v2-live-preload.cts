@@ -82,6 +82,22 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
     revision: 1,
     schema: 'home-v2-core-maintenance-mutation-request',
   }),
+  getTransportMaintenanceStatus: () =>
+    ipcRenderer.invoke('home-v2-core-manager:getTransportMaintenanceStatus', {
+      network: 'qortium',
+      revision: 1,
+      schema: 'home-v2-transport-maintenance-request',
+    }),
+  runTransportMaintenanceAction: (
+    action: 'ensure-router' | 'set-mode',
+    transportMode: 'direct-and-i2p' | 'direct-only' | 'i2p-only' | null,
+  ) => ipcRenderer.invoke('home-v2-core-manager:runTransportMaintenanceAction', {
+    action,
+    network: 'qortium',
+    revision: 1,
+    schema: 'home-v2-transport-maintenance-mutation-request',
+    transportMode,
+  }),
   getUpdatePolicy: () =>
     ipcRenderer.invoke('home-v2-core-manager:getUpdatePolicy', {
       revision: 1,

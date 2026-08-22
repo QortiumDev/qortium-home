@@ -17,6 +17,7 @@ import {
 import { HomeUpdateSettings } from './HomeUpdateSettings'
 import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 import { QortalMaintenancePanel } from './QortalMaintenancePanel'
+import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 
 export type HomeV2SettingsSectionId =
@@ -186,6 +187,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   </div>
                   <CoreManagerCards management={props.coreManagement} />
                   <CoreMaintenancePanel management={props.coreManagement} />
+                  <TransportMaintenancePanel management={props.coreManagement} />
                   <QortalMaintenancePanel management={props.coreManagement} />
                 </section>
               ) : null}

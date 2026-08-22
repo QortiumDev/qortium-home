@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import extract from 'extract-zip';
@@ -29,6 +29,7 @@ import { NetworkManagerEntryRegistry } from './core-manager-entry-registry.js';
 import { CoreManagerStateRegistry } from './core-manager-state.js';
 import { resolveCoreNativeObserverPath } from './core-native-observer-path.js';
 import { observeCoreListenerOwners } from './core-listener-owner.js';
+import { observeCurrentUserQortalProcesses } from './core-process-observation.js';
 import { downloadVerifiedCoreAsset } from './core-verified-download.js';
 import { sameManagedJavaGeneration } from './managed-java-generation.js';
 import {
@@ -43,6 +44,15 @@ import {
   getCoreSemver,
   getCoreTimestampMs,
 } from './core-version.js';
+import {
+  parseQortiumTransportSettingsJson,
+  QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES,
+  updateQortiumTransportSettings,
+  type QortiumSettingsObject,
+  type QortiumTransportMode,
+  type QortiumTransportModeState,
+} from './qortium-transport-mode.js';
+import { isApprovedQortiumTransportManagedTarget } from './qortium-transport-runtime-authority.js';
 import {
   readCoreUpdateSettings,
   setCoreUpdateSettings,
@@ -3934,6 +3944,239 @@ async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
   }
 }
 
+type QortiumTransportSettingsSnapshot =
+  | {
+      exists: boolean;
+      fingerprint: string;
+      kind: 'known';
+      mode: QortiumTransportMode;
+      settings: QortiumSettingsObject;
+    }
+  | { kind: 'unknown' };
+
+export type QortiumTransportModeMutationResult =
+  | { kind: 'completed'; mode: QortiumTransportMode }
+  | {
+      code:
+        | 'core-install-missing'
+        | 'core-runtime-not-stopped'
+        | 'core-runtime-unknown'
+        | 'status-unavailable'
+        | 'target-changed';
+      kind: 'blocked';
+    };
+
+function filesystemErrorCode(error: unknown) {
+  return error instanceof Error && 'code' in error
+    ? (error as NodeJS.ErrnoException).code
+    : undefined;
+}
+
+function transportSettingsPath(runtimePath: string) {
+  return path.join(runtimePath, CORE_DESCRIPTOR.settings.fileName);
+}
+
+async function readQortiumTransportSettingsSnapshot(
+  runtimePath: string,
+): Promise<QortiumTransportSettingsSnapshot> {
+  const settingsPath = transportSettingsPath(runtimePath);
+  let before;
+  try {
+    before = await lstat(settingsPath);
+  } catch (error) {
+    return filesystemErrorCode(error) === 'ENOENT'
+      ? {
+          exists: false,
+          fingerprint: 'missing',
+          kind: 'known',
+          mode: 'direct-and-i2p',
+          settings: {},
+        }
+      : { kind: 'unknown' };
+  }
+  if (before.isSymbolicLink() || !before.isFile() || before.size < 0 ||
+    before.size > QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES) return { kind: 'unknown' };
+
+  let raw: Buffer;
+  let handle;
+  try {
+    handle = await open(settingsPath, 'r');
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino ||
+      opened.size !== before.size) return { kind: 'unknown' };
+    raw = Buffer.alloc(opened.size);
+    let position = 0;
+    while (position < opened.size) {
+      const { bytesRead } = await handle.read(raw, position, opened.size - position, position);
+      if (bytesRead <= 0) return { kind: 'unknown' };
+      position += bytesRead;
+    }
+  } catch {
+    return { kind: 'unknown' };
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+  if (raw.byteLength > QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES) return { kind: 'unknown' };
+
+  let after;
+  try {
+    after = await lstat(settingsPath);
+  } catch {
+    return { kind: 'unknown' };
+  }
+  if (after.isSymbolicLink() || !after.isFile() || before.dev !== after.dev ||
+    before.ino !== after.ino || before.size !== after.size ||
+    before.mtimeMs !== after.mtimeMs) return { kind: 'unknown' };
+
+  const parsed = parseQortiumTransportSettingsJson(raw.toString('utf8'));
+  if (parsed.kind !== 'known') return { kind: 'unknown' };
+  return {
+    exists: true,
+    fingerprint: createHash('sha256').update(raw).digest('hex'),
+    kind: 'known',
+    mode: parsed.mode,
+    settings: parsed.settings,
+  };
+}
+
+function sameQortiumTransportSettingsSnapshot(
+  left: QortiumTransportSettingsSnapshot,
+  right: QortiumTransportSettingsSnapshot,
+) {
+  return left.kind === 'known' && right.kind === 'known' &&
+    left.exists === right.exists && left.fingerprint === right.fingerprint;
+}
+
+function sameQortiumTransportCoreTarget(left: InstalledCore, right: InstalledCore) {
+  return left.runtimePath === right.runtimePath && left.jarPath === right.jarPath &&
+    left.installPath === right.installPath && left.tagName === right.tagName &&
+    left.digest === right.digest;
+}
+
+function isApprovedQortiumTransportCoreTarget(installed: InstalledCore) {
+  if (CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers') return false;
+  const installPath = getCoreInstallPath();
+  return isApprovedQortiumTransportManagedTarget(
+    installed,
+    {
+      installPath,
+      jarPath: path.join(installPath, CORE_DESCRIPTOR.package.jarFileName),
+      previewPath: path.join(installPath, CORE_DESCRIPTOR.package.previewDirectoryName),
+      runtimePath: getCoreRuntimePath(),
+    },
+    process.platform,
+  );
+}
+
+async function preparePrivateTransportSettingsReplacement(
+  settingsPath: string,
+  contents: string,
+) {
+  const temporaryPath = `${settingsPath}.home-v2-transport-${process.pid}-${Date.now()}-${randomBytes(8).toString('hex')}.tmp`;
+  await writeFile(temporaryPath, contents, {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o600,
+  });
+  if (process.platform !== 'win32') await chmod(temporaryPath, 0o600);
+  return temporaryPath;
+}
+
+async function ensurePrivateTransportRuntimeDirectory(runtimePath: string) {
+  await mkdir(runtimePath, { recursive: true, mode: 0o700 });
+  const runtimeDirectory = await lstat(runtimePath);
+  if (runtimeDirectory.isSymbolicLink() || !runtimeDirectory.isDirectory()) {
+    throw new Error('The Qortium Core runtime path is not a private directory.');
+  }
+  if (process.platform !== 'win32') await chmod(runtimePath, 0o700);
+}
+
+export async function readQortiumTransportModeForHomeV2(): Promise<QortiumTransportModeState> {
+  const installed = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!installed || !isApprovedQortiumTransportCoreTarget(installed)) return 'unknown';
+  const snapshot = await readQortiumTransportSettingsSnapshot(installed.runtimePath);
+  return snapshot.kind === 'known' ? snapshot.mode : 'unknown';
+}
+
+export async function setQortiumTransportModeForHomeV2(
+  mode: QortiumTransportMode,
+): Promise<QortiumTransportModeMutationResult> {
+  const initialInstall = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!initialInstall) return { code: 'core-install-missing', kind: 'blocked' };
+  if (!isApprovedQortiumTransportCoreTarget(initialInstall)) {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  const initialRuntime = await observeQortiumMaintenanceRuntimeState();
+  if (initialRuntime === 'running') {
+    return { code: 'core-runtime-not-stopped', kind: 'blocked' };
+  }
+  if (initialRuntime !== 'stopped') {
+    return { code: 'core-runtime-unknown', kind: 'blocked' };
+  }
+
+  const initialSettings = await readQortiumTransportSettingsSnapshot(initialInstall.runtimePath);
+  if (initialSettings.kind !== 'known') {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  const built = updateQortiumTransportSettings(initialSettings.settings, mode);
+  if (built.kind !== 'built') return { code: 'status-unavailable', kind: 'blocked' };
+
+  try {
+    await ensurePrivateTransportRuntimeDirectory(initialInstall.runtimePath);
+  } catch {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+
+  const finalInstall = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!finalInstall || !isApprovedQortiumTransportCoreTarget(finalInstall) ||
+    !sameQortiumTransportCoreTarget(initialInstall, finalInstall)) {
+    return { code: 'target-changed', kind: 'blocked' };
+  }
+  const finalSettings = await readQortiumTransportSettingsSnapshot(finalInstall.runtimePath);
+  if (!sameQortiumTransportSettingsSnapshot(initialSettings, finalSettings)) {
+    return { code: 'target-changed', kind: 'blocked' };
+  }
+  const finalRuntime = await observeQortiumMaintenanceRuntimeState();
+  if (finalRuntime === 'running') {
+    return { code: 'core-runtime-not-stopped', kind: 'blocked' };
+  }
+  if (finalRuntime !== 'stopped') {
+    return { code: 'core-runtime-unknown', kind: 'blocked' };
+  }
+
+  const settingsPath = transportSettingsPath(finalInstall.runtimePath);
+  let temporaryPath: string;
+  try {
+    temporaryPath = await preparePrivateTransportSettingsReplacement(settingsPath, built.jsonLine);
+  } catch {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  try {
+    const committedInstall = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+    const committedSettings = await readQortiumTransportSettingsSnapshot(finalInstall.runtimePath);
+    const committedRuntime = await observeQortiumMaintenanceRuntimeState();
+    if (!committedInstall || !isApprovedQortiumTransportCoreTarget(committedInstall) ||
+      !sameQortiumTransportCoreTarget(finalInstall, committedInstall) ||
+      !sameQortiumTransportSettingsSnapshot(finalSettings, committedSettings)) {
+      return { code: 'target-changed', kind: 'blocked' };
+    }
+    if (committedRuntime === 'running') {
+      return { code: 'core-runtime-not-stopped', kind: 'blocked' };
+    }
+    if (committedRuntime !== 'stopped') {
+      return { code: 'core-runtime-unknown', kind: 'blocked' };
+    }
+    await rename(temporaryPath, settingsPath);
+    if (process.platform !== 'win32') await chmod(settingsPath, 0o600);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+  const confirmed = await readQortiumTransportSettingsSnapshot(finalInstall.runtimePath);
+  return confirmed.kind === 'known' && confirmed.mode === mode
+    ? { kind: 'completed', mode }
+    : { code: 'status-unavailable', kind: 'blocked' };
+}
+
 type CoreLifecycleOptions = {
   publishEvents?: boolean;
   quiet?: boolean;
@@ -4173,6 +4416,7 @@ export type QortiumCoreManagerEntry = {
   getManagedRuntimePath: typeof getQortiumManagedCoreRuntimePath;
   getStatus: typeof getStatus;
   getMaintenanceRuntimeStateForHomeV2: typeof observeQortiumMaintenanceRuntimeState;
+  getTransportModeForHomeV2: typeof readQortiumTransportModeForHomeV2;
   install: typeof installCore;
   installCoreAutomaticallyForHomeV2: typeof installCoreAutomaticallyForHomeV2;
   installJava: typeof installJava;
@@ -4183,6 +4427,7 @@ export type QortiumCoreManagerEntry = {
   refreshHelpers: typeof refreshCoreHelpers;
   scheduleUpdateCheck: typeof scheduleQortiumManagedCoreUpdateCheck;
   setUpdateSettings(request: unknown): Promise<CoreStatus>;
+  setTransportModeForHomeV2: typeof setQortiumTransportModeForHomeV2;
   start: typeof startCore;
   startForHomeV2(): ReturnType<typeof startCore>;
   stop: typeof stopCore;
@@ -4201,6 +4446,7 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
   getManagedRuntimePath: getQortiumManagedCoreRuntimePath,
   getStatus,
   getMaintenanceRuntimeStateForHomeV2: observeQortiumMaintenanceRuntimeState,
+  getTransportModeForHomeV2: readQortiumTransportModeForHomeV2,
   install: installCore,
   installCoreAutomaticallyForHomeV2,
   installJava,
@@ -4215,6 +4461,7 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
     await runCoreUpdateEngineAfterPolicyChange();
     return await getStatus();
   },
+  setTransportModeForHomeV2: setQortiumTransportModeForHomeV2,
   start: startCore,
   startForHomeV2: () => startCore({
     publishEvents: false,
@@ -4313,7 +4560,46 @@ async function observeQortiumMaintenanceRuntimeState(): Promise<'running' | 'sto
     return 'unknown';
   }
 
-  return listener.kind === 'absent' ? 'stopped' : listener.kind === 'owners' ? 'running' : 'unknown';
+  if (listener.kind === 'owners') return 'running';
+  if (listener.kind !== 'absent') return 'unknown';
+
+  const installed = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!installed) return 'stopped';
+  if (!isApprovedQortiumTransportCoreTarget(installed)) return 'unknown';
+
+  let processes;
+  if (process.platform === 'linux') {
+    processes = await observeCurrentUserQortalProcesses({ selectedJarPath: installed.jarPath });
+  } else {
+    const resolution = resolveCoreNativeObserverPath({
+      appPath: app.getAppPath(),
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+    });
+    if (resolution.kind !== 'resolved') return 'unknown';
+    if (process.platform === 'win32') {
+      if (process.arch !== 'x64') return 'unknown';
+      processes = await observeWindowsQortalProcesses({
+        helperPath: resolution.executablePath,
+        selectedJarPath: installed.jarPath,
+      });
+    } else {
+      if (process.arch !== 'x64' && process.arch !== 'arm64') return 'unknown';
+      processes = await observeMacosQortalProcesses({
+        arch: process.arch,
+        helperPath: resolution.executablePath,
+        selectedJarPath: installed.jarPath,
+      });
+    }
+  }
+
+  if (processes.kind !== 'observed') return 'unknown';
+  return processes.processes.some((candidate) =>
+    candidate.classification.kind === 'qortal-direct-jar' && candidate.classification.selected)
+    ? 'running'
+    : 'stopped';
 }
 
 export function registerProductionCoreManagerEntries() {
