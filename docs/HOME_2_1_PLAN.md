@@ -156,9 +156,13 @@ preparation.
   control boundary, never runs foreign scripts or kills an adopted PID, and
   leaves it running on Home exit. Packaged Linux uses Home's controlled
   argument-preserving wrapper to close inherited AppImage descriptors before
-  `exec` replaces it with the exact Java process. Adopted install/update
-  mutation, Home 2 IPC/renderer controls, and real packaged lifecycle
-  acceptance remain open.
+  `exec` replaces it with the exact Java process. A packaged Linux
+  protocol-fixture run passed selection, ready start, Home exit with the node
+  continuing, AppImage resource release, adopted-file immutability, and
+  authenticated API-only stop. Selection and initial install use the same
+  canonical lock key even before the managed install directory exists. Adopted
+  install/update mutation, Home 2 IPC/renderer controls, and real-Qortal
+  native-OS acceptance remain open.
 
 ## Required gates
 

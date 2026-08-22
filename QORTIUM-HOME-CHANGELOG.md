@@ -43,17 +43,22 @@ without replacing another selection and binds the exact Qortal JAR plus a
 bounded digest of `settings.json`; changed, aliased, stale, insecure, or racing
 evidence remains blocked. Windows selection writes stay disabled until Home has
 a native no-reparse, private-directory writer, while securely reading an
-already present record remains supported.
+already present record remains supported. Selection and initial install share
+the same canonical lock key even when the managed install directory has not
+been created yet.
 
 A valid adopted installation can now be started directly with Java from its
 own directory and stopped only through Qortal's authenticated API using its
 existing key. Home rechecks the selected files and process/listener authority
 at each launch and stop boundary, never invokes foreign scripts, never kills an
 adopted PID, and leaves Qortal running when Home exits. Install and update
-mutation, Home 2 IPC and renderer controls, Windows record creation, and real
-packaged-app lifecycle acceptance remain later gates. Packaged Linux starts use
-Home's controlled argument-preserving wrapper solely to close inherited
-AppImage descriptors before it replaces itself with the exact Java command.
+mutation, Home 2 IPC and renderer controls, Windows record creation, and
+real-Qortal native-OS acceptance remain later gates. A packaged Linux
+protocol-fixture run verified selection, ready start, Home exit with Qortal
+continuing, complete AppImage resource release, unchanged adopted files, and
+authenticated API-only stop. Packaged Linux starts use Home's controlled
+argument-preserving wrapper solely to close inherited AppImage descriptors
+before it replaces itself with the exact Java command.
 
 ### 2026-08-21 - fix(core): resolve Windows secure-file drive paths
 
