@@ -148,6 +148,7 @@ try {
       env: {
         ...process.env,
         QORTIUM_HOME_USER_DATA_DIR: profileDirectory,
+        XDG_CONFIG_HOME: path.join(profileDirectory, 'config'),
       },
     },
   )
@@ -236,7 +237,9 @@ try {
             .find((button) => button.textContent.trim() === 'Check release');
           return panel && update && check && panel.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
               !panel.querySelector('select') &&
-              typeof window.homeV2CoreManagers?.getMaintenanceStatus === 'function'
+              typeof window.homeV2CoreManagers?.getMaintenanceStatus === 'function' &&
+              typeof window.homeV2CoreManagers?.getUpdatePolicy === 'function' &&
+              typeof window.homeV2CoreManagers?.setUpdatePolicy === 'function'
             ? { heading: panel.querySelector('h3')?.textContent, text: panel.textContent }
             : null;
         })()`,

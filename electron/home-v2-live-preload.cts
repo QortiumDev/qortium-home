@@ -60,6 +60,22 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
     revision: 1,
     schema: 'home-v2-core-maintenance-mutation-request',
   }),
+  getUpdatePolicy: () =>
+    ipcRenderer.invoke('home-v2-core-manager:getUpdatePolicy', {
+      revision: 1,
+      schema: 'home-v2-core-update-policy-get-request',
+    }),
+  setUpdatePolicy: (
+    expectedGeneration: number,
+    field: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    value: 'install' | 'notify' | 'off',
+  ) => ipcRenderer.invoke('home-v2-core-manager:setUpdatePolicy', {
+    expectedGeneration,
+    field,
+    revision: 1,
+    schema: 'home-v2-core-update-policy-set-request',
+    value,
+  }),
   getStatus: (network: 'qortal' | 'qortium') =>
     ipcRenderer.invoke('home-v2-core-manager:getStatus', { network }),
   start: (network: 'qortal' | 'qortium') =>

@@ -349,6 +349,20 @@ type CoreInstallRequest = {
   mode?: unknown;
 };
 
+type InternalCoreInstallRequest = CoreInstallRequest & {
+  activationLease?: () => Promise<void | (() => void)>;
+  preDownloadGuard?: () => Promise<void>;
+  skipCompletionStatus?: boolean;
+  skipLayoutMigration?: boolean;
+};
+
+type HomeV2AutomaticCoreInstallRequest = Readonly<{
+  activationLease: () => Promise<void | (() => void)>;
+  channel: 'prerelease' | 'stable';
+  expectedTag: string;
+  preDownloadGuard: () => Promise<void>;
+}>;
+
 class DowngradeConfirmationRequiredError extends Error {
   constructor(
     message: string,
@@ -1414,6 +1428,25 @@ async function readInstalledCoreMetadata(
   return null;
 }
 
+// Automatic Home 2 discovery must never enter layout migration or reconcile
+// installed metadata: either action can mutate shared runtime files. A stale
+// record is safe here because strict installation revalidates the live JAR and
+// generation again before download and activation.
+async function readInstalledCoreMetadataForHomeV2UpdateDiscovery(): Promise<InstalledCore | null> {
+  try {
+    const parsedCore: unknown = JSON.parse(await readFile(getCurrentCorePath(), 'utf8'));
+    const installedCore = parseInstalledCore(parsedCore, getCoreRuntimePath());
+    return installedCore &&
+      existsSync(installedCore.installPath) &&
+      existsSync(installedCore.previewPath) &&
+      existsSync(installedCore.jarPath)
+      ? installedCore
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readInstalledCore(): Promise<InstalledCore | null> {
   await ensureCoreLayout();
 
@@ -1981,21 +2014,6 @@ async function refreshManagedJavaUpdateInfo(installedJava: ManagedJava): Promise
   return refreshed;
 }
 
-function scheduleManagedJavaUpdateRefresh(installedJava: ManagedJava) {
-  coreManagerStates.scheduleManagedJavaRefresh(CORE_DESCRIPTOR.id, async () => {
-    await refreshManagedJavaUpdateInfo(installedJava)
-      .then((refreshed) => {
-        if (
-          refreshed.latestKnownVersion !== installedJava.latestKnownVersion ||
-          refreshed.upgradeCheckedAt !== installedJava.upgradeCheckedAt
-        ) {
-          void publishCoreStatus();
-        }
-      })
-      .catch(() => {});
-  });
-}
-
 // Opt-in (update-settings.json, off by default): updates the Home-managed JRE —
 // an older major to the target, or a security refresh within it. Without a
 // refresh path, managed runtimes stay frozen at whatever version was first
@@ -2086,10 +2104,6 @@ async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<
     managedStatus = await detectJavaVersion(installedJava.javaPath, 'managed');
 
     if (managedStatus.available) {
-      // Fire-and-forget: availability below reads only persisted metadata, so
-      // a fresh check result shows up on a later status poll.
-      scheduleManagedJavaUpdateRefresh(installedJava);
-
       const managedUpgradeAvailable = isManagedJavaUpdateAvailable(installedJava);
 
       return {
@@ -3210,7 +3224,14 @@ async function extractJavaArchive(
   });
 }
 
-async function installJavaUnlocked() {
+type JavaInstallOptions = {
+  readonly activationLease?: () => Promise<void | (() => void)>;
+  readonly preDownloadGuard?: () => Promise<void>;
+  readonly skipCompletionStatus?: boolean;
+  readonly skipLayoutMigration?: boolean;
+};
+
+async function installJavaUnlocked(options: JavaInstallOptions = {}) {
   const javaPlatform = getJavaPlatform();
 
   if (!javaPlatform) {
@@ -3261,7 +3282,9 @@ async function installJavaUnlocked() {
   await rm(stagingPath, { recursive: true, force: true });
   await mkdir(stagingPath, { recursive: true });
 
+  let releaseActivation: (() => void) | undefined;
   try {
+    await options.preDownloadGuard?.();
     const download = await downloadFile(archive, downloadPath, 'Java runtime');
 
     publishProgress({
@@ -3291,6 +3314,8 @@ async function installJavaUnlocked() {
     if (currentGeneration && !isNewerJavaVersion(javaStatus.version, currentGeneration.version)) {
       throw new Error('Adoptium did not offer a newer managed Java runtime.');
     }
+
+    releaseActivation = (await options.activationLease?.()) || undefined;
 
     // Managed Java directories are immutable once selected: either Core may
     // still have the preceding runtime mapped even after it stops answering its
@@ -3342,23 +3367,47 @@ async function installJavaUnlocked() {
       percent: 100,
     });
 
-    return await getStatus();
+    return options.skipCompletionStatus ? undefined : await getStatus();
   } catch (error) {
     await rm(stagingPath, { recursive: true, force: true });
     throw error;
   } finally {
+    releaseActivation?.();
     await rm(downloadPath, { force: true });
   }
 }
 
-async function installJava() {
+async function installJava(options: JavaInstallOptions = {}) {
   // Layout migration may itself publish Java metadata, so keep it outside the
   // non-reentrant install single-flight.
-  await ensureCoreLayout();
+  if (!options.skipLayoutMigration) await ensureCoreLayout();
   return await coreManagerStates.runManagedJavaInstall(
     CORE_DESCRIPTOR.id,
-    installJavaUnlocked,
+    () => installJavaUnlocked(options),
   );
+}
+
+async function getAutomaticUpdateStatusForHomeV2(options: {
+  readonly refreshManagedJava: boolean;
+}) {
+  const installed = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  let installedJava = options.refreshManagedJava ? await readInstalledJavaMetadata() : null;
+  if (installedJava) installedJava = await refreshManagedJavaUpdateInfo(installedJava);
+
+  if (!installedJava) return { installed, java: null };
+
+  const detected = await detectJavaVersion(installedJava.javaPath, 'managed');
+  const managedUpgradeAvailable = detected.available && isManagedJavaUpdateAvailable(installedJava);
+  return {
+    installed,
+    java: {
+      managedUpgradeAvailable,
+      source: detected.available ? 'managed' as const : 'unsupported' as const,
+      updateAvailableVersion: managedUpgradeAvailable
+        ? installedJava.latestKnownVersion ?? String(MANAGED_JAVA_TARGET_MAJOR_VERSION)
+        : null,
+    },
+  };
 }
 
 function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
@@ -3426,8 +3475,8 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
   throw new Error(`${userMessage('core.error.onChainIdleCheckFailed')} ${getErrorMessage(lastError)}`);
 }
 
-async function installCoreUnlocked(request: CoreInstallRequest) {
-  await ensureCoreLayout();
+async function installCoreUnlocked(request: InternalCoreInstallRequest) {
+  if (!request.skipLayoutMigration) await ensureCoreLayout();
 
   const channel = normalizeInstallRequest(request);
   const releases = await checkReleases();
@@ -3437,7 +3486,9 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     throw new Error(release.message);
   }
 
-  const existingCore = await readInstalledCoreMetadata();
+  const existingCore = request.skipLayoutMigration
+    ? await readInstalledCoreMetadataForHomeV2UpdateDiscovery()
+    : await readInstalledCoreMetadata();
   const versionComparison = existingCore
     ? compareCoreVersions(release.tagName, existingCore.jarSemver ?? existingCore.tagName)
     : null;
@@ -3538,8 +3589,10 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   await rm(stagingPath, { recursive: true, force: true });
   await mkdir(stagingPath, { recursive: true });
 
+  let releaseActivation: (() => void) | undefined;
   try {
     await assertQortiumReleaseUnchanged(release);
+    await request.preDownloadGuard?.();
     await downloadFile(release.asset, downloadPath);
 
     publishProgress({
@@ -3562,6 +3615,12 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       throw new Error('The verified Qortium Core archive does not match its release commit.');
     }
 
+    if (request.mode === 'initial-install' || request.mode === 'strict-update') {
+      // Hold the process-wide operation lease before touching runtime-chain
+      // metadata or any other shared Core state. The following stopped proof
+      // therefore cannot race a Home 2 start or a policy revocation.
+      releaseActivation = (await request.activationLease?.()) || undefined;
+    }
     const activationCore = request.mode === 'initial-install' || request.mode === 'strict-update'
       ? await assertHomeV2CoreMaintenanceActivationSafe(existingCore, request.mode)
       : existingCore;
@@ -3646,10 +3705,6 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       }
     };
 
-    if (request.mode === 'initial-install' || request.mode === 'strict-update') {
-      await assertHomeV2CoreMaintenanceActivationSafe(existingCore, request.mode);
-    }
-
     if (existingCore) {
       await runCoreInstallTransaction({
         activateCandidate,
@@ -3681,6 +3736,7 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
 
     throw error;
   } finally {
+    releaseActivation?.();
     await rm(downloadPath, { force: true });
     await rm(stagingPath, { recursive: true, force: true });
   }
@@ -3701,13 +3757,45 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     error: undefined,
   };
 
-  return await getStatus();
+  return request.skipCompletionStatus ? undefined : await getStatus();
 }
 
 async function installCore(request: CoreInstallRequest) {
+  const input = isObject(request) ? request : {};
+  const allowlistedRequest: CoreInstallRequest = {
+    allowDowngrade: input.allowDowngrade,
+    channel: input.channel,
+    downgradeToken: input.downgradeToken,
+    expectedTag: input.expectedTag,
+    mode: input.mode,
+  };
   return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'github', () =>
-    installCoreUnlocked(request),
+    installCoreUnlocked(allowlistedRequest),
   );
+}
+
+async function installCoreAutomaticallyForHomeV2(request: HomeV2AutomaticCoreInstallRequest) {
+  return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'github', () =>
+    installCoreUnlocked({
+      ...request,
+      mode: 'strict-update',
+      skipCompletionStatus: true,
+      skipLayoutMigration: true,
+    }),
+  );
+}
+
+type HomeV2AutomaticJavaInstallRequest = Readonly<{
+  activationLease: () => Promise<void | (() => void)>;
+  preDownloadGuard: () => Promise<void>;
+}>;
+
+async function installJavaAutomaticallyForHomeV2(request: HomeV2AutomaticJavaInstallRequest) {
+  return await installJava({
+    ...request,
+    skipCompletionStatus: true,
+    skipLayoutMigration: true,
+  });
 }
 
 function quoteWindowsCommandArg(arg: string) {
@@ -3849,6 +3937,7 @@ type CoreLifecycleOptions = {
   publishEvents?: boolean;
   quiet?: boolean;
   runUpdateEngine?: boolean;
+  upgradeJava?: boolean;
 };
 
 async function startCore(options: CoreLifecycleOptions = {}) {
@@ -3871,7 +3960,7 @@ async function startCore(options: CoreLifecycleOptions = {}) {
 
   // The core is confirmed stopped here, so a managed-runtime swap cannot pull
   // the JRE out from under a running JVM.
-  await maybeUpgradeManagedJava();
+  if (options.upgradeJava !== false) await maybeUpgradeManagedJava();
 
   const java = await getJavaStatus();
 
@@ -4084,7 +4173,10 @@ export type QortiumCoreManagerEntry = {
   getStatus: typeof getStatus;
   getMaintenanceRuntimeStateForHomeV2: typeof observeQortiumMaintenanceRuntimeState;
   install: typeof installCore;
+  installCoreAutomaticallyForHomeV2: typeof installCoreAutomaticallyForHomeV2;
   installJava: typeof installJava;
+  installJavaAutomaticallyForHomeV2: typeof installJavaAutomaticallyForHomeV2;
+  getAutomaticUpdateStatusForHomeV2: typeof getAutomaticUpdateStatusForHomeV2;
   isManagedCoreUsingI2p: typeof isQortiumManagedCoreUsingI2p;
   isManagedRuntimeRunning: typeof isQortiumManagedCoreRuntimeRunning;
   refreshHelpers: typeof refreshCoreHelpers;
@@ -4109,7 +4201,10 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
   getStatus,
   getMaintenanceRuntimeStateForHomeV2: observeQortiumMaintenanceRuntimeState,
   install: installCore,
+  installCoreAutomaticallyForHomeV2,
   installJava,
+  installJavaAutomaticallyForHomeV2,
+  getAutomaticUpdateStatusForHomeV2,
   isManagedCoreUsingI2p: isQortiumManagedCoreUsingI2p,
   isManagedRuntimeRunning: isQortiumManagedCoreRuntimeRunning,
   refreshHelpers: refreshCoreHelpers,
@@ -4120,7 +4215,12 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
     return await getStatus();
   },
   start: startCore,
-  startForHomeV2: () => startCore({ publishEvents: false, quiet: true, runUpdateEngine: false }),
+  startForHomeV2: () => startCore({
+    publishEvents: false,
+    quiet: true,
+    runUpdateEngine: false,
+    upgradeJava: false,
+  }),
   stop: stopCore,
   stopForHomeV2: () => stopCore({ publishEvents: false, quiet: true }),
 });

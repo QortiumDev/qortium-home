@@ -7,6 +7,7 @@ import type {
   QortalStopResult,
 } from './qortal-core-manager.js'
 import { compareCoreVersions } from './core-version.js'
+import { homeV2CoreOperationCoordinator } from './home-v2-core-operation-coordinator.js'
 
 export type HomeV2CoreNetwork = 'qortal' | 'qortium'
 export type HomeV2CoreInstallKind =
@@ -103,9 +104,6 @@ export type HomeV2CoreMaintenanceActionResult = {
 type CoreManagerResolver = (network: HomeV2CoreNetwork) => CoreManagerEntry
 type CoreAction = 'start' | 'stop'
 type MaintenanceAction = 'initial-install' | 'install-java' | 'strict-update'
-
-const inFlightNetworks = new Set<HomeV2CoreNetwork>()
-let startInFlight = false
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -419,15 +417,11 @@ async function runAction(
   action: CoreAction,
   resolveManager: CoreManagerResolver,
 ) {
-  if (inFlightNetworks.has(network)) {
-    return actionResult(
-      network,
-      await readStatus(network, resolveManager),
-      'blocked',
-      'operation-in-progress',
-    )
-  }
-  if (action === 'start' && startInFlight) {
+  const lease = homeV2CoreOperationCoordinator.tryBeginInteractive(
+    [network],
+    { serializeStart: action === 'start' },
+  )
+  if (!lease) {
     return actionResult(
       network,
       await readStatus(network, resolveManager),
@@ -436,8 +430,6 @@ async function runAction(
     )
   }
 
-  inFlightNetworks.add(network)
-  if (action === 'start') startInFlight = true
   try {
     let manager: CoreManagerEntry
     try {
@@ -486,8 +478,7 @@ async function runAction(
       outcome.warning,
     )
   } finally {
-    inFlightNetworks.delete(network)
-    if (action === 'start') startInFlight = false
+    lease.release()
   }
 }
 
@@ -540,7 +531,10 @@ async function runMaintenanceAction(
   request: ReturnType<typeof normalizeMaintenanceMutationRequest>,
   resolveManager: CoreManagerResolver,
 ) {
-  if (inFlightNetworks.has('qortium')) {
+  const lease = homeV2CoreOperationCoordinator.tryBeginInteractive(
+    request.action === 'install-java' ? ['qortal', 'qortium'] : ['qortium'],
+  )
+  if (!lease) {
     return maintenanceActionResult(
       await readMaintenanceStatus(resolveManager),
       'blocked',
@@ -548,7 +542,6 @@ async function runMaintenanceAction(
     )
   }
 
-  inFlightNetworks.add('qortium')
   try {
     const manager = resolveManager('qortium')
     if (manager.networkId !== 'qortium') {
@@ -592,7 +585,7 @@ async function runMaintenanceAction(
       'operation-failed',
     )
   } finally {
-    inFlightNetworks.delete('qortium')
+    lease.release()
   }
 }
 

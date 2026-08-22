@@ -11,11 +11,19 @@ import type {
   HomeV2CoreMaintenanceRelease,
   HomeV2CoreMaintenanceStatus,
 } from '../../electron/home-v2-core-manager-contract'
+import type {
+  HomeV2CoreUpdatePolicySetResult,
+  HomeV2CoreUpdatePolicyState,
+} from '../../electron/home-v2-core-update-policy-contract'
+import type { HomeV2CoreUpdatePolicy } from '../../electron/home-v2-core-update-policy-codec'
 
 export type {
   HomeV2CoreMaintenanceActionResult,
   HomeV2CoreMaintenanceRelease,
   HomeV2CoreMaintenanceStatus,
+  HomeV2CoreUpdatePolicy,
+  HomeV2CoreUpdatePolicySetResult,
+  HomeV2CoreUpdatePolicyState,
 }
 
 const installKinds = new Set<HomeV2CoreInstallKind>([
@@ -199,6 +207,108 @@ export function parseHomeV2CoreMaintenanceActionResult(value: unknown): HomeV2Co
   }) as HomeV2CoreMaintenanceActionResult
 }
 
+const policyActivityStates = new Set([
+  'available',
+  'checking',
+  'failed',
+  'idle',
+  'installing',
+  'pending-safe-state',
+  'up-to-date',
+])
+const policyIssues = new Set([
+  'check-failed',
+  'operation-busy',
+  'operation-failed',
+  'policy-revoked',
+  'settings-unavailable',
+])
+
+const MAX_POLICY_VERSION_LENGTH = 128
+
+function isPolicy(value: unknown): value is HomeV2CoreUpdatePolicy {
+  return value === 'install' || value === 'notify' || value === 'off'
+}
+
+function isBoundedPolicyVersion(value: unknown): value is string | null {
+  return value === null || (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_POLICY_VERSION_LENGTH &&
+    value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  )
+}
+
+function isPolicyCheckedAt(value: unknown): value is string | null {
+  if (value === null) return true
+  if (typeof value !== 'string' || value.length > 32) return false
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
+}
+
+export function parseHomeV2CoreUpdatePolicyState(value: unknown): HomeV2CoreUpdatePolicyState {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'activity',
+    'coreUpdatePolicy',
+    'generation',
+    'javaUpdatePolicy',
+    'revision',
+    'schema',
+    'settingsIssue',
+  ]) || value.schema !== 'home-v2-core-update-policy' || value.revision !== 1 ||
+    !Number.isSafeInteger(value.generation) || (value.generation as number) < 0 ||
+    !isPolicy(value.coreUpdatePolicy) ||
+    !isPolicy(value.javaUpdatePolicy) ||
+    !(value.settingsIssue === null || value.settingsIssue === 'settings-unavailable') ||
+    !isRecord(value.activity) ||
+    !hasExactKeys(value.activity, ['checkedAt', 'core', 'generation', 'issue', 'java']) ||
+    !Number.isSafeInteger(value.activity.generation) || value.activity.generation !== value.generation ||
+    !isPolicyCheckedAt(value.activity.checkedAt) ||
+    !(value.activity.issue === null || policyIssues.has(value.activity.issue as string)) ||
+    !isRecord(value.activity.core) || !hasExactKeys(value.activity.core, ['channel', 'state', 'version']) ||
+    !(value.activity.core.channel === null || value.activity.core.channel === 'stable' ||
+      value.activity.core.channel === 'prerelease') ||
+    !policyActivityStates.has(value.activity.core.state as string) ||
+    !isBoundedPolicyVersion(value.activity.core.version) ||
+    !isRecord(value.activity.java) || !hasExactKeys(value.activity.java, ['state', 'version']) ||
+    !policyActivityStates.has(value.activity.java.state as string) ||
+    !isBoundedPolicyVersion(value.activity.java.version)) {
+    throw new Error('Invalid Home 2 Core update policy state.')
+  }
+  return Object.freeze({
+    activity: Object.freeze({
+      checkedAt: value.activity.checkedAt,
+      core: Object.freeze({ ...value.activity.core }),
+      generation: value.activity.generation,
+      issue: value.activity.issue,
+      java: Object.freeze({ ...value.activity.java }),
+    }),
+    coreUpdatePolicy: value.coreUpdatePolicy,
+    generation: value.generation,
+    javaUpdatePolicy: value.javaUpdatePolicy,
+    revision: 1,
+    schema: 'home-v2-core-update-policy',
+    settingsIssue: value.settingsIssue,
+  }) as HomeV2CoreUpdatePolicyState
+}
+
+export function parseHomeV2CoreUpdatePolicySetResult(
+  value: unknown,
+): HomeV2CoreUpdatePolicySetResult {
+  if (!isRecord(value) || !hasExactKeys(value, ['outcome', 'revision', 'schema', 'state']) ||
+    value.schema !== 'home-v2-core-update-policy-set-result' || value.revision !== 1 ||
+    (value.outcome !== 'saved' && value.outcome !== 'conflict')) {
+    throw new Error('Invalid Home 2 Core update policy set result.')
+  }
+  return Object.freeze({
+    outcome: value.outcome,
+    revision: 1,
+    schema: 'home-v2-core-update-policy-set-result',
+    state: parseHomeV2CoreUpdatePolicyState(value.state),
+  })
+}
+
 export interface HomeV2CoreManagerClient {
   getMaintenanceStatus(): Promise<HomeV2CoreMaintenanceStatus>
   checkMaintenanceRelease(): Promise<HomeV2CoreMaintenanceRelease>
@@ -206,6 +316,12 @@ export interface HomeV2CoreManagerClient {
     action: 'initial-install' | 'install-java' | 'strict-update',
     release?: { channel: 'prerelease' | 'stable'; expectedTag: string },
   ): Promise<HomeV2CoreMaintenanceActionResult>
+  getUpdatePolicy(): Promise<HomeV2CoreUpdatePolicyState>
+  setUpdatePolicy(
+    expectedGeneration: number,
+    field: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    value: HomeV2CoreUpdatePolicy,
+  ): Promise<HomeV2CoreUpdatePolicySetResult>
   getStatus(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerStatus>
   start(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
   stop(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>

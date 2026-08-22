@@ -219,6 +219,16 @@ preparation.
   already mapped. Automatic Core/Java policies, i2pd/transport, Qortal
   install/update, Android Core maintenance, and retired-Java cleanup remain
   later tranches.
+- [x] Add desktop Home 2 automatic policies for Qortium Core and existing
+  managed Java. Exact versioned settings live under private Home data with
+  atomic generation-CAS replacement; a main-owned startup/six-hour scheduler
+  performs no network work under Off and exposes only finite redacted activity.
+  Notify discovers without mutation. Install uses the installed Core channel
+  and the stopped-only strict-update transaction, or publishes a verified
+  strictly newer immutable managed-Java generation. Policy and lifecycle
+  changes revoke work before download and again at activation. Automatic initial install, channel
+  switching, Qortal mutation, host-triggered on-chain updates, Android
+  Core/Java maintenance, and i2pd/transport remain later work.
 
 ## Required gates
 

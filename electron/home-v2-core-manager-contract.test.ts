@@ -508,4 +508,29 @@ for (const nested of [
   await first
 }
 
+{
+  let releaseJava!: () => void
+  const javaGate = new Promise<void>((resolve) => { releaseJava = resolve })
+  const qortal = qortalManager()
+  const qortium = maintenanceManager({
+    onInstallJava: async () => {
+      await javaGate
+      return qortiumStatus()
+    },
+  })
+  const service = createHomeV2CoreManagerService((network) =>
+    network === 'qortal' ? qortal : qortium)
+  const javaInstall = service.runMaintenanceAction({
+    action: 'install-java',
+    revision: 1,
+    schema: 'home-v2-core-maintenance-mutation-request',
+  })
+  await Promise.resolve()
+  const qortalStart = await service.start({ network: 'qortal' })
+  assert.equal(qortalStart.outcome, 'blocked')
+  assert.equal(qortalStart.code, 'operation-in-progress')
+  releaseJava()
+  assert.equal((await javaInstall).outcome, 'completed')
+}
+
 console.log('Home v2 Core-manager contract tests passed.')
