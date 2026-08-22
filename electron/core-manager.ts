@@ -60,6 +60,7 @@ import {
   readWindowsSecureFile,
 } from './windows-core-observation.js';
 import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
+import { resolveQortalAdoptedInstallRecordPath } from './qortal-install-source.js';
 import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { userMessage } from './user-message.js';
@@ -4083,14 +4084,20 @@ export function registerProductionCoreManagerEntries() {
     appDataPath: app.getPath('appData'),
     userDataPath: app.getPath('userData'),
   });
+  const runtimeOverrides = qortalPlatformRuntimeOverrides();
   return registerQortalCoreManagerEntry(createProductionQortalCoreManager(
     {
+      adoptedRecordPath: resolveQortalAdoptedInstallRecordPath(paths),
       lockRoot: path.join(paths.basePath, 'operation-locks'),
       paths,
+      ...(runtimeOverrides.readSecureFile ? {
+        readAdoptedRecord: async (recordPath: string, maxBytes: number) =>
+          (await runtimeOverrides.readSecureFile!(recordPath, maxBytes)).bytes,
+      } : {}),
       userAgent: QORTAL_CORE_DESCRIPTOR.github.userAgent,
     },
     resolveSharedQortalJavaForLaunch,
-    qortalPlatformRuntimeOverrides(),
+    runtimeOverrides,
   ));
 }
 

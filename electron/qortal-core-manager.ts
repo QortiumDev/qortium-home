@@ -14,6 +14,12 @@ import { CoreOperationLockReleaseError, withCoreOperationLock } from './core-ope
 import { getCoreDirectJarArguments, QORTAL_CORE_DESCRIPTOR } from './core-network-descriptor.js';
 import { compareCoreVersions } from './core-version.js';
 import {
+  inspectRecordedQortalAdoptedInstall,
+  readQortalAdoptedInstallRecord,
+  type QortalAdoptedInstallRecordV1,
+  type QortalInstallCandidate,
+} from './qortal-install-source.js';
+import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
   type ManagedChildCommand,
@@ -39,7 +45,7 @@ const SETTINGS_ARGUMENT = 'settings.json' as const;
 export type QortalInstallObservation =
   | { kind: 'missing' }
   | { kind: 'home-managed'; record: QortalManagedInstallRecordV1 }
-  | { kind: 'adopted'; reason: string }
+  | { candidate: QortalInstallCandidate; kind: 'adopted'; record: QortalAdoptedInstallRecordV1 }
   | { kind: 'unknown'; reason: string };
 
 export type QortalRuntimeAuthority = {
@@ -144,8 +150,10 @@ export type QortalCoreManagerStatus = {
   updateOwnership: QortalUpdateOwnershipDecision;
 };
 export type QortalCoreManagerConfig = {
+  adoptedRecordPath: string;
   lockRoot: string;
   paths: QortalManagedInstallPaths;
+  readAdoptedRecord?(recordPath: string, maxBytes: number): Promise<Buffer>;
   userAgent: string;
 };
 export type QortalCoreManagerOperations = {
@@ -203,6 +211,26 @@ async function inspectManagedInstall(paths: QortalManagedInstallPaths): Promise<
   } catch {
     return { kind: 'unknown', reason: 'The managed-install metadata could not be read.' };
   }
+}
+
+export async function inspectQortalInstallSource(
+  paths: QortalManagedInstallPaths,
+  adoptedRecordPath: string,
+  options: Parameters<typeof readQortalAdoptedInstallRecord>[1] = {},
+): Promise<QortalInstallObservation> {
+  const managed = await inspectManagedInstall(paths);
+  if (managed.kind !== 'missing') return managed;
+  const selected = await readQortalAdoptedInstallRecord(adoptedRecordPath, options);
+  if (selected.kind === 'missing') return managed;
+  if (selected.kind === 'unknown') return selected;
+  const inspected = await inspectRecordedQortalAdoptedInstall(selected.record, paths, options);
+  if (inspected.kind === 'candidate') {
+    return { candidate: inspected.candidate, kind: 'adopted', record: selected.record };
+  }
+  return inspected.kind === 'unknown' ? inspected : {
+    kind: 'unknown',
+    reason: 'The recorded adopted Qortal install is no longer present.',
+  };
 }
 
 const DEFAULT_OPERATIONS: Omit<QortalCoreManagerOperations,
@@ -318,7 +346,13 @@ export class QortalCoreManager {
     lifecycle: Pick<QortalCoreManagerOperations, 'inspectRuntime' | 'readLiveAutoUpdate' |
       'readApiKey' | 'resolveJava' | 'spawnProcess' | 'stopWithApiKey' | 'waitForReadiness' | 'waitForStopped'> &
       Partial<QortalCoreManagerOperations>) {
-    this.operations = { ...DEFAULT_OPERATIONS, ...lifecycle };
+    this.operations = {
+      ...DEFAULT_OPERATIONS,
+      inspectInstall: async (paths) => await inspectQortalInstallSource(paths, config.adoptedRecordPath, {
+        operations: config.readAdoptedRecord ? { readSecureRecord: config.readAdoptedRecord } : {},
+      }),
+      ...lifecycle,
+    };
   }
 
   private async ownership(runtime: QortalRuntimeObservation) {
@@ -336,7 +370,10 @@ export class QortalCoreManager {
     const [install, runtime] = await Promise.all([
       this.operations.inspectInstall(this.config.paths), this.operations.inspectRuntime(this.config.paths),
     ]);
-    const updateOwnership = install.kind === 'missing' ? unknownOwnership('Qortal is not installed.') : await this.ownership(runtime);
+    const updateOwnership = install.kind === 'home-managed' ? await this.ownership(runtime) :
+      unknownOwnership(install.kind === 'missing' ? 'Qortal is not installed.' :
+        install.kind === 'adopted' ? 'Adopted Qortal update ownership is not enabled in this manager tranche.' :
+          'Qortal install evidence is uncertain.');
     const targetOk = install.kind === 'home-managed' && targetMatches(
       await this.operations.readTargetState(this.config.paths.jarPath), install.record);
     const runningOwned = runtime.state === 'running' && expectedRuntime(runtime.authority, this.config.paths);

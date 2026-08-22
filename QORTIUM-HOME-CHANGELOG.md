@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(core): add adopted Qortal install discovery
+
+Home can now inspect canonical Qortal installation candidates without changing
+their files, combine duplicate path, running-process, and Qortal Hub hints, and
+keep multiple foreign candidates separate for an explicit future choice. A
+Home-managed path always takes precedence over a foreign candidate.
+
+An explicitly selected adopted installation can be represented by a strict
+Home-app-data record containing its canonical paths and adoption-time JAR and
+settings identity. The internal Qortal manager now recognizes a valid record,
+but deliberately exposes no install, update, start, or stop capability for it
+yet. Missing, aliased, malformed, insecure, changed, or ambiguous evidence
+continues to fail closed, and observation never writes into the adopted Qortal
+directory. No Home 2 preload, IPC, or renderer controls are added by this
+change.
+
 ### 2026-08-21 - feat(core): add native macOS and Windows Qortal authority
 
 Home can now apply the existing fail-closed Qortal lifecycle rules on macOS

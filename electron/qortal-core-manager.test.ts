@@ -12,6 +12,7 @@ import {
   type QortalSpawnOptions,
 } from './qortal-core-manager.js';
 import type { QortalManagedInstallRecordV1 } from './qortal-managed-install.js';
+import type { QortalAdoptedInstallRecordV1, QortalInstallCandidate } from './qortal-install-source.js';
 import type { QortalJarRelease } from './qortal-release-policy.js';
 import type { QortalUpdateOwnershipDecision } from './qortal-settings-policy.js';
 
@@ -29,6 +30,7 @@ const PATHS = {
 };
 const UNIQUE_CANDIDATE = path.join(PATHS.installPath, '.qortium-home-qortal-candidate-abc123.jar');
 const LOCK_ROOT = path.join(ROOT, 'locks');
+const ADOPTED_RECORD_PATH = path.join(ROOT, 'adopted.json');
 const IDENTITY = {
   buildTimestamp: '20260708200403',
   buildVersion: '6.1.9-108bf191d4',
@@ -123,7 +125,8 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
       key: 'key', lockPath: path.join(LOCK_ROOT, 'key.lock'), ownerToken: 'a'.repeat(64) }),
     ...overrides,
   };
-  return new QortalCoreManager({ lockRoot: LOCK_ROOT, paths: PATHS, userAgent: 'QortiumHome/test' }, lifecycle);
+  return new QortalCoreManager({ adoptedRecordPath: ADOPTED_RECORD_PATH,
+    lockRoot: LOCK_ROOT, paths: PATHS, userAgent: 'QortiumHome/test' }, lifecycle);
 }
 
 {
@@ -340,10 +343,28 @@ function manager(overrides: Partial<QortalCoreManagerOperations> = {}, update = 
 
 {
   let mutated = false;
-  const adopted: QortalInstallObservation = { kind: 'adopted', reason: 'foreign install' };
+  const adoptedRecord = {
+    adoptedAt: '2026-08-21T20:00:00.000Z',
+    adoptedJar: { buildVersion: IDENTITY.buildVersion, canonicalPath: '/foreign/qortal.jar',
+      semver: IDENTITY.semver, sha256: RELEASE.asset.digest, size: RELEASE.asset.size },
+    adoptedSettings: { canonicalPath: '/foreign/settings.json', mtimeMs: 1, size: 2 },
+    detectedBy: 'user-selected', installPath: '/foreign', jarPath: '/foreign/qortal.jar',
+    networkId: 'qortal', settingsPath: '/foreign/settings.json', source: 'adopted', version: 1,
+  } satisfies QortalAdoptedInstallRecordV1;
+  const adoptedCandidate = {
+    canonicalInstallPath: '/foreign', hubHint: false,
+    jarState: { ...FILE_TARGET, canonicalPath: '/foreign/qortal.jar' }, origins: ['user-selected'],
+    runningProcessMatch: false,
+    settingsState: { canonicalPath: '/foreign/settings.json', dev: 1, ino: 2, mtimeMs: 1, size: 2 },
+  } satisfies QortalInstallCandidate;
+  const adopted: QortalInstallObservation = { candidate: adoptedCandidate, kind: 'adopted', record: adoptedRecord };
   const adoptedManager = manager({ inspectInstall: async () => adopted,
     stageCandidate: async () => { mutated = true; throw new Error('must not stage'); },
     stopWithApiKey: async () => { mutated = true; } });
+  const status = await adoptedManager.getStatus();
+  assert.deepEqual(status.capabilities,
+    { canInitialInstall: false, canStart: false, canStop: false, canUpdate: false });
+  assert.equal(status.updateOwnership.ownership, 'observe-only');
   for (const result of [await adoptedManager.install('release'), await adoptedManager.update('release'),
     await adoptedManager.start(), await adoptedManager.stop()]) {
     assert.equal(result.kind, 'blocked');
