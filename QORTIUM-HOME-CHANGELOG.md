@@ -34,6 +34,15 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - fix(core): resolve Windows secure-file drive paths
+
+Home's Windows helper can now securely open ordinary drive-letter paths after
+resolving the drive to its native device mapping. The native open still refuses
+filesystem symlinks, junctions, and other reparse points, while retaining the
+existing stable-file, private-permissions, and current-user checks. This fixes
+the secure API-key read found during the real-Qortal Windows acceptance pass
+without weakening the fail-closed boundary.
+
 ### 2026-08-21 - feat(core): add adopted Qortal install discovery
 
 Home can now inspect canonical Qortal installation candidates without changing
