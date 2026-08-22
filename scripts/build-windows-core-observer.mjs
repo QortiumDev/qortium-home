@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,10 +42,10 @@ function findVcVars64() {
     '-latest',
     '-products', '*',
     '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
-    '-property', 'installationPath',
+    '-find', 'VC\\Auxiliary\\Build\\vcvars64.bat',
   ], { encoding: 'utf8', shell: false, windowsHide: true });
   if (result.error || result.status !== 0 || !result.stdout.trim()) return null;
-  return path.join(result.stdout.trim(), 'VC', 'Auxiliary', 'Build', 'vcvars64.bat');
+  return result.stdout.trim().split(/\r?\n/u)[0];
 }
 
 function compileWithConfiguredCl(environment = process.env) {
@@ -71,14 +71,26 @@ function visualStudioEnvironment(vcVars64) {
   if (/[&|<>%^!"\r\n]/u.test(vcVars64)) {
     throw new Error('Visual Studio reported an unsafe developer-command path.');
   }
-  const command = `call "${vcVars64}" >nul && set`;
-  const result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', command], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    shell: false,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
+  const environmentScript = path.join(outputDirectory, 'qortium-msvc-environment.cmd');
+  writeFileSync(environmentScript, [
+    '@echo off',
+    `call "${vcVars64}" >nul`,
+    'if errorlevel 1 exit /b %errorlevel%',
+    'set',
+    '',
+  ].join('\r\n'), { encoding: 'utf8', mode: 0o600 });
+  let result;
+  try {
+    result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', environmentScript], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+  } finally {
+    unlinkSync(environmentScript);
+  }
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error([
