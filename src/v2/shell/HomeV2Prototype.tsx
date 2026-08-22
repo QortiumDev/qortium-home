@@ -36,6 +36,10 @@ import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import { SettingsPage } from './SettingsPage'
+import {
+  CoreManagerCards,
+  type HomeV2CoreManagement,
+} from './CoreManagerCards'
 import type {
   HomeV2AppBridgeProtocol,
   HomeV2AppRequestContext,
@@ -73,6 +77,7 @@ export interface HomeV2PrototypeProps {
   readonly appReloadVersion?: number
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly nodeClient?: HomeV2NodeClient | null
+  readonly coreManagement?: HomeV2CoreManagement
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
@@ -748,6 +753,21 @@ function Dashboard(props: HomeV2PrototypeProps) {
         </div>
       </section>
 
+      {props.coreManagement?.available ? (
+        <section
+          className="home-v2-core-management"
+          aria-labelledby="core-management-title"
+        >
+          <div className="home-v2-section-heading">
+            <div>
+              <h2 id="core-management-title">{t('home2.core.title')}</h2>
+              <p>{t('home2.core.dashboardDescription')}</p>
+            </div>
+          </div>
+          <CoreManagerCards management={props.coreManagement} />
+        </section>
+      ) : null}
+
       <AccountCard {...props} />
 
       <section className="home-v2-launcher" aria-labelledby="pinned-apps-title">
@@ -883,6 +903,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             onSetNewTabPreference={props.onSetNewTabPreference}
             onToggleRememberUnlock={props.onToggleRememberUnlock}
             onToggleLockOnExit={props.onToggleLockOnExit}
+            coreManagement={props.coreManagement}
           />
         ) : productState.destination === 'dashboard' ||
           productState.destination === 'tab' ? (

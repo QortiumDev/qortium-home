@@ -172,6 +172,17 @@ preparation.
   actions cannot overlap. Home 2 disables legacy Core/i2pd renderer broadcasts
   and does not register their ungated IPC handlers. Install/update, Java, i2pd,
   policy/progress, and management UI surfaces remain separate later tranches.
+- [x] Extract node polling, parsing, mutation ordering, and Core lifecycle state
+  from the live shell into one tested controller before adding management UI.
+  Fresh permission-time node reads remain direct bridge calls, and rendered
+  shell state no longer keeps a second shadow copy of node routes.
+- [x] Add the first D6/F2 lifecycle surface: Qortium-first Core cards on the
+  desktop Dashboard and in Runtime settings, driven only by the redacted
+  manager contract. Actions preserve the selected node connection, adopted or
+  externally controlled API stops require an in-app confirmation, stale
+  responses fail closed, and Android omits the desktop controls deliberately.
+  Install/update, Java, i2pd/transport, and policy panels remain open parts of
+  D6/F2 rather than being implied complete by this lifecycle slice.
 
 ## Required gates
 
