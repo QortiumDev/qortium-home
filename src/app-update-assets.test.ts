@@ -56,4 +56,20 @@ assert.equal(
   'Qortium-Home-1.5.1-x64.exe',
 );
 
+const androidAssets = [
+  { name: 'Qortium-Home-2.1.0-unsigned.apk' },
+  { name: 'Qortium-Home-2.1.0.aab' },
+  { name: 'Qortium-Home-2.1.0.apk.sig' },
+  { name: 'Qortium-Home-2.1.0.apk' },
+  { name: 'Qortium-Home-2.1.0-android-release.apk' },
+];
+assert.equal(
+  selectCompatibleUpdateAsset(androidAssets, { arch: 'arm64', os: 'android' })?.name,
+  'Qortium-Home-2.1.0-android-release.apk',
+);
+assert.equal(
+  selectCompatibleUpdateAsset(androidAssets.slice(0, 4), { arch: 'arm64', os: 'android' })?.name,
+  'Qortium-Home-2.1.0.apk',
+);
+
 console.log('Home macOS update asset selection fixtures passed.');

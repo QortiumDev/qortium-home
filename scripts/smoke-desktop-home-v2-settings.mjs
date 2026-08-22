@@ -27,6 +27,10 @@ const coreScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_CORE_SETTINGS_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-core-settings.png',
 )
+const updateScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_UPDATE_SETTINGS_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-update-settings.png',
+)
 const coreDashboardScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_CORE_DASHBOARD_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-core-dashboard.png',
@@ -217,8 +221,24 @@ try {
       ),
     )
     assert.deepEqual(coreCards.map((card) => card.network), ['qortium', 'qortal'])
+    const updatePanel = await waitUntil('Home update settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const panel = document.querySelector('[data-home-v2-app-updates="desktop"]');
+          const channel = panel?.querySelector('select[aria-label="Release channel"]');
+          const check = panel?.querySelector('[data-home-v2-update-action="check"]');
+          return panel && channel && check && typeof window.homeV2AppUpdates?.check === 'function'
+            ? { channel: channel.value, check: check.textContent.trim() }
+            : null;
+        })()`,
+      ),
+    )
+    assert.equal(updatePanel.channel, 'stable')
+    assert.equal(['Check for updates', 'Checking'].includes(updatePanel.check), true)
     const coreScreenshot = await client.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(coreScreenshotPath, Buffer.from(coreScreenshot.data, 'base64'))
+    writeFileSync(updateScreenshotPath, Buffer.from(coreScreenshot.data, 'base64'))
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]
@@ -342,7 +362,7 @@ try {
     )
     assert.equal(rtlPersisted.appearance.language, 'ar')
     console.log(
-      `Packaged Home settings/Core/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${rtlScreenshotPath}`,
+      `Packaged Home settings/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
     )
   } finally {
     client.close()

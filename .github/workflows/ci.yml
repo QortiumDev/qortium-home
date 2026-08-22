@@ -114,6 +114,10 @@ jobs:
       - name: Test Android stream lifecycle
         run: npm run android:test:qdn-stream-lifecycle
 
+      - name: Assemble Android debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
   windows-core-install-lock:
     name: Windows managed-Core authority
     runs-on: windows-latest

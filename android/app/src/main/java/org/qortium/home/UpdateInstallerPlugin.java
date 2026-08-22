@@ -12,7 +12,11 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
 
 @CapacitorPlugin(name = "UpdateInstaller")
 public class UpdateInstallerPlugin extends Plugin {
@@ -22,9 +26,15 @@ public class UpdateInstallerPlugin extends Plugin {
     @PluginMethod
     public void installApk(PluginCall call) {
         String filePath = call.getString("filePath");
+        String expectedDigest = call.getString("expectedDigest");
 
         if (filePath == null || filePath.trim().isEmpty()) {
             call.reject("Downloaded update path is required.");
+            return;
+        }
+
+        if (expectedDigest == null || !expectedDigest.matches("^sha256:[a-fA-F0-9]{64}$")) {
+            call.reject("A verified SHA-256 digest is required before installing an update.");
             return;
         }
 
@@ -32,6 +42,7 @@ public class UpdateInstallerPlugin extends Plugin {
 
         try {
             apkFile = getSafeApkFile(filePath.trim());
+            verifyDigest(apkFile, expectedDigest.toLowerCase(Locale.ROOT));
         } catch (IllegalArgumentException | IOException exception) {
             call.reject(exception.getMessage());
             return;
@@ -64,6 +75,37 @@ public class UpdateInstallerPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("opened", true);
         call.resolve(result);
+    }
+
+    private void verifyDigest(File apkFile, String expectedDigest) throws IOException {
+        final MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IOException("SHA-256 verification is unavailable.", exception);
+        }
+
+        byte[] buffer = new byte[64 * 1024];
+        try (FileInputStream input = new FileInputStream(apkFile)) {
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+        }
+
+        String expectedHex = expectedDigest.substring("sha256:".length());
+        byte[] expected = hexToBytes(expectedHex);
+        if (!MessageDigest.isEqual(expected, digest.digest())) {
+            throw new IllegalArgumentException("Downloaded update no longer matches its verified SHA-256 digest.");
+        }
+    }
+
+    private byte[] hexToBytes(String value) {
+        byte[] result = new byte[value.length() / 2];
+        for (int index = 0; index < value.length(); index += 2) {
+            result[index / 2] = (byte) Integer.parseInt(value.substring(index, index + 2), 16);
+        }
+        return result;
     }
 
     private File getSafeApkFile(String filePath) throws IOException {

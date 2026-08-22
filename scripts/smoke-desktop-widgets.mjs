@@ -433,6 +433,29 @@ async function main() {
       (url) => url.startsWith('http') && new URL(url).pathname.endsWith('/widget.html'),
       'widget face',
     )
+    const updateBridgeDenied = await face.evaluate(`
+      typeof window.homeV2AppUpdates?.check !== 'function'
+        ? Promise.resolve({ absent: true, denied: true, message: '' })
+        : window.homeV2AppUpdates.check('stable')
+          .then(() => ({ absent: false, denied: false, message: '' }))
+          .catch((error) => ({
+            absent: false,
+            denied: true,
+            message: String(error?.message ?? error),
+          }))
+    `)
+    assert.equal(
+      updateBridgeDenied.denied,
+      true,
+      'The shared widget preload must not authorize Home update discovery.',
+    )
+    if (!updateBridgeDenied.absent) {
+      assert.equal(
+        updateBridgeDenied.message.includes('not authorized'),
+        true,
+        `Widget update denial was unexpected: ${updateBridgeDenied.message}`,
+      )
+    }
     const viewport = await face.evaluate('[window.innerWidth, window.innerHeight]')
     assert.deepEqual(
       viewport,

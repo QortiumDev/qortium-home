@@ -183,6 +183,17 @@ preparation.
   responses fail closed, and Android omits the desktop controls deliberately.
   Install/update, Java, i2pd/transport, and policy panels remain open parts of
   D6/F2 rather than being implied complete by this lifecycle slice.
+- [x] Restore the first Home self-update vertical slice in Home 2 Runtime
+  settings on desktop and Android. Desktop uses a sender-gated, versioned
+  main-process contract for fixed-repository discovery, release revalidation,
+  mandatory SHA-256/size enforcement, verified download, and opaque-handle
+  reveal; no URL or path crosses the renderer boundary. Android keeps its
+  portable release adapter but applies official-URL and verified-digest checks,
+  and the native installer re-hashes the canonical app-private APK before
+  handoff. The stale legacy update smokes now target Home 2 and Android CI
+  assembles the debug APK. Home update policy persistence/auto-download,
+  release notes, signing, publication, and Core/Java/i2pd update surfaces remain
+  open.
 
 ## Required gates
 

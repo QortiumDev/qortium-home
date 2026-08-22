@@ -49,6 +49,35 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
     ipcRenderer.invoke('home-v2-core-manager:stop', { network }),
 })
 
+contextBridge.exposeInMainWorld('homeV2AppUpdates', {
+  check: (channel: 'prerelease' | 'stable') =>
+    ipcRenderer.invoke('home-v2-app-update:check', {
+      channel,
+      revision: 1,
+      schema: 'home-v2-app-update-check-request',
+    }),
+  download: (channel: 'prerelease' | 'stable', releaseTag: string) =>
+    ipcRenderer.invoke('home-v2-app-update:download', {
+      channel,
+      releaseTag,
+      revision: 1,
+      schema: 'home-v2-app-update-download-request',
+    }),
+  reveal: (downloadId: string) =>
+    ipcRenderer.invoke('home-v2-app-update:reveal', {
+      downloadId,
+      revision: 1,
+      schema: 'home-v2-app-update-reveal-request',
+    }),
+  openReleasePage: (channel: 'prerelease' | 'stable', releaseTag: string) =>
+    ipcRenderer.invoke('home-v2-app-update:open-release-page', {
+      channel,
+      releaseTag,
+      revision: 1,
+      schema: 'home-v2-app-update-open-release-request',
+    }),
+})
+
 contextBridge.exposeInMainWorld('homeV2Vault', {
   addAddress: (accountId: string) => ipcRenderer.invoke('home-v2-vault:addAddress', accountId),
   create: (request: unknown) => ipcRenderer.invoke('home-v2-vault:create', request),
