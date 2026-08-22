@@ -1049,7 +1049,14 @@ function sanitizePathSegment(value: string) {
   return value.replace(/[^a-z0-9._-]/gi, '_') || 'core';
 }
 
+let legacyCoreManagerRendererEventsEnabled = true;
+
+export function disableLegacyCoreManagerRendererEvents() {
+  legacyCoreManagerRendererEventsEnabled = false;
+}
+
 function publishProgress(progress: CoreProgress) {
+  if (!legacyCoreManagerRendererEventsEnabled) return;
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send('core:progress', progress);
@@ -2683,6 +2690,7 @@ async function runCoreUpdateEnginePass() {
 }
 
 async function publishCoreStatus() {
+  if (!legacyCoreManagerRendererEventsEnabled) return;
   const status = await getStatus();
 
   for (const window of BrowserWindow.getAllWindows()) {
@@ -3700,7 +3708,12 @@ async function runScript(
   });
 }
 
-async function waitForRuntimeState(running: boolean, timeoutMs: number, action: CoreProgress['action']) {
+async function waitForRuntimeState(
+  running: boolean,
+  timeoutMs: number,
+  action: CoreProgress['action'],
+  publishEvents = true,
+) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -3710,12 +3723,14 @@ async function waitForRuntimeState(running: boolean, timeoutMs: number, action: 
       return runtime;
     }
 
-    publishProgress({
-      action,
-      kind: 'info',
-      message: running ? 'Waiting for local Core API.' : 'Waiting for local Core to stop.',
-      percent: Math.min(95, Math.floor(((Date.now() - startedAt) / timeoutMs) * 100)),
-    });
+    if (publishEvents) {
+      publishProgress({
+        action,
+        kind: 'info',
+        message: running ? 'Waiting for local Core API.' : 'Waiting for local Core to stop.',
+        percent: Math.min(95, Math.floor(((Date.now() - startedAt) / timeoutMs) * 100)),
+      });
+    }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
@@ -3766,7 +3781,13 @@ async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
   }
 }
 
-async function startCore(options: { quiet?: boolean } = {}) {
+type CoreLifecycleOptions = {
+  publishEvents?: boolean;
+  quiet?: boolean;
+  runUpdateEngine?: boolean;
+};
+
+async function startCore(options: CoreLifecycleOptions = {}) {
   // The running-core key cache must not serve pre-start state while the core
   // comes up (and start-guards below need fresh data).
   invalidateRunningCoreApiKeyCache();
@@ -3780,7 +3801,7 @@ async function startCore(options: { quiet?: boolean } = {}) {
   const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 
   if (currentRuntime.running) {
-    void runCoreUpdateEngine();
+    if (options.runUpdateEngine !== false) void runCoreUpdateEngine();
     return await getStatus();
   }
 
@@ -3818,12 +3839,14 @@ async function startCore(options: { quiet?: boolean } = {}) {
     );
   }
 
-  publishProgress({
-    action: 'starting',
-    kind: 'info',
-    message: 'Starting Qortium Core.',
-    percent: 5,
-  });
+  if (options.publishEvents !== false) {
+    publishProgress({
+      action: 'starting',
+      kind: 'info',
+      message: 'Starting Qortium Core.',
+      percent: 5,
+    });
+  }
   try {
     ensurePreviewApiKey(installedCore.runtimePath);
     await runScript(
@@ -3833,12 +3856,17 @@ async function startCore(options: { quiet?: boolean } = {}) {
       getJavaRuntimeEnv(java),
       { stdio: 'ignore' },
     );
-    await waitForRuntimeState(true, START_TIMEOUT_MS, 'starting');
+    await waitForRuntimeState(
+      true,
+      START_TIMEOUT_MS,
+      'starting',
+      options.publishEvents !== false,
+    );
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), installedCore.logPaths));
   }
 
-  if (!options.quiet) {
+  if (!options.quiet && options.publishEvents !== false) {
     publishProgress({
       action: 'idle',
       kind: 'success',
@@ -3847,7 +3875,7 @@ async function startCore(options: { quiet?: boolean } = {}) {
     });
   }
 
-  void runCoreUpdateEngine();
+  if (options.runUpdateEngine !== false) void runCoreUpdateEngine();
 
   return await getStatus();
 }
@@ -3907,7 +3935,7 @@ async function stopCoreViaApi(installedCore: InstalledCore | null) {
   }
 }
 
-async function stopCore(options: { quiet?: boolean } = {}) {
+async function stopCore(options: CoreLifecycleOptions = {}) {
   invalidateRunningCoreApiKeyCache();
 
   const installedCore = await readInstalledCore();
@@ -3921,12 +3949,14 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   const stopScript = installedCore ? getStopScript(installedCore.previewPath) : null;
   const isHomeOwned = currentRuntime.owner === 'home';
 
-  publishProgress({
-    action: 'stopping',
-    kind: 'info',
-    message: 'Stopping Qortium Core.',
-    percent: 5,
-  });
+  if (options.publishEvents !== false) {
+    publishProgress({
+      action: 'stopping',
+      kind: 'info',
+      message: 'Stopping Qortium Core.',
+      percent: 5,
+    });
+  }
   try {
     if (isHomeOwned && installedCore && stopScript && existsSync(stopScript)) {
       await runScript(
@@ -3953,7 +3983,12 @@ async function stopCore(options: { quiet?: boolean } = {}) {
       await stopCoreViaApi(installedCore);
     }
 
-    await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
+    await waitForRuntimeState(
+      false,
+      STOP_TIMEOUT_MS,
+      'stopping',
+      options.publishEvents !== false,
+    );
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), logPaths));
   }
@@ -3963,7 +3998,7 @@ async function stopCore(options: { quiet?: boolean } = {}) {
     await stopI2pdIfManaged();
   }
 
-  if (!options.quiet) {
+  if (!options.quiet && options.publishEvents !== false) {
     publishProgress({
       action: 'idle',
       kind: 'success',
@@ -3991,7 +4026,9 @@ export type QortiumCoreManagerEntry = {
   scheduleUpdateCheck: typeof scheduleQortiumManagedCoreUpdateCheck;
   setUpdateSettings(request: unknown): Promise<CoreStatus>;
   start: typeof startCore;
+  startForHomeV2(): ReturnType<typeof startCore>;
   stop: typeof stopCore;
+  stopForHomeV2(): ReturnType<typeof stopCore>;
 };
 
 const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
@@ -4017,7 +4054,9 @@ const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
     return await getStatus();
   },
   start: startCore,
+  startForHomeV2: () => startCore({ publishEvents: false, quiet: true, runUpdateEngine: false }),
   stop: stopCore,
+  stopForHomeV2: () => stopCore({ publishEvents: false, quiet: true }),
 });
 
 export type CoreManagerEntry = QortiumCoreManagerEntry | QortalCoreManager;

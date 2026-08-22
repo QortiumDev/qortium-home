@@ -34,6 +34,26 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add gated Home 2 lifecycle controls
+
+Home 2 now has a small desktop-only bridge for reading the state of Qortium and
+Qortal Core and requesting start or stop. The bridge accepts an explicit
+network, checks that every request came from the trusted top-level Home
+document, and returns only coarse installation, runtime, control, capability,
+and outcome fields. Paths, API-key evidence, process identifiers, launch
+receipts, ownership records, arbitrary failure causes, and downgrade tokens
+never cross into the renderer.
+
+Widgets and subframes remain unauthorized even though widgets share Home's
+preload. Authorization is bound to the exact trusted document and is revoked
+on destruction or navigation. Core actions are capability-preflighted,
+revalidated inside the existing managers, serialized per network, and starts
+are also serialized across networks because Qortium and Qortal share managed
+Java. Legacy Core and i2pd progress/status broadcasts are disabled in Home 2;
+this first bridge is invoke-only and does not register the ungated legacy IPC
+surface. Install, update, Java, i2pd, policy, progress, and management UI
+controls remain later work.
+
 ### 2026-08-22 - feat(core): control adopted Qortal runtimes
 
 Home can now retain an explicitly selected existing Qortal installation in its

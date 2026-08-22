@@ -161,8 +161,17 @@ preparation.
   continuing, AppImage resource release, adopted-file immutability, and
   authenticated API-only stop. Selection and initial install use the same
   canonical lock key even before the managed install directory exists. Adopted
-  install/update mutation, Home 2 IPC/renderer controls, and real-Qortal
-  native-OS acceptance remain open.
+  install/update mutation and real-Qortal native-OS acceptance remain open.
+- [x] Add the first sender-gated Home 2 Core-manager bridge for redacted
+  Qortium/Qortal status plus start and stop. The exact trusted top-level shell
+  document is authorized; widgets, subframes, destroyed senders, and navigated
+  documents are denied before request parsing or manager lookup. Responses
+  expose only allowlisted, versioned state/outcome fields, and every action
+  receives a fresh normalized status after manager-side revalidation. Starts
+  serialize across networks around shared managed Java, while same-network
+  actions cannot overlap. Home 2 disables legacy Core/i2pd renderer broadcasts
+  and does not register their ungated IPC handlers. Install/update, Java, i2pd,
+  policy/progress, and management UI surfaces remain separate later tranches.
 
 ## Required gates
 

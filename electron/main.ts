@@ -12,27 +12,28 @@ import {
 } from 'electron';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { autoUnlockHomeV2SelectedAccount, registerAccountIpcHandlers } from './accounts.js';
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import {
+  disableLegacyCoreManagerRendererEvents,
   isManagedCoreRuntimeRunning,
   isManagedCoreUsingI2p,
   registerCoreManagerIpcHandlers,
   registerProductionCoreManagerEntries,
 } from './core-manager.js';
 import {
+  disableLegacyI2pdRendererEvents,
   registerI2pdManagerIpcHandlers,
   startIfManaged as startI2pdIfManaged,
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
-import {
-  authorizeHomeV2NodeBridge,
-  registerHomeV2NodeBridgeIpcHandlers,
-} from './home-v2-node-bridge.js';
+import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
+import { authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
+import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import { HOME_V2_RESOURCE_STREAM_SCHEME } from './home-v2-resource-stream-capability.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
@@ -458,6 +459,15 @@ ipcMain.handle('system:reportStartupPaint', (_event, navToPaintMs: unknown) => {
 });
 
 function createWindow(options: CreateWindowOptions = {}) {
+  const loadRendererFromDist = shouldLoadRendererFromDist();
+  const developmentUrl = (
+    process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173'
+  ).replace(/\/+$/, '');
+  const homeV2RendererUrl = IS_HOME_V2
+    ? loadRendererFromDist
+      ? pathToFileURL(path.join(__dirname, '../dist/v2-live.html')).href
+      : `${developmentUrl}/v2-live.html`
+    : null;
   const windowState = getInitialWindowState(options);
   const window = new BrowserWindow({
     width: windowState?.width ?? DEFAULT_WINDOW_WIDTH,
@@ -484,11 +494,11 @@ function createWindow(options: CreateWindowOptions = {}) {
 
   if (IS_HOME_V2) {
     registerHomeV2DesktopResourceStreamProtocol(session.fromPartition(HOME_V2_SHELL_PARTITION));
-    authorizeHomeV2NodeBridge(window.webContents);
+    authorizeHomeV2Sender(window.webContents, homeV2RendererUrl!);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-attach-webview', (event) => event.preventDefault());
     window.webContents.on('will-navigate', (event, targetUrl) => {
-      if (!targetUrl.startsWith('file:')) event.preventDefault();
+      if (targetUrl !== homeV2RendererUrl) event.preventDefault();
     });
     window.webContents.on('will-redirect', (event) => event.preventDefault());
 
@@ -578,7 +588,7 @@ function createWindow(options: CreateWindowOptions = {}) {
     window.maximize();
   }
 
-  if (shouldLoadRendererFromDist()) {
+  if (loadRendererFromDist) {
     void window.loadFile(
       path.join(
         __dirname,
@@ -586,8 +596,7 @@ function createWindow(options: CreateWindowOptions = {}) {
       ),
     );
   } else {
-    const developmentUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173';
-    void window.loadURL(IS_HOME_V2 ? `${developmentUrl}/v2-live.html` : developmentUrl);
+    void window.loadURL(homeV2RendererUrl ?? developmentUrl);
   }
 }
 
@@ -862,8 +871,11 @@ app.whenReady().then(() => {
   registerProductionCoreManagerEntries();
 
   if (IS_HOME_V2) {
+    disableLegacyCoreManagerRendererEvents();
+    disableLegacyI2pdRendererEvents();
     registerAccountIpcHandlers();
     registerHomeV2NodeBridgeIpcHandlers();
+    registerHomeV2CoreManagerBridgeIpcHandlers();
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);
