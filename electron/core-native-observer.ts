@@ -13,11 +13,15 @@ const MAX_ARGUMENTS = 4_096;
 const MAX_ARGUMENT_BYTES = 2 * 1024 * 1024;
 const MAX_TOTAL_ARGUMENT_BYTES = 2 * 1024 * 1024;
 const MAX_PATH_BYTES = 32 * 1024;
+const MAX_WINDOWS_SECURE_FILE_BYTES = 512 * 1024;
 const MAX_SIGNED_64_BIT = 9_223_372_036_854_775_807n;
 const MAX_UNSIGNED_64_BIT = 18_446_744_073_709_551_615n;
+const MAX_WINDOWS_IDENTIFIER_AUTHORITY = 281_474_976_710_655n;
+const MAX_WINDOWS_SUBAUTHORITY = 4_294_967_295n;
 const BOOT_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CANONICAL_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const DARWIN_SOCKET_ID = /^([0-9a-f]{16}):(0|[1-9][0-9]*)$/;
+const WINDOWS_FILE_ID = /^[0-9a-f]{32}$/;
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 export type CoreNativeObserverPlatform = 'darwin' | 'win32';
@@ -49,7 +53,7 @@ export type CoreNativeDarwinListenerHolder = {
   startIdentity: CoreNativeDarwinProcessStartIdentity;
 };
 
-type CoreNativeEnvelopeBase = {
+type CoreNativeDarwinEnvelopeBase = {
   arch: CoreNativeObserverArch;
   bootSessionId: string;
   effectiveUid: number;
@@ -58,13 +62,13 @@ type CoreNativeEnvelopeBase = {
   schemaVersion: typeof CORE_NATIVE_OBSERVER_SCHEMA_VERSION;
 };
 
-export type CoreNativeDarwinProcessesEnvelope = CoreNativeEnvelopeBase & {
+export type CoreNativeDarwinProcessesEnvelope = CoreNativeDarwinEnvelopeBase & {
   mode: 'processes';
   processes: readonly CoreNativeProcessSnapshot<CoreNativeDarwinProcessStartIdentity>[];
   status: 'ok';
 };
 
-export type CoreNativeDarwinListenerEnvelope = CoreNativeEnvelopeBase & {
+export type CoreNativeDarwinListenerEnvelope = CoreNativeDarwinEnvelopeBase & {
   mode: 'listener';
   port: number;
 } & (
@@ -72,16 +76,63 @@ export type CoreNativeDarwinListenerEnvelope = CoreNativeEnvelopeBase & {
   | { status: 'absent' }
 );
 
-// The macOS v1 wire protocol is implemented now. These aliases leave the API
-// discriminated by target so a future Windows schema can be added without
-// weakening validation of the existing helper.
+type CoreNativeWindowsEnvelopeBase = {
+  arch: 'x64';
+  effectiveSid: string;
+  platform: 'win32';
+  schema: typeof CORE_NATIVE_OBSERVER_SCHEMA;
+  schemaVersion: typeof CORE_NATIVE_OBSERVER_SCHEMA_VERSION;
+};
+
+export type CoreNativeWindowsProcessSnapshot = CoreNativeProcessSnapshot<CoreNativeWindowsProcessStartIdentity> & {
+  rawCommandLine: string;
+};
+
+export type CoreNativeWindowsListenerHolder = {
+  pid: number;
+  startIdentity: CoreNativeWindowsProcessStartIdentity;
+};
+
+export type CoreNativeWindowsProcessesEnvelope = CoreNativeWindowsEnvelopeBase & {
+  mode: 'processes';
+  processes: readonly CoreNativeWindowsProcessSnapshot[];
+  status: 'ok';
+};
+
+export type CoreNativeWindowsListenerEnvelope = CoreNativeWindowsEnvelopeBase & {
+  mode: 'listener';
+  port: number;
+} & (
+  | { holders: readonly CoreNativeWindowsListenerHolder[]; pids: readonly number[]; status: 'owners' }
+  | { status: 'absent' }
+);
+
+export type CoreNativeWindowsSecureFileEnvelope = CoreNativeWindowsEnvelopeBase & {
+  bytes: Buffer;
+  canonicalPath: string;
+  fileId: string;
+  maxBytes: number;
+  mode: 'secure-file';
+  size: number;
+  status: 'ok';
+  volumeSerialNumber: string;
+};
+
 export type CoreNativeProcessesEnvelope = CoreNativeDarwinProcessesEnvelope;
 export type CoreNativeListenerEnvelope = CoreNativeDarwinListenerEnvelope;
 export type CoreNativeObserverEnvelope = CoreNativeProcessesEnvelope | CoreNativeListenerEnvelope;
+export type CoreNativeWindowsObserverEnvelope =
+  | CoreNativeWindowsProcessesEnvelope
+  | CoreNativeWindowsListenerEnvelope
+  | CoreNativeWindowsSecureFileEnvelope;
+
+type CoreNativeEnvelopeFor<Platform extends CoreNativeObserverPlatform> =
+  Platform extends 'darwin' ? CoreNativeObserverEnvelope : CoreNativeWindowsObserverEnvelope;
 
 export type CoreNativeObserverRequest =
   | { mode: 'processes' }
-  | { mode: 'listener'; port: number };
+  | { mode: 'listener'; port: number }
+  | { maxBytes: number; mode: 'secure-file'; path: string };
 
 export type CoreNativeObserverFailureCode =
   | 'abnormal-exit'
@@ -102,8 +153,8 @@ export type CoreNativeObserverFailure = {
   message: string;
 };
 
-export type CoreNativeObserverResult =
-  | { envelope: CoreNativeObserverEnvelope; kind: 'success' }
+export type CoreNativeObserverResult<Platform extends CoreNativeObserverPlatform = 'darwin'> =
+  | { envelope: CoreNativeEnvelopeFor<Platform>; kind: 'success' }
   | CoreNativeObserverFailure;
 
 export type CoreNativeObserverChild = Pick<ChildProcess, 'kill' | 'once' | 'stderr' | 'stdout'>;
@@ -121,12 +172,12 @@ export type CoreNativeObserverOperations = {
   spawn(command: string, args: readonly string[], options: SpawnOptions): CoreNativeObserverChild;
 };
 
-export type CoreNativeObserverRunnerOptions = {
+export type CoreNativeObserverRunnerOptions<Platform extends CoreNativeObserverPlatform = 'darwin'> = {
   arch: CoreNativeObserverArch;
   environmentSource?: NodeJS.ProcessEnv;
   helperPath: string;
   operations?: Partial<CoreNativeObserverOperations>;
-  platform: CoreNativeObserverPlatform;
+  platform: Platform;
   stderrLimitBytes?: number;
   stdoutLimitBytes?: number;
   timeoutMs?: number;
@@ -160,6 +211,23 @@ type DarwinListenerUnknownReason =
   | 'output-limit-exceeded'
   | 'process-enumeration-failed';
 
+type WindowsProcessesUnknownReason = 'output-limit-exceeded' | 'process-evidence-unavailable';
+type WindowsListenerUnknownReason =
+  | 'listener-bind-probe-failed'
+  | 'listener-evidence-unavailable'
+  | 'listener-network-stack-unavailable'
+  | 'listener-owner-identity-changed';
+type WindowsSecureFileUnknownReason =
+  | 'output-limit-exceeded'
+  | 'secure-file-identity-changed'
+  | 'secure-file-invalid-path'
+  | 'secure-file-not-private'
+  | 'secure-file-not-regular'
+  | 'secure-file-open-failed'
+  | 'secure-file-read-failed'
+  | 'secure-file-reparse'
+  | 'secure-file-too-large';
+
 const PROCESS_UNKNOWN_REASONS = new Set<DarwinProcessesUnknownReason>([
   'boot-session-unavailable',
   'candidate-argv-unavailable',
@@ -188,6 +256,30 @@ const LISTENER_UNKNOWN_REASONS = new Set<DarwinListenerUnknownReason>([
   'matching-socket-limit-exceeded',
   'output-limit-exceeded',
   'process-enumeration-failed',
+]);
+
+const WINDOWS_PROCESS_UNKNOWN_REASONS = new Set<WindowsProcessesUnknownReason>([
+  'output-limit-exceeded',
+  'process-evidence-unavailable',
+]);
+
+const WINDOWS_LISTENER_UNKNOWN_REASONS = new Set<WindowsListenerUnknownReason>([
+  'listener-bind-probe-failed',
+  'listener-evidence-unavailable',
+  'listener-network-stack-unavailable',
+  'listener-owner-identity-changed',
+]);
+
+const WINDOWS_SECURE_FILE_UNKNOWN_REASONS = new Set<WindowsSecureFileUnknownReason>([
+  'output-limit-exceeded',
+  'secure-file-identity-changed',
+  'secure-file-invalid-path',
+  'secure-file-not-private',
+  'secure-file-not-regular',
+  'secure-file-open-failed',
+  'secure-file-read-failed',
+  'secure-file-reparse',
+  'secure-file-too-large',
 ]);
 
 const DEFAULT_OPERATIONS: CoreNativeObserverOperations = {
@@ -252,6 +344,20 @@ function parseDarwinStart(seconds: unknown, microseconds: unknown): CoreNativeDa
   return { kind: 'darwin', microseconds, seconds };
 }
 
+function isWindowsSid(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const parts = value.split('-');
+  if (parts.length < 4 || parts.length > 18 || parts[0] !== 'S' || parts[1] !== '1' ||
+    !isDecimalString(parts[2], true, MAX_WINDOWS_IDENTIFIER_AUTHORITY)) return false;
+  return parts.slice(3).every((part) => isDecimalString(part, true, MAX_WINDOWS_SUBAUTHORITY));
+}
+
+function parseWindowsStart(fileTime: unknown): CoreNativeWindowsProcessStartIdentity | null {
+  return isDecimalString(fileTime, false)
+    ? { fileTime, kind: 'windows' }
+    : null;
+}
+
 function decodeBase64Utf8(value: unknown, maximumBytes: number): string | null {
   if (typeof value !== 'string' || value.length > Math.ceil(maximumBytes / 3) * 4 ||
     value.length % 4 !== 0 || !CANONICAL_BASE64.test(value)) return null;
@@ -263,6 +369,13 @@ function decodeBase64Utf8(value: unknown, maximumBytes: number): string | null {
   } catch {
     return null;
   }
+}
+
+function decodeBase64Bytes(value: unknown, maximumBytes: number): Buffer | null {
+  if (typeof value !== 'string' || value.length > Math.ceil(maximumBytes / 3) * 4 ||
+    value.length % 4 !== 0 || !CANONICAL_BASE64.test(value)) return null;
+  const bytes = Buffer.from(value, 'base64');
+  return bytes.byteLength <= maximumBytes && bytes.toString('base64') === value ? bytes : null;
 }
 
 function isCanonicalAbsolutePath(value: string, platform: 'darwin' | 'win32'): boolean {
@@ -294,6 +407,32 @@ function parseDarwinProcess(value: unknown): CoreNativeProcessSnapshot<CoreNativ
   }
   if (argv[0].length === 0) return null;
   return { argv, canonicalCwd, executablePath, pid: value.pid, startIdentity };
+}
+
+function parseWindowsProcess(value: unknown): CoreNativeWindowsProcessSnapshot | null {
+  if (!isObject(value) || !hasExactKeys(value, [
+    'argvBase64', 'canonicalCwdBase64', 'executablePathBase64', 'pid', 'rawCommandLineBase64', 'startFileTime',
+  ]) || !isPid(value.pid) || !Array.isArray(value.argvBase64) ||
+    value.argvBase64.length < 1 || value.argvBase64.length > MAX_ARGUMENTS) return null;
+
+  const executablePath = decodeBase64Utf8(value.executablePathBase64, MAX_PATH_BYTES);
+  const canonicalCwd = decodeBase64Utf8(value.canonicalCwdBase64, MAX_PATH_BYTES);
+  const rawCommandLine = decodeBase64Utf8(value.rawCommandLineBase64, MAX_TOTAL_ARGUMENT_BYTES);
+  const startIdentity = parseWindowsStart(value.startFileTime);
+  if (!executablePath || !canonicalCwd || !rawCommandLine || !startIdentity ||
+    !isCanonicalAbsolutePath(executablePath, 'win32') || !isCanonicalAbsolutePath(canonicalCwd, 'win32')) return null;
+
+  let totalBytes = 0;
+  const argv: string[] = [];
+  for (const encodedArgument of value.argvBase64) {
+    const argument = decodeBase64Utf8(encodedArgument, MAX_ARGUMENT_BYTES);
+    if (argument === null) return null;
+    totalBytes += Buffer.byteLength(argument, 'utf8');
+    if (totalBytes > MAX_TOTAL_ARGUMENT_BYTES) return null;
+    argv.push(argument);
+  }
+  if (argv[0].length === 0) return null;
+  return { argv, canonicalCwd, executablePath, pid: value.pid, rawCommandLine, startIdentity };
 }
 
 function parsePidList(value: unknown, allowEmpty: boolean): readonly number[] | null {
@@ -377,12 +516,13 @@ function parseDarwinUnknownEnvelope(
     : typeof value.bootSessionId === 'string' && BOOT_SESSION_UUID.test(value.bootSessionId);
 }
 
-export function parseCoreNativeObserverEnvelope(
+function parseDarwinObserverEnvelope(
   value: unknown,
   request: CoreNativeObserverRequest,
-  options: Pick<CoreNativeObserverRunnerOptions, 'arch' | 'platform'>,
-): CoreNativeObserverResult {
-  if (options.platform !== 'darwin' || !isSupportedArch(options.arch) || !isObject(value)) {
+  options: Pick<CoreNativeObserverRunnerOptions<'darwin'>, 'arch' | 'platform'>,
+): CoreNativeObserverResult<'darwin'> {
+  if (options.platform !== 'darwin' || !isSupportedArch(options.arch) || request.mode === 'secure-file' ||
+    !isObject(value)) {
     return failure('invalid-envelope');
   }
   if (value.status === 'unknown') {
@@ -437,6 +577,141 @@ export function parseCoreNativeObserverEnvelope(
     : failure('invalid-envelope');
 }
 
+function commonWindowsEnvelopeMatches(
+  value: Record<string, unknown>,
+  request: CoreNativeObserverRequest,
+) {
+  return value.schema === CORE_NATIVE_OBSERVER_SCHEMA &&
+    value.schemaVersion === CORE_NATIVE_OBSERVER_SCHEMA_VERSION && value.platform === 'win32' &&
+    value.arch === 'x64' && value.mode === request.mode && isWindowsSid(value.effectiveSid);
+}
+
+function parseWindowsUnknownEnvelope(value: Record<string, unknown>, request: CoreNativeObserverRequest) {
+  const keys = request.mode === 'listener'
+    ? ['arch', 'effectiveSid', 'mode', 'platform', 'port', 'reason', 'schema', 'schemaVersion', 'status']
+    : ['arch', 'effectiveSid', 'mode', 'platform', 'reason', 'schema', 'schemaVersion', 'status'];
+  if (!hasExactKeys(value, keys) || !commonWindowsEnvelopeMatches(value, request) ||
+    value.status !== 'unknown' || typeof value.reason !== 'string') return false;
+  const knownReason = request.mode === 'listener'
+    ? WINDOWS_LISTENER_UNKNOWN_REASONS.has(value.reason as WindowsListenerUnknownReason)
+    : request.mode === 'secure-file'
+      ? WINDOWS_SECURE_FILE_UNKNOWN_REASONS.has(value.reason as WindowsSecureFileUnknownReason)
+      : WINDOWS_PROCESS_UNKNOWN_REASONS.has(value.reason as WindowsProcessesUnknownReason);
+  return knownReason && (request.mode !== 'listener' || value.port === request.port);
+}
+
+function parseWindowsListenerHolders(
+  value: unknown,
+  pids: readonly number[],
+): readonly CoreNativeWindowsListenerHolder[] | null {
+  if (!Array.isArray(value) || value.length !== pids.length) return null;
+  const holders: CoreNativeWindowsListenerHolder[] = [];
+  for (let index = 0; index < value.length; ++index) {
+    const candidate = value[index];
+    if (!isObject(candidate) || !hasExactKeys(candidate, ['pid', 'startFileTime']) ||
+      candidate.pid !== pids[index]) return null;
+    const startIdentity = parseWindowsStart(candidate.startFileTime);
+    if (!startIdentity) return null;
+    holders.push({ pid: pids[index], startIdentity });
+  }
+  return holders;
+}
+
+function parseWindowsObserverEnvelope(
+  value: unknown,
+  request: CoreNativeObserverRequest,
+  options: Pick<CoreNativeObserverRunnerOptions<'win32'>, 'arch' | 'platform'>,
+): CoreNativeObserverResult<'win32'> {
+  if (options.platform !== 'win32' || options.arch !== 'x64' || !isObject(value)) {
+    return failure('invalid-envelope');
+  }
+  if (value.status === 'unknown') {
+    return parseWindowsUnknownEnvelope(value, request)
+      ? failure('helper-unknown')
+      : failure('invalid-envelope');
+  }
+  if (!commonWindowsEnvelopeMatches(value, request) || !isWindowsSid(value.effectiveSid)) {
+    return failure('invalid-envelope');
+  }
+  const base = {
+    arch: 'x64' as const,
+    effectiveSid: value.effectiveSid,
+    platform: 'win32' as const,
+    schema: CORE_NATIVE_OBSERVER_SCHEMA,
+    schemaVersion: CORE_NATIVE_OBSERVER_SCHEMA_VERSION,
+  };
+  if (request.mode === 'processes') {
+    if (!hasExactKeys(value, [
+      'arch', 'effectiveSid', 'mode', 'platform', 'processes', 'schema', 'schemaVersion', 'status',
+    ]) || value.status !== 'ok' || !Array.isArray(value.processes)) return failure('invalid-envelope');
+    const processes: CoreNativeWindowsProcessSnapshot[] = [];
+    let previousPid = 0;
+    for (const candidate of value.processes) {
+      const process = parseWindowsProcess(candidate);
+      if (!process || process.pid <= previousPid) return failure('invalid-envelope');
+      processes.push(process);
+      previousPid = process.pid;
+    }
+    return { envelope: { ...base, mode: 'processes', processes, status: 'ok' }, kind: 'success' };
+  }
+
+  if (request.mode === 'secure-file') {
+    if (!hasExactKeys(value, [
+      'arch', 'bytesBase64', 'canonicalPathBase64', 'effectiveSid', 'fileId', 'maxBytes', 'mode', 'platform',
+      'schema', 'schemaVersion', 'size', 'status', 'volumeSerialNumber',
+    ]) || value.status !== 'ok' || value.maxBytes !== request.maxBytes ||
+      !validBound(value.maxBytes as number, MAX_WINDOWS_SECURE_FILE_BYTES) ||
+      !Number.isSafeInteger(value.size) || Number(value.size) < 0 || Number(value.size) > request.maxBytes ||
+      typeof value.fileId !== 'string' || !WINDOWS_FILE_ID.test(value.fileId) ||
+      !isDecimalString(value.volumeSerialNumber, true)) return failure('invalid-envelope');
+    const bytes = decodeBase64Bytes(value.bytesBase64, request.maxBytes);
+    const canonicalPath = decodeBase64Utf8(value.canonicalPathBase64, MAX_PATH_BYTES);
+    if (!bytes || bytes.byteLength !== value.size || !canonicalPath ||
+      !isCanonicalAbsolutePath(canonicalPath, 'win32')) return failure('invalid-envelope');
+    return {
+      envelope: {
+        ...base,
+        bytes,
+        canonicalPath,
+        fileId: value.fileId,
+        maxBytes: request.maxBytes,
+        mode: 'secure-file',
+        size: value.size,
+        status: 'ok',
+        volumeSerialNumber: value.volumeSerialNumber,
+      },
+      kind: 'success',
+    };
+  }
+
+  if (value.port !== request.port || !isPort(value.port)) return failure('invalid-envelope');
+  if (value.status === 'absent') {
+    if (!hasExactKeys(value, [
+      'arch', 'effectiveSid', 'mode', 'platform', 'port', 'schema', 'schemaVersion', 'status',
+    ])) return failure('invalid-envelope');
+    return { envelope: { ...base, mode: 'listener', port: request.port, status: 'absent' }, kind: 'success' };
+  }
+  if (value.status !== 'owners' || !hasExactKeys(value, [
+    'arch', 'effectiveSid', 'holders', 'mode', 'pids', 'platform', 'port', 'schema', 'schemaVersion', 'status',
+  ])) return failure('invalid-envelope');
+  const pids = parsePidList(value.pids, false);
+  const holders = pids ? parseWindowsListenerHolders(value.holders, pids) : null;
+  return pids && holders
+    ? { envelope: { ...base, holders, mode: 'listener', pids, port: request.port, status: 'owners' }, kind: 'success' }
+    : failure('invalid-envelope');
+}
+
+export function parseCoreNativeObserverEnvelope<Platform extends CoreNativeObserverPlatform>(
+  value: unknown,
+  request: CoreNativeObserverRequest,
+  options: Pick<CoreNativeObserverRunnerOptions<Platform>, 'arch' | 'platform'>,
+): CoreNativeObserverResult<Platform> {
+  return (options.platform === 'darwin'
+    ? parseDarwinObserverEnvelope(value, request, options as Pick<CoreNativeObserverRunnerOptions<'darwin'>, 'arch' | 'platform'>)
+    : parseWindowsObserverEnvelope(value, request, options as Pick<CoreNativeObserverRunnerOptions<'win32'>, 'arch' | 'platform'>)) as
+    CoreNativeObserverResult<Platform>;
+}
+
 export function buildCoreNativeObserverEnvironment(
   platform: CoreNativeObserverPlatform,
   source: NodeJS.ProcessEnv = process.env,
@@ -471,23 +746,45 @@ function trustedHelperStat(stat: CoreNativeObserverFileStat, effectiveUid: numbe
     : (stat.mode & 0o001) !== 0;
 }
 
-function helperArguments(request: CoreNativeObserverRequest) {
-  return request.mode === 'processes'
-    ? ['processes']
-    : ['listener', '--port', String(request.port)];
+async function trustedWindowsHelperPath(
+  helperPath: string,
+  operations: CoreNativeObserverOperations,
+) {
+  const root = path.win32.parse(helperPath).root;
+  const segments = path.win32.relative(root, helperPath).split(path.win32.sep).filter(Boolean);
+  let cursor = root;
+  for (let index = 0; index < segments.length; ++index) {
+    cursor = path.win32.join(cursor, segments[index]);
+    const stat = await operations.lstat(cursor);
+    if (stat.isSymbolicLink() || (index === segments.length - 1 && !stat.isFile())) return false;
+  }
+  return segments.length > 0;
 }
 
-export async function runCoreNativeObserver(
+function helperArguments(request: CoreNativeObserverRequest) {
+  if (request.mode === 'processes') return ['processes'];
+  if (request.mode === 'listener') return ['listener', '--port', String(request.port)];
+  return ['secure-file', '--path', request.path, '--max-bytes', String(request.maxBytes)];
+}
+
+export async function runCoreNativeObserver<Platform extends CoreNativeObserverPlatform>(
   request: CoreNativeObserverRequest,
-  options: CoreNativeObserverRunnerOptions,
-): Promise<CoreNativeObserverResult> {
+  options: CoreNativeObserverRunnerOptions<Platform>,
+): Promise<CoreNativeObserverResult<Platform>> {
   const timeoutMs = options.timeoutMs ?? CORE_NATIVE_OBSERVER_TIMEOUT_MS;
   const stdoutLimit = options.stdoutLimitBytes ?? CORE_NATIVE_OBSERVER_STDOUT_LIMIT_BYTES;
   const stderrLimit = options.stderrLimitBytes ?? CORE_NATIVE_OBSERVER_STDERR_LIMIT_BYTES;
-  if (options.platform !== 'darwin' || !isSupportedArch(options.arch) ||
+  const supportedTarget = options.platform === 'darwin'
+    ? isSupportedArch(options.arch)
+    : options.platform === 'win32' && options.arch === 'x64';
+  if (!supportedTarget ||
     typeof options.helperPath !== 'string' || options.helperPath.includes('\0') ||
-    !isCanonicalAbsolutePath(options.helperPath, 'darwin') ||
+    !isCanonicalAbsolutePath(options.helperPath, options.platform) ||
     (request.mode === 'listener' && !isPort(request.port)) ||
+    (request.mode === 'secure-file' && (options.platform !== 'win32' ||
+      typeof request.path !== 'string' || request.path.includes('\0') ||
+      !isCanonicalAbsolutePath(request.path, 'win32') ||
+      !validBound(request.maxBytes, MAX_WINDOWS_SECURE_FILE_BYTES))) ||
     !validBound(timeoutMs, CORE_NATIVE_OBSERVER_TIMEOUT_MS + 500) ||
     !validBound(stdoutLimit, CORE_NATIVE_OBSERVER_STDOUT_LIMIT_BYTES) ||
     !validBound(stderrLimit, CORE_NATIVE_OBSERVER_STDERR_LIMIT_BYTES)) {
@@ -496,9 +793,18 @@ export async function runCoreNativeObserver(
 
   const operations = { ...DEFAULT_OPERATIONS, ...options.operations };
   try {
-    const effectiveUid = operations.getEffectiveUid();
-    const helperStat = await operations.lstat(options.helperPath);
-    if (effectiveUid === null || !trustedHelperStat(helperStat, effectiveUid)) {
+    const trusted = options.platform === 'darwin'
+      ? (() => {
+          const effectiveUid = operations.getEffectiveUid();
+          return effectiveUid;
+        })()
+      : null;
+    if (options.platform === 'darwin') {
+      const helperStat = await operations.lstat(options.helperPath);
+      if (trusted === null || !trustedHelperStat(helperStat, trusted)) {
+        return failure('invalid-configuration');
+      }
+    } else if (!await trustedWindowsHelperPath(options.helperPath, operations)) {
       return failure('invalid-configuration');
     }
   } catch {
@@ -520,14 +826,14 @@ export async function runCoreNativeObserver(
     return failure('spawn-failed');
   }
 
-  return await new Promise<CoreNativeObserverResult>((resolve) => {
+  return await new Promise<CoreNativeObserverResult<Platform>>((resolve) => {
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
     let timer: NodeJS.Timeout | null = null;
-    const finish = (result: CoreNativeObserverResult, terminate = false) => {
+    const finish = (result: CoreNativeObserverResult<Platform>, terminate = false) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);

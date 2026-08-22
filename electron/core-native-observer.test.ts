@@ -66,6 +66,62 @@ const LISTENER_ABSENT_WIRE = {
   schemaVersion: 1,
   status: 'absent',
 };
+const WINDOWS_OPTIONS = { arch: 'x64', platform: 'win32' } as const;
+const WINDOWS_SID = 'S-1-5-21-1000-2000-3000-1001';
+const WINDOWS_PROCESS_WIRE = {
+  argvBase64: [b64('C:\\Program Files\\Java\\bin\\java.exe'), b64('-jar'), b64('C:\\Qortal\\qortal.jar')],
+  canonicalCwdBase64: b64('\\\\?\\C:\\Qortal'),
+  executablePathBase64: b64('\\\\?\\C:\\Program Files\\Java\\bin\\java.exe'),
+  pid: 84,
+  rawCommandLineBase64: b64('"C:\\Program Files\\Java\\bin\\java.exe" -jar C:\\Qortal\\qortal.jar'),
+  startFileTime: '134000000000000000',
+};
+const WINDOWS_PROCESSES_WIRE = {
+  arch: 'x64',
+  effectiveSid: WINDOWS_SID,
+  mode: 'processes',
+  platform: 'win32',
+  processes: [WINDOWS_PROCESS_WIRE],
+  schema: CORE_NATIVE_OBSERVER_SCHEMA,
+  schemaVersion: 1,
+  status: 'ok',
+};
+const WINDOWS_HOLDER_WIRE = { pid: 84, startFileTime: '134000000000000000' };
+const WINDOWS_LISTENER_OWNERS_WIRE = {
+  arch: 'x64',
+  effectiveSid: WINDOWS_SID,
+  holders: [WINDOWS_HOLDER_WIRE],
+  mode: 'listener',
+  pids: [84],
+  platform: 'win32',
+  port: 12391,
+  schema: CORE_NATIVE_OBSERVER_SCHEMA,
+  schemaVersion: 1,
+  status: 'owners',
+};
+const WINDOWS_LISTENER_ABSENT_WIRE = {
+  arch: 'x64', effectiveSid: WINDOWS_SID, mode: 'listener', platform: 'win32', port: 12391,
+  schema: CORE_NATIVE_OBSERVER_SCHEMA, schemaVersion: 1, status: 'absent',
+};
+const SECURE_FILE_REQUEST = {
+  maxBytes: 32, mode: 'secure-file', path: 'C:\\Users\\test\\.qortal\\settings.json',
+} as const;
+const SECURE_FILE_BYTES = Buffer.from([0, 0xff, 1]);
+const WINDOWS_SECURE_FILE_WIRE = {
+  arch: 'x64',
+  bytesBase64: b64(SECURE_FILE_BYTES),
+  canonicalPathBase64: b64('\\\\?\\C:\\Users\\test\\.qortal\\settings.json'),
+  effectiveSid: WINDOWS_SID,
+  fileId: '00112233445566778899aabbccddeeff',
+  maxBytes: 32,
+  mode: 'secure-file',
+  platform: 'win32',
+  schema: CORE_NATIVE_OBSERVER_SCHEMA,
+  schemaVersion: 1,
+  size: 3,
+  status: 'ok',
+  volumeSerialNumber: '12345',
+};
 
 async function failureCode(
   result: Awaited<ReturnType<typeof runCoreNativeObserver>> | ReturnType<typeof runCoreNativeObserver>,
@@ -101,6 +157,125 @@ async function failureCode(
 
 for (const envelope of [LISTENER_OWNERS_WIRE, LISTENER_ABSENT_WIRE]) {
   assert.equal(parseCoreNativeObserverEnvelope(envelope, LISTENER_REQUEST, DARWIN_OPTIONS).kind, 'success');
+}
+
+{
+  const result = parseCoreNativeObserverEnvelope(WINDOWS_PROCESSES_WIRE, PROCESSES_REQUEST, WINDOWS_OPTIONS);
+  assert.equal(result.kind, 'success');
+  if (result.kind === 'success' && result.envelope.mode === 'processes') {
+    assert.deepEqual(result.envelope.processes[0], {
+      argv: ['C:\\Program Files\\Java\\bin\\java.exe', '-jar', 'C:\\Qortal\\qortal.jar'],
+      canonicalCwd: '\\\\?\\C:\\Qortal',
+      executablePath: '\\\\?\\C:\\Program Files\\Java\\bin\\java.exe',
+      pid: 84,
+      rawCommandLine: '"C:\\Program Files\\Java\\bin\\java.exe" -jar C:\\Qortal\\qortal.jar',
+      startIdentity: { fileTime: '134000000000000000', kind: 'windows' },
+    });
+  }
+  assert.equal(parseCoreNativeObserverEnvelope(
+    WINDOWS_LISTENER_OWNERS_WIRE, LISTENER_REQUEST, WINDOWS_OPTIONS,
+  ).kind, 'success');
+  assert.equal(parseCoreNativeObserverEnvelope(
+    WINDOWS_LISTENER_ABSENT_WIRE, LISTENER_REQUEST, WINDOWS_OPTIONS,
+  ).kind, 'success');
+  const secure = parseCoreNativeObserverEnvelope(
+    WINDOWS_SECURE_FILE_WIRE, SECURE_FILE_REQUEST, WINDOWS_OPTIONS,
+  );
+  assert.equal(secure.kind, 'success');
+  if (secure.kind === 'success' && secure.envelope.mode === 'secure-file') {
+    assert.deepEqual(secure.envelope.bytes, SECURE_FILE_BYTES);
+    assert.equal(secure.envelope.canonicalPath, '\\\\?\\C:\\Users\\test\\.qortal\\settings.json');
+    assert.equal(secure.envelope.fileId, '00112233445566778899aabbccddeeff');
+    assert.equal(secure.envelope.maxBytes, 32);
+    assert.equal(secure.envelope.volumeSerialNumber, '12345');
+  }
+}
+
+for (const [label, envelope] of [
+  ['Windows secure extra key', { ...WINDOWS_SECURE_FILE_WIRE, debug: true }],
+  ['Windows secure max mismatch', { ...WINDOWS_SECURE_FILE_WIRE, maxBytes: 31 }],
+  ['Windows secure size mismatch', { ...WINDOWS_SECURE_FILE_WIRE, size: 2 }],
+  ['Windows secure size over bound', { ...WINDOWS_SECURE_FILE_WIRE, size: 33 }],
+  ['Windows secure malformed bytes base64', { ...WINDOWS_SECURE_FILE_WIRE, bytesBase64: 'AB==' }],
+  ['Windows secure relative canonical path', { ...WINDOWS_SECURE_FILE_WIRE,
+    canonicalPathBase64: b64('settings.json') }],
+  ['Windows secure invalid path UTF-8', { ...WINDOWS_SECURE_FILE_WIRE,
+    canonicalPathBase64: b64(Buffer.from([0xff])) }],
+  ['Windows secure uppercase file id', { ...WINDOWS_SECURE_FILE_WIRE,
+    fileId: '00112233445566778899AABBCCDDEEFF' }],
+  ['Windows secure short file id', { ...WINDOWS_SECURE_FILE_WIRE, fileId: '00' }],
+  ['Windows secure leading-zero volume', { ...WINDOWS_SECURE_FILE_WIRE, volumeSerialNumber: '01' }],
+  ['Windows secure overflow volume', { ...WINDOWS_SECURE_FILE_WIRE,
+    volumeSerialNumber: '18446744073709551616' }],
+  ['Windows secure wrong platform', { ...WINDOWS_SECURE_FILE_WIRE, platform: 'darwin' }],
+] as const) {
+  assert.equal(parseCoreNativeObserverEnvelope(
+    envelope, SECURE_FILE_REQUEST, WINDOWS_OPTIONS,
+  ).kind, 'failure', label);
+}
+
+for (const [label, envelope, request] of [
+  ['Windows extra key', { ...WINDOWS_PROCESSES_WIRE, debug: true }, PROCESSES_REQUEST],
+  ['Windows wrong arch', { ...WINDOWS_PROCESSES_WIRE, arch: 'arm64' }, PROCESSES_REQUEST],
+  ['Windows wrong platform', { ...WINDOWS_PROCESSES_WIRE, platform: 'darwin' }, PROCESSES_REQUEST],
+  ['Windows malformed SID', { ...WINDOWS_PROCESSES_WIRE, effectiveSid: 'administrator' }, PROCESSES_REQUEST],
+  ['Windows lowercase SID prefix', { ...WINDOWS_PROCESSES_WIRE, effectiveSid: 's-1-5-18' }, PROCESSES_REQUEST],
+  ['Windows SID overflow', { ...WINDOWS_PROCESSES_WIRE, effectiveSid: 'S-1-5-4294967296' }, PROCESSES_REQUEST],
+  ['Windows duplicate PID', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [WINDOWS_PROCESS_WIRE, WINDOWS_PROCESS_WIRE] }, PROCESSES_REQUEST],
+  ['Windows unsorted PID', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, pid: 85 }, WINDOWS_PROCESS_WIRE] }, PROCESSES_REQUEST],
+  ['Windows zero FILETIME', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, startFileTime: '0' }] }, PROCESSES_REQUEST],
+  ['Windows leading-zero FILETIME', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, startFileTime: '01' }] }, PROCESSES_REQUEST],
+  ['Windows overflow FILETIME', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, startFileTime: '18446744073709551616' }] }, PROCESSES_REQUEST],
+  ['Windows malformed raw command base64', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, rawCommandLineBase64: 'AB==' }] }, PROCESSES_REQUEST],
+  ['Windows invalid raw command UTF-8', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, rawCommandLineBase64: b64(Buffer.from([0xff])) }] }, PROCESSES_REQUEST],
+  ['Windows relative cwd', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE, canonicalCwdBase64: b64('Qortal') }] }, PROCESSES_REQUEST],
+  ['Windows noncanonical executable', { ...WINDOWS_PROCESSES_WIRE,
+    processes: [{ ...WINDOWS_PROCESS_WIRE,
+      executablePathBase64: b64('C:\\Program Files\\..\\Java\\java.exe') }] }, PROCESSES_REQUEST],
+  ['Windows holder mismatch', { ...WINDOWS_LISTENER_OWNERS_WIRE,
+    holders: [{ ...WINDOWS_HOLDER_WIRE, pid: 85 }] }, LISTENER_REQUEST],
+  ['Windows holder zero FILETIME', { ...WINDOWS_LISTENER_OWNERS_WIRE,
+    holders: [{ ...WINDOWS_HOLDER_WIRE, startFileTime: '0' }] }, LISTENER_REQUEST],
+  ['Windows empty owners', { ...WINDOWS_LISTENER_OWNERS_WIRE, holders: [], pids: [] }, LISTENER_REQUEST],
+] as const) {
+  assert.equal(parseCoreNativeObserverEnvelope(envelope, request, WINDOWS_OPTIONS).kind, 'failure', label);
+}
+
+{
+  const known = {
+    arch: 'x64', effectiveSid: WINDOWS_SID, mode: 'processes', platform: 'win32',
+    reason: 'process-evidence-unavailable', schema: CORE_NATIVE_OBSERVER_SCHEMA, schemaVersion: 1, status: 'unknown',
+  };
+  assert.equal(await failureCode(parseCoreNativeObserverEnvelope(known, PROCESSES_REQUEST, WINDOWS_OPTIONS)),
+    'helper-unknown');
+  assert.equal(parseCoreNativeObserverEnvelope({ ...known, reason: 'private raw error' },
+    PROCESSES_REQUEST, WINDOWS_OPTIONS).kind, 'failure');
+  const listenerKnown = {
+    arch: 'x64', effectiveSid: WINDOWS_SID, mode: 'listener', platform: 'win32', port: 12391,
+    reason: 'listener-evidence-unavailable', schema: CORE_NATIVE_OBSERVER_SCHEMA, schemaVersion: 1, status: 'unknown',
+  };
+  assert.equal(await failureCode(parseCoreNativeObserverEnvelope(listenerKnown, LISTENER_REQUEST, WINDOWS_OPTIONS)),
+    'helper-unknown');
+  assert.equal(parseCoreNativeObserverEnvelope({ ...listenerKnown, port: 12392 },
+    LISTENER_REQUEST, WINDOWS_OPTIONS).kind, 'failure');
+  const secureKnown = {
+    arch: 'x64', effectiveSid: WINDOWS_SID, mode: 'secure-file', platform: 'win32',
+    reason: 'secure-file-too-large', schema: CORE_NATIVE_OBSERVER_SCHEMA, schemaVersion: 1, status: 'unknown',
+  };
+  assert.equal(await failureCode(parseCoreNativeObserverEnvelope(
+    secureKnown, SECURE_FILE_REQUEST, WINDOWS_OPTIONS,
+  )), 'helper-unknown');
+  assert.equal(parseCoreNativeObserverEnvelope(
+    { ...secureKnown, reason: 'private raw error' }, SECURE_FILE_REQUEST, WINDOWS_OPTIONS,
+  ).kind, 'failure');
 }
 
 const without = (value: Record<string, unknown>, key: string) => Object.fromEntries(
@@ -356,6 +531,100 @@ function runner(
 
 {
   let inspected = false;
+  let effectiveUidCalls = 0;
+  const fake = fakeOperations({ stdout: JSON.stringify(WINDOWS_PROCESSES_WIRE) }, (command, args, options) => {
+    inspected = true;
+    assert.equal(command, 'C:\\Program Files\\Qortium\\resources\\native\\windows\\x64\\qortium-core-observer.exe');
+    assert.deepEqual(args, ['processes']);
+    assert.equal((options as { shell?: boolean }).shell, false);
+    assert.deepEqual((options as { env?: NodeJS.ProcessEnv }).env, {
+      LANG: 'C', LC_ALL: 'C', PATH: 'D:\\Windows\\System32', SystemRoot: 'D:\\Windows', WINDIR: 'D:\\Windows',
+    });
+  });
+  const result = await runCoreNativeObserver(PROCESSES_REQUEST, {
+    ...WINDOWS_OPTIONS,
+    environmentSource: { SystemRoot: 'D:\\Windows' },
+    helperPath: 'C:\\Program Files\\Qortium\\resources\\native\\windows\\x64\\qortium-core-observer.exe',
+    operations: {
+      ...fake.operations,
+      getEffectiveUid: () => { ++effectiveUidCalls; throw new Error('POSIX UID must not be used on Windows'); },
+      lstat: async () => ({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        mode: 0o100777,
+        uid: 999,
+      }),
+    },
+  });
+  assert.equal(result.kind, 'success');
+  assert.equal(inspected, true);
+  assert.equal(effectiveUidCalls, 0);
+}
+
+{
+  let inspected = false;
+  const fake = fakeOperations({ stdout: JSON.stringify(WINDOWS_SECURE_FILE_WIRE) }, (_command, args) => {
+    inspected = true;
+    assert.deepEqual(args, [
+      'secure-file', '--path', 'C:\\Users\\test\\.qortal\\settings.json', '--max-bytes', '32',
+    ]);
+  });
+  const result = await runCoreNativeObserver(SECURE_FILE_REQUEST, {
+    ...WINDOWS_OPTIONS,
+    helperPath: 'C:\\Qortium\\native\\windows\\x64\\qortium-core-observer.exe',
+    operations: fake.operations,
+  });
+  assert.equal(result.kind, 'success');
+  assert.equal(inspected, true);
+}
+
+for (const [label, isFile, isSymbolicLink] of [
+  ['Windows helper symlink', false, true],
+  ['Windows helper nonfile', false, false],
+] as const) {
+  let spawnCalls = 0;
+  const fake = fakeOperations({ stdout: JSON.stringify(WINDOWS_PROCESSES_WIRE) });
+  const result = await runCoreNativeObserver(PROCESSES_REQUEST, {
+    ...WINDOWS_OPTIONS,
+    helperPath: 'C:\\Qortium\\native\\windows\\x64\\qortium-core-observer.exe',
+    operations: {
+      ...fake.operations,
+      lstat: async () => ({
+        isFile: () => isFile,
+        isSymbolicLink: () => isSymbolicLink,
+        mode: 0,
+        uid: 0,
+      }),
+      spawn: (...args) => { ++spawnCalls; return fake.operations.spawn(...args); },
+    },
+  });
+  assert.equal(await failureCode(result), 'invalid-configuration', label);
+  assert.equal(spawnCalls, 0, `${label} must fail before spawn`);
+}
+
+{
+  let spawnCalls = 0;
+  const fake = fakeOperations({ stdout: JSON.stringify(WINDOWS_PROCESSES_WIRE) });
+  const result = await runCoreNativeObserver(PROCESSES_REQUEST, {
+    ...WINDOWS_OPTIONS,
+    helperPath: 'C:\\Qortium\\native\\windows\\x64\\qortium-core-observer.exe',
+    operations: {
+      ...fake.operations,
+      lstat: async (targetPath) => ({
+        isFile: () => targetPath.endsWith('.exe'),
+        isSymbolicLink: () => targetPath === 'C:\\Qortium\\native',
+        mode: 0,
+        uid: 0,
+      }),
+      spawn: (...args) => { ++spawnCalls; return fake.operations.spawn(...args); },
+    },
+  });
+  assert.equal(await failureCode(result), 'invalid-configuration', 'Windows helper ancestor reparse');
+  assert.equal(spawnCalls, 0, 'a Windows helper beneath a reparse-point ancestor must not spawn');
+}
+
+{
+  let inspected = false;
   const fake = fakeOperations({ stdout: JSON.stringify(LISTENER_ABSENT_WIRE) }, (_command, args) => {
     inspected = true;
     assert.deepEqual(args, ['listener', '--port', '12391']);
@@ -398,10 +667,22 @@ assert.equal(await failureCode(runCoreNativeObserver(PROCESSES_REQUEST, {
   ...DARWIN_OPTIONS, helperPath: 'relative/helper', operations: fakeOperations(null).operations,
 })), 'invalid-configuration');
 assert.equal(await failureCode(runCoreNativeObserver(PROCESSES_REQUEST, {
-  arch: 'x64', platform: 'win32', helperPath: 'C:\\Qortium\\core-observer.exe',
+  arch: 'arm64', platform: 'win32', helperPath: 'C:\\Qortium\\core-observer.exe',
   operations: fakeOperations(null).operations,
 })), 'invalid-configuration');
 assert.equal(await failureCode(runCoreNativeObserver({ mode: 'listener', port: 0 }, {
+  ...DARWIN_OPTIONS, helperPath: '/helper', operations: fakeOperations(null).operations,
+})), 'invalid-configuration');
+for (const request of [
+  { ...SECURE_FILE_REQUEST, maxBytes: 0 },
+  { ...SECURE_FILE_REQUEST, maxBytes: 512 * 1024 + 1 },
+  { ...SECURE_FILE_REQUEST, path: 'relative\\settings.json' },
+] as const) {
+  assert.equal(await failureCode(runCoreNativeObserver(request, {
+    ...WINDOWS_OPTIONS, helperPath: 'C:\\Qortium\\core-observer.exe', operations: fakeOperations(null).operations,
+  })), 'invalid-configuration');
+}
+assert.equal(await failureCode(runCoreNativeObserver(SECURE_FILE_REQUEST, {
   ...DARWIN_OPTIONS, helperPath: '/helper', operations: fakeOperations(null).operations,
 })), 'invalid-configuration');
 assert.equal(await failureCode(runCoreNativeObserver(PROCESSES_REQUEST, {

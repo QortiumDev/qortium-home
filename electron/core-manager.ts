@@ -54,6 +54,11 @@ import {
   observeMacosCoreListenerOwners,
   observeMacosQortalProcesses,
 } from './macos-core-observation.js';
+import {
+  observeWindowsCoreListenerOwners,
+  observeWindowsQortalProcesses,
+  readWindowsSecureFile,
+} from './windows-core-observation.js';
 import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
 import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
@@ -4025,7 +4030,7 @@ export function registerQortalCoreManagerEntry(manager: QortalCoreManager) {
 }
 
 function qortalPlatformRuntimeOverrides(): Partial<QortalCoreRuntimeOperations> {
-  if (process.platform !== 'darwin') return {};
+  if (process.platform !== 'darwin' && process.platform !== 'win32') return {};
   const resolution = resolveCoreNativeObserverPath({
     appPath: app.getAppPath(),
     arch: process.arch,
@@ -4033,7 +4038,10 @@ function qortalPlatformRuntimeOverrides(): Partial<QortalCoreRuntimeOperations> 
     platform: process.platform,
     resourcesPath: process.resourcesPath,
   });
-  if (resolution.kind !== 'resolved' || (process.arch !== 'x64' && process.arch !== 'arm64')) {
+  const supportedArchitecture = process.platform === 'darwin'
+    ? process.arch === 'x64' || process.arch === 'arm64'
+    : process.arch === 'x64';
+  if (resolution.kind !== 'resolved' || !supportedArchitecture) {
     const reason = resolution.kind === 'unknown'
       ? resolution.reason
       : `The native Core observer is unsupported on ${process.platform}/${process.arch}.`;
@@ -4042,7 +4050,22 @@ function qortalPlatformRuntimeOverrides(): Partial<QortalCoreRuntimeOperations> 
       inspectProcesses: async () => ({ kind: 'unknown', processes: [], reason }),
     };
   }
-  const observer = { arch: process.arch, helperPath: resolution.executablePath } as const;
+  if (process.platform === 'win32') {
+    const observer = { helperPath: resolution.executablePath } as const;
+    return {
+      inspectListener: async () => await observeWindowsCoreListenerOwners(12391, observer),
+      inspectProcesses: async (paths) => await observeWindowsQortalProcesses({
+        ...observer,
+        selectedJarPath: paths.jarPath,
+      }),
+      readSecureFile: async (targetPath, maxBytes) =>
+        await readWindowsSecureFile(targetPath, maxBytes, observer),
+    };
+  }
+  const observer = {
+    arch: process.arch as 'arm64' | 'x64',
+    helperPath: resolution.executablePath,
+  } as const;
   return {
     inspectListener: async () => await observeMacosCoreListenerOwners(12391, observer),
     inspectProcesses: async (paths) => await observeMacosQortalProcesses({

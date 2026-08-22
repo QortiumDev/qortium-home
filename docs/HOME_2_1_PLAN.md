@@ -122,8 +122,14 @@ preparation.
   live process/IPv4/IPv6 listener probes, symlink refusal, and packaged-bundle
   verification pass on macOS 12.7.6. Real Qortal start/relaunch/readiness/stop
   acceptance remains a release gate rather than an implementation claim.
-- [ ] Add equivalent fail-closed authority and secure API-key evidence for
-  Windows. Adoption and Home 2 controls remain subsequent E2/E3 work.
+- [ ] Complete validated fail-closed Windows x64 authority through the same
+  narrow native-helper boundary. The staged adapter binds current-user SID,
+  stable FILETIME PID birth identity, conservatively parsed raw-command-line and PEB cwd
+  evidence, IPv4/IPv6 listener owners, and a no-reparse stable-file/private-DACL
+  API-key read. Unsupported layouts and ambiguous command lines remain
+  unknown. MSVC build/protocol coverage is required in Windows CI, while a
+  real-Qortal start/relaunch/readiness/stop pass and signed artifact remain
+  release gates. Adoption and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 
