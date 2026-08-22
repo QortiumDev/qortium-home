@@ -45,7 +45,7 @@ function createTestJar(jarIdentity: typeof identity) {
   }));
 }
 
-function releaseFor(tagName: string, jarBytes: Buffer): QortalJarRelease {
+function releaseFor(tagName: string, jarBytes: Buffer, commit: string): QortalJarRelease {
   return {
     asset: {
       digest: `sha256:${createHash('sha256').update(jarBytes).digest('hex')}`,
@@ -53,12 +53,13 @@ function releaseFor(tagName: string, jarBytes: Buffer): QortalJarRelease {
       name: 'qortal.jar',
       size: jarBytes.length,
     },
+    commit,
     tagName,
   };
 }
 
 const jarBytes = createTestJar(identity);
-const release = releaseFor('v6.1.9', jarBytes);
+const release = releaseFor('v6.1.9', jarBytes, identity.commit);
 const fixedNow = new Date('2026-08-21T12:34:56.000Z');
 
 function createRoot(label: string) {
@@ -185,10 +186,23 @@ async function runInitial(
     const metadata: unknown = JSON.parse(metadataText);
 
     assert.deepEqual(readFileSync(paths.jarPath), jarBytes);
-    assert.equal(readFileSync(paths.settingsPath, 'utf8'), '{}\n');
+    assert.equal(
+      readFileSync(paths.settingsPath, 'utf8'),
+      '{"autoUpdateEnabled":false}\n',
+    );
+    assert.deepEqual(JSON.parse(readFileSync(paths.settingsPath, 'utf8')), {
+      autoUpdateEnabled: false,
+    });
     assert.equal(apiKey, referenceBase58(entropy));
     assert.equal(apiKey.includes('\n'), false);
     assert.deepEqual(parseQortalManagedInstallRecord(metadata, paths), callbacks.record);
+    assert.equal(callbacks.record.release.commit, identity.commit);
+    const missingCommit = JSON.parse(metadataText) as { release: Record<string, unknown> };
+    delete missingCommit.release.commit;
+    assert.equal(parseQortalManagedInstallRecord(missingCommit, paths), null);
+    const mismatchedCommit = JSON.parse(metadataText) as { release: Record<string, unknown> };
+    mismatchedCommit.release.commit = 'b'.repeat(40);
+    assert.equal(parseQortalManagedInstallRecord(mismatchedCommit, paths), null);
     assert.equal(metadataText.includes(apiKey), false);
     assert.equal(metadataText.includes('apiKey'), false);
     assert.equal(events.at(-1), 'rename:current.json', 'current.json must commit last');
@@ -468,6 +482,11 @@ if (process.platform !== 'win32') {
 
   try {
     await runInitial(paths);
+    write(
+      paths.settingsPath,
+      '{"autoUpdateEnabled":true,"preserved":"existing-settings"}\n',
+      0o640,
+    );
     const preservedPaths = [
       paths.settingsPath,
       paths.apiKeyPath,
@@ -491,9 +510,14 @@ if (process.platform !== 'win32') {
       };
     });
     const firstMetadata = readFileSync(paths.currentMetadataPath);
-    const updatedIdentity = { ...identity, buildVersion: '6.2.0-abcdef1234', semver: '6.2.0' };
+    const updatedIdentity = {
+      ...identity,
+      buildVersion: '6.2.0-abcdef1234',
+      commit: `abcdef1234${'0'.repeat(30)}`,
+      semver: '6.2.0',
+    };
     const updatedJarBytes = createTestJar(updatedIdentity);
-    const updatedRelease = releaseFor('v6.2.0', updatedJarBytes);
+    const updatedRelease = releaseFor('v6.2.0', updatedJarBytes, updatedIdentity.commit);
 
     write(paths.candidateJarPath, updatedJarBytes);
     const updateCallbacks = await prepareQortalManagedInstall(

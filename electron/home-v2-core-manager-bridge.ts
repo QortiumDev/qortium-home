@@ -17,6 +17,11 @@ import {
   readHomeV2CoreUpdatePolicySettings,
   replaceHomeV2CoreUpdatePolicySettings,
 } from './home-v2-core-update-policy-storage.js'
+import {
+  createAuthorizedHomeV2QortalMaintenanceHandlers,
+  createHomeV2QortalMaintenanceService,
+} from './home-v2-qortal-maintenance-contract.js'
+import { probeHomeV2QortalInstallDiscovery } from './home-v2-qortal-maintenance-discovery.js'
 
 export function registerHomeV2CoreManagerBridgeIpcHandlers() {
   const handlers = createAuthorizedHomeV2CoreManagerHandlers(
@@ -46,6 +51,20 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
     if (result.network === 'qortium' && result.outcome === 'completed') {
       void scheduler.trigger()
     }
+    return result
+  })
+  const qortalMaintenanceHandlers = createAuthorizedHomeV2QortalMaintenanceHandlers(
+    assertAuthorizedHomeV2Sender,
+    createHomeV2QortalMaintenanceService({
+      probeDiscovery: probeHomeV2QortalInstallDiscovery,
+      resolveManager: () => requireCoreManagerEntry('qortal'),
+    }),
+  )
+  ipcMain.handle('home-v2-qortal-maintenance:getStatus', qortalMaintenanceHandlers.getStatus)
+  ipcMain.handle('home-v2-qortal-maintenance:checkRelease', qortalMaintenanceHandlers.checkRelease)
+  ipcMain.handle('home-v2-qortal-maintenance:runAction', async (event, value) => {
+    const result = await qortalMaintenanceHandlers.runAction(event, value)
+    if (result.code !== 'operation-in-progress') void scheduler.trigger()
     return result
   })
   const policyHandlers = createAuthorizedHomeV2CoreUpdatePolicyHandlers(

@@ -16,6 +16,12 @@ import type {
   HomeV2CoreUpdatePolicyState,
 } from '../../electron/home-v2-core-update-policy-contract'
 import type { HomeV2CoreUpdatePolicy } from '../../electron/home-v2-core-update-policy-codec'
+import type {
+  HomeV2QortalMaintenanceActionResult,
+  HomeV2QortalMaintenanceDiscovery,
+  HomeV2QortalMaintenanceRelease,
+  HomeV2QortalMaintenanceStatus,
+} from '../../electron/home-v2-qortal-maintenance-contract'
 
 export type {
   HomeV2CoreMaintenanceActionResult,
@@ -24,7 +30,13 @@ export type {
   HomeV2CoreUpdatePolicy,
   HomeV2CoreUpdatePolicySetResult,
   HomeV2CoreUpdatePolicyState,
+  HomeV2QortalMaintenanceActionResult,
+  HomeV2QortalMaintenanceDiscovery,
+  HomeV2QortalMaintenanceRelease,
+  HomeV2QortalMaintenanceStatus,
 }
+
+export type HomeV2QortalMaintenanceAction = 'initial-install' | 'strict-update'
 
 const installKinds = new Set<HomeV2CoreInstallKind>([
   'adopted',
@@ -207,6 +219,179 @@ export function parseHomeV2CoreMaintenanceActionResult(value: unknown): HomeV2Co
   }) as HomeV2CoreMaintenanceActionResult
 }
 
+const qortalMaintenanceDiscoveries = new Set<HomeV2QortalMaintenanceDiscovery>([
+  'candidate-found',
+  'clear',
+  'multiple-candidates',
+  'not-applicable',
+  'unknown',
+])
+const qortalUpdateAuthorities = new Set<HomeV2QortalMaintenanceStatus['updateAuthority']>([
+  'home-github',
+  'node-native',
+  'observe-only',
+])
+const qortalMaintenanceIssues = new Set([
+  'manager-unavailable',
+  'status-unavailable',
+  'unsupported-platform',
+])
+const qortalReleaseCodes = new Set([
+  'action-not-allowed',
+  'release-unavailable',
+  'up-to-date',
+  'version-unavailable',
+])
+const qortalMaintenanceActionCodes = new Set([
+  'action-not-allowed',
+  'adopted-update-unsupported',
+  'install-selection-required',
+  'operation-failed',
+  'operation-in-progress',
+  'release-changed',
+  'release-not-newer',
+  'runtime-not-stopped',
+  'target-changed',
+  'update-node-native',
+  'update-ownership-unknown',
+])
+
+const MAX_QORTAL_MAINTENANCE_VERSION_LENGTH = 128
+
+function isBoundedQortalMaintenanceVersion(value: unknown): value is string | null {
+  return value === null || (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_QORTAL_MAINTENANCE_VERSION_LENGTH &&
+    value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  )
+}
+
+export function parseHomeV2QortalMaintenanceStatus(
+  value: unknown,
+): HomeV2QortalMaintenanceStatus {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'capabilities',
+    'discovery',
+    'install',
+    'installedVersion',
+    'issue',
+    'network',
+    'revision',
+    'runtime',
+    'schema',
+    'updateAuthority',
+  ]) || value.schema !== 'home-v2-qortal-maintenance' || value.revision !== 1 ||
+    value.network !== 'qortal' || !installKinds.has(value.install as HomeV2CoreInstallKind) ||
+    !runtimeStates.has(value.runtime as HomeV2CoreRuntimeState) ||
+    !qortalMaintenanceDiscoveries.has(value.discovery as HomeV2QortalMaintenanceDiscovery) ||
+    !qortalUpdateAuthorities.has(value.updateAuthority as HomeV2QortalMaintenanceStatus['updateAuthority']) ||
+    !isBoundedQortalMaintenanceVersion(value.installedVersion) ||
+    !(value.issue === null || qortalMaintenanceIssues.has(String(value.issue))) ||
+    !isRecord(value.capabilities) || !hasExactKeys(value.capabilities, [
+      'canCheckRelease',
+      'canInitialInstall',
+      'canUpdate',
+    ]) || typeof value.capabilities.canCheckRelease !== 'boolean' ||
+    typeof value.capabilities.canInitialInstall !== 'boolean' ||
+    typeof value.capabilities.canUpdate !== 'boolean' ||
+    (value.issue !== null && (
+      value.capabilities.canCheckRelease || value.capabilities.canInitialInstall ||
+      value.capabilities.canUpdate
+    )) ||
+    (value.capabilities.canInitialInstall && !(
+      value.install === 'missing' && value.runtime === 'stopped' && value.discovery === 'clear'
+    )) ||
+    (value.capabilities.canUpdate && !(
+      value.install === 'home-managed' && value.runtime === 'stopped' &&
+      value.updateAuthority === 'home-github' && value.installedVersion !== null
+    )) ||
+    (value.capabilities.canCheckRelease && !(
+      value.capabilities.canInitialInstall ||
+      (value.install === 'home-managed' && value.updateAuthority === 'home-github' &&
+        value.installedVersion !== null)
+    )) ||
+    (value.install === 'missing' && value.discovery === 'not-applicable') ||
+    (value.install !== 'missing' && value.issue === null && value.discovery !== 'not-applicable')) {
+    throw new Error('Invalid Home 2 Qortal maintenance status.')
+  }
+  return Object.freeze({
+    capabilities: Object.freeze({
+      canCheckRelease: value.capabilities.canCheckRelease,
+      canInitialInstall: value.capabilities.canInitialInstall,
+      canUpdate: value.capabilities.canUpdate,
+    }),
+    discovery: value.discovery,
+    install: value.install,
+    installedVersion: value.installedVersion,
+    issue: value.issue,
+    network: 'qortal',
+    revision: 1,
+    runtime: value.runtime,
+    schema: 'home-v2-qortal-maintenance',
+    updateAuthority: value.updateAuthority,
+  }) as HomeV2QortalMaintenanceStatus
+}
+
+export function parseHomeV2QortalMaintenanceRelease(
+  value: unknown,
+): HomeV2QortalMaintenanceRelease {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'action',
+    'available',
+    'code',
+    'network',
+    'revision',
+    'schema',
+    'tag',
+  ]) || value.schema !== 'home-v2-qortal-maintenance-release' || value.revision !== 1 ||
+    value.network !== 'qortal' || typeof value.available !== 'boolean' ||
+    !['initial-install', 'none', 'strict-update'].includes(String(value.action)) ||
+    !isBoundedQortalMaintenanceVersion(value.tag) ||
+    !(value.code === null || qortalReleaseCodes.has(String(value.code))) ||
+    (value.action !== 'none' && (!value.available || value.tag === null || value.code !== null)) ||
+    (value.available && value.tag === null) ||
+    (!value.available && (value.tag !== null || value.code === null)) ||
+    (value.action === 'none' && value.available &&
+      value.code !== 'up-to-date' && value.code !== 'version-unavailable')) {
+    throw new Error('Invalid Home 2 Qortal maintenance release.')
+  }
+  return Object.freeze({ ...value }) as HomeV2QortalMaintenanceRelease
+}
+
+export function parseHomeV2QortalMaintenanceActionResult(
+  value: unknown,
+): HomeV2QortalMaintenanceActionResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'code',
+    'network',
+    'outcome',
+    'revision',
+    'schema',
+    'status',
+    'warning',
+  ]) || value.schema !== 'home-v2-qortal-maintenance-action' || value.revision !== 1 ||
+    value.network !== 'qortal' ||
+    !['blocked', 'completed', 'failed'].includes(String(value.outcome)) ||
+    !(value.code === null || qortalMaintenanceActionCodes.has(String(value.code))) ||
+    !(value.warning === null || value.warning === 'cleanup-incomplete') ||
+    (value.outcome === 'completed' && value.code !== null) ||
+    (value.outcome === 'failed' && value.code !== 'operation-failed') ||
+    (value.outcome === 'blocked' && value.code === null)) {
+    throw new Error('Invalid Home 2 Qortal maintenance action result.')
+  }
+  return Object.freeze({
+    code: value.code,
+    network: 'qortal',
+    outcome: value.outcome,
+    revision: 1,
+    schema: 'home-v2-qortal-maintenance-action',
+    status: parseHomeV2QortalMaintenanceStatus(value.status),
+    warning: value.warning,
+  }) as HomeV2QortalMaintenanceActionResult
+}
+
 const policyActivityStates = new Set([
   'available',
   'checking',
@@ -325,6 +510,12 @@ export interface HomeV2CoreManagerClient {
   getStatus(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerStatus>
   start(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
   stop(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
+  getQortalMaintenanceStatus?(): Promise<HomeV2QortalMaintenanceStatus>
+  checkQortalMaintenanceRelease?(): Promise<HomeV2QortalMaintenanceRelease>
+  runQortalMaintenanceAction?(
+    action: HomeV2QortalMaintenanceAction,
+    expectedTag: string,
+  ): Promise<HomeV2QortalMaintenanceActionResult>
 }
 
 declare global {

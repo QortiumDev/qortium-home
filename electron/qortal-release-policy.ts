@@ -1,7 +1,8 @@
 import type { CoreJarIdentity } from './core-jar-identity.js';
-import { getCoreSemver } from './core-version.js';
+import { coreCommitsMatch, getCoreSemver } from './core-version.js';
 
 const QORTAL_JAR_NAME = 'qortal.jar' as const;
+const FULL_GIT_COMMIT = /^[a-f0-9]{40}$/;
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
 const SAFE_RELEASE_TAG = /^v[a-z0-9._-]+$/i;
 
@@ -14,6 +15,7 @@ type QortalJarAsset = {
 
 export type QortalJarRelease = {
   asset: QortalJarAsset;
+  commit: string;
   tagName: string;
 };
 
@@ -37,8 +39,15 @@ export function selectQortalJarRelease(value: unknown): QortalJarRelease | null 
   }
 
   const tagName = typeof value.tag_name === 'string' ? value.tag_name.trim() : '';
+  const commit = typeof value.target_commitish === 'string'
+    ? value.target_commitish.trim().toLowerCase()
+    : '';
 
-  if (!SAFE_RELEASE_TAG.test(tagName) || !Array.isArray(value.assets)) {
+  if (
+    !SAFE_RELEASE_TAG.test(tagName) ||
+    !FULL_GIT_COMMIT.test(commit) ||
+    !Array.isArray(value.assets)
+  ) {
     return null;
   }
 
@@ -75,6 +84,7 @@ export function selectQortalJarRelease(value: unknown): QortalJarRelease | null 
       name: QORTAL_JAR_NAME,
       size,
     },
+    commit,
     tagName,
   };
 }
@@ -87,5 +97,7 @@ export function matchesQortalJarReleaseIdentity(
     return false;
   }
 
-  return release.tagName === `v${identity.semver}`;
+  return FULL_GIT_COMMIT.test(release.commit) &&
+    release.tagName === `v${identity.semver}` &&
+    coreCommitsMatch(release.commit, identity.commit);
 }

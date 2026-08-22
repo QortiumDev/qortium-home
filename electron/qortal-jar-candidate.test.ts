@@ -6,6 +6,7 @@ import type { QortalJarRelease } from './qortal-release-policy.js';
 const DIGEST = `sha256:${'a'.repeat(64)}`;
 const CANDIDATE_PATH = '/home-owned-staging/qortal-v6.1.9.jar';
 const PARTIAL_PATH = `${CANDIDATE_PATH}.partial`;
+const RELEASE_COMMIT = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const RELEASE: QortalJarRelease = {
   asset: {
     digest: DIGEST,
@@ -13,6 +14,7 @@ const RELEASE: QortalJarRelease = {
     name: 'qortal.jar',
     size: 94_721_819,
   },
+  commit: RELEASE_COMMIT,
   tagName: 'v6.1.9',
 };
 const IDENTITY: CoreJarIdentity = {
@@ -75,6 +77,7 @@ for (const [label, identity] of [
   ['missing', null],
   ['wrong-version', { ...IDENTITY, buildVersion: '6.1.8-a1b2c3d4', semver: '6.1.8' }],
   ['inconsistent', { ...IDENTITY, buildVersion: '6.1.8-a1b2c3d4' }],
+  ['wrong-commit', { ...IDENTITY, commit: 'b1b2c3d4' }],
 ] as const) {
   const events: string[] = [];
 
@@ -98,6 +101,32 @@ for (const [label, identity] of [
     label,
   );
 
+  assert.deepEqual(events, ['download', 'identity', `remove:${CANDIDATE_PATH}`]);
+}
+
+{
+  const events: string[] = [];
+  await assert.rejects(
+    stageVerifiedQortalJarCandidate(
+      { ...input(), release: { ...RELEASE, commit: 'a1b2c3d4' } },
+      {
+        operations: {
+          download: async () => {
+            events.push('download');
+            return { digest: DIGEST, size: RELEASE.asset.size };
+          },
+          readIdentity: async () => {
+            events.push('identity');
+            return IDENTITY;
+          },
+          remove: async (targetPath) => {
+            events.push(`remove:${targetPath}`);
+          },
+        },
+      },
+    ),
+    /identity does not match release/i,
+  );
   assert.deepEqual(events, ['download', 'identity', `remove:${CANDIDATE_PATH}`]);
 }
 

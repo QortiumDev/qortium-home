@@ -229,6 +229,19 @@ preparation.
   changes revoke work before download and again at activation. Automatic initial install, channel
   switching, Qortal mutation, host-triggered on-chain updates, Android
   Core/Java maintenance, and i2pd/transport remain later work.
+- [x] Add manual stable-only Qortal maintenance to desktop Runtime settings.
+  A separate sender-gated Qortal contract keeps Qortium channel/Java policy
+  semantics unchanged and accepts only an expected stable tag. The main
+  process resolves that tag to an immutable official commit, refetches before
+  mutation, and binds exact digest, size, embedded version, and embedded commit
+  through the existing stopped-only transaction. Fresh Home-managed installs
+  create private settings with Qortal native auto-update explicitly disabled;
+  updates remain limited to stopped Home-managed installs whose settings prove
+  Home owns replacement. Adopted or node-native-update installs stay
+  observation/lifecycle-only. Conventional existing-install discovery blocks
+  a duplicate initial install until candidate selection is implemented.
+  Automatic Qortal policy, adopted-file mutation, selection UI, Android Core
+  maintenance, and i2pd/transport remain later work.
 
 ## Required gates
 

@@ -34,6 +34,29 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 Qortal maintenance
+
+Desktop Runtime settings can now install a verified stable Qortal Core into
+Home's managed data or update an existing Home-managed Qortal Core when it is
+stopped and a strictly newer release is available. Release discovery and the
+mutation-time refetch stay in the main process. Home requires the exact
+official `qortal.jar` URL, GitHub SHA-256 and byte size, resolves the release
+tag to an immutable commit, and rejects a downloaded JAR unless its embedded
+version and commit match that release. The renderer supplies only the action
+and expected tag; it never receives or chooses URLs, digests, paths, commits,
+or raw GitHub metadata.
+
+New Home-managed installations explicitly turn Qortal's native automatic
+updater off so only one system owns later JAR replacement. Home rechecks that
+setting, the stopped runtime, the selected target, and release identity before
+an update transaction. Existing adopted installations remain read-only, and a
+Qortal installation using its native updater remains Qortal-owned. Before
+creating another install, Home also checks the conventional Qortal data
+directory and requires candidate selection when an existing installation is
+found. Automatic Qortal updates, adopted-file mutation, candidate-selection
+UI, Android Core maintenance, i2pd/transport, signing, and publication remain
+outside this change.
+
 ### 2026-08-22 - feat(core): add Home 2 Core update policies
 
 Desktop Runtime settings can now keep automatic Qortium Core and managed-Java

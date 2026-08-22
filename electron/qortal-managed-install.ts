@@ -27,9 +27,10 @@ import {
   type QortalJarRelease,
 } from './qortal-release-policy.js';
 
-const SETTINGS_CONTENTS = '{}\n';
+const SETTINGS_CONTENTS = '{"autoUpdateEnabled":false}\n';
 const PRIVATE_FILE_MODE = 0o600;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const FULL_GIT_COMMIT = /^[a-f0-9]{40}$/;
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
 const SAFE_RELEASE_TAG = /^v[a-z0-9._-]+$/i;
 
@@ -431,6 +432,7 @@ export function parseQortalManagedInstallRecord(
         name: assetName,
         size: typeof asset.size === 'number' ? asset.size : 0,
       },
+      commit: readString(release.commit),
       tagName: readString(release.tagName),
     },
     settingsPath: readString(value.settingsPath),
@@ -445,6 +447,7 @@ export function parseQortalManagedInstallRecord(
     !record.settingsPath ||
     !record.release.tagName ||
     !SAFE_RELEASE_TAG.test(record.release.tagName) ||
+    !FULL_GIT_COMMIT.test(record.release.commit) ||
     !SHA256_DIGEST.test(record.release.asset.digest) ||
     record.release.asset.downloadUrl !==
       `https://github.com/Qortal/qortal/releases/download/${record.release.tagName}/qortal.jar` ||
@@ -598,6 +601,7 @@ export async function prepareQortalManagedInstall(
     networkId: 'qortal',
     release: {
       asset: { ...input.release.asset },
+      commit: input.release.commit,
       tagName: input.release.tagName,
     },
     settingsPath: paths.settingsPath,

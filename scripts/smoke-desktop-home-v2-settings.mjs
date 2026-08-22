@@ -35,6 +35,10 @@ const coreDashboardScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_CORE_DASHBOARD_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-core-dashboard.png',
 )
+const qortalMaintenanceScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_QORTAL_MAINTENANCE_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-qortal-maintenance.png',
+)
 const profileDirectory = mkdtempSync(
   path.join(os.tmpdir(), 'qortium-home-v2-settings-smoke-'),
 )
@@ -247,6 +251,44 @@ try {
     )
     assert.equal(maintenancePanel.heading, 'Qortium Core maintenance')
     assert.doesNotMatch(maintenancePanel.text, /Qortal.*(?:install|update)|policy|i2pd|transport/i)
+    const qortalMaintenancePanel = await waitUntil('Qortal Core maintenance settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const qortium = document.querySelector('.home-v2-core-maintenance:not(.home-v2-qortal-maintenance)');
+          const qortal = document.querySelector('.home-v2-qortal-maintenance[data-network="qortal"]');
+          const update = document.querySelector('[data-home-v2-app-updates="desktop"]');
+          return qortium && qortal && update &&
+              qortium.compareDocumentPosition(qortal) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              qortal.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              typeof window.homeV2CoreManagers?.getQortalMaintenanceStatus === 'function' &&
+              typeof window.homeV2CoreManagers?.checkQortalMaintenanceRelease === 'function' &&
+              typeof window.homeV2CoreManagers?.runQortalMaintenanceAction === 'function'
+            ? {
+                heading: qortal.querySelector('h3')?.textContent,
+                hasLifecycleAction: [...qortal.querySelectorAll('button')]
+                  .some((button) => /^(Start|Stop)/.test(button.textContent.trim())),
+                text: qortal.textContent,
+              }
+            : null;
+        })()`,
+      ),
+    )
+    assert.equal(qortalMaintenancePanel.heading, 'Qortal Core maintenance')
+    assert.equal(qortalMaintenancePanel.hasLifecycleAction, false)
+    assert.match(qortalMaintenancePanel.text, /verified stable Qortal releases/)
+    await evaluate(
+      client,
+      `document.querySelector('.home-v2-qortal-maintenance')
+        .scrollIntoView({ block: 'center' })`,
+    )
+    const qortalMaintenanceScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    writeFileSync(
+      qortalMaintenanceScreenshotPath,
+      Buffer.from(qortalMaintenanceScreenshot.data, 'base64'),
+    )
     const updatePanel = await waitUntil('Home update settings', () =>
       evaluate(
         client,
@@ -447,7 +489,7 @@ try {
     )
     assert.equal(rtlPersisted.appearance.language, 'ar')
     console.log(
-      `Packaged Home settings/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
+      `Packaged Home settings/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${qortalMaintenanceScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
     )
   } finally {
     client.close()

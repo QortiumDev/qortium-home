@@ -1198,6 +1198,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   )
   assert.doesNotMatch(android, /data-home-v2-core-management/)
   assert.doesNotMatch(android, />Start Core|>Stop Core/)
+  assert.doesNotMatch(android, /home-v2-qortal-maintenance|Qortal Core maintenance/)
 }
 
 function testAppearanceSettingsAndLegacyMigration(): void {
