@@ -34,7 +34,7 @@ function run(command, args, options = {}) {
   return result.stdout.trim();
 }
 
-function findVsDevCmd() {
+function findVcVars64() {
   const programFilesX86 = process.env['ProgramFiles(x86)'];
   if (!programFilesX86) return null;
   const vswhere = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
@@ -45,7 +45,7 @@ function findVsDevCmd() {
     '-property', 'installationPath',
   ], { encoding: 'utf8', shell: false, windowsHide: true });
   if (result.error || result.status !== 0 || !result.stdout.trim()) return null;
-  return path.join(result.stdout.trim(), 'Common7', 'Tools', 'VsDevCmd.bat');
+  return path.join(result.stdout.trim(), 'VC', 'Auxiliary', 'Build', 'vcvars64.bat');
 }
 
 function compileWithConfiguredCl(environment = process.env) {
@@ -67,11 +67,11 @@ function compileWithConfiguredCl(environment = process.env) {
   });
 }
 
-function visualStudioEnvironment(vsDevCmd) {
-  if (/[&|<>%^!"\r\n]/u.test(vsDevCmd)) {
+function visualStudioEnvironment(vcVars64) {
+  if (/[&|<>%^!"\r\n]/u.test(vcVars64)) {
     throw new Error('Visual Studio reported an unsafe developer-command path.');
   }
-  const command = `call "${vsDevCmd}" -no_logo -arch=x64 -host_arch=x64 >nul && set`;
+  const command = `call "${vcVars64}" >nul && set`;
   const result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', command], {
     cwd: repoRoot,
     encoding: 'utf8',
@@ -81,7 +81,11 @@ function visualStudioEnvironment(vsDevCmd) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(`VsDevCmd.bat exited with status ${result.status}.`);
+    throw new Error([
+      `vcvars64.bat exited with status ${result.status}.`,
+      result.stdout?.trim(),
+      result.stderr?.trim(),
+    ].filter(Boolean).join('\n'));
   }
   const environment = { ...process.env };
   for (const line of result.stdout.split(/\r?\n/u)) {
@@ -96,8 +100,8 @@ function compile() {
   let result = compileWithConfiguredCl();
   if (!result.error && result.status === 0) return;
 
-  const vsDevCmd = findVsDevCmd();
-  if (!vsDevCmd) {
+  const vcVars64 = findVcVars64();
+  if (!vcVars64) {
     throw new Error([
       'MSVC cl.exe is not configured and Visual Studio Build Tools with the x64 C++ workload was not found.',
       result.stdout?.trim(),
@@ -105,9 +109,9 @@ function compile() {
     ].filter(Boolean).join('\n'));
   }
 
-  // cmd.exe is used only to materialize VsDevCmd's environment. Compilation
+  // cmd.exe is used only to materialize vcvars64's environment. Compilation
   // remains a shell:false argv invocation, so repository paths are never code.
-  result = compileWithConfiguredCl(visualStudioEnvironment(vsDevCmd));
+  result = compileWithConfiguredCl(visualStudioEnvironment(vcVars64));
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error([`MSVC exited with status ${result.status}`, result.stdout?.trim(), result.stderr?.trim()]
