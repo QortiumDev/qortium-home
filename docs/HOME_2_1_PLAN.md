@@ -114,8 +114,25 @@ preparation.
   OpenJDK Java. Listener-holder enumeration uses the current local user as its
   trust boundary and fails closed when no visible process maps a listening
   socket. Registration adds no Home 2 IPC/preload controls.
-- [ ] Add equivalent fail-closed process/listener authority adapters for macOS
-  and Windows. Adoption and Home 2 controls remain subsequent E2/E3 work.
+- [x] Add fail-closed macOS process/listener authority through a narrow
+  versioned native helper. The packaged adapter binds the current effective
+  UID, boot-session plus microsecond PID birth identity, raw argv, canonical
+  cwd/JAR evidence, and complete listener-holder/socket evidence. Both x64 and
+  arm64 helpers are built as exact executable resources; x64 compilation,
+  live process/IPv4/IPv6 listener probes, symlink refusal, and packaged-bundle
+  verification pass on macOS 12.7.6. Real Qortal start/relaunch/readiness/stop
+  acceptance remains a release gate rather than an implementation claim.
+- [x] Add validated fail-closed Windows x64 authority through the same narrow
+  native-helper boundary. The adapter binds current-user SID,
+  stable FILETIME PID birth identity, conservatively parsed raw command line,
+  PEB cwd evidence, IPv4/IPv6 listener owners, and a no-reparse
+  stable-file/private-DACL API-key read. Unsupported layouts and ambiguous
+  command lines remain unknown. MSVC `/W4 /WX`, PE x64, native self-test, packaged-resource,
+  protocol/adapter, Java-resolution, and real Windows install-lock CI pass. A
+  real-Qortal start/relaunch/readiness/stop pass and signed artifact remain
+  release gates; the sanitized native-host acceptance is tracked in
+  [issue #312](https://github.com/QortiumDev/qortium-home/issues/312). Adoption
+  and Home 2 controls remain subsequent E2/E3 work.
 
 ## Required gates
 

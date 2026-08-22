@@ -4,6 +4,10 @@ import {
   parseLinuxProcessStartTicks,
   type CoreProcessObservationOperations,
 } from './core-process-observation.js';
+import {
+  classifyQortalProcess,
+  isPotentialQortalProcess,
+} from './qortal-process-classification.js';
 
 const SELECTED_JAR = '/managed/qortal/qortal.jar';
 const BOOT_ID = '12345678-1234-1234-1234-123456789abc';
@@ -16,6 +20,108 @@ function stat(startTicks: string, command = 'java worker (one)') {
 assert.equal(parseLinuxProcessStartTicks(stat('987654')), '987654');
 assert.equal(parseLinuxProcessStartTicks('invalid'), null);
 assert.equal(parseLinuxProcessStartTicks(stat('not-a-number')), null);
+
+const identityRealpath = { realpath: async (targetPath: string) => targetPath };
+
+assert.deepEqual(
+  await classifyQortalProcess({
+    argv: ['java', '-jar', '/external/qortal.jar', '/external/settings.json'],
+    canonicalCwd: '/external',
+    canonicalSelectedJarPath: SELECTED_JAR,
+    operations: identityRealpath,
+    platform: 'linux',
+  }),
+  {
+    canonicalJarPath: '/external/qortal.jar',
+    kind: 'qortal-direct-jar',
+    rawJarArgument: '/external/qortal.jar',
+    rawSettingsArgument: '/external/settings.json',
+    selected: false,
+  },
+  'an external qortal.jar remains classified as Qortal without becoming selected',
+);
+
+assert.deepEqual(
+  await classifyQortalProcess({
+    argv: ['java', '-jar', '/tools/unrelated.jar', '--worker'],
+    canonicalCwd: '/tools',
+    canonicalSelectedJarPath: SELECTED_JAR,
+    operations: identityRealpath,
+    platform: 'linux',
+  }),
+  { kind: 'other' },
+  'an arbitrary Java JAR must not become a Qortal process',
+);
+
+assert.deepEqual(
+  await classifyQortalProcess({
+    argv: ['java', '-jar', '/tmp/arbitrary-alias.jar', 'settings.json'],
+    canonicalCwd: '/managed/qortal',
+    canonicalSelectedJarPath: SELECTED_JAR,
+    operations: { realpath: async () => SELECTED_JAR },
+    platform: 'linux',
+  }),
+  {
+    canonicalJarPath: SELECTED_JAR,
+    kind: 'qortal-direct-jar',
+    rawJarArgument: '/tmp/arbitrary-alias.jar',
+    rawSettingsArgument: 'settings.json',
+    selected: true,
+  },
+  'an arbitrary symlink name that resolves to the selected JAR must remain selected',
+);
+
+for (const [argument, helper] of [
+  ['ApplyBootstrap', 'apply-bootstrap'],
+  ['org.qortal.ApplyRestart', 'apply-restart'],
+  ['ORG.QORTAL.APPLYUPDATE', 'apply-update'],
+] as const) {
+  assert.deepEqual(
+    await classifyQortalProcess({
+      argv: ['java', argument],
+      canonicalCwd: '/managed/qortal',
+      canonicalSelectedJarPath: SELECTED_JAR,
+      operations: identityRealpath,
+      platform: 'linux',
+    }),
+    { helper, kind: 'qortal-updater-helper' },
+  );
+}
+
+assert.deepEqual(
+  await classifyQortalProcess({
+    argv: ['java', '-jar', 'C:\\Qortal Update\\NEW-QORTAL.JAR'],
+    canonicalCwd: 'C:\\Qortal Update',
+    canonicalSelectedJarPath: 'C:\\Managed Qortal\\qortal.jar',
+    operations: identityRealpath,
+    platform: 'win32',
+  }),
+  { helper: 'new-qortal-jar', kind: 'qortal-updater-helper' },
+  'Windows path semantics must recognize the updater JAR on a Linux test host',
+);
+
+{
+  const windowsSelectedJar = 'C:\\Users\\Alice\\AppData\\Roaming\\qortium-core\\install\\qortal.jar';
+  const extendedUppercaseJar = '\\\\?\\C:\\USERS\\ALICE\\APPDATA\\ROAMING\\QORTIUM-CORE\\INSTALL\\QORTAL.JAR';
+  const classification = await classifyQortalProcess({
+    argv: ['java.exe', '-jar', extendedUppercaseJar, 'Settings.JSON'],
+    canonicalCwd: 'C:\\Users\\Alice\\AppData\\Roaming\\qortium-core\\install',
+    canonicalSelectedJarPath: windowsSelectedJar,
+    operations: identityRealpath,
+    platform: 'win32',
+  });
+  assert.deepEqual(classification, {
+    canonicalJarPath: extendedUppercaseJar,
+    kind: 'qortal-direct-jar',
+    rawJarArgument: extendedUppercaseJar,
+    rawSettingsArgument: 'Settings.JSON',
+    selected: true,
+  }, 'Windows comparison must be case-insensitive and normalize extended drive prefixes');
+}
+
+assert.equal(isPotentialQortalProcess(['java', '-jar', 'worker.jar'], 'linux'), true);
+assert.equal(isPotentialQortalProcess(['java', '--jar', 'qortal.jar'], 'linux'), false);
+assert.equal(isPotentialQortalProcess(['java', '-JAR', 'qortal.jar'], 'linux'), false);
 
 type Fixture = {
   argv: readonly string[];

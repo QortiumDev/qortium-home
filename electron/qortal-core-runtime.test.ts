@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { CoreProcessSnapshot } from './core-process-observation.js';
@@ -31,7 +31,10 @@ const snapshot: CoreProcessSnapshot = {
 const buildTimestamp = '20260708200403';
 const timestampSeconds = Math.floor(Date.UTC(2026, 6, 8, 20, 4, 3) / 1000);
 
-function runtime(overrides: Partial<QortalCoreRuntimeOperations> = {}) {
+function runtime(
+  overrides: Partial<QortalCoreRuntimeOperations> = {},
+  runtimePaths: QortalManagedInstallPaths = paths,
+) {
   const calls: string[] = [];
   const operations: Partial<QortalCoreRuntimeOperations> = {
     fetchValue: async (url) => {
@@ -52,7 +55,7 @@ function runtime(overrides: Partial<QortalCoreRuntimeOperations> = {}) {
       commit: '108bf191d42d710ec617f535af30cfd82fc03c87', semver: '6.1.9' }),
     ...overrides,
   };
-  return { calls, value: createQortalCoreRuntimeOperations(paths,
+  return { calls, value: createQortalCoreRuntimeOperations(runtimePaths,
     async () => ({ command: '/java', source: 'managed' }), operations) };
 }
 
@@ -72,6 +75,20 @@ try {
       await value.stopWithApiKey({ apiKey: '1111111111111111', expectedAuthority: observed.authority,
         url: 'http://127.0.0.1:12391/admin/stop' });
     }
+  }
+
+  {
+    const aliasInstallPath = path.join(root, 'install-alias');
+    symlinkSync(installPath, aliasInstallPath, 'dir');
+    const aliasedPaths = {
+      ...paths,
+      installPath: aliasInstallPath,
+      jarPath: path.join(aliasInstallPath, 'qortal.jar'),
+      runtimePath: aliasInstallPath,
+    };
+    const observed = await runtime({}, aliasedPaths).value.inspectRuntime();
+    assert.equal(observed.state, 'running',
+      'canonical observed paths must remain authoritative through a managed-path symlink ancestor');
   }
 
   {

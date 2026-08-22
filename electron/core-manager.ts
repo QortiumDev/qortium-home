@@ -29,6 +29,7 @@ import {
 import { runCoreInstallTransaction } from './core-install-transaction.js';
 import { NetworkManagerEntryRegistry } from './core-manager-entry-registry.js';
 import { CoreManagerStateRegistry } from './core-manager-state.js';
+import { resolveCoreNativeObserverPath } from './core-native-observer-path.js';
 import {
   compareCoreVersions,
   coreCommitsMatch,
@@ -45,7 +46,19 @@ import { movePath } from './filesystem-move.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { selectManagedJavaBinary } from './managed-java-asset.js';
 import type { QortalCoreManager } from './qortal-core-manager.js';
-import { createProductionQortalCoreManager } from './qortal-core-runtime.js';
+import {
+  createProductionQortalCoreManager,
+  type QortalCoreRuntimeOperations,
+} from './qortal-core-runtime.js';
+import {
+  observeMacosCoreListenerOwners,
+  observeMacosQortalProcesses,
+} from './macos-core-observation.js';
+import {
+  observeWindowsCoreListenerOwners,
+  observeWindowsQortalProcesses,
+  readWindowsSecureFile,
+} from './windows-core-observation.js';
 import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
 import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
@@ -4016,6 +4029,52 @@ export function registerQortalCoreManagerEntry(manager: QortalCoreManager) {
   return coreManagerEntries.register(manager);
 }
 
+function qortalPlatformRuntimeOverrides(): Partial<QortalCoreRuntimeOperations> {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') return {};
+  const resolution = resolveCoreNativeObserverPath({
+    appPath: app.getAppPath(),
+    arch: process.arch,
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+  });
+  const supportedArchitecture = process.platform === 'darwin'
+    ? process.arch === 'x64' || process.arch === 'arm64'
+    : process.arch === 'x64';
+  if (resolution.kind !== 'resolved' || !supportedArchitecture) {
+    const reason = resolution.kind === 'unknown'
+      ? resolution.reason
+      : `The native Core observer is unsupported on ${process.platform}/${process.arch}.`;
+    return {
+      inspectListener: async () => ({ kind: 'unknown', reason }),
+      inspectProcesses: async () => ({ kind: 'unknown', processes: [], reason }),
+    };
+  }
+  if (process.platform === 'win32') {
+    const observer = { helperPath: resolution.executablePath } as const;
+    return {
+      inspectListener: async () => await observeWindowsCoreListenerOwners(12391, observer),
+      inspectProcesses: async (paths) => await observeWindowsQortalProcesses({
+        ...observer,
+        selectedJarPath: paths.jarPath,
+      }),
+      readSecureFile: async (targetPath, maxBytes) =>
+        await readWindowsSecureFile(targetPath, maxBytes, observer),
+    };
+  }
+  const observer = {
+    arch: process.arch as 'arm64' | 'x64',
+    helperPath: resolution.executablePath,
+  } as const;
+  return {
+    inspectListener: async () => await observeMacosCoreListenerOwners(12391, observer),
+    inspectProcesses: async (paths) => await observeMacosQortalProcesses({
+      ...observer,
+      selectedJarPath: paths.jarPath,
+    }),
+  };
+}
+
 export function registerProductionCoreManagerEntries() {
   const existing = coreManagerEntries.get('qortal');
   if (existing) return existing;
@@ -4031,6 +4090,7 @@ export function registerProductionCoreManagerEntries() {
       userAgent: QORTAL_CORE_DESCRIPTOR.github.userAgent,
     },
     resolveSharedQortalJavaForLaunch,
+    qortalPlatformRuntimeOverrides(),
   ));
 }
 

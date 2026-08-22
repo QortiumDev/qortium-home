@@ -34,6 +34,27 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-21 - feat(core): add native macOS and Windows Qortal authority
+
+Home can now apply the existing fail-closed Qortal lifecycle rules on macOS
+and Windows x64 through small packaged native observers. They bind a candidate
+Java process to its owner, exact command evidence, working directory, managed
+JAR, stable birth identity, and the complete owner set for Qortal's local API
+listener before Home treats the process as managed. Missing, changing,
+malformed, ambiguous, or inaccessible evidence remains unknown and prevents
+control.
+
+The macOS helper uses current-user process and socket evidence with a
+boot-session identity, while the Windows helper conservatively validates the
+native x64 process layout, preserves the raw Windows command line, and rejects
+ambiguous argument reconstruction or unsupported layouts. Windows API-key
+reads now also use a no-reparse native open, stable volume/file identity, and a
+private current-user security descriptor instead of following a filesystem
+alias. Both helpers are built and verified as exact packaged resources. This
+adds no Home 2 controls yet; signed release artifacts and real-Qortal
+start/relaunch/readiness/stop acceptance on each native OS remain release
+gates.
+
 ### 2026-08-21 - feat(core): build verified Qortal lifecycle foundations
 
 Home now has a fail-closed staging path for Qortal releases. It writes into an

@@ -78,7 +78,7 @@ const DEFAULT_OPERATIONS: QortalCoreRuntimeOperations = {
   inspectProcesses: async (paths) => await observeCurrentUserQortalProcesses({ selectedJarPath: paths.jarPath }),
   now: Date.now,
   readSecureFile: async (targetPath, maxBytes) => {
-    const noFollow = process.platform === 'linux' ? constants.O_NOFOLLOW : 0;
+    const noFollow = process.platform === 'win32' ? 0 : constants.O_NOFOLLOW;
     const handle = await open(targetPath, constants.O_RDONLY | noFollow);
     try {
       const before = await handle.stat() as SecureStat;
@@ -109,6 +109,29 @@ const DEFAULT_OPERATIONS: QortalCoreRuntimeOperations = {
 function samePath(left: string, right: string) {
   const normalize = (value: string) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
   return normalize(left) === normalize(right);
+}
+
+function missingPath(error: unknown) {
+  return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+async function canonicalizeProspectivePath(
+  targetPath: string,
+  resolvePath: QortalCoreRuntimeOperations['realpath'],
+) {
+  const suffix: string[] = [];
+  let cursor = path.resolve(targetPath);
+  while (true) {
+    try {
+      return path.join(await resolvePath(cursor), ...suffix);
+    } catch (error) {
+      if (!missingPath(error)) throw error;
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return path.resolve(targetPath);
+      suffix.unshift(path.basename(cursor));
+      cursor = parent;
+    }
+  }
 }
 
 function selectedProcess(snapshot: CoreProcessSnapshot, paths: QortalManagedInstallPaths) {
@@ -183,6 +206,16 @@ export function createQortalCoreRuntimeOperations(
   const operations = { ...DEFAULT_OPERATIONS, ...overrides };
 
   const observeOnce = async (probeApi: boolean): Promise<QortalRuntimeObservation> => {
+    let canonicalPaths: QortalManagedInstallPaths;
+    try {
+      const [installPath, jarPath] = await Promise.all([
+        canonicalizeProspectivePath(paths.installPath, operations.realpath),
+        canonicalizeProspectivePath(paths.jarPath, operations.realpath),
+      ]);
+      canonicalPaths = { ...paths, installPath, jarPath };
+    } catch {
+      return { reason: 'The managed Qortal runtime paths could not be proven.', state: 'unknown' };
+    }
     const processes = await operations.inspectProcesses(paths);
     if (processes.kind === 'unknown') return { reason: processes.reason, state: 'unknown' };
     const listener = await operations.inspectListener();
@@ -190,19 +223,19 @@ export function createQortalCoreRuntimeOperations(
     if (processConfirmation.kind === 'unknown') return { reason: processConfirmation.reason, state: 'unknown' };
     if (listener.kind === 'unknown') return { reason: listener.reason, state: 'unknown' };
     if (
-      processes.processes.some((item) => helperInInstall(item, paths)) ||
-      processConfirmation.processes.some((item) => helperInInstall(item, paths))
+      processes.processes.some((item) => helperInInstall(item, canonicalPaths)) ||
+      processConfirmation.processes.some((item) => helperInInstall(item, canonicalPaths))
     ) {
       return { reason: 'A Qortal updater/restart helper is active in the managed install.', state: 'unknown' };
     }
-    const selected = processes.processes.filter((item) => selectedProcess(item, paths));
-    const confirmedSelected = processConfirmation.processes.filter((item) => selectedProcess(item, paths));
+    const selected = processes.processes.filter((item) => selectedProcess(item, canonicalPaths));
+    const confirmedSelected = processConfirmation.processes.filter((item) => selectedProcess(item, canonicalPaths));
     if (selected.length !== confirmedSelected.length || selected.some((item) =>
       !confirmedSelected.some((confirmed) => confirmed.pid === item.pid && confirmed.startIdentity === item.startIdentity))) {
       return { reason: 'Qortal process authority changed during listener observation.', state: 'unknown' };
     }
-    const otherQortal = processes.processes.some((item) => conflictingQortal(item, paths)) ||
-      processConfirmation.processes.some((item) => conflictingQortal(item, paths));
+    const otherQortal = processes.processes.some((item) => conflictingQortal(item, canonicalPaths)) ||
+      processConfirmation.processes.some((item) => conflictingQortal(item, canonicalPaths));
     if (selected.length === 0) {
       if (listener.kind !== 'absent' || otherQortal) return { reason: 'Qortal process/listener ownership is external or ambiguous.', state: 'unknown' };
       return { state: 'stopped' };
@@ -228,17 +261,17 @@ export function createQortalCoreRuntimeOperations(
     const afterListener = await operations.inspectListener();
     const finalProcesses = await operations.inspectProcesses(paths);
     const selectedAfter = afterProcesses.kind === 'observed'
-      ? afterProcesses.processes.filter((item) => selectedProcess(item, paths))
+      ? afterProcesses.processes.filter((item) => selectedProcess(item, canonicalPaths))
       : [];
     if (afterProcesses.kind !== 'observed' || finalProcesses.kind !== 'observed' || afterListener.kind !== 'owners' ||
       afterListener.pids.length !== 1 || afterListener.pids[0] !== process.pid ||
       selectedAfter.length !== 1 || !sameAuthority(authorityFor(process, 'ready'), selectedAfter[0]) ||
-      finalProcesses.processes.filter((item) => selectedProcess(item, paths)).length !== 1 ||
+      finalProcesses.processes.filter((item) => selectedProcess(item, canonicalPaths)).length !== 1 ||
       !finalProcesses.processes.some((item) => sameAuthority(authorityFor(process, 'ready'), item)) ||
-      afterProcesses.processes.some((item) => helperInInstall(item, paths)) ||
-      finalProcesses.processes.some((item) => helperInInstall(item, paths)) ||
-      afterProcesses.processes.some((item) => conflictingQortal(item, paths)) ||
-      finalProcesses.processes.some((item) => conflictingQortal(item, paths))) {
+      afterProcesses.processes.some((item) => helperInInstall(item, canonicalPaths)) ||
+      finalProcesses.processes.some((item) => helperInInstall(item, canonicalPaths)) ||
+      afterProcesses.processes.some((item) => conflictingQortal(item, canonicalPaths)) ||
+      finalProcesses.processes.some((item) => conflictingQortal(item, canonicalPaths))) {
       return { reason: 'Qortal runtime authority changed during API validation.', state: 'unknown' };
     }
     return { authority: authorityFor(process, 'ready'), state: 'running' };
@@ -350,6 +383,7 @@ function decodeBase58(value: string) {
 export function createProductionQortalCoreManager(
   config: ConstructorParameters<typeof QortalCoreManager>[0],
   resolveJava: () => Promise<QortalJavaSelection | null>,
+  overrides: Partial<QortalCoreRuntimeOperations> = {},
 ) {
-  return new QortalCoreManager(config, createQortalCoreRuntimeOperations(config.paths, resolveJava));
+  return new QortalCoreManager(config, createQortalCoreRuntimeOperations(config.paths, resolveJava, overrides));
 }

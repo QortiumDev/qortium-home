@@ -13,6 +13,8 @@
     "start": "npm run build && electron .",
     "clean": "node scripts/clean.mjs",
     "build": "npm run clean && npm run build:renderer && npm run build:electron",
+    "build:native:macos": "node scripts/build-macos-core-observer.mjs",
+    "build:native:windows": "node scripts/build-windows-core-observer.mjs",
     "build:renderer": "vite build --config vite.home-v2.config.ts",
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:v2-fixture:renderer": "vite build --config vite.v2-fixture.config.ts",
@@ -20,6 +22,8 @@
     "build:v2-fixture:stage": "node scripts/stage-home-v2-fixture.mjs",
     "build:v2-fixture": "npm run clean:v2-fixture && npm run build:v2-fixture:renderer && npm run build:v2-fixture:electron && npm run build:v2-fixture:stage",
     "check:linux:appimage": "node scripts/check-linux-appimage-artifact.mjs",
+    "check:macos:core-observer": "node scripts/verify-macos-core-observer.mjs",
+    "check:windows:core-observer": "node scripts/verify-windows-core-observer.mjs",
     "check:v2-fixture:artifact": "node scripts/check-home-v2-fixture-artifact.mjs",
     "chmod:linux:appimages": "node scripts/chmod-linux-appimages.mjs",
     "chmod:linux:v2-fixture-appimages": "node scripts/chmod-linux-appimages.mjs --v2-fixture",
@@ -27,14 +31,14 @@
     "dist:linux:arm64": "npm run build && electron-builder --linux AppImage --arm64 && npm run chmod:linux:appimages && npm run check:linux:appimage -- --arch=arm64",
     "dist:linux:all": "npm run build && electron-builder --linux AppImage --x64 --arm64 && npm run chmod:linux:appimages && npm run check:linux:appimage -- --arch=x64 && npm run check:linux:appimage -- --arch=arm64",
     "dist:linux:x64:v2-fixture": "npm run build:v2-fixture && electron-builder --projectDir .v2-fixture-package --config electron-builder.json --linux AppImage --x64 --publish never && npm run chmod:linux:v2-fixture-appimages && npm run check:v2-fixture:artifact",
-    "dist:mac:x64": "npm run build && electron-builder --mac dmg --x64 --publish never",
-    "dist:mac:arm64": "npm run build && electron-builder --mac dmg --arm64 --publish never",
-    "dist:mac:universal": "npm run build && electron-builder --mac dmg --universal --publish never",
+    "dist:mac:x64": "npm run build:native:macos && npm run build && electron-builder --mac dmg --x64 --publish never && npm run check:macos:core-observer -- \"dist-release/mac/Qortium Home.app\"",
+    "dist:mac:arm64": "npm run build:native:macos && npm run build && electron-builder --mac dmg --arm64 --publish never && npm run check:macos:core-observer -- \"dist-release/mac-arm64/Qortium Home.app\"",
+    "dist:mac:universal": "npm run build:native:macos && npm run build && electron-builder --mac dmg --universal --publish never && npm run check:macos:core-observer -- \"dist-release/mac-universal/Qortium Home.app\"",
     "dist:mac:x64:remote": "node scripts/build-remote-mac.mjs dist:mac:x64",
     "dist:mac:arm64:remote": "node scripts/build-remote-mac.mjs dist:mac:arm64",
     "dist:mac:universal:remote": "node scripts/build-remote-mac.mjs dist:mac:universal",
     "dist:mac:macos11:universal:remote": "node scripts/build-remote-mac.mjs dist:mac:macos11:universal",
-    "dist:win:x64": "npm run build && electron-builder --win portable --x64 --publish never",
+    "dist:win:x64": "npm run build:native:windows && npm run build && electron-builder --win portable --x64 --publish never && npm run check:windows:core-observer -- --app \"dist-release/win-unpacked\"",
     "icons:android": "node scripts/generate-android-icons.mjs",
     "android:sync": "QORTIUM_HOME_ANDROID=1 npm run build:renderer && cap sync android",
     "android:open": "npm run android:sync && cap open android",
@@ -115,6 +119,7 @@
     "test:qortal-managed-install": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-managed-install.test.js",
     "test:qortal-core-manager": "node scripts/ensure-electron-build.mjs && node --unhandled-rejections=strict dist-electron/qortal-core-manager.test.js",
     "test:qortal-core-runtime": "node scripts/ensure-electron-build.mjs && node --unhandled-rejections=strict dist-electron/qortal-core-runtime.test.js",
+    "test:qortal-java-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-java-launch.test.js",
     "test:qortal-settings-policy": "node scripts/ensure-electron-build.mjs && node dist-electron/qortal-settings-policy.test.js",
     "test:node-ca-bootstrap": "node scripts/ensure-electron-build.mjs && node dist-electron/node-ca-bootstrap.test.js",
     "test:node-cert-trust": "node scripts/ensure-electron-build.mjs && node dist-electron/node-cert-trust.test.js",
@@ -124,7 +129,11 @@
     "test:core-install-lock": "node scripts/ensure-electron-build.mjs && node dist-electron/core-install-lock.test.js",
     "test:core-operation-lock": "node scripts/ensure-electron-build.mjs && node dist-electron/core-operation-lock.test.js",
     "test:core-listener-owner": "node scripts/ensure-electron-build.mjs && node dist-electron/core-listener-owner.test.js",
+    "test:core-native-observer": "node scripts/ensure-electron-build.mjs && node dist-electron/core-native-observer.test.js",
+    "test:core-native-observer-path": "node scripts/ensure-electron-build.mjs && node dist-electron/core-native-observer-path.test.js",
     "test:core-process-observation": "node scripts/ensure-electron-build.mjs && node dist-electron/core-process-observation.test.js",
+    "test:macos-core-observation": "node scripts/ensure-electron-build.mjs && node dist-electron/macos-core-observation.test.js",
+    "test:windows-core-observation": "node scripts/ensure-electron-build.mjs && node dist-electron/windows-core-observation.test.js",
     "test:core-jar-target-state": "node scripts/ensure-electron-build.mjs && node dist-electron/core-jar-target-state.test.js",
     "test:core-manager-entry-registry": "node scripts/ensure-electron-build.mjs && node dist-electron/core-manager-entry-registry.test.js",
     "test:core-manager-state": "node scripts/ensure-electron-build.mjs && node dist-electron/core-manager-state.test.js",
@@ -325,6 +334,15 @@
     },
     "mac": {
       "icon": "build/icon.icns",
+      "extraResources": [
+        {
+          "from": ".native-build/macos",
+          "to": "native/macos",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
       "target": [
         {
           "target": "dmg"
@@ -342,6 +360,15 @@
     },
     "win": {
       "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": ".native-build/windows",
+          "to": "native/windows",
+          "filter": [
+            "x64/qortium-core-observer.exe"
+          ]
+        }
+      ],
       "target": [
         {
           "target": "portable",

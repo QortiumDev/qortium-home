@@ -1,21 +1,14 @@
 import { readFile, readdir, realpath } from 'node:fs/promises';
-import path from 'node:path';
+import {
+  classifyQortalProcess,
+  getQortalProcessPathApi,
+  isPotentialQortalProcess,
+  type QortalProcessClassification,
+} from './qortal-process-classification.js';
+
+export type { QortalProcessClassification } from './qortal-process-classification.js';
 
 const LINUX_BOOT_ID_PATH = '/proc/sys/kernel/random/boot_id';
-
-export type QortalProcessClassification =
-  | { kind: 'other' }
-  | {
-      canonicalJarPath: string;
-      kind: 'qortal-direct-jar';
-      rawJarArgument: string;
-      rawSettingsArgument: string | null;
-      selected: boolean;
-    }
-  | {
-      helper: 'apply-bootstrap' | 'apply-restart' | 'apply-update' | 'new-qortal-jar';
-      kind: 'qortal-updater-helper';
-    };
 
 export type CoreProcessSnapshot = {
   argv: readonly string[];
@@ -111,80 +104,17 @@ const DEFAULT_OPERATIONS: CoreProcessObservationOperations = {
   realpath: async (targetPath) => await realpath(targetPath),
 };
 
-function normalizeCanonicalPath(value: string, platform: NodeJS.Platform) {
-  return platform === 'win32' ? value.toLowerCase() : value;
-}
-
-function helperClassification(argv: readonly string[]): QortalProcessClassification | null {
-  for (const argument of argv) {
-    const className = argument.toLowerCase();
-    if (className === 'applybootstrap' || className === 'org.qortal.applybootstrap') {
-      return { helper: 'apply-bootstrap', kind: 'qortal-updater-helper' };
-    }
-    if (className === 'applyupdate' || className === 'org.qortal.applyupdate') {
-      return { helper: 'apply-update', kind: 'qortal-updater-helper' };
-    }
-    if (className === 'applyrestart' || className === 'org.qortal.applyrestart') {
-      return { helper: 'apply-restart', kind: 'qortal-updater-helper' };
-    }
-    if (path.basename(argument).toLowerCase() === 'new-qortal.jar') {
-      return { helper: 'new-qortal-jar', kind: 'qortal-updater-helper' };
-    }
-  }
-  return null;
-}
-
-function isPotentialQortalProcess(argv: readonly string[]) {
-  if (helperClassification(argv)) return true;
-  const jarFlagIndex = argv.indexOf('-jar');
-  // Any Java -jar process is plausible until its argument is canonicalized:
-  // the selected qortal.jar can be launched through an arbitrary symlink name.
-  return jarFlagIndex >= 0 && !!argv[jarFlagIndex + 1];
-}
-
-async function classifyProcess(
-  argv: readonly string[],
-  canonicalCwd: string,
-  canonicalSelectedJarPath: string,
-  platform: NodeJS.Platform,
-  operations: CoreProcessObservationOperations,
-): Promise<QortalProcessClassification> {
-  const helper = helperClassification(argv);
-  if (helper) return helper;
-
-  const jarFlagIndex = argv.indexOf('-jar');
-  const rawJarArgument = jarFlagIndex >= 0 ? argv[jarFlagIndex + 1] ?? '' : '';
-  if (!rawJarArgument) return { kind: 'other' };
-
-  const lexicalJarPath = path.isAbsolute(rawJarArgument)
-    ? path.resolve(rawJarArgument)
-    : path.resolve(canonicalCwd, rawJarArgument);
-  const selectedLexically = normalizeCanonicalPath(lexicalJarPath, platform) ===
-    normalizeCanonicalPath(canonicalSelectedJarPath, platform);
-  const canonicalJarPath = await operations.realpath(lexicalJarPath);
-  const selected = normalizeCanonicalPath(canonicalJarPath, platform) ===
-    normalizeCanonicalPath(canonicalSelectedJarPath, platform);
-  if (!selectedLexically && !selected && path.basename(rawJarArgument).toLowerCase() !== 'qortal.jar') {
-    return { kind: 'other' };
-  }
-  return {
-    canonicalJarPath,
-    kind: 'qortal-direct-jar',
-    rawJarArgument,
-    rawSettingsArgument: argv[jarFlagIndex + 2] ?? null,
-    selected,
-  };
-}
-
 function unknown(reason: string, processes: readonly CoreProcessSnapshot[] = []): CoreProcessObservation {
   return { kind: 'unknown', processes, reason };
 }
 
 async function canonicalizeSelectedJarPath(
   selectedJarPath: string,
+  platform: NodeJS.Platform,
   operations: CoreProcessObservationOperations,
 ) {
-  const resolved = path.resolve(selectedJarPath);
+  const pathApi = getQortalProcessPathApi(platform);
+  const resolved = pathApi.resolve(selectedJarPath);
   try {
     return await operations.realpath(resolved);
   } catch (error) {
@@ -195,7 +125,10 @@ async function canonicalizeSelectedJarPath(
   // parent symlink/case canonicalization when possible, then use the absent
   // target's basename as its prospective canonical identity.
   try {
-    return path.join(await operations.realpath(path.dirname(resolved)), path.basename(resolved));
+    return pathApi.join(
+      await operations.realpath(pathApi.dirname(resolved)),
+      pathApi.basename(resolved),
+    );
   } catch (error) {
     if (!processDisappeared(error)) throw error;
     return resolved;
@@ -231,7 +164,7 @@ export async function observeCurrentUserQortalProcesses(
     [bootId, processIds, canonicalSelectedJarPath] = await Promise.all([
       operations.readBootId(),
       operations.listProcessIds(),
-      canonicalizeSelectedJarPath(options.selectedJarPath, operations),
+      canonicalizeSelectedJarPath(options.selectedJarPath, platform, operations),
     ]);
   } catch (error) {
     return unknown(`Linux process observation could not be initialized: ${error instanceof Error ? error.message : String(error)}`);
@@ -275,7 +208,7 @@ export async function observeCurrentUserQortalProcesses(
     let classification: QortalProcessClassification;
     try {
       argv = await operations.readProcessArgv(pid);
-      if (!isPotentialQortalProcess(argv)) {
+      if (!isPotentialQortalProcess(argv, platform)) {
         const [userIdAfter, startTicksAfter] = await Promise.all([
           operations.readProcessUserId(pid),
           operations.readProcessStartTicks(pid),
@@ -286,13 +219,13 @@ export async function observeCurrentUserQortalProcesses(
         continue;
       }
       canonicalCwd = await operations.readProcessCwd(pid);
-      classification = await classifyProcess(
+      classification = await classifyQortalProcess({
         argv,
         canonicalCwd,
         canonicalSelectedJarPath,
-        platform,
         operations,
-      );
+        platform,
+      });
     } catch (evidenceError) {
       try {
         const startTicksAfterError = await operations.readProcessStartTicks(pid);
