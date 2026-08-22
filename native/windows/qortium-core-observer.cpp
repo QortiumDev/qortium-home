@@ -936,8 +936,25 @@ bool absoluteDosPath(const std::wstring &input, std::wstring *full,
     if (character == L'/')
       character = L'\\';
   }
+  // OBJ_DONT_REPARSE must see the resolved native device, not a DOS drive
+  // letter.  Prefixing a DOS path with "\\??\\" leaves (for example) C: as
+  // an Object Manager symbolic link, so NtCreateFile reports
+  // STATUS_REPARSE_POINT_ENCOUNTERED for every ordinary drive-letter path
+  // before it reaches the filesystem.  QueryDosDevice resolves only that
+  // unavoidable drive mapping; OBJ_DONT_REPARSE still rejects junctions and
+  // symlinks in the remaining filesystem path.
+  wchar_t drive[] = {buffer[0], L':', L'\0'};
+  std::vector<wchar_t> deviceBuffer(32768U, L'\0');
+  const DWORD deviceLength = QueryDosDeviceW(
+      drive, deviceBuffer.data(), static_cast<DWORD>(deviceBuffer.size()));
+  if (deviceLength == 0 || deviceBuffer[0] == L'\0')
+    return false;
+  const std::wstring devicePath(deviceBuffer.data());
+  if (devicePath.rfind(L"\\Device\\", 0) != 0 ||
+      devicePath.size() > 32767U - (buffer.size() - 2U))
+    return false;
   *full = buffer;
-  *ntPath = L"\\??\\" + buffer;
+  *ntPath = devicePath + buffer.substr(2U);
   return true;
 }
 
@@ -1206,6 +1223,19 @@ bool parseMaximumBytes(const wchar_t *value, DWORD *output) {
 }
 
 int runSelfTest() {
+  wchar_t modulePath[32768]{};
+  const DWORD moduleLength = GetModuleFileNameW(
+      nullptr, modulePath, static_cast<DWORD>(_countof(modulePath)));
+  std::wstring fullPath;
+  std::wstring ntPath;
+  Handle file;
+  FileIdentity identity;
+  if (moduleLength == 0 || moduleLength >= _countof(modulePath) ||
+      !absoluteDosPath(modulePath, &fullPath, &ntPath) ||
+      ntPath.rfind(L"\\Device\\", 0) != 0 ||
+      openSecureNoReparse(ntPath, &file) != SecureOpenResult::ok ||
+      !fileIdentity(file.value, &identity))
+    return 1;
   constexpr char output[] =
       "{\"arch\":\"x64\",\"mode\":\"self-test\",\"platform\":\"win32\","
       "\"schema\":\"qortium-core-observer\",\"schemaVersion\":1,\"status\":"
