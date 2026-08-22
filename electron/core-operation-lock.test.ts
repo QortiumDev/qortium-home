@@ -251,6 +251,33 @@ await usingFixture('canonical-alias', async ({ lockRoot, root, targetDirectory, 
   });
   assert.deepEqual(missingAlias, missingDirect);
 
+  const nestedMissingDirect = await resolveCoreOperationLockIdentity({
+    lockRoot,
+    networkId: 'qortal',
+    op: 'install',
+    targetPath: path.join(targetDirectory, 'not-created', 'install', 'qortal.jar'),
+  });
+  const nestedMissingAlias = await resolveCoreOperationLockIdentity({
+    lockRoot,
+    networkId: 'qortal',
+    op: 'install',
+    targetPath: path.join(alias, 'not-created', 'install', 'qortal.jar'),
+  });
+  assert.deepEqual(nestedMissingAlias, nestedMissingDirect,
+    'an absent nested target must retain the canonical lock key without creating parent directories');
+  assert.equal(existsSync(path.join(targetDirectory, 'not-created')), false);
+  const nestedTargetPath = path.join(targetDirectory, 'not-created', 'install', 'qortal.jar');
+  mkdirSync(path.dirname(nestedTargetPath), { mode: 0o700, recursive: true });
+  writeFileSync(nestedTargetPath, 'jar', { mode: 0o600 });
+  const nestedExisting = await resolveCoreOperationLockIdentity({
+    lockRoot,
+    networkId: 'qortal',
+    op: 'install',
+    targetPath: nestedTargetPath,
+  });
+  assert.deepEqual(nestedExisting, nestedMissingDirect,
+    'creating the normal parents and JAR must not change the prospective target lock identity');
+
   const otherNetwork = await resolveCoreOperationLockIdentity({
     lockRoot,
     networkId: 'qortium',

@@ -313,50 +313,61 @@ async function canonicalizeTarget(
     }
   }
 
-  const parentPath = path.dirname(resolvedTarget);
-  const basename = path.basename(resolvedTarget);
-  let parentStats: LockFileStat;
+  const suffix = [path.basename(resolvedTarget)];
+  let ancestorPath = path.dirname(resolvedTarget);
+  while (true) {
+    let ancestorStats: LockFileStat;
+    try {
+      ancestorStats = await operations.lstat(ancestorPath);
+    } catch (error) {
+      if (getErrorCode(error) !== 'ENOENT') {
+        throw new CoreOperationLockIntegrityError(
+          'An ancestor of the Core operation target cannot be inspected.',
+          resolvedTarget,
+          { cause: error },
+        );
+      }
+      const parentPath = path.dirname(ancestorPath);
+      if (parentPath === ancestorPath) {
+        throw new CoreOperationLockIntegrityError(
+          'No existing ancestor of the Core operation target could be proven.',
+          resolvedTarget,
+          { cause: error },
+        );
+      }
+      suffix.unshift(path.basename(ancestorPath));
+      ancestorPath = parentPath;
+      continue;
+    }
 
-  try {
-    parentStats = await operations.lstat(parentPath);
-  } catch (error) {
-    throw new CoreOperationLockIntegrityError(
-      'The parent directory for the Core operation target does not exist.',
-      resolvedTarget,
-      { cause: error },
-    );
+    if (!ancestorStats.isDirectory() && !ancestorStats.isSymbolicLink()) {
+      throw new CoreOperationLockIntegrityError(
+        'The nearest existing ancestor of the Core operation target is not a directory.',
+        resolvedTarget,
+      );
+    }
+    const canonicalAncestor = await operations.realpath(ancestorPath).catch((error) => {
+      throw new CoreOperationLockIntegrityError(
+        'The nearest existing ancestor of the Core operation target cannot be canonicalized.',
+        resolvedTarget,
+        { cause: error },
+      );
+    });
+    const canonicalAncestorStats = await operations.lstat(canonicalAncestor).catch((error) => {
+      throw new CoreOperationLockIntegrityError(
+        'The canonical ancestor of the Core operation target cannot be inspected.',
+        resolvedTarget,
+        { cause: error },
+      );
+    });
+    if (canonicalAncestorStats.isSymbolicLink() || !canonicalAncestorStats.isDirectory()) {
+      throw new CoreOperationLockIntegrityError(
+        'The canonical ancestor of the Core operation target is not a real directory.',
+        resolvedTarget,
+      );
+    }
+    return normalizeCanonicalPath(path.join(canonicalAncestor, ...suffix), platform);
   }
-
-  if (!parentStats.isDirectory() && !parentStats.isSymbolicLink()) {
-    throw new CoreOperationLockIntegrityError(
-      'The parent of the Core operation target is not a directory.',
-      resolvedTarget,
-    );
-  }
-
-  const canonicalParent = await operations.realpath(parentPath).catch((error) => {
-    throw new CoreOperationLockIntegrityError(
-      'The parent directory for the Core operation target cannot be canonicalized.',
-      resolvedTarget,
-      { cause: error },
-    );
-  });
-  const canonicalParentStats = await operations.lstat(canonicalParent).catch((error) => {
-    throw new CoreOperationLockIntegrityError(
-      'The canonical parent directory for the Core operation target cannot be inspected.',
-      resolvedTarget,
-      { cause: error },
-    );
-  });
-
-  if (canonicalParentStats.isSymbolicLink() || !canonicalParentStats.isDirectory()) {
-    throw new CoreOperationLockIntegrityError(
-      'The canonical parent of the Core operation target is not a real directory.',
-      resolvedTarget,
-    );
-  }
-
-  return normalizeCanonicalPath(path.join(canonicalParent, basename), platform);
 }
 
 function createOperations(overrides?: Partial<CoreOperationLockOperations>) {

@@ -16,9 +16,9 @@ import {
   type QortalLaunchReceipt,
   type QortalRuntimeAuthority,
   type QortalRuntimeObservation,
+  type QortalRuntimeTarget,
   type QortalSpawnOptions,
 } from './qortal-core-manager.js';
-import type { QortalManagedInstallPaths } from './qortal-managed-install.js';
 import { resolveEffectiveQortalSettings } from './qortal-settings-policy.js';
 
 const READY_TIMEOUT_MS = 120_000;
@@ -41,7 +41,7 @@ export type QortalCoreRuntimeOperations = {
   fetchValue(url: string, headers?: Record<string, string>): Promise<unknown>;
   getUid(): number | undefined;
   inspectListener(): ReturnType<typeof observeCoreListenerOwners>;
-  inspectProcesses(paths: QortalManagedInstallPaths): Promise<CoreProcessObservation>;
+  inspectProcesses(target: QortalRuntimeTarget): Promise<CoreProcessObservation>;
   now(): number;
   readSecureFile(targetPath: string, maxBytes: number): Promise<{ bytes: Buffer; stats: SecureStat }>;
   readJarIdentity(targetPath: string): Promise<CoreJarIdentity | null>;
@@ -134,20 +134,20 @@ async function canonicalizeProspectivePath(
   }
 }
 
-function selectedProcess(snapshot: CoreProcessSnapshot, paths: QortalManagedInstallPaths) {
+function selectedProcess(snapshot: CoreProcessSnapshot, target: QortalRuntimeTarget) {
   const classification = snapshot.classification;
   return classification.kind === 'qortal-direct-jar' && classification.selected &&
-    samePath(snapshot.canonicalCwd, paths.installPath) &&
-    samePath(classification.canonicalJarPath, paths.jarPath) &&
+    samePath(snapshot.canonicalCwd, target.installPath) &&
+    samePath(classification.canonicalJarPath, target.jarPath) &&
     classification.rawSettingsArgument === 'settings.json';
 }
 
-function helperInInstall(snapshot: CoreProcessSnapshot, paths: QortalManagedInstallPaths) {
-  return snapshot.classification.kind === 'qortal-updater-helper' && samePath(snapshot.canonicalCwd, paths.installPath);
+function helperInInstall(snapshot: CoreProcessSnapshot, target: QortalRuntimeTarget) {
+  return snapshot.classification.kind === 'qortal-updater-helper' && samePath(snapshot.canonicalCwd, target.installPath);
 }
 
-function conflictingQortal(snapshot: CoreProcessSnapshot, paths: QortalManagedInstallPaths) {
-  return snapshot.classification.kind === 'qortal-direct-jar' && !selectedProcess(snapshot, paths);
+function conflictingQortal(snapshot: CoreProcessSnapshot, target: QortalRuntimeTarget) {
+  return snapshot.classification.kind === 'qortal-direct-jar' && !selectedProcess(snapshot, target);
 }
 
 function parseBuildTimestamp(value: string) {
@@ -184,126 +184,141 @@ function validInfo(value: unknown, identity: CoreJarIdentity) {
     typeof info.type === 'string' && ['full', 'lite', 'toponly'].includes(info.type.toLowerCase());
 }
 
-function authorityFor(process: CoreProcessSnapshot, readiness: QortalRuntimeAuthority['readiness']): QortalRuntimeAuthority {
+function authorityFor(
+  process: CoreProcessSnapshot,
+  readiness: QortalRuntimeAuthority['readiness'],
+  owner: QortalRuntimeTarget['owner'],
+): QortalRuntimeAuthority {
   const classification = process.classification;
   if (classification.kind !== 'qortal-direct-jar') throw new Error('Qortal process classification changed unexpectedly.');
   return { canonicalCwd: process.canonicalCwd, canonicalJarPath: classification.canonicalJarPath,
-    listenerPort: 12391, owner: 'home-managed', pid: process.pid,
+    listenerPort: 12391, owner, pid: process.pid,
     rawSettingsArgument: classification.rawSettingsArgument ?? '', readiness,
     startIdentity: process.startIdentity };
 }
 
 function sameAuthority(authority: QortalRuntimeAuthority, process: CoreProcessSnapshot) {
   return process.pid === authority.pid && process.startIdentity === authority.startIdentity &&
-    selectedProcess(process, { installPath: authority.canonicalCwd, jarPath: authority.canonicalJarPath } as QortalManagedInstallPaths);
+    selectedProcess(process, {
+      installPath: authority.canonicalCwd,
+      jarPath: authority.canonicalJarPath,
+      owner: authority.owner === 'external' ? 'external' : 'home-managed',
+    });
+}
+
+function sameRuntimeAuthority(left: QortalRuntimeAuthority, right: QortalRuntimeAuthority) {
+  return left.pid === right.pid && left.startIdentity === right.startIdentity &&
+    left.owner === right.owner && left.readiness === right.readiness &&
+    left.listenerPort === right.listenerPort && left.rawSettingsArgument === right.rawSettingsArgument &&
+    samePath(left.canonicalCwd, right.canonicalCwd) &&
+    samePath(left.canonicalJarPath, right.canonicalJarPath);
 }
 
 export function createQortalCoreRuntimeOperations(
-  paths: QortalManagedInstallPaths,
   resolveJava: () => Promise<QortalJavaSelection | null>,
   overrides: Partial<QortalCoreRuntimeOperations> = {},
 ) {
   const operations = { ...DEFAULT_OPERATIONS, ...overrides };
 
-  const observeOnce = async (probeApi: boolean): Promise<QortalRuntimeObservation> => {
-    let canonicalPaths: QortalManagedInstallPaths;
+  const observeOnce = async (target: QortalRuntimeTarget, probeApi: boolean): Promise<QortalRuntimeObservation> => {
+    let canonicalTarget: QortalRuntimeTarget;
     try {
       const [installPath, jarPath] = await Promise.all([
-        canonicalizeProspectivePath(paths.installPath, operations.realpath),
-        canonicalizeProspectivePath(paths.jarPath, operations.realpath),
+        canonicalizeProspectivePath(target.installPath, operations.realpath),
+        canonicalizeProspectivePath(target.jarPath, operations.realpath),
       ]);
-      canonicalPaths = { ...paths, installPath, jarPath };
+      canonicalTarget = { ...target, installPath, jarPath };
     } catch {
-      return { reason: 'The managed Qortal runtime paths could not be proven.', state: 'unknown' };
+      return { reason: 'The selected Qortal runtime paths could not be proven.', state: 'unknown' };
     }
-    const processes = await operations.inspectProcesses(paths);
+    const processes = await operations.inspectProcesses(target);
     if (processes.kind === 'unknown') return { reason: processes.reason, state: 'unknown' };
     const listener = await operations.inspectListener();
-    const processConfirmation = await operations.inspectProcesses(paths);
+    const processConfirmation = await operations.inspectProcesses(target);
     if (processConfirmation.kind === 'unknown') return { reason: processConfirmation.reason, state: 'unknown' };
     if (listener.kind === 'unknown') return { reason: listener.reason, state: 'unknown' };
     if (
-      processes.processes.some((item) => helperInInstall(item, canonicalPaths)) ||
-      processConfirmation.processes.some((item) => helperInInstall(item, canonicalPaths))
+      processes.processes.some((item) => helperInInstall(item, canonicalTarget)) ||
+      processConfirmation.processes.some((item) => helperInInstall(item, canonicalTarget))
     ) {
-      return { reason: 'A Qortal updater/restart helper is active in the managed install.', state: 'unknown' };
+      return { reason: 'A Qortal updater/restart helper is active in the selected install.', state: 'unknown' };
     }
-    const selected = processes.processes.filter((item) => selectedProcess(item, canonicalPaths));
-    const confirmedSelected = processConfirmation.processes.filter((item) => selectedProcess(item, canonicalPaths));
+    const selected = processes.processes.filter((item) => selectedProcess(item, canonicalTarget));
+    const confirmedSelected = processConfirmation.processes.filter((item) => selectedProcess(item, canonicalTarget));
     if (selected.length !== confirmedSelected.length || selected.some((item) =>
       !confirmedSelected.some((confirmed) => confirmed.pid === item.pid && confirmed.startIdentity === item.startIdentity))) {
       return { reason: 'Qortal process authority changed during listener observation.', state: 'unknown' };
     }
-    const otherQortal = processes.processes.some((item) => conflictingQortal(item, canonicalPaths)) ||
-      processConfirmation.processes.some((item) => conflictingQortal(item, canonicalPaths));
+    const otherQortal = processes.processes.some((item) => conflictingQortal(item, canonicalTarget)) ||
+      processConfirmation.processes.some((item) => conflictingQortal(item, canonicalTarget));
     if (selected.length === 0) {
       if (listener.kind !== 'absent' || otherQortal) return { reason: 'Qortal process/listener ownership is external or ambiguous.', state: 'unknown' };
       return { state: 'stopped' };
     }
     if (otherQortal) return { reason: 'A competing Qortal process was observed.', state: 'unknown' };
-    if (selected.length !== 1) return { reason: 'Multiple managed Qortal processes were observed.', state: 'unknown' };
+    if (selected.length !== 1) return { reason: 'Multiple selected Qortal processes were observed.', state: 'unknown' };
     const process = selected[0];
-    if (listener.kind === 'absent') return { authority: authorityFor(process, 'not-ready'), state: 'running' };
-    if (listener.pids.length !== 1 || listener.pids[0] !== process.pid) return { reason: 'Port 12391 is not owned only by the managed Qortal PID.', state: 'unknown' };
-    if (!probeApi) return { authority: authorityFor(process, 'unknown'), state: 'running' };
-    const identity = await operations.readJarIdentity(paths.jarPath);
-    if (!identity) return { reason: 'The managed Qortal JAR identity is unavailable.', state: 'unknown' };
+    if (listener.kind === 'absent') return { authority: authorityFor(process, 'not-ready', target.owner), state: 'running' };
+    if (listener.pids.length !== 1 || listener.pids[0] !== process.pid) return { reason: 'Port 12391 is not owned only by the selected Qortal PID.', state: 'unknown' };
+    if (!probeApi) return { authority: authorityFor(process, 'unknown', target.owner), state: 'running' };
+    const identity = await operations.readJarIdentity(target.jarPath);
+    if (!identity) return { reason: 'The selected Qortal JAR identity is unavailable.', state: 'unknown' };
     try {
       const [info, status] = await Promise.all([
         operations.fetchValue(`${QORTAL_CORE_DESCRIPTOR.localApi.url}/admin/info`),
         operations.fetchValue(`${QORTAL_CORE_DESCRIPTOR.localApi.url}/admin/status`),
       ]);
-      if (!validInfo(info, identity) || !validStatus(status)) return { reason: 'Qortal API identity/readiness did not match the managed runtime.', state: 'unknown' };
+      if (!validInfo(info, identity) || !validStatus(status)) return { reason: 'Qortal API identity/readiness did not match the selected runtime.', state: 'unknown' };
     } catch {
-      return { authority: authorityFor(process, 'not-ready'), state: 'running' };
+      return { authority: authorityFor(process, 'not-ready', target.owner), state: 'running' };
     }
-    const afterProcesses = await operations.inspectProcesses(paths);
+    const afterProcesses = await operations.inspectProcesses(target);
     const afterListener = await operations.inspectListener();
-    const finalProcesses = await operations.inspectProcesses(paths);
+    const finalProcesses = await operations.inspectProcesses(target);
     const selectedAfter = afterProcesses.kind === 'observed'
-      ? afterProcesses.processes.filter((item) => selectedProcess(item, canonicalPaths))
+      ? afterProcesses.processes.filter((item) => selectedProcess(item, canonicalTarget))
       : [];
     if (afterProcesses.kind !== 'observed' || finalProcesses.kind !== 'observed' || afterListener.kind !== 'owners' ||
       afterListener.pids.length !== 1 || afterListener.pids[0] !== process.pid ||
-      selectedAfter.length !== 1 || !sameAuthority(authorityFor(process, 'ready'), selectedAfter[0]) ||
-      finalProcesses.processes.filter((item) => selectedProcess(item, canonicalPaths)).length !== 1 ||
-      !finalProcesses.processes.some((item) => sameAuthority(authorityFor(process, 'ready'), item)) ||
-      afterProcesses.processes.some((item) => helperInInstall(item, canonicalPaths)) ||
-      finalProcesses.processes.some((item) => helperInInstall(item, canonicalPaths)) ||
-      afterProcesses.processes.some((item) => conflictingQortal(item, canonicalPaths)) ||
-      finalProcesses.processes.some((item) => conflictingQortal(item, canonicalPaths))) {
+      selectedAfter.length !== 1 || !sameAuthority(authorityFor(process, 'ready', target.owner), selectedAfter[0]) ||
+      finalProcesses.processes.filter((item) => selectedProcess(item, canonicalTarget)).length !== 1 ||
+      !finalProcesses.processes.some((item) => sameAuthority(authorityFor(process, 'ready', target.owner), item)) ||
+      afterProcesses.processes.some((item) => helperInInstall(item, canonicalTarget)) ||
+      finalProcesses.processes.some((item) => helperInInstall(item, canonicalTarget)) ||
+      afterProcesses.processes.some((item) => conflictingQortal(item, canonicalTarget)) ||
+      finalProcesses.processes.some((item) => conflictingQortal(item, canonicalTarget))) {
       return { reason: 'Qortal runtime authority changed during API validation.', state: 'unknown' };
     }
-    return { authority: authorityFor(process, 'ready'), state: 'running' };
+    return { authority: authorityFor(process, 'ready', target.owner), state: 'running' };
   };
 
-  const inspectRuntime = async () => {
-    const first = await observeOnce(true);
+  const inspectRuntime = async (target: QortalRuntimeTarget) => {
+    const first = await observeOnce(target, true);
     if (first.state !== 'stopped') return first;
-    const second = await observeOnce(false);
+    const second = await observeOnce(target, false);
     return second.state === 'stopped' ? second : { reason: 'Qortal runtime changed during stopped-state confirmation.', state: 'unknown' } as QortalRuntimeObservation;
   };
 
-  const waitUntil = async (predicate: (runtime: QortalRuntimeObservation) => boolean, timeoutMs: number) => {
+  const waitUntil = async (target: QortalRuntimeTarget, predicate: (runtime: QortalRuntimeObservation) => boolean, timeoutMs: number) => {
     const deadline = operations.now() + timeoutMs;
-    let runtime = await inspectRuntime();
+    let runtime = await inspectRuntime(target);
     while (!predicate(runtime) && operations.now() < deadline) {
       await operations.wait(POLL_MS);
-      runtime = await inspectRuntime();
+      runtime = await inspectRuntime(target);
     }
     return runtime;
   };
 
   return {
-    inspectRuntime: async () => await inspectRuntime(),
-    readApiKey: async (_paths: QortalManagedInstallPaths, authority: QortalRuntimeAuthority) => {
-      const current = await inspectRuntime();
-      if (current.state !== 'running' || current.authority.pid !== authority.pid || current.authority.startIdentity !== authority.startIdentity) return null;
-      const effective = await resolveEffectiveQortalSettings('settings.json', { cwd: paths.installPath });
+    inspectRuntime: async (target: QortalRuntimeTarget) => await inspectRuntime(target),
+    readApiKey: async (target: QortalRuntimeTarget, authority: QortalRuntimeAuthority) => {
+      const current = await inspectRuntime(target);
+      if (current.state !== 'running' || !sameRuntimeAuthority(current.authority, authority)) return null;
+      const effective = await resolveEffectiveQortalSettings('settings.json', { cwd: target.installPath });
       if (effective.kind !== 'resolved') return null;
       const configured = effective.settings.apiKeyPath;
       if (configured !== undefined && (typeof configured !== 'string' || !configured.trim())) return null;
-      const directory = path.resolve(paths.installPath, typeof configured === 'string' ? configured : '.');
+      const directory = path.resolve(target.installPath, typeof configured === 'string' ? configured : '.');
       let canonicalDirectory: string;
       try { canonicalDirectory = await operations.realpath(directory); } catch { return null; }
       const keyPath = path.join(canonicalDirectory, 'apikey.txt');
@@ -317,44 +332,57 @@ export function createQortalCoreRuntimeOperations(
         return decodeBase58(key)?.length === 16 ? key : null;
       } catch { return null; }
     },
-    readLiveAutoUpdate: async () => {
-      const before = await inspectRuntime();
+    readLiveAutoUpdate: async (target: QortalRuntimeTarget) => {
+      const before = await inspectRuntime(target);
       if (before.state !== 'running') return { authority: 'unknown' };
       const value = await operations.fetchValue(`${QORTAL_CORE_DESCRIPTOR.localApi.url}/admin/settings/autoUpdateEnabled`);
-      const after = await inspectRuntime();
-      return after.state === 'running' && after.authority.pid === before.authority.pid &&
-        after.authority.startIdentity === before.authority.startIdentity ? value : { authority: 'changed' };
+      const after = await inspectRuntime(target);
+      return after.state === 'running' && sameRuntimeAuthority(before.authority, after.authority)
+        ? value : { authority: 'changed' };
     },
     resolveJava: async () => await resolveJava(),
-    spawnProcess: async (command: string, args: readonly string[], options: QortalSpawnOptions) => {
+    spawnProcess: async (target: QortalRuntimeTarget, command: string, args: readonly string[], options: QortalSpawnOptions) => {
       const child = await operations.spawn(command, args, options);
-      const runtime = await waitUntil((value) => value.state === 'running' && value.authority.pid === child.pid, 5_000);
+      const runtime = await waitUntil(target, (value) => value.state === 'running' && value.authority.pid === child.pid, 5_000);
       if (runtime.state !== 'running' || runtime.authority.pid !== child.pid) throw new Error('The spawned Qortal PID could not be assigned a stable start identity.');
       return { pid: child.pid, startIdentity: runtime.authority.startIdentity, unref: child.unref };
     },
-    stopWithApiKey: async ({ apiKey, expectedAuthority, url }: { apiKey: string; expectedAuthority: QortalRuntimeAuthority; url: string }) => {
+    stopWithApiKey: async ({ apiKey, expectedAuthority, target, url }: {
+      apiKey: string;
+      expectedAuthority: QortalRuntimeAuthority;
+      target: QortalRuntimeTarget;
+      url: string;
+    }) => {
       const headers = { 'X-API-KEY': apiKey };
-      const before = await inspectRuntime();
-      if (before.state !== 'running' || before.authority.pid !== expectedAuthority.pid || before.authority.startIdentity !== expectedAuthority.startIdentity) throw new Error('Qortal authority changed before API-key validation.');
+      const before = await inspectRuntime(target);
+      if (before.state !== 'running' || !sameRuntimeAuthority(before.authority, expectedAuthority)) {
+        throw new Error('Qortal authority changed before API-key validation.');
+      }
       const [apiKeyPath, bypass, keyValid] = await Promise.all([
         operations.fetchValue(`${QORTAL_CORE_DESCRIPTOR.localApi.url}/admin/settings/apiKeyPath`),
         operations.fetchValue(`${QORTAL_CORE_DESCRIPTOR.localApi.url}/admin/settings/localAuthBypassEnabled`),
         operations.fetchValue(`${QORTAL_CORE_DESCRIPTOR.localApi.url}/admin/apikey/test`, headers),
       ]);
-      const effective = await resolveEffectiveQortalSettings('settings.json', { cwd: paths.installPath });
-      const configured = effective.kind === 'resolved' && typeof effective.settings.apiKeyPath === 'string'
-        ? effective.settings.apiKeyPath : '.';
-      const configuredDirectory = await operations.realpath(path.resolve(paths.installPath, configured));
-      if (typeof apiKeyPath !== 'string' || !samePath(path.resolve(paths.installPath, apiKeyPath || '.'), configuredDirectory) || bypass !== false || keyValid !== true) throw new Error('The Qortal API key is not bound to the managed runtime.');
-      const final = await inspectRuntime();
-      if (final.state !== 'running' || final.authority.pid !== expectedAuthority.pid || final.authority.startIdentity !== expectedAuthority.startIdentity) throw new Error('Qortal authority changed before stop.');
+      const effective = await resolveEffectiveQortalSettings('settings.json', { cwd: target.installPath });
+      if (effective.kind !== 'resolved') throw new Error('The selected Qortal settings could not be resolved.');
+      const configuredValue = effective.settings.apiKeyPath;
+      if (configuredValue !== undefined && (typeof configuredValue !== 'string' || !configuredValue.trim())) {
+        throw new Error('The selected Qortal API-key path is invalid.');
+      }
+      const configured = typeof configuredValue === 'string' ? configuredValue : '.';
+      const configuredDirectory = await operations.realpath(path.resolve(target.installPath, configured));
+      if (typeof apiKeyPath !== 'string' || !samePath(path.resolve(target.installPath, apiKeyPath || '.'), configuredDirectory) || bypass !== false || keyValid !== true) throw new Error('The Qortal API key is not bound to the selected runtime.');
+      const final = await inspectRuntime(target);
+      if (final.state !== 'running' || !sameRuntimeAuthority(final.authority, expectedAuthority)) {
+        throw new Error('Qortal authority changed before stop.');
+      }
       if (await operations.fetchValue(url, headers) !== true) throw new Error('Qortal did not accept the stop request.');
     },
-    waitForReadiness: async (_paths: QortalManagedInstallPaths, receipt: QortalLaunchReceipt) => await waitUntil(
+    waitForReadiness: async (target: QortalRuntimeTarget, receipt: QortalLaunchReceipt) => await waitUntil(target,
       (runtime) => runtime.state === 'running' && runtime.authority.readiness === 'ready' && runtime.authority.pid === receipt.pid && runtime.authority.startIdentity === receipt.startIdentity,
       READY_TIMEOUT_MS,
     ),
-    waitForStopped: async (_paths: QortalManagedInstallPaths, authority: QortalRuntimeAuthority) => await waitUntil(
+    waitForStopped: async (target: QortalRuntimeTarget, authority: QortalRuntimeAuthority) => await waitUntil(target,
       (runtime) => runtime.state === 'stopped' || (runtime.state === 'running' && (runtime.authority.pid !== authority.pid || runtime.authority.startIdentity !== authority.startIdentity)),
       STOP_TIMEOUT_MS,
     ),
@@ -385,5 +413,5 @@ export function createProductionQortalCoreManager(
   resolveJava: () => Promise<QortalJavaSelection | null>,
   overrides: Partial<QortalCoreRuntimeOperations> = {},
 ) {
-  return new QortalCoreManager(config, createQortalCoreRuntimeOperations(config.paths, resolveJava, overrides));
+  return new QortalCoreManager(config, createQortalCoreRuntimeOperations(resolveJava, overrides));
 }
