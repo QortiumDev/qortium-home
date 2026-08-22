@@ -5,6 +5,7 @@ import {
   parseHomeV2CoreMaintenanceStatus,
   parseHomeV2CoreManagerActionResult,
   parseHomeV2CoreManagerStatus,
+  parseHomeV2CoreUpdatePolicyState,
 } from './core-manager-client'
 import {
   createInitialHomeV2Nodes,
@@ -55,6 +56,26 @@ const maintenanceAction = {
 } as const
 assert.deepEqual(parseHomeV2CoreMaintenanceActionResult(maintenanceAction), maintenanceAction)
 assert.throws(() => parseHomeV2CoreMaintenanceActionResult({ ...maintenanceAction, code: '/secret/raw' }))
+const updatePolicy = {
+  activity: {
+    checkedAt: '2026-08-22T00:00:00.000Z',
+    core: { channel: 'prerelease', state: 'available', version: 'v1.2.3' },
+    generation: 3,
+    issue: null,
+    java: { state: 'up-to-date', version: null },
+  },
+  coreUpdatePolicy: 'notify',
+  generation: 3,
+  javaUpdatePolicy: 'off',
+  revision: 1,
+  schema: 'home-v2-core-update-policy',
+  settingsIssue: null,
+} as const
+assert.deepEqual(parseHomeV2CoreUpdatePolicyState(updatePolicy), updatePolicy)
+assert.throws(() => parseHomeV2CoreUpdatePolicyState({
+  ...updatePolicy,
+  activity: { ...updatePolicy.activity, rawPath: '/secret' },
+}))
 assert.throws(() =>
   parseHomeV2CoreManagerStatus({ ...qortiumStatus, runtime: 'starting' }, 'qortium'),
 )

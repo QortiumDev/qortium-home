@@ -1,32 +1,106 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   HomeV2CoreMaintenanceRelease,
   HomeV2CoreMaintenanceStatus,
+  HomeV2CoreUpdatePolicy,
+  HomeV2CoreUpdatePolicyState,
 } from '../../home-v2-live/core-manager-client'
 import {
   parseHomeV2CoreMaintenanceActionResult,
   parseHomeV2CoreMaintenanceRelease,
   parseHomeV2CoreMaintenanceStatus,
+  parseHomeV2CoreUpdatePolicySetResult,
+  parseHomeV2CoreUpdatePolicyState,
 } from '../../home-v2-live/core-manager-client'
+import { t } from '../../i18n'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
+
+function corePolicyDescription(policy: HomeV2CoreUpdatePolicy) {
+  if (policy === 'off') return 'Scheduled Qortium Core release checks are off.'
+  if (policy === 'notify') {
+    return 'Home checks the installed channel and reports a newer verified release without installing it.'
+  }
+  return 'Home installs a strictly newer verified release only after Qortium Core is proven stopped, without changing its channel.'
+}
+
+function javaPolicyDescription(policy: HomeV2CoreUpdatePolicy) {
+  if (policy === 'off') return 'Scheduled managed-Java release checks are off.'
+  if (policy === 'notify') {
+    return 'Home reports a newer managed-Java generation without installing it.'
+  }
+  return 'Home installs only a verified newer immutable generation of the existing managed Java runtime.'
+}
 
 export function CoreMaintenancePanel({ management }: { readonly management: HomeV2CoreManagement }) {
   const client = window.homeV2CoreManagers
   const [status, setStatus] = useState<HomeV2CoreMaintenanceStatus | null>(null)
+  const [policy, setPolicy] = useState<HomeV2CoreUpdatePolicyState | null>(null)
   const [release, setRelease] = useState<HomeV2CoreMaintenanceRelease | null>(null)
-  const [busy, setBusy] = useState<'check' | 'core' | 'java' | null>(null)
+  const [busy, setBusy] = useState<'check' | 'core' | 'java' | 'policy' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [initialLoadFailed, setInitialLoadFailed] = useState(false)
+  const disposed = useRef(false)
+  const statusRef = useRef<HomeV2CoreMaintenanceStatus | null>(null)
+  const policyRef = useRef<HomeV2CoreUpdatePolicyState | null>(null)
+  const requestSequence = useRef(0)
+  const policyWriteRevision = useRef(0)
+  const pendingPolicyWrites = useRef(0)
+  const policyWrites = useRef<Promise<void>>(Promise.resolve())
 
   const refresh = async () => {
-    if (!client) return
-    setStatus(parseHomeV2CoreMaintenanceStatus(await client.getMaintenanceStatus()))
+    if (!client || pendingPolicyWrites.current > 0) return
+    const sequence = ++requestSequence.current
+    const writeRevision = policyWriteRevision.current
+    try {
+      const [nextStatusValue, nextPolicyValue] = await Promise.all([
+        client.getMaintenanceStatus(),
+        client.getUpdatePolicy(),
+      ])
+      if (disposed.current || sequence !== requestSequence.current ||
+        writeRevision !== policyWriteRevision.current || pendingPolicyWrites.current > 0) return
+      const nextStatus = parseHomeV2CoreMaintenanceStatus(nextStatusValue)
+      const nextPolicy = parseHomeV2CoreUpdatePolicyState(nextPolicyValue)
+      statusRef.current = nextStatus
+      policyRef.current = nextPolicy
+      setStatus(nextStatus)
+      setPolicy(nextPolicy)
+      setInitialLoadFailed(false)
+    } catch (error) {
+      if (!disposed.current && sequence === requestSequence.current && !statusRef.current) {
+        setInitialLoadFailed(true)
+      }
+      throw error
+    }
   }
 
   useEffect(() => {
-    void refresh().catch(() => setNotice('Core maintenance status is unavailable.'))
+    disposed.current = false
+    void refresh().catch(() => undefined)
+    const interval = window.setInterval(() => void refresh().catch(() => undefined), 30_000)
+    return () => {
+      disposed.current = true
+      window.clearInterval(interval)
+      requestSequence.current += 1
+      policyWriteRevision.current += 1
+    }
   }, [client])
 
-  if (!client || !status) return null
+  if (!client) return null
+  if (!status || !policy) {
+    return (
+      <section className="home-v2-core-maintenance" aria-busy={!initialLoadFailed}
+        aria-labelledby="core-maintenance-title">
+        <div className="home-v2-settings-panel__heading">
+          <h3 id="core-maintenance-title">Qortium Core maintenance</h3>
+          {initialLoadFailed ? (
+            <p className="home-v2-core-notice" role="alert">
+              Core maintenance status is unavailable.
+            </p>
+          ) : <p role="status">Loading Core maintenance status…</p>}
+        </div>
+      </section>
+    )
+  }
 
   const check = async () => {
     setBusy('check')
@@ -56,6 +130,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
         release.action,
         { channel: release.channel, expectedTag: release.tag },
       ))
+      statusRef.current = result.status
       setStatus(result.status)
       setRelease(null)
       setNotice(result.outcome === 'completed'
@@ -64,6 +139,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
           ? 'The release changed. Check again before installing.'
           : 'Qortium Core maintenance was not completed.')
       management.onRefresh?.()
+      void refresh().catch(() => undefined)
     } catch {
       setNotice('Qortium Core maintenance failed.')
     } finally {
@@ -78,16 +154,78 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
       const result = parseHomeV2CoreMaintenanceActionResult(
         await client.runMaintenanceAction('install-java'),
       )
+      statusRef.current = result.status
       setStatus(result.status)
       setNotice(result.outcome === 'completed'
         ? 'Managed Java installation completed.'
         : 'Managed Java installation was not completed.')
       management.onRefresh?.()
+      void refresh().catch(() => undefined)
     } catch {
       setNotice('Managed Java installation failed.')
     } finally {
       setBusy(null)
     }
+  }
+
+  const setUpdatePolicy = (
+    field: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    value: HomeV2CoreUpdatePolicy,
+  ) => {
+    if (!policyRef.current) return
+    const revision = ++policyWriteRevision.current
+    pendingPolicyWrites.current += 1
+    setBusy('policy')
+    setNotice(null)
+    requestSequence.current += 1
+
+    const write = async () => {
+      try {
+        const current = policyRef.current
+        if (!current) throw new Error('Core update policy is unavailable.')
+        let result = parseHomeV2CoreUpdatePolicySetResult(
+          await client.setUpdatePolicy(current.generation, field, value),
+        )
+        policyRef.current = result.state
+        if (result.outcome === 'conflict' && result.state[field] !== value) {
+          result = parseHomeV2CoreUpdatePolicySetResult(
+            await client.setUpdatePolicy(result.state.generation, field, value),
+          )
+          policyRef.current = result.state
+        }
+        if (result.state[field] !== value ||
+          (result.outcome !== 'saved' && result.outcome !== 'conflict')) {
+          throw new Error('Core update policy changed again in another Home window.')
+        }
+        if (!disposed.current && revision === policyWriteRevision.current) {
+          setPolicy(result.state)
+          setRelease(null)
+          setNotice('Automatic update policy saved.')
+        }
+      } catch {
+        try {
+          const latest = parseHomeV2CoreUpdatePolicyState(await client.getUpdatePolicy())
+          policyRef.current = latest
+          if (!disposed.current && revision === policyWriteRevision.current) setPolicy(latest)
+        } catch {
+          // Keep the last confirmed renderer state if reconciliation is unavailable.
+        }
+        if (!disposed.current && revision === policyWriteRevision.current) {
+          setNotice('The automatic update policy could not be saved.')
+        }
+      } finally {
+        pendingPolicyWrites.current -= 1
+        if (!disposed.current && revision === policyWriteRevision.current &&
+          pendingPolicyWrites.current === 0) {
+          setBusy(null)
+        }
+      }
+    }
+
+    policyWrites.current = policyWrites.current
+      .catch(() => undefined)
+      .then(write)
+    void policyWrites.current.catch(() => undefined)
   }
 
   const coreVersion = status.core.installedVersion ?? 'Not installed'
@@ -96,11 +234,75 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
     : status.java.source === 'missing' ? 'Not available' : status.java.source
 
   return (
-    <section className="home-v2-core-maintenance" aria-labelledby="core-maintenance-title">
+    <section className="home-v2-core-maintenance" aria-busy={busy !== null}
+      aria-labelledby="core-maintenance-title">
       <div className="home-v2-settings-panel__heading">
         <h3 id="core-maintenance-title">Qortium Core maintenance</h3>
         <p>Install a verified Preview release or update an existing Home-managed Core.</p>
       </div>
+      {status.core.installedVersion ? (
+        <div className="home-v2-setting-row">
+          <div className="home-v2-setting-row__copy">
+            <strong id="qortium-core-update-policy-label">{t('core.coreUpdatePolicyLabel')}</strong>
+            <span id="qortium-core-update-policy-description">
+              {corePolicyDescription(policy.coreUpdatePolicy)}
+            </span>
+          </div>
+          <select aria-labelledby="qortium-core-update-policy-label"
+            aria-describedby="qortium-core-update-policy-description"
+            data-home-v2-core-update-policy disabled={busy !== null}
+            value={policy.coreUpdatePolicy}
+            onChange={(event) => void setUpdatePolicy(
+              'coreUpdatePolicy',
+              event.target.value as HomeV2CoreUpdatePolicy,
+            )}>
+            <option value="off">{t('core.updatePolicy.off')}</option>
+            <option value="notify">{t('core.updatePolicy.notify')}</option>
+            <option value="install">{t('core.updatePolicy.install')}</option>
+          </select>
+        </div>
+      ) : null}
+      {status.java.source === 'managed' ? (
+        <div className="home-v2-setting-row">
+          <div className="home-v2-setting-row__copy">
+            <strong id="managed-java-update-policy-label">{t('core.javaUpdatePolicyLabel')}</strong>
+            <span id="managed-java-update-policy-description">
+              {javaPolicyDescription(policy.javaUpdatePolicy)}
+            </span>
+          </div>
+          <select aria-labelledby="managed-java-update-policy-label"
+            aria-describedby="managed-java-update-policy-description"
+            data-home-v2-java-update-policy disabled={busy !== null}
+            value={policy.javaUpdatePolicy}
+            onChange={(event) => void setUpdatePolicy(
+              'javaUpdatePolicy',
+              event.target.value as HomeV2CoreUpdatePolicy,
+            )}>
+            <option value="off">{t('core.updatePolicy.off')}</option>
+            <option value="notify">{t('core.updatePolicy.notify')}</option>
+            <option value="install">{t('core.updatePolicy.install')}</option>
+          </select>
+        </div>
+      ) : null}
+      {policy.settingsIssue ? (
+        <p className="home-v2-core-notice" role="alert">
+          Stored update policies are unavailable. Automatic checks are off until you save a new policy.
+        </p>
+      ) : policy.activity.core.state === 'pending-safe-state' ? (
+        <p className="home-v2-core-notice" role="status">
+          A verified Core update is waiting for Qortium Core to stop safely.
+        </p>
+      ) : policy.activity.core.state === 'available' || policy.activity.java.state === 'available' ? (
+        <p className="home-v2-core-notice" role="status">
+          {policy.activity.core.version
+            ? `Qortium Core ${policy.activity.core.version} is available.`
+            : `Managed Java ${policy.activity.java.version ?? ''} is available.`}
+        </p>
+      ) : policy.activity.issue ? (
+        <p className="home-v2-core-notice" role="alert">
+          The last automatic maintenance pass did not complete.
+        </p>
+      ) : null}
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>Qortium Core</strong>

@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -112,6 +112,25 @@ function assertMaintenanceStatus(value) {
   assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|commit|digest|download|jarPath|pid|record|runtimePath|token|url/i)
 }
 
+function assertUpdatePolicy(value) {
+  assert.deepEqual(Object.keys(value).sort(), [
+    'activity',
+    'coreUpdatePolicy',
+    'generation',
+    'javaUpdatePolicy',
+    'revision',
+    'schema',
+    'settingsIssue',
+  ])
+  assert.equal(value.schema, 'home-v2-core-update-policy')
+  assert.equal(value.revision, 1)
+  assert.equal(['install', 'notify', 'off'].includes(value.coreUpdatePolicy), true)
+  assert.equal(['install', 'notify', 'off'].includes(value.javaUpdatePolicy), true)
+  assert.deepEqual(Object.keys(value.activity).sort(), ['checkedAt', 'core', 'generation', 'issue', 'java'])
+  assert.equal(value.activity.generation, value.generation)
+  assert.doesNotMatch(JSON.stringify(value), /apiKey|cause|commit|digest|download|jarPath|pid|record|runtimePath|token|url/i)
+}
+
 try {
   assert.equal(existsSync(appImage), true, `AppImage not found at ${appImage}`)
   const port = await getFreePort()
@@ -139,13 +158,47 @@ try {
   }
   const maintenance = await evaluate(page, 'window.homeV2CoreManagers.getMaintenanceStatus()')
   assertMaintenanceStatus(maintenance)
+  const updatePolicy = await evaluate(page, 'window.homeV2CoreManagers.getUpdatePolicy()')
+  assertUpdatePolicy(updatePolicy)
+  const setPolicyResult = await evaluate(
+    page,
+    `window.homeV2CoreManagers.setUpdatePolicy(${updatePolicy.generation}, "coreUpdatePolicy", "off")`,
+  )
+  assert.deepEqual(Object.keys(setPolicyResult).sort(), ['outcome', 'revision', 'schema', 'state'])
+  assert.equal(setPolicyResult.schema, 'home-v2-core-update-policy-set-result')
+  assert.equal(setPolicyResult.revision, 1)
+  assert.equal(setPolicyResult.outcome, 'saved')
+  assertUpdatePolicy(setPolicyResult.state)
+  assert.equal(setPolicyResult.state.coreUpdatePolicy, 'off')
+  const persistedPolicy = await evaluate(page, 'window.homeV2CoreManagers.getUpdatePolicy()')
+  assertUpdatePolicy(persistedPolicy)
+  assert.equal(persistedPolicy.coreUpdatePolicy, 'off')
+  assert.equal(persistedPolicy.generation, setPolicyResult.state.generation)
+  const policyPath = path.join(
+    profileDirectory,
+    'user-data',
+    'home-v2-core-maintenance',
+    'update-policy.json',
+  )
+  const policyFile = JSON.parse(readFileSync(policyPath, 'utf8'))
+  assert.deepEqual(Object.keys(policyFile).sort(), [
+    'coreUpdatePolicy',
+    'generation',
+    'javaUpdatePolicy',
+    'schema',
+    'version',
+  ])
+  assert.equal(policyFile.coreUpdatePolicy, 'off')
+  assert.equal(statSync(policyPath).mode & 0o777, 0o600)
   assert.equal(
     await evaluate(
       page,
       `(() => {
         const bridge = window.homeV2CoreManagers;
         return typeof bridge.checkMaintenanceRelease === 'function' &&
-          typeof bridge.runMaintenanceAction === 'function';
+          typeof bridge.runMaintenanceAction === 'function' &&
+          typeof bridge.getUpdatePolicy === 'function' &&
+          typeof bridge.setUpdatePolicy === 'function';
       })()`,
     ),
     true,

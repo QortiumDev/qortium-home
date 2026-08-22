@@ -143,6 +143,8 @@ try {
     getMaintenanceStatus: async () => ({} as never),
     checkMaintenanceRelease: async () => ({} as never),
     runMaintenanceAction: async () => ({} as never),
+    getUpdatePolicy: async () => ({} as never),
+    setUpdatePolicy: async () => ({} as never),
     getStatus: async (network) => coreStatus(network, network === 'qortal' ? 'running' : 'stopped'),
     start: async (network) => {
       if (network === 'qortal') {

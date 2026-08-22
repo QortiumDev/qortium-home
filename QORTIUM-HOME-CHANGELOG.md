@@ -34,6 +34,28 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 Core update policies
+
+Desktop Runtime settings can now keep automatic Qortium Core and managed-Java
+maintenance Off, notify about a newer version, or install it automatically.
+Home stores those choices in an exact versioned private file with optimistic
+generations, atomic replacement, and one-field conflict recovery. Valid legacy
+choices migrate once; malformed new state fails closed with both policies Off
+until the user explicitly saves a replacement.
+
+One main-process scheduler checks at startup and every six hours, independently
+of open Home windows. Policy generations and a shared lifecycle/mutation
+coordinator revoke stale work before download and again before activation. Core automation uses
+only the installed channel, only a strictly newer verified release, and only
+when Qortium Core is strongly proven stopped; it never bootstraps, changes
+channel, repairs, downgrades, or stops a running Core. Java automation only
+updates an existing Home-managed runtime and atomically selects another
+immutable verified generation, leaving running Cores on the files they already
+mapped. Off performs no scheduled GitHub or Adoptium lookup. Qortal updates,
+host-triggered on-chain Core updates, Android Core/Java management,
+i2pd/transport, retired-Java cleanup, signing, and publication remain outside
+this change.
+
 ### 2026-08-22 - feat(core): add Home 2 Core maintenance
 
 Desktop Runtime settings can now install a verified Qortium Preview Core or
