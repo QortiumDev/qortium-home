@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { IpcMainInvokeEvent } from 'electron'
+import type { StoredHomeV2AppUpdateSettings } from './home-v2-app-update-settings-codec.js'
 import {
   compareHomeAppVersions,
   selectTrustedHomeReleaseAsset,
@@ -18,6 +19,7 @@ export type HomeV2AppUpdateIssue =
   | 'release-changed'
   | 'release-not-found'
   | 'release-unavailable'
+  | 'settings-changed'
   | 'unsupported-platform'
 
 export type HomeV2AppUpdateCheck = {
@@ -91,6 +93,7 @@ type Dependencies = {
   readonly getEnvironment: () => UpdateEnvironment
   readonly now?: () => Date
   readonly openReleasePage: (url: string) => Promise<void>
+  readonly readSettings: () => Promise<StoredHomeV2AppUpdateSettings>
   readonly revealDownloadedFile: (filePath: string) => void | Promise<void>
   readonly uuid?: () => string
 }
@@ -106,8 +109,8 @@ function exactRecord(value: unknown, keys: readonly string[]): value is Record<s
   return actual.length === expected.length && actual.every((key, index) => key === expected[index])
 }
 
-function normalizeChannel(value: unknown): HomeAppUpdateChannel {
-  if (!exactRecord(value, ['channel', 'revision', 'schema'])) {
+function normalizeChannel(value: unknown) {
+  if (!exactRecord(value, ['channel', 'revision', 'schema', 'settingsGeneration'])) {
     throw new Error('An exact app update channel request is required.')
   }
   if (value.schema !== 'home-v2-app-update-check-request' || value.revision !== 1) {
@@ -116,7 +119,15 @@ function normalizeChannel(value: unknown): HomeAppUpdateChannel {
   if (value.channel !== 'stable' && value.channel !== 'prerelease') {
     throw new Error('Choose the stable or prerelease update channel.')
   }
-  return value.channel
+  const settingsGeneration = value.settingsGeneration
+  if (
+    settingsGeneration !== null &&
+    (!Number.isSafeInteger(settingsGeneration) || (settingsGeneration as number) < 0)
+  ) throw new Error('Choose a valid app update operation.')
+  return {
+    channel: value.channel,
+    settingsGeneration: settingsGeneration as number | null,
+  } as const
 }
 
 function normalizeReleaseRequest(
@@ -125,7 +136,10 @@ function normalizeReleaseRequest(
     | 'home-v2-app-update-download-request'
     | 'home-v2-app-update-open-release-request',
 ) {
-  if (!exactRecord(value, ['channel', 'releaseTag', 'revision', 'schema'])) {
+  const keys = schema === 'home-v2-app-update-download-request'
+    ? ['channel', 'releaseTag', 'revision', 'schema', 'settingsGeneration']
+    : ['channel', 'releaseTag', 'revision', 'schema']
+  if (!exactRecord(value, keys)) {
     throw new Error('An exact app update release request is required.')
   }
   if (value.schema !== schema || value.revision !== 1) {
@@ -136,7 +150,16 @@ function normalizeReleaseRequest(
   if ((channel !== 'stable' && channel !== 'prerelease') || !releaseTag || releaseTag.length > 100) {
     throw new Error('Choose a valid app update release.')
   }
-  return { channel, releaseTag } as const
+  const settingsGeneration = schema === 'home-v2-app-update-download-request'
+    ? value.settingsGeneration
+    : null
+  if (
+    settingsGeneration !== null &&
+    (!Number.isSafeInteger(settingsGeneration) || (settingsGeneration as number) < 0)
+  ) {
+    throw new Error('Choose a valid app update operation.')
+  }
+  return { channel, releaseTag, settingsGeneration: settingsGeneration as number | null } as const
 }
 
 function normalizeDownloadRequest(value: unknown) {
@@ -254,8 +277,22 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
     }
   }
 
-  const check = (value: unknown) => {
-    const channel = normalizeChannel(value)
+  const check = async (value: unknown) => {
+    const { channel, settingsGeneration } = normalizeChannel(value)
+    if (settingsGeneration !== null) {
+      const settings = await dependencies.readSettings()
+      if (
+        settings.generation !== settingsGeneration ||
+        settings.homeUpdatePolicy === 'off' ||
+        settings.releaseChannel !== channel
+      ) {
+        return {
+          ...baseCheck(channel, dependencies.getEnvironment(), now),
+          issue: 'settings-changed' as const,
+          state: 'unavailable' as const,
+        }
+      }
+    }
     const existing = checks.get(channel)
     if (existing) return existing
     const promise = performCheck(channel).finally(() => checks.delete(channel))
@@ -266,7 +303,7 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
   return {
     check,
     async download(value: unknown): Promise<HomeV2AppUpdateActionResult> {
-      const { channel, releaseTag } = normalizeReleaseRequest(
+      const { channel, releaseTag, settingsGeneration } = normalizeReleaseRequest(
         value,
         'home-v2-app-update-download-request',
       )
@@ -275,6 +312,14 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       try {
         const environment = dependencies.getEnvironment()
         if (!environment.platform.supported) return actionResult('blocked', 'unsupported-platform')
+        if (settingsGeneration !== null) {
+          const settings = await dependencies.readSettings()
+          if (
+            settings.generation !== settingsGeneration ||
+            settings.homeUpdatePolicy !== 'auto-download' ||
+            settings.releaseChannel !== channel
+          ) return actionResult('blocked', 'settings-changed')
+        }
         let release: TrustedHomeRelease | null
         try {
           release = await dependencies.fetchRelease(channel)
@@ -288,6 +333,14 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
         if (comparison <= 0) return actionResult('blocked', 'release-changed')
         const asset = selectTrustedHomeReleaseAsset(release, environment.platform)
         if (!asset) return actionResult('blocked', 'no-compatible-asset')
+        if (settingsGeneration !== null) {
+          const settings = await dependencies.readSettings()
+          if (
+            settings.generation !== settingsGeneration ||
+            settings.homeUpdatePolicy !== 'auto-download' ||
+            settings.releaseChannel !== channel
+          ) return actionResult('blocked', 'settings-changed')
+        }
         try {
           const result = await dependencies.downloadAsset({ asset, releaseTag })
           if (!result.digestVerified) return actionResult('failed', 'download-failed')

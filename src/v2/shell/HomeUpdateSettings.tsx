@@ -1,9 +1,12 @@
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
+import type { HomeV2AppUpdatePolicy } from '../../home-v2-live/app-update-preferences'
 import { t } from '../../i18n'
 
 function statusText(updates: HomeV2AppUpdates) {
   const result = updates.result
   if (updates.busy === 'check') return t('common.checking')
+  if (!updates.preferencesLoaded) return t('common.loading')
+  if (!result && updates.homeUpdatePolicy === 'off') return t('updates.homeUpdatePolicy.off')
   if (!result) return t('common.unavailable')
   if (result.state === 'available') {
     return t('updates.available', {
@@ -24,17 +27,46 @@ function statusText(updates: HomeV2AppUpdates) {
 }
 export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpdates }) {
   const result = updates.result
-  const isAndroid = result?.platform.os === 'android'
+  const isAndroid = updates.isAndroid
   const busy = updates.busy !== null
   return (
     <section
       className="home-v2-settings-panel home-v2-app-updates"
       data-home-v2-app-updates={isAndroid ? 'android' : 'desktop'}
+      aria-busy={busy}
       aria-labelledby="home-update-settings-title"
     >
       <div className="home-v2-settings-panel__heading">
         <h2 id="home-update-settings-title">{t('common.appName')}</h2>
-        <p>{statusText(updates)}</p>
+        <p aria-live="polite" role="status">{statusText(updates)}</p>
+      </div>
+
+      <div className="home-v2-setting-row">
+        <div className="home-v2-setting-row__copy">
+          <strong id="home-update-policy-label">{t('updates.homeUpdatePolicyLabel')}</strong>
+          <span id="home-update-policy-description">{updates.homeUpdatePolicy === 'auto-download'
+            ? t('updates.homeUpdatePolicy.autoDownload')
+            : updates.homeUpdatePolicy === 'notify'
+              ? t('updates.homeUpdatePolicy.notify')
+              : t('updates.homeUpdatePolicy.off')}</span>
+        </div>
+        <select
+          aria-label={t('updates.homeUpdatePolicyLabel')}
+          aria-labelledby="home-update-policy-label"
+          aria-describedby="home-update-policy-description"
+          data-home-v2-update-policy
+          disabled={busy || !updates.preferencesLoaded}
+          value={updates.homeUpdatePolicy}
+          onChange={(event) =>
+            updates.setHomeUpdatePolicy(event.target.value as HomeV2AppUpdatePolicy)
+          }
+        >
+          <option value="off">{t('updates.homeUpdatePolicy.off')}</option>
+          <option value="notify">{t('updates.homeUpdatePolicy.notify')}</option>
+          <option value="auto-download" disabled={isAndroid}>
+            {t('updates.homeUpdatePolicy.autoDownload')}
+          </option>
+        </select>
       </div>
 
       <div className="home-v2-setting-row">
@@ -45,7 +77,7 @@ export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpd
         <div className="home-v2-setting-row__control home-v2-update-controls">
           <select
             aria-label={t('updates.releaseChannelLabel')}
-            disabled={busy}
+            disabled={busy || !updates.preferencesLoaded}
             value={updates.channel}
             onChange={(event) =>
               updates.setChannel(event.target.value as 'prerelease' | 'stable')
@@ -57,7 +89,7 @@ export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpd
           <button
             className="home-v2-secondary-button"
             data-home-v2-update-action="check"
-            disabled={busy}
+            disabled={busy || !updates.preferencesLoaded}
             type="button"
             onClick={() => void updates.check()}
           >

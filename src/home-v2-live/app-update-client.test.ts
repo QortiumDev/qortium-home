@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import {
   parseHomeV2AppUpdateAction,
+  parseHomeV2AppUpdateAutomaticClaim,
   parseHomeV2AppUpdateCheck,
+  parseHomeV2AppUpdateSettings,
 } from './app-update-client'
 
 const check = {
@@ -39,5 +41,29 @@ const action = {
 assert.equal(parseHomeV2AppUpdateAction(action).download?.fileName, 'Home.AppImage')
 assert.throws(() => parseHomeV2AppUpdateAction({ ...action, code: 'download-failed' }), /inconsistent/)
 assert.throws(() => parseHomeV2AppUpdateAction({ ...action, download: { ...action.download, filePath: '/tmp/x' } }), /malformed/)
+
+const settings = {
+  generation: 2,
+  homeUpdatePolicy: 'notify',
+  releaseChannel: 'stable',
+  revision: 1,
+  schema: 'home-v2-app-update-settings',
+}
+assert.equal(parseHomeV2AppUpdateSettings(settings).generation, 2)
+assert.throws(() => parseHomeV2AppUpdateSettings({ ...settings, filePath: '/tmp/x' }), /malformed/)
+assert.throws(() => parseHomeV2AppUpdateSettings({ ...settings, homeUpdatePolicy: 'install' }), /malformed/)
+
+const claim = {
+  ...settings,
+  claimed: true,
+  schema: 'home-v2-app-update-automatic-claim',
+}
+assert.equal(parseHomeV2AppUpdateAutomaticClaim(claim).generation, 2)
+assert.throws(() => parseHomeV2AppUpdateAutomaticClaim({ ...claim, claimed: 'yes' }), /malformed/)
+assert.throws(() => parseHomeV2AppUpdateAutomaticClaim({
+  ...claim,
+  claimed: true,
+  homeUpdatePolicy: 'off',
+}), /malformed/)
 
 console.log('Home 2 app update client tests passed.')

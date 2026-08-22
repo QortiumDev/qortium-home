@@ -191,9 +191,22 @@ preparation.
   portable release adapter but applies official-URL and verified-digest checks,
   and the native installer re-hashes the canonical app-private APK before
   handoff. The stale legacy update smokes now target Home 2 and Android CI
-  assembles the debug APK. Home update policy persistence/auto-download,
-  release notes, signing, publication, and Core/Java/i2pd update surfaces remain
-  open.
+  assembles the debug APK. That first slice deliberately left policy handling,
+  release notes, signing, publication, and Core/Java/i2pd update surfaces for
+  later tranches.
+- [x] Persist Home's release channel and update policy. Desktop settings are
+  sender-gated and main-process-owned, written atomically with private
+  permissions and optimistic generations. Home 2's isolated desktop browser
+  partition cannot read Home 1 renderer preferences, so the host begins with
+  explicit Notify/Stable defaults rather than claiming a migration. Off
+  suppresses startup work, Notify checks once per saved settings generation,
+  and Download automatically saves a verified update under private Home data
+  without opening or installing it. Android accepts the existing native
+  preference enums, downgrades any old automatic value to Notify, and keeps
+  manual verified APK updates; automatic download remains disabled until the
+  complete discovery/download/receipt/install boundary is native and opaque.
+  Release notes, signing, publication, Core/Java/i2pd update surfaces, and that
+  Android native prerequisite remain open.
 
 ## Required gates
 

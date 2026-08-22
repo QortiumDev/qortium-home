@@ -2,8 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../i18n'
 import type { AndroidHomeV2UpdateHost } from '../home-v2-android-app-updates'
 import {
+  getDefaultHomeV2AppUpdatePreferences,
+  getHomeV2AutomaticUpdateAction,
+  parseHomeV2AppUpdatePreferences,
+  serializeHomeV2AppUpdatePreferences,
+  type HomeV2AppUpdatePolicy,
+  type HomeV2AppUpdatePreferences,
+} from './app-update-preferences'
+import {
   parseHomeV2AppUpdateAction,
+  parseHomeV2AppUpdateAutomaticClaim,
   parseHomeV2AppUpdateCheck,
+  parseHomeV2AppUpdateSettings,
   type HomeV2AppUpdateChannel,
   type HomeV2AppUpdateCheck,
   type HomeV2AppUpdateDownload,
@@ -101,21 +111,36 @@ function nativeCheckResult(result: QortiumAppUpdateCheckResult): HomeV2AppUpdate
   }
 }
 
-export function useHomeV2AppUpdates() {
+export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost | null = null) {
   const desktopClient = window.homeV2AppUpdates ?? null
-  const [nativeHost, setNativeHost] = useState<AndroidHomeV2UpdateHost | null>(null)
+  const [nativeHost, setNativeHost] = useState<AndroidHomeV2UpdateHost | null>(nativeHostOverride)
   const nativeClient = nativeHost?.client ?? null
   const available = !!desktopClient || !!nativeHost
+  const isAndroid = !desktopClient && !!nativeHost
+  const [preferences, setPreferences] = useState(getDefaultHomeV2AppUpdatePreferences)
+  const preferencesRef = useRef(preferences)
+  const hostPreferencesRef = useRef(preferences)
+  const [confirmedPreferences, setConfirmedPreferences] = useState(preferences)
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false)
   const [channel, setChannel] = useState<HomeV2AppUpdateChannel>('stable')
   const [result, setResult] = useState<HomeV2AppUpdateCheck | null>(null)
   const [download, setDownload] = useState<HomeV2AppUpdateDownload | null>(null)
   const [busy, setBusy] = useState<'check' | 'download' | 'open' | null>(null)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const requestSequence = useRef(0)
+  const automaticCheckKey = useRef('')
+  const preferenceWrites = useRef<Promise<void>>(Promise.resolve())
+  const preferenceRevision = useRef(0)
+  const settingsGeneration = useRef(0)
+  const [confirmedGeneration, setConfirmedGeneration] = useState(0)
   const nativeResult = useRef<QortiumAppUpdateCheckResult | null>(null)
   const nativeDownload = useRef<NativeDownload | null>(null)
 
   useEffect(() => {
+    if (nativeHostOverride) {
+      setNativeHost(nativeHostOverride)
+      return
+    }
     let disposed = false
     if (!desktopClient) {
       void import('../home-v2-android-app-updates').then((module) => {
@@ -123,64 +148,153 @@ export function useHomeV2AppUpdates() {
       })
     }
     return () => { disposed = true }
-  }, [desktopClient])
-
-  const check = useCallback(async (nextChannel: HomeV2AppUpdateChannel = channel) => {
-    if (!available) return
-    const sequence = ++requestSequence.current
-    setBusy('check')
-    setMessage(null)
-    setDownload(null)
-    nativeDownload.current = null
-    try {
-      let next: HomeV2AppUpdateCheck
-      if (desktopClient) {
-        next = parseHomeV2AppUpdateCheck(await desktopClient.check(nextChannel))
-      } else {
-        const environment = await nativeClient!.getEnvironment()
-        const raw = await nativeHost!.check(environment, nextChannel)
-        nativeResult.current = raw
-        next = nativeCheckResult(raw)
-      }
-      if (sequence !== requestSequence.current) return
-      setChannel(nextChannel)
-      setResult(next)
-      setMessage({
-        tone: next.state === 'available' || next.state === 'up-to-date' ? 'success' : 'error',
-        text: next.state === 'available'
-          ? t('updates.available', { platform: next.platform.label, tag: next.release?.tagName ?? '' })
-          : next.state === 'up-to-date'
-            ? t('updates.upToDateOnChannel', { channel: nextChannel })
-            : next.state === 'no-compatible-asset'
-              ? t('updates.noCompatibleAsset', {
-                  platform: next.platform.label,
-                  tag: next.release?.tagName ?? '',
-                })
-              : issueMessage(next.issue),
-      })
-    } catch {
-      if (sequence === requestSequence.current) {
-        setMessage({ tone: 'error', text: t('updates.checkReleasesFailed') })
-      }
-    } finally {
-      if (sequence === requestSequence.current) setBusy(null)
-    }
-  }, [available, channel, desktopClient, nativeClient, nativeHost])
+  }, [desktopClient, nativeHostOverride])
 
   useEffect(() => {
-    if (available) void check(channel)
-    return () => { requestSequence.current += 1 }
-  }, [available])
+    if (!available) return
+    let disposed = false
+    const load = async () => {
+      try {
+        let next: HomeV2AppUpdatePreferences
+        if (desktopClient) {
+          const host = parseHomeV2AppUpdateSettings(await desktopClient.getSettings())
+          settingsGeneration.current = host.generation
+          setConfirmedGeneration(host.generation)
+          next = {
+            homeUpdatePolicy: host.homeUpdatePolicy,
+            releaseChannel: host.releaseChannel,
+          }
+        } else {
+          const raw = await nativeHost!.loadPreferences()
+          const parsed = parseHomeV2AppUpdatePreferences(raw)
+          // Android automatic downloads stay disabled until discovery,
+          // download receipts, and installer handoff are native and opaque.
+          next = parsed.homeUpdatePolicy === 'auto-download'
+            ? { ...parsed, homeUpdatePolicy: 'notify' }
+            : parsed
+          if (next !== parsed) {
+            await nativeHost!.savePreferences(serializeHomeV2AppUpdatePreferences(next))
+          }
+        }
+        if (disposed) return
+        preferencesRef.current = next
+        hostPreferencesRef.current = next
+        setPreferences(next)
+        setConfirmedPreferences(next)
+        setChannel(next.releaseChannel)
+      } catch {
+        if (!disposed) {
+          // A missing settings file has an explicit host default. Any error
+          // reaching this boundary is unreadable/corrupt state and must not
+          // create automatic network or disk activity.
+          const next: HomeV2AppUpdatePreferences = {
+            homeUpdatePolicy: 'off',
+            releaseChannel: 'stable',
+          }
+          preferencesRef.current = next
+          hostPreferencesRef.current = next
+          setPreferences(next)
+          setConfirmedPreferences(next)
+          setChannel(next.releaseChannel)
+          setMessage({ tone: 'error', text: t('updates.checkFailed') })
+        }
+      } finally {
+        if (!disposed) setPreferencesLoaded(true)
+      }
+    }
+    void load()
+    return () => { disposed = true }
+  }, [available, desktopClient, nativeHost])
 
-  const downloadUpdate = useCallback(async () => {
-    if (!result?.release || result.state !== 'available' || !result.asset?.digestAvailable) return
+  const persistPreferences = useCallback((patch: Partial<HomeV2AppUpdatePreferences>) => {
+    const next = { ...preferencesRef.current, ...patch }
+    preferencesRef.current = next
+    setPreferences(next)
+    const revision = ++preferenceRevision.current
+    const write = async () => {
+      try {
+        let confirmed: HomeV2AppUpdatePreferences
+        if (desktopClient) {
+          const intended = { ...hostPreferencesRef.current, ...patch }
+          const state = parseHomeV2AppUpdateSettings(
+            await desktopClient.setSettings(settingsGeneration.current, intended),
+          )
+          settingsGeneration.current = state.generation
+          confirmed = {
+            homeUpdatePolicy: state.homeUpdatePolicy,
+            releaseChannel: state.releaseChannel,
+          }
+          hostPreferencesRef.current = confirmed
+        } else {
+          await nativeHost!.savePreferences(serializeHomeV2AppUpdatePreferences(next))
+          confirmed = next
+        }
+        if (revision === preferenceRevision.current) {
+          if (desktopClient) setConfirmedGeneration(settingsGeneration.current)
+          preferencesRef.current = confirmed
+          setPreferences(confirmed)
+          setConfirmedPreferences(confirmed)
+          setChannel(confirmed.releaseChannel)
+        }
+      } catch (error) {
+        if (desktopClient) {
+          const current = parseHomeV2AppUpdateSettings(await desktopClient.getSettings())
+          settingsGeneration.current = current.generation
+          hostPreferencesRef.current = {
+            homeUpdatePolicy: current.homeUpdatePolicy,
+            releaseChannel: current.releaseChannel,
+          }
+          if (revision === preferenceRevision.current) {
+            const recovered = {
+              homeUpdatePolicy: current.homeUpdatePolicy,
+              releaseChannel: current.releaseChannel,
+            }
+            preferencesRef.current = recovered
+            setConfirmedGeneration(current.generation)
+            setPreferences(recovered)
+            setConfirmedPreferences(recovered)
+            setChannel(recovered.releaseChannel)
+            setResult(null)
+            setDownload(null)
+            nativeResult.current = null
+            nativeDownload.current = null
+          }
+        }
+        throw error
+      }
+    }
+    preferenceWrites.current = preferenceWrites.current.catch(() => undefined).then(write)
+    void preferenceWrites.current.catch(() => {
+      if (revision === preferenceRevision.current) {
+        setMessage({ tone: 'error', text: t('updates.checkFailed') })
+      }
+    })
+  }, [desktopClient, nativeHost])
+
+  const downloadCheckedUpdate = useCallback(async (
+    checkedResult: HomeV2AppUpdateCheck,
+    checkedChannel: HomeV2AppUpdateChannel,
+    sequence?: number,
+    automaticSettingsGeneration: number | null = null,
+  ) => {
+    if (
+      !checkedResult.release ||
+      checkedResult.channel !== checkedChannel ||
+      checkedResult.state !== 'available' ||
+      !checkedResult.asset?.digestAvailable
+    ) return
     setBusy('download')
     setMessage(null)
     try {
       if (desktopClient) {
         const action = parseHomeV2AppUpdateAction(
-          await desktopClient.download(channel, result.release.tagName),
+          await desktopClient.download(
+            checkedChannel,
+            checkedResult.release.tagName,
+            automaticSettingsGeneration,
+          ),
         )
+        if (sequence !== undefined && sequence !== requestSequence.current) return
         if (action.outcome !== 'completed' || !action.download) {
           setMessage({ tone: 'error', text: issueMessage(action.code) })
           return
@@ -192,21 +306,26 @@ export function useHomeV2AppUpdates() {
         })
         return
       }
+      if (automaticSettingsGeneration !== null) {
+        throw new Error('android-automatic-download-disabled')
+      }
       const raw = nativeResult.current
       if (
         !raw?.asset ||
         !raw.release ||
-        raw.release.tagName !== result.release.tagName ||
+        raw.channel !== checkedChannel ||
+        raw.release.tagName !== checkedResult.release.tagName ||
         !SHA256_PATTERN.test(raw.asset.digest ?? '') ||
         !isTrustedGithubReleaseUrl(raw.release.htmlUrl, raw.release.tagName, 'page') ||
         !isTrustedGithubReleaseUrl(raw.asset.downloadUrl, raw.release.tagName, 'asset') ||
-        raw.asset.size !== result.asset.size
+        raw.asset.size !== checkedResult.asset.size
       ) throw new Error('unverified-update')
       const downloaded = await nativeClient!.downloadAsset({
         asset: raw.asset,
         platform: raw.platform,
         releaseTag: raw.release.tagName,
       })
+      if (sequence !== undefined && sequence !== requestSequence.current) return
       if (
         downloaded.digestVerified !== true ||
         downloaded.digest !== raw.asset.digest ||
@@ -232,11 +351,133 @@ export function useHomeV2AppUpdates() {
         }),
       })
     } catch {
-      setMessage({ tone: 'error', text: t('updates.checkFailed') })
+      if (sequence === undefined || sequence === requestSequence.current) {
+        setMessage({ tone: 'error', text: t('updates.checkFailed') })
+      }
     } finally {
-      setBusy(null)
+      if (sequence === undefined || sequence === requestSequence.current) setBusy(null)
     }
-  }, [channel, desktopClient, nativeClient, result])
+  }, [desktopClient, nativeClient])
+
+  const check = useCallback(async (
+    nextChannel: HomeV2AppUpdateChannel = channel,
+    options: {
+      readonly autoDownload?: boolean
+      readonly automaticSettingsGeneration?: number | null
+    } = {},
+  ) => {
+    if (!available) return
+    const sequence = ++requestSequence.current
+    setBusy('check')
+    setMessage(null)
+    setDownload(null)
+    nativeDownload.current = null
+    try {
+      let next: HomeV2AppUpdateCheck
+      let nextNativeResult: QortiumAppUpdateCheckResult | null = null
+      const automaticGeneration = options.automaticSettingsGeneration ?? null
+      if (desktopClient) {
+        next = parseHomeV2AppUpdateCheck(
+          await desktopClient.check(nextChannel, automaticGeneration),
+        )
+      } else {
+        const environment = await nativeClient!.getEnvironment()
+        const raw = await nativeHost!.check(environment, nextChannel)
+        nextNativeResult = raw
+        next = nativeCheckResult(raw)
+      }
+      if (sequence !== requestSequence.current) return
+      nativeResult.current = nextNativeResult
+      setChannel(nextChannel)
+      setResult(next)
+      setMessage({
+        tone: next.state === 'available' || next.state === 'up-to-date' ? 'success' : 'error',
+        text: next.state === 'available'
+          ? t('updates.available', { platform: next.platform.label, tag: next.release?.tagName ?? '' })
+          : next.state === 'up-to-date'
+            ? t('updates.upToDateOnChannel', { channel: nextChannel })
+            : next.state === 'no-compatible-asset'
+              ? t('updates.noCompatibleAsset', {
+                  platform: next.platform.label,
+                  tag: next.release?.tagName ?? '',
+                })
+              : issueMessage(next.issue),
+      })
+      if (
+        options.autoDownload &&
+        !!desktopClient &&
+        automaticGeneration !== null &&
+        next.state === 'available' &&
+        next.asset?.digestAvailable
+      ) {
+        await downloadCheckedUpdate(next, nextChannel, sequence, automaticGeneration)
+      }
+    } catch {
+      if (sequence === requestSequence.current) {
+        setMessage({ tone: 'error', text: t('updates.checkReleasesFailed') })
+      }
+    } finally {
+      if (sequence === requestSequence.current) setBusy(null)
+    }
+  }, [available, channel, desktopClient, downloadCheckedUpdate, nativeClient, nativeHost])
+
+  useEffect(() => {
+    if (!available || !preferencesLoaded) return
+    let disposed = false
+
+    if (desktopClient) {
+      const claimRevision = preferenceRevision.current
+      void (async () => {
+        try {
+          const claim = parseHomeV2AppUpdateAutomaticClaim(
+            await desktopClient.claimAutomatic(),
+          )
+          if (disposed || claimRevision !== preferenceRevision.current) return
+          const claimedPreferences: HomeV2AppUpdatePreferences = {
+            homeUpdatePolicy: claim.homeUpdatePolicy,
+            releaseChannel: claim.releaseChannel,
+          }
+          settingsGeneration.current = claim.generation
+          setConfirmedGeneration(claim.generation)
+          setConfirmedPreferences(claimedPreferences)
+          hostPreferencesRef.current = claimedPreferences
+          preferencesRef.current = claimedPreferences
+          setPreferences(claimedPreferences)
+          setChannel(claimedPreferences.releaseChannel)
+          if (!claim.claimed) return
+          await check(claim.releaseChannel, {
+            autoDownload: claim.homeUpdatePolicy === 'auto-download',
+            automaticSettingsGeneration: claim.generation,
+          })
+        } catch {
+          if (!disposed) setMessage({ tone: 'error', text: t('updates.checkFailed') })
+        }
+      })()
+      return () => { disposed = true }
+    }
+
+    const action = getHomeV2AutomaticUpdateAction(confirmedPreferences.homeUpdatePolicy)
+    if (action === 'none') return () => { disposed = true }
+    const key = `${confirmedPreferences.releaseChannel}:${confirmedPreferences.homeUpdatePolicy}`
+    if (automaticCheckKey.current === key) return () => { disposed = true }
+    automaticCheckKey.current = key
+    void check(confirmedPreferences.releaseChannel, { autoDownload: false })
+    return () => { disposed = true }
+  }, [
+    available,
+    check,
+    confirmedGeneration,
+    confirmedPreferences.homeUpdatePolicy,
+    confirmedPreferences.releaseChannel,
+    desktopClient,
+    preferencesLoaded,
+  ])
+
+  useEffect(() => () => { requestSequence.current += 1 }, [])
+
+  const downloadUpdate = useCallback(async () => {
+    if (result) await downloadCheckedUpdate(result, channel)
+  }, [channel, downloadCheckedUpdate, result])
 
   const openDownloaded = useCallback(async () => {
     if (!download?.digestVerified) return
@@ -286,13 +527,26 @@ export function useHomeV2AppUpdates() {
     download,
     downloadUpdate,
     formattedSize: result?.asset ? formatUpdateBytes(result.asset.size) : null,
+    homeUpdatePolicy: preferences.homeUpdatePolicy,
+    isAndroid,
     message,
     openDownloaded,
     openReleasePage,
+    preferencesLoaded,
     result,
     setChannel: (nextChannel: HomeV2AppUpdateChannel) => {
       setChannel(nextChannel)
-      void check(nextChannel)
+      setResult(null)
+      setDownload(null)
+      nativeResult.current = null
+      nativeDownload.current = null
+      setMessage(null)
+      persistPreferences({ releaseChannel: nextChannel })
+    },
+    setHomeUpdatePolicy: (nextPolicy: HomeV2AppUpdatePolicy) => {
+      if (isAndroid && nextPolicy === 'auto-download') return
+      if (nextPolicy !== preferencesRef.current.homeUpdatePolicy) automaticCheckKey.current = ''
+      persistPreferences({ homeUpdatePolicy: nextPolicy })
     },
   }
 }

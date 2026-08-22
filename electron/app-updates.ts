@@ -6,6 +6,10 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isTrustedHomeAssetResponseUrl } from './app-update-discovery.js';
+import {
+  resolvePrivateHomeV2AppUpdateTarget,
+  sanitizeAppUpdatePathSegment,
+} from './app-update-paths.js';
 
 type AppUpdatePlatformOs = 'android' | 'linux' | 'macos' | 'unsupported' | 'windows';
 
@@ -127,10 +131,6 @@ async function isDirectoryWritable(dir: string) {
   } catch {
     return false;
   }
-}
-
-function sanitizePathSegment(value: string, fallback: string) {
-  return value.replace(/[^a-z0-9._-]/gi, '_') || fallback;
 }
 
 function normalizeDigest(value: unknown) {
@@ -422,7 +422,7 @@ async function getVerifiedExistingDownload({
 }
 
 function getFallbackDownloadDir(releaseTag: string) {
-  return path.join(getAppUpdatesPath(), sanitizePathSegment(releaseTag, 'release'));
+  return path.join(getAppUpdatesPath(), sanitizeAppUpdatePathSegment(releaseTag, 'release'));
 }
 
 function getDefaultReleaseAssetDownloadDir(releaseTag: string) {
@@ -436,7 +436,7 @@ function getDefaultReleaseAssetDownloadDir(releaseTag: string) {
 }
 
 async function resolveReleaseAssetDownloadTarget(assetName: string, releaseTag: string): Promise<AppUpdateDownloadTarget> {
-  const fileName = sanitizePathSegment(assetName, 'download');
+  const fileName = sanitizeAppUpdatePathSegment(assetName, 'download');
   const { canceled, filePath } = await dialog.showSaveDialog({
     buttonLabel: 'Save',
     defaultPath: path.join(getDefaultReleaseAssetDownloadDir(releaseTag), fileName),
@@ -464,7 +464,7 @@ async function resolveReleaseAssetDownloadTarget(assetName: string, releaseTag: 
 // collide with the currently-running executable.
 async function resolveUpdateDownloadTarget(assetName: string, releaseTag: string): Promise<AppUpdateDownloadTarget> {
   const installDir = getInstallDir();
-  const fileName = sanitizePathSegment(assetName, 'update');
+  const fileName = sanitizeAppUpdatePathSegment(assetName, 'update');
   const wouldOverwriteRunningFile = path.join(installDir, fileName) === getInstallFile();
 
   if (!wouldOverwriteRunningFile && (await isDirectoryWritable(installDir))) {
@@ -478,6 +478,10 @@ async function resolveUpdateDownloadTarget(assetName: string, releaseTag: string
     fileName,
     finalPath: path.join(getFallbackDownloadDir(releaseTag), fileName),
   };
+}
+
+async function resolvePrivateUpdateDownloadTarget(assetName: string, releaseTag: string) {
+  return resolvePrivateHomeV2AppUpdateTarget(getAppUpdatesPath(), assetName, releaseTag)
 }
 
 async function downloadAssetInternal(
@@ -654,7 +658,7 @@ export async function downloadVerifiedAppUpdate(request: AppUpdateDownloadReques
     publishProgress: () => undefined,
     requireExpectedSize: true,
     requireTrustedRedirect: true,
-    resolveDownloadTarget: resolveUpdateDownloadTarget,
+    resolveDownloadTarget: resolvePrivateUpdateDownloadTarget,
     verifyMessage: 'Verifying Qortium Home update',
   })
 }

@@ -34,6 +34,31 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(updates): persist Home 2 update policy
+
+Home 2 now remembers the selected Home release channel and automatic-update
+policy. On desktop, the trusted main process owns a small versioned settings
+file with private permissions, atomic replacement, and a generation check so
+two stale windows cannot silently overwrite one another. Because Home 2 uses
+an isolated browser partition, desktop starts from the main process's safe
+Notify/Stable defaults instead of pretending it can read Home 1 renderer
+storage. Off performs no startup network work, Notify checks once per saved
+settings generation, and Download automatically checks and downloads a
+verified package without opening, installing, or replacing the running
+application. Every Home 2 desktop download lands under Home's private update
+directory rather than beside the running package.
+
+Android remembers Off or Notify only through native private preferences and
+continues to support explicit verified APK downloads and installer handoff.
+Automatic download is deliberately unavailable there until release discovery,
+streaming download, opaque receipts, package identity, and signer verification
+are all native; the current renderer-held URL and path flow is not expanded
+into unattended authority. Focused tests cover malformed state, host generation
+claims, policy-gated startup checks, exact check-then-download ordering,
+serialized rapid changes, private download targets, and Android's fail-closed
+automatic boundary. Packaged desktop and Android emulator smokes verify
+rehydration and the real persistence surfaces.
+
 ### 2026-08-22 - feat(updates): restore Home 2 application updates
 
 Home 2 now exposes Qortium Home update checks and verified downloads in the
