@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - fix(qdn): preserve Android uploads and numeric asset IDs
+
+Android now sends the exact selected file bytes when a QDN app publishes
+through a public node. The native HTTP bridge previously serialized the upload
+as an empty object, so Core built a transaction for two bytes while Home
+correctly compared it with the original file and stopped at its content-safety
+check. Uploads now use Capacitor's lossless file transport while keeping that
+attestation intact, including filenames with accented and non-Latin characters.
+
+QDN app requests also retain numeric asset IDs instead of treating them as
+missing. Native-asset detection and coin sends now distinguish asset `0` from
+other numeric assets and reject malformed or negative IDs rather than silently
+falling back to a different request interpretation.
+
 ### 2026-08-23 - test(widgets): verify transparent QDN compositing
 
 Widget transparency now has a real compositor regression gate in addition to

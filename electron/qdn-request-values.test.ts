@@ -6,9 +6,27 @@ import {
   getAssetInfoPath,
   getAssetTransfersPath,
   getOptionalAssetSelector,
+  getRequestAssetId,
+  isNativeAssetRequest,
 } from './qdn-request-values.js';
 
 const address = 'Q1111111111111111111111111111111111';
+
+assert.equal(getRequestAssetId({ assetId: 0 }), 0);
+assert.equal(getRequestAssetId({ assetId: 5 }), 5);
+assert.equal(getRequestAssetId({ assetId: '5' }), 5);
+assert.equal(getRequestAssetId({}), undefined);
+assert.equal(getRequestAssetId({ assetId: '   ' }), undefined);
+assert.throws(
+  () => getRequestAssetId({ assetId: -1 }),
+  /Asset id must be a non-negative safe integer\./,
+);
+assert.throws(
+  () => getRequestAssetId({ assetId: 'not-an-asset' }),
+  /Asset id must be a non-negative safe integer\./,
+);
+assert.equal(isNativeAssetRequest({ assetId: 0 }), true);
+assert.equal(isNativeAssetRequest({ assetId: 5, coin: 'NATIVE' }), false);
 
 assert.deepEqual(
   getOptionalAssetSelector({ action: 'GET_ASSET_INFO', assetId: 5, assetName: 'ignored' }),

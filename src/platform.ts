@@ -4026,7 +4026,7 @@ function isQdnUploadEndpointUnsupported(error: unknown) {
 async function postLocalNodeBytes(
   nodeApiUrl: string,
   pathname: string,
-  body: Blob,
+  body: File,
   apiKey: string,
   fallbackMessage: string,
   refuseRedirects = false,
@@ -4606,7 +4606,16 @@ function getQdnPublishUploadSource(resource: QdnWriteResourceRequest, source: Qd
   const shouldUnzip = shouldUseQdnPublishZipEndpoint(resource, source);
 
   return {
-    body: new Blob([bytes as BlobPart], { type: 'application/octet-stream' }),
+    // Capacitor's patched Android fetch bridge has a dedicated File path that
+    // base64-transports and decodes arbitrary bytes exactly. A plain Blob falls
+    // through its JSON path, so Core receives a tiny serialized object instead
+    // of the selected file and legitimately chooses the wrong compression for
+    // Home's attestation of the original source.
+    body: new File(
+      [bytes as BlobPart],
+      source.fileName,
+      { type: 'application/octet-stream' },
+    ),
     source: {
       ...source,
       isZip: shouldUnzip ? true : undefined,
