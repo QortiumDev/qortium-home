@@ -34,6 +34,25 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(notifications): add Home 2 global policy
+
+Home 2 now has its own device-wide App notifications switch in General
+Settings on desktop and Android. Turning it off stops direct app alerts and is
+also the global gate for the Home-managed background watcher when that is
+activated in a later Home 2 tranche. It does not delete an app's notification
+grant, mute choice, saved rules, or Core subscriptions. Permission checks
+continue to report the app's grant independently of the switch.
+
+Desktop keeps the policy in a small private main-process file and accepts
+changes only from the exact trusted Home document, using a generation check so
+stale windows cannot overwrite a newer choice. Android keeps the same versioned
+policy in native preferences and, only when that new record is absent, carries
+forward an explicit disabled choice from the old display-settings record. Home
+2 never reads the legacy record while delivering a notification. Missing state
+retains the historical default of on; corrupt or unavailable state fails closed
+to off. This trusted Settings control adds no QDN app action and does not change
+QAVS `platformVersion: "2.0"`.
+
 ### 2026-08-22 - feat(settings): add Home 2 Settings section routing
 
 Home 2 can now open a specific Settings section from another trusted part of

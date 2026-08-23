@@ -246,6 +246,17 @@ contextBridge.exposeInMainWorld('homeV2QdnSettings', {
   },
 })
 
+contextBridge.exposeInMainWorld('homeV2NotificationPolicy', {
+  get: () => ipcRenderer.invoke('home-v2-notification-policy:get'),
+  set: (request: { enabled: boolean; expectedGeneration: number }) =>
+    ipcRenderer.invoke('home-v2-notification-policy:set', request),
+  subscribe: (listener: (snapshot: unknown) => void) => {
+    const wrapped = (_event: unknown, snapshot: unknown) => listener(snapshot)
+    ipcRenderer.on('home-v2-notification-policy:changed', wrapped)
+    return () => ipcRenderer.removeListener('home-v2-notification-policy:changed', wrapped)
+  },
+})
+
 contextBridge.exposeInMainWorld('homeV2Vault', {
   addAddress: (accountId: string) => ipcRenderer.invoke('home-v2-vault:addAddress', accountId),
   create: (request: unknown) => ipcRenderer.invoke('home-v2-vault:create', request),

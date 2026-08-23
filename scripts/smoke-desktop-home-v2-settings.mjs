@@ -299,6 +299,77 @@ try {
       value: 'search',
     })
 
+    const initialNotificationPolicy = await waitUntil('Home 2 notification policy', () =>
+      evaluate(
+        client,
+        `(() => {
+          const toggle = document.querySelector('input[aria-label="App notifications"]');
+          return toggle && typeof window.homeV2NotificationPolicy?.get === 'function' &&
+              typeof window.homeV2NotificationPolicy?.set === 'function' &&
+              typeof window.homeV2NotificationPolicy?.subscribe === 'function'
+            ? window.homeV2NotificationPolicy.get().then((policy) => ({
+                checked: toggle.checked,
+                policy,
+              }))
+            : null;
+        })()`,
+      ),
+    )
+    assert.equal(initialNotificationPolicy.checked, true)
+    assert.deepEqual(initialNotificationPolicy.policy, {
+      enabled: true,
+      generation: 0,
+      schema: 'qortium-home-v2-notification-policy',
+      status: 'available',
+      version: 1,
+    })
+    await evaluate(
+      client,
+      `document.querySelector('input[aria-label="App notifications"]').click()`,
+    )
+    const disabledNotificationPolicy = await waitUntil('persisted disabled notification policy', () =>
+      evaluate(
+        client,
+        `window.homeV2NotificationPolicy.get().then((policy) =>
+          policy.enabled === false && policy.generation === 1 ? policy : null)`,
+      ),
+    )
+    assert.equal(disabledNotificationPolicy.status, 'available')
+    const notificationPolicyPath = path.join(
+      profileDirectory,
+      'home-v2-notification-policy.json',
+    )
+    assert.deepEqual(JSON.parse(readFileSync(notificationPolicyPath, 'utf8')), {
+      enabled: false,
+      generation: 1,
+      schema: 'qortium-home-v2-notification-policy',
+      version: 1,
+    })
+    assert.equal(statSync(notificationPolicyPath).mode & 0o777, 0o600)
+    const preservedNotificationStore = JSON.parse(
+      readFileSync(path.join(profileDirectory, 'notification-store.json'), 'utf8'),
+    )
+    assert.equal(preservedNotificationStore.revision, 7)
+    assert.equal(Boolean(preservedNotificationStore.grants[notificationAppKey]), true)
+    assert.equal(preservedNotificationStore.rules[notificationAppKey]?.length, 1)
+
+    await client.send('Page.reload', { ignoreCache: true })
+    await waitUntil('reloaded Home shell after notification policy change', () =>
+      evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
+    await waitUntil('rehydrated disabled notification policy', () =>
+      evaluate(
+        client,
+        `(() => {
+          const toggle = document.querySelector('input[aria-label="App notifications"]');
+          return toggle?.checked === false &&
+            toggle.closest('[data-home-v2-notification-policy]')
+              ?.getAttribute('data-home-v2-notification-policy') === 'available';
+        })()`,
+      ),
+    )
+
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]

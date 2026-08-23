@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { defaultHomeV2Appearance } from '../appearance'
+import { HOME_V2_NOTIFICATION_POLICY_SCHEMA } from '../../home-v2-live/notification-policy-client'
 import {
   createHomeV2QdnSettingsClient,
   type HomeV2QdnSettingsAdapter,
@@ -307,6 +308,85 @@ assert.equal(
     (candidate) => candidate.textContent?.trim() === 'QDN Apps',
   ),
   false,
+)
+
+const policyRequests: boolean[] = []
+await act(async () => {
+  root.render(
+    <SettingsPage
+      account={{
+        lockOnExit: true,
+        manuallyLocked: false,
+        rememberUnlock: false,
+        secureStorageAvailable: true,
+        selectedIdentityId: null,
+        state: 'none',
+      }}
+      appearance={defaultHomeV2Appearance}
+      newTabPreference={{ kind: 'search' }}
+      notificationPolicy={{
+        enabled: true,
+        generation: 2,
+        schema: HOME_V2_NOTIFICATION_POLICY_SCHEMA,
+        status: 'available',
+        version: 1,
+      }}
+      onSetAppNotifications={async (enabled) => {
+        policyRequests.push(enabled)
+      }}
+    />,
+  )
+  await settle()
+})
+const policySwitch = container.querySelector(
+  'input[aria-label="App notifications"]',
+) as HTMLInputElement
+assert.equal(policySwitch.checked, true)
+assert.equal(policySwitch.disabled, false)
+await act(async () => {
+  policySwitch.click()
+  await settle()
+})
+assert.deepEqual(policyRequests, [false])
+
+await act(async () => {
+  root.render(
+    <SettingsPage
+      account={{
+        lockOnExit: true,
+        manuallyLocked: false,
+        rememberUnlock: false,
+        secureStorageAvailable: true,
+        selectedIdentityId: null,
+        state: 'none',
+      }}
+      appearance={defaultHomeV2Appearance}
+      newTabPreference={{ kind: 'search' }}
+      notificationPolicy={{
+        enabled: true,
+        generation: 2,
+        schema: HOME_V2_NOTIFICATION_POLICY_SCHEMA,
+        status: 'available',
+        version: 1,
+      }}
+      onSetAppNotifications={async () => {
+        throw new Error('injected persistence failure')
+      }}
+    />,
+  )
+  await settle()
+})
+await act(async () => {
+  const failedPolicySwitch = container.querySelector(
+    'input[aria-label="App notifications"]',
+  ) as HTMLInputElement
+  failedPolicySwitch.click()
+  await settle()
+})
+assert.equal(
+  [...container.querySelectorAll('[role="alert"]')]
+    .some((element) => element.textContent === 'Error'),
+  true,
 )
 
 await act(async () => root.unmount())

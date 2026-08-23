@@ -270,6 +270,15 @@ preparation.
   forward the legacy Classic/Modern/Fun UI-skin selector or the shortcut-hint
   rows beside text size and page zoom. The shortcuts themselves remain active;
   every other reviewed v1 Settings gap remains kept, migrated, or delegated.
+- [x] Add the F8 Home 2 global app-notifications policy on desktop and Android.
+  The standalone General Settings switch controls delivery only and preserves
+  grants, mute state, rules, Core subscriptions, and OS permission. Desktop
+  uses an exact sender-gated main-process file with generation CAS; Android
+  migrates an explicit legacy disabled choice once into native Preferences.
+  Missing state defaults on, corrupt or unavailable state fails closed, and
+  notification delivery no longer consults the legacy display-settings store.
+  This trusted setting adds no public QDN action and keeps QAVS
+  `platformVersion: "2.0"`.
 
 ## Required gates
 

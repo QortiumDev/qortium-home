@@ -78,6 +78,33 @@ Home and activates the originating tab. Android stores the same tab, network,
 and conversation source in the local notification and activates the tab when
 it still exists.
 
+## Global delivery policy
+
+General Settings has one device/profile-wide **App notifications** switch.
+Turning it off suppresses direct app notifications. It is also the global gate
+for Home-managed background notifications when that watcher is activated in a
+later Home 2 tranche; it does not change notification grants, per-app mute
+state, saved rules, Core subscriptions, or operating-system notification permission.
+`NOTIFICATION_HAS_PERMISSION` therefore continues to report the app grant while
+global delivery is off, and a delivery request returns `shown: false` with
+`reason: "disabled"`. Home rechecks the policy immediately before scheduling
+so a switch change during notification preparation still wins.
+
+Desktop owns the exact versioned policy in
+`home-v2-notification-policy.json` under private Home data. Its narrow preload
+bridge authenticates the exact top-level Home document and uses an optimistic
+generation for multi-window changes. Android owns the same schema in Capacitor
+Preferences. When the new Android policy is absent, Home reads the old display
+settings once to preserve an explicit `appNotifications: false`, writes the new
+record, and does not consult the old store again. A missing policy defaults on;
+corrupt or unavailable state fails closed to off without overwriting the bad
+record.
+
+The policy is profile data. Android operating-system backup restore may restore
+an older saved value along with the rest of the app profile, so users should
+review the switch after restoring a device backup. This trusted setting is not
+a public QDN action and does not change QAVS `platformVersion: "2.0"`.
+
 ## Background boundary
 
 These actions let a running app show a notification. They do not migrate the

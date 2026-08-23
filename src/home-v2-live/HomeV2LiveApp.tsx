@@ -139,7 +139,6 @@ import {
   recordAndroidHomeV2PendingTransaction,
 } from './transaction-journal-store'
 import { sanitizeQdnManagerAppKey } from '../../electron/qdn-manager-permissions'
-import { loadDisplaySettings } from '../displaySettings'
 import {
   getNotificationStore,
   grantAppNotifications,
@@ -157,6 +156,12 @@ import {
   createPortableHomeV2QdnSettingsAdapter,
   resolveHomeV2QdnSettingsManagement,
 } from './qdn-settings-client'
+import { createAndroidHomeV2NotificationPolicyClient } from './android-notification-policy-client'
+import {
+  failedClosedHomeV2NotificationPolicyState,
+  resolveHomeV2NotificationPolicyClient,
+  type HomeV2NotificationPolicyState,
+} from './notification-policy-client'
 import { resolveDualIdentity } from './identity-resolver'
 import { completeUnlockAfterAccountStatePropagation } from './unlock-account-state'
 import {
@@ -423,6 +428,13 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
 
 export function HomeV2LiveApp() {
   const isAndroidHost = useRef(!window.homeV2Nodes).current
+  const notificationPolicyClient = useMemo(
+    () =>
+      Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+        ? createAndroidHomeV2NotificationPolicyClient()
+        : resolveHomeV2NotificationPolicyClient(),
+    [],
+  )
   const qdnAppsManagement = useMemo(() => {
     const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
     if (!isNativeAndroid) return resolveHomeV2QdnSettingsManagement()
@@ -454,6 +466,10 @@ export function HomeV2LiveApp() {
   )
   const [newTabPreference, setNewTabPreference] =
     useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
+  const [notificationPolicy, setNotificationPolicy] =
+    useState<HomeV2NotificationPolicyState | null>(null)
+  const notificationPolicyRef = useRef<HomeV2NotificationPolicyState | null>(null)
+  notificationPolicyRef.current = notificationPolicy
   // Live mirror of productState so long-running async work (e.g. the chat-send
   // context recheck that spans a tens-of-seconds memory-pow) sees the CURRENT
   // tab set, not the snapshot captured when the request started. Without this
@@ -531,6 +547,60 @@ export function HomeV2LiveApp() {
     PermissionRequestId,
     { appIdentityKey: string; network: NetworkId; semanticKey: string; tabId: string }
   >())
+
+  useEffect(() => {
+    if (!notificationPolicyClient) return
+    let disposed = false
+    const failClosed = () => {
+      if (disposed) return
+      const next = failedClosedHomeV2NotificationPolicyState('unavailable')
+      notificationPolicyRef.current = next
+      setNotificationPolicy(next)
+    }
+    const refresh = async () => {
+      const next = await notificationPolicyClient.get()
+      if (disposed) return
+      notificationPolicyRef.current = next
+      setNotificationPolicy(next)
+    }
+    void refresh().catch(failClosed)
+    const unsubscribe = notificationPolicyClient.subscribe(() => {
+      void refresh().catch(failClosed)
+    })
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, [notificationPolicyClient])
+
+  const setGlobalAppNotifications = useCallback(
+    async (enabled: boolean) => {
+      const current = notificationPolicyRef.current
+      if (
+        !notificationPolicyClient ||
+        !current ||
+        current.status !== 'available' ||
+        current.generation === null
+      ) {
+        throw new Error('Notification policy is unavailable.')
+      }
+      try {
+        const next = await notificationPolicyClient.set({
+          enabled,
+          expectedGeneration: current.generation,
+        })
+        notificationPolicyRef.current = next
+        setNotificationPolicy(next)
+      } catch (error) {
+        const refreshed = await notificationPolicyClient.get().catch(() =>
+          failedClosedHomeV2NotificationPolicyState('unavailable'))
+        notificationPolicyRef.current = refreshed
+        setNotificationPolicy(refreshed)
+        throw error
+      }
+    },
+    [notificationPolicyClient],
+  )
   const androidUnlockResolvers = useRef(new Map<
     string,
     {
@@ -1662,7 +1732,10 @@ export function HomeV2LiveApp() {
         const currentGrant = (await getNotificationStore()).grants[parsedApp.identityKey]
         if (!currentGrant) return { ...resultBase, shown: false, reason: 'revoked' }
         if (currentGrant.muted) return { ...resultBase, shown: false, reason: 'muted' }
-        if (!(await loadDisplaySettings()).appNotifications) {
+        if (
+          notificationPolicyRef.current?.status !== 'available' ||
+          !notificationPolicyRef.current.enabled
+        ) {
           return { ...resultBase, shown: false, reason: 'disabled' }
         }
         if (
@@ -1684,7 +1757,12 @@ export function HomeV2LiveApp() {
           return { ...resultBase, shown: false, reason: 'disabled' }
         }
         const latestGrant = (await getNotificationStore()).grants[parsedApp.identityKey]
-        if (!latestGrant || latestGrant.muted || !(await loadDisplaySettings()).appNotifications) {
+        if (
+          !latestGrant ||
+          latestGrant.muted ||
+          notificationPolicyRef.current?.status !== 'available' ||
+          !notificationPolicyRef.current.enabled
+        ) {
           return { ...resultBase, shown: false, reason: latestGrant?.muted ? 'muted' : latestGrant ? 'disabled' : 'revoked' }
         }
         androidLastNotificationAt.current.set(parsedApp.identityKey, Date.now())
@@ -4011,6 +4089,8 @@ export function HomeV2LiveApp() {
         })
       }
       onSetNewTabPreference={setNewTabPreference}
+      notificationPolicy={notificationPolicy}
+      onSetAppNotifications={setGlobalAppNotifications}
     />
   )
 }

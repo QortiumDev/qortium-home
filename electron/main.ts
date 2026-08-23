@@ -36,6 +36,7 @@ import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
 import { registerHomeV2QdnSettingsBridgeIpcHandlers } from './home-v2-qdn-settings-bridge.js';
+import { registerHomeV2NotificationPolicyBridgeIpcHandlers } from './home-v2-notification-policy-bridge.js';
 import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import { HOME_V2_RESOURCE_STREAM_SCHEME } from './home-v2-resource-stream-capability.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
@@ -863,7 +864,7 @@ app.on('second-instance', () => {
   createWindow({ placement: 'secondary' });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!gotSingleInstanceLock) {
     return;
   }
@@ -880,6 +881,9 @@ app.whenReady().then(() => {
     registerHomeV2CoreManagerBridgeIpcHandlers();
     registerHomeV2AppUpdateBridgeIpcHandlers();
     registerHomeV2QdnSettingsBridgeIpcHandlers();
+    // Initialize the authoritative notification gate before registering the
+    // app bridge or creating any trusted shell window.
+    await registerHomeV2NotificationPolicyBridgeIpcHandlers();
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);
