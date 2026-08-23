@@ -261,6 +261,15 @@ preparation.
   `SHOW_ACTIONS`, keeps QAVS `platformVersion: "2.0"`, and leaves app-facing
   delegation for the later G2 contract. The required tests, packaged desktop
   acceptance, Android debug build, and independent boundary review passed.
+- [x] Carry the F5 Settings-section navigation concept into the Home 2 shell as
+  typed, in-process state. Dashboard Core management can open Runtime settings
+  directly, the former notifications target resolves to QDN Apps, and generic
+  Settings navigation clears a prior target back to General. This does not add
+  a URL, QDN app action, or public IPC request surface.
+- [x] Record the two F6 presentation drops explicitly: Home 2 does not carry
+  forward the legacy Classic/Modern/Fun UI-skin selector or the shortcut-hint
+  rows beside text size and page zoom. The shortcuts themselves remain active;
+  every other reviewed v1 Settings gap remains kept, migrated, or delegated.
 
 ## Required gates
 

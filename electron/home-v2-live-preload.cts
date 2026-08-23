@@ -1,5 +1,26 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron')
 
+type HomeV2TextSizeCommand =
+  | 'text-size-decrease'
+  | 'text-size-increase'
+  | 'text-size-reset'
+
+function isHomeV2TextSizeCommand(value: unknown): value is HomeV2TextSizeCommand {
+  return value === 'text-size-decrease' ||
+    value === 'text-size-increase' ||
+    value === 'text-size-reset'
+}
+
+contextBridge.exposeInMainWorld('homeV2TextSizeShortcuts', {
+  onCommand: (listener: (command: HomeV2TextSizeCommand) => void) => {
+    const handler = (_event: unknown, value: unknown) => {
+      if (isHomeV2TextSizeCommand(value)) listener(value)
+    }
+    ipcRenderer.on('menu:command', handler)
+    return () => ipcRenderer.removeListener('menu:command', handler)
+  },
+})
+
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
   getShellState: () => ipcRenderer.invoke('home-v2-shell:getState'),

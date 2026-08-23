@@ -157,21 +157,18 @@ await act(async () => {
       appearance={defaultHomeV2Appearance}
       newTabPreference={{ kind: 'search' }}
       qdnAppsManagement={{ available: true, client }}
+      requestedSection="notifications"
     />,
   )
 })
 
 assert.ok(button('QDN Apps'), 'QDN Apps remains visible without an account')
+assert.equal(button('QDN Apps').getAttribute('aria-current'), 'page')
 assert.equal(
   [...container.querySelectorAll('nav button')]
     .some((candidate) => candidate.textContent?.trim() === 'Account'),
   false,
 )
-
-await act(async () => {
-  button('QDN Apps').click()
-  await settle()
-})
 
 blockNextRead = true
 await act(async () => {
@@ -259,6 +256,58 @@ assert.deepEqual(revokeRequests[0], {
   expectedNotificationRevision: 8,
 })
 assert.ok(container.querySelector('[data-qdn-notification-empty="true"]'))
+
+await act(async () => {
+  root.render(
+    <SettingsPage
+      account={{
+        lockOnExit: true,
+        manuallyLocked: false,
+        rememberUnlock: false,
+        secureStorageAvailable: true,
+        selectedIdentityId: null,
+        state: 'none',
+      }}
+      appearance={defaultHomeV2Appearance}
+      newTabPreference={{ kind: 'search' }}
+      qdnAppsManagement={{ available: true, client }}
+    />,
+  )
+  await settle()
+})
+assert.equal(button('General').getAttribute('aria-current'), 'page')
+
+await act(async () => {
+  button('QDN Apps').click()
+  await settle()
+})
+assert.equal(button('QDN Apps').getAttribute('aria-current'), 'page')
+
+await act(async () => {
+  root.render(
+    <SettingsPage
+      account={{
+        lockOnExit: true,
+        manuallyLocked: false,
+        rememberUnlock: false,
+        secureStorageAvailable: true,
+        selectedIdentityId: null,
+        state: 'none',
+      }}
+      appearance={defaultHomeV2Appearance}
+      newTabPreference={{ kind: 'search' }}
+      qdnAppsManagement={{ available: false }}
+    />,
+  )
+  await settle()
+})
+assert.equal(button('General').getAttribute('aria-current'), 'page')
+assert.equal(
+  [...container.querySelectorAll('nav button')].some(
+    (candidate) => candidate.textContent?.trim() === 'QDN Apps',
+  ),
+  false,
+)
 
 await act(async () => root.unmount())
 container.remove()

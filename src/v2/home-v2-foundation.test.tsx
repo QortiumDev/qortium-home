@@ -8,6 +8,7 @@ import {
   homeV2LanguageOptions,
   migrateLegacyAppearance,
   resolveHomeV2SystemLanguage,
+  stepHomeV2TextSize,
 } from './appearance'
 import {
   createPermissionPrompt,
@@ -43,6 +44,10 @@ import {
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
 import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
+import {
+  resolveHomeV2SettingsSectionTarget,
+  SettingsPage,
+} from './shell/SettingsPage'
 import { PermissionDialog } from './shell/PermissionDialog'
 import type { HomeV2CoreManagement } from './shell/CoreManagerCards'
 import {
@@ -50,6 +55,7 @@ import {
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
 import type { DualIdentityLookupResult } from './contracts'
+import { parseHomeV2TextSizeCommand } from '../home-v2-live/text-size-shortcut-client'
 import {
   createAndroidFixtureHost,
   createElectronFixtureHost,
@@ -1168,6 +1174,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.match(dashboard, />Stop Core</)
   assert.match(dashboard, /Adopted Qortal Core · stopped/)
   assert.match(dashboard, />Start Core</)
+  assert.match(dashboard, /aria-label="Settings: Core management"/)
 
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',
@@ -1186,6 +1193,42 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   const runtime = settings.indexOf('>Runtime</button>')
   const appearance = settings.indexOf('>Appearance</button>')
   assert.ok(general >= 0 && runtime > general && appearance > runtime)
+
+  const targetedSettings = renderToStaticMarkup(
+    <SettingsPage
+      account={homeV2Fixture.account}
+      appearance={homeV2Fixture.appearance}
+      newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+      requestedSection="appearance"
+    />,
+  )
+  assert.match(targetedSettings, /aria-current="page">Appearance<\/button>/)
+  assert.match(targetedSettings, /aria-label="Theme"/)
+  assert.equal(resolveHomeV2SettingsSectionTarget('core'), 'core')
+  assert.equal(
+    resolveHomeV2SettingsSectionTarget('notifications'),
+    'qdn-apps',
+  )
+  assert.equal(stepHomeV2TextSize('medium', 'increase'), 'large')
+  assert.equal(stepHomeV2TextSize('medium', 'decrease'), 'small')
+  assert.equal(stepHomeV2TextSize('extra-small', 'decrease'), 'extra-small')
+  assert.equal(stepHomeV2TextSize('huge', 'increase'), 'huge')
+  assert.equal(
+    parseHomeV2TextSizeCommand('text-size-increase'),
+    'text-size-increase',
+  )
+  assert.equal(parseHomeV2TextSizeCommand('new-tab'), null)
+
+  const unavailableTarget = renderToStaticMarkup(
+    <SettingsPage
+      account={{ ...homeV2Fixture.account, state: 'none' }}
+      appearance={homeV2Fixture.appearance}
+      newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+      requestedSection="notifications"
+    />,
+  )
+  assert.match(unavailableTarget, /aria-current="page">General<\/button>/)
+  assert.match(unavailableTarget, /<h2 id="general-settings-title">General<\/h2>/)
 
   const android = renderToStaticMarkup(
     <HomeV2Prototype
@@ -1582,6 +1625,9 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-qdn-settings:set-muted/)
   assert.match(preload, /home-v2-qdn-settings:revoke/)
   assert.match(preload, /home-v2-qdn-settings:changed/)
+  assert.match(preload, /exposeInMainWorld\('homeV2TextSizeShortcuts'/)
+  assert.match(preload, /isHomeV2TextSizeCommand\(value\)/)
+  assert.match(preload, /ipcRenderer\.on\('menu:command'/)
   assert.match(preload, /qdn-views:capture/)
   assert.match(preload, /home-v2-accounts:list/)
   assert.match(preload, /exposeInMainWorld\('homeV2Vault'/)
