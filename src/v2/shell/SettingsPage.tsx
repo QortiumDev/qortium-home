@@ -29,6 +29,18 @@ export type HomeV2SettingsSectionId =
   | 'qdn-apps'
   | 'account'
 
+export type HomeV2SettingsSectionTarget =
+  | HomeV2SettingsSectionId
+  | 'notifications'
+
+// Notification controls moved into QDN Apps before Home 2.1. Keep the former
+// target available to first-party callers without exposing URL routing.
+export function resolveHomeV2SettingsSectionTarget(
+  section: HomeV2SettingsSectionTarget,
+): HomeV2SettingsSectionId {
+  return section === 'notifications' ? 'qdn-apps' : section
+}
+
 export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly appearance: HomeV2AppearanceSettings
   readonly account: AccountSessionSummary
@@ -36,6 +48,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  readonly requestedSection?: HomeV2SettingsSectionTarget
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
@@ -135,20 +148,45 @@ function GeneralSettings({
 }
 
 export function SettingsPage(props: SettingsPageProps) {
-  const [section, setSection] = useState<HomeV2SettingsSectionId>('general')
+  const coreAvailable =
+    !!props.coreManagement?.available || !!props.appUpdates?.available
+  const qdnAppsAvailable =
+    !!props.qdnAppsManagement?.available && !!props.qdnAppsManagement.client
+  const accountAvailable = props.account.state !== 'none'
+  const resolvedRequestedSection = resolveHomeV2SettingsSectionTarget(
+    props.requestedSection ?? 'general',
+  )
+  const requestedSection =
+    (resolvedRequestedSection === 'core' && !coreAvailable) ||
+    (resolvedRequestedSection === 'qdn-apps' && !qdnAppsAvailable) ||
+    (resolvedRequestedSection === 'account' && !accountAvailable)
+      ? 'general'
+      : resolvedRequestedSection
+  const [section, setSection] = useState<HomeV2SettingsSectionId>(
+    requestedSection,
+  )
+  useEffect(() => setSection(requestedSection), [requestedSection])
+  const sectionAvailable = (candidate: HomeV2SettingsSectionId) =>
+    (candidate !== 'core' || coreAvailable) &&
+    (candidate !== 'qdn-apps' || qdnAppsAvailable) &&
+    (candidate !== 'account' || accountAvailable)
+  const activeSection = sectionAvailable(section) ? section : 'general'
+  useEffect(() => {
+    if (!sectionAvailable(section)) setSection('general')
+  }, [accountAvailable, coreAvailable, qdnAppsAvailable, section])
   const sections: ReadonlyArray<{
     readonly id: HomeV2SettingsSectionId
     readonly label: string
   }> = [
     { id: 'general', label: t('home2.settings.general') },
-    ...(props.coreManagement?.available || props.appUpdates?.available
+    ...(coreAvailable
       ? [{ id: 'core' as const, label: t('core.runtimeLabel') }]
       : []),
     { id: 'appearance', label: t('home2.settings.appearance') },
-    ...(props.qdnAppsManagement?.available && props.qdnAppsManagement.client
+    ...(qdnAppsAvailable
       ? [{ id: 'qdn-apps' as const, label: t('qdnApps.sectionTitle') }]
       : []),
-    ...(props.account.state === 'none'
+    ...(!accountAvailable
       ? []
       : [{ id: 'account' as const, label: t('account.menuLabel') }]),
   ]
@@ -166,7 +204,7 @@ export function SettingsPage(props: SettingsPageProps) {
           {sections.map((candidate) => (
             <button
               type="button"
-              aria-current={section === candidate.id ? 'page' : undefined}
+              aria-current={activeSection === candidate.id ? 'page' : undefined}
               key={candidate.id}
               onClick={() => setSection(candidate.id)}
             >
@@ -175,12 +213,12 @@ export function SettingsPage(props: SettingsPageProps) {
           ))}
         </nav>
         <div className="home-v2-settings-content">
-          {section === 'general' ? (
+          {activeSection === 'general' ? (
             <GeneralSettings
               newTabPreference={props.newTabPreference}
               onSetNewTabPreference={props.onSetNewTabPreference}
             />
-          ) : section === 'core' &&
+          ) : activeSection === 'core' &&
             (props.coreManagement?.available || props.appUpdates?.available) ? (
             <div className="home-v2-runtime-settings">
               {props.coreManagement?.available ? (
@@ -202,14 +240,14 @@ export function SettingsPage(props: SettingsPageProps) {
                 <HomeUpdateSettings updates={props.appUpdates} />
               ) : null}
             </div>
-          ) : section === 'qdn-apps' &&
+          ) : activeSection === 'qdn-apps' &&
             props.qdnAppsManagement?.available &&
             props.qdnAppsManagement.client ? (
             <QdnAppsSettings client={props.qdnAppsManagement.client} />
-          ) : section === 'appearance' || section === 'account' ? (
+          ) : activeSection === 'appearance' || activeSection === 'account' ? (
             <AppearanceSettingsPage
               {...props}
-              section={section}
+              section={activeSection}
               showHeading={false}
             />
           ) : null}

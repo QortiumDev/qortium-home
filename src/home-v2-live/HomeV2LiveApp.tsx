@@ -4,6 +4,7 @@ import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
   resolveHomeV2SystemLanguage,
+  stepHomeV2TextSize,
   type HomeV2Accent,
   type HomeV2Language,
   type HomeV2TextSize,
@@ -41,6 +42,7 @@ import {
   type NewTabPreference,
 } from '../v2/new-tab-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import { subscribeHomeV2TextSizeCommands } from './text-size-shortcut-client'
 import {
   HomeV2ResourceViewer,
   type HomeV2ResourceViewerState,
@@ -945,6 +947,21 @@ export function HomeV2LiveApp() {
       })),
     [],
   )
+  const menuTextSize = useRef(snapshotState.appearance.textSize)
+  menuTextSize.current = snapshotState.appearance.textSize
+  useEffect(() => {
+    return subscribeHomeV2TextSizeCommands((command) => {
+      const next =
+        command === 'text-size-reset'
+          ? 'medium'
+          : stepHomeV2TextSize(
+              menuTextSize.current,
+              command === 'text-size-increase' ? 'increase' : 'decrease',
+            )
+      menuTextSize.current = next
+      updateAppearance({ textSize: next })
+    })
+  }, [updateAppearance])
 
   const openApp = useCallback(
     (app: AppDescriptor, requestedLocation?: AppTabContext['resourceLocation']) => {

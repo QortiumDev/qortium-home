@@ -80,6 +80,27 @@ export const homeV2TextSizeOptions = [
   readonly labelKey: import('../i18n').TranslationKey
 }[]
 
+export function stepHomeV2TextSize(
+  current: HomeV2TextSize,
+  direction: 'decrease' | 'increase',
+): HomeV2TextSize {
+  const index = homeV2TextSizeOptions.findIndex(
+    (option) => option.value === current,
+  )
+  const fallbackIndex = homeV2TextSizeOptions.findIndex(
+    (option) => option.value === 'medium',
+  )
+  const currentIndex = index < 0 ? fallbackIndex : index
+  const nextIndex = Math.max(
+    0,
+    Math.min(
+      homeV2TextSizeOptions.length - 1,
+      currentIndex + (direction === 'increase' ? 1 : -1),
+    ),
+  )
+  return homeV2TextSizeOptions[nextIndex].value
+}
+
 export const homeV2LanguageOptions = [
   { value: 'system', label: 'System language' },
   { value: 'ar', label: 'العربية' },

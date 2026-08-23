@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(settings): add Home 2 Settings section routing
+
+Home 2 can now open a specific Settings section from another trusted part of
+the Home interface without adding a URL or an app-facing command. The Core
+management card on the Dashboard opens Runtime settings directly, while the
+former Notifications destination remains a compatibility alias for the QDN
+Apps section where notification controls now live. Opening Settings normally
+still starts on General, so an earlier targeted visit does not become a sticky
+preference. This internal routing is shared by desktop and Android and does not
+change QDN app actions, add a public IPC request, or alter the QAVS platform
+version.
+
+This change also makes two intentional Home 2 presentation omissions explicit.
+The old Classic/Modern/Fun UI-skin selector and the keyboard-shortcut hint rows
+beside text size and page zoom are not carried forward. The zoom and text-size
+shortcuts themselves remain available; every other reviewed v1 Settings gap is
+kept, migrated, or assigned to its existing roadmap follow-up.
+
 ### 2026-08-22 - feat(settings): add Home 2 QDN permissions
 
 Home 2's QDN Apps Settings section can now choose the saved app for each

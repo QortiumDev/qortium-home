@@ -262,6 +262,21 @@ try {
     )
     await evaluate(
       client,
+      `document.querySelector('button[aria-label="Settings: Core management"]').click()`,
+    )
+    await waitUntil('targeted Runtime settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const runtime = [...document.querySelectorAll('.home-v2-settings-nav button')]
+            .find((button) => button.textContent.trim() === 'Runtime');
+          return runtime?.getAttribute('aria-current') === 'page' &&
+            Boolean(document.querySelector('#core-settings-title'));
+        })()`,
+      ),
+    )
+    await evaluate(
+      client,
       `document.querySelector('button[aria-label="Settings"]').click()`,
     )
     const general = await waitUntil('General settings', () =>

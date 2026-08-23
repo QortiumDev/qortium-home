@@ -1,8 +1,15 @@
-import type { CSSProperties, ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { t, type TranslationKey } from '../../i18n'
 import { translateMainProcessMessage } from '../../mainProcessMessage'
 import {
   isHomeV2RtlLanguage,
+  stepHomeV2TextSize,
   type HomeV2Accent,
   type HomeV2Language,
   type HomeV2TextSize,
@@ -35,7 +42,10 @@ import { BrowserChrome, type AddressOpenResult } from './BrowserChrome'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
-import { SettingsPage } from './SettingsPage'
+import {
+  SettingsPage,
+  type HomeV2SettingsSectionTarget,
+} from './SettingsPage'
 import {
   CoreManagerCards,
   type HomeV2CoreManagement,
@@ -710,7 +720,13 @@ function InternalPage({
   )
 }
 
-function Dashboard(props: HomeV2PrototypeProps) {
+type DashboardProps = HomeV2PrototypeProps & {
+  readonly onOpenSettingsSection?: (
+    section: HomeV2SettingsSectionTarget,
+  ) => void
+}
+
+function Dashboard(props: DashboardProps) {
   const {
     snapshot,
     onOpenApp,
@@ -767,6 +783,14 @@ function Dashboard(props: HomeV2PrototypeProps) {
               <h2 id="core-management-title">{t('home2.core.title')}</h2>
               <p>{t('home2.core.dashboardDescription')}</p>
             </div>
+            <button
+              type="button"
+              className="home-v2-link-button"
+              aria-label={`${t('common.settings')}: ${t('home2.core.title')}`}
+              onClick={() => props.onOpenSettingsSection?.('core')}
+            >
+              {t('common.settings')}
+            </button>
           </div>
           <CoreManagerCards management={props.coreManagement} />
         </section>
@@ -798,6 +822,65 @@ function Dashboard(props: HomeV2PrototypeProps) {
 }
 
 export function HomeV2Prototype(props: HomeV2PrototypeProps) {
+  const [requestedSettingsSection, setRequestedSettingsSection] =
+    useState<HomeV2SettingsSectionTarget>('general')
+  const textSizeControl = useRef({
+    current: props.snapshot.appearance.textSize,
+    update: props.onSetTextSize,
+  })
+  textSizeControl.current = {
+    current: props.snapshot.appearance.textSize,
+    update: props.onSetTextSize,
+  }
+  useEffect(() => {
+    const applyTextSizeCommand = (
+      command:
+        | 'text-size-decrease'
+        | 'text-size-increase'
+        | 'text-size-reset',
+    ) => {
+      const control = textSizeControl.current
+      if (!control.update) return false
+      const next =
+        command === 'text-size-reset'
+          ? 'medium'
+          : stepHomeV2TextSize(
+              control.current,
+              command === 'text-size-increase' ? 'increase' : 'decrease',
+            )
+      control.current = next
+      control.update(next)
+      return true
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.altKey ||
+        !event.shiftKey ||
+        (!event.ctrlKey && !event.metaKey)
+      ) {
+        return
+      }
+      const key = event.key.toLowerCase()
+      const command =
+        key === '+' || key === '='
+          ? 'text-size-increase'
+          : key === '-' || key === '_'
+            ? 'text-size-decrease'
+            : key === '0' || key === ')'
+              ? 'text-size-reset'
+              : null
+      if (command && applyTextSizeCommand(command)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [])
   const translationVersion = useHomeV2Translation(
     props.snapshot.appearance.resolvedLanguage,
   )
@@ -832,7 +915,17 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         if (tabId === overlayOwnerTabId) onActivateTab?.(tabId)
       }
     : onActivateTab
-  const guardedNavigate = overlayOwnerTabId ? () => undefined : onNavigate
+  const guardedNavigate = overlayOwnerTabId
+    ? () => undefined
+    : (destination: Exclude<ShellDestination, 'tab'>) => {
+        if (destination === 'settings') setRequestedSettingsSection('general')
+        onNavigate?.(destination)
+      }
+  const openSettingsSection = (section: HomeV2SettingsSectionTarget) => {
+    if (overlayOwnerTabId) return
+    setRequestedSettingsSection(section)
+    onNavigate?.('settings')
+  }
 
   return (
     <div
@@ -910,10 +1003,14 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             coreManagement={props.coreManagement}
             appUpdates={props.appUpdates}
             qdnAppsManagement={props.qdnAppsManagement}
+            requestedSection={requestedSettingsSection}
           />
         ) : productState.destination === 'dashboard' ||
           productState.destination === 'tab' ? (
-          <Dashboard {...props} />
+          <Dashboard
+            {...props}
+            onOpenSettingsSection={openSettingsSection}
+          />
         ) : productState.destination === 'newtab' ? (
           <NewTabPage {...props} />
         ) : (
