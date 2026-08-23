@@ -732,12 +732,35 @@ function testDesktopAndPhoneContracts(): void {
       },
     },
   }
+  const pinnedApps = {
+    pins: [
+      {
+        createdAt: 1,
+        displayUrl: 'qdn://APP/Chat/Chat',
+        id: 'qdn://APP/Chat/Chat',
+        label: 'Chat',
+      },
+      {
+        createdAt: 2,
+        displayUrl: 'qdn://APP/Wallets/Wallets',
+        id: 'qdn://APP/Wallets/Wallets',
+        label: 'Wallets',
+      },
+    ],
+    status: 'ready' as const,
+    onAdd: () => undefined,
+    onMove: () => undefined,
+    onOpen: () => undefined,
+    onRemove: () => undefined,
+    onRename: () => undefined,
+  }
   const desktop = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="desktop"
+      pinnedApps={pinnedApps}
       selectedAccountLookup={selectedAccountLookup}
     />,
   )
@@ -747,6 +770,7 @@ function testDesktopAndPhoneContracts(): void {
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="phone"
+      pinnedApps={pinnedApps}
       selectedAccountLookup={selectedAccountLookup}
     />,
   )

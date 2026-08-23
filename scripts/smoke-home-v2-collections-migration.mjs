@@ -15,6 +15,7 @@ const appImage = path.resolve(
     path.join(repoRoot, 'dist-release', `Qortium-Home-${packageJson.version}-x86_64.AppImage`),
 )
 const profileDirectory = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-collections-smoke-'))
+const freshProfileDirectory = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-fresh-pins-smoke-'))
 const seedMain = path.join(profileDirectory, 'seed.cjs')
 const seedPage = path.join(profileDirectory, 'legacy-index.html')
 const electronBinary = path.join(repoRoot, 'node_modules', 'electron', 'dist', 'electron')
@@ -133,6 +134,25 @@ try {
     { cwd: repoRoot, env: seedEnvironment, encoding: 'utf8', timeout: 30_000 },
   )
   assert.equal(seeded.status, 0, seeded.stderr || seeded.stdout || 'Legacy storage seeding failed.')
+  writeFileSync(
+    path.join(profileDirectory, 'home-v2-shell-state.json'),
+    JSON.stringify({
+      version: 3,
+      appearance: {
+        accent: 'clay',
+        appZoom: 1,
+        language: 'system',
+        textSize: 'medium',
+        theme: 'system',
+      },
+      newTabPreference: { kind: 'search' },
+      onboarding: { currentStep: 'finish', status: 'skipped', version: 1 },
+      selectedAccountId: null,
+      selectedAddressId: null,
+      product: { activeTabId: null, destination: 'dashboard', tabs: [] },
+    }),
+    { mode: 0o600 },
+  )
 
   const port = await getFreePort()
   appProcess = createManagedProcess(
@@ -163,17 +183,154 @@ try {
     assert.equal(snapshot.toolbarVisibility, 'always')
     assert.equal(snapshot.bookmarks[0]?.displayUrl, 'qdn://APP/Boards/Boards')
     assert.equal(snapshot.dashboardPins[0]?.displayUrl, 'qdn://APP/Help/Help')
+    assert.equal(snapshot.dashboardPins.length, 1, 'migration must not inject fresh-profile defaults')
     assert.equal(snapshot.startPages[0]?.displayUrl, 'qdn://APP/Polls/Polls')
+
+    await waitUntil('migrated pin rendered on Dashboard', () =>
+      client.evaluate(`!!document.querySelector('[aria-label="Open Help"]')`))
+    assert.equal(await client.evaluate(`!!document.querySelector('[aria-label="Open Chat"]')`), false)
+
+    await client.evaluate(`(() => {
+      const create = document.querySelector('[aria-label="Create Pinned apps"]');
+      if (!(create instanceof HTMLButtonElement)) throw new Error('Create pin button is missing.');
+      create.click();
+    })()`)
+    await waitUntil('add pin form', () =>
+      client.evaluate(`document.querySelectorAll('.home-v2-pinned-apps__form input').length === 2`))
+    await client.evaluate(`(() => {
+      const form = document.querySelector('.home-v2-pinned-apps__form');
+      const inputs = form ? [...form.querySelectorAll('input')] : [];
+      if (!(form instanceof HTMLFormElement) || inputs.length !== 2) throw new Error('Add pin form is missing.');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(inputs[0], 'qdn://APP/Trust/Trust');
+      inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+      setter.call(inputs[1], 'My Trust');
+      inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+      form.requestSubmit();
+    })()`)
+    const afterAdd = await waitUntil('added and titled Dashboard pin', async () => {
+      const raw = await client.evaluate(`localStorage.getItem('qortium-home-bookmark-manager-snapshot')`)
+      const current = raw ? JSON.parse(raw) : null
+      const trust = current?.dashboardPins?.find((pin) => pin.displayUrl === 'qdn://APP/Trust/Trust')
+      return trust?.customLabel === 'My Trust' ? current : null
+    })
+    assert.deepEqual(afterAdd.dashboardPins.map((pin) => pin.displayUrl), [
+      'qdn://APP/Help/Help',
+      'qdn://APP/Trust/Trust',
+    ])
+
+    await waitUntil('custom pin label rendered', () =>
+      client.evaluate(`!!document.querySelector('[aria-label="Rename My Trust"]')`))
+    await client.evaluate(`(() => {
+      const rename = document.querySelector('[aria-label="Rename My Trust"]');
+      if (!(rename instanceof HTMLButtonElement)) throw new Error('Rename pin button is missing.');
+      rename.click();
+    })()`)
+    await waitUntil('rename pin form', () =>
+      client.evaluate(`!!document.querySelector('.home-v2-pinned-apps__rename input')`))
+    await client.evaluate(`(() => {
+      const form = document.querySelector('.home-v2-pinned-apps__rename');
+      const input = form?.querySelector('input');
+      if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLInputElement)) {
+        throw new Error('Rename pin form is missing.');
+      }
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'Pinned Trust');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      form.requestSubmit();
+    })()`)
+    await waitUntil('renamed Dashboard pin', async () => {
+      const raw = await client.evaluate(`localStorage.getItem('qortium-home-bookmark-manager-snapshot')`)
+      const current = raw ? JSON.parse(raw) : null
+      return current?.dashboardPins?.some((pin) => pin.customLabel === 'Pinned Trust') ? current : null
+    })
+
+    await waitUntil('move control rendered', () =>
+      client.evaluate(`!!document.querySelector('[aria-label="Back: Pinned Trust"]')`))
+    await client.evaluate(`document.querySelector('[aria-label="Back: Pinned Trust"]').click()`)
+    await waitUntil('reordered Dashboard pins', async () => {
+      const raw = await client.evaluate(`localStorage.getItem('qortium-home-bookmark-manager-snapshot')`)
+      const current = raw ? JSON.parse(raw) : null
+      return current?.dashboardPins?.[0]?.customLabel === 'Pinned Trust' ? current : null
+    })
+
+    await waitUntil('remove control rendered', () =>
+      client.evaluate(`!!document.querySelector('[aria-label="Remove Help"]')`))
+    await client.evaluate(`document.querySelector('[aria-label="Remove Help"]').click()`)
+    const afterRemove = await waitUntil('removed Dashboard pin', async () => {
+      const raw = await client.evaluate(`localStorage.getItem('qortium-home-bookmark-manager-snapshot')`)
+      const current = raw ? JSON.parse(raw) : null
+      return current?.dashboardPins?.length === 1 &&
+        current.dashboardPins[0]?.customLabel === 'Pinned Trust' ? current : null
+    })
+
     await client.send('Page.enable')
     await client.send('Page.reload')
     const afterReload = await waitUntil('migrated collections after reload', () =>
       client.evaluate(`localStorage.getItem('qortium-home-bookmark-manager-snapshot')`))
-    assert.deepEqual(JSON.parse(afterReload), snapshot)
+    assert.deepEqual(JSON.parse(afterReload), afterRemove)
+    await waitUntil('managed pin rendered after reload', () =>
+      client.evaluate(`!!document.querySelector('[aria-label="Open Pinned Trust"]')`))
   } finally {
     client.close()
   }
-  console.log('Packaged Home 2 v1 collections migration and reload smoke passed.')
+  await appProcess.stop()
+  appProcess = null
+
+  const freshPort = await getFreePort()
+  appProcess = createManagedProcess(
+    useXvfb ? '/usr/bin/xvfb-run' : appImage,
+    useXvfb ? ['-a', appImage, `--remote-debugging-port=${freshPort}`] : [`--remote-debugging-port=${freshPort}`],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        QORTIUM_HOME_USER_DATA_DIR: freshProfileDirectory,
+        XDG_CONFIG_HOME: path.join(freshProfileDirectory, 'config'),
+      },
+    },
+  )
+  const freshTarget = await waitUntil('fresh packaged Home 2 page', async () => {
+    const response = await fetch(`http://127.0.0.1:${freshPort}/json/list`)
+    if (!response.ok) return null
+    const targets = await response.json()
+    return targets.find((entry) => entry.type === 'page' && entry.url?.includes('/v2-live.html')) ?? null
+  })
+  const freshClient = new CdpClient(freshTarget.webSocketDebuggerUrl)
+  try {
+    const freshSnapshot = await waitUntil('fresh default Dashboard pins', async () => {
+      const raw = await freshClient.evaluate(
+        `localStorage.getItem('qortium-home-bookmark-manager-snapshot')`,
+      )
+      const current = raw ? JSON.parse(raw) : null
+      return current?.dashboardPins?.length === 2 ? current : null
+    })
+    assert.deepEqual(freshSnapshot.dashboardPins.map((pin) => pin.displayUrl), [
+      'qdn://APP/Chat/Chat',
+      'qdn://APP/Help/Help',
+    ])
+    assert.equal(
+      await freshClient.evaluate(
+        `localStorage.getItem('qortium-home-v2-dashboard-defaults-pending')`,
+      ),
+      null,
+    )
+    await freshClient.send('Page.enable')
+    await freshClient.send('Page.reload')
+    const freshAfterReload = await waitUntil('fresh default pins after reload', async () => {
+      const raw = await freshClient.evaluate(
+        `localStorage.getItem('qortium-home-bookmark-manager-snapshot')`,
+      )
+      const current = raw ? JSON.parse(raw) : null
+      return current?.dashboardPins?.length === 2 ? current : null
+    })
+    assert.deepEqual(freshAfterReload, freshSnapshot)
+  } finally {
+    freshClient.close()
+  }
+  console.log('Packaged Home 2 migration, managed-pin, and fresh-default reload smoke passed.')
 } finally {
   await appProcess?.stop()
   rmSync(profileDirectory, { force: true, recursive: true })
+  rmSync(freshProfileDirectory, { force: true, recursive: true })
 }

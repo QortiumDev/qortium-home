@@ -69,6 +69,10 @@ import type {
 import { HomeV2WelcomePage } from './HomeV2WelcomePage'
 import { HomeV2CoreApiDocsPage } from './HomeV2CoreApiDocsPage'
 import type { HomeV2CoreDocsTransport } from '../../home-v2-live/core-docs-client'
+import {
+  HomeV2PinnedApps,
+  type HomeV2PinnedAppsProps,
+} from './HomeV2PinnedApps'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -107,6 +111,7 @@ export interface HomeV2PrototypeProps {
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
   readonly onboarding?: HomeV2OnboardingState
+  readonly pinnedApps?: HomeV2PinnedAppsProps
   readonly coreDocsNetwork?: NetworkId | null
   readonly coreDocsTransport?: HomeV2CoreDocsTransport
   readonly enableCoreDocs?: (network: NetworkId) => Promise<unknown>
@@ -704,43 +709,6 @@ function AccountCard({
   )
 }
 
-function AppCard({
-  app,
-  onOpenApp,
-}: {
-  readonly app: AppDescriptor
-  readonly onOpenApp?: HomeV2PrototypeProps['onOpenApp']
-}) {
-  return (
-    <article className="home-v2-app-card" data-app-id={app.id}>
-      <div className="home-v2-app-card__icon" aria-hidden="true">
-        {app.title.slice(0, 1)}
-      </div>
-      <div className="home-v2-app-card__copy">
-        <h3>{app.title}</h3>
-        <p>{app.description}</p>
-      </div>
-      <div
-        className="home-v2-app-card__actions"
-        aria-label={t('home2.account.availability', { app: app.title })}
-      >
-        <div className="home-v2-app-card__networks">
-          {app.targetNetworks.map((network) => (
-            <NetworkBadge key={network} network={network} />
-          ))}
-        </div>
-        <button
-          type="button"
-          disabled={!onOpenApp}
-          onClick={() => onOpenApp?.(app)}
-        >
-          {t('common.open')}
-        </button>
-      </div>
-    </article>
-  )
-}
-
 function InternalPage({
   destination,
 }: {
@@ -773,12 +741,19 @@ type DashboardProps = HomeV2PrototypeProps & {
 function Dashboard(props: DashboardProps) {
   const {
     snapshot,
-    onOpenApp,
     onSetNodeMode,
     onRefreshNode,
     onConfigureCustomNode,
   } = props
-  const pinnedApps = snapshot.apps.filter((app) => app.placement === 'pinned')
+  const pinnedApps = props.pinnedApps ?? {
+    pins: [],
+    status: 'ready' as const,
+    onAdd: () => undefined,
+    onMove: () => undefined,
+    onOpen: () => undefined,
+    onRemove: () => undefined,
+    onRename: () => undefined,
+  }
   return (
     <div className="home-v2-dashboard">
       <header className="home-v2-dashboard-intro">
@@ -842,25 +817,7 @@ function Dashboard(props: DashboardProps) {
 
       <AccountCard {...props} />
 
-      <section className="home-v2-launcher" aria-labelledby="pinned-apps-title">
-        <div className="home-v2-section-heading">
-          <div>
-            <h2 id="pinned-apps-title">{t('home2.dashboard.pinnedApps')}</h2>
-          </div>
-          <button
-            type="button"
-            className="home-v2-link-button"
-            onClick={() => props.onNavigate?.('apps')}
-          >
-            {t('home2.account.browseApps')}
-          </button>
-        </div>
-        <div className="home-v2-app-grid">
-          {pinnedApps.map((app) => (
-            <AppCard key={app.id} app={app} onOpenApp={onOpenApp} />
-          ))}
-        </div>
-      </section>
+      <HomeV2PinnedApps {...pinnedApps} />
     </div>
   )
 }

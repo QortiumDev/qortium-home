@@ -4,6 +4,7 @@ import {
   validateBookmarkManagerMutationRequest,
   validateBookmarkManagerSnapshot,
   type BookmarkManagerAccountChoice,
+  type BookmarkManagerLinkDraft,
   type BookmarkManagerMutationRequest,
   type BookmarkManagerMutationResult,
   type BookmarkManagerSnapshot,
@@ -22,6 +23,8 @@ import {
 
 const SNAPSHOT_KEY = 'qortium-home-bookmark-manager-snapshot'
 const ANDROID_MIGRATION_MARKER_KEY = 'qortium-home-v2-collections-migrated'
+const DASHBOARD_DEFAULTS_PENDING_KEY = 'qortium-home-v2-dashboard-defaults-pending'
+const FRESH_SHELL_DEFAULTS_PENDING_KEY = 'qortium-home-v2-fresh-shell-defaults-pending'
 export type HomeV2CollectionsAccounts = {
   activeAccountId: string | null
   availableAccounts: BookmarkManagerAccountChoice[]
@@ -46,6 +49,16 @@ async function readRawStorageValue(key: string) {
     : window.localStorage.getItem(key)
 }
 
+async function writeRawStorageValue(key: string, value: string | null) {
+  if (Capacitor.isNativePlatform()) {
+    if (value === null) await Preferences.remove({ key })
+    else await Preferences.set({ key, value })
+    return
+  }
+  if (value === null) window.localStorage.removeItem(key)
+  else window.localStorage.setItem(key, value)
+}
+
 async function readCanonicalSnapshot() {
   const raw = await readRawStorageValue(SNAPSHOT_KEY)
   if (raw === null) return null
@@ -63,7 +76,7 @@ async function readLocalLegacySnapshot() {
   ] as const))
   return parseHomeV2LegacyCollectionsRaw(
     Object.fromEntries(entries) as HomeV2LegacyCollectionRawValues,
-  ).snapshot
+  )
 }
 
 function snapshotCollections(snapshot: BookmarkManagerSnapshot, accounts: HomeV2CollectionsAccounts) {
@@ -101,6 +114,7 @@ async function persistSnapshot(snapshot: BookmarkManagerSnapshot) {
 
 export class HomeV2CollectionsClient {
   private current: BookmarkManagerSnapshot | null = null
+  private initializedFromEmptyStorage = false
   private initialization: Promise<void> | null = null
   private mutationChain = Promise.resolve()
 
@@ -115,6 +129,10 @@ export class HomeV2CollectionsClient {
 
   private async initializeOnce() {
     const native = Capacitor.isNativePlatform()
+    const defaultsPending = await readRawStorageValue(DASHBOARD_DEFAULTS_PENDING_KEY)
+    if (defaultsPending !== null && defaultsPending !== '1') {
+      throw new Error('Dashboard defaults initialization state is invalid.')
+    }
     if (native) {
       const marker = await readRawStorageValue(ANDROID_MIGRATION_MARKER_KEY)
       if (marker !== null && marker !== '1') {
@@ -124,28 +142,90 @@ export class HomeV2CollectionsClient {
         const migrated = await readCanonicalSnapshot()
         if (!migrated) throw new Error('Saved Home links migration is incomplete.')
         this.current = migrated
+        this.initializedFromEmptyStorage = defaultsPending === '1'
         return
       }
       const imported = await readLocalLegacySnapshot()
-      await persistSnapshot(imported)
+      if (!imported.hadData) {
+        await writeRawStorageValue(DASHBOARD_DEFAULTS_PENDING_KEY, '1')
+      }
+      await persistSnapshot(imported.snapshot)
       await Preferences.set({ key: ANDROID_MIGRATION_MARKER_KEY, value: '1' })
-      this.current = imported
+      this.current = imported.snapshot
+      this.initializedFromEmptyStorage = defaultsPending === '1' || !imported.hadData
       return
     }
 
     const current = await readCanonicalSnapshot()
     if (current) {
       this.current = current
+      this.initializedFromEmptyStorage = defaultsPending === '1'
       return
     }
 
     const imported = window.homeV2Collections
-      ? withoutAccounts(validateBookmarkManagerSnapshot(
-          (await window.homeV2Collections.readLegacy()).snapshot,
-        ))
+      ? await window.homeV2Collections.readLegacy().then((result) => ({
+          hadData: result.hadData,
+          snapshot: withoutAccounts(validateBookmarkManagerSnapshot(result.snapshot)),
+        }))
       : await readLocalLegacySnapshot()
-    await persistSnapshot(imported)
-    this.current = imported
+    if (!imported.hadData) {
+      await writeRawStorageValue(DASHBOARD_DEFAULTS_PENDING_KEY, '1')
+    }
+    await persistSnapshot(imported.snapshot)
+    this.current = imported.snapshot
+    this.initializedFromEmptyStorage = defaultsPending === '1' || !imported.hadData
+  }
+
+  wasInitializedFromEmptyStorage() {
+    if (!this.current) throw new Error('Saved Home links are unavailable.')
+    return this.initializedFromEmptyStorage
+  }
+
+  markFreshShellForDashboardDefaults() {
+    return writeRawStorageValue(FRESH_SHELL_DEFAULTS_PENDING_KEY, '1')
+  }
+
+  async hasPendingFreshShellForDashboardDefaults() {
+    const marker = await readRawStorageValue(FRESH_SHELL_DEFAULTS_PENDING_KEY)
+    if (marker !== null && marker !== '1') {
+      throw new Error('Fresh shell defaults initialization state is invalid.')
+    }
+    return marker === '1'
+  }
+
+  finalizeDashboardPinDefaults(
+    shouldSeed: boolean,
+    pins: readonly BookmarkManagerLinkDraft[],
+    accounts: HomeV2CollectionsAccounts,
+  ) {
+    const operation = this.mutationChain.then(async () => {
+      let current = await this.getSnapshot(accounts)
+      if (
+        shouldSeed &&
+        this.initializedFromEmptyStorage &&
+        current.dashboardPins.length === 0
+      ) {
+        for (const pin of pins) {
+          current = applyBookmarkManagerMutation(
+            snapshotCollections(current, accounts),
+            { type: 'addDashboardPin', pin },
+          ).snapshot
+        }
+        const stored = withoutAccounts(current)
+        await persistSnapshot(stored)
+        this.current = stored
+        current = withAccounts(stored, accounts)
+      }
+      if (this.initializedFromEmptyStorage) {
+        await writeRawStorageValue(DASHBOARD_DEFAULTS_PENDING_KEY, null)
+        this.initializedFromEmptyStorage = false
+      }
+      await writeRawStorageValue(FRESH_SHELL_DEFAULTS_PENDING_KEY, null)
+      return current
+    })
+    this.mutationChain = operation.then(() => undefined, () => undefined)
+    return operation
   }
 
   async getSnapshot(accounts: HomeV2CollectionsAccounts) {
