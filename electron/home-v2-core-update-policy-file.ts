@@ -7,6 +7,7 @@ import {
   FAILED_CLOSED_HOME_V2_CORE_UPDATE_POLICY_SETTINGS,
   parseLegacyCoreUpdateSettings,
   parseStoredHomeV2CoreUpdatePolicySettings,
+  parseStoredHomeV2CoreUpdatePolicySettingsV1,
   validateWritableHomeV2CoreUpdatePolicySettings,
   type HomeV2CoreUpdatePolicySettings,
   type WritableHomeV2CoreUpdatePolicySettings,
@@ -34,8 +35,9 @@ export function createHomeV2CoreUpdatePolicyFile(
         coreUpdatePolicy: settings.coreUpdatePolicy,
         generation: settings.generation,
         javaUpdatePolicy: settings.javaUpdatePolicy,
+        qortalUpdatePolicy: settings.qortalUpdatePolicy,
         schema: 'qortium-home-v2-core-update-policy',
-        version: 1,
+        version: 2,
       }, null, 2)}\n`, 'utf8')
       await handle.sync()
       await handle.close()
@@ -64,9 +66,10 @@ export function createHomeV2CoreUpdatePolicyFile(
       try {
         return parseStoredHomeV2CoreUpdatePolicySettings(parsed)
       } catch {
-        const legacy = parseLegacyCoreUpdateSettings(parsed)
+        const versionOne = parseStoredHomeV2CoreUpdatePolicySettingsV1(parsed)
+        const legacy = versionOne ?? parseLegacyCoreUpdateSettings(parsed)
         if (!legacy) throw new Error('Stored Core update settings are malformed.')
-        const migrated = { ...legacy, generation: 0, storageIssue: null } as const
+        const migrated = versionOne ?? { ...legacy, generation: 0, storageIssue: null } as const
         await writeAtomically(migrated)
         return migrated
       }
@@ -108,7 +111,8 @@ export function createHomeV2CoreUpdatePolicyFile(
         }
         const validated = validateWritableHomeV2CoreUpdatePolicySettings(requested)
         if (!current.storageIssue && current.coreUpdatePolicy === validated.coreUpdatePolicy &&
-          current.javaUpdatePolicy === validated.javaUpdatePolicy) return current
+          current.javaUpdatePolicy === validated.javaUpdatePolicy &&
+          current.qortalUpdatePolicy === validated.qortalUpdatePolicy) return current
         const next = {
           ...validated,
           generation: nextGeneration(current),
@@ -121,6 +125,7 @@ export function createHomeV2CoreUpdatePolicyFile(
     updatePartial(requested: {
       readonly coreUpdatePolicy?: unknown
       readonly javaUpdatePolicy?: unknown
+      readonly qortalUpdatePolicy?: unknown
     }) {
       return queued(async () => {
         const current = await readCurrent()
@@ -130,6 +135,7 @@ export function createHomeV2CoreUpdatePolicyFile(
           coreUpdatePolicy: policy(requested.coreUpdatePolicy, current.coreUpdatePolicy),
           generation: nextGeneration(current),
           javaUpdatePolicy: policy(requested.javaUpdatePolicy, current.javaUpdatePolicy),
+          qortalUpdatePolicy: policy(requested.qortalUpdatePolicy, current.qortalUpdatePolicy),
           storageIssue: null,
         } as const
         await writeAtomically(next)

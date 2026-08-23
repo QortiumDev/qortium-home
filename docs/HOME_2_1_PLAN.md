@@ -255,8 +255,19 @@ preparation.
   observation/lifecycle-only. Conventional existing-install discovery blocks
   a duplicate initial install; the separate trusted-shell adoption selector can
   now bind a supported candidate without exposing its path or modifying it.
-  Automatic Qortal policy, adopted-file mutation, Android Core maintenance,
-  and i2pd/transport remain later work.
+  Adopted-file mutation and Android Core maintenance remain later work.
+- [x] Extend the existing desktop Core/Java policy store and scheduler with a
+  stable-only Qortal policy. Off performs no Qortal status or release work;
+  Notify reports a strictly newer release without mutation; Install can replace
+  only a stopped Home-managed install whose settings prove Home owns GitHub
+  updates. Missing, adopted, node-native, and uncertain installs perform no
+  GitHub release request and remain non-mutating. Version-one policy files
+  migrate in place without losing the existing generation or Core/Java choices,
+  defaulting Qortal to Notify. Policy/lifecycle revocation is checked before the
+  Qortal JAR download and again while acquiring the activation lease, which is
+  held across the manager's repeated runtime/ownership barriers and filesystem
+  transaction. Automatic initial install, adopted-file mutation, Android Core
+  maintenance, signing, publication, and live-node acceptance remain separate.
 - [x] Add manual Qortium transport and managed-i2pd maintenance in PR #323.
   Desktop Runtime settings apply a stopped-only transport change through a
   private atomic Core-settings replacement, and Home can install, start, and

@@ -31,6 +31,14 @@ function javaPolicyDescription(policy: HomeV2CoreUpdatePolicy) {
   return 'Home installs only a verified newer immutable generation of the existing managed Java runtime.'
 }
 
+function qortalPolicyDescription(policy: HomeV2CoreUpdatePolicy) {
+  if (policy === 'off') return 'Scheduled Qortal Core release checks are off.'
+  if (policy === 'notify') {
+    return 'Home reports a newer stable release only for a Home-managed GitHub install.'
+  }
+  return 'Home installs a strictly newer stable release only when its Home-managed Qortal Core is proven stopped. Adopted and node-native installs are never changed.'
+}
+
 export function CoreMaintenancePanel({ management }: { readonly management: HomeV2CoreManagement }) {
   const client = window.homeV2CoreManagers
   const [status, setStatus] = useState<HomeV2CoreMaintenanceStatus | null>(null)
@@ -169,7 +177,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
   }
 
   const setUpdatePolicy = (
-    field: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    field: 'coreUpdatePolicy' | 'javaUpdatePolicy' | 'qortalUpdatePolicy',
     value: HomeV2CoreUpdatePolicy,
   ) => {
     if (!policyRef.current) return
@@ -284,6 +292,26 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
           </select>
         </div>
       ) : null}
+      <div className="home-v2-setting-row">
+        <div className="home-v2-setting-row__copy">
+          <strong id="qortal-core-update-policy-label">{t('core.qortalUpdatePolicyLabel')}</strong>
+          <span id="qortal-core-update-policy-description">
+            {qortalPolicyDescription(policy.qortalUpdatePolicy)}
+          </span>
+        </div>
+        <select aria-labelledby="qortal-core-update-policy-label"
+          aria-describedby="qortal-core-update-policy-description"
+          data-home-v2-qortal-update-policy disabled={busy !== null}
+          value={policy.qortalUpdatePolicy}
+          onChange={(event) => void setUpdatePolicy(
+            'qortalUpdatePolicy',
+            event.target.value as HomeV2CoreUpdatePolicy,
+          )}>
+          <option value="off">{t('core.updatePolicy.off')}</option>
+          <option value="notify">{t('core.updatePolicy.notify')}</option>
+          <option value="install">{t('core.updatePolicy.install')}</option>
+        </select>
+      </div>
       {policy.settingsIssue ? (
         <p className="home-v2-core-notice" role="alert">
           Stored update policies are unavailable. Automatic checks are off until you save a new policy.
@@ -292,11 +320,19 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
         <p className="home-v2-core-notice" role="status">
           A verified Core update is waiting for Qortium Core to stop safely.
         </p>
+      ) : policy.activity.qortal.state === 'pending-safe-state' ? (
+        <p className="home-v2-core-notice" role="status">
+          A verified Qortal Core update is waiting for Home-managed Qortal Core to stop safely.
+        </p>
       ) : policy.activity.core.state === 'available' || policy.activity.java.state === 'available' ? (
         <p className="home-v2-core-notice" role="status">
           {policy.activity.core.version
             ? `Qortium Core ${policy.activity.core.version} is available.`
             : `Managed Java ${policy.activity.java.version ?? ''} is available.`}
+        </p>
+      ) : policy.activity.qortal.state === 'available' ? (
+        <p className="home-v2-core-notice" role="status">
+          Qortal Core {policy.activity.qortal.version ?? ''} is available.
         </p>
       ) : policy.activity.issue ? (
         <p className="home-v2-core-notice" role="alert">

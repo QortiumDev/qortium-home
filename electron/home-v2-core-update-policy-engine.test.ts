@@ -9,9 +9,12 @@ function settings(
   coreUpdatePolicy: HomeV2CoreUpdatePolicySettings['coreUpdatePolicy'],
   javaUpdatePolicy: HomeV2CoreUpdatePolicySettings['javaUpdatePolicy'],
   generation = 1,
+  qortalUpdatePolicy: HomeV2CoreUpdatePolicySettings['qortalUpdatePolicy'] = 'off',
 ): HomeV2CoreUpdatePolicySettings {
-  return { coreUpdatePolicy, generation, javaUpdatePolicy, storageIssue: null }
+  return { coreUpdatePolicy, generation, javaUpdatePolicy, qortalUpdatePolicy, storageIssue: null }
 }
+
+const unavailableQortalManager = () => { throw new Error('Qortal manager is unavailable.') }
 
 function managerFixture(options: {
   runtime?: 'running' | 'stopped' | 'unknown'
@@ -88,11 +91,60 @@ function managerFixture(options: {
   return { calls, manager }
 }
 
+function qortalFixture(options: {
+  install?: 'adopted' | 'home-managed' | 'missing'
+  ownership?: 'home-github' | 'node-native' | 'observe-only'
+  runtime?: 'running' | 'stopped' | 'unknown'
+  updateAvailable?: boolean
+} = {}) {
+  const calls = { expected: 0, latest: 0, status: 0, update: 0 }
+  const release = {
+    asset: { digest: `sha256:${'a'.repeat(64)}`, downloadUrl: 'https://example.invalid/qortal.jar',
+      name: 'qortal.jar' as const, size: 1 },
+    commit: 'a'.repeat(40),
+    tagName: options.updateAvailable === false ? 'v6.1.9' : 'v6.2.0',
+  }
+  const install = options.install ?? 'home-managed'
+  const manager = {
+    networkId: 'qortal' as const,
+    getStatus: async () => {
+      calls.status += 1
+      return {
+        capabilities: { canInitialInstall: false, canStart: false, canStop: false, canUpdate: true },
+        install: install === 'home-managed'
+          ? { kind: 'home-managed', record: { jarIdentity: { semver: '6.1.9' } } }
+          : { kind: install },
+        runtime: { state: options.runtime ?? 'stopped' },
+        updateOwnership: { ownership: options.ownership ?? 'home-github' },
+      }
+    },
+    updateAutomaticallyForHomeV2: async (_value: unknown, request: {
+      activationLease: () => Promise<void | (() => void)>
+      preDownloadGuard: () => Promise<void>
+    }) => {
+      calls.update += 1
+      await request.preDownloadGuard()
+      const releaseLease = await request.activationLease()
+      releaseLease?.()
+      return { kind: 'updated' as const }
+    },
+  }
+  const source = {
+    getLatest: async () => { calls.latest += 1; return { kind: 'available' as const, release } },
+    getExpectedLatest: async () => {
+      calls.expected += 1
+      return { kind: 'available' as const, rawRelease: { tag_name: release.tagName }, release }
+    },
+  }
+  return { calls, manager, source }
+}
+
 {
   const fixture = managerFixture({ coreAvailable: true, installed: false })
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => settings('notify', 'off'),
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   await engine.runPass()
   assert.equal(fixture.calls.check, 0)
@@ -104,6 +156,7 @@ function managerFixture(options: {
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => settings('off', 'off'),
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   await engine.runPass()
   assert.deepEqual(fixture.calls, {
@@ -121,6 +174,7 @@ function managerFixture(options: {
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => settings('notify', 'notify'),
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   const activity = await engine.runPass()
   assert.equal(activity.core.state, 'available')
@@ -135,6 +189,7 @@ function managerFixture(options: {
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => selected,
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   const activity = await engine.runPass()
   assert.equal(activity.core.state, 'up-to-date')
@@ -150,6 +205,7 @@ function managerFixture(options: {
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => settings('install', 'off'),
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   const activity = await engine.runPass()
   assert.equal(activity.core.state, 'pending-safe-state')
@@ -161,6 +217,7 @@ function managerFixture(options: {
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => settings('install', 'install'),
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   const activity = await engine.runPass()
   assert.equal(activity.core.state, 'failed')
@@ -181,11 +238,87 @@ function managerFixture(options: {
   const engine = createHomeV2CoreUpdatePolicyEngine({
     readSettings: async () => generation,
     resolveManager: () => fixture.manager as never,
+    resolveQortalManager: unavailableQortalManager,
   })
   const activity = await engine.runPass()
   assert.equal(activity.issue, 'policy-revoked')
   assert.equal(activity.core.state, 'failed')
   assert.equal(fixture.calls.coreDownload, 0)
+}
+
+{
+  const fixture = managerFixture()
+  const qortal = qortalFixture()
+  const engine = createHomeV2CoreUpdatePolicyEngine({
+    qortalReleaseSource: qortal.source,
+    readSettings: async () => settings('off', 'off', 1, 'off'),
+    resolveManager: () => fixture.manager as never,
+    resolveQortalManager: () => qortal.manager as never,
+  })
+  const activity = await engine.runPass()
+  assert.equal(activity.qortal.state, 'idle')
+  assert.deepEqual(qortal.calls, { expected: 0, latest: 0, status: 0, update: 0 })
+}
+
+{
+  const fixture = managerFixture()
+  const qortal = qortalFixture({ install: 'adopted', ownership: 'node-native' })
+  const engine = createHomeV2CoreUpdatePolicyEngine({
+    qortalReleaseSource: qortal.source,
+    readSettings: async () => settings('off', 'off', 1, 'install'),
+    resolveManager: () => fixture.manager as never,
+    resolveQortalManager: () => qortal.manager as never,
+  })
+  const activity = await engine.runPass()
+  assert.equal(activity.qortal.state, 'idle')
+  assert.equal(qortal.calls.status, 1)
+  assert.equal(qortal.calls.latest, 0)
+  assert.equal(qortal.calls.update, 0)
+}
+
+{
+  const fixture = managerFixture()
+  const qortal = qortalFixture()
+  const engine = createHomeV2CoreUpdatePolicyEngine({
+    qortalReleaseSource: qortal.source,
+    readSettings: async () => settings('off', 'off', 1, 'notify'),
+    resolveManager: () => fixture.manager as never,
+    resolveQortalManager: () => qortal.manager as never,
+  })
+  const activity = await engine.runPass()
+  assert.equal(activity.qortal.state, 'available')
+  assert.equal(activity.qortal.version, 'v6.2.0')
+  assert.equal(qortal.calls.update, 0)
+}
+
+{
+  const fixture = managerFixture()
+  const qortal = qortalFixture()
+  const engine = createHomeV2CoreUpdatePolicyEngine({
+    qortalReleaseSource: qortal.source,
+    readSettings: async () => settings('off', 'off', 1, 'install'),
+    resolveManager: () => fixture.manager as never,
+    resolveQortalManager: () => qortal.manager as never,
+  })
+  const activity = await engine.runPass()
+  assert.equal(activity.qortal.state, 'up-to-date')
+  assert.equal(qortal.calls.latest, 1)
+  assert.equal(qortal.calls.expected, 1)
+  assert.equal(qortal.calls.update, 1)
+}
+
+{
+  const fixture = managerFixture()
+  const qortal = qortalFixture({ runtime: 'running' })
+  const engine = createHomeV2CoreUpdatePolicyEngine({
+    qortalReleaseSource: qortal.source,
+    readSettings: async () => settings('off', 'off', 1, 'install'),
+    resolveManager: () => fixture.manager as never,
+    resolveQortalManager: () => qortal.manager as never,
+  })
+  const activity = await engine.runPass()
+  assert.equal(activity.qortal.state, 'pending-safe-state')
+  assert.equal(qortal.calls.update, 0)
 }
 
 {

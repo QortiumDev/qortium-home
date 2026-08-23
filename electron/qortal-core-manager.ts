@@ -145,6 +145,10 @@ export type QortalInstallResult = QortalManagerBlockedResult |
 export type QortalUpdateResult = QortalManagerBlockedResult |
   QortalManagerFailureFor<'update'> |
   QortalManagerCompletedWithWarningFor<'update'> | QortalUpdatedResult;
+export type HomeV2AutomaticQortalUpdateRequest = Readonly<{
+  activationLease: () => Promise<void | (() => void)>;
+  preDownloadGuard: () => Promise<void>;
+}>;
 export type QortalStartResult = QortalManagerBlockedResult |
   QortalManagerFailureFor<'start'> | QortalManagerCompletedWithWarningFor<'start'> |
   QortalStartedResult | QortalStartUnconfirmedResult;
@@ -573,12 +577,24 @@ export class QortalCoreManager {
     }
   }
 
-  async update(value: unknown): Promise<QortalUpdateResult> {
+  async updateAutomaticallyForHomeV2(
+    value: unknown,
+    request: HomeV2AutomaticQortalUpdateRequest,
+  ): Promise<QortalUpdateResult> {
+    return await this.update(value, request);
+  }
+
+  async update(
+    value: unknown,
+    automaticRequest?: HomeV2AutomaticQortalUpdateRequest,
+  ): Promise<QortalUpdateResult> {
     const release = this.release(value);
     if ('kind' in release) return release;
     let completed: QortalManagerOutcomeByAction['update'] | null = null;
     let staged: Staged | null = null;
     let record: QortalManagedInstallRecordV1 | null = null;
+    let releaseActivation: (() => void) | undefined;
+    let automaticFailure: unknown;
     try {
       const initialInstall = await this.operations.inspectInstall(this.config.paths);
       const installGuard = installBlock(initialInstall, 'home-managed');
@@ -598,7 +614,19 @@ export class QortalCoreManager {
       }
       const comparison = compareCoreVersions(release.tagName, initialInstall.record.jarIdentity.semver);
       if (comparison === null || comparison <= 0) return blocked('release-not-newer', 'A Home-managed update must be strictly newer.');
+      try {
+        await automaticRequest?.preDownloadGuard();
+      } catch (cause) {
+        automaticFailure = cause;
+        throw cause;
+      }
       staged = await this.stage(release);
+      try {
+        releaseActivation = (await automaticRequest?.activationLease()) || undefined;
+      } catch (cause) {
+        automaticFailure = cause;
+        throw cause;
+      }
       const result = await this.operations.withOperationLock({ lockRoot: this.config.lockRoot, networkId: 'qortal',
         op: 'github-update', targetPath: this.config.paths.jarPath }, async () => {
         let guard = await this.installBarrier('home-managed', targetBefore, staged!);
@@ -633,9 +661,12 @@ export class QortalCoreManager {
       });
       return result;
     } catch (cause) {
+      if (cause === automaticFailure) throw cause;
       if (includesCommittedCleanup(cause) && record) return completedWarning('update', { kind: 'updated', record }, cause);
       if (cause instanceof CoreOperationLockReleaseError && completed) return completedWarning('update', completed, cause);
       return { action: 'update', cause, kind: 'failed' };
+    } finally {
+      releaseActivation?.();
     }
   }
 

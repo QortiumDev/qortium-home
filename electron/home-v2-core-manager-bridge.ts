@@ -51,6 +51,11 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
       if (manager.networkId !== 'qortium') throw new Error('Qortium Core manager is unavailable.')
       return manager
     },
+    resolveQortalManager() {
+      const manager = requireCoreManagerEntry('qortal')
+      if (manager.networkId !== 'qortal') throw new Error('Qortal Core manager is unavailable.')
+      return manager
+    },
   })
   const scheduler = createHomeV2CoreUpdatePolicyScheduler(() => engine.runPass())
   ipcMain.handle('home-v2-core-manager:getStatus', handlers.getStatus)

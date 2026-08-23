@@ -228,6 +228,56 @@ function manager(
 }
 
 {
+  let staged = false;
+  let locked = false;
+  const revoked = new Error('policy revoked before download');
+  await assert.rejects(manager({
+    stageCandidate: async () => { staged = true; throw new Error('must not stage'); },
+    withOperationLock: async () => { locked = true; throw new Error('must not lock'); },
+  }, true).updateAutomaticallyForHomeV2('release', {
+    activationLease: async () => undefined,
+    preDownloadGuard: async () => { throw revoked; },
+  }), (error) => error === revoked);
+  assert.equal(staged, false);
+  assert.equal(locked, false);
+}
+
+{
+  const events: string[] = [];
+  const busy = new Error('operation busy at activation');
+  await assert.rejects(manager({
+    stageCandidate: async (input) => {
+      events.push('stage');
+      return { candidateJarPath: input.candidateJarPath, digest: UPDATE_RELEASE.asset.digest,
+        identity: UPDATE_IDENTITY, size: UPDATE_RELEASE.asset.size };
+    },
+    withOperationLock: async () => { events.push('lock'); throw new Error('must not lock'); },
+  }, true).updateAutomaticallyForHomeV2('release', {
+    activationLease: async () => { events.push('activation'); throw busy; },
+    preDownloadGuard: async () => { events.push('guard'); },
+  }), (error) => error === busy);
+  assert.deepEqual(events, ['guard', 'stage', 'activation']);
+}
+
+{
+  const events: string[] = [];
+  const result = await manager({
+    runInstallTransaction: async (input) => {
+      events.push('transaction');
+      return { kind: 'update', targetJarPath: input.targetJarPath };
+    },
+  }, true).updateAutomaticallyForHomeV2('release', {
+    activationLease: async () => {
+      events.push('activation');
+      return () => { events.push('release') };
+    },
+    preDownloadGuard: async () => { events.push('guard'); },
+  });
+  assert.equal(result.kind, 'updated');
+  assert.deepEqual(events, ['guard', 'activation', 'transaction', 'release']);
+}
+
+{
   let candidateReads = 0;
   const lockError = new Error('lock unavailable');
   const result = await manager({

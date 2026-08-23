@@ -34,7 +34,7 @@ async function readLegacyPolicy(): Promise<WritableHomeV2CoreUpdatePolicySetting
   } catch {
     // Notify is the safe missing-file default.
   }
-  return { coreUpdatePolicy: 'notify', javaUpdatePolicy }
+  return { coreUpdatePolicy: 'notify', javaUpdatePolicy, qortalUpdatePolicy: 'notify' }
 }
 
 const policyFile = createHomeV2CoreUpdatePolicyFile(

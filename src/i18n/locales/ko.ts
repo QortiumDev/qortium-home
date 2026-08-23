@@ -248,6 +248,7 @@ export const ko: Record<TranslationKey, string> = {
   "core.javaUpdateAvailableLabel": "Java update",
   "core.javaUpdatePendingRestart": "Java 업데이트 대기 중 — 다음 Core 재시작 시 적용됩니다",
   "core.javaUpdatePolicyLabel": "Java updates",
+  "core.qortalUpdatePolicyLabel": "Qortal Core updates",
   "core.nodeAutoUpdateHandledByCore": "{mode} — handled by Core",
   "core.nodeAutoUpdateLabel": "Node on-chain auto-update",
   "core.nodeAutoUpdateMode": "{mode}",

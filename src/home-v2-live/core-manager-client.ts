@@ -804,6 +804,7 @@ export function parseHomeV2CoreUpdatePolicyState(value: unknown): HomeV2CoreUpda
     'coreUpdatePolicy',
     'generation',
     'javaUpdatePolicy',
+    'qortalUpdatePolicy',
     'revision',
     'schema',
     'settingsIssue',
@@ -811,9 +812,10 @@ export function parseHomeV2CoreUpdatePolicyState(value: unknown): HomeV2CoreUpda
     !Number.isSafeInteger(value.generation) || (value.generation as number) < 0 ||
     !isPolicy(value.coreUpdatePolicy) ||
     !isPolicy(value.javaUpdatePolicy) ||
+    !isPolicy(value.qortalUpdatePolicy) ||
     !(value.settingsIssue === null || value.settingsIssue === 'settings-unavailable') ||
     !isRecord(value.activity) ||
-    !hasExactKeys(value.activity, ['checkedAt', 'core', 'generation', 'issue', 'java']) ||
+    !hasExactKeys(value.activity, ['checkedAt', 'core', 'generation', 'issue', 'java', 'qortal']) ||
     !Number.isSafeInteger(value.activity.generation) || value.activity.generation !== value.generation ||
     !isPolicyCheckedAt(value.activity.checkedAt) ||
     !(value.activity.issue === null || policyIssues.has(value.activity.issue as string)) ||
@@ -824,7 +826,10 @@ export function parseHomeV2CoreUpdatePolicyState(value: unknown): HomeV2CoreUpda
     !isBoundedPolicyVersion(value.activity.core.version) ||
     !isRecord(value.activity.java) || !hasExactKeys(value.activity.java, ['state', 'version']) ||
     !policyActivityStates.has(value.activity.java.state as string) ||
-    !isBoundedPolicyVersion(value.activity.java.version)) {
+    !isBoundedPolicyVersion(value.activity.java.version) ||
+    !isRecord(value.activity.qortal) || !hasExactKeys(value.activity.qortal, ['state', 'version']) ||
+    !policyActivityStates.has(value.activity.qortal.state as string) ||
+    !isBoundedPolicyVersion(value.activity.qortal.version)) {
     throw new Error('Invalid Home 2 Core update policy state.')
   }
   return Object.freeze({
@@ -834,10 +839,12 @@ export function parseHomeV2CoreUpdatePolicyState(value: unknown): HomeV2CoreUpda
       generation: value.activity.generation,
       issue: value.activity.issue,
       java: Object.freeze({ ...value.activity.java }),
+      qortal: Object.freeze({ ...value.activity.qortal }),
     }),
     coreUpdatePolicy: value.coreUpdatePolicy,
     generation: value.generation,
     javaUpdatePolicy: value.javaUpdatePolicy,
+    qortalUpdatePolicy: value.qortalUpdatePolicy,
     revision: 1,
     schema: 'home-v2-core-update-policy',
     settingsIssue: value.settingsIssue,
@@ -870,7 +877,7 @@ export interface HomeV2CoreManagerClient {
   getUpdatePolicy(): Promise<HomeV2CoreUpdatePolicyState>
   setUpdatePolicy(
     expectedGeneration: number,
-    field: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    field: 'coreUpdatePolicy' | 'javaUpdatePolicy' | 'qortalUpdatePolicy',
     value: HomeV2CoreUpdatePolicy,
   ): Promise<HomeV2CoreUpdatePolicySetResult>
   getStatus(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerStatus>

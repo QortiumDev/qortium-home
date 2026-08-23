@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -212,6 +212,16 @@ try {
     }, null, 2)}\n`,
     { encoding: 'utf8', mode: 0o600 },
   )
+  const corePolicyDirectory = path.join(profileDirectory, 'home-v2-core-maintenance')
+  const corePolicyPath = path.join(corePolicyDirectory, 'update-policy.json')
+  mkdirSync(corePolicyDirectory, { mode: 0o700 })
+  writeFileSync(corePolicyPath, `${JSON.stringify({
+    coreUpdatePolicy: 'off',
+    generation: 4,
+    javaUpdatePolicy: 'notify',
+    schema: 'qortium-home-v2-core-update-policy',
+    version: 1,
+  }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
   const port = await getFreePort()
   const useXvfb = !process.env.DISPLAY && existsSync('/usr/bin/xvfb-run')
   appProcess = createManagedProcess(
@@ -527,18 +537,52 @@ try {
           const update = document.querySelector('[data-home-v2-app-updates="desktop"]');
           const check = [...(panel?.querySelectorAll('button') ?? [])]
             .find((button) => button.textContent.trim() === 'Check release');
-          return panel && update && check && panel.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
-              !panel.querySelector('select') &&
+          const qortalPolicy = panel?.querySelector('[data-home-v2-qortal-update-policy]');
+          return panel && update && check && qortalPolicy &&
+              panel.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              panel.querySelectorAll('select').length === 1 &&
               typeof window.homeV2CoreManagers?.getMaintenanceStatus === 'function' &&
               typeof window.homeV2CoreManagers?.getUpdatePolicy === 'function' &&
               typeof window.homeV2CoreManagers?.setUpdatePolicy === 'function'
-            ? { heading: panel.querySelector('h3')?.textContent, text: panel.textContent }
+            ? window.homeV2CoreManagers.getUpdatePolicy().then((policy) => ({
+                heading: panel.querySelector('h3')?.textContent,
+                policy,
+                qortalPolicy: qortalPolicy.value,
+                text: panel.textContent,
+              }))
             : null;
         })()`,
       ),
     )
     assert.equal(maintenancePanel.heading, 'Qortium Core maintenance')
-    assert.doesNotMatch(maintenancePanel.text, /Qortal.*(?:install|update)|policy|i2pd|transport/i)
+    assert.equal(maintenancePanel.qortalPolicy, 'notify')
+    assert.equal(maintenancePanel.policy.coreUpdatePolicy, 'off')
+    assert.equal(maintenancePanel.policy.generation, 4)
+    assert.equal(maintenancePanel.policy.javaUpdatePolicy, 'notify')
+    assert.equal(maintenancePanel.policy.qortalUpdatePolicy, 'notify')
+    assert.match(maintenancePanel.text, /Qortal Core updates/)
+    assert.doesNotMatch(maintenancePanel.text, /i2pd|transport/i)
+    assert.deepEqual(JSON.parse(readFileSync(corePolicyPath, 'utf8')), {
+      coreUpdatePolicy: 'off',
+      generation: 4,
+      javaUpdatePolicy: 'notify',
+      qortalUpdatePolicy: 'notify',
+      schema: 'qortium-home-v2-core-update-policy',
+      version: 2,
+    })
+    assert.equal(statSync(corePolicyPath).mode & 0o777, 0o600)
+    await evaluate(
+      client,
+      `(() => {
+        const policy = document.querySelector('[data-home-v2-qortal-update-policy]');
+        policy.value = 'off';
+        policy.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`,
+    )
+    await waitUntil('persisted Qortal update policy', () => {
+      const stored = JSON.parse(readFileSync(corePolicyPath, 'utf8'))
+      return stored.generation === 5 && stored.qortalUpdatePolicy === 'off'
+    })
     const transportMaintenancePanel = await waitUntil('Qortium transport maintenance settings', () =>
       evaluate(
         client,

@@ -248,6 +248,7 @@ export const it: Record<TranslationKey, string> = {
   "core.javaUpdateAvailableLabel": "Java update",
   "core.javaUpdatePendingRestart": "Aggiornamento Java in sospeso — verrà applicato al prossimo riavvio di Core",
   "core.javaUpdatePolicyLabel": "Java updates",
+  "core.qortalUpdatePolicyLabel": "Qortal Core updates",
   "core.nodeAutoUpdateHandledByCore": "{mode} — handled by Core",
   "core.nodeAutoUpdateLabel": "Node on-chain auto-update",
   "core.nodeAutoUpdateMode": "{mode}",
