@@ -34,6 +34,23 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - feat(android): restore Home 2 approved Core updates
+
+Home 2 on Android can once again check and request a Qortium Core update that
+the configured node reports as approved on-chain. The control lives in Runtime
+settings and works only with an explicitly configured Qortium custom node and
+API key; public nodes, Qortal nodes, missing credentials, and remote plaintext
+HTTP remain unavailable for this action. The key is encrypted through Android
+Keystore, bound to the selected node origin, omitted from Home and QDN app
+snapshots, and never grants embedded apps an administrative capability.
+
+Before requesting installation, Home refreshes the selected node's update
+status, leaves an existing download or installation alone, refuses redirected
+admin requests, and aborts if the saved node or key changes between the check
+and mutation. The existing Android Home APK check, verified download, and
+Package Installer handoff remain unchanged; unattended APK download remains
+disabled and is still downgraded to Notify.
+
 ### 2026-08-23 - feat(collections): migrate saved Home links into Home 2
 
 Home 2 now carries forward the user's bookmarks tree, bookmark toolbar,

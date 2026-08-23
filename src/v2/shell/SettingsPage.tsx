@@ -22,6 +22,8 @@ import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import { QdnAppsSettings } from './QdnAppsSettings'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
+import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
+import { OnChainCoreUpdateSettings } from './OnChainCoreUpdateSettings'
 
 export type HomeV2SettingsSectionId =
   | 'general'
@@ -48,6 +50,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly newTabPreference: NewTabPreference
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
+  readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly requestedSection?: HomeV2SettingsSectionTarget
@@ -233,7 +236,9 @@ function GeneralSettings({
 
 export function SettingsPage(props: SettingsPageProps) {
   const coreAvailable =
-    !!props.coreManagement?.available || !!props.appUpdates?.available
+    !!props.coreManagement?.available ||
+    !!props.appUpdates?.available ||
+    !!props.onChainCoreUpdates?.available
   const qdnAppsAvailable =
     !!props.qdnAppsManagement?.available && !!props.qdnAppsManagement.client
   const accountAvailable = props.account.state !== 'none'
@@ -306,7 +311,9 @@ export function SettingsPage(props: SettingsPageProps) {
               onRestartWelcome={props.onRestartWelcome}
             />
           ) : activeSection === 'core' &&
-            (props.coreManagement?.available || props.appUpdates?.available) ? (
+            (props.coreManagement?.available ||
+              props.appUpdates?.available ||
+              props.onChainCoreUpdates?.available) ? (
             <div className="home-v2-runtime-settings">
               {props.coreManagement?.available ? (
                 <section
@@ -322,6 +329,9 @@ export function SettingsPage(props: SettingsPageProps) {
                   <TransportMaintenancePanel management={props.coreManagement} />
                   <QortalMaintenancePanel management={props.coreManagement} />
                 </section>
+              ) : null}
+              {props.onChainCoreUpdates?.available ? (
+                <OnChainCoreUpdateSettings updates={props.onChainCoreUpdates} />
               ) : null}
               {props.appUpdates?.available ? (
                 <HomeUpdateSettings

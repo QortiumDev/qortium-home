@@ -72,7 +72,28 @@ export interface HomeV2NodeClient {
     request: HomeV2IdentityReadRequest,
   ): Promise<HomeV2IdentityReadResponse>
   setMode(network: NetworkId, mode: NodeConnectionMode): Promise<unknown>
-  setCustomUrl(network: NetworkId, customUrl: string): Promise<unknown>
+  setCustomUrl(
+    network: NetworkId,
+    customUrl: string,
+    apiKey?: string,
+  ): Promise<unknown>
+  checkCoreUpdate?(): Promise<HomeV2CoreOnChainUpdateStatus>
+  installCoreUpdate?(): Promise<HomeV2CoreOnChainUpdateStatus>
+}
+
+export interface HomeV2CoreOnChainUpdateStatus {
+  readonly autoUpdateMode?: string
+  readonly binaryResourcePercentLoaded?: number | null
+  readonly binaryResourceStatus?: string | null
+  readonly commitHash?: string | null
+  readonly currentBuildTimestamp?: number
+  readonly downloadStarted?: boolean
+  readonly installStarted?: boolean
+  readonly installing?: boolean
+  readonly message?: string | null
+  readonly nextRetryTimestamp?: number | null
+  readonly status?: string | null
+  readonly updateAvailable?: boolean
 }
 
 export interface HomeV2AppResourceCandidate {
@@ -96,17 +117,23 @@ export interface HomeV2IdentityReadResponse {
 }
 
 interface PortableNodeSettings {
+  apiKey: string
   customUrl: string
   mode: NodeConnectionMode
 }
 
 export interface PortableNodeClientDependencies {
   getPreference(key: string): Promise<string | null>
+  getSecret(key: string): Promise<string | null>
+  removeSecret(key: string): Promise<void>
   setPreference(key: string, value: string): Promise<void>
+  setSecret(key: string, value: string): Promise<void>
   requestJson(
     url: string,
-    method?: 'GET' | 'HEAD',
+    method?: 'GET' | 'HEAD' | 'POST',
     timeoutMs?: number,
+    headers?: Readonly<Record<string, string>>,
+    disableRedirects?: boolean,
   ): Promise<{
     data: unknown
     headers?: Readonly<Record<string, string>>
@@ -141,6 +168,10 @@ const WALLET_STORE_KEY = 'qortium-home-wallet-store'
 const SHELL_STATE_KEY = 'home-v2-live-shell-state'
 const APP_RESOURCE_LIMIT = 50
 const APP_READ_TIMEOUT_MS = 30_000
+const CORE_UPDATE_TIMEOUT_MS = 30_000
+const CORE_UPDATE_STATUS_MAX_BYTES = 128 * 1024
+const API_KEY_MAX_LENGTH = 512
+const QORTIUM_CORE_API_KEY_SECRET = 'home-v2-qortium-node-api-key-v1'
 const RESOURCE_SAVE_MAX_BYTES = 100 * 1024 * 1024
 
 function sanitizePortableResourceFilename(value: unknown, fallback: string) {
@@ -409,8 +440,17 @@ function settingsKey(network: NetworkId) {
   return `${SETTINGS_PREFIX}${network}`
 }
 
+function normalizePortableNodeApiKey(value: unknown) {
+  if (typeof value !== 'string') return ''
+  const apiKey = value.trim()
+  if (apiKey.length > API_KEY_MAX_LENGTH || /[\u0000-\u001f\u007f]/.test(apiKey)) {
+    throw new Error('The node API key is invalid.')
+  }
+  return apiKey
+}
+
 function parseSettings(value: string | null): PortableNodeSettings {
-  if (!value) return { customUrl: '', mode: 'public' }
+  if (!value) return { apiKey: '', customUrl: '', mode: 'public' }
   try {
     const parsed: unknown = JSON.parse(value)
     if (!isRecord(parsed)) throw new Error()
@@ -425,12 +465,105 @@ function parseSettings(value: string | null): PortableNodeSettings {
       mode === 'public' ||
       mode === 'custom'
     ) {
-      return { customUrl, mode }
+      return { apiKey: '', customUrl, mode }
     }
   } catch {
     // Invalid preview-only preferences fall back to Public without mutation.
   }
-  return { customUrl: '', mode: 'public' }
+  return { apiKey: '', customUrl: '', mode: 'public' }
+}
+
+export function parseHomeV2CoreOnChainUpdateStatus(
+  value: unknown,
+): HomeV2CoreOnChainUpdateStatus {
+  let parsed = value
+  if (typeof parsed === 'string') {
+    if (new TextEncoder().encode(parsed).byteLength > CORE_UPDATE_STATUS_MAX_BYTES) {
+      throw new Error('The Core update response was too large.')
+    }
+    try {
+      parsed = parsed.trim() ? JSON.parse(parsed) as unknown : {}
+    } catch {
+      throw new Error('The Core update response was invalid.')
+    }
+  }
+  if (!isRecord(parsed)) throw new Error('The Core update response was invalid.')
+  let encoded: string
+  try {
+    encoded = JSON.stringify(parsed)
+  } catch {
+    throw new Error('The Core update response was invalid.')
+  }
+  if (new TextEncoder().encode(encoded).byteLength > CORE_UPDATE_STATUS_MAX_BYTES) {
+    throw new Error('The Core update response was too large.')
+  }
+  const result: HomeV2CoreOnChainUpdateStatus = {}
+  const copyBoolean = (key: 'downloadStarted' | 'installStarted' | 'installing' | 'updateAvailable') => {
+    if (parsed[key] === undefined) return
+    if (typeof parsed[key] !== 'boolean') {
+      throw new Error('The Core update response was invalid.')
+    }
+    ;(result as Record<string, unknown>)[key] = parsed[key]
+  }
+  const copyString = (
+    key: 'autoUpdateMode' | 'binaryResourceStatus' | 'commitHash' | 'message' | 'status',
+    maxLength: number,
+    nullable = true,
+  ) => {
+    const field = parsed[key]
+    if (field === undefined) return
+    if (field === null && nullable) {
+      ;(result as Record<string, unknown>)[key] = null
+      return
+    }
+    if (typeof field !== 'string' || field.length > maxLength) {
+      throw new Error('The Core update response was invalid.')
+    }
+    ;(result as Record<string, unknown>)[key] = field
+  }
+  const copyNumber = (
+    key: 'binaryResourcePercentLoaded' | 'nextRetryTimestamp',
+    minimum: number,
+    maximum = Number.MAX_SAFE_INTEGER,
+  ) => {
+    const field = parsed[key]
+    if (field === undefined) return
+    if (field === null) {
+      ;(result as Record<string, unknown>)[key] = null
+      return
+    }
+    if (
+      typeof field !== 'number' ||
+      !Number.isFinite(field) ||
+      field < minimum ||
+      field > maximum
+    ) throw new Error('The Core update response was invalid.')
+    ;(result as Record<string, unknown>)[key] = field
+  }
+  copyBoolean('downloadStarted')
+  copyBoolean('installStarted')
+  copyBoolean('installing')
+  copyBoolean('updateAvailable')
+  if (typeof result.updateAvailable !== 'boolean') {
+    throw new Error('The Core update response was invalid.')
+  }
+  copyString('autoUpdateMode', 64, false)
+  copyString('binaryResourceStatus', 128)
+  copyString('commitHash', 256)
+  copyString('message', 2_048)
+  copyString('status', 128)
+  copyNumber('binaryResourcePercentLoaded', 0, 100)
+  copyNumber('nextRetryTimestamp', 0)
+  const currentBuildTimestamp = parsed.currentBuildTimestamp
+  if (currentBuildTimestamp !== undefined) {
+    if (
+      typeof currentBuildTimestamp !== 'number' ||
+      !Number.isFinite(currentBuildTimestamp) ||
+      currentBuildTimestamp < 0
+    ) throw new Error('The Core update response was invalid.')
+    ;(result as Record<string, unknown>).currentBuildTimestamp = currentBuildTimestamp
+  }
+  return Object.freeze(result)
 }
 
 function endpointHost(url: string) {
@@ -456,7 +589,8 @@ function emptySummary(
     state: 'offline',
     statusText: disabled ? 'Disabled' : settings.mode === 'local' ? 'Not available' : 'Unavailable',
     isTrusted: settings.mode === 'local',
-    customAuthenticated: false,
+    customAuthenticated:
+      network === 'qortium' && settings.mode === 'custom' && !!settings.apiKey,
     customConfigured: !!settings.customUrl,
     customUrl: settings.customUrl || null,
     localCoreState: 'unsupported',
@@ -485,13 +619,43 @@ export function createPortableNodeClient(
   const recentReadableNodes: Partial<
     Record<NetworkId, { nodeApiUrl: string; status: unknown; verifiedAt: number }>
   > = {}
+  let coreUpdateInstallInFlight: Promise<HomeV2CoreOnChainUpdateStatus> | null = null
 
   async function readSettings(network: NetworkId) {
-    return parseSettings(await dependencies.getPreference(settingsKey(network)))
+    const settings = parseSettings(await dependencies.getPreference(settingsKey(network)))
+    if (network !== 'qortium' || !settings.customUrl) return settings
+    const protectedValue = await dependencies.getSecret(QORTIUM_CORE_API_KEY_SECRET)
+    if (!protectedValue) return settings
+    try {
+      const parsed: unknown = JSON.parse(protectedValue)
+      if (
+        !isRecord(parsed) ||
+        parsed.version !== 1 ||
+        parsed.nodeApiUrl !== settings.customUrl
+      ) return settings
+      return { ...settings, apiKey: normalizePortableNodeApiKey(parsed.apiKey) }
+    } catch {
+      return settings
+    }
   }
 
   async function writeSettings(network: NetworkId, settings: PortableNodeSettings) {
-    await dependencies.setPreference(settingsKey(network), JSON.stringify(settings))
+    if (network === 'qortium') {
+      // Remove first so an interrupted host/key change fails closed. The
+      // protected record is bound to its origin and is never put in Preferences.
+      await dependencies.removeSecret(QORTIUM_CORE_API_KEY_SECRET)
+    }
+    await dependencies.setPreference(settingsKey(network), JSON.stringify({
+      customUrl: settings.customUrl,
+      mode: settings.mode,
+    }))
+    if (network === 'qortium' && settings.apiKey && settings.customUrl) {
+      await dependencies.setSecret(QORTIUM_CORE_API_KEY_SECRET, JSON.stringify({
+        apiKey: settings.apiKey,
+        nodeApiUrl: settings.customUrl,
+        version: 1,
+      }))
+    }
   }
 
   async function probe(network: NetworkId, nodeApiUrl: string): Promise<ProbeResult | null> {
@@ -591,7 +755,13 @@ export function createPortableNodeClient(
         numberField(status, 'peerCount'),
       syncPercent: numberField(status, 'syncPercent'),
       syncPhase: stringField(status, 'syncPhase'),
-      capabilities: { admin: false, read: true, write: false },
+      capabilities: {
+        // The credential belongs to this shell-only adapter. Never advertise
+        // admin capability to embedded QDN apps through their route snapshot.
+        admin: false,
+        read: true,
+        write: false,
+      },
     }
   }
 
@@ -624,7 +794,89 @@ export function createPortableNodeClient(
     return { nodeApiUrl, settings }
   }
 
+  async function getCoreUpdateContext() {
+    const settings = await readSettings('qortium')
+    if (settings.mode !== 'custom' || !settings.customUrl) {
+      throw new Error('Use an authenticated custom Qortium node to manage approved Core updates.')
+    }
+    if (!settings.apiKey) {
+      throw new Error('Save the custom Qortium node API key to manage approved Core updates.')
+    }
+    return { apiKey: settings.apiKey, nodeApiUrl: settings.customUrl }
+  }
+
+  async function assertCoreUpdateContextCurrent(context: {
+    readonly apiKey: string
+    readonly nodeApiUrl: string
+  }) {
+    const current = await getCoreUpdateContext()
+    if (
+      current.nodeApiUrl !== context.nodeApiUrl ||
+      current.apiKey !== context.apiKey
+    ) {
+      throw new Error('The custom Qortium node changed before the Core update request.')
+    }
+  }
+
+  async function requestCoreUpdate(
+    context: { readonly apiKey: string; readonly nodeApiUrl: string },
+    method: 'GET' | 'POST',
+  ): Promise<HomeV2CoreOnChainUpdateStatus> {
+    const response = await dependencies.requestJson(
+      `${context.nodeApiUrl}/admin/update`,
+      method,
+      CORE_UPDATE_TIMEOUT_MS,
+      {
+        Accept: 'application/json',
+        'X-API-KEY': context.apiKey,
+      },
+      true,
+    )
+    if (!response.ok) {
+      throw new Error(
+        method === 'POST'
+          ? `Core on-chain update install request failed with HTTP ${response.status}.`
+          : `Core on-chain update check failed with HTTP ${response.status}.`,
+      )
+    }
+    return parseHomeV2CoreOnChainUpdateStatus(response.data)
+  }
+
+  async function installCoreUpdate() {
+    if (coreUpdateInstallInFlight) return coreUpdateInstallInFlight
+    const operation = (async () => {
+      const context = await getCoreUpdateContext()
+      const status = await requestCoreUpdate(context, 'GET')
+      const statusCode = status.status?.toUpperCase() ?? ''
+      const resourceStatus = status.binaryResourceStatus?.toUpperCase() ?? ''
+      if (
+        !status.updateAvailable ||
+        status.autoUpdateMode?.toUpperCase() === 'INSTALL' ||
+        status.downloadStarted ||
+        status.installStarted ||
+        status.installing ||
+        statusCode === 'DOWNLOAD_STARTED' ||
+        statusCode === 'INSTALL_IN_PROGRESS' ||
+        (status.nextRetryTimestamp !== undefined && status.nextRetryTimestamp !== null) ||
+        resourceStatus === 'BUILDING' ||
+        resourceStatus === 'DOWNLOADING'
+      ) return status
+      await assertCoreUpdateContextCurrent(context)
+      return requestCoreUpdate(context, 'POST')
+    })()
+    coreUpdateInstallInFlight = operation
+    try {
+      return await operation
+    } finally {
+      if (coreUpdateInstallInFlight === operation) coreUpdateInstallInFlight = null
+    }
+  }
+
   return {
+    checkCoreUpdate: async () => {
+      const context = await getCoreUpdateContext()
+      return requestCoreUpdate(context, 'GET')
+    },
     getSnapshot,
     async getShellState() {
       const value = await dependencies.getPreference(SHELL_STATE_KEY)
@@ -1050,11 +1302,21 @@ export function createPortableNodeClient(
       await writeSettings(network, { ...settings, mode })
       return getSnapshot()
     },
-    async setCustomUrl(network, customUrl) {
+    installCoreUpdate,
+    async setCustomUrl(network, customUrl, apiKey) {
       const settings = await readSettings(network)
+      const normalizedUrl = normalizePortableNodeUrl(customUrl)
+      const nextApiKey = network === 'qortium'
+        ? apiKey === undefined
+          ? settings.customUrl === normalizedUrl
+            ? settings.apiKey
+            : ''
+          : normalizePortableNodeApiKey(apiKey)
+        : ''
       await writeSettings(network, {
         ...settings,
-        customUrl: normalizePortableNodeUrl(customUrl),
+        apiKey: nextApiKey,
+        customUrl: normalizedUrl,
         mode: 'custom',
       })
       return getSnapshot()
