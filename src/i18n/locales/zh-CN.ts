@@ -248,6 +248,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "core.javaUpdateAvailableLabel": "Java update",
   "core.javaUpdatePendingRestart": "Java 更新待处理 — 将在下次重启 Core 时应用",
   "core.javaUpdatePolicyLabel": "Java updates",
+  "core.qortalUpdatePolicyLabel": "Qortal Core updates",
   "core.nodeAutoUpdateHandledByCore": "{mode} — handled by Core",
   "core.nodeAutoUpdateLabel": "Node on-chain auto-update",
   "core.nodeAutoUpdateMode": "{mode}",

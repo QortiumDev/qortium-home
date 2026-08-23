@@ -15,6 +15,7 @@ export type HomeV2CoreUpdatePolicyState = Readonly<{
   coreUpdatePolicy: HomeV2CoreUpdatePolicy
   generation: number
   javaUpdatePolicy: HomeV2CoreUpdatePolicy
+  qortalUpdatePolicy: HomeV2CoreUpdatePolicy
   revision: 1
   schema: 'home-v2-core-update-policy'
   settingsIssue: 'settings-unavailable' | null
@@ -59,13 +60,14 @@ function parseSet(value: unknown) {
   if (!exact(value, ['expectedGeneration', 'field', 'revision', 'schema', 'value']) ||
     value.schema !== 'home-v2-core-update-policy-set-request' || value.revision !== 1 ||
     !Number.isSafeInteger(value.expectedGeneration) || (value.expectedGeneration as number) < 0 ||
-    (value.field !== 'coreUpdatePolicy' && value.field !== 'javaUpdatePolicy') ||
+    (value.field !== 'coreUpdatePolicy' && value.field !== 'javaUpdatePolicy' &&
+      value.field !== 'qortalUpdatePolicy') ||
     (value.value !== 'off' && value.value !== 'notify' && value.value !== 'install')) {
     throw new Error('An exact Core update policy change is required.')
   }
   return {
     expectedGeneration: value.expectedGeneration as number,
-    field: value.field as 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    field: value.field as 'coreUpdatePolicy' | 'javaUpdatePolicy' | 'qortalUpdatePolicy',
     value: value.value as HomeV2CoreUpdatePolicy,
   }
 }
@@ -82,6 +84,7 @@ function response(
     coreUpdatePolicy: settings.coreUpdatePolicy,
     generation: settings.generation,
     javaUpdatePolicy: settings.javaUpdatePolicy,
+    qortalUpdatePolicy: settings.qortalUpdatePolicy,
     revision: 1,
     schema: 'home-v2-core-update-policy',
     settingsIssue: settings.storageIssue ? 'settings-unavailable' : null,
@@ -128,6 +131,9 @@ export function createHomeV2CoreUpdatePolicyService(dependencies: Dependencies) 
           javaUpdatePolicy: request.field === 'javaUpdatePolicy'
             ? request.value
             : current.javaUpdatePolicy,
+          qortalUpdatePolicy: request.field === 'qortalUpdatePolicy'
+            ? request.value
+            : current.qortalUpdatePolicy,
         })
         dependencies.trigger()
         return setResult('saved', response(settings, dependencies.getActivity()))

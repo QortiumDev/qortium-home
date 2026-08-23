@@ -34,6 +34,24 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 automatic Qortal updates
+
+Home 2's existing desktop Core update settings now include a separate Qortal
+Core policy. Off performs no scheduled Qortal checks. Notify reports a newer
+stable release without changing files. Install can apply only a strictly newer,
+verified release to a stopped Qortal installation that Home created and whose
+settings still prove that Home owns GitHub-based replacement. Existing policy
+files migrate without losing the user's Qortium Core or Java choices.
+
+Adopted installations, Qortal's native updater, missing installs, and uncertain
+ownership remain non-mutating and do not cause a scheduled GitHub release
+request. A policy or lifecycle change revokes automatic work before download
+and again before activation; Home holds the shared Qortal operation lease while
+the manager repeats its stopped-state, ownership, target, candidate, and
+external-runtime checks around the filesystem transaction. Android receives no
+Core maintenance surface, and this trusted desktop setting adds no public QDN
+app action or QAVS platform-version change.
+
 ### 2026-08-22 - feat(core): add Home 2 Qortal adoption selection
 
 Home 2 can now discover existing Qortal installations on demand and let the

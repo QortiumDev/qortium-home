@@ -23,7 +23,8 @@ let currentStatus: HomeV2CoreMaintenanceStatus = status
 const actions: string[] = []
 function policyState(
   generation: number,
-  values: Partial<Pick<HomeV2CoreUpdatePolicyState, 'coreUpdatePolicy' | 'javaUpdatePolicy'>> = {},
+  values: Partial<Pick<HomeV2CoreUpdatePolicyState,
+    'coreUpdatePolicy' | 'javaUpdatePolicy' | 'qortalUpdatePolicy'>> = {},
 ): HomeV2CoreUpdatePolicyState {
   return {
   activity: {
@@ -32,10 +33,12 @@ function policyState(
     generation,
     issue: null,
     java: { state: 'idle', version: null },
+    qortal: { state: 'idle', version: null },
   },
   coreUpdatePolicy: values.coreUpdatePolicy ?? 'notify',
   generation,
   javaUpdatePolicy: values.javaUpdatePolicy ?? 'notify',
+  qortalUpdatePolicy: values.qortalUpdatePolicy ?? 'notify',
   revision: 1,
   schema: 'home-v2-core-update-policy',
   settingsIssue: null,
@@ -66,6 +69,7 @@ const client: HomeV2CoreManagerClient = {
       currentPolicy = policyState(currentPolicy.generation + 1, {
         coreUpdatePolicy: currentPolicy.coreUpdatePolicy,
         javaUpdatePolicy: currentPolicy.javaUpdatePolicy,
+        qortalUpdatePolicy: currentPolicy.qortalUpdatePolicy,
       })
       return {
         outcome: 'conflict', revision: 1,
@@ -76,6 +80,7 @@ const client: HomeV2CoreManagerClient = {
     currentPolicy = policyState(currentPolicy.generation + 1, {
       coreUpdatePolicy: field === 'coreUpdatePolicy' ? value : currentPolicy.coreUpdatePolicy,
       javaUpdatePolicy: field === 'javaUpdatePolicy' ? value : currentPolicy.javaUpdatePolicy,
+      qortalUpdatePolicy: field === 'qortalUpdatePolicy' ? value : currentPolicy.qortalUpdatePolicy,
     })
     return {
       outcome: 'saved', revision: 1,
@@ -133,7 +138,8 @@ try {
   })
   assert.match(container.textContent ?? '', /Qortium Core maintenance/)
   assert.match(container.textContent ?? '', /Not installed/)
-  assert.equal(container.querySelector('select'), null)
+  assert.equal(container.querySelectorAll('select').length, 1)
+  assert(container.querySelector('[data-home-v2-qortal-update-policy]'))
   assert.ok(button('Install Java'))
 
   await act(async () => { button('Check release').click(); await Promise.resolve() })
@@ -159,8 +165,10 @@ try {
   })
   const corePolicy = container.querySelector('[data-home-v2-core-update-policy]') as HTMLSelectElement
   const javaPolicy = container.querySelector('[data-home-v2-java-update-policy]') as HTMLSelectElement
+  const qortalPolicy = container.querySelector('[data-home-v2-qortal-update-policy]') as HTMLSelectElement
   assert(corePolicy)
   assert(javaPolicy)
+  assert(qortalPolicy)
   await act(async () => {
     corePolicy.value = 'install'
     corePolicy.dispatchEvent(new Event('change', { bubbles: true }))
@@ -185,6 +193,14 @@ try {
     { expectedGeneration: 1, field: 'javaUpdatePolicy' },
     { expectedGeneration: 2, field: 'javaUpdatePolicy' },
   ])
+
+  await act(async () => {
+    qortalPolicy.value = 'install'
+    qortalPolicy.dispatchEvent(new Event('change', { bubbles: true }))
+    await Promise.resolve()
+  })
+  assert.equal(currentPolicy.qortalUpdatePolicy, 'install')
+  assert.equal(currentPolicy.generation, 4)
 
   let releaseBlockedWrite!: () => void
   blockedPolicyWrite = new Promise<void>((resolve) => { releaseBlockedWrite = resolve })
@@ -212,8 +228,8 @@ try {
     expectedGeneration,
     field,
   })), [
-    { expectedGeneration: 3, field: 'coreUpdatePolicy' },
-    { expectedGeneration: 4, field: 'javaUpdatePolicy' },
+    { expectedGeneration: 4, field: 'coreUpdatePolicy' },
+    { expectedGeneration: 5, field: 'javaUpdatePolicy' },
   ])
 
   act(() => root.unmount())

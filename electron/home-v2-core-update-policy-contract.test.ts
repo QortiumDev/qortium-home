@@ -9,6 +9,7 @@ let settings: HomeV2CoreUpdatePolicySettings = {
   coreUpdatePolicy: 'notify',
   generation: 2,
   javaUpdatePolicy: 'off',
+  qortalUpdatePolicy: 'notify',
   storageIssue: null,
 }
 let triggers = 0
@@ -18,6 +19,7 @@ const activity = {
   generation: 2,
   issue: null,
   java: { state: 'idle' as const, version: null },
+  qortal: { state: 'idle' as const, version: null },
 }
 const service = createHomeV2CoreUpdatePolicyService({
   getActivity: () => activity,
@@ -41,6 +43,7 @@ assert.deepEqual(Object.keys(initial).sort(), [
   'coreUpdatePolicy',
   'generation',
   'javaUpdatePolicy',
+  'qortalUpdatePolicy',
   'revision',
   'schema',
   'settingsIssue',
@@ -55,6 +58,7 @@ const changed = await service.set({
 assert.equal(changed.outcome, 'saved')
 assert.equal(changed.state.coreUpdatePolicy, 'install')
 assert.equal(changed.state.javaUpdatePolicy, 'off')
+assert.equal(changed.state.qortalUpdatePolicy, 'notify')
 assert.equal(changed.state.generation, 3)
 assert.equal(changed.state.activity.generation, 3)
 assert.equal(triggers, 1)

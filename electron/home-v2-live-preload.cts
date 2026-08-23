@@ -145,7 +145,7 @@ contextBridge.exposeInMainWorld('homeV2CoreManagers', {
     }),
   setUpdatePolicy: (
     expectedGeneration: number,
-    field: 'coreUpdatePolicy' | 'javaUpdatePolicy',
+    field: 'coreUpdatePolicy' | 'javaUpdatePolicy' | 'qortalUpdatePolicy',
     value: 'install' | 'notify' | 'off',
   ) => ipcRenderer.invoke('home-v2-core-manager:setUpdatePolicy', {
     expectedGeneration,
