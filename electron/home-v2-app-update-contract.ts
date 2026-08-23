@@ -92,6 +92,7 @@ type Dependencies = {
   readonly fetchRelease: (channel: HomeAppUpdateChannel) => Promise<TrustedHomeRelease | null>
   readonly getEnvironment: () => UpdateEnvironment
   readonly now?: () => Date
+  readonly openDownloadedFile: (filePath: string) => void | Promise<void>
   readonly openReleasePage: (url: string) => Promise<void>
   readonly readSettings: () => Promise<StoredHomeV2AppUpdateSettings>
   readonly revealDownloadedFile: (filePath: string) => void | Promise<void>
@@ -162,11 +163,14 @@ function normalizeReleaseRequest(
   return { channel, releaseTag, settingsGeneration: settingsGeneration as number | null } as const
 }
 
-function normalizeDownloadRequest(value: unknown) {
+function normalizeDownloadRequest(
+  value: unknown,
+  schema: 'home-v2-app-update-open-request' | 'home-v2-app-update-reveal-request',
+) {
   if (!exactRecord(value, ['downloadId', 'revision', 'schema'])) {
     throw new Error('An exact downloaded update request is required.')
   }
-  if (value.schema !== 'home-v2-app-update-reveal-request' || value.revision !== 1) {
+  if (value.schema !== schema || value.revision !== 1) {
     throw new Error('The app update request schema is unsupported.')
   }
   const downloadId = typeof value.downloadId === 'string' ? value.downloadId.trim() : ''
@@ -367,11 +371,25 @@ export function createHomeV2AppUpdateService(dependencies: Dependencies) {
       }
     },
     async reveal(value: unknown): Promise<HomeV2AppUpdateActionResult> {
-      const downloadId = normalizeDownloadRequest(value)
+      const downloadId = normalizeDownloadRequest(value, 'home-v2-app-update-reveal-request')
       const download = downloads.get(downloadId)
       if (!download) return actionResult('blocked', 'download-not-found')
+      if (!download.canReveal) return actionResult('blocked', 'unsupported-platform')
       try {
         await dependencies.revealDownloadedFile(download.filePath)
+        const { filePath: _filePath, ...redacted } = download
+        return actionResult('completed', null, redacted)
+      } catch {
+        return actionResult('failed', 'download-failed')
+      }
+    },
+    async open(value: unknown): Promise<HomeV2AppUpdateActionResult> {
+      const downloadId = normalizeDownloadRequest(value, 'home-v2-app-update-open-request')
+      const download = downloads.get(downloadId)
+      if (!download) return actionResult('blocked', 'download-not-found')
+      if (!download.canOpen) return actionResult('blocked', 'unsupported-platform')
+      try {
+        await dependencies.openDownloadedFile(download.filePath)
         const { filePath: _filePath, ...redacted } = download
         return actionResult('completed', null, redacted)
       } catch {
@@ -408,6 +426,10 @@ export function createAuthorizedHomeV2AppUpdateHandlers(
     download(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)
       return service.download(value)
+    },
+    open(event: IpcMainInvokeEvent, value: unknown) {
+      assertAuthorized(event)
+      return service.open(value)
     },
     reveal(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)

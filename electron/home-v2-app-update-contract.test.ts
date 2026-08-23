@@ -33,6 +33,7 @@ const releaseRequest = {
 }
 let fetchCount = 0
 let revealPath = ''
+let openPath = ''
 const service = createHomeV2AppUpdateService({
   downloadAsset: async ({ asset, releaseTag }) => {
     return {
@@ -54,6 +55,7 @@ const service = createHomeV2AppUpdateService({
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
   }),
   now: () => new Date('2026-08-22T12:00:00Z'),
+  openDownloadedFile: async (filePath) => { openPath = filePath },
   openReleasePage: async () => undefined,
   readSettings: async () => ({
     generation: 2,
@@ -98,6 +100,7 @@ const revocationService = createHomeV2AppUpdateService({
     currentVersion: '2.0.0',
     platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
   }),
+  openDownloadedFile: async () => undefined,
   openReleasePage: async () => undefined,
   readSettings: async () => {
     revocationReads += 1
@@ -119,13 +122,57 @@ const revealed = await service.reveal({
 })
 assert.equal(revealed.outcome, 'completed')
 assert.equal(revealPath, '/private/update.AppImage')
+const opened = await service.open({
+  downloadId: downloaded.download!.downloadId,
+  revision: 1,
+  schema: 'home-v2-app-update-open-request',
+})
+assert.equal(opened.outcome, 'completed')
+assert.equal(openPath, '/private/update.AppImage')
+
+let unsupportedHandoffCalls = 0
+const unsupportedHandoffService = createHomeV2AppUpdateService({
+  downloadAsset: async ({ asset, releaseTag }) => ({
+    canOpen: false,
+    canReveal: false,
+    digestVerified: true,
+    fileName: asset.name,
+    filePath: '/private/update.AppImage',
+    releaseTag,
+    size: asset.size,
+  }),
+  fetchRelease: async () => release,
+  getEnvironment: () => ({
+    currentVersion: '2.0.0',
+    platform: { arch: 'x64', label: 'Linux x64', os: 'linux', supported: true },
+  }),
+  openDownloadedFile: async () => { unsupportedHandoffCalls += 1 },
+  openReleasePage: async () => undefined,
+  readSettings: async () => ({
+    generation: 2,
+    homeUpdatePolicy: 'notify',
+    releaseChannel: 'stable',
+  }),
+  revealDownloadedFile: async () => { unsupportedHandoffCalls += 1 },
+  uuid: () => 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+})
+const unsupportedDownload = await unsupportedHandoffService.download(releaseRequest)
+for (const operation of ['open', 'reveal'] as const) {
+  const result = await unsupportedHandoffService[operation]({
+    downloadId: unsupportedDownload.download!.downloadId,
+    revision: 1,
+    schema: `home-v2-app-update-${operation}-request`,
+  })
+  assert.equal(result.code, 'unsupported-platform')
+}
+assert.equal(unsupportedHandoffCalls, 0)
 
 let authorized = false
 const handlers = createAuthorizedHomeV2AppUpdateHandlers(
   () => { authorized = true; throw new Error('unauthorized') },
   service,
 )
-for (const handler of [handlers.check, handlers.download, handlers.reveal, handlers.openReleasePage]) {
+for (const handler of [handlers.check, handlers.download, handlers.open, handlers.reveal, handlers.openReleasePage]) {
   authorized = false
   assert.throws(() => handler({} as never, { bad: true }), /unauthorized/)
   assert.equal(authorized, true, 'authorization must happen before parsing')

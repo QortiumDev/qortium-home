@@ -96,6 +96,7 @@ async function runScenario({
       }
     },
     getSettings: async () => hostSettings,
+    open: async () => ({ code: null, download: null, outcome: 'completed', revision: 1, schema: 'home-v2-app-update-action' }),
     openReleasePage: async () => ({ code: null, download: null, outcome: 'completed', revision: 1, schema: 'home-v2-app-update-action' }),
     reveal: async () => ({ code: null, download: null, outcome: 'completed', revision: 1, schema: 'home-v2-app-update-action' }),
     setSettings: async (expectedGeneration, settings) => {
@@ -157,6 +158,7 @@ window.homeV2AppUpdates = {
   }),
   download: async () => { throw new Error('Off must not download automatically.') },
   getSettings: async () => conflictSettings,
+  open: async () => ({ code: null, download: null, outcome: 'completed', revision: 1, schema: 'home-v2-app-update-action' }),
   openReleasePage: async () => ({ code: null, download: null, outcome: 'completed', revision: 1, schema: 'home-v2-app-update-action' }),
   reveal: async () => ({ code: null, download: null, outcome: 'completed', revision: 1, schema: 'home-v2-app-update-action' }),
   setSettings: async (expectedGeneration, settings) => {

@@ -79,6 +79,7 @@ export interface HomeV2AppUpdateClient {
     settingsGeneration?: number | null,
   ): Promise<unknown>
   getSettings(): Promise<unknown>
+  open(downloadId: string): Promise<unknown>
   openReleasePage(channel: HomeV2AppUpdateChannel, releaseTag: string): Promise<unknown>
   reveal(downloadId: string): Promise<unknown>
   setSettings(

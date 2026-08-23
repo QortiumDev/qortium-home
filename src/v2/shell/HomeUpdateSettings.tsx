@@ -25,7 +25,13 @@ function statusText(updates: HomeV2AppUpdates) {
   }
   return updates.message?.text ?? t('updates.checkReleasesFailed')
 }
-export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpdates }) {
+export function HomeUpdateSettings({
+  onOpenReleaseNotes,
+  updates,
+}: {
+  readonly onOpenReleaseNotes?: (tagName: string) => void
+  readonly updates: HomeV2AppUpdates
+}) {
   const result = updates.result
   const isAndroid = updates.isAndroid
   const busy = updates.busy !== null
@@ -128,7 +134,7 @@ export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpd
             {updates.busy === 'download' ? t('common.downloading') : t('updates.downloadUpdate')}
           </button>
         ) : null}
-        {updates.download ? (
+        {updates.download?.canOpen ? (
           <button
             className="home-v2-primary-button"
             data-home-v2-update-action="open"
@@ -136,7 +142,18 @@ export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpd
             type="button"
             onClick={() => void updates.openDownloaded()}
           >
-            {isAndroid ? t('updates.installApk') : t('updates.showFile')}
+            {isAndroid ? t('updates.installApk') : t('common.openFile')}
+          </button>
+        ) : null}
+        {!isAndroid && updates.download?.canReveal ? (
+          <button
+            className="home-v2-secondary-button"
+            data-home-v2-update-action="reveal"
+            disabled={busy}
+            type="button"
+            onClick={() => void updates.revealDownloaded()}
+          >
+            {t('updates.showFile')}
           </button>
         ) : null}
         {result?.release ? (
@@ -145,9 +162,11 @@ export function HomeUpdateSettings({ updates }: { readonly updates: HomeV2AppUpd
             data-home-v2-update-action="release"
             disabled={busy}
             type="button"
-            onClick={() => void updates.openReleasePage()}
+            onClick={() => onOpenReleaseNotes
+              ? onOpenReleaseNotes(result.release!.tagName)
+              : void updates.openReleasePage()}
           >
-            {t('common.latestGithub')}
+            {t('releaseNotes.open')}
           </button>
         ) : null}
       </div>

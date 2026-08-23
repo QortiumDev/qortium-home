@@ -22,6 +22,7 @@ const internalTabLabelKeys: Readonly<
   apps: 'home2.apps',
   dashboard: 'common.dashboard',
   newtab: 'home2.tabs.newTab',
+  releases: 'releaseNotes.open',
   settings: 'common.settings',
 }
 

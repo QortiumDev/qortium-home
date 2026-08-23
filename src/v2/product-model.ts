@@ -12,6 +12,7 @@ export type ShellDestination =
   | 'apps'
   | 'dashboard'
   | 'newtab'
+  | 'releases'
   | 'settings'
   | 'tab'
 
@@ -94,6 +95,7 @@ const destinations = new Set<ShellDestination>([
   'apps',
   'dashboard',
   'newtab',
+  'releases',
   'settings',
   'tab',
 ])
@@ -162,7 +164,10 @@ export function restoreProductState(value: unknown): ProductState {
       ? (value.activeTabId as TabId)
       : null
   return freezeProductState({
-    destination: destination === 'tab' && !activeTabId ? 'dashboard' : destination,
+    destination:
+      destination === 'releases' || (destination === 'tab' && !activeTabId)
+        ? 'dashboard'
+        : destination,
     tabs,
     activeTabId: destination === 'tab' ? activeTabId : null,
     revision: 0,

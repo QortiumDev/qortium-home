@@ -39,6 +39,7 @@ import { createProductState, reduceProductState } from '../v2/product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
   parseHomeV2InternalAddress,
+  parseHomeV2ReleaseNotesAddress,
   type NewTabPreference,
 } from '../v2/new-tab-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
@@ -48,6 +49,7 @@ import {
   type HomeV2ResourceViewerState,
 } from '../v2/shell/HomeV2ResourceViewer'
 import type { HomeV2AccountManageAction } from '../v2/shell/HomeV2Prototype'
+import type { HomeV2ReleaseNotesTarget } from '../v2/shell/HomeV2ReleaseNotesPage'
 import {
   AccountDialog,
   type AccountDialogMode,
@@ -482,6 +484,8 @@ export function HomeV2LiveApp() {
   )
   const [newTabPreference, setNewTabPreference] =
     useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
+  const [releaseNotesTarget, setReleaseNotesTarget] =
+    useState<HomeV2ReleaseNotesTarget | null>(null)
   const [notificationPolicy, setNotificationPolicy] =
     useState<HomeV2NotificationPolicyState | null>(null)
   const notificationPolicyRef = useRef<HomeV2NotificationPolicyState | null>(null)
@@ -1106,6 +1110,13 @@ export function HomeV2LiveApp() {
   const openAddress = useCallback(
     async (address: string, requestedAccountId?: string | null): Promise<AddressOpenResult> => {
       try {
+        const releaseNotes = parseHomeV2ReleaseNotesAddress(address)
+        if (releaseNotes) {
+          setShellNotice(null)
+          setReleaseNotesTarget(releaseNotes)
+          dispatchProduct({ type: 'navigate', destination: 'releases' })
+          return { status: 'opened' }
+        }
         const internal = parseHomeV2InternalAddress(address)
         if (internal) {
           setShellNotice(null)
@@ -4145,6 +4156,7 @@ export function HomeV2LiveApp() {
         },
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
+      releaseNotesTarget={releaseNotesTarget}
       qdnAppsManagement={qdnAppsManagement}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
@@ -4176,6 +4188,10 @@ export function HomeV2LiveApp() {
       onNavigate={(destination) =>
         dispatchProduct({ type: 'navigate', destination })
       }
+      onOpenReleaseNotes={(target) => {
+        setReleaseNotesTarget(target)
+        dispatchProduct({ type: 'navigate', destination: 'releases' })
+      }}
       onRefreshNode={() => void nodeCoreController.refreshNodes()}
       onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
       onConfigureCustomNode={openCustomNode}

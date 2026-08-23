@@ -35,6 +35,7 @@ import { authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
+import { registerHomeV2ReleaseNotesBridgeIpcHandlers } from './home-v2-release-notes-bridge.js';
 import { registerHomeV2QdnSettingsBridgeIpcHandlers } from './home-v2-qdn-settings-bridge.js';
 import { registerHomeV2NotificationPolicyBridgeIpcHandlers } from './home-v2-notification-policy-bridge.js';
 import { registerHomeV2CollectionsBridgeIpcHandlers } from './home-v2-collections-bridge.js';
@@ -881,6 +882,7 @@ app.whenReady().then(async () => {
     registerHomeV2NodeBridgeIpcHandlers();
     registerHomeV2CoreManagerBridgeIpcHandlers();
     registerHomeV2AppUpdateBridgeIpcHandlers();
+    registerHomeV2ReleaseNotesBridgeIpcHandlers();
     registerHomeV2QdnSettingsBridgeIpcHandlers();
     registerHomeV2CollectionsBridgeIpcHandlers();
     // Initialize the authoritative notification gate before registering the

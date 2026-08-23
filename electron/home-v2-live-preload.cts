@@ -195,6 +195,12 @@ contextBridge.exposeInMainWorld('homeV2AppUpdates', {
       schema: 'home-v2-app-update-download-request',
       settingsGeneration,
     }),
+  open: (downloadId: string) =>
+    ipcRenderer.invoke('home-v2-app-update:open', {
+      downloadId,
+      revision: 1,
+      schema: 'home-v2-app-update-open-request',
+    }),
   reveal: (downloadId: string) =>
     ipcRenderer.invoke('home-v2-app-update:reveal', {
       downloadId,
@@ -220,6 +226,23 @@ contextBridge.exposeInMainWorld('homeV2AppUpdates', {
     schema: 'home-v2-app-update-settings-set-request',
     settings,
   }),
+})
+
+contextBridge.exposeInMainWorld('homeV2ReleaseNotes', {
+  load: (product: 'core' | 'home', tagName: string | null) =>
+    ipcRenderer.invoke('home-v2-release-notes:load', {
+      product,
+      revision: 1,
+      schema: 'home-v2-release-notes-load-request',
+      tagName,
+    }),
+  openLink: (documentId: string, url: string) =>
+    ipcRenderer.invoke('home-v2-release-notes:open-link', {
+      documentId,
+      revision: 1,
+      schema: 'home-v2-release-notes-open-link-request',
+      url,
+    }),
 })
 
 contextBridge.exposeInMainWorld('homeV2QdnSettings', {
