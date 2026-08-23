@@ -18,9 +18,8 @@ it.
 Home 2.1.0 is one combined feature prerelease. Its application version is
 independent of the QAVS compatibility level advertised to hosted apps:
 `hostVersion` advances to 2.1.0 at release preparation, while
-`platformVersion` remains 2.0 only if the release's final bridge audit proves
-that its advertised actions and observable semantics are unchanged from 2.0.0.
-Any new advertised action or app-observable behavior bumps the level to 2.1.
+`platformVersion` advances to 2.1 because the restored bookmark manager family
+adds app-observable behavior and actions that Home 2.0.0 did not advertise.
 
 The release is gated on managed Qortal Core support, including safe adoption of
 existing installs. Adoption discovery is an on-demand trusted-shell operation:

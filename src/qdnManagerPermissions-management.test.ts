@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import {
+  grantQdnAppCapabilityPermission,
   getQdnAppRolesStore,
+  hasQdnManagerPermission,
+  revokeQdnAppCapabilityPermission,
   setQdnAppAssignmentValue,
 } from './qdnManagerPermissions'
 import {
@@ -12,12 +15,30 @@ Object.assign(globalThis, { window: { qortiumHome: {} } })
 setFakePreference(null)
 const initial = await getQdnAppRolesStore()
 const originalUrl = initial.assignments.explore.url
+const granted = await grantQdnAppCapabilityPermission(
+  'qdn://APP/Bookmarks/Bookmarks',
+  'bookmarks.manage',
+  initial.revision,
+)
+assert.equal(
+  await hasQdnManagerPermission('qdn://APP/Bookmarks/Bookmarks', 'bookmarks.manage'),
+  true,
+)
+const revoked = await revokeQdnAppCapabilityPermission(
+  'qdn://APP/Bookmarks/Bookmarks',
+  'bookmarks.manage',
+  granted.revision,
+)
+assert.equal(
+  await hasQdnManagerPermission('qdn://APP/Bookmarks/Bookmarks', 'bookmarks.manage'),
+  false,
+)
 setFakePreferencesWriteUnavailable(true)
 await assert.rejects(
   setQdnAppAssignmentValue({
     role: 'explore',
     url: 'qdn://APP/GhostExplore/GhostExplore',
-  }, initial.revision),
+  }, revoked.revision),
   /Preferences unavailable/,
 )
 assert.equal(

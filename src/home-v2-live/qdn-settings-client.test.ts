@@ -35,6 +35,14 @@ const state = {
     revision: 3,
     version: 2,
   },
+  bookmarks: {
+    apps: [{
+      appKey: 'qdn://APP/Bookmarks/Bookmarks',
+      grantedAt: '2026-08-22T11:00:00.000Z',
+    }],
+    revision: 3,
+    version: 1,
+  },
   notifications: {
     apps: [{
       appKey: 'qdn://APP/Notify/Notify',
@@ -98,6 +106,10 @@ const adapter: HomeV2QdnSettingsAdapter = {
     requests.push(request)
     return state
   },
+  async revokeBookmarks(request) {
+    requests.push(request)
+    return state
+  },
   async setAssignment(request) {
     requests.push(request)
     return state
@@ -123,6 +135,10 @@ await client.revoke({
   appKey: 'qdn://APP/Notify/Notify',
   expectedNotificationRevision: 7,
 })
+await client.revokeBookmarks({
+  appKey: 'qdn://APP/Bookmarks/Bookmarks',
+  expectedAssignmentRevision: 3,
+})
 assert.deepEqual(requests, [
   'get',
   {
@@ -138,6 +154,10 @@ assert.deepEqual(requests, [
   {
     appKey: 'qdn://APP/Notify/Notify',
     expectedNotificationRevision: 7,
+  },
+  {
+    appKey: 'qdn://APP/Bookmarks/Bookmarks',
+    expectedAssignmentRevision: 3,
   },
 ])
 
@@ -169,6 +189,7 @@ const portableNotifications = {
 const portableAdapter = createPortableHomeV2QdnSettingsAdapter({
   readAssignments: async () => portableAssignments,
   readNotifications: async () => portableNotifications,
+  revokeBookmarks: async (...values) => { portableCalls.push(['bookmarks', ...values]) },
   revokeNotifications: async (...values) => { portableCalls.push(['revoke', ...values]) },
   setAssignment: async (...values) => { portableCalls.push(['assignment', ...values]) },
   setMuted: async (...values) => { portableCalls.push(['muted', ...values]) },
@@ -181,6 +202,10 @@ assert.deepEqual(portableState.notifications.apps, [{
   hasForeignPaymentRule: true,
   muted: true,
   ruleCount: 1,
+}])
+assert.deepEqual(portableState.bookmarks.apps, [{
+  appKey: 'qdn://APP/Secret/Secret',
+  grantedAt: '2026-08-22T12:00:00.000Z',
 }])
 assert.equal(JSON.stringify(portableState).includes('secret-watch-data'), false)
 assert.equal(JSON.stringify(portableState).includes('QSECRET'), false)
@@ -199,14 +224,20 @@ await portableAdapter.revoke({
   appKey: 'qdn://APP/Notify/Notify',
   expectedNotificationRevision: 7,
 })
+await portableAdapter.revokeBookmarks({
+  appKey: 'qdn://APP/Secret/Secret',
+  expectedAssignmentRevision: 3,
+})
 assert.deepEqual(portableCalls, [
   ['assignment', { role: 'explore', url: 'qdn://APP/Explore/Explore' }, 3],
   ['muted', 'qdn://APP/Notify/Notify', false, 7],
   ['revoke', 'qdn://APP/Notify/Notify', 7],
+  ['bookmarks', 'qdn://APP/Secret/Secret', 3],
 ])
 const corruptPortable = createPortableHomeV2QdnSettingsAdapter({
   readAssignments: async () => portableAssignments,
   readNotifications: async () => ({ broken: true }),
+  revokeBookmarks: async () => undefined,
   revokeNotifications: async () => undefined,
   setAssignment: async () => undefined,
   setMuted: async () => undefined,
@@ -218,6 +249,7 @@ assert.equal(
 const unavailablePortable = createPortableHomeV2QdnSettingsAdapter({
   readAssignments: async () => portableAssignments,
   readNotifications: async () => { throw new Error('Preferences unavailable') },
+  revokeBookmarks: async () => undefined,
   revokeNotifications: async () => undefined,
   setAssignment: async () => undefined,
   setMuted: async () => undefined,

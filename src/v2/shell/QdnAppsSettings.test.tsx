@@ -34,6 +34,14 @@ function initialState() {
       revision: 3,
       version: 2 as const,
     },
+    bookmarks: {
+      apps: [{
+        appKey: 'qdn://APP/Bookmarks/Bookmarks',
+        grantedAt: '2026-08-22T11:00:00.000Z',
+      }],
+      revision: 3,
+      version: 1 as const,
+    },
     notifications: {
       apps: [{
         appKey: 'qdn://APP/Notify/Notify',
@@ -55,6 +63,7 @@ let state = initialState()
 const assignmentRequests: unknown[] = []
 const muteRequests: unknown[] = []
 const revokeRequests: unknown[] = []
+const bookmarkRevokeRequests: unknown[] = []
 let subscriptionListener: (() => void) | null = null
 let releaseRead: (() => void) | null = null
 let blockNextRead = false
@@ -84,6 +93,10 @@ const adapter: HomeV2QdnSettingsAdapter = {
         },
         revision: state.assignments.revision + 1,
       },
+      bookmarks: {
+        ...state.bookmarks,
+        revision: state.bookmarks.revision + 1,
+      },
     }
     return state
   },
@@ -110,6 +123,22 @@ const adapter: HomeV2QdnSettingsAdapter = {
         ...state.notifications,
         apps: state.notifications.apps.filter(({ appKey }) => appKey !== request.appKey),
         revision: (state.notifications.revision ?? 0) + 1,
+      },
+    }
+    return state
+  },
+  async revokeBookmarks(request) {
+    bookmarkRevokeRequests.push(request)
+    state = {
+      ...state,
+      assignments: {
+        ...state.assignments,
+        revision: state.assignments.revision + 1,
+      },
+      bookmarks: {
+        apps: state.bookmarks.apps.filter(({ appKey }) => appKey !== request.appKey),
+        revision: state.bookmarks.revision + 1,
+        version: 1,
       },
     }
     return state
@@ -221,6 +250,23 @@ assert.deepEqual(assignmentRequests[1], {
   role: 'explore',
   url: 'qdn://APP/Explore/Explore',
 })
+
+const bookmarkGrantCard = container.querySelector('[data-qdn-bookmark-grant]') as HTMLElement
+assert.match(bookmarkGrantCard.textContent ?? '', /qdn:\/\/APP\/Bookmarks\/Bookmarks/)
+await act(async () => {
+  button('Revoke', bookmarkGrantCard).click()
+})
+assert.equal(bookmarkRevokeRequests.length, 0, 'bookmark revoke must require confirmation')
+const bookmarkConfirmation = bookmarkGrantCard.querySelector('[data-qdn-bookmark-revoke-confirm="true"]') as HTMLElement
+await act(async () => {
+  button('Revoke', bookmarkConfirmation).click()
+  await settle()
+})
+assert.deepEqual(bookmarkRevokeRequests, [{
+  appKey: 'qdn://APP/Bookmarks/Bookmarks',
+  expectedAssignmentRevision: 5,
+}])
+assert.equal(container.querySelector('[data-qdn-bookmark-grant]'), null)
 
 const grantCard = container.querySelector('[data-qdn-notification-grant]') as HTMLElement
 assert.match(grantCard.textContent ?? '', /qdn:\/\/APP\/Notify\/Notify/)

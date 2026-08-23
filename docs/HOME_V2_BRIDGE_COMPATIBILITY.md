@@ -1,8 +1,8 @@
-# Home 2.0 bridge compatibility ledger
+# Home 2 bridge compatibility ledger
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
-This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
+This ledger tracks the Home 2 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
 Home advertises only the actions implemented by the current protocol adapter.
 
@@ -23,7 +23,7 @@ The shared runtime-free validator and action catalogue is
 `src/home-v2-live/node-client.ts`. The public protocols remain separate even
 where these adapters share validated paths.
 
-Inside Home 2.0 app views, Home is the bridge authority. Desktop cancels only
+Inside Home 2 app views, Home is the bridge authority. Desktop cancels only
 the active node's exact `/apps/q-apps.js` request; Android answers that same
 request locally with an empty JavaScript response. Standalone Core `/render`
 pages and Home 1.x retain Core's injected bridge client.
@@ -59,6 +59,7 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `SHOW_ACTIONS` | both | Protocol-, route-, and platform-specific callable string array | No prompt; disabled or platform-impossible routes remove node-dependent actions, while a temporary outage keeps implemented actions discoverable | yes | yes |
 | `WHICH_UI` | both | Host identifier string | No prompt | yes | yes |
 | `GET_HOST_INFO` | both | Host/platform metadata plus authoritative protocol, network, configured/effective route, availability, reachability, and opaque route revision | No prompt | yes | yes |
+| `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN` | `qdnRequest` | Permission state, validated saved-link snapshot, revision-CAS mutation result, or `true` after an account-aware open | Route-independent durable `bookmarks.manage` approval; invalid addresses, missing accounts, stale revisions, changed app contexts, and malformed saved data fail closed | yes | yes |
 | `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |
@@ -169,7 +170,7 @@ The complete retained legacy-bridge action-name source remains
 above is deferred and unadvertised in Home 2.0. In particular this includes
 multi-resource publishing/deletion, account/group/name/poll/rating mutations other than the
 implemented participation and exact group-administration actions, payments,
-foreign wallets, Home/node settings writes, bookmarks,
+foreign wallets, Home/node settings writes,
 background notification subscriptions, legacy inline/path publishing, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.

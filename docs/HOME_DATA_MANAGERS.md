@@ -10,10 +10,24 @@ The data never becomes a QDN resource. Home does not publish or synchronize it,
 and a standalone browser copy of an app must not treat its own local storage as
 Home's data.
 
+Home 2 imports the v1 bookmarks tree, toolbar, dashboard pins, start pages,
+visibility, and shared revision once before serving this bridge. Desktop reads
+the old default Electron session through a hidden local migration document and
+stores the validated canonical snapshot in Home 2's isolated persistent
+partition. Android migrates the existing native Preferences in place. The
+legacy source remains intact, Android records a one-time migration marker,
+reloads are idempotent, and malformed or equally revised conflicting legacy
+data fails closed instead of silently becoming an empty collection. Mutations
+write the compatibility mirrors before the canonical CAS snapshot, which acts
+as the final commit marker.
+
 ## Permissions
 
-Manager permissions are separate from account permissions and from an app's
-permission to send notifications. They are keyed by the calling app's stable
+Manager permissions are separate from account permissions, from an app's
+assignment to a Home role, and from permission to send notifications. Home 2
+lists durable bookmark-manager grants in the trusted QDN Apps Settings surface
+and revokes them with an exact store-revision check. Revocation does not delete
+the user's saved links. Manager permissions are keyed by the calling app's stable
 `qdn://SERVICE/name/identifier` resource base (not its current deep-link path,
 query, or fragment) and persist as app-scoped capabilities until the user
 revokes them.

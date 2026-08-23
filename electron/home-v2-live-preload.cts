@@ -258,6 +258,15 @@ contextBridge.exposeInMainWorld('homeV2QdnSettings', {
     revision: 1,
     schema: 'home-v2-qdn-settings-revoke-request',
   }),
+  revokeBookmarks: (request: {
+    appKey: string
+    expectedAssignmentRevision: number
+  }) => ipcRenderer.invoke('home-v2-qdn-settings:revoke-bookmarks', {
+    appKey: request.appKey,
+    expectedAssignmentRevision: request.expectedAssignmentRevision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+  }),
   subscribe: (listener: () => void) => {
     const wrapped = () => listener()
     ipcRenderer.on('home-v2-qdn-settings:changed', wrapped)
@@ -273,6 +282,29 @@ contextBridge.exposeInMainWorld('homeV2NotificationPolicy', {
     const wrapped = (_event: unknown, snapshot: unknown) => listener(snapshot)
     ipcRenderer.on('home-v2-notification-policy:changed', wrapped)
     return () => ipcRenderer.removeListener('home-v2-notification-policy:changed', wrapped)
+  },
+})
+
+contextBridge.exposeInMainWorld('homeV2Collections', {
+  readLegacy: () => ipcRenderer.invoke('home-v2-collections:read-legacy'),
+  resolveRequest: (response: {
+    error?: { code?: string; message: string }
+    requestId: string
+    result?: unknown
+  }) => ipcRenderer.invoke('qdn-app:resolveBookmarkManagerRequest', {
+    requestId: response.requestId,
+    result: response.result,
+    ...(response.error ? { code: response.error.code, error: response.error.message } : {}),
+  }),
+  onRequest: (listener: (request: unknown) => void) => {
+    const wrapped = (_event: unknown, request: unknown) => listener(request)
+    ipcRenderer.on('qdn-app:bookmark-manager-request', wrapped)
+    return () => ipcRenderer.removeListener('qdn-app:bookmark-manager-request', wrapped)
+  },
+  onOpen: (listener: (request: unknown) => void) => {
+    const wrapped = (_event: unknown, request: unknown) => listener(request)
+    ipcRenderer.on('qdn-app:bookmarks-open', wrapped)
+    return () => ipcRenderer.removeListener('qdn-app:bookmarks-open', wrapped)
   },
 })
 

@@ -30,6 +30,7 @@ export type PermissionCapability =
   | 'group.membership'
   | 'group.administration'
   | 'notifications.show'
+  | 'bookmarks.manage'
   | 'transactions.pending.read'
   | 'transactions.pending.forget'
 
@@ -84,6 +85,9 @@ export interface PermissionPrompt {
     | 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
     | 'SEND_PRIVATE_GROUP_CHAT_REACTION'
     | 'SHOW_NOTIFICATION'
+    | 'BOOKMARKS_GET'
+    | 'BOOKMARKS_APPLY'
+    | 'BOOKMARKS_OPEN'
     | 'GET_PENDING_TRANSACTIONS'
     | 'FORGET_PENDING_TRANSACTION'
   readonly capability: PermissionCapability

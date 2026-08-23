@@ -23,6 +23,7 @@ import {
   grantQdnAppCapability,
   isQdnAppCapability,
   migrateLegacyQdnAppStores,
+  revokeQdnAppCapability,
   sanitizeQdnAppAssignmentRole,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
@@ -38,6 +39,7 @@ const STORE_FILE = 'qdn-app-roles.json';
 const LEGACY_STORE_FILE = 'qdn-manager-permissions.json';
 const STORE_MAX_BYTES = 4 * 1024 * 1024;
 const assignmentListeners = new Set<() => void>();
+const storeListeners = new Set<() => void>();
 let cachedStore: QdnAppRolesStore | null = null;
 
 function getStorePath() {
@@ -112,6 +114,7 @@ function writeStoreAtomically(storePath: string, body: string) {
 }
 
 function writeStore(store: QdnAppRolesStore) {
+  const previousStore = cachedStore;
   const previousAssignments = cachedStore?.assignments;
   const nextStore = sanitizeQdnAppRolesStore(store);
   const storePath = getStorePath();
@@ -127,6 +130,12 @@ function writeStore(store: QdnAppRolesStore) {
     assignmentListeners.forEach((listener) => {
       try { listener(); }
       catch (error) { console.warn('QDN app assignment listener failed.', error); }
+    });
+  }
+  if (JSON.stringify(previousStore) !== JSON.stringify(nextStore)) {
+    storeListeners.forEach((listener) => {
+      try { listener(); }
+      catch (error) { console.warn('QDN app settings listener failed.', error); }
     });
   }
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -209,6 +218,18 @@ export function grantQdnAppCapabilityPermission(appKey: string, capability: QdnA
   return writeStore(grantQdnAppCapability(readQdnAppRolesStore(), appKey, capability));
 }
 
+export function revokeQdnAppCapabilityPermissionIfRevision(
+  expectedRevision: number,
+  appKey: string,
+  capability: QdnAppCapability,
+) {
+  const store = readQdnAppRolesStore();
+  if (store.revision !== expectedRevision) {
+    throw new Error('QDN app settings changed. Refresh and try again.');
+  }
+  return writeStore(revokeQdnAppCapability(store, appKey, capability));
+}
+
 /**
  * Settings only selects the app for a role. The selected app must still use
  * the normal approval dialog before it receives the matching capability.
@@ -236,6 +257,13 @@ export function onQdnAppAssignmentsChanged(listener: () => void) {
   assignmentListeners.add(listener);
   return () => {
     assignmentListeners.delete(listener);
+  };
+}
+
+export function onQdnAppStoreChanged(listener: () => void) {
+  storeListeners.add(listener);
+  return () => {
+    storeListeners.delete(listener);
   };
 }
 

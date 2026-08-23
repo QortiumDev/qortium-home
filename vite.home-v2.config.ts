@@ -19,6 +19,7 @@ export default defineConfig({
         ? resolve(import.meta.dirname, 'src/home-v2-live/android/index.html')
         : {
             // Android has no widgets, so the widget page is desktop only.
+            collectionsMigration: resolve(import.meta.dirname, 'collections-migration.html'),
             main: resolve(import.meta.dirname, 'v2-live.html'),
             widget: resolve(import.meta.dirname, 'widget.html'),
           },
