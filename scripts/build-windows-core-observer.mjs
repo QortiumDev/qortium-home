@@ -71,7 +71,8 @@ function visualStudioEnvironment(vcVars64) {
   if (/[&|<>%^!"\r\n]/u.test(vcVars64)) {
     throw new Error('Visual Studio reported an unsafe developer-command path.');
   }
-  const environmentScript = path.join(outputDirectory, 'qortium-msvc-environment.cmd');
+  const environmentScriptName = 'qortium-msvc-environment.cmd';
+  const environmentScript = path.join(outputDirectory, environmentScriptName);
   writeFileSync(environmentScript, [
     '@echo off',
     `call "${vcVars64}" >nul`,
@@ -81,8 +82,8 @@ function visualStudioEnvironment(vcVars64) {
   ].join('\r\n'), { encoding: 'utf8', mode: 0o600 });
   let result;
   try {
-    result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', environmentScript], {
-      cwd: repoRoot,
+    result = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', environmentScriptName], {
+      cwd: outputDirectory,
       encoding: 'utf8',
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],

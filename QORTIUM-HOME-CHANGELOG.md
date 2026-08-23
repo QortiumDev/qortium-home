@@ -34,6 +34,14 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - security: harden reporting and native build paths
+
+Home now documents a private path for reporting vulnerabilities without
+exposing them in public issues. Its Windows native-helper build no longer
+passes a checkout-derived path through the Windows command interpreter, and
+Android notifications now stop safely if the application launch activity is
+unavailable instead of falling back to an intent with no destination.
+
 ### 2026-08-23 - fix(build): package native observers in universal macOS apps
 
 Universal macOS packages now retain Home's separate Intel and Apple silicon
