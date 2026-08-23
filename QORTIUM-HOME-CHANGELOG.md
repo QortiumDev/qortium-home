@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(core): add Home 2 Qortal adoption selection
+
+Home 2 can now discover existing Qortal installations on demand and let the
+user choose a supported installation from the trusted Runtime settings page.
+Linux and macOS can also open the operating system's native folder picker. Home
+shows only a source, version, running state, and numbered candidate; the
+renderer never receives a filesystem path.
+
+The main process gives each discovery result a short-lived bounded opaque token
+and accepts selection only from the exact authorized top-level Home document.
+It rechecks the token and the installation immediately before saving a selected
+record under Home's own application data. Home does not write into or modify
+the adopted installation. Windows browse and selection remain unavailable
+until the native helper can safely write a no-reparse record in a private
+directory. QDN apps and Android receive no discovery or selection surface;
+widget-window calls through the shared preload are denied by the exact Home
+document sender gate. This trusted-host feature adds no public app action and
+keeps QAVS `platformVersion: "2.0"`.
+
+A hardened packaged Linux x64 fixture verified on-demand Hub discovery,
+opaque-token selection, a private Home-owned selected record, and byte-for-byte
+unchanged adopted JAR and settings files. Packaged macOS selection and
+real-Qortal native-host acceptance remain release gates.
+
 ### 2026-08-22 - feat(notifications): add Home 2 global policy
 
 Home 2 now has its own device-wide App notifications switch in General

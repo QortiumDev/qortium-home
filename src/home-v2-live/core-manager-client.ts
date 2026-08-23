@@ -23,6 +23,12 @@ import type {
   HomeV2QortalMaintenanceStatus,
 } from '../../electron/home-v2-qortal-maintenance-contract'
 import type {
+  HomeV2QortalAdoptionBrowseResult,
+  HomeV2QortalAdoptionCandidate,
+  HomeV2QortalAdoptionList,
+  HomeV2QortalAdoptionSelectionResult,
+} from '../../electron/home-v2-qortal-adoption-contract'
+import type {
   HomeV2TransportMaintenanceAction,
   HomeV2TransportMaintenanceActionResult,
   HomeV2TransportMaintenanceStatus,
@@ -36,6 +42,10 @@ export type {
   HomeV2CoreUpdatePolicy,
   HomeV2CoreUpdatePolicySetResult,
   HomeV2CoreUpdatePolicyState,
+  HomeV2QortalAdoptionBrowseResult,
+  HomeV2QortalAdoptionCandidate,
+  HomeV2QortalAdoptionList,
+  HomeV2QortalAdoptionSelectionResult,
   HomeV2QortalMaintenanceActionResult,
   HomeV2QortalMaintenanceDiscovery,
   HomeV2QortalMaintenanceRelease,
@@ -342,6 +352,176 @@ export function parseHomeV2QortalMaintenanceStatus(
     schema: 'home-v2-qortal-maintenance',
     updateAuthority: value.updateAuthority,
   }) as HomeV2QortalMaintenanceStatus
+}
+
+const qortalAdoptionOrigins = new Set<HomeV2QortalAdoptionCandidate['origins'][number]>([
+  'default-location',
+  'qortal-hub',
+  'running-process',
+  'user-selected',
+])
+const qortalAdoptionListStates = new Set<HomeV2QortalAdoptionList['state']>([
+  'complete',
+  'incomplete',
+  'not-applicable',
+  'unsupported',
+])
+const qortalAdoptionListCodes = new Set<NonNullable<HomeV2QortalAdoptionList['code']>>([
+  'discovery-incomplete',
+  'manager-unavailable',
+  'status-unavailable',
+  'unsupported-platform',
+])
+const qortalAdoptionSelectionCodes = new Set<
+  NonNullable<HomeV2QortalAdoptionSelectionResult['code']>
+>([
+  'candidate-changed',
+  'candidate-expired',
+  'operation-in-progress',
+  'persistence-unknown',
+  'unsupported-platform',
+])
+const qortalAdoptionSelectionOutcomes = new Set<HomeV2QortalAdoptionSelectionResult['outcome']>([
+  'blocked',
+  'completed',
+  'failed',
+])
+
+function isBoundedOpaqueCandidateId(value: unknown): value is string {
+  return typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+}
+
+function parseHomeV2QortalAdoptionCandidate(value: unknown): HomeV2QortalAdoptionCandidate {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'candidateId',
+    'hubHint',
+    'origins',
+    'runningProcessMatch',
+    'version',
+  ]) || !isBoundedOpaqueCandidateId(value.candidateId) || typeof value.hubHint !== 'boolean' ||
+    !Array.isArray(value.origins) || value.origins.length < 1 ||
+    value.origins.some((origin) => !qortalAdoptionOrigins.has(
+      origin as HomeV2QortalAdoptionCandidate['origins'][number],
+    )) || new Set(value.origins).size !== value.origins.length ||
+    typeof value.runningProcessMatch !== 'boolean' ||
+    !isBoundedQortalMaintenanceVersion(value.version)) {
+    throw new Error('Invalid Home 2 Qortal adoption candidate.')
+  }
+  return Object.freeze({
+    candidateId: value.candidateId,
+    hubHint: value.hubHint,
+    origins: Object.freeze([...value.origins]),
+    runningProcessMatch: value.runningProcessMatch,
+    version: value.version,
+  }) as HomeV2QortalAdoptionCandidate
+}
+
+export function parseHomeV2QortalAdoptionList(value: unknown): HomeV2QortalAdoptionList {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'canBrowse',
+    'canSelect',
+    'candidates',
+    'code',
+    'network',
+    'revision',
+    'schema',
+    'state',
+  ]) || value.schema !== 'home-v2-qortal-adoption-list' || value.revision !== 1 ||
+    value.network !== 'qortal' || typeof value.canBrowse !== 'boolean' ||
+    typeof value.canSelect !== 'boolean' || !Array.isArray(value.candidates) ||
+    value.candidates.length > 16 ||
+    !qortalAdoptionListStates.has(value.state as HomeV2QortalAdoptionList['state']) ||
+    !(value.code === null || qortalAdoptionListCodes.has(
+      value.code as NonNullable<HomeV2QortalAdoptionList['code']>,
+    ))) {
+    throw new Error('Invalid Home 2 Qortal adoption list.')
+  }
+  const candidates = value.candidates.map(parseHomeV2QortalAdoptionCandidate)
+  const ids = new Set(candidates.map((candidate) => candidate.candidateId))
+  const state = value.state as HomeV2QortalAdoptionList['state']
+  const code = value.code as HomeV2QortalAdoptionList['code']
+  if (ids.size !== candidates.length ||
+    (state === 'complete' && (code !== null || !value.canBrowse ||
+      value.canSelect !== (candidates.length > 0))) ||
+    (state === 'incomplete' && ((code !== 'discovery-incomplete' &&
+      code !== 'manager-unavailable' && code !== 'status-unavailable') ||
+      candidates.length !== 0 || value.canBrowse || value.canSelect)) ||
+    (state === 'not-applicable' && (code !== null || candidates.length !== 0 ||
+      value.canBrowse || value.canSelect)) ||
+    (state === 'unsupported' && code !== 'unsupported-platform') ||
+    (state === 'unsupported' && (value.canBrowse || value.canSelect)) ||
+    (value.canSelect && candidates.length === 0)) {
+    throw new Error('Invalid Home 2 Qortal adoption list.')
+  }
+  return Object.freeze({
+    canBrowse: value.canBrowse,
+    canSelect: value.canSelect,
+    candidates: Object.freeze(candidates),
+    code,
+    network: 'qortal',
+    revision: 1,
+    schema: 'home-v2-qortal-adoption-list',
+    state,
+  }) as HomeV2QortalAdoptionList
+}
+
+export function parseHomeV2QortalAdoptionBrowseResult(
+  value: unknown,
+): HomeV2QortalAdoptionBrowseResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'canceled',
+    'list',
+    'network',
+    'revision',
+    'schema',
+  ]) || value.schema !== 'home-v2-qortal-adoption-browse' || value.revision !== 1 ||
+    value.network !== 'qortal' || typeof value.canceled !== 'boolean') {
+    throw new Error('Invalid Home 2 Qortal adoption browse result.')
+  }
+  return Object.freeze({
+    canceled: value.canceled,
+    list: parseHomeV2QortalAdoptionList(value.list),
+    network: 'qortal',
+    revision: 1,
+    schema: 'home-v2-qortal-adoption-browse',
+  }) as HomeV2QortalAdoptionBrowseResult
+}
+
+export function parseHomeV2QortalAdoptionSelectionResult(
+  value: unknown,
+): HomeV2QortalAdoptionSelectionResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'code',
+    'network',
+    'outcome',
+    'revision',
+    'schema',
+    'status',
+  ]) || value.schema !== 'home-v2-qortal-adoption-selection' || value.revision !== 1 ||
+    value.network !== 'qortal' ||
+    !qortalAdoptionSelectionOutcomes.has(
+      value.outcome as HomeV2QortalAdoptionSelectionResult['outcome'],
+    ) ||
+    !(value.code === null || qortalAdoptionSelectionCodes.has(
+      value.code as NonNullable<HomeV2QortalAdoptionSelectionResult['code']>,
+    )) ||
+    (value.outcome === 'completed' && value.code !== null) ||
+    (value.outcome !== 'completed' && value.code === null) ||
+    (value.outcome === 'blocked' && value.code === 'persistence-unknown') ||
+    (value.outcome === 'failed' && value.code !== 'persistence-unknown')) {
+    throw new Error('Invalid Home 2 Qortal adoption selection result.')
+  }
+  const status = parseHomeV2QortalMaintenanceStatus(value.status)
+  const outcome = value.outcome as HomeV2QortalAdoptionSelectionResult['outcome']
+  return Object.freeze({
+    code: value.code,
+    network: 'qortal',
+    outcome,
+    revision: 1,
+    schema: 'home-v2-qortal-adoption-selection',
+    status,
+  }) as HomeV2QortalAdoptionSelectionResult
 }
 
 export function parseHomeV2QortalMaintenanceRelease(
@@ -696,6 +876,11 @@ export interface HomeV2CoreManagerClient {
   getStatus(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerStatus>
   start(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
   stop(network: HomeV2CoreNetwork): Promise<HomeV2CoreManagerActionResult>
+  listQortalAdoptionCandidates?(): Promise<HomeV2QortalAdoptionList>
+  browseQortalAdoptionDirectory?(): Promise<HomeV2QortalAdoptionBrowseResult>
+  selectQortalAdoptionCandidate?(
+    candidateId: string,
+  ): Promise<HomeV2QortalAdoptionSelectionResult>
   getQortalMaintenanceStatus?(): Promise<HomeV2QortalMaintenanceStatus>
   checkQortalMaintenanceRelease?(): Promise<HomeV2QortalMaintenanceRelease>
   runQortalMaintenanceAction?(

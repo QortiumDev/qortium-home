@@ -2,10 +2,11 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { strToU8, zipSync } from 'fflate'
 import { createManagedProcess } from './lib/managed-process.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -17,6 +18,32 @@ const appImage = path.resolve(
 const profileDirectory = mkdtempSync(path.join(os.tmpdir(), 'qortium-home-v2-core-manager-smoke-'))
 const timeoutMs = 60_000
 let appProcess = null
+
+function prepareQortalAdoptionFixture() {
+  const installPath = path.join(profileDirectory, 'existing-qortal')
+  const jarPath = path.join(installPath, 'qortal.jar')
+  const settingsPath = path.join(installPath, 'settings.json')
+  const jarBytes = Buffer.from(zipSync({
+    'build.properties': strToU8(
+      'build.version=6.2.0-0123456789\nbuild.timestamp=2026-08-22T00:00:00Z\n',
+    ),
+    'git.properties': strToU8(`git.commit.id.full=${'0123456789'.repeat(4)}\n`),
+  }))
+  const settingsBytes = Buffer.from('{"autoUpdateEnabled":true}\n')
+  mkdirSync(installPath, { recursive: true })
+  writeFileSync(jarPath, jarBytes)
+  writeFileSync(settingsPath, settingsBytes)
+
+  const hubStoragePath = path.join(
+    profileDirectory,
+    'config',
+    'qortal-hub',
+    'wallet-storage.json',
+  )
+  mkdirSync(path.dirname(hubStoragePath), { recursive: true })
+  writeFileSync(hubStoragePath, `${JSON.stringify({ qortalDirectory: installPath })}\n`)
+  return { installPath, jarBytes, jarPath, settingsBytes, settingsPath }
+}
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -74,7 +101,11 @@ async function waitForPage(port) {
         typeof target.webSocketDebuggerUrl === 'string')
       if (page && await evaluate(
         page,
-        'document.readyState === "complete" && typeof window.homeV2CoreManagers?.getStatus === "function"',
+        `document.readyState === "complete" &&
+          typeof window.homeV2CoreManagers?.getStatus === "function" &&
+          typeof window.homeV2CoreManagers?.listQortalAdoptionCandidates === "function" &&
+          typeof window.homeV2CoreManagers?.browseQortalAdoptionDirectory === "function" &&
+          typeof window.homeV2CoreManagers?.selectQortalAdoptionCandidate === "function"`,
       )) return page
     } catch {}
     await delay(250)
@@ -139,6 +170,44 @@ function assertQortalMaintenanceStatus(value) {
   )
 }
 
+function assertQortalAdoptionList(value) {
+  assert.deepEqual(Object.keys(value).sort(), [
+    'canBrowse', 'canSelect', 'candidates', 'code', 'network', 'revision', 'schema', 'state',
+  ])
+  assert.equal(value.network, 'qortal')
+  assert.equal(value.schema, 'home-v2-qortal-adoption-list')
+  assert.equal(value.revision, 1)
+  assert.equal(typeof value.canBrowse, 'boolean')
+  assert.equal(typeof value.canSelect, 'boolean')
+  assert.equal(Array.isArray(value.candidates), true)
+  for (const candidate of value.candidates) {
+    assert.deepEqual(Object.keys(candidate).sort(), [
+      'candidateId', 'hubHint', 'origins', 'runningProcessMatch', 'version',
+    ])
+    assert.match(candidate.candidateId, /^[0-9a-f-]{36}$/)
+    assert.equal(Array.isArray(candidate.origins), true)
+    assert.equal(typeof candidate.hubHint, 'boolean')
+    assert.equal(typeof candidate.runningProcessMatch, 'boolean')
+    assert.equal(candidate.version === null || typeof candidate.version === 'string', true)
+  }
+  assert.doesNotMatch(
+    JSON.stringify(value),
+    /apiKey|canonical|cause|commit|digest|installPath|jarPath|pid|rawRelease|record|runtimePath|settingsPath|url/i,
+  )
+}
+
+function assertQortalAdoptionSelection(value, outcome, code) {
+  assert.deepEqual(Object.keys(value).sort(), [
+    'code', 'network', 'outcome', 'revision', 'schema', 'status',
+  ])
+  assert.equal(value.network, 'qortal')
+  assert.equal(value.schema, 'home-v2-qortal-adoption-selection')
+  assert.equal(value.revision, 1)
+  assert.equal(value.outcome, outcome)
+  assert.equal(value.code, code)
+  assertQortalMaintenanceStatus(value.status)
+}
+
 function assertTransportMaintenanceStatus(value) {
   assert.deepEqual(Object.keys(value).sort(), [
     'capabilities', 'core', 'issue', 'network', 'revision', 'router', 'schema', 'transportMode',
@@ -178,6 +247,7 @@ function assertUpdatePolicy(value) {
 
 try {
   assert.equal(existsSync(appImage), true, `AppImage not found at ${appImage}`)
+  const adoptionFixture = prepareQortalAdoptionFixture()
   const port = await getFreePort()
   const appArguments = [appImage, `--remote-debugging-port=${port}`]
   const useXvfb = !process.env.DISPLAY && existsSync('/usr/bin/xvfb-run')
@@ -208,6 +278,37 @@ try {
     'window.homeV2CoreManagers.getQortalMaintenanceStatus()',
   )
   assertQortalMaintenanceStatus(qortalMaintenance)
+  const qortalAdoption = await evaluate(
+    page,
+    'window.homeV2CoreManagers.listQortalAdoptionCandidates()',
+  )
+  assertQortalAdoptionList(qortalAdoption)
+  const fixtureCandidate = qortalAdoption.candidates.find((candidate) =>
+    candidate.origins.includes('qortal-hub'))
+  assert.ok(fixtureCandidate, 'Packaged discovery did not return the Qortal Hub fixture.')
+  assert.equal(fixtureCandidate.version, '6.2.0')
+  const selectedQortalAdoption = await evaluate(
+    page,
+    `window.homeV2CoreManagers.selectQortalAdoptionCandidate(
+      ${JSON.stringify(fixtureCandidate.candidateId)}
+    )`,
+  )
+  assertQortalAdoptionSelection(selectedQortalAdoption, 'completed', null)
+  assert.equal(selectedQortalAdoption.status.install, 'adopted')
+  const adoptedRecordPath = path.join(profileDirectory, 'config', 'qortal-core', 'adopted.json')
+  const adoptedRecord = JSON.parse(readFileSync(adoptedRecordPath, 'utf8'))
+  assert.equal(adoptedRecord.installPath, adoptionFixture.installPath)
+  assert.equal(adoptedRecord.source, 'adopted')
+  assert.equal(statSync(adoptedRecordPath).mode & 0o777, 0o600)
+  assert.deepEqual(readFileSync(adoptionFixture.jarPath), adoptionFixture.jarBytes)
+  assert.deepEqual(readFileSync(adoptionFixture.settingsPath), adoptionFixture.settingsBytes)
+  const expiredQortalAdoption = await evaluate(
+    page,
+    `window.homeV2CoreManagers.selectQortalAdoptionCandidate(
+      "00000000-0000-4000-8000-000000000000"
+    )`,
+  )
+  assertQortalAdoptionSelection(expiredQortalAdoption, 'blocked', 'candidate-expired')
   const transportMaintenance = await evaluate(
     page,
     'window.homeV2CoreManagers.getTransportMaintenanceStatus()',

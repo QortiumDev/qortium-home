@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { probeQortalExternalInstallCollision } from './home-v2-qortal-maintenance-discovery-policy.js'
+import {
+  collectQortalExternalInstallHints,
+  probeQortalExternalInstallCollision,
+} from './home-v2-qortal-maintenance-discovery-policy.js'
 import type { QortalManagedInstallPaths } from './qortal-managed-install.js'
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'qortal-collision-probe-'))
@@ -43,11 +46,32 @@ try {
   await mkdir(path.join(appDataPath, 'qortal-hub'), { recursive: true })
   await writeFile(
     path.join(appDataPath, 'qortal-hub', 'wallet-storage.json'),
+    JSON.stringify({ qortalDirectory: managedInstallPath }),
+  )
+  const managedHub = await collectQortalExternalInstallHints(paths, {
+    appDataPath,
+    homePath,
+    platform: 'linux',
+    programFilesPath,
+  })
+  assert.equal(managedHub.hints.some((hint) => hint.origin === 'qortal-hub'), false,
+    'a Hub hint for Home managed storage must not become an external collision')
+  await writeFile(
+    path.join(appDataPath, 'qortal-hub', 'wallet-storage.json'),
     JSON.stringify({ qortalDirectory: hubDirectory }),
   )
   await mkdir(hubDirectory, { recursive: true })
   await writeFile(path.join(hubDirectory, 'qortal.jar'), 'jar')
   assert.equal(await probe(), 'detected')
+  const collected = await collectQortalExternalInstallHints(paths, {
+    appDataPath,
+    homePath,
+    platform: 'linux',
+    programFilesPath,
+  })
+  assert.equal(collected.kind, 'observed')
+  assert.equal(collected.hints.some((hint) => hint.origin === 'qortal-hub' && hint.hubHint === true), true)
+  assert.equal(collected.hints.some((hint) => hint.installPath === managedInstallPath), false)
   await rm(hubDirectory, { recursive: true })
 
   assert.equal(await probeQortalExternalInstallCollision(paths, {
@@ -70,6 +94,48 @@ try {
 
   await writeFile(path.join(appDataPath, 'qortal-hub', 'wallet-storage.json'), '{')
   assert.equal(await probe(), 'unknown', 'uncertain Hub configuration must fail closed')
+
+  const storagePath = path.join(appDataPath, 'qortal-hub', 'wallet-storage.json')
+  await writeFile(storagePath, Buffer.alloc(1024 * 1024 + 1))
+  assert.equal(await probe(), 'unknown', 'oversized Hub configuration must fail closed')
+
+  if (process.platform !== 'win32') {
+    const storageTarget = path.join(root, 'wallet-storage-target.json')
+    await writeFile(storageTarget, JSON.stringify({ qortalDirectory: hubDirectory }))
+    await rm(storagePath)
+    await symlink(storageTarget, storagePath)
+    assert.equal(await probe(), 'unknown', 'a Hub storage symlink must fail closed')
+    await rm(storagePath)
+  } else {
+    await rm(storagePath)
+  }
+  await writeFile(storagePath, JSON.stringify({ qortalDirectory: hubDirectory }))
+  assert.equal(await probeQortalExternalInstallCollision(paths, {
+    appDataPath,
+    homePath,
+    platform: 'linux',
+    programFilesPath,
+  }, { operations: {
+    openHubFile: async () => {
+      throw Object.assign(new Error('disappeared after lstat'), { code: 'ENOENT' })
+    },
+  } }), 'unknown', 'a Hub storage disappearance after observation must fail closed')
+  const stableStats = await lstat(storagePath)
+  let storageStatsReads = 0
+  assert.equal(await probeQortalExternalInstallCollision(paths, {
+    appDataPath,
+    homePath,
+    platform: 'linux',
+    programFilesPath,
+  }, { operations: {
+    lstat: async (targetPath) => {
+      const stats = await lstat(targetPath)
+      if (targetPath !== storagePath || ++storageStatsReads < 2) return stats
+      return new Proxy(stableStats, { get(target, property, receiver) {
+        return property === 'ino' ? target.ino + 1 : Reflect.get(target, property, receiver)
+      } })
+    },
+  } }), 'unknown', 'a Hub storage identity race must fail closed')
   assert.equal(await probe('freebsd'), 'unknown')
 } finally {
   await rm(root, { force: true, recursive: true })

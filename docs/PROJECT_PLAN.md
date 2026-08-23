@@ -1,6 +1,6 @@
 # Qortium Home Project Plan
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 Status: Home 2.0.0 is the shipped production-shell baseline. The active 2.1.0
 delivery cycle restores and extends the deliberately slim trusted-host surface
@@ -23,9 +23,17 @@ that its advertised actions and observable semantics are unchanged from 2.0.0.
 Any new advertised action or app-observable behavior bumps the level to 2.1.
 
 The release is gated on managed Qortal Core support, including safe adoption of
-existing installs. Home stays Qortium-first in ordering and delegates full app
-experiences to QDN apps. The detailed implementation order and acceptance gates
-are maintained in [HOME_2_1_PLAN.md](HOME_2_1_PLAN.md).
+existing installs. Adoption discovery is an on-demand trusted-shell operation:
+native browse does not disclose paths to the renderer, and the main process
+uses bounded opaque tokens, exact sender gating, and fresh candidate
+revalidation before writing only a selected record under Home app data. Home
+does not modify adopted files. Linux and macOS can browse and select; Windows
+waits for a native no-reparse/private-directory writer, and QDN apps and Android
+have no selection surface. Widget-window calls through the shared preload are
+denied by the exact Home-document sender gate. This adds no public app action and
+keeps QAVS `platformVersion: "2.0"`. Home stays Qortium-first in ordering and
+delegates full app experiences to QDN apps. The detailed implementation order
+and acceptance gates are maintained in [HOME_2_1_PLAN.md](HOME_2_1_PLAN.md).
 
 ## Product vision
 

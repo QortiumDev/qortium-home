@@ -163,6 +163,19 @@ preparation.
   authenticated API-only stop. Selection and initial install use the same
   canonical lock key even before the managed install directory exists. Adopted
   install/update mutation and real-Qortal native-OS acceptance remain open.
+- [x] Add the trusted-shell Qortal adoption selector. Candidate discovery runs
+  only on demand; the main process returns bounded opaque tokens and redacted
+  source/version/running summaries, while native browse returns no filesystem
+  path to the renderer. Selection is accepted only from the exact authorized
+  top-level Home document, then the main process revalidates the token and
+  candidate before writing the selected record under Home app data. Home never
+  writes into or modifies the adopted installation. Linux and macOS support
+  browse and selection; Windows keeps both unavailable until its native helper
+  can provide a no-reparse/private-directory writer. QDN apps and Android
+  receive no discovery or selection surface; widget-window calls through the
+  shared preload are denied by the exact Home-document sender gate. This
+  trusted-host feature adds no public app action and keeps QAVS
+  `platformVersion: "2.0"`.
 - [x] Add the first sender-gated Home 2 Core-manager bridge for redacted
   Qortium/Qortal status plus start and stop. The exact trusted top-level shell
   document is authorized; widgets, subframes, destroyed senders, and navigated
@@ -240,9 +253,10 @@ preparation.
   updates remain limited to stopped Home-managed installs whose settings prove
   Home owns replacement. Adopted or node-native-update installs stay
   observation/lifecycle-only. Conventional existing-install discovery blocks
-  a duplicate initial install until candidate selection is implemented.
-  Automatic Qortal policy, adopted-file mutation, selection UI, Android Core
-  maintenance, and i2pd/transport remain later work.
+  a duplicate initial install; the separate trusted-shell adoption selector can
+  now bind a supported candidate without exposing its path or modifying it.
+  Automatic Qortal policy, adopted-file mutation, Android Core maintenance,
+  and i2pd/transport remain later work.
 - [x] Add manual Qortium transport and managed-i2pd maintenance in PR #323.
   Desktop Runtime settings apply a stopped-only transport change through a
   private atomic Core-settings replacement, and Home can install, start, and
@@ -288,6 +302,12 @@ preparation.
   renderer TypeScript check, and the production build.
 - Exercise changed shell behavior in the packaged desktop application and keep
   Android renderer/build coverage green.
+- [x] Verify packaged Qortal adoption discovery/selection with an isolated
+  Linux x64 protocol fixture, including a private Home-owned selected record
+  and byte-for-byte unchanged adopted JAR/settings files.
+- Verify packaged selection on macOS, confirm the Windows rejection boundary
+  on a packaged host, and preserve real-Qortal native-OS lifecycle acceptance
+  as release gates. Android continues to expose no selector.
 - Give preload expansion and adopted-install execution their own independent
   security-boundary review before merge.
 - Do not sign, publish, or release without explicit approval.
