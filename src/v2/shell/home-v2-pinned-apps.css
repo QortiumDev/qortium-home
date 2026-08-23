@@ -1,0 +1,211 @@
+.home-v2-pinned-apps {
+  display: grid;
+  gap: 12px;
+}
+
+.home-v2-pinned-apps__add-button {
+  display: inline-flex;
+  min-block-size: 40px;
+  align-items: center;
+  gap: 6px;
+}
+
+.home-v2-pinned-apps__form,
+.home-v2-pinned-apps__rename {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--v2-line);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--v2-surface);
+}
+
+.home-v2-pinned-apps__form {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.home-v2-pinned-apps__form label,
+.home-v2-pinned-apps__rename label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--v2-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.home-v2-pinned-apps__form input,
+.home-v2-pinned-apps__rename input {
+  min-width: 0;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 9px;
+  padding: 10px 11px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  font: inherit;
+}
+
+.home-v2-pinned-apps__form input:focus,
+.home-v2-pinned-apps__rename input:focus {
+  outline: 2px solid color-mix(in srgb, var(--v2-accent), transparent 55%);
+  outline-offset: 1px;
+}
+
+.home-v2-pinned-apps__form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.home-v2-pinned-apps__form-actions button {
+  min-block-size: 40px;
+}
+
+.home-v2-pinned-apps__state {
+  margin: 0;
+  border: 1px dashed var(--v2-line-strong);
+  border-radius: 12px;
+  padding: 16px;
+  color: var(--v2-muted);
+  background: var(--v2-surface);
+}
+
+.home-v2-pinned-apps__state p {
+  margin: 0 0 10px;
+}
+
+.home-v2-pinned-apps__error {
+  margin: 0;
+  border-radius: 9px;
+  padding: 9px 11px;
+  color: var(--v2-danger, #c2413b);
+  background: color-mix(in srgb, var(--v2-danger, #c2413b), transparent 90%);
+  font-size: 13px;
+}
+
+.home-v2-pinned-apps__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-v2-pinned-apps__card {
+  display: grid;
+  min-width: 0;
+  gap: 11px;
+  border: 1px solid var(--v2-line);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--v2-surface);
+  box-shadow: var(--v2-shadow);
+}
+
+.home-v2-pinned-apps__open {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 10px;
+  padding: 4px;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.home-v2-pinned-apps__open:hover {
+  background: var(--v2-surface-raised);
+}
+
+.home-v2-pinned-apps__open:focus-visible,
+.home-v2-pinned-apps__actions button:focus-visible {
+  outline: 2px solid var(--v2-accent);
+  outline-offset: 2px;
+}
+
+.home-v2-pinned-apps__icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--v2-accent);
+  background: color-mix(in srgb, var(--v2-accent) 10%, var(--v2-surface));
+}
+
+.home-v2-pinned-apps__copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.home-v2-pinned-apps__copy strong,
+.home-v2-pinned-apps__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-v2-pinned-apps__copy small {
+  color: var(--v2-muted);
+  font-size: 11px;
+}
+
+.home-v2-pinned-apps__actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.home-v2-pinned-apps__actions button {
+  display: inline-flex;
+  min-width: 0;
+  min-block-size: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--v2-line);
+  border-radius: 9px;
+  padding: 7px 8px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.home-v2-pinned-apps__actions button:disabled,
+.home-v2-pinned-apps__open:disabled,
+.home-v2-pinned-apps__add-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.home-v2-pinned-apps__actions .home-v2-pinned-apps__remove {
+  color: var(--v2-danger, #c2413b);
+}
+
+.home-v2-pinned-apps__rename {
+  padding: 11px;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .home-v2-pinned-apps__form {
+    grid-template-columns: 1fr;
+  }
+
+  .home-v2-pinned-apps__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-v2-pinned-apps__actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

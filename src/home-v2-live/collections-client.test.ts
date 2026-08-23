@@ -44,6 +44,7 @@ setFakeCollectionPreference('qortium-home-bookmark-manager-revision', '4')
 
 const migratedClient = new HomeV2CollectionsClient()
 const migrated = await migratedClient.getSnapshot(accounts)
+assert.equal(migratedClient.wasInitializedFromEmptyStorage(), false)
 assert.equal(migrated.revision, 4)
 assert.equal(migrated.bookmarks[0]?.type, 'bookmark')
 assert.equal(migrated.dashboardPins[0]?.displayUrl, 'qdn://APP/Help/Help')
@@ -104,6 +105,82 @@ const reloaded = await new HomeV2CollectionsClient().getSnapshot({
 assert.equal(reloaded.revision, 6)
 assert.equal(reloaded.activeAccountId, null)
 assert.deepEqual(reloaded.availableAccounts, [])
+
+clearFakeCollectionPreferences()
+const freshClient = new HomeV2CollectionsClient()
+await freshClient.markFreshShellForDashboardDefaults()
+const freshSnapshot = await freshClient.getSnapshot(accounts)
+assert.equal(
+  freshClient.wasInitializedFromEmptyStorage(),
+  true,
+  'only an initialization with no canonical or legacy collection keys is fresh',
+)
+assert.equal(
+  readFakeCollectionPreference('qortium-home-v2-dashboard-defaults-pending'),
+  '1',
+  'fresh provenance remains durable until the shell makes its default-pin decision',
+)
+failNextFakeCollectionWrite('qortium-home-dashboard-pins')
+await assert.rejects(
+  freshClient.finalizeDashboardPinDefaults(true, [
+    { displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat' },
+    { displayUrl: 'qdn://APP/Help/Help', title: 'Help' },
+  ], accounts),
+  /Preferences write failed/,
+)
+assert.equal(
+  JSON.parse(readFakeCollectionPreference('qortium-home-bookmark-manager-snapshot') ?? '{}')
+    .dashboardPins.length,
+  freshSnapshot.dashboardPins.length,
+  'a failed default batch must not partially advance the canonical snapshot',
+)
+assert.equal(readFakeCollectionPreference('qortium-home-v2-dashboard-defaults-pending'), '1')
+assert.equal(readFakeCollectionPreference('qortium-home-v2-fresh-shell-defaults-pending'), '1')
+const recoveredFreshClient = new HomeV2CollectionsClient()
+assert.equal((await recoveredFreshClient.getSnapshot(accounts)).dashboardPins.length, 0)
+assert.equal(recoveredFreshClient.wasInitializedFromEmptyStorage(), true)
+const freshShellProfileAfterInterruptedFirstRun = false
+const shouldResumeFreshDefaults =
+  recoveredFreshClient.wasInitializedFromEmptyStorage() &&
+  (freshShellProfileAfterInterruptedFirstRun ||
+    await recoveredFreshClient.hasPendingFreshShellForDashboardDefaults())
+assert.equal(shouldResumeFreshDefaults, true)
+const seededFresh = await recoveredFreshClient.finalizeDashboardPinDefaults(shouldResumeFreshDefaults, [
+  { displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat' },
+  { displayUrl: 'qdn://APP/Help/Help', title: 'Help' },
+], accounts)
+assert.deepEqual(seededFresh.dashboardPins.map((pin) => pin.displayUrl), [
+  'qdn://APP/Chat/Chat',
+  'qdn://APP/Help/Help',
+])
+assert.equal(readFakeCollectionPreference('qortium-home-v2-dashboard-defaults-pending'), null)
+assert.equal(readFakeCollectionPreference('qortium-home-v2-fresh-shell-defaults-pending'), null)
+assert.equal(recoveredFreshClient.wasInitializedFromEmptyStorage(), false)
+
+clearFakeCollectionPreferences()
+setFakeCollectionPreference('qortium-home-bookmark-manager-revision', '0')
+const migratedEmptyClient = new HomeV2CollectionsClient()
+await migratedEmptyClient.markFreshShellForDashboardDefaults()
+const migratedEmpty = await migratedEmptyClient.getSnapshot(accounts)
+assert.equal(migratedEmpty.dashboardPins.length, 0)
+assert.equal(
+  migratedEmptyClient.wasInitializedFromEmptyStorage(),
+  false,
+  'a migrated profile with an intentionally empty pin list is not fresh',
+)
+assert.equal(
+  (await migratedEmptyClient.finalizeDashboardPinDefaults(
+    migratedEmptyClient.wasInitializedFromEmptyStorage() &&
+      await migratedEmptyClient.hasPendingFreshShellForDashboardDefaults(),
+    [
+    { displayUrl: 'qdn://APP/Chat/Chat', title: 'Chat' },
+    ],
+    accounts,
+  )).dashboardPins.length,
+  0,
+  'an existing empty profile cannot be seeded even if a caller requests defaults',
+)
+assert.equal(readFakeCollectionPreference('qortium-home-v2-fresh-shell-defaults-pending'), null)
 
 setFakeCollectionPreference('qortium-home-bookmark-manager-snapshot', '{invalid')
 await assert.rejects(

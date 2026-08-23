@@ -88,7 +88,16 @@ import {
   useHomeV2NodeCoreController,
 } from './node-core-controller'
 import { useHomeV2AppUpdates } from './app-update-controller'
-import { HomeV2CollectionsClient } from './collections-client'
+import {
+  HomeV2CollectionsClient,
+  type HomeV2CollectionsAccounts,
+} from './collections-client'
+import {
+  buildAdjacentDashboardPinMoveMutation,
+  HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
+  shouldSeedHomeV2DefaultDashboardPins,
+  type DashboardPinMoveDirection,
+} from './dashboard-pins'
 import {
   getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
@@ -98,6 +107,9 @@ import type { QdnAppRequest } from '../../electron/qdn-request-values'
 import {
   validateBookmarkManagerMutationRequest,
   validateBookmarksOpenRequest,
+  type BookmarkManagerDashboardPin,
+  type BookmarkManagerMutation,
+  type BookmarkManagerSnapshot,
 } from '../../electron/bookmark-manager-contract'
 import {
   assertHomeV2OpenPublicGroup,
@@ -257,29 +269,6 @@ const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_PER_APP = 3
 const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_GLOBAL = 20
 const HOME_V2_NOTIFICATION_MIN_INTERVAL_MS = 3_000
 
-const plannedApps: readonly AppDescriptor[] = [
-  {
-    id: brand<AppId>('home-v2:app:chat'),
-    title: 'Chat',
-    description: 'One app for Qortium and Qortal conversations.',
-    category: 'communication',
-    sourceNetwork: 'qortium',
-    resourceIdentity: { service: 'APP', name: 'Chat', identifier: 'Chat' },
-    targetNetworks: ['qortium', 'qortal'],
-    placement: 'pinned',
-  },
-  {
-    id: brand<AppId>('home-v2:app:help'),
-    title: 'Help',
-    description: 'Community support, issues, and developer references.',
-    category: 'community',
-    sourceNetwork: 'qortium',
-    resourceIdentity: { service: 'APP', name: 'Help', identifier: 'Help' },
-    targetNetworks: ['qortium'],
-    placement: 'pinned',
-  },
-]
-
 function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
   const resolvedTheme =
     typeof window !== 'undefined' &&
@@ -325,7 +314,7 @@ function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
         },
       },
     },
-    apps: plannedApps,
+    apps: [],
     recentItems: [],
     reticulum: {
       state: 'disabled',
@@ -529,6 +518,12 @@ export function HomeV2LiveApp() {
   const [identityLookupBusy, setIdentityLookupBusy] = useState(false)
   const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
   const [shellNotice, setShellNotice] = useState<string | null>(null)
+  const [dashboardPins, setDashboardPins] = useState<readonly BookmarkManagerDashboardPin[]>([])
+  const [dashboardPinsPhase, setDashboardPinsPhase] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [dashboardPinsError, setDashboardPinsError] = useState<string | null>(null)
+  const [dashboardPinsBusy, setDashboardPinsBusy] = useState(false)
+  const [freshShellProfile, setFreshShellProfile] = useState<boolean | null>(null)
+  const dashboardPinSeedDecisionMade = useRef(false)
   const [resourceViewer, setResourceViewer] = useState<HomeV2ResourceViewerState | null>(null)
   const [accountDialog, setAccountDialog] = useState<{
     mode: AccountDialogMode
@@ -908,8 +903,14 @@ export function HomeV2LiveApp() {
     let cancelled = false
     void nodeClient
       .getShellState()
-      .then((rawState) => {
+      .then(async (rawState) => {
         if (cancelled) return
+        const isFreshShell = rawState === null || rawState === undefined
+        if (isFreshShell) {
+          await collectionsClient.markFreshShellForDashboardDefaults()
+        }
+        if (cancelled) return
+        setFreshShellProfile(isFreshShell)
         const restored = parseHomeV2ShellState(
           rawState,
           currentSystemTheme(),
@@ -932,6 +933,9 @@ export function HomeV2LiveApp() {
       })
       .catch(() => {
         if (!cancelled) {
+          // A failed read is not proof of a fresh profile. Fail closed so an
+          // existing user's intentionally empty pin list is never reseeded.
+          setFreshShellProfile(false)
           setOnboarding(createHomeV2OnboardingState())
           setRestoredAccountId(null)
           setRestoredAddressId(null)
@@ -942,7 +946,7 @@ export function HomeV2LiveApp() {
     return () => {
       cancelled = true
     }
-  }, [nodeClient])
+  }, [collectionsClient, nodeClient])
 
   useEffect(() => {
     if (!nodeClient || !vaultClient) return
@@ -1237,40 +1241,231 @@ export function HomeV2LiveApp() {
     })
   }, [openAddress])
 
-  useEffect(() => {
-    void collectionsClient.initialize().catch((error) => {
-      console.warn('Unable to initialize saved Home links.', error)
-      setShellNotice(error instanceof Error ? error.message : 'Saved Home links are unavailable.')
-    })
-  }, [collectionsClient])
-
-  useEffect(() => {
-    const bridge = window.homeV2Collections
-    if (!bridge) return
-    const accounts = (requestedAccountId: unknown) => {
+  const getCollectionsAccounts = useCallback(
+    (requestedAccountId: string | null = selectedAccountId): HomeV2CollectionsAccounts => {
       const availableAccounts = accountCatalogueRef.current.accounts.map((account) => ({
         id: account.id,
         label: account.label,
       }))
       return {
-        activeAccountId: typeof requestedAccountId === 'string' &&
+        activeAccountId:
+          requestedAccountId &&
           availableAccounts.some((account) => account.id === requestedAccountId)
-          ? requestedAccountId
-          : null,
+            ? requestedAccountId
+            : null,
         availableAccounts,
       }
+    },
+    [selectedAccountId],
+  )
+
+  const applyDashboardPinSnapshot = useCallback((next: BookmarkManagerSnapshot) => {
+    setDashboardPins(next.dashboardPins)
+    setDashboardPinsError(null)
+    setDashboardPinsPhase('ready')
+  }, [])
+
+  const applyCollectionsMutation = useCallback(
+    async (
+      requestedMutation:
+        | BookmarkManagerMutation
+        | ((snapshot: BookmarkManagerSnapshot) => BookmarkManagerMutation | null),
+    ) => {
+      const accounts = getCollectionsAccounts()
+      let current = await collectionsClient.getSnapshot(accounts)
+      const resolveMutation = () =>
+        typeof requestedMutation === 'function'
+          ? requestedMutation(current)
+          : requestedMutation
+      let mutation = resolveMutation()
+      if (!mutation) return { changed: false, snapshot: current }
+      try {
+        return await collectionsClient.apply(
+          { expectedRevision: current.revision, mutation },
+          accounts,
+        )
+      } catch (error) {
+        if ((error as { code?: unknown })?.code !== 'HOME_DATA_STALE') throw error
+        current = await collectionsClient.getSnapshot(accounts)
+        mutation = resolveMutation()
+        if (!mutation) return { changed: false, snapshot: current }
+        return collectionsClient.apply(
+          { expectedRevision: current.revision, mutation },
+          accounts,
+        )
+      }
+    },
+    [collectionsClient, getCollectionsAccounts],
+  )
+
+  const loadDashboardPinsSnapshot = useCallback(async () => {
+    await collectionsClient.initialize()
+    const accounts = getCollectionsAccounts()
+    let next = await collectionsClient.getSnapshot(accounts)
+    if (!dashboardPinSeedDecisionMade.current) {
+      const isGenuinelyFresh =
+        collectionsClient.wasInitializedFromEmptyStorage() &&
+        (freshShellProfile === true ||
+          await collectionsClient.hasPendingFreshShellForDashboardDefaults())
+      const shouldSeed = shouldSeedHomeV2DefaultDashboardPins(
+        isGenuinelyFresh,
+        next.dashboardPins,
+      )
+      next = await collectionsClient.finalizeDashboardPinDefaults(
+        shouldSeed,
+        HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
+        accounts,
+      )
+      dashboardPinSeedDecisionMade.current = true
     }
+    return next
+  }, [collectionsClient, freshShellProfile, getCollectionsAccounts])
+
+  const refreshDashboardPins = useCallback(async () => {
+    setDashboardPinsPhase('loading')
+    setDashboardPinsError(null)
+    try {
+      const next = await loadDashboardPinsSnapshot()
+      applyDashboardPinSnapshot(next)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Saved Home links are unavailable.'
+      setDashboardPinsError(message)
+      setDashboardPinsPhase('error')
+    }
+  }, [applyDashboardPinSnapshot, loadDashboardPinsSnapshot])
+
+  useEffect(() => {
+    if (!accountCatalogueReady || freshShellProfile === null) return
+    let cancelled = false
+    setDashboardPinsPhase('loading')
+    setDashboardPinsError(null)
+    void (async () => {
+      const next = await loadDashboardPinsSnapshot()
+      if (!cancelled) applyDashboardPinSnapshot(next)
+    })().catch((error) => {
+      if (cancelled) return
+      console.warn('Unable to initialize saved Home links.', error)
+      const message = error instanceof Error ? error.message : 'Saved Home links are unavailable.'
+      setDashboardPinsError(message)
+      setDashboardPinsPhase('error')
+      setShellNotice(message)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    accountCatalogueReady,
+    applyDashboardPinSnapshot,
+    freshShellProfile,
+    loadDashboardPinsSnapshot,
+  ])
+
+  const mutateDashboardPins = useCallback(
+    async (
+      mutation:
+        | BookmarkManagerMutation
+        | ((snapshot: BookmarkManagerSnapshot) => BookmarkManagerMutation | null),
+    ) => {
+      setDashboardPinsBusy(true)
+      setDashboardPinsError(null)
+      try {
+        const result = await applyCollectionsMutation(mutation)
+        applyDashboardPinSnapshot(result.snapshot)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Saved Home links could not be updated.'
+        setDashboardPinsError(message)
+        throw error
+      } finally {
+        setDashboardPinsBusy(false)
+      }
+    },
+    [applyCollectionsMutation, applyDashboardPinSnapshot],
+  )
+
+  const addDashboardPin = useCallback(
+    async (address: string, title: string) => {
+      const openRequest = validateBookmarksOpenRequest({
+        accountId: selectedAccountId,
+        address,
+      })
+      await mutateDashboardPins({
+        type: 'addDashboardPin',
+        pin: {
+          accountId: openRequest.accountId,
+          displayUrl: openRequest.address,
+          title,
+        },
+      })
+      if (title.trim()) {
+        await mutateDashboardPins({
+          type: 'updateDashboardPin',
+          pinId: openRequest.address,
+          pin: {
+            accountId: openRequest.accountId,
+            displayUrl: openRequest.address,
+            title,
+          },
+        })
+      }
+    },
+    [mutateDashboardPins, selectedAccountId],
+  )
+
+  const renameDashboardPin = useCallback(
+    async (pin: BookmarkManagerDashboardPin, title: string) => {
+      await mutateDashboardPins({
+        type: 'updateDashboardPin',
+        pinId: pin.id,
+        pin: {
+          accountId: pin.accountId ?? null,
+          displayUrl: pin.displayUrl,
+          title,
+        },
+      })
+    },
+    [mutateDashboardPins],
+  )
+
+  const moveDashboardPin = useCallback(
+    async (pinId: string, direction: DashboardPinMoveDirection) => {
+      await mutateDashboardPins((current) =>
+        buildAdjacentDashboardPinMoveMutation(current.dashboardPins, pinId, direction),
+      )
+    },
+    [mutateDashboardPins],
+  )
+
+  const openDashboardPin = useCallback(
+    async (pin: BookmarkManagerDashboardPin) => {
+      const result = await openAddress(pin.displayUrl, pin.accountId ?? selectedAccountId)
+      if (result.status !== 'opened') {
+        throw new Error(result.message ?? 'Saved Home link could not be opened.')
+      }
+    },
+    [openAddress, selectedAccountId],
+  )
+
+  useEffect(() => {
+    const bridge = window.homeV2Collections
+    if (!bridge) return
     return bridge.onRequest((value) => {
       if (!isRecord(value) || typeof value.id !== 'string') return
       const requestId = value.id
-      const requestAccounts = accounts(value.accountId)
+      const requestAccounts = getCollectionsAccounts(
+        typeof value.accountId === 'string' ? value.accountId : null,
+      )
       const operation = value.operation === 'apply'
         ? collectionsClient.apply(value.request, requestAccounts)
         : value.operation === 'get'
           ? collectionsClient.getSnapshot(requestAccounts)
           : Promise.reject(new Error('Unsupported bookmark manager operation.'))
       void operation.then(
-        (result) => bridge.resolveRequest({ requestId, result }),
+        (result) => {
+          if (value.operation === 'apply' && 'snapshot' in result) {
+            applyDashboardPinSnapshot(result.snapshot)
+          }
+          bridge.resolveRequest({ requestId, result })
+        },
         (error: unknown) => bridge.resolveRequest({
           error: {
             ...((error as { code?: unknown })?.code && typeof (error as { code?: unknown }).code === 'string'
@@ -1282,7 +1477,7 @@ export function HomeV2LiveApp() {
         }),
       ).catch((error) => console.warn('Unable to resolve bookmark manager request.', error))
     })
-  }, [collectionsClient, selectedAccountId])
+  }, [applyDashboardPinSnapshot, collectionsClient, getCollectionsAccounts])
 
   useEffect(() => {
     const bridge = window.homeV2Collections
@@ -1907,6 +2102,7 @@ export function HomeV2LiveApp() {
             },
           )
           const result = await collectionsClient.apply(mutationRequest, accounts)
+          applyDashboardPinSnapshot(result.snapshot)
           const completedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           if (!completedTab || completedTab.context.resourceLocation !== context.resourceLocation) {
             throw new Error('QDN manager request is stale because the app view changed while it was running.')
@@ -3780,7 +3976,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [collectionsClient, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
+    [applyDashboardPinSnapshot, collectionsClient, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const setNodeMode = async (
@@ -4205,6 +4401,19 @@ export function HomeV2LiveApp() {
       enableCoreDocs={enableHomeV2CoreDocs}
       probeCoreDocs={probeHomeV2CoreDocs}
       onboarding={onboarding}
+      pinnedApps={{
+        pins: dashboardPins,
+        status: dashboardPinsPhase,
+        error: dashboardPinsError,
+        busy: dashboardPinsBusy,
+        onAdd: ({ displayUrl, title }) => addDashboardPin(displayUrl, title),
+        onMove: moveDashboardPin,
+        onOpen: openDashboardPin,
+        onRemove: (pin) =>
+          mutateDashboardPins({ type: 'removeDashboardPin', pinId: pin.id }),
+        onRename: renameDashboardPin,
+        onRetry: refreshDashboardPins,
+      }}
       qdnAppsManagement={qdnAppsManagement}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
