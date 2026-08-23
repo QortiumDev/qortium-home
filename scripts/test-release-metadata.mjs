@@ -21,6 +21,11 @@ const androidGradle = read('android/app/build.gradle');
 assert.equal(packageJson.version, expectedVersion, 'package.json version must match the Home release');
 assert.equal(packageLock.version, expectedVersion, 'package-lock.json version must match package.json');
 assert.equal(packageLock.packages?.['']?.version, expectedVersion, 'lockfile root version must match package.json');
+assert.equal(
+  packageJson.build?.mac?.x64ArchFiles,
+  'Contents/Resources/native/macos/{x64,arm64}/qortium-core-observer',
+  'universal macOS builds must preserve both prebuilt architecture-specific Core observers',
+);
 assert.match(
   androidGradle,
   new RegExp(`\\bversionCode\\s+${expectedAndroidVersionCode}\\b`),

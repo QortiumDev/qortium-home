@@ -34,6 +34,14 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - fix(build): package native observers in universal macOS apps
+
+Universal macOS packages now retain Home's separate Intel and Apple silicon
+Core observers instead of asking Electron's universal-app merger to combine
+each already architecture-specific resource a second time. The release check
+also guards the exact two packaged observer paths so future universal builds
+cannot silently drop either native helper.
+
 ### 2026-08-23 - fix(qdn): preserve Android uploads and numeric asset IDs
 
 Android now sends the exact selected file bytes when a QDN app publishes
