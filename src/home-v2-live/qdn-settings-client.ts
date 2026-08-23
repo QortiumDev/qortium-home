@@ -1,0 +1,469 @@
+export type HomeV2QdnAssignment = Readonly<{
+  description: string | null
+  label: string
+  url: string | null
+}>
+
+export type HomeV2QdnNotificationGrant = Readonly<{
+  appKey: string
+  grantedAt: string
+  hasForeignPaymentRule: boolean
+  muted: boolean
+  ruleCount: number
+}>
+
+export type HomeV2QdnSettingsState = Readonly<{
+  assignments: Readonly<{
+    assignments: Readonly<Record<string, HomeV2QdnAssignment>>
+    revision: number
+    version: 2
+  }>
+  notifications: Readonly<{
+    apps: readonly HomeV2QdnNotificationGrant[]
+    revision: number | null
+    status: 'available' | 'corrupt' | 'unavailable'
+    version: 1
+  }>
+  revision: 1
+  schema: 'home-v2-qdn-settings-state'
+}>
+
+export type HomeV2QdnAssignmentRow = HomeV2QdnAssignment & Readonly<{
+  defaultUrl: string | null
+  role: string
+}>
+
+export type HomeV2QdnAssignmentRequest = Readonly<{
+  expectedAssignmentRevision: number
+  role: string
+  url: string
+}>
+
+export type HomeV2QdnNotificationMuteRequest = Readonly<{
+  appKey: string
+  expectedNotificationRevision: number
+  muted: boolean
+}>
+
+export type HomeV2QdnNotificationRevokeRequest = Readonly<{
+  appKey: string
+  expectedNotificationRevision: number
+}>
+
+export interface HomeV2QdnSettingsAdapter {
+  get(): Promise<unknown>
+  revoke(request: HomeV2QdnNotificationRevokeRequest): Promise<unknown>
+  setAssignment(request: HomeV2QdnAssignmentRequest): Promise<unknown>
+  setMuted(request: HomeV2QdnNotificationMuteRequest): Promise<unknown>
+  subscribe?(listener: () => void): () => void
+}
+
+export interface HomeV2QdnSettingsClient {
+  get(): Promise<HomeV2QdnSettingsState>
+  revoke(request: HomeV2QdnNotificationRevokeRequest): Promise<HomeV2QdnSettingsState>
+  setAssignment(request: HomeV2QdnAssignmentRequest): Promise<HomeV2QdnSettingsState>
+  setMuted(request: HomeV2QdnNotificationMuteRequest): Promise<HomeV2QdnSettingsState>
+  subscribe(listener: () => void): () => void
+}
+
+export interface HomeV2QdnSettingsManagement {
+  readonly available: boolean
+  readonly client?: HomeV2QdnSettingsClient
+}
+
+const defaultAssignments = {
+  bookmarks: {
+    description: 'App used when Home opens bookmarks.',
+    label: 'Bookmarks',
+    url: 'qdn://APP/Bookmarks/Bookmarks',
+  },
+  notifications: {
+    description: 'App used to manage Home notifications.',
+    label: 'Notifications',
+    url: 'qdn://APP/Notify/Notify',
+  },
+  explore: {
+    description: 'App used when Home opens QDN Explore.',
+    label: 'Explore',
+    url: 'qdn://APP/Explore/Explore',
+  },
+} as const
+
+const defaultRoleOrder = new Map(
+  Object.keys(defaultAssignments).map((role, index) => [role, index]),
+)
+const qdnTargetPattern = /^qdn:\/\/(APP|WEBSITE)\/([^/?#]+)(?:\/([^/?#]+))?((?:\/[^?#]*)?(?:\?[^#]*)?(?:#.*)?)$/i
+const rolePattern = /^[a-z][a-z0-9]*(?:[._:/-][a-z0-9]+)*$/
+const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype'])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  const actual = Object.keys(value).sort()
+  const expected = [...keys].sort()
+  return actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+}
+
+function safeGeneration(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+}
+
+function boundedText(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= maximum &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+}
+
+export function normalizeHomeV2QdnAssignmentUrl(value: string) {
+  const url = value.trim()
+  const match = qdnTargetPattern.exec(url)
+  if (
+    !url ||
+    url.length > 2_048 ||
+    /[\u0000-\u001f\u007f\s]/.test(url) ||
+    !match
+  ) throw new Error('Invalid QDN assignment URL.')
+  return `qdn://${match[1].toUpperCase()}/${match[2]}${
+    match[3] ? `/${match[3]}` : ''
+  }${match[4]}`
+}
+
+function parseAssignment(value: unknown, role: string): HomeV2QdnAssignment {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['description', 'label', 'url']) ||
+    !boundedText(value.label, 80) ||
+    !(value.description === null || boundedText(value.description, 280))
+  ) throw new Error(`Home 2 QDN assignment ${role} was malformed.`)
+  return Object.freeze({
+    description: value.description as string | null,
+    label: value.label,
+    url: value.url === null
+      ? null
+      : normalizeHomeV2QdnAssignmentUrl(String(value.url)),
+  })
+}
+
+function parseAssignments(value: unknown) {
+  if (!isRecord(value) || Object.keys(value).length > 100) {
+    throw new Error('Home 2 QDN assignments were malformed.')
+  }
+  const assignments: Record<string, HomeV2QdnAssignment> = {}
+  for (const [role, assignment] of Object.entries(value)) {
+    if (
+      role.length > 120 ||
+      !rolePattern.test(role) ||
+      unsafeKeys.has(role)
+    ) throw new Error('Home 2 QDN assignment role was malformed.')
+    assignments[role] = parseAssignment(assignment, role)
+  }
+  return Object.freeze(assignments)
+}
+
+function parseGrant(value: unknown): HomeV2QdnNotificationGrant {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'appKey',
+      'grantedAt',
+      'hasForeignPaymentRule',
+      'muted',
+      'ruleCount',
+    ]) ||
+    !boundedText(value.appKey, 2_048) ||
+    !/^qdn:\/\/(?:APP|WEBSITE)\/[^/?#]+(?:\/[^/?#]+)?$/i.test(value.appKey) ||
+    !boundedText(value.grantedAt, 100) ||
+    !Number.isFinite(Date.parse(value.grantedAt)) ||
+    typeof value.muted !== 'boolean' ||
+    !Number.isSafeInteger(value.ruleCount) ||
+    (value.ruleCount as number) < 0 ||
+    (value.ruleCount as number) > 20 ||
+    typeof value.hasForeignPaymentRule !== 'boolean'
+  ) throw new Error('Home 2 QDN notification grant was malformed.')
+  return Object.freeze({
+    appKey: value.appKey,
+    grantedAt: value.grantedAt,
+    hasForeignPaymentRule: value.hasForeignPaymentRule,
+    muted: value.muted,
+    ruleCount: value.ruleCount as number,
+  })
+}
+
+export function parseHomeV2QdnSettingsState(
+  value: unknown,
+): HomeV2QdnSettingsState {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['assignments', 'notifications', 'revision', 'schema']) ||
+    value.schema !== 'home-v2-qdn-settings-state' ||
+    value.revision !== 1 ||
+    !isRecord(value.assignments) ||
+    !hasExactKeys(value.assignments, ['assignments', 'revision', 'version']) ||
+    value.assignments.version !== 2 ||
+    !safeGeneration(value.assignments.revision) ||
+    !isRecord(value.notifications) ||
+    !hasExactKeys(value.notifications, ['apps', 'revision', 'status', 'version']) ||
+    value.notifications.version !== 1 ||
+    !['available', 'corrupt', 'unavailable'].includes(String(value.notifications.status)) ||
+    !(value.notifications.revision === null || safeGeneration(value.notifications.revision)) ||
+    !Array.isArray(value.notifications.apps) ||
+    value.notifications.apps.length > 100
+  ) throw new Error('Home 2 QDN settings state was malformed.')
+
+  const assignments = parseAssignments(value.assignments.assignments)
+  if (!Object.keys(defaultAssignments).every((role) => Object.hasOwn(assignments, role))) {
+    throw new Error('Home 2 QDN settings omitted a default app assignment.')
+  }
+  const apps = value.notifications.apps.map(parseGrant)
+  if (new Set(apps.map(({ appKey }) => appKey)).size !== apps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate notification grants.')
+  }
+  if (value.notifications.status !== 'available' && (apps.length || value.notifications.revision !== null)) {
+    throw new Error('Unavailable Home 2 notification settings exposed app data.')
+  }
+  if (value.notifications.status === 'available' && value.notifications.revision === null) {
+    throw new Error('Available Home 2 notification settings omitted its revision.')
+  }
+  return Object.freeze({
+    assignments: Object.freeze({
+      assignments,
+      revision: value.assignments.revision,
+      version: 2,
+    }),
+    notifications: Object.freeze({
+      apps: Object.freeze(
+        [...apps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
+      ),
+      revision: value.notifications.revision as number | null,
+      status: value.notifications.status as HomeV2QdnSettingsState['notifications']['status'],
+      version: 1,
+    }),
+    revision: 1,
+    schema: 'home-v2-qdn-settings-state',
+  })
+}
+
+export function getHomeV2QdnAssignmentRows(
+  state: HomeV2QdnSettingsState,
+): readonly HomeV2QdnAssignmentRow[] {
+  return Object.entries(state.assignments.assignments)
+    .map(([role, assignment]) => ({
+      ...assignment,
+      defaultUrl: role in defaultAssignments
+        ? defaultAssignments[role as keyof typeof defaultAssignments].url
+        : null,
+      role,
+    }))
+    .sort((left, right) => {
+      const leftDefault = defaultRoleOrder.get(left.role)
+      const rightDefault = defaultRoleOrder.get(right.role)
+      if (leftDefault !== undefined || rightDefault !== undefined) {
+        return (leftDefault ?? Number.MAX_SAFE_INTEGER) -
+          (rightDefault ?? Number.MAX_SAFE_INTEGER)
+      }
+      return left.role.localeCompare(right.role)
+    })
+}
+
+export interface PortableHomeV2QdnSettingsDependencies {
+  classifyNotificationReadError?: (
+    error: unknown,
+  ) => 'corrupt' | 'unavailable'
+  readAssignments(): Promise<unknown>
+  readNotifications(): Promise<unknown>
+  revokeNotifications(
+    appKey: string,
+    expectedRevision: number,
+  ): Promise<unknown>
+  setAssignment(
+    input: Readonly<{ role: string; url: string }>,
+    expectedRevision: number,
+  ): Promise<unknown>
+  setMuted(
+    appKey: string,
+    muted: boolean,
+    expectedRevision: number,
+  ): Promise<unknown>
+  subscribeAssignments?(listener: () => void): () => void
+  subscribeNotifications?(listener: () => void): () => void
+}
+
+function projectPortableAssignments(value: unknown) {
+  if (
+    !isRecord(value) ||
+    value.version !== 2 ||
+    !safeGeneration(value.revision)
+  ) throw new Error('Portable QDN assignments were malformed.')
+  const assignments = parseAssignments(value.assignments)
+  if (!Object.keys(defaultAssignments).every((role) => Object.hasOwn(assignments, role))) {
+    throw new Error('Portable QDN assignments omitted a default role.')
+  }
+  return {
+    assignments,
+    revision: value.revision,
+    version: 2 as const,
+  }
+}
+
+function projectPortableNotifications(value: unknown) {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    !safeGeneration(value.revision) ||
+    !isRecord(value.grants) ||
+    !isRecord(value.rules) ||
+    Object.keys(value.grants).length > 100
+  ) throw new Error('Portable QDN notification settings were malformed.')
+  const rulesByApp = value.rules
+  const apps = Object.entries(value.grants).map(([appKey, grant]) => {
+    if (
+      !isRecord(grant) ||
+      !boundedText(grant.grantedAt, 100) ||
+      !Number.isFinite(Date.parse(grant.grantedAt)) ||
+      !(grant.muted === undefined || typeof grant.muted === 'boolean')
+    ) throw new Error('Portable QDN notification grant was malformed.')
+    const rules = rulesByApp[appKey] ?? []
+    if (!Array.isArray(rules) || rules.length > 20) {
+      throw new Error('Portable QDN notification rules were malformed.')
+    }
+    const summary = {
+      appKey,
+      grantedAt: grant.grantedAt,
+      hasForeignPaymentRule: rules.some((rule) =>
+        isRecord(rule) && rule.event === 'FOREIGN_PAYMENT_RECEIVED'),
+      muted: grant.muted === true,
+      ruleCount: rules.length,
+    }
+    return parseGrant(summary)
+  })
+  return {
+    apps,
+    revision: value.revision,
+    status: 'available' as const,
+    version: 1 as const,
+  }
+}
+
+/**
+ * Builds the Android/portable adapter from injected platform stores. This
+ * module never reads browser storage itself; callers retain platform ownership.
+ */
+export function createPortableHomeV2QdnSettingsAdapter(
+  dependencies: PortableHomeV2QdnSettingsDependencies,
+): HomeV2QdnSettingsAdapter {
+  const readState = async (): Promise<HomeV2QdnSettingsState> => {
+    const assignments = projectPortableAssignments(
+      await dependencies.readAssignments(),
+    )
+    let notifications: HomeV2QdnSettingsState['notifications']
+    try {
+      const rawNotifications = await dependencies.readNotifications()
+      try {
+        notifications = projectPortableNotifications(rawNotifications)
+      } catch {
+        notifications = {
+          apps: [],
+          revision: null,
+          status: 'corrupt',
+          version: 1,
+        }
+      }
+    } catch (error) {
+      notifications = {
+        apps: [],
+        revision: null,
+        status: dependencies.classifyNotificationReadError?.(error) ?? 'unavailable',
+        version: 1,
+      }
+    }
+    return parseHomeV2QdnSettingsState({
+      assignments,
+      notifications,
+      revision: 1,
+      schema: 'home-v2-qdn-settings-state',
+    })
+  }
+
+  return {
+    get: readState,
+    async revoke(request) {
+      await dependencies.revokeNotifications(
+        request.appKey,
+        request.expectedNotificationRevision,
+      )
+      return readState()
+    },
+    async setAssignment(request) {
+      await dependencies.setAssignment(
+        { role: request.role, url: request.url },
+        request.expectedAssignmentRevision,
+      )
+      return readState()
+    },
+    async setMuted(request) {
+      await dependencies.setMuted(
+        request.appKey,
+        request.muted,
+        request.expectedNotificationRevision,
+      )
+      return readState()
+    },
+    subscribe(listener) {
+      const unsubscribeAssignments = dependencies.subscribeAssignments?.(listener)
+      const unsubscribeNotifications = dependencies.subscribeNotifications?.(listener)
+      return () => {
+        unsubscribeAssignments?.()
+        unsubscribeNotifications?.()
+      }
+    },
+  }
+}
+
+export function createHomeV2QdnSettingsClient(
+  adapter: HomeV2QdnSettingsAdapter,
+): HomeV2QdnSettingsClient {
+  return {
+    async get() {
+      return parseHomeV2QdnSettingsState(await adapter.get())
+    },
+    async revoke(request) {
+      return parseHomeV2QdnSettingsState(await adapter.revoke(request))
+    },
+    async setAssignment(request) {
+      return parseHomeV2QdnSettingsState(await adapter.setAssignment(request))
+    },
+    async setMuted(request) {
+      return parseHomeV2QdnSettingsState(await adapter.setMuted(request))
+    },
+    subscribe(listener) {
+      return adapter.subscribe?.(listener) ?? (() => undefined)
+    },
+  }
+}
+
+type WindowWithHomeV2QdnSettings = Window & {
+  readonly homeV2QdnSettings?: HomeV2QdnSettingsAdapter
+}
+
+export function resolveHomeV2QdnSettingsManagement(
+  injectedAdapter?: HomeV2QdnSettingsAdapter | null,
+): HomeV2QdnSettingsManagement {
+  const adapter = injectedAdapter === undefined && typeof window !== 'undefined'
+    ? (window as WindowWithHomeV2QdnSettings).homeV2QdnSettings
+    : injectedAdapter
+  return adapter
+    ? { available: true, client: createHomeV2QdnSettingsClient(adapter) }
+    : { available: false }
+}
+
+export function isHomeV2QdnSettingsStaleError(error: unknown) {
+  if (
+    isRecord(error) &&
+    (error.code === 'settings-changed' || error.code === 'HOME_DATA_STALE')
+  ) return true
+  return error instanceof Error && /settings[ -]changed|stale/i.test(error.message)
+}

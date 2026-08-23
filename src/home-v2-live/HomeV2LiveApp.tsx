@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import {
   clampHomeV2AppZoom,
   defaultHomeV2Appearance,
@@ -140,7 +141,20 @@ import { loadDisplaySettings } from '../displaySettings'
 import {
   getNotificationStore,
   grantAppNotifications,
+  onNotificationStoreChanged,
+  readNotificationStoreForManagement,
+  revokeAppNotifications,
+  setAppNotificationMuted,
 } from '../notificationStore'
+import {
+  getQdnAppRolesStore,
+  onQdnManagerPermissionsChanged,
+  setQdnAppAssignmentValue,
+} from '../qdnManagerPermissions'
+import {
+  createPortableHomeV2QdnSettingsAdapter,
+  resolveHomeV2QdnSettingsManagement,
+} from './qdn-settings-client'
 import { resolveDualIdentity } from './identity-resolver'
 import { completeUnlockAfterAccountStatePropagation } from './unlock-account-state'
 import {
@@ -407,6 +421,30 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
 
 export function HomeV2LiveApp() {
   const isAndroidHost = useRef(!window.homeV2Nodes).current
+  const qdnAppsManagement = useMemo(() => {
+    const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+    if (!isNativeAndroid) return resolveHomeV2QdnSettingsManagement()
+    return resolveHomeV2QdnSettingsManagement(
+      createPortableHomeV2QdnSettingsAdapter({
+        readAssignments: getQdnAppRolesStore,
+        readNotifications: readNotificationStoreForManagement,
+        classifyNotificationReadError(error) {
+          return (error as { code?: unknown })?.code === 'HOME_NOTIFICATION_STORE_CORRUPT'
+            ? 'corrupt'
+            : 'unavailable'
+        },
+        revokeNotifications: revokeAppNotifications,
+        setAssignment: setQdnAppAssignmentValue,
+        setMuted: setAppNotificationMuted,
+        subscribeAssignments(listener) {
+          return onQdnManagerPermissionsChanged(() => listener())
+        },
+        subscribeNotifications(listener) {
+          return onNotificationStoreChanged(() => listener())
+        },
+      }),
+    )
+  }, [isAndroidHost])
   const [productState, dispatchProduct] = useReducer(
     reduceProductState,
     undefined,
@@ -3804,6 +3842,7 @@ export function HomeV2LiveApp() {
         },
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
+      qdnAppsManagement={qdnAppsManagement}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
         dispatchProduct({ type: 'activate-tab', tabId })

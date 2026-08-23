@@ -34,6 +34,28 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-22 - feat(settings): add Home 2 QDN permissions
+
+Home 2's QDN Apps Settings section can now choose the saved app for each
+existing Home role and manage notification access on desktop and Android. An
+assigned app still needs its own permission before it can manage Home data, and
+these choices are saved in the Home profile. Notification grants use one stable
+QDN resource identity across Qortium and Qortal: muting hides alerts while
+keeping the grant, rules, and Core subscriptions; revoking removes the grant and
+all of that app's rules. Home warns that watch-only wallet data already shared
+with a Core for foreign-payment notifications cannot be recalled.
+
+The desktop exposes only redacted summaries to the exact trusted Home shell and
+rejects widgets, subframes, and navigated documents before reading the stores.
+Android uses the same revision-checked profile semantics. Corrupt or unavailable
+notification state fails closed. Desktop sends no raw rules, account bindings,
+filters, watch-only keys, notification text, links, paths, or capability grants
+across IPC. Android reads its renderer-owned Preferences store and projects the
+same redacted management state before the Settings component receives it. This
+Settings-only slice adds no public QDN app action and keeps QAVS
+`platformVersion: "2.0"`; app-facing assignment delegation remains a separate
+follow-up.
+
 ### 2026-08-22 - feat(core): add Home 2 transport maintenance
 
 Desktop Runtime settings can now choose Qortium Core's Direct + I2P, Direct

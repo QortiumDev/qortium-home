@@ -112,6 +112,11 @@ grant. The manager cannot create or replace another app's subscriptions. This
 is an app-scoped capability: users approve it for the calling app, and another
 app may request its own approval independently.
 
+Muting suppresses alerts but keeps the app's notification grant, rules, and
+Core subscriptions. Revoking removes the grant and every rule for that app.
+Neither operation can recall watch-only wallet data already disclosed to a Core
+for a foreign-payment rule.
+
 The `notifications` app assignment in Settings "QDN Apps" is only a
 user-owned launch preference. Users may select the default Notify app, another
 app, or a custom assignment-manager-created target; that selection never
@@ -216,7 +221,8 @@ await qdnRequest({
 
 The xpub gives the configured Core node a watch-only view of that wallet's
 address history. It cannot spend funds, but apps must present this privacy
-tradeoff clearly. Home suppresses replayed receipt pushes after reconnects
+tradeoff clearly, including that later muting or revocation cannot recall data
+the Core already received. Home suppresses replayed receipt pushes after reconnects
 using Core's `checkpoint` together with the coin, transaction hash, and
 address. On Core 1.4.x or earlier Home omits every foreign-payment rule from
 the combined websocket subscription, so those nodes cannot reject unrelated

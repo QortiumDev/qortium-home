@@ -46,6 +46,7 @@ import type {
   HomeV2NodeClient,
 } from '../../home-v2-live/node-client'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
+import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -80,6 +81,7 @@ export interface HomeV2PrototypeProps {
   readonly nodeClient?: HomeV2NodeClient | null
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
+  readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
@@ -907,6 +909,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             onToggleLockOnExit={props.onToggleLockOnExit}
             coreManagement={props.coreManagement}
             appUpdates={props.appUpdates}
+            qdnAppsManagement={props.qdnAppsManagement}
           />
         ) : productState.destination === 'dashboard' ||
           productState.destination === 'tab' ? (

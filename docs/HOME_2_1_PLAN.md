@@ -130,9 +130,10 @@ preparation.
   command lines remain unknown. MSVC `/W4 /WX`, PE x64, native self-test, packaged-resource,
   protocol/adapter, Java-resolution, and real Windows install-lock CI pass. A
   real-Qortal start/relaunch/readiness/stop pass and signed artifact remain
-  release gates; the sanitized native-host acceptance is tracked in
-  [issue #312](https://github.com/QortiumDev/qortium-home/issues/312). Adoption
-  and Home 2 controls remain subsequent E2/E3 work.
+  release gates. The sanitized native-host acceptance was completed through
+  [issue #312](https://github.com/QortiumDev/qortium-home/issues/312) and its
+  merged Windows evidence; adoption and Home 2 controls remain subsequent E2/E3
+  work.
 - [x] Add E3's internal adopted-install discovery and selected-record boundary:
   canonicalize and deduplicate explicit path, running-process, and Qortal Hub
   hints; keep multiple foreign candidates separate for user selection; store
@@ -242,6 +243,24 @@ preparation.
   a duplicate initial install until candidate selection is implemented.
   Automatic Qortal policy, adopted-file mutation, selection UI, Android Core
   maintenance, and i2pd/transport remain later work.
+- [x] Add manual Qortium transport and managed-i2pd maintenance in PR #323.
+  Desktop Runtime settings apply a stopped-only transport change through a
+  private atomic Core-settings replacement, and Home can install, start, and
+  strictly update its own pinned i2pd generation after exact release, digest,
+  byte-size, binary, process, and local SAM checks. Status remains redacted and
+  sender-gated; local SAM readiness is not presented as network reachability or
+  privacy proof. Android management, cleanup of retired generations, signing,
+  publication, and live-network acceptance remain release/follow-up work.
+- [x] Implement the F4 trusted QDN Apps Settings slice. This tranche
+  edits already-persisted app assignments and summarizes notification grants on
+  desktop and Android with optimistic revisions. Mute retains the grant, rules,
+  and Core subscriptions; revoke deletes the grant and all rules, while warning
+  that foreign-payment watch-only data already disclosed to a Core cannot be
+  recalled. The desktop bridge exposes only redacted summaries to the exact
+  authorized top-level shell and rejects widgets. This slice adds no public
+  `SHOW_ACTIONS`, keeps QAVS `platformVersion: "2.0"`, and leaves app-facing
+  delegation for the later G2 contract. The required tests, packaged desktop
+  acceptance, Android debug build, and independent boundary review passed.
 
 ## Required gates
 

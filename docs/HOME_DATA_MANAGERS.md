@@ -1,6 +1,6 @@
 # Home data manager QDN bridge
 
-Home exposes two elevated, device-local manager capabilities to embedded QDN
+Home exposes two elevated, Home-profile manager capabilities to embedded QDN
 apps: bookmark management and notification management. These actions work when
 Home uses a local, custom, or public/network node because the managed data
 belongs to Home, not Core. Apps must still feature-detect them with
@@ -42,9 +42,10 @@ await qdnRequest({ action: 'NOTIFICATION_MANAGER_HAS_PERMISSION' });
 
 The first `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, or
 notification-manager read or mutation opens a durable permission dialog. A
-denial rejects the request and does not create a grant. The grant is
-device-local, does not depend on the selected account, and belongs only to the
-calling app.
+denial rejects the request and does not create a grant. The grant does not
+depend on the selected account and belongs only to the calling app's stable
+resource identity. Home does not publish or synchronize it, although a platform
+backup may restore the containing Home profile.
 
 If the app view changes while the permission dialog is open, Home rejects the
 stale request instead of granting or using the capability for the replacement

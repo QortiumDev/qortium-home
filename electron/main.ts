@@ -35,6 +35,7 @@ import { authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
+import { registerHomeV2QdnSettingsBridgeIpcHandlers } from './home-v2-qdn-settings-bridge.js';
 import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import { HOME_V2_RESOURCE_STREAM_SCHEME } from './home-v2-resource-stream-capability.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
@@ -878,6 +879,7 @@ app.whenReady().then(() => {
     registerHomeV2NodeBridgeIpcHandlers();
     registerHomeV2CoreManagerBridgeIpcHandlers();
     registerHomeV2AppUpdateBridgeIpcHandlers();
+    registerHomeV2QdnSettingsBridgeIpcHandlers();
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);

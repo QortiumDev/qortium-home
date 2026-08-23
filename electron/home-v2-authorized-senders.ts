@@ -65,3 +65,24 @@ export function assertAuthorizedHomeV2Sender(event: IpcMainInvokeEvent) {
   }
 }
 
+export function sendToAuthorizedHomeV2Senders(
+  channel: string,
+  value: unknown,
+) {
+  for (const [senderId, authorized] of authorizedHomeV2Senders) {
+    const { sender, trustedDocumentUrl } = authorized
+    if (
+      sender.isDestroyed() ||
+      normalizedDocumentUrl(sender.getURL()) !== trustedDocumentUrl
+    ) {
+      authorizedHomeV2Senders.delete(senderId)
+      continue
+    }
+    try {
+      sender.send(channel, value)
+    } catch (error) {
+      authorizedHomeV2Senders.delete(senderId)
+      console.warn('Unable to notify an authorized Home 2 sender.', error)
+    }
+  }
+}
