@@ -365,6 +365,7 @@
     },
     "mac": {
       "icon": "build/icon.icns",
+      "x64ArchFiles": "Contents/Resources/native/macos/{x64,arm64}/qortium-core-observer",
       "extraResources": [
         {
           "from": ".native-build/macos",
