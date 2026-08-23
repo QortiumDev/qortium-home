@@ -230,4 +230,27 @@ for (const [label, source] of [
   )
 }
 
+// WebContentsView defaults to an opaque white background independent of its
+// host BrowserWindow's own background, so a transparent widget window still
+// showed a solid white rectangle everywhere the app itself did not paint
+// over it. Both layers must opt into a transparent background, and only for
+// widget views/windows - giving every QDN view a transparent background
+// would let ordinary app tabs that don't paint their own background show
+// the Home interface underneath them.
+assert.match(
+  viewsSource,
+  /tabId\.startsWith\(['"]widget:['"]\)/,
+  'only widget QDN views should opt into transparent compositing',
+)
+assert.match(
+  viewsSource,
+  /\.setBackgroundColor\(['"]#00000000['"]\)/,
+  'widget WebContentsView must have a fully transparent native background',
+)
+assert.match(
+  windowSource,
+  /backgroundColor:\s*['"]#00000000['"]/,
+  'widget BrowserWindow must set an explicit transparent backgroundColor; transparent: true alone is not enough',
+)
+
 console.log('widget-shell-contract tests passed')

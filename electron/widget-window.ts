@@ -135,6 +135,11 @@ export function createWidgetWindow(options: CreateWidgetWindowOptions): CreatedW
     resizable: options.manifest.resizable !== 'none',
     frame: false,
     transparent: true,
+    // transparent alone does not override BrowserWindow's own default
+    // backgroundColor (#FFF, opaque) - without this, everything outside the
+    // app's declared shape renders as a solid white rectangle instead of
+    // showing the desktop through it.
+    backgroundColor: '#00000000',
     // A native shadow follows the window rectangle, not the shape the app
     // paints, so it would render a rectangular halo around an irregular widget.
     hasShadow: false,

@@ -408,6 +408,16 @@ authenticated API-only stop. Packaged Linux starts use Home's controlled
 argument-preserving wrapper solely to close inherited AppImage descriptors
 before it replaces itself with the exact Java command.
 
+### 2026-08-21 - fix(widgets): preserve transparent QDN view backgrounds
+
+Fixed QDN widgets showing an opaque white rectangle around shaped or partially
+transparent widget faces. The widget window and its shell already used a
+transparent background, but the Electron `WebContentsView` hosting the
+widget's QDN page defaults to an opaque white background of its own,
+independent of the host window. Home now gives widget `WebContentsView`s an
+explicit transparent native background while leaving the background behavior
+of normal app tabs untouched.
+
 ### 2026-08-21 - fix(core): resolve Windows secure-file drive paths
 
 Home's Windows helper can now securely open ordinary drive-letter paths after

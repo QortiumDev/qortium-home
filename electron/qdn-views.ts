@@ -1373,6 +1373,17 @@ function createViewEntry(
 
   applyViewGuards(entry);
 
+  // A widget's WebContentsView composites above a transparent, shaped host
+  // window - but WebContentsView has its own opaque-white default background
+  // independent of the host window's, so without this every pixel outside
+  // what the app actually paints (including its own declared shape's cutout
+  // corners) renders solid white instead of showing the desktop through it.
+  // Ordinary desktop app tabs are unaffected: they always sit inside opaque
+  // Home chrome, so this is scoped to widget tabIds only.
+  if (tabId.startsWith('widget:')) {
+    entry.view.setBackgroundColor('#00000000');
+  }
+
   // Electron zoom levels are stored per-origin: a level applied to the freshly
   // created (blank) webContents does not survive the first loadURL, and a
   // navigation to a different node origin falls back to that origin's default.
