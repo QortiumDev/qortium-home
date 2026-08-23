@@ -123,9 +123,7 @@ function isNativeAssetAlias(value: unknown) {
 }
 
 function getRequestAssetId(request: QdnAppRequest) {
-  const value = getRequestValue(request, 'assetId');
-
-  return typeof value === 'undefined' || value === null || getString(value) === '' ? undefined : getInteger(value);
+  return getOptionalNonNegativeAssetId(request);
 }
 
 function getOptionalNonNegativeAssetId(request: QdnAppRequest) {
@@ -168,10 +166,7 @@ function isNativeAssetRequest(request: QdnAppRequest, defaultToNative = false) {
 }
 
 // Resolves the assetId-or-assetName selector Core's own /assets/info accepts
-// (assetId wins if both are given - same priority Core documents). Uses
-// getOptionalNonNegativeAssetId rather than getRequestAssetId: getRequestAssetId
-// returns undefined for a numeric assetId because its string-presence check
-// treats non-string values as empty.
+// (assetId wins if both are given - same priority Core documents).
 function getOptionalAssetSelector(
   request: QdnAppRequest,
 ): { assetId: number; assetName?: undefined } | { assetId?: undefined; assetName: string } {
