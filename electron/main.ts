@@ -41,6 +41,10 @@ import { registerHomeV2NotificationPolicyBridgeIpcHandlers } from './home-v2-not
 import { registerHomeV2CollectionsBridgeIpcHandlers } from './home-v2-collections-bridge.js';
 import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import { HOME_V2_RESOURCE_STREAM_SCHEME } from './home-v2-resource-stream-capability.js';
+import { HOME_V2_CORE_DOCS_SCHEME } from './home-v2-core-docs-contract.js';
+import { registerHomeV2CoreDocsProtocol } from './home-v2-core-docs-protocol.js';
+import { registerHomeV2CoreDocsBridgeIpcHandlers } from './home-v2-core-docs-bridge.js';
+import { registerHomeV2RetainedViewerBridgeIpcHandlers } from './home-v2-retained-viewer-bridge.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
 import { startNotificationWatcher } from './notification-watcher.js';
 import {
@@ -71,16 +75,18 @@ const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
 const IS_HOME_V2 = process.env.QORTIUM_HOME_V2 === '1';
 
-protocol.registerSchemesAsPrivileged([{
-  scheme: HOME_V2_RESOURCE_STREAM_SCHEME,
-  privileges: {
-    corsEnabled: true,
-    secure: true,
-    standard: true,
-    stream: true,
-    supportFetchAPI: true,
-  },
-}]);
+protocol.registerSchemesAsPrivileged(
+  [HOME_V2_RESOURCE_STREAM_SCHEME, HOME_V2_CORE_DOCS_SCHEME].map((scheme) => ({
+    scheme,
+    privileges: {
+      corsEnabled: true,
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true,
+    },
+  })),
+);
 
 initZoom({ sync: syncQdnViewsForWindowZoom });
 
@@ -499,6 +505,7 @@ function createWindow(options: CreateWindowOptions = {}) {
 
   if (IS_HOME_V2) {
     registerHomeV2DesktopResourceStreamProtocol(session.fromPartition(HOME_V2_SHELL_PARTITION));
+    registerHomeV2CoreDocsProtocol(session.fromPartition(HOME_V2_SHELL_PARTITION));
     authorizeHomeV2Sender(window.webContents, homeV2RendererUrl!);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-attach-webview', (event) => event.preventDefault());
@@ -885,6 +892,8 @@ app.whenReady().then(async () => {
     registerHomeV2ReleaseNotesBridgeIpcHandlers();
     registerHomeV2QdnSettingsBridgeIpcHandlers();
     registerHomeV2CollectionsBridgeIpcHandlers();
+    registerHomeV2CoreDocsBridgeIpcHandlers();
+    registerHomeV2RetainedViewerBridgeIpcHandlers();
     // Initialize the authoritative notification gate before registering the
     // app bridge or creating any trusted shell window.
     await registerHomeV2NotificationPolicyBridgeIpcHandlers();

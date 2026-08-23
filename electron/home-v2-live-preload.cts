@@ -61,6 +61,22 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
     ipcRenderer.invoke('home-v2-nodes:setCustomUrl', network, customUrl),
 })
 
+contextBridge.exposeInMainWorld('homeV2RetainedViewer', {
+  readBytes: (request: { maxBytes: number; url: string }) =>
+    ipcRenderer.invoke('home-v2-retained-viewer:readBytes', request),
+  save: (request: { filename: string; url: string }) =>
+    ipcRenderer.invoke('home-v2-retained-viewer:save', request),
+  saveBytes: (request: { bytes: Uint8Array; filename: string; mimeType: string }) =>
+    ipcRenderer.invoke('home-v2-retained-viewer:saveBytes', request),
+})
+
+contextBridge.exposeInMainWorld('homeV2CoreDocs', {
+  enable: (network: 'qortal' | 'qortium') =>
+    ipcRenderer.invoke('home-v2-core-docs:enable', network),
+  probe: (network: 'qortal' | 'qortium') =>
+    ipcRenderer.invoke('home-v2-core-docs:probe', network),
+})
+
 contextBridge.exposeInMainWorld('homeV2CoreManagers', {
   listQortalAdoptionCandidates: () =>
     ipcRenderer.invoke('home-v2-qortal-adoption:list', {

@@ -312,6 +312,14 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   })
   assert.equal(restoredReleaseDestination.destination, 'dashboard')
 
+  for (const transientDestination of ['core-docs', 'welcome'] as const) {
+    const restored = restoreProductState({
+      ...JSON.parse(JSON.stringify(newTab)),
+      destination: transientDestination,
+    })
+    assert.equal(restored.destination, 'dashboard')
+  }
+
   const restoredFutureDestination = restoreProductState({
     ...JSON.parse(JSON.stringify(newTab)),
     destination: 'future-page',
@@ -1568,6 +1576,8 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
   const authorizedSenders = readFileSync('electron/home-v2-authorized-senders.ts', 'utf8')
   const coreManagerBridge = readFileSync('electron/home-v2-core-manager-bridge.ts', 'utf8')
+  const coreDocsBridge = readFileSync('electron/home-v2-core-docs-bridge.ts', 'utf8')
+  const retainedViewerBridge = readFileSync('electron/home-v2-retained-viewer-bridge.ts', 'utf8')
   const coreManager = readFileSync('electron/core-manager.ts', 'utf8')
   const i2pdManager = readFileSync('electron/i2pd-manager.ts', 'utf8')
   const appStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
@@ -1664,6 +1674,16 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(authorizedSenders, /senderFrame !== sender\.mainFrame/)
   assert.match(authorizedSenders, /did-start-navigation/)
   assert.match(coreManagerBridge, /assertAuthorizedHomeV2Sender/)
+  assert.match(coreDocsBridge, /home-v2-core-docs:enable/)
+  assert.match(coreDocsBridge, /assertAuthorizedHomeV2Sender\(event\)/)
+  assert.match(coreDocsBridge, /node\.mode !== 'local'/)
+  assert.match(coreDocsBridge, /readRunningLocalCoreApiKeyFor/)
+  assert.match(coreDocsBridge, /\/admin\/settings/)
+  assert.match(coreDocsBridge, /\/admin\/restart/)
+  assert.match(retainedViewerBridge, /home-v2-retained-viewer:saveBytes/)
+  assert.match(retainedViewerBridge, /assertAuthorizedHomeV2Sender\(event\)/)
+  assert.match(retainedViewerBridge, /value\.bytes instanceof Uint8Array/)
+  assert.match(retainedViewerBridge, /value\.bytes\.byteLength > RETAINED_VIEWER_MAX_BYTES/)
   assert.doesNotMatch(coreManagerBridge, /core:status|core:progress/)
   assert.match(coreManager, /if \(!legacyCoreManagerRendererEventsEnabled\) return/)
   assert.match(coreManager, /startForHomeV2:[\s\S]{0,160}publishEvents: false/)
@@ -2054,11 +2074,12 @@ function testShellStateMigratesAddressSelection(): void {
     'light',
     'en',
   )
-  assert.equal(legacy.version, 2)
+  assert.equal(legacy.version, 3)
+  assert.equal(legacy.onboarding.status, 'skipped')
   assert.equal(legacy.selectedAccountId, 'wallet:Qprimary')
   assert.equal(legacy.selectedAddressId, 'wallet:Qprimary:2')
   assert.deepEqual(serializeHomeV2ShellState(legacy), {
-    version: 2,
+    version: 3,
     appearance: {
       accent: legacy.appearance.accent,
       appZoom: legacy.appearance.appZoom,
@@ -2067,6 +2088,7 @@ function testShellStateMigratesAddressSelection(): void {
       theme: legacy.appearance.theme,
     },
     newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
+    onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
     product: {
@@ -2084,7 +2106,7 @@ function testShellStateMigratesAddressSelection(): void {
     ...legacy,
     product: newTabProduct,
   })
-  assert.equal(serializedNewTab.version, 2)
+  assert.equal(serializedNewTab.version, 3)
   assert.equal(serializedNewTab.product.destination, 'newtab')
   assert.equal(serializedNewTab.product.activeTabId, null)
   assert.equal(serializedNewTab.product.tabs.length, 2)
@@ -2093,7 +2115,7 @@ function testShellStateMigratesAddressSelection(): void {
     'light',
     'en',
   )
-  assert.equal(restoredNewTab.version, 2)
+  assert.equal(restoredNewTab.version, 3)
   assert.equal(restoredNewTab.product.destination, 'newtab')
   assert.equal(restoredNewTab.product.activeTabId, null)
   assert.equal(restoredNewTab.product.tabs.length, 2)

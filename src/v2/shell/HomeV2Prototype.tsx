@@ -62,6 +62,13 @@ import {
   HomeV2ReleaseNotesPage,
   type HomeV2ReleaseNotesTarget,
 } from './HomeV2ReleaseNotesPage'
+import type {
+  HomeV2OnboardingState,
+  HomeV2OnboardingStep,
+} from '../../home-v2-live/onboarding-state'
+import { HomeV2WelcomePage } from './HomeV2WelcomePage'
+import { HomeV2CoreApiDocsPage } from './HomeV2CoreApiDocsPage'
+import type { HomeV2CoreDocsTransport } from '../../home-v2-live/core-docs-client'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -99,6 +106,14 @@ export interface HomeV2PrototypeProps {
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
+  readonly onboarding?: HomeV2OnboardingState
+  readonly coreDocsNetwork?: NetworkId | null
+  readonly coreDocsTransport?: HomeV2CoreDocsTransport
+  readonly enableCoreDocs?: (network: NetworkId) => Promise<unknown>
+  readonly probeCoreDocs?: (
+    network: NetworkId,
+    nodeApiUrl: string,
+  ) => Promise<{ status: number }>
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
@@ -158,6 +173,14 @@ export interface HomeV2PrototypeProps {
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
+  readonly onWelcomeAccountAction?: (action: 'create' | 'import' | 'private') => void
+  readonly onWelcomeComplete?: (
+    destination: 'appearance' | 'apps' | 'dashboard',
+  ) => void
+  readonly onWelcomeSkip?: () => void
+  readonly onWelcomeStepChange?: (step: HomeV2OnboardingStep) => void
+  readonly onRestartWelcome?: () => void
+  readonly onOpenCoreDocs?: (network: NetworkId) => void
 }
 
 function NewTabPage(props: HomeV2PrototypeProps) {
@@ -344,12 +367,14 @@ function NodeCard({
   onSetNodeMode,
   onRefreshNode,
   onConfigureCustomNode,
+  onOpenCoreDocs,
 }: {
   readonly snapshot: HomeV2Snapshot
   readonly network: NetworkId
   readonly onSetNodeMode?: HomeV2PrototypeProps['onSetNodeMode']
   readonly onRefreshNode?: HomeV2PrototypeProps['onRefreshNode']
   readonly onConfigureCustomNode?: HomeV2PrototypeProps['onConfigureCustomNode']
+  readonly onOpenCoreDocs?: HomeV2PrototypeProps['onOpenCoreDocs']
 }) {
   const node = snapshot.nodes[network]
   return (
@@ -417,6 +442,15 @@ function NodeCard({
         <small>{node.localCoreStatusText}</small>
       </div>
       <div className="home-v2-node-actions">
+        {onOpenCoreDocs && node.capabilities.read ? (
+          <button
+            type="button"
+            className="home-v2-link-button"
+            onClick={() => onOpenCoreDocs(network)}
+          >
+            {t('coreApi.title')}
+          </button>
+        ) : null}
         {onConfigureCustomNode ? (
           <button
             type="button"
@@ -712,7 +746,8 @@ function InternalPage({
 }: {
   readonly destination: Exclude<
     ShellDestination,
-    'tab' | 'dashboard' | 'newtab' | 'releases' | 'settings'
+    'tab' | 'dashboard' | 'newtab' | 'releases' | 'settings' | 'welcome'
+    | 'core-docs'
   >
 }) {
   const copy: Record<typeof destination, readonly [TranslationKey, TranslationKey]> = {
@@ -978,6 +1013,13 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             ? `home://releases/${props.releaseNotesTarget.product}/${encodeURIComponent(props.releaseNotesTarget.tagName)}`
             : undefined
         }
+        coreDocsAddress={
+          productState.destination === 'core-docs' && props.coreDocsNetwork
+            ? props.coreDocsNetwork === 'qortal'
+              ? 'qortal-core://'
+              : 'core://'
+            : undefined
+        }
       />
       <main
         className="home-v2-page-viewport"
@@ -1023,7 +1065,38 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
               product: 'home',
               tagName,
             })}
+            onRestartWelcome={props.onRestartWelcome}
             requestedSection={requestedSettingsSection}
+          />
+        ) : productState.destination === 'welcome' && props.onboarding ? (
+          <HomeV2WelcomePage
+            accountCatalogue={props.accountCatalogue}
+            coreManagement={props.coreManagement}
+            onboarding={props.onboarding}
+            snapshot={snapshot}
+            vaultState={props.vaultState}
+            onAccountAction={props.onWelcomeAccountAction}
+            onComplete={(destination) => {
+              if (destination === 'appearance') setRequestedSettingsSection('appearance')
+              props.onWelcomeComplete?.(destination)
+            }}
+            onConfigureCustomNode={() => props.onConfigureCustomNode?.('qortium')}
+            onOpenNames={() => void props.onOpenAddress?.('qdn://APP/Names/Names')}
+            onSetNodeMode={(mode) => props.onSetNodeMode?.('qortium', mode)}
+            onSkip={props.onWelcomeSkip}
+            onStepChange={props.onWelcomeStepChange}
+          />
+        ) : productState.destination === 'core-docs' &&
+          props.coreDocsNetwork &&
+          props.coreDocsTransport &&
+          props.probeCoreDocs ? (
+          <HomeV2CoreApiDocsPage
+            enable={props.enableCoreDocs}
+            network={props.coreDocsNetwork}
+            probe={props.probeCoreDocs}
+            snapshot={snapshot}
+            transport={props.coreDocsTransport}
+            onOpenCoreSettings={() => openSettingsSection('core')}
           />
         ) : productState.destination === 'dashboard' ||
           productState.destination === 'tab' ? (
@@ -1041,6 +1114,14 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         ) : productState.destination === 'releases' ? (
           <section className="home-v2-internal-page" role="alert">
             <h1>{t('releaseNotes.loadFailed')}</h1>
+          </section>
+        ) : productState.destination === 'welcome' ? (
+          <section className="home-v2-internal-page" role="alert">
+            <h1>{t('welcome.error')}</h1>
+          </section>
+        ) : productState.destination === 'core-docs' ? (
+          <section className="home-v2-internal-page" role="alert">
+            <h1>{t('api.loadFailed')}</h1>
           </section>
         ) : (
           <InternalPage destination={productState.destination} />

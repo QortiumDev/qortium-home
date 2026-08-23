@@ -92,11 +92,50 @@ function boundedStream(body: ReadableStream<Uint8Array> | null) {
   }))
 }
 
+async function readBoundedBytes(response: Response, maxBytes: number) {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error('Resource exceeds the retained viewer byte limit.')
+  }
+  if (!response.body) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > maxBytes) {
+      await reader.cancel()
+      throw new Error('Resource exceeds the retained viewer byte limit.')
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
 function safeResponseContentType(upstream: Headers, mimeType: string | null) {
   if (mimeType) return mimeType
   const value = upstream.get('content-type')?.split(';', 1)[0].trim().toLowerCase() || ''
   if (
     value === 'application/pdf' ||
+    value === 'application/epub+zip' ||
+    value === 'application/vnd.comicbook+zip' ||
+    value === 'application/vnd.comicbook-rar' ||
+    value === 'application/x-cbz' ||
+    value === 'application/x-cbr' ||
+    value === 'application/zip' ||
+    value === 'application/x-zip-compressed' ||
+    value === 'application/x-rar' ||
+    value === 'application/x-rar-compressed' ||
+    value === 'application/vnd.rar' ||
+    value.startsWith('text/') ||
     value.startsWith('audio/') ||
     value.startsWith('video/') ||
     ['image/avif', 'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(value)
@@ -213,6 +252,51 @@ export function issueHomeV2DesktopPrivateBytesStream(input: {
   }))
   validators.set(token, Object.freeze({ isStillValid: input.isStillValid, targetSession: input.targetSession }))
   return buildHomeV2ResourceStreamCapabilityUrl(token)
+}
+
+export async function readHomeV2DesktopResourceStreamBytes(input: {
+  maxBytes: number
+  targetSession: Session
+  url: string
+}) {
+  const token = parseHomeV2ResourceStreamCapabilityUrl(input.url)
+  const authorization = validators.get(token)
+  if (!authorization || authorization.targetSession !== input.targetSession) {
+    throw new Error('Resource stream capability does not belong to this session.')
+  }
+  if (!(await authorization.isStillValid())) {
+    capabilityStore.release(token)
+    releasePrivateByteStream(token)
+    validators.delete(token)
+    throw new Error('Resource stream capability is no longer valid.')
+  }
+  sweepPrivateByteStreams()
+  const privateBytes = privateByteStreams.get(token)
+  if (privateBytes) {
+    if (privateBytes.bytes.byteLength > input.maxBytes) {
+      throw new Error('Resource exceeds the retained viewer byte limit.')
+    }
+    return {
+      bytes: new Uint8Array(privateBytes.bytes),
+      contentType: privateBytes.mimeType,
+    }
+  }
+  const entry = capabilityStore.resolve(token)
+  const upstream = await nodeFetch(entry.upstreamUrl, {
+    headers: { 'accept-encoding': 'identity' },
+    method: 'GET',
+    redirect: 'error',
+  })
+  if (!upstream.ok) {
+    throw new Error(`Resource request returned HTTP ${upstream.status}.`)
+  }
+  if (upstream.url && new URL(upstream.url).toString() !== entry.upstreamUrl) {
+    throw new Error('Resource stream response changed the approved upstream URL.')
+  }
+  return {
+    bytes: await readBoundedBytes(upstream, input.maxBytes),
+    contentType: safeResponseContentType(upstream.headers, entry.mimeType),
+  }
 }
 
 export function clearHomeV2DesktopResourceStreams() {

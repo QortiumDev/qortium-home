@@ -38,6 +38,7 @@ import type {
 import { createProductState, reduceProductState } from '../v2/product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
+  parseHomeV2CoreDocsAddress,
   parseHomeV2InternalAddress,
   parseHomeV2ReleaseNotesAddress,
   type NewTabPreference,
@@ -50,6 +51,22 @@ import {
 } from '../v2/shell/HomeV2ResourceViewer'
 import type { HomeV2AccountManageAction } from '../v2/shell/HomeV2Prototype'
 import type { HomeV2ReleaseNotesTarget } from '../v2/shell/HomeV2ReleaseNotesPage'
+import {
+  advanceHomeV2Onboarding,
+  createHomeV2OnboardingState,
+  finishHomeV2Onboarding,
+  type HomeV2OnboardingState,
+} from './onboarding-state'
+import {
+  loadHomeV2RetainedViewerBytes,
+  saveHomeV2RetainedViewerBytes,
+  saveHomeV2RetainedViewerFile,
+} from './retained-viewer-client'
+import {
+  enableHomeV2CoreDocs,
+  homeV2CoreDocsTransport,
+  probeHomeV2CoreDocs,
+} from './core-docs-client'
 import {
   AccountDialog,
   type AccountDialogMode,
@@ -486,6 +503,10 @@ export function HomeV2LiveApp() {
     useState<NewTabPreference>(DEFAULT_NEW_TAB_PREFERENCE)
   const [releaseNotesTarget, setReleaseNotesTarget] =
     useState<HomeV2ReleaseNotesTarget | null>(null)
+  const [coreDocsNetwork, setCoreDocsNetwork] = useState<NetworkId | null>(null)
+  const [onboarding, setOnboarding] = useState<HomeV2OnboardingState>(
+    createHomeV2OnboardingState,
+  )
   const [notificationPolicy, setNotificationPolicy] =
     useState<HomeV2NotificationPolicyState | null>(null)
   const notificationPolicyRef = useRef<HomeV2NotificationPolicyState | null>(null)
@@ -900,16 +921,22 @@ export function HomeV2LiveApp() {
         }))
         dispatchProduct({ type: 'restore', state: restored.product })
         setNewTabPreference(restored.newTabPreference)
+        setOnboarding(restored.onboarding)
         setRestoredAccountId(restored.selectedAccountId)
         setRestoredAddressId(restored.selectedAddressId)
         setUseCatalogueActiveAccount(rawState === null || rawState === undefined)
         setShellStateReady(true)
+        if (restored.onboarding.status === 'in-progress') {
+          dispatchProduct({ type: 'navigate', destination: 'welcome' })
+        }
       })
       .catch(() => {
         if (!cancelled) {
+          setOnboarding(createHomeV2OnboardingState())
           setRestoredAccountId(null)
           setRestoredAddressId(null)
           setShellStateReady(true)
+          dispatchProduct({ type: 'navigate', destination: 'welcome' })
         }
       })
     return () => {
@@ -964,9 +991,10 @@ export function HomeV2LiveApp() {
     const timeout = window.setTimeout(() => {
       void nodeClient.saveShellState(
         serializeHomeV2ShellState({
-          version: 2,
+          version: 3,
           appearance: snapshot.appearance,
           newTabPreference,
+          onboarding,
           selectedAccountId:
             accountCatalogue.accounts.find((account) => account.id === selectedAccountId)?.walletId ?? null,
           selectedAddressId: selectedAccountId,
@@ -979,6 +1007,7 @@ export function HomeV2LiveApp() {
     accountCatalogueReady,
     nodeClient,
     newTabPreference,
+    onboarding,
     productState,
     selectedAccountId,
     shellStateReady,
@@ -1110,6 +1139,13 @@ export function HomeV2LiveApp() {
   const openAddress = useCallback(
     async (address: string, requestedAccountId?: string | null): Promise<AddressOpenResult> => {
       try {
+        const coreDocs = parseHomeV2CoreDocsAddress(address)
+        if (coreDocs) {
+          setShellNotice(null)
+          setCoreDocsNetwork(coreDocs)
+          dispatchProduct({ type: 'navigate', destination: 'core-docs' })
+          return { status: 'opened' }
+        }
         const releaseNotes = parseHomeV2ReleaseNotesAddress(address)
         if (releaseNotes) {
           setShellNotice(null)
@@ -1120,6 +1156,9 @@ export function HomeV2LiveApp() {
         const internal = parseHomeV2InternalAddress(address)
         if (internal) {
           setShellNotice(null)
+          if (internal === 'welcome') {
+            setOnboarding(createHomeV2OnboardingState())
+          }
           dispatchProduct({
             type: 'navigate',
             destination: internal,
@@ -4065,6 +4104,10 @@ export function HomeV2LiveApp() {
 
   const resourceViewerOverlay = resourceViewer && productState.activeTabId === resourceViewer.sourceTabId ? (
     <HomeV2ResourceViewer
+      appearance={snapshot.appearance}
+      loadRetainedBytes={loadHomeV2RetainedViewerBytes}
+      saveRetainedBytes={saveHomeV2RetainedViewerBytes}
+      saveRetainedFile={saveHomeV2RetainedViewerFile}
       resource={resourceViewer}
       onClose={() => setResourceViewer(null)}
     />
@@ -4157,6 +4200,11 @@ export function HomeV2LiveApp() {
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
       releaseNotesTarget={releaseNotesTarget}
+      coreDocsNetwork={coreDocsNetwork}
+      coreDocsTransport={homeV2CoreDocsTransport()}
+      enableCoreDocs={enableHomeV2CoreDocs}
+      probeCoreDocs={probeHomeV2CoreDocs}
+      onboarding={onboarding}
       qdnAppsManagement={qdnAppsManagement}
       requestApp={requestApp}
       onActivateTab={(tabId) =>
@@ -4191,6 +4239,38 @@ export function HomeV2LiveApp() {
       onOpenReleaseNotes={(target) => {
         setReleaseNotesTarget(target)
         dispatchProduct({ type: 'navigate', destination: 'releases' })
+      }}
+      onOpenCoreDocs={(network) => {
+        setCoreDocsNetwork(network)
+        dispatchProduct({ type: 'navigate', destination: 'core-docs' })
+      }}
+      onRestartWelcome={() => {
+        setOnboarding(createHomeV2OnboardingState())
+        dispatchProduct({ type: 'navigate', destination: 'welcome' })
+      }}
+      onWelcomeAccountAction={(action) => {
+        setAccountDialogError(null)
+        if (action === 'create') {
+          setAccountDialog({ mode: 'create' })
+        } else if (action === 'import') {
+          void openWalletImport()
+        } else {
+          setAccountDialog({ mode: 'import-private-key' })
+        }
+      }}
+      onWelcomeStepChange={(step) => {
+        setOnboarding((current) => advanceHomeV2Onboarding(current, step))
+      }}
+      onWelcomeSkip={() => {
+        setOnboarding(finishHomeV2Onboarding('skipped'))
+        dispatchProduct({ type: 'navigate', destination: 'dashboard' })
+      }}
+      onWelcomeComplete={(destination) => {
+        setOnboarding(finishHomeV2Onboarding('completed'))
+        dispatchProduct({
+          type: 'navigate',
+          destination: destination === 'appearance' ? 'settings' : destination,
+        })
       }}
       onRefreshNode={() => void nodeCoreController.refreshNodes()}
       onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}

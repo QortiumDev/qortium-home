@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { openArchive, UnsupportedArchiveError, type ArchiveEntry } from './archive';
 import { FileTree, type FileTreeEntry } from './FileTree';
 import { t } from './i18n';
@@ -50,17 +50,25 @@ export function ArchiveViewer({
   depth = 0,
   displaySettings,
   onActionContextChange,
+  loadBytes,
+  saveBytes,
   resource,
 }: {
   bytes?: Uint8Array;
   depth?: number;
   displaySettings: QdnDisplaySettings;
   onActionContextChange: SetViewerActionContext;
+  loadBytes?: () => Promise<Uint8Array>;
+  saveBytes?: (filename: string, bytes: Uint8Array, mimeType?: string) => Promise<unknown>;
   resource: QdnResource;
 }) {
   const [load, setLoad] = useState<LoadState>({ phase: 'loading' });
   const [selection, setSelection] = useState<Selection | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const selectedResource = useMemo(
+    () => selection ? { ...resource, path: selection.entry.path } : resource,
+    [resource, selection?.entry.path],
+  );
 
   useEffect(() => {
     let canceled = false;
@@ -71,7 +79,9 @@ export function ArchiveViewer({
       try {
         let bytes = providedBytes;
 
-        if (!bytes) {
+        if (!bytes && loadBytes) {
+          bytes = await loadBytes();
+        } else if (!bytes) {
           const result = await window.qortiumHome.qdn.fetchResourceData({
             identifier: resource.identifier,
             maxBytes: ARCHIVE_MAX_BYTES,
@@ -123,7 +133,7 @@ export function ArchiveViewer({
     return () => {
       canceled = true;
     };
-  }, [providedBytes, resource]);
+  }, [providedBytes, loadBytes, resource]);
 
   function entryForPath(path: string): ArchiveEntry | undefined {
     return load.phase === 'ready' ? load.entryByPath.get(path) : undefined;
@@ -159,7 +169,8 @@ export function ArchiveViewer({
     setDownloadError(null);
     try {
       const bytes = await entry.read();
-      await saveBytesToFile(entry.name, bytes);
+      if (saveBytes) await saveBytes(entry.name, bytes);
+      else await saveBytesToFile(entry.name, bytes);
     } catch {
       setDownloadError(t('archive.downloadFailed'));
     }
@@ -198,7 +209,8 @@ export function ArchiveViewer({
                 depth={depth + 1}
                 displaySettings={displaySettings}
                 onActionContextChange={onActionContextChange}
-                resource={{ ...resource, path: selection.entry.path }}
+                saveBytes={saveBytes}
+                resource={selectedResource}
               />
             )
           ) : (
@@ -207,7 +219,7 @@ export function ArchiveViewer({
               filename={selection.entry.name}
               onActionContextChange={onActionContextChange}
               onBack={back}
-              resource={{ ...resource, path: selection.entry.path }}
+              resource={selectedResource}
               source={{ kind: 'bytes', bytes: selection.bytes }}
             />
           )}
