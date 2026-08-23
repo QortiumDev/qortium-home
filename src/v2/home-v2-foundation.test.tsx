@@ -56,6 +56,7 @@ import {
 } from '../home-v2-live/shell-state'
 import type { DualIdentityLookupResult } from './contracts'
 import { parseHomeV2TextSizeCommand } from '../home-v2-live/text-size-shortcut-client'
+import { HOME_V2_NOTIFICATION_POLICY_SCHEMA } from '../home-v2-live/notification-policy-client'
 import {
   createAndroidFixtureHost,
   createElectronFixtureHost,
@@ -1060,6 +1061,14 @@ function testSettingsScaffoldAndNewTabPreference(): void {
         permissionState={createPermissionState()}
         layout={layout}
         newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        notificationPolicy={{
+          enabled: true,
+          generation: 0,
+          schema: HOME_V2_NOTIFICATION_POLICY_SCHEMA,
+          status: 'available',
+          version: 1,
+        }}
+        onSetAppNotifications={async () => undefined}
         onSetNewTabPreference={() => undefined}
       />,
     )
@@ -1076,6 +1085,9 @@ function testSettingsScaffoldAndNewTabPreference(): void {
     assert.match(html, /<h2 id="general-settings-title">General<\/h2>/)
     assert.match(html, />New tab</)
     assert.match(html, /aria-label="New tab opens"/)
+    assert.match(html, /data-home-v2-notification-policy="available"/)
+    assert.match(html, /aria-label="App notifications"/)
+    assert.match(html, /role="switch"/)
     assert.match(html, /value="search" selected="">Search page<\/option>/)
     assert.match(html, />Dashboard<\/option>/)
     assert.match(html, />Custom address<\/option>/)
@@ -1625,6 +1637,10 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-qdn-settings:set-muted/)
   assert.match(preload, /home-v2-qdn-settings:revoke/)
   assert.match(preload, /home-v2-qdn-settings:changed/)
+  assert.match(preload, /exposeInMainWorld\('homeV2NotificationPolicy'/)
+  assert.match(preload, /home-v2-notification-policy:get/)
+  assert.match(preload, /home-v2-notification-policy:set/)
+  assert.match(preload, /home-v2-notification-policy:changed/)
   assert.match(preload, /exposeInMainWorld\('homeV2TextSizeShortcuts'/)
   assert.match(preload, /isHomeV2TextSizeCommand\(value\)/)
   assert.match(preload, /ipcRenderer\.on\('menu:command'/)
@@ -1654,10 +1670,20 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(main, /authorizeHomeV2Sender/)
   assert.match(main, /registerHomeV2CoreManagerBridgeIpcHandlers/)
   assert.match(main, /registerHomeV2QdnSettingsBridgeIpcHandlers/)
+  assert.match(
+    main,
+    /await registerHomeV2NotificationPolicyBridgeIpcHandlers\(\);[\s\S]{0,160}registerHomeV2AppBridgeIpcHandlers\(\);/,
+    'Home 2 must initialize the persisted notification gate before exposing app delivery',
+  )
   assert.match(main, /disableLegacyCoreManagerRendererEvents/)
   assert.match(main, /disableLegacyI2pdRendererEvents/)
   assert.match(main, /HOME_V2_SHELL_PARTITION/)
   assert.match(main, /partition: HOME_V2_SHELL_PARTITION/)
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /loadDisplaySettings/,
+    'Home 2 notification delivery must not consult the legacy display settings store',
+  )
   assert.match(appStage, /capture\(\{ tabId: resolved\.tab\.id \}\)/)
   assert.match(appStage, /suspendedRef/)
   assert.match(appStage, /home-v2-app-stage__snapshot/)

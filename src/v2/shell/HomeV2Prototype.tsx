@@ -57,6 +57,7 @@ import type {
 } from '../../home-v2-live/node-client'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
+import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -92,6 +93,7 @@ export interface HomeV2PrototypeProps {
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
@@ -149,6 +151,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
+  readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
 }
 
 function NewTabPage(props: HomeV2PrototypeProps) {
@@ -1003,6 +1006,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             coreManagement={props.coreManagement}
             appUpdates={props.appUpdates}
             qdnAppsManagement={props.qdnAppsManagement}
+            notificationPolicy={props.notificationPolicy}
+            onSetAppNotifications={props.onSetAppNotifications}
             requestedSection={requestedSettingsSection}
           />
         ) : productState.destination === 'dashboard' ||

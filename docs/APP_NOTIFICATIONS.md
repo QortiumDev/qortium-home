@@ -56,11 +56,15 @@ document.title = '';                 // reverts the tab label to the address
   already looking at the app.
 - **Rate limit**: at most one notification per app per 3 seconds
   (`reason: 'rate-limited'`).
-- **Global switch**: Display Settings → "App notifications" (default on).
-  Off → `{ shown: false, reason: 'disabled' }`. The renderer mirrors the
-  persisted value to the Electron main process on startup and on change
-  (`qdn:setAppNotificationsEnabled`); Android reads the persisted display
-  settings directly.
+- **Global switch**: Home 2 General Settings → "App notifications" (default
+  on). Off → `{ shown: false, reason: 'disabled' }` without changing grants,
+  mute state, rules, Core subscriptions, or OS permission. Desktop uses a
+  sender-gated, main-process-owned versioned policy file with optimistic
+  generations; Android uses the same schema in native Preferences. Android
+  carries forward an explicit disabled choice from the legacy display store
+  only when the new policy is absent, then never reads that store during
+  delivery. Corrupt or unavailable policy state fails closed. Legacy Home
+  retains its existing Display Settings synchronization.
 - **Provenance**: the shown title is always suffixed with the app's registered
   name (`"New message — qortium-chat"`) so an app cannot pose as another app
   or as Home.

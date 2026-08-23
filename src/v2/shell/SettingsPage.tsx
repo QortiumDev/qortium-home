@@ -21,6 +21,7 @@ import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import { QdnAppsSettings } from './QdnAppsSettings'
+import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
 
 export type HomeV2SettingsSectionId =
   | 'general'
@@ -48,19 +49,32 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
+  readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly requestedSection?: HomeV2SettingsSectionTarget
+  readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
 function GeneralSettings({
   newTabPreference,
+  notificationPolicy,
+  onSetAppNotifications,
   onSetNewTabPreference,
-}: Pick<SettingsPageProps, 'newTabPreference' | 'onSetNewTabPreference'>) {
+}: Pick<
+  SettingsPageProps,
+  | 'newTabPreference'
+  | 'notificationPolicy'
+  | 'onSetAppNotifications'
+  | 'onSetNewTabPreference'
+>) {
   const [selectedKind, setSelectedKind] = useState(newTabPreference.kind)
   const [customAddress, setCustomAddress] = useState(
     newTabPreference.kind === 'custom' ? newTabPreference.address : '',
   )
   const [error, setError] = useState<string | null>(null)
+  const [notificationMutationStatus, setNotificationMutationStatus] = useState<
+    'idle' | 'saving' | 'error'
+  >('idle')
 
   useEffect(() => {
     setSelectedKind(newTabPreference.kind)
@@ -143,6 +157,56 @@ function GeneralSettings({
           {error ? <span role="alert">{error}</span> : null}
         </div>
       </div>
+      <div
+        className="home-v2-setting-row"
+        data-home-v2-notification-policy={notificationPolicy?.status ?? 'loading'}
+      >
+        <div className="home-v2-setting-row__copy">
+          <strong>{t('display.appNotificationsLabel')}</strong>
+          <span>{t('display.appNotificationsHint')}</span>
+          {notificationPolicy?.status === 'corrupt' ? (
+            <span role="alert">{t('notifications.corrupt')}</span>
+          ) : notificationPolicy?.status === 'unavailable' ? (
+            <span role="alert">{t('notifications.unavailable')}</span>
+          ) : notificationMutationStatus === 'error' ? (
+            <span role="alert">{t('common.error')}</span>
+          ) : notificationMutationStatus === 'saving' ? (
+            <span role="status">{t('common.saving')}</span>
+          ) : notificationPolicy ? null : (
+            <span role="status">{t('common.loading')}</span>
+          )}
+        </div>
+        <div className="home-v2-setting-row__control">
+          <label>
+            <input
+              aria-label={t('display.appNotificationsLabel')}
+              checked={notificationPolicy?.enabled ?? false}
+              disabled={
+                notificationPolicy?.status !== 'available' ||
+                !onSetAppNotifications ||
+                notificationMutationStatus === 'saving'
+              }
+              role="switch"
+              type="checkbox"
+              onChange={async (event) => {
+                if (!onSetAppNotifications) return
+                setNotificationMutationStatus('saving')
+                try {
+                  await onSetAppNotifications(event.target.checked)
+                  setNotificationMutationStatus('idle')
+                } catch {
+                  setNotificationMutationStatus('error')
+                }
+              }}
+            />
+            {t(
+              notificationPolicy?.enabled
+                ? 'display.appNotificationsOn'
+                : 'display.appNotificationsOff',
+            )}
+          </label>
+        </div>
+      </div>
     </section>
   )
 }
@@ -216,6 +280,8 @@ export function SettingsPage(props: SettingsPageProps) {
           {activeSection === 'general' ? (
             <GeneralSettings
               newTabPreference={props.newTabPreference}
+              notificationPolicy={props.notificationPolicy}
+              onSetAppNotifications={props.onSetAppNotifications}
               onSetNewTabPreference={props.onSetNewTabPreference}
             />
           ) : activeSection === 'core' &&
