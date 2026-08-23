@@ -1529,6 +1529,11 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
     homeV2LiveApp,
     /Account integration is not enabled in this build|Not connected in this build/,
   )
+  assert.match(
+    homeV2LiveApp,
+    /Capacitor\.isNativePlatform\(\)[\s\S]{0,100}Capacitor\.getPlatform\(\) === 'android'/,
+    'Home 2 QDN settings may use Preferences only in the native Android host',
+  )
   assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
   assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
   const androidV2VaultStart = platform.indexOf('// Home v2 public CHAT writes')
@@ -1571,10 +1576,16 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-core-manager:getStatus/)
   assert.match(preload, /home-v2-core-manager:start/)
   assert.match(preload, /home-v2-core-manager:stop/)
+  assert.match(preload, /exposeInMainWorld\('homeV2QdnSettings'/)
+  assert.match(preload, /home-v2-qdn-settings:get/)
+  assert.match(preload, /home-v2-qdn-settings:set-assignment/)
+  assert.match(preload, /home-v2-qdn-settings:set-muted/)
+  assert.match(preload, /home-v2-qdn-settings:revoke/)
+  assert.match(preload, /home-v2-qdn-settings:changed/)
   assert.match(preload, /qdn-views:capture/)
   assert.match(preload, /home-v2-accounts:list/)
   assert.match(preload, /exposeInMainWorld\('homeV2Vault'/)
-  assert.doesNotMatch(preload, /qortiumHome|core:|sign/i)
+  assert.doesNotMatch(preload, /qortiumHome|core:|['"]sign(?:Transaction)?['"]/i)
   assert.doesNotMatch(preload, /ipcRenderer\.invoke\('accounts:/)
   assert.equal((preload.match(/require\(/g) ?? []).length, 1)
   assert.doesNotMatch(bridge, /apiKey|seedPhrase|sourceFilename/)
@@ -1596,6 +1607,7 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(main, /home-v2-live-preload\.cjs/)
   assert.match(main, /authorizeHomeV2Sender/)
   assert.match(main, /registerHomeV2CoreManagerBridgeIpcHandlers/)
+  assert.match(main, /registerHomeV2QdnSettingsBridgeIpcHandlers/)
   assert.match(main, /disableLegacyCoreManagerRendererEvents/)
   assert.match(main, /disableLegacyI2pdRendererEvents/)
   assert.match(main, /HOME_V2_SHELL_PARTITION/)

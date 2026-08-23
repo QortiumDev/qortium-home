@@ -159,6 +159,9 @@ Home's local device data rather than Core.
 
 `GET_APP_ASSIGNMENTS` and `REQUEST_APP_ASSIGNMENT` provide the generic,
 consented app-target mechanism; see [Home app assignments](HOME_APP_ASSIGNMENTS.md).
+These assignment actions describe the older shell catalogue. Home 2.1's current
+F4 Settings-only implementation does not advertise them through its
+`SHOW_ACTIONS`; app-facing delegation remains deferred.
 
 ## Balances and wallet capability discovery
 

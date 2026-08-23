@@ -19,11 +19,14 @@ import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 import { QortalMaintenancePanel } from './QortalMaintenancePanel'
 import { TransportMaintenancePanel } from './TransportMaintenancePanel'
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
+import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
+import { QdnAppsSettings } from './QdnAppsSettings'
 
 export type HomeV2SettingsSectionId =
   | 'general'
   | 'core'
   | 'appearance'
+  | 'qdn-apps'
   | 'account'
 
 export interface SettingsPageProps extends AppearanceSettingsPageProps {
@@ -32,6 +35,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly newTabPreference: NewTabPreference
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
+  readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
@@ -141,6 +145,9 @@ export function SettingsPage(props: SettingsPageProps) {
       ? [{ id: 'core' as const, label: t('core.runtimeLabel') }]
       : []),
     { id: 'appearance', label: t('home2.settings.appearance') },
+    ...(props.qdnAppsManagement?.available && props.qdnAppsManagement.client
+      ? [{ id: 'qdn-apps' as const, label: t('qdnApps.sectionTitle') }]
+      : []),
     ...(props.account.state === 'none'
       ? []
       : [{ id: 'account' as const, label: t('account.menuLabel') }]),
@@ -195,6 +202,10 @@ export function SettingsPage(props: SettingsPageProps) {
                 <HomeUpdateSettings updates={props.appUpdates} />
               ) : null}
             </div>
+          ) : section === 'qdn-apps' &&
+            props.qdnAppsManagement?.available &&
+            props.qdnAppsManagement.client ? (
+            <QdnAppsSettings client={props.qdnAppsManagement.client} />
           ) : section === 'appearance' || section === 'account' ? (
             <AppearanceSettingsPage
               {...props}

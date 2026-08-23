@@ -8486,7 +8486,7 @@ async function handleQdnAppAssignmentAction(
   if ((await getQdnAppRolesStore()).revision !== currentStore.revision) {
     throw new Error('App assignments changed while approval was open. Refresh and try again.');
   }
-  const store = await setQdnAppAssignmentValue(input);
+  const store = await setQdnAppAssignmentValue(input, currentStore.revision);
   return { assignments: store.assignments, revision: store.revision, version: store.version };
 }
 

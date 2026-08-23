@@ -39,9 +39,16 @@ const qortalMaintenanceScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_QORTAL_MAINTENANCE_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-qortal-maintenance.png',
 )
+const qdnAppsScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_QDN_APPS_SETTINGS_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-qdn-apps-settings.png',
+)
 const profileDirectory = mkdtempSync(
   path.join(os.tmpdir(), 'qortium-home-v2-settings-smoke-'),
 )
+const notificationAppKey = 'qdn://APP/Notify/Notify'
+const notificationAccountSecret = 'Q_SMOKE_ACCOUNT_DO_NOT_RENDER'
+const notificationXpubSecret = 'xpub-smoke-secret-do-not-render'
 const timeoutMs = 60_000
 let appProcess = null
 
@@ -140,6 +147,71 @@ async function pageTarget(port) {
 
 try {
   assert.equal(existsSync(appImage), true, `AppImage not found: ${appImage}`)
+  writeFileSync(
+    path.join(profileDirectory, 'qdn-app-roles.json'),
+    `${JSON.stringify({
+      assignments: {
+        bookmarks: {
+          description: 'App used when Home opens bookmarks.',
+          label: 'Bookmarks',
+          url: 'qdn://APP/Bookmarks/Bookmarks',
+        },
+        notifications: {
+          description: 'App used to manage Home notifications.',
+          label: 'Notifications',
+          url: notificationAppKey,
+        },
+        explore: {
+          description: 'App used when Home opens QDN Explore.',
+          label: 'Explore',
+          url: 'qdn://APP/Explore/Explore',
+        },
+        'media.video-player': {
+          description: 'Video player fixture.',
+          label: 'Video player',
+          url: 'qdn://APP/Video/Video',
+        },
+        'media.audio-player': {
+          description: 'Audio player fixture.',
+          label: 'Audio player',
+          url: 'qdn://APP/Audio/Audio',
+        },
+      },
+      capabilityGrants: {
+        'qdn://APP/CapabilitySecret/CapabilitySecret': {
+          'assignments.read': { grantedAt: '2026-08-22T12:00:00.000Z' },
+        },
+      },
+      legacyMigrated: true,
+      revision: 5,
+      version: 2,
+    }, null, 2)}\n`,
+    { encoding: 'utf8', mode: 0o600 },
+  )
+  writeFileSync(
+    path.join(profileDirectory, 'notification-store.json'),
+    `${JSON.stringify({
+      grants: {
+        [notificationAppKey]: {
+          grantedAt: '2026-08-22T12:00:00.000Z',
+        },
+      },
+      revision: 7,
+      rules: {
+        [notificationAppKey]: [{
+          accountAddress: notificationAccountSecret,
+          createdAt: '2026-08-22T12:01:00.000Z',
+          event: 'FOREIGN_PAYMENT_RECEIVED',
+          filters: { coin: 'BTC', xpub: notificationXpubSecret },
+          notificationId: 'foreign-payment-smoke',
+          text: 'FILTER_TEXT_SECRET_DO_NOT_RENDER',
+          title: 'FILTER_TITLE_SECRET_DO_NOT_RENDER',
+        }],
+      },
+      version: 1,
+    }, null, 2)}\n`,
+    { encoding: 'utf8', mode: 0o600 },
+  )
   const port = await getFreePort()
   const useXvfb = !process.env.DISPLAY && existsSync('/usr/bin/xvfb-run')
   appProcess = createManagedProcess(
@@ -211,6 +283,136 @@ try {
       options: ['Search page', 'Dashboard', 'Custom address'],
       value: 'search',
     })
+
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'QDN Apps')).click()`,
+    )
+    const qdnSettings = await waitUntil('QDN app settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const panel = document.querySelector('[data-home-v2-qdn-settings="ready"]');
+          const roles = [...(panel?.querySelectorAll('[data-qdn-assignment-role]') ?? [])]
+            .map((row) => row.getAttribute('data-qdn-assignment-role'));
+          const grant = panel?.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}]');
+          const mute = grant?.querySelector('input[type="checkbox"]');
+          const warning = grant?.querySelector('[data-qdn-foreign-payment-warning="true"]');
+          return panel && roles.length === 5 && grant && mute && warning
+            ? { html: panel.outerHTML, muted: mute.checked, roles }
+            : null;
+        })()`,
+      ),
+    )
+    assert.deepEqual(qdnSettings.roles, [
+      'bookmarks',
+      'notifications',
+      'explore',
+      'media.audio-player',
+      'media.video-player',
+    ])
+    assert.equal(qdnSettings.muted, false)
+    for (const secret of [
+      'CapabilitySecret',
+      notificationAccountSecret,
+      notificationXpubSecret,
+      'FILTER_TEXT_SECRET_DO_NOT_RENDER',
+      'FILTER_TITLE_SECRET_DO_NOT_RENDER',
+      'foreign-payment-smoke',
+    ]) {
+      assert.equal(qdnSettings.html.includes(secret), false, `QDN settings rendered secret: ${secret}`)
+    }
+
+    await evaluate(
+      client,
+      `document.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}] input[type="checkbox"]').click()`,
+    )
+    await waitUntil('persisted muted notification grant', () => {
+      const store = JSON.parse(
+        readFileSync(path.join(profileDirectory, 'notification-store.json'), 'utf8'),
+      )
+      return store.revision === 8 &&
+        store.grants[notificationAppKey]?.muted === true &&
+        store.rules[notificationAppKey]?.length === 1
+    })
+    const mutedWarningVisible = await waitUntil('muted foreign-payment warning', () =>
+      evaluate(
+        client,
+        `(() => {
+          const grant = document.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}]');
+          return grant?.querySelector('input[type="checkbox"]')?.checked === true &&
+            Boolean(grant.querySelector('[data-qdn-foreign-payment-warning="true"]'));
+        })()`,
+      ),
+    )
+    assert.equal(mutedWarningVisible, true)
+
+    await client.send('Page.reload', { ignoreCache: true })
+    await waitUntil('reloaded Home shell controls after notification mute', () =>
+      evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
+    await waitUntil('reloaded QDN app settings navigation', () =>
+      evaluate(
+        client,
+        `(() => {
+          const button = [...document.querySelectorAll('.home-v2-settings-nav button')]
+            .find((candidate) => candidate.textContent.trim() === 'QDN Apps');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()`,
+      ),
+    )
+    await waitUntil('rehydrated muted notification grant', () =>
+      evaluate(
+        client,
+        `(() => {
+          const grant = document.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}]');
+          return grant?.querySelector('input[type="checkbox"]')?.checked === true &&
+            Boolean(grant.querySelector('[data-qdn-foreign-payment-warning="true"]'));
+        })()`,
+      ),
+    )
+    await evaluate(
+      client,
+      `document.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}]')
+        .scrollIntoView({ block: 'center' })`,
+    )
+    const qdnAppsScreenshot = await client.send('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(qdnAppsScreenshotPath, Buffer.from(qdnAppsScreenshot.data, 'base64'))
+
+    await evaluate(
+      client,
+      `(() => {
+        const grant = document.querySelector('[data-qdn-notification-grant=${JSON.stringify(notificationAppKey)}]');
+        [...grant.querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === 'Revoke').click();
+      })()`,
+    )
+    await waitUntil('notification revoke confirmation', () =>
+      evaluate(client, `Boolean(document.querySelector('[data-qdn-revoke-confirm="true"]'))`),
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const confirmation = document.querySelector('[data-qdn-revoke-confirm="true"]');
+        [...confirmation.querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === 'Revoke').click();
+      })()`,
+    )
+    await waitUntil('revoked notification grant and rules', () => {
+      const store = JSON.parse(
+        readFileSync(path.join(profileDirectory, 'notification-store.json'), 'utf8'),
+      )
+      return store.revision === 9 &&
+        !Object.hasOwn(store.grants, notificationAppKey) &&
+        !Object.hasOwn(store.rules, notificationAppKey)
+    })
+    await waitUntil('empty notification grants UI after revoke', () =>
+      evaluate(client, `Boolean(document.querySelector('[data-qdn-notification-empty="true"]'))`),
+    )
 
     await evaluate(
       client,
@@ -508,7 +710,7 @@ try {
     )
     assert.equal(rtlPersisted.appearance.language, 'ar')
     console.log(
-      `Packaged Home settings/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${qortalMaintenanceScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
+      `Packaged Home settings/QDN apps/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${qdnAppsScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${qortalMaintenanceScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
     )
   } finally {
     client.close()

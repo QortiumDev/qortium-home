@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import {
   createEmptyQdnNotificationStore,
+  parseStrictQdnNotificationStore,
   sanitizeQdnNotificationStore,
   type QdnNotificationRuleInput,
   type QdnNotificationStore,
@@ -9,11 +10,16 @@ import {
 } from '../electron/notification-rules';
 
 const NOTIFICATION_STORE_KEY = 'qortium-home-notification-store';
+const NOTIFICATION_STORE_MAX_BYTES = 4 * 1024 * 1024;
 const listeners = new Set<(store: QdnNotificationStore) => void>();
 let storeVersion = 0;
 let cachedLocalStore: QdnNotificationStore | null = null;
 let removeDesktopStoreListener: (() => void) | null = null;
 let localWriteChain = Promise.resolve();
+
+export type LocalNotificationStoreInspection =
+  | { status: 'available'; store: QdnNotificationStore }
+  | { status: 'corrupt' | 'unavailable'; store: null };
 
 function ensureDesktopStoreListener() {
   const subscribe = window.qortiumHome.qdn?.onNotificationStoreChanged;
@@ -28,18 +34,57 @@ function ensureDesktopStoreListener() {
   });
 }
 
+export async function inspectLocalNotificationStore(): Promise<LocalNotificationStoreInspection> {
+  if (cachedLocalStore) return { status: 'available', store: cachedLocalStore };
+  let raw: string | null;
+  try {
+    raw = Capacitor.isNativePlatform()
+      ? (await Preferences.get({ key: NOTIFICATION_STORE_KEY })).value
+      : window.localStorage.getItem(NOTIFICATION_STORE_KEY);
+  } catch {
+    return { status: 'unavailable', store: null };
+  }
+  if (!raw) {
+    cachedLocalStore = createEmptyQdnNotificationStore();
+    return { status: 'available', store: cachedLocalStore };
+  }
+  try {
+    if (new TextEncoder().encode(raw).byteLength > NOTIFICATION_STORE_MAX_BYTES) {
+      return { status: 'corrupt', store: null };
+    }
+    const parsed = parseStrictQdnNotificationStore(JSON.parse(raw));
+    if (!parsed) return { status: 'corrupt', store: null };
+    cachedLocalStore = parsed;
+    return { status: 'available', store: cachedLocalStore };
+  } catch {
+    return { status: 'corrupt', store: null };
+  }
+}
+
 async function readLocalStore() {
-  if (cachedLocalStore) return cachedLocalStore;
-  const raw = Capacitor.isNativePlatform()
-    ? (await Preferences.get({ key: NOTIFICATION_STORE_KEY })).value
-    : window.localStorage.getItem(NOTIFICATION_STORE_KEY);
-  if (!raw) return (cachedLocalStore = createEmptyQdnNotificationStore());
-  try { return (cachedLocalStore = sanitizeQdnNotificationStore(JSON.parse(raw))); }
-  catch { return (cachedLocalStore = createEmptyQdnNotificationStore()); }
+  const inspection = await inspectLocalNotificationStore();
+  return inspection.status === 'available'
+    ? inspection.store
+    : createEmptyQdnNotificationStore();
+}
+
+async function requireAvailableLocalStore() {
+  const inspection = await inspectLocalNotificationStore();
+  if (inspection.status !== 'available') {
+    throw Object.assign(new Error('Notification settings are unavailable.'), {
+      code: inspection.status === 'corrupt'
+        ? 'HOME_NOTIFICATION_STORE_CORRUPT'
+        : 'HOME_NOTIFICATION_STORE_UNAVAILABLE',
+    });
+  }
+  return inspection.store;
+}
+
+export async function readNotificationStoreForManagement() {
+  return requireAvailableLocalStore();
 }
 
 async function writeLocalStore(store: QdnNotificationStore) {
-  cachedLocalStore = store;
   const value = JSON.stringify(store);
   if (Capacitor.isNativePlatform()) await Preferences.set({ key: NOTIFICATION_STORE_KEY, value });
   else {
@@ -49,6 +94,7 @@ async function writeLocalStore(store: QdnNotificationStore) {
     // preferences; native and desktop builds use their platform-owned stores.
     window.localStorage.setItem(NOTIFICATION_STORE_KEY, value);
   }
+  cachedLocalStore = store;
   storeVersion += 1;
   listeners.forEach((listener) => listener(store));
   return store;
@@ -64,7 +110,7 @@ export function updateNotificationStore(
   expectedRevision?: number,
 ) {
   const operation = localWriteChain.then(async () => {
-    const currentStore = sanitizeQdnNotificationStore(await readLocalStore());
+    const currentStore = sanitizeQdnNotificationStore(await requireAvailableLocalStore());
     if (expectedRevision !== undefined && currentStore.revision !== expectedRevision) {
       throw Object.assign(new Error('Notification settings changed; refresh and try again.'), {
         code: 'HOME_DATA_STALE',
@@ -134,8 +180,20 @@ export async function removeAppNotificationRules(appKey: string, notificationIds
   return nextStore.rules[appKey] ?? [];
 }
 
-export async function setAppNotificationMuted(appKey: string, muted: boolean) {
+export async function setAppNotificationMuted(
+  appKey: string,
+  muted: boolean,
+  expectedRevision?: number,
+) {
   if (window.qortiumHome.qdn?.setAppNotificationMuted) {
+    if (expectedRevision !== undefined) {
+      const currentStore = await window.qortiumHome.qdn.getNotificationStore?.();
+      if (!currentStore || currentStore.revision !== expectedRevision) {
+        throw Object.assign(new Error('Notification settings changed; refresh and try again.'), {
+          code: 'HOME_DATA_STALE',
+        });
+      }
+    }
     const store = await window.qortiumHome.qdn.setAppNotificationMuted(appKey, muted);
     storeVersion += 1;
     listeners.forEach((listener) => listener(store));
@@ -144,11 +202,19 @@ export async function setAppNotificationMuted(appKey: string, muted: boolean) {
   return updateNotificationStore((store) => {
     if (!store.grants[appKey]) throw new Error('Notification permission is not granted for this app.');
     store.grants[appKey].muted = muted || undefined;
-  });
+  }, expectedRevision);
 }
 
-export async function revokeAppNotifications(appKey: string) {
+export async function revokeAppNotifications(appKey: string, expectedRevision?: number) {
   if (window.qortiumHome.qdn?.revokeAppNotifications) {
+    if (expectedRevision !== undefined) {
+      const currentStore = await window.qortiumHome.qdn.getNotificationStore?.();
+      if (!currentStore || currentStore.revision !== expectedRevision) {
+        throw Object.assign(new Error('Notification settings changed; refresh and try again.'), {
+          code: 'HOME_DATA_STALE',
+        });
+      }
+    }
     const store = await window.qortiumHome.qdn.revokeAppNotifications(appKey);
     storeVersion += 1;
     listeners.forEach((listener) => listener(store));
@@ -157,5 +223,5 @@ export async function revokeAppNotifications(appKey: string) {
   return updateNotificationStore((store) => {
     delete store.grants[appKey];
     delete store.rules[appKey];
-  });
+  }, expectedRevision);
 }

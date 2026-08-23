@@ -3,6 +3,7 @@ import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import {
   assertAuthorizedHomeV2Sender,
   authorizeHomeV2Sender,
+  sendToAuthorizedHomeV2Senders,
 } from './home-v2-authorized-senders.js'
 
 type Listener = (...args: unknown[]) => void
@@ -10,6 +11,8 @@ type Listener = (...args: unknown[]) => void
 function senderFixture(id: number, initialUrl: string) {
   let currentUrl = initialUrl
   let destroyed = false
+  let sendFailure = false
+  const sent: Array<{ channel: string; value: unknown }> = []
   const mainFrame = { url: initialUrl }
   const listeners = new Map<string, Listener[]>()
   const sender = {
@@ -24,6 +27,10 @@ function senderFixture(id: number, initialUrl: string) {
     once: (name: string, listener: Listener) => {
       listeners.set(name, [...(listeners.get(name) ?? []), listener])
       return sender
+    },
+    send: (channel: string, value: unknown) => {
+      if (sendFailure) throw new Error('send failed')
+      sent.push({ channel, value })
     },
   } as unknown as WebContents
   return {
@@ -41,7 +48,11 @@ function senderFixture(id: number, initialUrl: string) {
         listener({}, url, false, true)
       }
     },
+    failSend() {
+      sendFailure = true
+    },
     sender,
+    sent,
   }
 }
 
@@ -81,5 +92,33 @@ const trustedUrl = 'file:///opt/qortium-home/dist/v2-live.html'
   )
 }
 
-console.log('Home v2 authorized-sender tests passed.')
+{
+  const home = senderFixture(104, trustedUrl)
+  const widget = senderFixture(105, trustedUrl)
+  authorizeHomeV2Sender(home.sender, trustedUrl)
+  sendToAuthorizedHomeV2Senders('home-v2-qdn-settings:changed', { revision: 1 })
+  assert.deepEqual(home.sent, [{
+    channel: 'home-v2-qdn-settings:changed',
+    value: { revision: 1 },
+  }])
+  assert.deepEqual(widget.sent, [], 'an unregistered widget must not receive Home events')
+}
 
+{
+  const navigated = senderFixture(106, trustedUrl)
+  authorizeHomeV2Sender(navigated.sender, trustedUrl)
+  navigated.navigate('file:///tmp/untrusted.html')
+  sendToAuthorizedHomeV2Senders('home-v2-qdn-settings:changed', null)
+  assert.deepEqual(navigated.sent, [], 'a navigated Home sender must be revoked before broadcast')
+}
+
+{
+  const failed = senderFixture(107, trustedUrl)
+  authorizeHomeV2Sender(failed.sender, trustedUrl)
+  failed.failSend()
+  assert.doesNotThrow(() =>
+    sendToAuthorizedHomeV2Senders('home-v2-qdn-settings:changed', null))
+  assert.throws(() => assertAuthorizedHomeV2Sender(failed.event()), /authorized top-level/)
+}
+
+console.log('Home v2 authorized-sender tests passed.')

@@ -1,6 +1,6 @@
 # Home 2.0 bridge compatibility ledger
 
-Last updated: 2026-08-19
+Last updated: 2026-08-22
 
 This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -27,6 +27,30 @@ Inside Home 2.0 app views, Home is the bridge authority. Desktop cancels only
 the active node's exact `/apps/q-apps.js` request; Android answers that same
 request locally with an empty JavaScript response. Standalone Core `/render`
 pages and Home 1.x retain Core's injected bridge client.
+
+## Trusted Settings host bridge
+
+Home 2.1's current F4 implementation adds a private QDN Apps Settings bridge,
+not a public QDN app action. The authorized top-level Home shell can read a
+versioned redacted assignment/notification summary, update an already-persisted
+assignment with revision checking, mute a notification grant, or revoke it.
+Widgets, subframes, navigated documents, and destroyed senders are denied by the
+desktop host. No raw rules, account bindings, filters, watch-only keys, titles,
+text, links, filesystem paths, or capability grants cross the desktop IPC
+boundary. Android reads its renderer-owned Preferences stores and projects the
+same redacted state before the Settings component receives it.
+
+Mute keeps the grant, all rules, and Core subscriptions while suppressing
+alerts. Revoke deletes the grant and every rule for that stable QDN resource
+identity. That identity is shared across Qortium and Qortal protocol use; route,
+query, fragment, account, and network changes do not create separate grants.
+Foreign-payment watch-only data already disclosed to a Core cannot be recalled.
+The profile can be restored by a platform backup, so this state is described as
+Home-profile data rather than hardware-local data.
+
+This F4 slice does not add `GET_APP_ASSIGNMENTS` or
+`REQUEST_APP_ASSIGNMENT` to Home 2's `SHOW_ACTIONS` and does not change QAVS
+`platformVersion: "2.0"`. App-facing assignment delegation remains deferred.
 
 ## Implemented slice
 

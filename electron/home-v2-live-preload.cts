@@ -182,6 +182,49 @@ contextBridge.exposeInMainWorld('homeV2AppUpdates', {
   }),
 })
 
+contextBridge.exposeInMainWorld('homeV2QdnSettings', {
+  get: () => ipcRenderer.invoke('home-v2-qdn-settings:get', {
+    revision: 1,
+    schema: 'home-v2-qdn-settings-get-request',
+  }),
+  setAssignment: (request: {
+    expectedAssignmentRevision: number
+    role: string
+    url: string
+  }) => ipcRenderer.invoke('home-v2-qdn-settings:set-assignment', {
+    expectedAssignmentRevision: request.expectedAssignmentRevision,
+    revision: 1,
+    role: request.role,
+    schema: 'home-v2-qdn-settings-set-assignment-request',
+    url: request.url,
+  }),
+  setMuted: (request: {
+    appKey: string
+    expectedNotificationRevision: number
+    muted: boolean
+  }) => ipcRenderer.invoke('home-v2-qdn-settings:set-muted', {
+    appKey: request.appKey,
+    expectedNotificationRevision: request.expectedNotificationRevision,
+    muted: request.muted,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-set-muted-request',
+  }),
+  revoke: (request: {
+    appKey: string
+    expectedNotificationRevision: number
+  }) => ipcRenderer.invoke('home-v2-qdn-settings:revoke', {
+    appKey: request.appKey,
+    expectedNotificationRevision: request.expectedNotificationRevision,
+    revision: 1,
+    schema: 'home-v2-qdn-settings-revoke-request',
+  }),
+  subscribe: (listener: () => void) => {
+    const wrapped = () => listener()
+    ipcRenderer.on('home-v2-qdn-settings:changed', wrapped)
+    return () => ipcRenderer.removeListener('home-v2-qdn-settings:changed', wrapped)
+  },
+})
+
 contextBridge.exposeInMainWorld('homeV2Vault', {
   addAddress: (accountId: string) => ipcRenderer.invoke('home-v2-vault:addAddress', accountId),
   create: (request: unknown) => ipcRenderer.invoke('home-v2-vault:create', request),

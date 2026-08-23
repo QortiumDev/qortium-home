@@ -285,18 +285,10 @@ that un-tokened Android APP render pages do not receive the Home-owned
 `QORTIUM_HOME_PREVIEW_ACCOUNTS_PATH`, or `QORTIUM_HOME_SMOKE_ACCOUNT_ROLE` to
 override those defaults.
 
-Smoke-test the public Previewnet Network option for the Android QDN app-assignment bridge on a connected phone:
-
-```sh
-QORTIUM_HOME_ANDROID_PUBLIC_ASSIGNMENTS_ONLY=1 npm run smoke:android:qdn-bridge
-```
-
-This focused acceptance path clears the Home wallet state, explicitly selects
-Previewnet network mode with no custom URL or API key, and loads the published
-`APP/QortiumHomeTest/home-test` fixture through public-node discovery. It
-verifies the public action catalogue, no-account behavior, and the approved
-generic app-assignment read/write bridge. It never accesses the local Core or
-preview-account material.
+The Android bridge smoke also covers Previewnet public-node discovery and
+no-account behavior. Home 2 does not currently advertise the generic
+app-assignment actions; assignment management in the 2.1 F4 slice stays inside
+the trusted Home Settings shell.
 
 Smoke-test Android QDN image, audio, and video viewers against the default
 emulator:
