@@ -45,6 +45,23 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
+function killProcessTree(child) {
+  if (typeof child.pid !== 'number') return
+  try {
+    // xvfb-run is a wrapper around both Xvfb and Electron. The child is a
+    // process-group leader on POSIX, so signal the group or its descendants
+    // retain the output pipes and keep a completed smoke alive in CI.
+    if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL')
+    else child.kill('SIGKILL')
+  } catch {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
 export function getFreePort() {
   return new Promise((resolve, reject) => {
     const server = createServer()
@@ -230,11 +247,7 @@ export async function launchHome(options = {}) {
   child.stderr?.on('data', (chunk) => output.push(String(chunk)))
 
   const stop = async () => {
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // Already gone.
-    }
+    killProcessTree(child)
     await delay(400)
     if (ownsProfile) {
       try {

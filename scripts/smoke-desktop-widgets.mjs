@@ -173,6 +173,52 @@ const NATIVE_OPACITY_IS_REPORTED = mainRequire(`
   return reported
 `)
 
+// Captures the actual QDN widget face rather than its transparent shell. The
+// fixture's clipped bottom corner must retain alpha through Chromium's page,
+// the WebContentsView and the BrowserWindow native compositor layers.
+const CAPTURE_WIDGET_FACE = mainRequire(`
+  const { webContents } = require('electron')
+  const target = webContents.getAllWebContents().find((contents) => {
+    try {
+      const url = new URL(contents.getURL())
+      return (url.protocol === 'http:' || url.protocol === 'https:') && url.pathname.endsWith('/widget.html')
+    } catch {
+      return false
+    }
+  })
+  if (!target) throw new Error('The QDN widget face was not found for transparency capture.')
+  return target.capturePage().then((image) => ({
+    dataUrl: image.toDataURL({ scaleFactor: 1 }),
+    size: image.getSize(1),
+  }))
+`)
+
+function sampleWidgetCapture(dataUrl) {
+  return `new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = image.naturalWidth
+      canvas.height = image.naturalHeight
+      const context = canvas.getContext('2d', { willReadFrequently: true })
+      if (!context) {
+        reject(new Error('Unable to create the widget capture canvas.'))
+        return
+      }
+      context.drawImage(image, 0, 0)
+      const pixel = (x, y) => Array.from(context.getImageData(x, y, 1, 1).data)
+      resolve({
+        bottomLeft: pixel(2, image.naturalHeight - 3),
+        center: pixel(Math.floor(image.naturalWidth / 2), Math.floor(image.naturalHeight / 2)),
+        height: image.naturalHeight,
+        width: image.naturalWidth,
+      })
+    }
+    image.onerror = () => reject(new Error('Unable to decode the widget capture.'))
+    image.src = ${JSON.stringify(dataUrl)}
+  })`
+}
+
 // Number of polygons currently driving hit-testing. The manifest declares one
 // pentagon, so a pushed replacement is only observable in the main process.
 const READ_WIDGET_REGION = mainRequire(`
@@ -433,6 +479,20 @@ async function main() {
       (url) => url.startsWith('http') && new URL(url).pathname.endsWith('/widget.html'),
       'widget face',
     )
+    const widgetCapture = await home.main.evaluate(CAPTURE_WIDGET_FACE)
+    assert.ok(widgetCapture.size.width > 4 && widgetCapture.size.height > 4, 'The captured QDN face must contain pixels.')
+    const widgetPixels = await face.evaluate(sampleWidgetCapture(widgetCapture.dataUrl))
+    assert.equal(
+      widgetPixels.bottomLeft[3],
+      0,
+      `The clipped widget corner must expose the desktop with zero alpha: ${JSON.stringify(widgetPixels)}`,
+    )
+    assert.equal(
+      widgetPixels.center[3],
+      255,
+      `The painted widget face must remain opaque: ${JSON.stringify(widgetPixels)}`,
+    )
+    log('transparent widget compositing confirmed from captured pixels')
     const updateBridgeDenied = await face.evaluate(`
       typeof window.homeV2AppUpdates?.check !== 'function'
         ? Promise.resolve({ absent: true, denied: true, message: '' })

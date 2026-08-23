@@ -76,6 +76,9 @@ jobs:
           MEMORY_POW_TEST_MODE: ${{ github.event_name == 'pull_request' && 'quick' || 'full' }}
           QORTIUM_CORE_REPOSITORY: ${{ github.workspace }}/.interop/qortium-core
 
+      - name: Verify widget transparency
+        run: npm run smoke:desktop:widgets
+
   android-unit-test:
     name: Android unit test
     runs-on: ubuntu-latest
