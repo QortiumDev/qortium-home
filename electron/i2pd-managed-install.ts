@@ -13,7 +13,7 @@ import {
 import path from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import extractZip from 'extract-zip'
+import { extractZipSafely } from './safe-zip-extraction.js'
 import { extract as extractTar } from 'tar'
 import {
   classifyI2pdRelease,
@@ -424,7 +424,7 @@ function safeArchiveEntryName(value: string) {
 
 async function defaultExtractArchive({ archivePath, destinationPath, release }: Parameters<I2pdArchiveExtractor>[0]) {
   if (release.archiveType === 'zip') {
-    await extractZip(archivePath, {
+    await extractZipSafely(archivePath, {
       dir: destinationPath,
       onEntry(entry) {
         const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff

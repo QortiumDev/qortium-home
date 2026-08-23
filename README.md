@@ -129,9 +129,10 @@ executable, and an Android APK. Home also has an in-app self-update system
 with stable and prerelease channels that downloads and verifies the matching
 platform asset; releases are currently published on the prerelease channel.
 
-All current builds are unsigned. Expect operating-system warnings (Windows
-SmartScreen, macOS Gatekeeper approval, Android unknown-source prompts), and
-see [Status](#status) before using wallets with meaningful funds.
+Current desktop builds are unsigned, while public Android release APKs use the
+project's established Android release signer. Expect operating-system warnings
+for unsigned desktop packages and Android unknown-source prompts, and see
+[Status](#status) before using wallets with meaningful funds.
 
 ## Development Setup
 
@@ -141,11 +142,16 @@ Install dependencies:
 npm install
 ```
 
-Start the desktop development app:
+Build and start the desktop app locally:
 
 ```sh
 npm run dev
 ```
+
+Home 2 deliberately loads its built renderer from `dist/` in local runs because
+the shell blocks ordinary HTTP navigation, including a Vite development server.
+`npm run dev` is therefore an alias for the build-and-start flow below rather
+than a hot-reload server.
 
 Build the renderer and Electron main process:
 

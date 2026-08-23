@@ -247,6 +247,17 @@ try {
     await waitUntil('Home shell controls', () =>
       evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
     )
+    await evaluate(
+      client,
+      `(() => {
+        const skip = [...document.querySelectorAll('.home-v2-welcome button')]
+          .find((button) => button.textContent.trim() === 'Skip setup');
+        skip?.click();
+      })()`,
+    )
+    await waitUntil('Dashboard after optional Welcome setup', () =>
+      evaluate(client, `Boolean(document.querySelector('.home-v2-dashboard'))`),
+    )
     const dashboardCoreCards = await waitUntil('Dashboard Core management', () =>
       evaluate(
         client,
@@ -259,9 +270,18 @@ try {
       ),
     )
     assert.deepEqual(dashboardCoreCards, ['qortium', 'qortal'])
+    const dashboardMaintenance = await evaluate(
+      client,
+      `(() => [...document.querySelectorAll('.home-v2-core-maintenance')].map((maintenance) => ({
+        rects: maintenance.getClientRects().length,
+        settingsHidden: maintenance.closest('.home-v2-settings')?.getAttribute('hidden') ?? null,
+        settingsSection: maintenance.closest('section')?.getAttribute('aria-labelledby') ?? null,
+      })))()`,
+    )
     assert.equal(
-      await evaluate(client, `document.querySelector('.home-v2-core-maintenance') === null`),
+      dashboardMaintenance.every((maintenance) => maintenance.rects === 0),
       true,
+      `Dashboard exposed Settings-only maintenance: ${JSON.stringify(dashboardMaintenance)}`,
     )
     const dashboardScreenshot = await client.send('Page.captureScreenshot', {
       format: 'png',

@@ -12,6 +12,7 @@ dist-electron-v2/
 .v2-fixture-package/
 .vite/
 *.log
+*.tsbuildinfo
 npm-debug.log*
 package-lock.json.tmp
 CLAUDE.md

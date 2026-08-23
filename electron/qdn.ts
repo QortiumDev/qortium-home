@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, type WebContents } from 'electron';
-import extract from 'extract-zip';
+import { extractZipSafely } from './safe-zip-extraction.js';
 import { zipSync } from 'fflate';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -4569,7 +4569,7 @@ async function stageQdnPreviewSource(sourcePath: string) {
   if (extension === 'zip') {
     const stagingDir = await createQdnPreviewStagingDir(sourcePath);
 
-    await extract(sourcePath, { dir: stagingDir });
+    await extractZipSafely(sourcePath, { dir: stagingDir });
     const previewPath = await resolveExtractedQdnPreviewRoot(stagingDir);
 
     await assertQdnPreviewIndexFile(previewPath);

@@ -58,7 +58,10 @@ jobs:
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
-      # Type-checks the renderer and the Electron main process.
+      - name: Type-check renderer
+        run: npx tsc -p tsconfig.json --noEmit
+
+      # Builds the production renderer and type-checks the Electron main process.
       - name: Build
         run: npm run build
 

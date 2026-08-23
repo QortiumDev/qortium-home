@@ -19,12 +19,18 @@ function readFunction(source: string, name: string) {
 const desktop = readRepoSource('../electron/qdn.ts', './qdn.ts');
 const android = readRepoSource('../src/platform.ts', './platform.ts');
 const appTypes = readRepoSource('../src/vite-env.d.ts', './vite-env.d.ts');
-const appUi = readRepoSource('../src/App.tsx', './App.tsx');
+const permissionDialog = readRepoSource(
+  '../src/v2/shell/PermissionDialog.tsx',
+  './src/v2/shell/PermissionDialog.tsx',
+);
 
 assert(QDN_APP_BRIDGE_ACTIONS.includes('SEND_MESSAGE'));
 assert(QDN_PUBLIC_NODE_BRIDGE_ACTIONS.includes('SEND_MESSAGE'));
 assert(appTypes.includes("| 'SEND_MESSAGE'"), 'Window approval type must include SEND_MESSAGE.');
-assert(appUi.includes("case 'SEND_MESSAGE':"), 'Home approval dialog must label SEND_MESSAGE specifically.');
+assert(
+  permissionDialog.includes('prompt.action'),
+  'Home 2 approval dialog must display the requested action.',
+);
 
 for (const [name, source, importSpecifier] of [
   ['electron/qdn.ts', desktop, "from './qdn-at-message.js'"],

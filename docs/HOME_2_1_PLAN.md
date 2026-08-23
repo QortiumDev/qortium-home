@@ -328,6 +328,18 @@ during release preparation.
   durable bookmark grant with an exact store-revision check. These newly
   advertised Home 2 actions advance QAVS
   `platformVersion` to `2.1`.
+- [x] Retire the legacy v1 renderer entry path. Production and local desktop
+  starts now load the built Home 2 renderer; the root development document is
+  a v2-only redirect, while the old Vite config, React entry, monolithic `App`,
+  v1 browser-chrome smoke, and tracked TypeScript cache are removed. The
+  unreachable trusted-main/preload compatibility branches remain a separate
+  security-reviewed cleanup rather than release-preparation churn.
+- [x] Prepare Home 2.1.0 release metadata and mechanics. Desktop/package
+  metadata is 2.1.0, Android is version name 2.1.0 and code 39, both Home 2
+  hosts advertise QAVS 2.1 and host version 2.1.0, CI explicitly type-checks
+  the renderer, and the release matrix includes the Catalina x64 DMG. The new
+  runbook keeps native-host acceptance, signing, tagging, upload, and
+  publication behind their explicit checkpoints.
 
 ## Required gates
 

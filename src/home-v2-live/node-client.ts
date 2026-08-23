@@ -6,6 +6,7 @@ import type {
   VisibleAvatarReadRequest,
   VisibleAvatarReadResult,
 } from '../v2/contracts'
+import packageJson from '../../package.json'
 import { parseHomeV2AccountCatalogueStore } from './account-catalogue'
 import {
   buildHomeV2AssetReadPath,
@@ -903,6 +904,7 @@ export function createPortableNodeClient(
       const selectedNode = await summary(network, selectedSettings)
       const hostInfo = getHomeV2AppHostInfo({
         accountId: context?.selectedAccountId,
+        hostVersion: packageJson.version,
         node: selectedNode,
         platform: 'android',
         platformVersion: '2.1',
