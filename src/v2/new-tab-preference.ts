@@ -11,7 +11,7 @@ export const DEFAULT_NEW_TAB_PREFERENCE: NewTabPreference = Object.freeze({
 })
 
 const INTERNAL_ADDRESS_PATTERN =
-  /^home:\/\/(dashboard|apps|activity|newtab|settings)\/?$/i
+  /^home:\/\/(dashboard|apps|activity|newtab|settings|welcome)\/?$/i
 const RELEASE_NOTES_ADDRESS_PATTERN =
   /^home:\/\/releases\/(core|home)\/([^/?#]+)\/?$/i
 
@@ -44,6 +44,15 @@ export function parseHomeV2ReleaseNotesAddress(value: string): {
   }
 }
 
+export function parseHomeV2CoreDocsAddress(
+  value: string,
+): 'qortal' | 'qortium' | null {
+  const address = value.trim()
+  if (/^core:\/\/(?:api-documentation\/?)?$/i.test(address)) return 'qortium'
+  if (/^qortal-core:\/\/(?:api-documentation\/?)?$/i.test(address)) return 'qortal'
+  return null
+}
+
 export function validateCustomNewTabAddress(value: string): string {
   const address = value.trim()
   if (!address || address.length > 2_000) {
@@ -51,11 +60,12 @@ export function validateCustomNewTabAddress(value: string): string {
   }
   if (parseHomeV2InternalAddress(address)) return address
   if (parseHomeV2ReleaseNotesAddress(address)) return address
+  if (parseHomeV2CoreDocsAddress(address)) return address
   try {
     parseAppResourceLocation(address)
   } catch {
     throw new Error(
-      'Use a supported home:// address or a complete qdn://APP or qortal://APP address.',
+      'Use a supported Home, Core, qdn://APP, or qortal://APP address.',
     )
   }
   return address

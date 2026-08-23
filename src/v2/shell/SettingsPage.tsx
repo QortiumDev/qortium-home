@@ -53,6 +53,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly requestedSection?: HomeV2SettingsSectionTarget
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onOpenReleaseNotes?: (tagName: string) => void
+  readonly onRestartWelcome?: () => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
@@ -61,12 +62,14 @@ function GeneralSettings({
   notificationPolicy,
   onSetAppNotifications,
   onSetNewTabPreference,
+  onRestartWelcome,
 }: Pick<
   SettingsPageProps,
   | 'newTabPreference'
   | 'notificationPolicy'
   | 'onSetAppNotifications'
   | 'onSetNewTabPreference'
+  | 'onRestartWelcome'
 >) {
   const [selectedKind, setSelectedKind] = useState(newTabPreference.kind)
   const [customAddress, setCustomAddress] = useState(
@@ -208,6 +211,22 @@ function GeneralSettings({
           </label>
         </div>
       </div>
+      <div className="home-v2-setting-row">
+        <div className="home-v2-setting-row__copy">
+          <strong>{t('welcome.restart')}</strong>
+          <span>{t('welcome.restartDescription')}</span>
+        </div>
+        <div className="home-v2-setting-row__control">
+          <button
+            className="home-v2-link-button"
+            disabled={!onRestartWelcome}
+            type="button"
+            onClick={onRestartWelcome}
+          >
+            {t('welcome.restart')}
+          </button>
+        </div>
+      </div>
     </section>
   )
 }
@@ -284,6 +303,7 @@ export function SettingsPage(props: SettingsPageProps) {
               notificationPolicy={props.notificationPolicy}
               onSetAppNotifications={props.onSetAppNotifications}
               onSetNewTabPreference={props.onSetNewTabPreference}
+              onRestartWelcome={props.onRestartWelcome}
             />
           ) : activeSection === 'core' &&
             (props.coreManagement?.available || props.appUpdates?.available) ? (

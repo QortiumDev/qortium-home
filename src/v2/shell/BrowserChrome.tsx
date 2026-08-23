@@ -32,6 +32,7 @@ export interface BrowserChromeProps {
   readonly navigationDisabled?: boolean
   readonly newTabPreference?: NewTabPreference
   readonly releaseNotesAddress?: string
+  readonly coreDocsAddress?: string
 }
 
 export type AddressOpenResult =
@@ -52,7 +53,11 @@ function nodeTone(snapshot: HomeV2Snapshot, network: NetworkId) {
   return node.state
 }
 
-function browserAddress(productState: ProductState, releaseNotesAddress?: string): string {
+function browserAddress(
+  productState: ProductState,
+  releaseNotesAddress?: string,
+  coreDocsAddress?: string,
+): string {
   const activeTab = productState.tabs.find(
     (tab) => tab.id === productState.activeTabId,
   )
@@ -61,6 +66,9 @@ function browserAddress(productState: ProductState, releaseNotesAddress?: string
   }
   if (productState.destination === 'releases' && releaseNotesAddress) {
     return releaseNotesAddress
+  }
+  if (productState.destination === 'core-docs' && coreDocsAddress) {
+    return coreDocsAddress
   }
   const destination =
     productState.destination === 'tab' ? 'dashboard' : productState.destination
@@ -91,8 +99,13 @@ export function BrowserChrome({
   navigationDisabled = false,
   newTabPreference = DEFAULT_NEW_TAB_PREFERENCE,
   releaseNotesAddress,
+  coreDocsAddress,
 }: BrowserChromeProps) {
-  const currentAddress = browserAddress(productState, releaseNotesAddress)
+  const currentAddress = browserAddress(
+    productState,
+    releaseNotesAddress,
+    coreDocsAddress,
+  )
   const [address, setAddress] = useState(currentAddress)
   const [addressResult, setAddressResult] = useState<AddressOpenResult | null>(null)
   const [addressBusy, setAddressBusy] = useState(false)

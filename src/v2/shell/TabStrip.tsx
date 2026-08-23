@@ -20,10 +20,12 @@ const internalTabLabelKeys: Readonly<
 > = {
   activity: 'home2.activity',
   apps: 'home2.apps',
+  'core-docs': 'coreApi.title',
   dashboard: 'common.dashboard',
   newtab: 'home2.tabs.newTab',
   releases: 'releaseNotes.open',
   settings: 'common.settings',
+  welcome: 'welcome.title',
 }
 
 export function TabStrip({

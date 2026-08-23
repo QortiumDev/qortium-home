@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
+  parseHomeV2CoreDocsAddress,
   parseHomeV2ReleaseNotesAddress,
   parseNewTabPreference,
   validateCustomNewTabAddress,
@@ -16,6 +17,8 @@ function testCustomAddressValidation(): void {
     ['home://dashboard', 'home://dashboard'],
     [' HOME://NEWTAB/ ', 'HOME://NEWTAB/'],
     ['home://releases/home/v2.1.0', 'home://releases/home/v2.1.0'],
+    ['core://', 'core://'],
+    ['QORTAL-CORE://api-documentation/', 'QORTAL-CORE://api-documentation/'],
     ['qdn://APP/QortiumHome', 'qdn://APP/QortiumHome'],
     [
       ' qdn://APP/QortiumHome ',
@@ -46,6 +49,8 @@ function testCustomAddressValidation(): void {
     'home://unknown',
     'home://releases',
     'home://releases/other/v2.1.0',
+    'core://admin/stop',
+    'qortal-core://admin/stop',
     'https://example.invalid/app',
     'qdn://',
     'qdn://APP',
@@ -73,6 +78,9 @@ function testCustomAddressValidation(): void {
     tagName: 'v2.1.0-beta.1',
   })
   assert.equal(parseHomeV2ReleaseNotesAddress('home://releases/home/%zz'), null)
+  assert.equal(parseHomeV2CoreDocsAddress('core://'), 'qortium')
+  assert.equal(parseHomeV2CoreDocsAddress('qortal-core://'), 'qortal')
+  assert.equal(parseHomeV2CoreDocsAddress('qortal-core://admin/stop'), null)
 }
 
 function testPreferenceParsingFailsClosed(): void {
@@ -108,7 +116,8 @@ function testPreferenceParsingFailsClosed(): void {
 
 function testShellStateMigrationAndRoundTrips(): void {
   const fallback = createHomeV2ShellState('light', 'en')
-  assert.equal(fallback.version, 2)
+  assert.equal(fallback.version, 3)
+  assert.equal(fallback.onboarding.status, 'in-progress')
   assert.equal(fallback.newTabPreference, DEFAULT_NEW_TAB_PREFERENCE)
 
   for (const stored of [
@@ -130,7 +139,8 @@ function testShellStateMigrationAndRoundTrips(): void {
     },
   ]) {
     const parsed = parseHomeV2ShellState(stored, 'light', 'en')
-    assert.equal(parsed.version, 2)
+    assert.equal(parsed.version, 3)
+    assert.equal(parsed.onboarding.status, 'skipped')
     assert.equal(parsed.newTabPreference, DEFAULT_NEW_TAB_PREFERENCE)
   }
 
@@ -144,7 +154,7 @@ function testShellStateMigrationAndRoundTrips(): void {
       ...fallback,
       newTabPreference,
     })
-    assert.equal(serialized.version, 2)
+    assert.equal(serialized.version, 3)
     assert.deepEqual(serialized.newTabPreference, newTabPreference)
 
     const restored = parseHomeV2ShellState(
@@ -152,7 +162,7 @@ function testShellStateMigrationAndRoundTrips(): void {
       'dark',
       'en',
     )
-    assert.equal(restored.version, 2)
+    assert.equal(restored.version, 3)
     assert.deepEqual(restored.newTabPreference, newTabPreference)
   }
 }

@@ -259,15 +259,21 @@ type DocumentViewerProps = {
    */
   knownFilename?: string | null;
   knownMimeType?: string | null;
+  /** Alternate bounded byte source used by the capability-based Home 2 viewer. */
+  loadBytes?: () => Promise<{ bytes: Uint8Array; contentType?: string }>;
+  /** Alternate download action used when the legacy QDN bridge is unavailable. */
+  onDownload?: () => Promise<void>;
   onDismiss: () => void;
   resource: QdnResource;
 };
 
 export function DocumentViewer({
   bytes: providedBytes,
+  loadBytes,
   knownFilename,
   knownMimeType,
   onDismiss,
+  onDownload,
   resource,
 }: DocumentViewerProps) {
   const viewerRef = useRef<HTMLElement>(null);
@@ -325,6 +331,11 @@ export function DocumentViewer({
         if (providedBytes) {
           // Rendering an already-extracted archive entry — no node fetch.
           bytes = providedBytes;
+        } else if (loadBytes) {
+          const loaded = await loadBytes();
+          if (canceled) return;
+          bytes = loaded.bytes;
+          contentType = loaded.contentType;
         } else {
           const result = await window.qortiumHome.qdn.fetchResourceData({
             identifier: resource.identifier,
@@ -347,7 +358,7 @@ export function DocumentViewer({
         }
 
         const filename = (resource.path ? resource.path.split('/').pop() : undefined) ?? knownFilename ?? undefined;
-        const format = detectDocumentFormat(filename, contentType || knownMimeType || undefined);
+        const format = detectDocumentFormat(filename, knownMimeType || contentType || undefined);
 
         if (format === 'txt') {
           const content = new TextDecoder().decode(bytes);
@@ -403,7 +414,7 @@ export function DocumentViewer({
       canceled = true;
       cleanup?.();
     };
-  }, [providedBytes, resource, knownFilename, knownMimeType]);
+  }, [providedBytes, loadBytes, resource, knownFilename, knownMimeType]);
 
   // Track EPUB location changes
   useEffect(() => {
@@ -440,6 +451,10 @@ export function DocumentViewer({
   }
 
   async function handleDownload() {
+    if (onDownload) {
+      await onDownload();
+      return;
+    }
     await window.qortiumHome.qdn.downloadResource({
       identifier: resource.identifier,
       name: resource.name,
