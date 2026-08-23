@@ -75,6 +75,7 @@
     "smoke:qdn-services": "node scripts/ensure-electron-build.mjs && node scripts/smoke-qdn-services.mjs",
     "test": "node scripts/check-test-wiring.mjs && node scripts/test-all.mjs",
     "test:release-metadata": "node scripts/test-release-metadata.mjs",
+    "test:windows-core-observer-build-script": "node scripts/test-windows-core-observer-build-script.mjs",
     "test:safe-zip-extraction": "npm run build:electron && node dist-electron/safe-zip-extraction.test.js",
     "test:wiring": "node scripts/check-test-wiring.mjs",
     "test:home-v2-browser-chrome": "esbuild src/v2/shell/BrowserChrome.test.tsx --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/home-v2-browser-chrome.test.js && node scripts/run-home-v2-browser-chrome-test.mjs",
