@@ -24,6 +24,10 @@ import {
 } from './home-v2-qortal-maintenance-contract.js'
 import { probeHomeV2QortalInstallDiscovery } from './home-v2-qortal-maintenance-discovery.js'
 import {
+  createAuthorizedHomeV2QortalAdoptionHandlers,
+  HomeV2QortalAdoptionService,
+} from './home-v2-qortal-adoption-contract.js'
+import {
   createAuthorizedHomeV2TransportMaintenanceHandlers,
   createHomeV2TransportMaintenanceService,
 } from './home-v2-transport-maintenance-contract.js'
@@ -65,12 +69,13 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
     }
     return result
   })
+  const qortalMaintenanceService = createHomeV2QortalMaintenanceService({
+    probeDiscovery: probeHomeV2QortalInstallDiscovery,
+    resolveManager: () => requireCoreManagerEntry('qortal'),
+  })
   const qortalMaintenanceHandlers = createAuthorizedHomeV2QortalMaintenanceHandlers(
     assertAuthorizedHomeV2Sender,
-    createHomeV2QortalMaintenanceService({
-      probeDiscovery: probeHomeV2QortalInstallDiscovery,
-      resolveManager: () => requireCoreManagerEntry('qortal'),
-    }),
+    qortalMaintenanceService,
   )
   ipcMain.handle('home-v2-qortal-maintenance:getStatus', qortalMaintenanceHandlers.getStatus)
   ipcMain.handle('home-v2-qortal-maintenance:checkRelease', qortalMaintenanceHandlers.checkRelease)
@@ -79,6 +84,20 @@ export function registerHomeV2CoreManagerBridgeIpcHandlers() {
     if (result.code !== 'operation-in-progress') void scheduler.trigger()
     return result
   })
+  const qortalAdoptionHandlers = createAuthorizedHomeV2QortalAdoptionHandlers(
+    assertAuthorizedHomeV2Sender,
+    new HomeV2QortalAdoptionService({
+      getMaintenanceStatus: async () => await qortalMaintenanceService.getStatus({
+        network: 'qortal',
+        revision: 1,
+        schema: 'home-v2-qortal-maintenance-request',
+      }),
+      resolveManager: () => requireCoreManagerEntry('qortal'),
+    }),
+  )
+  ipcMain.handle('home-v2-qortal-adoption:list', qortalAdoptionHandlers.list)
+  ipcMain.handle('home-v2-qortal-adoption:browse', qortalAdoptionHandlers.browse)
+  ipcMain.handle('home-v2-qortal-adoption:select', qortalAdoptionHandlers.select)
   const transportMaintenanceHandlers = createAuthorizedHomeV2TransportMaintenanceHandlers(
     assertAuthorizedHomeV2Sender,
     createHomeV2TransportMaintenanceService(createHomeV2TransportMaintenanceDependencies({

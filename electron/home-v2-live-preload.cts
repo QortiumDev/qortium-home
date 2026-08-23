@@ -62,6 +62,25 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
 })
 
 contextBridge.exposeInMainWorld('homeV2CoreManagers', {
+  listQortalAdoptionCandidates: () =>
+    ipcRenderer.invoke('home-v2-qortal-adoption:list', {
+      network: 'qortal',
+      revision: 1,
+      schema: 'home-v2-qortal-adoption-list-request',
+    }),
+  browseQortalAdoptionDirectory: () =>
+    ipcRenderer.invoke('home-v2-qortal-adoption:browse', {
+      network: 'qortal',
+      revision: 1,
+      schema: 'home-v2-qortal-adoption-browse-request',
+    }),
+  selectQortalAdoptionCandidate: (candidateId: string) =>
+    ipcRenderer.invoke('home-v2-qortal-adoption:select', {
+      candidateId,
+      network: 'qortal',
+      revision: 1,
+      schema: 'home-v2-qortal-adoption-selection-request',
+    }),
   getQortalMaintenanceStatus: () =>
     ipcRenderer.invoke('home-v2-qortal-maintenance:getStatus', {
       network: 'qortal',

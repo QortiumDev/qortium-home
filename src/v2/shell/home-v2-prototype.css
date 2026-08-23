@@ -762,6 +762,52 @@
   justify-content: flex-end;
 }
 
+.home-v2-qortal-adoption {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.home-v2-qortal-adoption__candidates {
+  display: grid;
+  margin: 0;
+  padding: 0 22px 15px;
+  border: 0;
+  gap: 8px;
+}
+
+.home-v2-qortal-adoption__candidates legend {
+  padding: 0 0 8px;
+  color: var(--v2-muted);
+  font-size: calc(12px * var(--v2-type-scale));
+  font-weight: 700;
+}
+
+.home-v2-qortal-adoption__candidate {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--v2-line);
+  border-radius: 9px;
+  background: var(--v2-surface-raised);
+}
+
+.home-v2-qortal-adoption__candidate > input {
+  margin-top: 3px;
+}
+
+.home-v2-qortal-adoption__candidate > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.home-v2-qortal-adoption__candidate small {
+  color: var(--v2-muted);
+  font-size: calc(12px * var(--v2-type-scale));
+}
+
 .home-v2-node-card,
 .home-v2-panel,
 .home-v2-app-card,

@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   HomeV2QortalMaintenanceActionResult,
+  HomeV2QortalAdoptionCandidate,
+  HomeV2QortalAdoptionList,
   HomeV2QortalMaintenanceRelease,
   HomeV2QortalMaintenanceStatus,
 } from '../../home-v2-live/core-manager-client'
 import {
+  parseHomeV2QortalAdoptionBrowseResult,
+  parseHomeV2QortalAdoptionList,
+  parseHomeV2QortalAdoptionSelectionResult,
   parseHomeV2QortalMaintenanceActionResult,
   parseHomeV2QortalMaintenanceRelease,
   parseHomeV2QortalMaintenanceStatus,
@@ -92,14 +97,54 @@ function statusFingerprint(status: HomeV2QortalMaintenanceStatus) {
   ].join('|')
 }
 
+function candidateSource(candidate: HomeV2QortalAdoptionCandidate) {
+  if (candidate.origins.includes('user-selected')) {
+    return t('home2.qortalMaintenance.adoption.source.browsed')
+  }
+  if (candidate.hubHint || candidate.origins.includes('qortal-hub')) {
+    return t('home2.qortalMaintenance.adoption.source.hub')
+  }
+  if (candidate.runningProcessMatch || candidate.origins.includes('running-process')) {
+    return t('home2.qortalMaintenance.adoption.source.running')
+  }
+  return t('home2.qortalMaintenance.adoption.source.standard')
+}
+
+function candidateVersion(candidate: HomeV2QortalAdoptionCandidate) {
+  return candidate.version
+    ? t('home2.qortalMaintenance.adoption.version', { version: candidate.version })
+    : t('home2.qortalMaintenance.adoption.versionUnknown')
+}
+
+function preferredCandidate(
+  list: HomeV2QortalAdoptionList,
+  preferBrowsed = false,
+) {
+  if (list.state !== 'complete' || !list.canSelect) return null
+  const supported = list.candidates.filter((candidate) => candidate.version !== null)
+  if (preferBrowsed) {
+    const browsed = supported.filter((candidate) => candidate.origins.includes('user-selected'))
+    if (browsed.length === 1) return browsed[0]?.candidateId ?? null
+  }
+  if (list.candidates.length !== 1) return null
+  return supported[0]?.candidateId ?? null
+}
+
 export function QortalMaintenancePanel({ management }: { readonly management: HomeV2CoreManagement }) {
   const client = window.homeV2CoreManagers
   const getStatus = client?.getQortalMaintenanceStatus
   const checkRelease = client?.checkQortalMaintenanceRelease
   const runAction = client?.runQortalMaintenanceAction
+  const listAdoptionCandidates = client?.listQortalAdoptionCandidates
+  const browseAdoptionDirectory = client?.browseQortalAdoptionDirectory
+  const selectAdoptionCandidate = client?.selectQortalAdoptionCandidate
   const [status, setStatus] = useState<HomeV2QortalMaintenanceStatus | null>(null)
   const [release, setRelease] = useState<HomeV2QortalMaintenanceRelease | null>(null)
-  const [busy, setBusy] = useState<'action' | 'check' | null>(null)
+  const [adoptionList, setAdoptionList] = useState<HomeV2QortalAdoptionList | null>(null)
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
+  const [busy, setBusy] = useState<
+    'action' | 'adoption-browse' | 'adoption-list' | 'adoption-select' | 'check' | null
+  >(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [initialLoadFailed, setInitialLoadFailed] = useState(false)
   const disposed = useRef(false)
@@ -115,6 +160,12 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
       if (disposed.current || sequence !== requestSequence.current) return
       if (statusRef.current && statusFingerprint(statusRef.current) !== statusFingerprint(next)) {
         setRelease(null)
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
+      }
+      if (next.install !== 'missing') {
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
       }
       statusRef.current = next
       setStatus(next)
@@ -136,6 +187,8 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
     setBusy(null)
     setStatus(null)
     setRelease(null)
+    setAdoptionList(null)
+    setSelectedCandidateId(null)
     setNotice(null)
     setInitialLoadFailed(false)
     void refresh()
@@ -163,6 +216,126 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
         </div>
       </section>
     )
+  }
+
+  const reviewAdoptionCandidates = async () => {
+    if (!listAdoptionCandidates || busyRef.current || status.install !== 'missing') return
+    const sequence = ++requestSequence.current
+    busyRef.current = true
+    setBusy('adoption-list')
+    setNotice(null)
+    try {
+      const next = parseHomeV2QortalAdoptionList(await listAdoptionCandidates())
+      if (disposed.current || sequence !== requestSequence.current) return
+      setAdoptionList(next)
+      setSelectedCandidateId(preferredCandidate(next))
+    } catch {
+      if (!disposed.current && sequence === requestSequence.current) {
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.failed'))
+      }
+    } finally {
+      if (!disposed.current && sequence === requestSequence.current) {
+        busyRef.current = false
+        setBusy(null)
+      }
+    }
+  }
+
+  const browseAdoption = async () => {
+    if (!browseAdoptionDirectory || busyRef.current || status.install !== 'missing') return
+    const sequence = ++requestSequence.current
+    busyRef.current = true
+    setBusy('adoption-browse')
+    setNotice(null)
+    try {
+      const result = parseHomeV2QortalAdoptionBrowseResult(await browseAdoptionDirectory())
+      if (disposed.current || sequence !== requestSequence.current) return
+      setAdoptionList(result.list)
+      // Opening the picker invalidates the prior opaque tokens, including when
+      // the picker is canceled. Never retain a selection from the old list.
+      setSelectedCandidateId(result.canceled ? null : preferredCandidate(result.list, true))
+      if (result.canceled) setNotice(t('home2.qortalMaintenance.adoption.browseCanceled'))
+    } catch {
+      if (!disposed.current && sequence === requestSequence.current) {
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.browseFailed'))
+      }
+    } finally {
+      if (!disposed.current && sequence === requestSequence.current) {
+        busyRef.current = false
+        setBusy(null)
+      }
+    }
+  }
+
+  const adoptCandidate = async () => {
+    if (!selectAdoptionCandidate || !selectedCandidateId || busyRef.current ||
+      status.install !== 'missing') return
+    const selected = adoptionList?.candidates.find(
+      (candidate) => candidate.candidateId === selectedCandidateId,
+    )
+    if (!selected || selected.version === null || adoptionList?.state !== 'complete' ||
+      !adoptionList.canSelect) return
+    const sequence = ++requestSequence.current
+    busyRef.current = true
+    setBusy('adoption-select')
+    setNotice(null)
+    try {
+      const result = parseHomeV2QortalAdoptionSelectionResult(
+        await selectAdoptionCandidate(selectedCandidateId),
+      )
+      if (disposed.current || sequence !== requestSequence.current) return
+      statusRef.current = result.status
+      setStatus(result.status)
+      setRelease(null)
+      if (result.outcome === 'completed') {
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.success'))
+        management.onRefresh?.()
+      } else if (result.code === 'candidate-expired' || result.code === 'candidate-changed') {
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.stale'))
+        if (listAdoptionCandidates && result.status.install === 'missing') {
+          try {
+            const next = parseHomeV2QortalAdoptionList(await listAdoptionCandidates())
+            if (!disposed.current && sequence === requestSequence.current) {
+              setAdoptionList(next)
+              // A stale selection must be reviewed explicitly even when only one
+              // candidate remains in the refreshed list.
+              setSelectedCandidateId(null)
+            }
+          } catch {
+            if (!disposed.current && sequence === requestSequence.current) {
+              setAdoptionList(null)
+            }
+          }
+        }
+      } else if (result.code === 'unsupported-platform') {
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.unsupported'))
+      } else if (result.outcome === 'failed') {
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.failed'))
+      } else {
+        setNotice(t('home2.qortalMaintenance.adoption.blocked'))
+      }
+    } catch {
+      if (!disposed.current && sequence === requestSequence.current) {
+        setAdoptionList(null)
+        setSelectedCandidateId(null)
+        setNotice(t('home2.qortalMaintenance.adoption.failed'))
+      }
+    } finally {
+      if (!disposed.current && sequence === requestSequence.current) {
+        busyRef.current = false
+        setBusy(null)
+      }
+    }
   }
 
   const check = async () => {
@@ -227,6 +400,15 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
     : release?.action === 'strict-update'
       ? status.capabilities.canUpdate
       : false
+  const adoptionAvailable = !!listAdoptionCandidates && !!browseAdoptionDirectory &&
+    !!selectAdoptionCandidate
+  const selectedAdoptionCandidate = adoptionList?.candidates.find(
+    (candidate) => candidate.candidateId === selectedCandidateId,
+  ) ?? null
+  const adoptionSelectionAllowed = adoptionList?.state === 'complete' &&
+    adoptionList.canSelect && !!selectedAdoptionCandidate && selectedAdoptionCandidate.version !== null
+  const adoptionBusy = busy === 'adoption-list' || busy === 'adoption-browse' ||
+    busy === 'adoption-select'
 
   return (
     <section className="home-v2-core-maintenance home-v2-qortal-maintenance"
@@ -263,6 +445,103 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
           ) : null}
         </div>
       </div>
+      {adoptionAvailable && status.install === 'missing' ? (
+        <div className="home-v2-qortal-adoption" aria-busy={adoptionBusy}
+          aria-labelledby="qortal-adoption-title" role="region" data-home-v2-qortal-adoption={
+          adoptionList?.state ?? (busy === 'adoption-list' ? 'loading' : 'idle')
+        }>
+          <div className="home-v2-setting-row">
+            <div className="home-v2-setting-row__copy">
+              <strong id="qortal-adoption-title">{t('home2.qortalMaintenance.adoption.title')}</strong>
+              <span>{t('home2.qortalMaintenance.adoption.description')}</span>
+            </div>
+            <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
+              {!adoptionList ? (
+                <button type="button" disabled={busy !== null}
+                  onClick={() => void reviewAdoptionCandidates()}>
+                  {busy === 'adoption-list'
+                    ? t('home2.qortalMaintenance.adoption.loading')
+                    : t('home2.qortalMaintenance.adoption.review')}
+                </button>
+              ) : (
+                <>
+                  <button type="button" disabled={busy !== null}
+                    onClick={() => void reviewAdoptionCandidates()}>
+                    {t('home2.qortalMaintenance.adoption.retry')}
+                  </button>
+                  <button type="button" disabled={busy !== null || !adoptionList.canBrowse}
+                    onClick={() => void browseAdoption()}>
+                    {busy === 'adoption-browse'
+                      ? t('home2.qortalMaintenance.adoption.browsing')
+                      : t('home2.qortalMaintenance.adoption.browse')}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          {busy === 'adoption-list' ? (
+            <p className="home-v2-core-notice" role="status">
+              {t('home2.qortalMaintenance.adoption.loading')}
+            </p>
+          ) : adoptionList?.state === 'incomplete' ? (
+            <p className="home-v2-core-notice" role="alert">
+              {t('home2.qortalMaintenance.adoption.incomplete')}
+            </p>
+          ) : adoptionList?.state === 'unsupported' ? (
+            <p className="home-v2-core-notice" role="alert">
+              {t('home2.qortalMaintenance.adoption.unsupported')}
+            </p>
+          ) : adoptionList?.state === 'complete' && adoptionList.candidates.length === 0 ? (
+            <p className="home-v2-core-notice" role="status">
+              {t('home2.qortalMaintenance.adoption.none')}
+            </p>
+          ) : null}
+          {adoptionList && adoptionList.candidates.length > 0 &&
+          (adoptionList.state === 'complete' || adoptionList.state === 'unsupported') ? (
+            <fieldset className="home-v2-qortal-adoption__candidates"
+              disabled={busy !== null || !adoptionList.canSelect}>
+              <legend>{t('home2.qortalMaintenance.adoption.title')}</legend>
+              {adoptionList.candidates.map((candidate, index) => {
+                const candidateLabel = t('home2.qortalMaintenance.adoption.candidateLabel', {
+                  number: index + 1,
+                })
+                return (
+                  <label className="home-v2-qortal-adoption__candidate"
+                    key={candidate.candidateId}>
+                    <input aria-label={candidateLabel} checked={
+                      selectedCandidateId === candidate.candidateId
+                    } disabled={busy !== null || !adoptionList.canSelect || candidate.version === null}
+                      name="qortal-adoption-candidate" type="radio" value={candidate.candidateId}
+                      onChange={() => setSelectedCandidateId(candidate.candidateId)} />
+                    <span>
+                      <strong>{candidateLabel}: {candidateSource(candidate)}</strong>
+                      <small>{candidateVersion(candidate)}</small>
+                      {candidate.runningProcessMatch ? (
+                        <small>{t('home2.qortalMaintenance.adoption.running')}</small>
+                      ) : null}
+                      {candidate.version === null ? (
+                        <small role="alert">
+                          {t('home2.qortalMaintenance.adoption.unsupportedCandidate')}
+                        </small>
+                      ) : null}
+                    </span>
+                  </label>
+                )
+              })}
+              <div className="home-v2-core-maintenance__actions">
+                <button className="home-v2-primary-button" type="button"
+                  aria-describedby="qortal-maintenance-state"
+                  disabled={busy !== null || !adoptionSelectionAllowed}
+                  onClick={() => void adoptCandidate()}>
+                  {busy === 'adoption-select'
+                    ? t('home2.qortalMaintenance.adoption.using')
+                    : t('home2.qortalMaintenance.adoption.use')}
+                </button>
+              </div>
+            </fieldset>
+          ) : null}
+        </div>
+      ) : null}
       <p className="home-v2-core-notice" id="qortal-maintenance-state">{statusMessage(status)}</p>
       {notice ? <p className="home-v2-core-notice" role="status">{notice}</p> : null}
     </section>
