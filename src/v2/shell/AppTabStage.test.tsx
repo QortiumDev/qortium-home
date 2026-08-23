@@ -13,11 +13,15 @@
 import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import {
+  setTranslationLanguage,
+  subscribeTranslationChange,
+} from '../../i18n'
 import { AppTabStage, androidAppStageKey } from './AppTabStage'
 import { createProductState, reduceProductState } from '../product-model'
 import type { ProductState } from '../product-model'
 import { buildAppResourceLocation } from '../resource-location'
-import type { AppResourceLocation } from '../contracts'
+import type { AppResourceLocation, HomeV2Snapshot } from '../contracts'
 import { recordedAuthorizeCalls } from '../test-kit/fake-capacitor-core'
 import {
   fixtureApp,
@@ -316,10 +320,187 @@ async function testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt(
   container.remove()
 }
 
+async function testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp(): Promise<void> {
+  const { withAActive } = openTwoTabProductState()
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const showCalls: unknown[] = []
+  const hideCalls: unknown[] = []
+  const bridgeStateCalls: unknown[] = []
+  const priorGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+  const priorResizeObserver = globalThis.ResizeObserver
+
+  HTMLElement.prototype.getBoundingClientRect = () => ({
+    bottom: 640,
+    height: 600,
+    left: 0,
+    right: 900,
+    top: 40,
+    width: 900,
+    x: 0,
+    y: 40,
+    toJSON: () => ({}),
+  })
+  globalThis.ResizeObserver = class {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  } as unknown as typeof ResizeObserver
+
+  Object.defineProperty(window, 'homeV2Apps', {
+    configurable: true,
+    value: {
+      accountLocked: () => undefined,
+      capture: async () => null,
+      destroy: async () => undefined,
+      hide: async (request: unknown) => { hideCalls.push(request) },
+      navigate: async () => false,
+      reload: async () => false,
+      updateAccountState: async () => undefined,
+      updateBridgeStates: async (request: unknown) => { bridgeStateCalls.push(request) },
+      resolvePermission: () => undefined,
+      show: async (request: unknown) => { showCalls.push(request) },
+      onOpenAddress: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      onPermissionTimeout: () => () => undefined,
+      onNavigationChanged: () => () => undefined,
+    },
+  })
+
+  const renderStage = (
+    snapshot: HomeV2Snapshot,
+    translationVersion = 0,
+  ) => {
+    root.render(React.createElement(AppTabStage, {
+      productState: withAActive,
+      snapshot,
+      translationVersion,
+      requestApp: async () => null,
+    }))
+  }
+
+  const checkingSnapshot: HomeV2Snapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      qortium: {
+        ...homeV2Fixture.nodes.qortium,
+        capabilities: { admin: false, read: false, write: false },
+        error: null,
+        lastCheckedAt: null,
+        nodeApiUrl: null,
+        state: 'unknown',
+        statusText: 'Checking',
+      },
+    },
+  }
+  await act(async () => {
+    renderStage(checkingSnapshot)
+    await flushAsync()
+  })
+  assert.equal(container.querySelector('.home-v2-app-stage__status')?.textContent, 'Checking Qortium…')
+  assert.equal(container.querySelector('.home-v2-app-stage__error'), null)
+  assert.equal(showCalls.length, 0, 'the app view must wait for the initial node check')
+
+  await new Promise<void>((resolve) => {
+    const unsubscribe = subscribeTranslationChange(() => {
+      unsubscribe()
+      resolve()
+    })
+    setTranslationLanguage('fr')
+  })
+  await act(async () => {
+    renderStage(checkingSnapshot, 1)
+    await flushAsync()
+  })
+  assert.equal(
+    container.querySelector('.home-v2-app-stage__status')?.textContent,
+    'Vérification de Qortium…',
+    'a lazy-catalog revision must refresh memoized app-stage copy',
+  )
+
+  const unavailableSnapshot: HomeV2Snapshot = {
+    ...checkingSnapshot,
+    nodes: {
+      ...checkingSnapshot.nodes,
+      qortium: {
+        ...checkingSnapshot.nodes.qortium,
+        error: 'Qortium is unavailable.',
+        lastCheckedAt: 1,
+        state: 'offline',
+        statusText: 'Unavailable',
+      },
+    },
+  }
+  await act(async () => {
+    renderStage(unavailableSnapshot)
+    await flushAsync()
+  })
+  assert.equal(container.querySelector('.home-v2-app-stage__status'), null)
+  assert.equal(container.querySelector('.home-v2-app-stage__error')?.textContent, 'Qortium is unavailable.')
+  assert.equal(showCalls.length, 0, 'a completed failed check must not show the app view')
+
+  await act(async () => {
+    renderStage(homeV2Fixture)
+    await flushAsync()
+  })
+  assert.equal(showCalls.length, 1, 'the desktop app view should be shown once on mount')
+  assert.equal(hideCalls.length, 0, 'the desktop app view should not be hidden on mount')
+  assert.equal(bridgeStateCalls.length, 1, 'initial bridge state should be delivered independently')
+
+  const telemetryRefresh: HomeV2Snapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      qortium: {
+        ...homeV2Fixture.nodes.qortium,
+        height: (homeV2Fixture.nodes.qortium.height ?? 0) + 1,
+        lastCheckedAt: (homeV2Fixture.nodes.qortium.lastCheckedAt ?? 0) + 15_000,
+        peerCount: (homeV2Fixture.nodes.qortium.peerCount ?? 0) + 1,
+        statusText: 'Online · refreshed',
+      },
+    },
+  }
+  await act(async () => {
+    renderStage(telemetryRefresh)
+    await flushAsync()
+  })
+  assert.equal(showCalls.length, 1, 'telemetry-only refresh must not re-show the app view')
+  assert.equal(hideCalls.length, 0, 'telemetry-only refresh must not hide the app view or steal focus')
+  assert.equal(bridgeStateCalls.length, 2, 'telemetry refresh may update bridge state without cycling the view')
+
+  const changedNodeRoute: HomeV2Snapshot = {
+    ...telemetryRefresh,
+    nodes: {
+      ...telemetryRefresh.nodes,
+      qortium: {
+        ...telemetryRefresh.nodes.qortium,
+        nodeApiUrl: 'http://127.0.0.1:24892',
+      },
+    },
+  }
+  await act(async () => {
+    renderStage(changedNodeRoute)
+    await flushAsync()
+  })
+  assert.equal(showCalls.length, 2, 'a real node-route change must show the updated app view')
+  assert.equal(hideCalls.length, 1, 'a real node-route change must hide the superseded app view')
+
+  await act(async () => {
+    root.unmount()
+  })
+  container.remove()
+  delete window.homeV2Apps
+  HTMLElement.prototype.getBoundingClientRect = priorGetBoundingClientRect
+  globalThis.ResizeObserver = priorResizeObserver
+}
+
 async function main(): Promise<void> {
   testAndroidAppStageKeyChangesExactlyOnTabIdentityChange()
   await testTabSwitchNeverRendersAStaleIframeUnderTheNewTabsContext()
   await testAndroidIframeSrcIncludesInitialHashWhileAuthorizationDropsIt()
+  await testDesktopTelemetryRefreshDoesNotHideOrReshowTheApp()
   console.log('AppTabStage.test.tsx passed')
 }
 

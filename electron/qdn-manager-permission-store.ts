@@ -1,5 +1,21 @@
 import { app, BrowserWindow, ipcMain, type WebContents } from 'electron';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import {
   applyLegacyPreferredBookmarksUrl,
@@ -7,6 +23,8 @@ import {
   grantQdnAppCapability,
   isQdnAppCapability,
   migrateLegacyQdnAppStores,
+  revokeQdnAppCapability,
+  sanitizeQdnAppAssignmentRole,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
   storeHoldsQdnAppCapability,
@@ -19,6 +37,9 @@ import { assertShellWindowSender as assertShellSender } from './shell-window-sen
 
 const STORE_FILE = 'qdn-app-roles.json';
 const LEGACY_STORE_FILE = 'qdn-manager-permissions.json';
+const STORE_MAX_BYTES = 4 * 1024 * 1024;
+const assignmentListeners = new Set<() => void>();
+const storeListeners = new Set<() => void>();
 let cachedStore: QdnAppRolesStore | null = null;
 
 function getStorePath() {
@@ -37,13 +58,90 @@ function readJsonFile(filePath: string): unknown {
   }
 }
 
+function isMissingFileError(error: unknown) {
+  return !!error && typeof error === 'object' && (error as { code?: unknown }).code === 'ENOENT';
+}
+
+function assertSafeStoreEndpoint(storePath: string) {
+  try {
+    const endpoint = lstatSync(storePath);
+    if (endpoint.isSymbolicLink() || !endpoint.isFile()) {
+      throw Object.assign(new Error('QDN app settings are unavailable.'), {
+        code: 'HOME_QDN_APP_STORE_UNAVAILABLE',
+      });
+    }
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+  }
+}
+
+function writeStoreAtomically(storePath: string, body: string) {
+  const storeDirectory = path.dirname(storePath);
+  mkdirSync(storeDirectory, { recursive: true, mode: 0o700 });
+  const directoryEndpoint = lstatSync(storeDirectory);
+  if (!directoryEndpoint.isDirectory() || directoryEndpoint.isSymbolicLink()) {
+    throw Object.assign(new Error('QDN app settings are unavailable.'), {
+      code: 'HOME_QDN_APP_STORE_UNAVAILABLE',
+    });
+  }
+  assertSafeStoreEndpoint(storePath);
+  const temporaryPath = path.join(
+    storeDirectory,
+    `.${STORE_FILE}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  let descriptor: number | null = null;
+  try {
+    descriptor = openSync(
+      temporaryPath,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+      0o600,
+    );
+    writeFileSync(descriptor, body, 'utf8');
+    if (process.platform !== 'win32') fchmodSync(descriptor, 0o600);
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = null;
+    assertSafeStoreEndpoint(storePath);
+    renameSync(temporaryPath, storePath);
+    if (process.platform !== 'win32') chmodSync(storePath, 0o600);
+  } catch (error) {
+    if (descriptor !== null) closeSync(descriptor);
+    if (existsSync(temporaryPath)) {
+      try { unlinkSync(temporaryPath); } catch { /* Best-effort cleanup. */ }
+    }
+    throw error;
+  }
+}
+
 function writeStore(store: QdnAppRolesStore) {
-  cachedStore = sanitizeQdnAppRolesStore(store);
+  const previousStore = cachedStore;
+  const previousAssignments = cachedStore?.assignments;
+  const nextStore = sanitizeQdnAppRolesStore(store);
   const storePath = getStorePath();
-  mkdirSync(path.dirname(storePath), { recursive: true });
-  writeFileSync(storePath, `${JSON.stringify(cachedStore, null, 2)}\n`, 'utf8');
+  const body = `${JSON.stringify(nextStore, null, 2)}\n`;
+  if (Buffer.byteLength(body, 'utf8') > STORE_MAX_BYTES) {
+    throw Object.assign(new Error('QDN app settings exceed the supported size.'), {
+      code: 'HOME_QDN_APP_STORE_UNAVAILABLE',
+    });
+  }
+  writeStoreAtomically(storePath, body);
+  cachedStore = nextStore;
+  if (JSON.stringify(previousAssignments) !== JSON.stringify(nextStore.assignments)) {
+    assignmentListeners.forEach((listener) => {
+      try { listener(); }
+      catch (error) { console.warn('QDN app assignment listener failed.', error); }
+    });
+  }
+  if (JSON.stringify(previousStore) !== JSON.stringify(nextStore)) {
+    storeListeners.forEach((listener) => {
+      try { listener(); }
+      catch (error) { console.warn('QDN app settings listener failed.', error); }
+    });
+  }
   BrowserWindow.getAllWindows().forEach((window) => {
-    if (!window.isDestroyed()) window.webContents.send('qdn:app-assignments-changed');
+    if (window.isDestroyed()) return;
+    try { window.webContents.send('qdn:app-assignments-changed'); }
+    catch (error) { console.warn('Unable to announce a QDN app assignment change.', error); }
   });
   return cachedStore;
 }
@@ -120,12 +218,53 @@ export function grantQdnAppCapabilityPermission(appKey: string, capability: QdnA
   return writeStore(grantQdnAppCapability(readQdnAppRolesStore(), appKey, capability));
 }
 
+export function revokeQdnAppCapabilityPermissionIfRevision(
+  expectedRevision: number,
+  appKey: string,
+  capability: QdnAppCapability,
+) {
+  const store = readQdnAppRolesStore();
+  if (store.revision !== expectedRevision) {
+    throw new Error('QDN app settings changed. Refresh and try again.');
+  }
+  return writeStore(revokeQdnAppCapability(store, appKey, capability));
+}
+
 /**
  * Settings only selects the app for a role. The selected app must still use
  * the normal approval dialog before it receives the matching capability.
  */
 export function setQdnAppAssignmentValue(input: { description?: unknown; label?: unknown; role: unknown; url: unknown }) {
   return writeStore(setQdnAppAssignment(readQdnAppRolesStore(), input));
+}
+
+export function setQdnAppAssignmentValueIfRevision(
+  expectedRevision: number,
+  input: { role: unknown; url: unknown },
+) {
+  const store = readQdnAppRolesStore();
+  if (store.revision !== expectedRevision) {
+    throw new Error('QDN app assignments changed. Refresh and try again.');
+  }
+  const role = sanitizeQdnAppAssignmentRole(input.role);
+  if (!Object.prototype.hasOwnProperty.call(store.assignments, role)) {
+    throw new Error('Home 2 can only update an existing app assignment.');
+  }
+  return writeStore(setQdnAppAssignment(store, input));
+}
+
+export function onQdnAppAssignmentsChanged(listener: () => void) {
+  assignmentListeners.add(listener);
+  return () => {
+    assignmentListeners.delete(listener);
+  };
+}
+
+export function onQdnAppStoreChanged(listener: () => void) {
+  storeListeners.add(listener);
+  return () => {
+    storeListeners.delete(listener);
+  };
 }
 
 // The whole assignment-store surface is for Home's own settings/shell UI.

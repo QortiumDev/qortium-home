@@ -1,8 +1,8 @@
-# Home 2.0 bridge compatibility ledger
+# Home 2 bridge compatibility ledger
 
-Last updated: 2026-08-19
+Last updated: 2026-08-23
 
-This ledger tracks the Home 2.0 app bridge. It is a compatibility record, not a
+This ledger tracks the Home 2 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
 Home advertises only the actions implemented by the current protocol adapter.
 
@@ -23,10 +23,34 @@ The shared runtime-free validator and action catalogue is
 `src/home-v2-live/node-client.ts`. The public protocols remain separate even
 where these adapters share validated paths.
 
-Inside Home 2.0 app views, Home is the bridge authority. Desktop cancels only
+Inside Home 2 app views, Home is the bridge authority. Desktop cancels only
 the active node's exact `/apps/q-apps.js` request; Android answers that same
 request locally with an empty JavaScript response. Standalone Core `/render`
 pages and Home 1.x retain Core's injected bridge client.
+
+## Trusted Settings host bridge
+
+Home 2.1's current F4 implementation adds a private QDN Apps Settings bridge,
+not a public QDN app action. The authorized top-level Home shell can read a
+versioned redacted assignment/notification summary, update an already-persisted
+assignment with revision checking, mute a notification grant, or revoke it.
+Widgets, subframes, navigated documents, and destroyed senders are denied by the
+desktop host. No raw rules, account bindings, filters, watch-only keys, titles,
+text, links, filesystem paths, or capability grants cross the desktop IPC
+boundary. Android reads its renderer-owned Preferences stores and projects the
+same redacted state before the Settings component receives it.
+
+Mute keeps the grant, all rules, and Core subscriptions while suppressing
+alerts. Revoke deletes the grant and every rule for that stable QDN resource
+identity. That identity is shared across Qortium and Qortal protocol use; route,
+query, fragment, account, and network changes do not create separate grants.
+Foreign-payment watch-only data already disclosed to a Core cannot be recalled.
+The profile can be restored by a platform backup, so this state is described as
+Home-profile data rather than hardware-local data.
+
+This F4 slice does not add `GET_APP_ASSIGNMENTS` or
+`REQUEST_APP_ASSIGNMENT` to Home 2's `SHOW_ACTIONS` and does not change QAVS
+`platformVersion: "2.0"`. App-facing assignment delegation remains deferred.
 
 ## Implemented slice
 
@@ -35,7 +59,8 @@ pages and Home 1.x retain Core's injected bridge client.
 | `SHOW_ACTIONS` | both | Protocol-, route-, and platform-specific callable string array | No prompt; disabled or platform-impossible routes remove node-dependent actions, while a temporary outage keeps implemented actions discoverable | yes | yes |
 | `WHICH_UI` | both | Host identifier string | No prompt | yes | yes |
 | `GET_HOST_INFO` | both | Host/platform metadata plus authoritative protocol, network, configured/effective route, availability, reachability, and opaque route revision | No prompt | yes | yes |
-| `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
+| `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN` | `qdnRequest` | Permission state, validated saved-link snapshot, revision-CAS mutation result, or `true` after an account-aware open | Route-independent durable `bookmarks.manage` approval; invalid addresses, missing accounts, stale revisions, changed app contexts, and malformed saved data fail closed | yes | yes |
+| `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |
 | `GET_NODE_INFO`, `GET_NODE_STATUS` | both | Bare Core JSON | Protocol selects Qortium or Qortal | yes | yes |
 | `IS_USING_PUBLIC_NODE` | both | Boolean for the configured route | Protocol selects network; remains callable while the route is unavailable | yes | yes |
@@ -69,7 +94,7 @@ pages and Home 1.x retain Core's injected bridge client.
 | `SEND_DIRECT_CHAT_MESSAGE`, `SEND_DIRECT_CHAT_EDIT`, `SEND_DIRECT_CHAT_DELETE`, `SEND_DIRECT_CHAT_REACTION` | both | `{ signature, timestamp }`, or a signed non-retryable unknown-outcome result | Single-request direct-write prompt; recipient key, exact original/reference/participant binding, payload codec, route, account, and app/tab context rechecked before signing. Qortium uses QDM1; Qortal uses legacy v2 secretbox. Delete clears displayed content but does not erase transactions | yes | yes |
 | `GET_PRIVATE_GROUP_ACTIVE_CHATS`, `GET_PRIVATE_GROUP_CHAT_STATE`, `SEARCH_PRIVATE_GROUP_CHAT_MESSAGES` | both | Selected-account-scoped state or retained rows with plaintext `data`; unavailable rows report `MISSING_KEY` without ciphertext or reusable keys | Qortium verifies bounded signed QPGC state/control records. Qortal accepts only newest-valid current-admin `DOCUMENT_PRIVATE` bundles and old/new authenticated `encryptSingle` messages. Both recheck current membership, account, app/tab, and route | yes | yes |
 | `REQUEST_PRIVATE_GROUP_CHAT_KEY`, `RESOLVE_PRIVATE_GROUP_CHAT_KEY_REQUESTS`, `ROTATE_PRIVATE_GROUP_CHAT_KEY` | both | Recovery state, `{ signature, timestamp }`, bounded relay/republish result, or signed non-retryable unknown-outcome result | Single-request prompt. Qortium creates/relays QPGC controls; Qortal recovers from or republishes/rotates the current-admin key bundle. Qortal publication requires the selected operator's QDN staging route or returns `NODE_CAPABILITY_MISSING` | yes | yes |
-| `SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`, `SEND_PRIVATE_GROUP_CHAT_DELETE`, `SEND_PRIVATE_GROUP_CHAT_REACTION` | both | `{ signature, timestamp }`, or signed non-retryable unknown-outcome result | Qortium uses QPGC v1 (maximum 39 members). Qortal uses Hub-compatible app-level secretbox with a 2,225-byte plaintext ceiling that fits both retained encodings and reaction type 102. Home rechecks membership, key state, reference, sender ownership where required, route, account, and app/tab context before signing | yes | yes |
+| `SEND_PRIVATE_GROUP_CHAT_MESSAGE`, `SEND_PRIVATE_GROUP_CHAT_EDIT`, `SEND_PRIVATE_GROUP_CHAT_DELETE`, `SEND_PRIVATE_GROUP_CHAT_REACTION` | both | `{ signature, timestamp }`, or signed unknown-outcome result; an uncertain automatic QPGC setup additionally returns `stage: "key-announcement"` and `messageSubmitted: false` | Qortium uses QPGC v1 (maximum 39 members) and automatically creates, wraps, announces, stores, and immediately uses a missing current-epoch key before continuing the requested mutation. Qortal keeps the Hub-compatible app-level secretbox/manual bundle lifecycle with a 2,225-byte plaintext ceiling. Home rechecks membership, key state, reference, sender ownership where required, route, account, and app/tab context before signing | yes | yes |
 | `PUBLISH_CHAT_ATTACHMENT`, `GET_CHAT_ATTACHMENT_STREAM_URL`, `OPEN_CHAT_ATTACHMENT_VIEWER`, `SAVE_CHAT_ATTACHMENT` | both | Immutable encrypted descriptor, expiring plaintext stream URL, viewer result, or save result | Home-issued source token only; one-request `chat.attachment` approval; QATT/QENC v2 for Qortium, distinct marked Qortal direct/generic-group formats, and Hub-compatible Qortal private-group images; 1 MiB ciphertext ceiling; exact hash/size, peer/membership, account, app/tab, chain, and route checks; no inline plaintext or reusable key crosses into the app, while the approved stream URL grants temporary bounded byte access | yes | yes |
 | `GET_GROUP`, `GET_ACCOUNT_GROUPS`, `GET_GROUP_MEMBERS`, `GET_GROUP_JOIN_REQUESTS`, `GET_ACCOUNT_GROUP_JOIN_REQUESTS`, `GET_ADMIN_GROUP_JOIN_REQUESTS`, `GET_ACTIVE_CHATS` | both | Bare Core JSON | No prompt; bounded anonymous public reads; positive-integer `groupId`, address regex, strict booleans, 100-entry page cap where Core has none | yes | yes |
 | `SEARCH_GROUPS` | `qdnRequest` | Bare Core JSON array | Qortium-only — `/groups/search` does not exist on Qortal (verified absent from the Qortal master 6.1.5 and develop checkouts' `GroupsResource.java`); required non-negative-length `query`, `visibility` validated against Core's real `ALL`/`OPEN`/`CLOSED` enum (not Hub's `PUBLIC`/`PRIVATE` terminology), strict `prefixOnly`, 100-entry page cap | yes | yes |
@@ -145,7 +170,7 @@ The complete retained legacy-bridge action-name source remains
 above is deferred and unadvertised in Home 2.0. In particular this includes
 multi-resource publishing/deletion, account/group/name/poll/rating mutations other than the
 implemented participation and exact group-administration actions, payments,
-foreign wallets, Home/node settings writes, bookmarks,
+foreign wallets, Home/node settings writes,
 background notification subscriptions, legacy inline/path publishing, minting, and Qortal-prefixed legacy
 helpers. These actions will be migrated by family; they will not be exposed by
 forwarding Home 2.0 apps into the broad v1 bridge.

@@ -22,6 +22,29 @@ function fixtureRead(fixture: Fixture): IdentityRead {
     }
 }
 
+function resolvedAddressFixture(
+  network: NetworkId,
+  primaryName: string,
+  avatarData: unknown,
+): Fixture {
+  return {
+    [network]: {
+      [`namesByAddress:${ADDRESS_A}`]: {
+        data: [{ name: primaryName }],
+        status: 200,
+      },
+      [`primaryName:${ADDRESS_A}`]: {
+        data: { name: primaryName },
+        status: 200,
+      },
+      [`legacyAvatarResource:${primaryName}`]: {
+        data: avatarData,
+        status: 200,
+      },
+    },
+  }
+}
+
 assert.equal(classifyIdentityLookupInput(ADDRESS_A), 'address')
 assert.equal(classifyIdentityLookupInput('Alice'), 'name')
 assert.equal(normalizeIdentityLookupInput('  Alice  '), 'Alice')
@@ -52,6 +75,96 @@ assert.deepEqual(addressResult.networks.qortium.avatar, {
   name: 'Alice',
   service: 'THUMBNAIL',
   source: 'account-pointer',
+})
+
+const qortalLegacyAvatar = await resolveDualIdentity(
+  ADDRESS_A,
+  fixtureRead(
+    resolvedAddressFixture('qortal', 'AliceQ', [
+      {
+        identifier: 'qortal_avatar',
+        name: 'AliceQ',
+        service: 'THUMBNAIL',
+      },
+    ]),
+  ),
+)
+assert.deepEqual(qortalLegacyAvatar.networks.qortal.avatar, {
+  identifier: 'qortal_avatar',
+  name: 'AliceQ',
+  service: 'THUMBNAIL',
+  source: 'legacy-name',
+})
+
+const qortalMissingAvatar = await resolveDualIdentity(
+  ADDRESS_A,
+  fixtureRead(resolvedAddressFixture('qortal', 'AliceQ', [])),
+)
+assert.equal(qortalMissingAvatar.networks.qortal.avatar, null)
+
+const qortalWrongAvatarMatches = await resolveDualIdentity(
+  ADDRESS_A,
+  fixtureRead(
+    resolvedAddressFixture('qortal', 'AliceQ', [
+      { identifier: 'qortal_avatar', name: 'AliceQ', service: 'APP' },
+      { identifier: 'avatar', name: 'AliceQ', service: 'THUMBNAIL' },
+      { identifier: 'qortal_avatar', name: 'SomeoneElse', service: 'THUMBNAIL' },
+    ]),
+  ),
+)
+assert.equal(qortalWrongAvatarMatches.networks.qortal.avatar, null)
+
+const qortiumPointerReads: string[] = []
+const qortiumPointerPrecedence = await resolveDualIdentity(
+  ADDRESS_A,
+  async (network, request) => {
+    qortiumPointerReads.push(`${network}:${request.kind}:${request.value}`)
+    return fixtureRead({
+      qortium: {
+        [`namesByAddress:${ADDRESS_A}`]: { data: [{ name: 'Alice' }], status: 200 },
+        [`primaryName:${ADDRESS_A}`]: { data: { name: 'Alice' }, status: 200 },
+        [`accountAvatarInfo:${ADDRESS_A}`]: {
+          data: { identifier: 'portrait', name: 'Alice', service: 'THUMBNAIL' },
+          status: 200,
+        },
+        'legacyAvatarResource:Alice': {
+          data: [{ identifier: 'avatar', name: 'Alice', service: 'THUMBNAIL' }],
+          status: 200,
+        },
+      },
+    })(network, request)
+  },
+)
+assert.equal(
+  qortiumPointerReads.some((entry) => entry.includes(':legacyAvatarResource:')),
+  false,
+)
+assert.deepEqual(qortiumPointerPrecedence.networks.qortium.avatar, {
+  identifier: 'portrait',
+  name: 'Alice',
+  service: 'THUMBNAIL',
+  source: 'account-pointer',
+})
+
+const qortiumLegacyAvatar = await resolveDualIdentity(
+  ADDRESS_A,
+  fixtureRead({
+    qortium: {
+      [`namesByAddress:${ADDRESS_A}`]: { data: [{ name: 'Alice' }], status: 200 },
+      [`primaryName:${ADDRESS_A}`]: { data: { name: 'Alice' }, status: 200 },
+      [`accountAvatarInfo:${ADDRESS_A}`]: { data: null, status: 404 },
+      'legacyAvatarResource:Alice': {
+        data: [{ identifier: 'avatar', name: 'Alice', service: 'THUMBNAIL' }],
+        status: 200,
+      },
+    },
+  }),
+)
+assert.deepEqual(qortiumLegacyAvatar.networks.qortium.avatar, {
+  identifier: 'avatar',
+  name: 'Alice',
+  service: 'THUMBNAIL',
+  source: 'legacy-name',
 })
 
 const sharedName = await resolveDualIdentity(

@@ -4,22 +4,36 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  realpathSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import {
+  getCoreApiKeyPath,
+  getCoreFallbackSettingsPath,
+  getCoreLsofPidArgs,
+  matchesCoreJarName,
+  matchesCoreSettingsName,
+  QORTIUM_CORE_DESCRIPTOR,
+  resolveCoreApiKeyDirectory,
+  resolveCoreProcessPaths,
+  type CoreNetworkDescriptor,
+} from './core-network-descriptor.js';
 
-const API_KEY_FILE = 'apikey.txt';
-const LOCAL_CORE_API_PORT = 24891;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
-type PreviewApiKeyResult = {
+export type LocalApiKeyResult = {
   apiKey: string;
   created: boolean;
   path: string;
 };
+
+export type LocalApiKeyFileAccess = 'managed' | 'read-only';
+
+type PreviewApiKeyResult = LocalApiKeyResult;
 
 export type RunningCoreApiKeyResult = PreviewApiKeyResult & {
   apiKeyDirectory: string;
@@ -79,12 +93,16 @@ function restrictApiKeyFile(filePath: string) {
   }
 }
 
-export function getPreviewApiKeyPath(previewPath: string) {
-  return path.join(previewPath, API_KEY_FILE);
+export function getLocalApiKeyPath(descriptor: CoreNetworkDescriptor, directory: string) {
+  return getCoreApiKeyPath(descriptor, directory);
 }
 
-export function readPreviewApiKey(previewPath: string): PreviewApiKeyResult | null {
-  const apiKeyPath = getPreviewApiKeyPath(previewPath);
+export function readLocalApiKey(
+  descriptor: CoreNetworkDescriptor,
+  directory: string,
+  options: { access?: LocalApiKeyFileAccess } = {},
+): LocalApiKeyResult | null {
+  const apiKeyPath = getLocalApiKeyPath(descriptor, directory);
 
   if (!existsSync(apiKeyPath)) {
     return null;
@@ -97,7 +115,9 @@ export function readPreviewApiKey(previewPath: string): PreviewApiKeyResult | nu
       return null;
     }
 
-    restrictApiKeyFile(apiKeyPath);
+    if (options.access === 'managed') {
+      restrictApiKeyFile(apiKeyPath);
+    }
 
     return {
       apiKey,
@@ -109,42 +129,26 @@ export function readPreviewApiKey(previewPath: string): PreviewApiKeyResult | nu
   }
 }
 
-function getQortiumCoreProcessPaths(args: string[], cwd: string) {
-  const jarIndex = args.findIndex((arg) => arg === '-jar');
-  const jarPath = jarIndex >= 0 ? args[jarIndex + 1] ?? '' : '';
-  const settingsPath = jarIndex >= 0 ? args[jarIndex + 2] ?? '' : '';
-  const jarName = path.basename(jarPath).toLowerCase();
-
-  if (!jarName.startsWith('qortium') || !jarName.endsWith('.jar')) {
-    return null;
-  }
-
-  if (!settingsPath) {
-    return null;
-  }
-
-  return {
-    jarPath: path.isAbsolute(jarPath) ? jarPath : path.resolve(cwd, jarPath),
-    settingsPath: path.isAbsolute(settingsPath) ? settingsPath : path.resolve(cwd, settingsPath),
-  };
+export function getPreviewApiKeyPath(previewPath: string) {
+  return getLocalApiKeyPath(QORTIUM_CORE_DESCRIPTOR, previewPath);
 }
 
-function getConfiguredApiKeyDirectory(settingsPath: string, cwd: string) {
+export function readPreviewApiKey(previewPath: string): PreviewApiKeyResult | null {
+  return readLocalApiKey(QORTIUM_CORE_DESCRIPTOR, previewPath, { access: 'managed' });
+}
+
+function getConfiguredApiKeyDirectory(
+  descriptor: CoreNetworkDescriptor,
+  settingsPath: string,
+  cwd: string,
+) {
   try {
     const parsedSettings: unknown = JSON.parse(readFileSync(settingsPath, 'utf8'));
 
-    if (parsedSettings && typeof parsedSettings === 'object') {
-      const apiKeyPath = (parsedSettings as { apiKeyPath?: unknown }).apiKeyPath;
-
-      if (typeof apiKeyPath === 'string' && apiKeyPath.trim()) {
-        return path.isAbsolute(apiKeyPath) ? apiKeyPath : path.resolve(cwd, apiKeyPath);
-      }
-    }
+    return resolveCoreApiKeyDirectory(descriptor, parsedSettings, cwd);
   } catch {
     return cwd;
   }
-
-  return cwd;
 }
 
 function runLsof(args: string[]): string | null {
@@ -170,7 +174,63 @@ function runLsofAsync(args: string[]): Promise<string | null> {
   });
 }
 
-const LSOF_PID_ARGS = ['-nP', `-iTCP:${LOCAL_CORE_API_PORT}`, '-sTCP:LISTEN', '-t'];
+export type RunningCoreApiKeyQuery = {
+  descriptor: CoreNetworkDescriptor;
+  expectedApiKeyDirectory?: string;
+  expectedJarPath?: string;
+  fileAccess?: LocalApiKeyFileAccess;
+};
+
+type CanonicalizePath = (value: string) => string | null;
+
+function canonicalizeExistingPath(value: string): string | null {
+  try {
+    const canonical = realpathSync.native(value);
+
+    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  } catch {
+    return null;
+  }
+}
+
+function matchesExpectedPath(
+  actualPath: string,
+  expectedPath: string | undefined,
+  canonicalize: CanonicalizePath = canonicalizeExistingPath,
+) {
+  const expectedValue = expectedPath?.trim();
+
+  if (!expectedValue) {
+    return true;
+  }
+
+  const actual = canonicalize(actualPath);
+  const expected = canonicalize(expectedValue);
+
+  return !!actual && !!expected && actual === expected;
+}
+
+export function matchesRunningCoreApiKeyQuery(
+  result: RunningCoreApiKeyResult,
+  query: RunningCoreApiKeyQuery,
+  canonicalize: CanonicalizePath = canonicalizeExistingPath,
+) {
+  if (!matchesExpectedPath(result.jarPath, query.expectedJarPath, canonicalize)) {
+    return false;
+  }
+
+  if (
+    !matchesExpectedPath(
+      result.apiKeyDirectory,
+      query.expectedApiKeyDirectory,
+      canonicalize,
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
 
 function parseLsofPidOutput(output: string | null): number | null {
   if (!output) {
@@ -188,8 +248,8 @@ function parseLsofPidOutput(output: string | null): number | null {
   return null;
 }
 
-function findLocalCorePidViaLsof(): number | null {
-  return parseLsofPidOutput(runLsof(LSOF_PID_ARGS));
+function findLocalCorePidViaLsof(query: RunningCoreApiKeyQuery): number | null {
+  return parseLsofPidOutput(runLsof(getCoreLsofPidArgs(query.descriptor)));
 }
 
 function getProcessFilesViaLsof(pid: number): { cwd: string; files: string[] } | null {
@@ -233,18 +293,20 @@ function parseLsofProcessFiles(output: string | null): { cwd: string; files: str
   return { cwd, files };
 }
 
-function readRunningLocalCoreApiKeyViaLsof(): RunningCoreApiKeyResult | null {
-  const pid = findLocalCorePidViaLsof();
+function readRunningLocalCoreApiKeyViaLsof(query: RunningCoreApiKeyQuery): RunningCoreApiKeyResult | null {
+  const pid = findLocalCorePidViaLsof(query);
 
   if (pid === null) {
     return null;
   }
 
-  return deriveRunningCoreKeyFromProcessFiles(pid, getProcessFilesViaLsof(pid));
+  return deriveRunningCoreKeyFromProcessFiles(query, pid, getProcessFilesViaLsof(pid));
 }
 
-async function readRunningLocalCoreApiKeyViaLsofAsync(): Promise<RunningCoreApiKeyResult | null> {
-  const pid = parseLsofPidOutput(await runLsofAsync(LSOF_PID_ARGS));
+async function readRunningLocalCoreApiKeyViaLsofAsync(
+  query: RunningCoreApiKeyQuery,
+): Promise<RunningCoreApiKeyResult | null> {
+  const pid = parseLsofPidOutput(await runLsofAsync(getCoreLsofPidArgs(query.descriptor)));
 
   if (pid === null) {
     return null;
@@ -252,10 +314,11 @@ async function readRunningLocalCoreApiKeyViaLsofAsync(): Promise<RunningCoreApiK
 
   const processFiles = parseLsofProcessFiles(await runLsofAsync(['-p', String(pid), '-Fn']));
 
-  return deriveRunningCoreKeyFromProcessFiles(pid, processFiles);
+  return deriveRunningCoreKeyFromProcessFiles(query, pid, processFiles);
 }
 
-function deriveRunningCoreKeyFromProcessFiles(
+export function deriveRunningCoreKeyFromProcessFiles(
+  query: RunningCoreApiKeyQuery,
   pid: number,
   processFiles: { cwd: string; files: string[] } | null,
 ): RunningCoreApiKeyResult | null {
@@ -265,13 +328,17 @@ function deriveRunningCoreKeyFromProcessFiles(
     }
 
     const { cwd, files } = processFiles;
-    const jarPath = files.find((file) => {
-      const name = path.basename(file).toLowerCase();
+    const jarPath = files.find(
+      (file) =>
+        matchesCoreJarName(query.descriptor, path.basename(file)) &&
+        matchesExpectedPath(
+          path.isAbsolute(file) ? file : path.resolve(cwd, file),
+          query.expectedJarPath,
+        ),
+    );
 
-      return name.startsWith('qortium') && name.endsWith('.jar');
-    });
-
-    // Guard: only trust this PID if it actually has a Qortium core jar open,
+    // Guard: only trust this PID if it actually has the selected network's core
+    // jar open,
     // so an unrelated process listening on the port is never mistaken for the core.
     if (!jarPath) {
       return null;
@@ -283,21 +350,21 @@ function deriveRunningCoreKeyFromProcessFiles(
     // The Linux path reads the settings file referenced on the command line.
     // lsof does not expose the command line, so prefer an open settings file,
     // then fall back to the conventional settings.json next to the jar.
-    const openSettingsPath = files.find((file) => {
-      const name = path.basename(file).toLowerCase();
-
-      return name === 'settings.json' || (name.startsWith('settings') && name.endsWith('.json'));
-    });
+    const openSettingsPath = files.find((file) =>
+      matchesCoreSettingsName(query.descriptor, path.basename(file)),
+    );
     const settingsPath = openSettingsPath
       ? path.isAbsolute(openSettingsPath)
         ? openSettingsPath
         : path.resolve(cwd, openSettingsPath)
-      : path.join(installDir, 'settings.json');
+      : getCoreFallbackSettingsPath(query.descriptor, absoluteJarPath, cwd);
 
     const candidateDirectories: string[] = [];
 
     if (existsSync(settingsPath)) {
-      candidateDirectories.push(getConfiguredApiKeyDirectory(settingsPath, cwd));
+      candidateDirectories.push(
+        getConfiguredApiKeyDirectory(query.descriptor, settingsPath, cwd),
+      );
     }
 
     candidateDirectories.push(cwd, installDir);
@@ -311,10 +378,14 @@ function deriveRunningCoreKeyFromProcessFiles(
 
       seen.add(directory);
 
-      const apiKey = readPreviewApiKey(directory);
+      if (!matchesExpectedPath(directory, query.expectedApiKeyDirectory)) {
+        continue;
+      }
+
+      const apiKey = readLocalApiKey(query.descriptor, directory, { access: query.fileAccess });
 
       if (apiKey) {
-        return {
+        const result = {
           ...apiKey,
           apiKeyDirectory: directory,
           cwd,
@@ -322,6 +393,10 @@ function deriveRunningCoreKeyFromProcessFiles(
           pid,
           settingsPath,
         };
+
+        if (matchesRunningCoreApiKeyQuery(result, query)) {
+          return result;
+        }
       }
     }
 
@@ -332,8 +407,149 @@ function deriveRunningCoreKeyFromProcessFiles(
 }
 
 const RUNNING_CORE_KEY_CACHE_TTL_MS = 5_000;
-let runningCoreKeyCache: { at: number; value: RunningCoreApiKeyResult | null } | null = null;
-let runningCoreKeyRefresh: Promise<void> | null = null;
+
+function getCachePathIdentity(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return '*';
+  }
+
+  // Discovery/adoption supplies canonical target paths. Keep the cache key
+  // lexical after that boundary so invalidation remains stable if the target is
+  // moved or removed between lookup and invalidation.
+  const resolved = path.resolve(trimmed);
+
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+export function getRunningCoreApiKeyCacheKey(query: RunningCoreApiKeyQuery) {
+  return JSON.stringify([
+    query.descriptor.id,
+    query.descriptor.processProbe.apiPort,
+    query.fileAccess ?? 'read-only',
+    getCachePathIdentity(query.expectedJarPath),
+    getCachePathIdentity(query.expectedApiKeyDirectory),
+  ]);
+}
+
+type RunningCoreApiKeyCacheDependencies = {
+  computeAsync: (query: RunningCoreApiKeyQuery) => Promise<RunningCoreApiKeyResult | null>;
+  computeSync: (query: RunningCoreApiKeyQuery) => RunningCoreApiKeyResult | null;
+  now?: () => number;
+  ttlMs?: number;
+};
+
+type RunningCoreApiKeyCacheSlot = {
+  cached: { at: number; value: RunningCoreApiKeyResult | null } | null;
+  generation: number;
+  network: CoreNetworkDescriptor['id'];
+  refresh: Promise<void> | null;
+};
+
+export function createRunningCoreApiKeyCache(dependencies: RunningCoreApiKeyCacheDependencies) {
+  const now = dependencies.now ?? Date.now;
+  const ttlMs = dependencies.ttlMs ?? RUNNING_CORE_KEY_CACHE_TTL_MS;
+  const slots = new Map<string, RunningCoreApiKeyCacheSlot>();
+
+  function getSlot(query: RunningCoreApiKeyQuery) {
+    const key = getRunningCoreApiKeyCacheKey(query);
+    let slot = slots.get(key);
+
+    if (!slot) {
+      slot = {
+        cached: null,
+        generation: 0,
+        network: query.descriptor.id,
+        refresh: null,
+      };
+      slots.set(key, slot);
+    }
+
+    return { key, slot };
+  }
+
+  function scheduleRefresh(query: RunningCoreApiKeyQuery) {
+    const { key, slot } = getSlot(query);
+
+    if (slot.refresh) {
+      return;
+    }
+
+    const generation = slot.generation;
+    const refresh = dependencies
+      .computeAsync(query)
+      .then((value) => {
+        const current = slots.get(key);
+
+        if (current === slot && current.generation === generation) {
+          current.cached = { at: now(), value };
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        const current = slots.get(key);
+
+        if (current === slot && current.refresh === refresh) {
+          current.refresh = null;
+        }
+      });
+
+    slot.refresh = refresh;
+  }
+
+  function read(query: RunningCoreApiKeyQuery) {
+    const { slot } = getSlot(query);
+    const cached = slot.cached;
+
+    if (cached && now() - cached.at < ttlMs) {
+      return cached.value;
+    }
+
+    if (cached) {
+      scheduleRefresh(query);
+      return cached.value;
+    }
+
+    const value = dependencies.computeSync(query);
+
+    slot.cached = { at: now(), value };
+
+    return value;
+  }
+
+  function invalidateSlot(slot: RunningCoreApiKeyCacheSlot) {
+    slot.generation += 1;
+    slot.cached = null;
+    slot.refresh = null;
+  }
+
+  return {
+    invalidate(query: RunningCoreApiKeyQuery) {
+      const slot = slots.get(getRunningCoreApiKeyCacheKey(query));
+
+      if (slot) {
+        invalidateSlot(slot);
+      }
+    },
+    invalidateNetwork(network: CoreNetworkDescriptor['id']) {
+      for (const slot of slots.values()) {
+        if (slot.network === network) {
+          invalidateSlot(slot);
+        }
+      }
+    },
+    prewarm(query: RunningCoreApiKeyQuery) {
+      scheduleRefresh(query);
+    },
+    read,
+  };
+}
+
+const runningCoreApiKeyCache = createRunningCoreApiKeyCache({
+  computeAsync: computeRunningCoreKeyAsync,
+  computeSync: computeRunningCoreKeySync,
+});
 
 // Discovering the running core's key scans /proc and may shell out to lsof,
 // which is slow on a busy core process. The result barely changes, but callers
@@ -342,72 +558,67 @@ let runningCoreKeyRefresh: Promise<void> | null = null;
 // path (returning the stale value meanwhile), and only ever compute
 // synchronously on the very first call so core start-guards stay correct at
 // startup. Home's own core start/stop invalidates the cache explicitly.
+export function readRunningLocalCoreApiKeyFor(
+  query: RunningCoreApiKeyQuery,
+): RunningCoreApiKeyResult | null {
+  return runningCoreApiKeyCache.read(query);
+}
+
 export function readRunningLocalCoreApiKey(): RunningCoreApiKeyResult | null {
-  const cached = runningCoreKeyCache;
+  return readRunningLocalCoreApiKeyFor({
+    descriptor: QORTIUM_CORE_DESCRIPTOR,
+    fileAccess: 'managed',
+  });
+}
 
-  if (cached && Date.now() - cached.at < RUNNING_CORE_KEY_CACHE_TTL_MS) {
-    return cached.value;
-  }
+export function invalidateRunningCoreApiKeyCacheFor(query: RunningCoreApiKeyQuery) {
+  runningCoreApiKeyCache.invalidate(query);
+}
 
-  if (cached) {
-    scheduleRunningCoreKeyRefresh();
-    return cached.value;
-  }
-
-  const value = computeRunningCoreKeySync();
-
-  runningCoreKeyCache = { at: Date.now(), value };
-
-  return value;
+export function invalidateRunningCoreApiKeyCachesForNetwork(network: CoreNetworkDescriptor['id']) {
+  runningCoreApiKeyCache.invalidateNetwork(network);
 }
 
 export function invalidateRunningCoreApiKeyCache() {
-  runningCoreKeyCache = null;
-  runningCoreKeyRefresh = null;
+  invalidateRunningCoreApiKeyCachesForNetwork(QORTIUM_CORE_DESCRIPTOR.id);
 }
 
 // Populates the cache off the main thread at startup so the first real
 // consumer (status poll / settings snapshot) never pays the synchronous
 // compute during the launch input burst.
+export function prewarmRunningCoreApiKeyCacheFor(query: RunningCoreApiKeyQuery) {
+  runningCoreApiKeyCache.prewarm(query);
+}
+
 export function prewarmRunningCoreApiKeyCache() {
-  scheduleRunningCoreKeyRefresh();
+  prewarmRunningCoreApiKeyCacheFor({
+    descriptor: QORTIUM_CORE_DESCRIPTOR,
+    fileAccess: 'managed',
+  });
 }
 
-function scheduleRunningCoreKeyRefresh() {
-  if (runningCoreKeyRefresh) {
-    return;
-  }
-
-  runningCoreKeyRefresh = computeRunningCoreKeyAsync()
-    .then((value) => {
-      runningCoreKeyCache = { at: Date.now(), value };
-    })
-    .catch(() => undefined)
-    .finally(() => {
-      runningCoreKeyRefresh = null;
-    });
-}
-
-async function computeRunningCoreKeyAsync(): Promise<RunningCoreApiKeyResult | null> {
+async function computeRunningCoreKeyAsync(
+  query: RunningCoreApiKeyQuery,
+): Promise<RunningCoreApiKeyResult | null> {
   if (process.platform !== 'linux') {
-    return readRunningLocalCoreApiKeyViaLsofAsync();
+    return readRunningLocalCoreApiKeyViaLsofAsync(query);
   }
 
-  const apiKeys = scanProcForRunningCoreKeys();
+  const apiKeys = scanProcForRunningCoreKeys(query);
 
   if (apiKeys.size === 1) {
     return [...apiKeys.values()][0];
   }
 
-  return readRunningLocalCoreApiKeyViaLsofAsync();
+  return readRunningLocalCoreApiKeyViaLsofAsync(query);
 }
 
-function computeRunningCoreKeySync(): RunningCoreApiKeyResult | null {
+function computeRunningCoreKeySync(query: RunningCoreApiKeyQuery): RunningCoreApiKeyResult | null {
   if (process.platform !== 'linux') {
-    return readRunningLocalCoreApiKeyViaLsof();
+    return readRunningLocalCoreApiKeyViaLsof(query);
   }
 
-  const apiKeys = scanProcForRunningCoreKeys();
+  const apiKeys = scanProcForRunningCoreKeys(query);
 
   if (apiKeys.size === 1) {
     return [...apiKeys.values()][0];
@@ -415,10 +626,12 @@ function computeRunningCoreKeySync(): RunningCoreApiKeyResult | null {
 
   // Fall back to lsof when the /proc scan is inconclusive (e.g. the core runs
   // under a different user whose /proc/<pid>/cwd is not readable).
-  return readRunningLocalCoreApiKeyViaLsof();
+  return readRunningLocalCoreApiKeyViaLsof(query);
 }
 
-function scanProcForRunningCoreKeys(): Map<string, RunningCoreApiKeyResult> {
+function scanProcForRunningCoreKeys(
+  query: RunningCoreApiKeyQuery,
+): Map<string, RunningCoreApiKeyResult> {
   const apiKeys = new Map<string, RunningCoreApiKeyResult>();
 
   for (const entry of readdirSync('/proc', { withFileTypes: true })) {
@@ -434,24 +647,42 @@ function scanProcForRunningCoreKeys(): Map<string, RunningCoreApiKeyResult> {
         .split('\0')
         .filter(Boolean);
       const cwd = readlinkSync(path.join(procPath, 'cwd'));
-      const coreProcessPaths = getQortiumCoreProcessPaths(args, cwd);
+      const coreProcessPaths = resolveCoreProcessPaths(query.descriptor, args, cwd);
 
       if (!coreProcessPaths) {
         continue;
       }
 
-      const apiKeyDirectory = getConfiguredApiKeyDirectory(coreProcessPaths.settingsPath, cwd);
-      const apiKey = readPreviewApiKey(apiKeyDirectory);
+      if (!matchesExpectedPath(coreProcessPaths.jarPath, query.expectedJarPath)) {
+        continue;
+      }
+
+      const apiKeyDirectory = getConfiguredApiKeyDirectory(
+        query.descriptor,
+        coreProcessPaths.settingsPath,
+        cwd,
+      );
+
+      if (!matchesExpectedPath(apiKeyDirectory, query.expectedApiKeyDirectory)) {
+        continue;
+      }
+      const apiKey = readLocalApiKey(query.descriptor, apiKeyDirectory, {
+        access: query.fileAccess,
+      });
 
       if (apiKey) {
-        apiKeys.set(apiKey.path, {
+        const result = {
           ...apiKey,
           apiKeyDirectory,
           cwd,
           jarPath: coreProcessPaths.jarPath,
           pid,
           settingsPath: coreProcessPaths.settingsPath,
-        });
+        };
+
+        if (matchesRunningCoreApiKeyQuery(result, query)) {
+          apiKeys.set(apiKey.path, result);
+        }
       }
     } catch {
       // Processes can exit while /proc is being scanned.
@@ -461,15 +692,18 @@ function scanProcForRunningCoreKeys(): Map<string, RunningCoreApiKeyResult> {
   return apiKeys;
 }
 
-export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {
-  const existingApiKey = readPreviewApiKey(previewPath);
+export function ensureLocalApiKey(
+  descriptor: CoreNetworkDescriptor,
+  directory: string,
+): LocalApiKeyResult {
+  const existingApiKey = readLocalApiKey(descriptor, directory, { access: 'managed' });
 
   if (existingApiKey) {
     return existingApiKey;
   }
 
   const apiKey = generateApiKey();
-  const apiKeyPath = getPreviewApiKeyPath(previewPath);
+  const apiKeyPath = getLocalApiKeyPath(descriptor, directory);
 
   mkdirSync(path.dirname(apiKeyPath), { recursive: true });
   writeFileSync(apiKeyPath, apiKey, { encoding: 'utf8', mode: 0o600 });
@@ -480,4 +714,8 @@ export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {
     created: true,
     path: apiKeyPath,
   };
+}
+
+export function ensurePreviewApiKey(previewPath: string): PreviewApiKeyResult {
+  return ensureLocalApiKey(QORTIUM_CORE_DESCRIPTOR, previewPath);
 }

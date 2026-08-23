@@ -4,6 +4,8 @@ import nacl from 'tweetnacl'
 export const QPGC_MAX_MEMBERS = 39
 export const QPGC_MAX_MESSAGE_PLAINTEXT_BYTES = 3_894
 export const QPGC_WRAPPED_GROUP_KEY_LENGTH = 60
+export const QPGC_AUTOMATIC_KEY_SETUP_UNKNOWN_ERROR =
+  'Private-group key setup outcome is unknown. Your message was not submitted; retrying the message is safe.'
 
 const QPGC_MAGIC = new TextEncoder().encode('QPGC')
 const QPGC_VERSION = 1
@@ -24,6 +26,27 @@ const KEY_ID_LENGTH = 32
 const GROUP_KEY_LENGTH = 32
 const NONCE_LENGTH = 12
 const SIGNATURE_LENGTH = 64
+
+export function isQpgcBroadcastConfirmed(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return record.accepted !== false && record.outcome !== 'unknown'
+}
+
+export function createQpgcAutomaticKeySetupUnknownResult(value: unknown) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+  return Object.freeze({
+    ...record,
+    accepted: false,
+    error: QPGC_AUTOMATIC_KEY_SETUP_UNKNOWN_ERROR,
+    errorType: 'KEY_ANNOUNCEMENT_BROADCAST_OUTCOME_UNKNOWN',
+    messageSubmitted: false,
+    outcome: 'unknown',
+    stage: 'key-announcement',
+  })
+}
 
 export type QpgcEnvelope =
   | {

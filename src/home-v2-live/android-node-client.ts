@@ -1,6 +1,16 @@
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { createPortableNodeClient } from './node-client'
+
+interface HomeV2SecureStoragePlugin {
+  unwrap(request: { accountId: string }): Promise<{ value: string | null }>
+  remove(request: { accountId: string }): Promise<void>
+  wrap(request: { accountId: string; value: string }): Promise<void>
+}
+
+const HomeV2SecureStorage = registerPlugin<HomeV2SecureStoragePlugin>(
+  'HomeV2SecureStorage',
+)
 
 export function createAndroidHomeV2NodeClient() {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
@@ -10,14 +20,31 @@ export function createAndroidHomeV2NodeClient() {
     async getPreference(key) {
       return (await Preferences.get({ key })).value
     },
+    async getSecret(key) {
+      return (await HomeV2SecureStorage.unwrap({ accountId: key })).value
+    },
+    async removeSecret(key) {
+      await HomeV2SecureStorage.remove({ accountId: key })
+    },
     async setPreference(key, value) {
       await Preferences.set({ key, value })
     },
-    async requestJson(url, method = 'GET', timeoutMs = 5_000) {
+    async setSecret(key, value) {
+      await HomeV2SecureStorage.wrap({ accountId: key, value })
+    },
+    async requestJson(
+      url,
+      method = 'GET',
+      timeoutMs = 5_000,
+      headers,
+      disableRedirects,
+    ) {
       const startedAt = Date.now()
       const response = await CapacitorHttp.request({
         url,
         method,
+        headers,
+        disableRedirects,
         connectTimeout: 5_000,
         readTimeout: timeoutMs,
       })

@@ -792,6 +792,19 @@ type QortiumQdnUnlockRequest = {
 };
 
 interface Window {
+  homeV2Collections?: {
+    readLegacy(): Promise<{
+      hadData: boolean;
+      snapshot: import('../electron/bookmark-manager-contract').BookmarkManagerSnapshot;
+    }>;
+    resolveRequest(response: {
+      error?: { code?: string; message: string };
+      requestId: string;
+      result?: import('../electron/bookmark-manager-contract').BookmarkManagerMutationResult | import('../electron/bookmark-manager-contract').BookmarkManagerSnapshot;
+    }): Promise<void>;
+    onRequest(listener: (request: unknown) => void): () => void;
+    onOpen(listener: (request: unknown) => void): () => void;
+  };
   qortiumHome: {
     accounts: {
       list: () => Promise<QortiumAccountsState>;
@@ -853,7 +866,7 @@ interface Window {
       ) => Promise<QortiumAppUpdateDownloadResult>;
       getEnvironment: () => Promise<QortiumAppUpdateEnvironment>;
       onDownloadProgress: (callback: (progress: QortiumAppUpdateDownloadProgress) => void) => () => void;
-      openDownloadedFile: (filePath: string) => Promise<void>;
+      openDownloadedFile: (filePath: string, expectedDigest?: string) => Promise<void>;
       openReleasePage: (url: string) => Promise<void>;
       showDownloadedFile: (filePath: string) => Promise<void>;
     };

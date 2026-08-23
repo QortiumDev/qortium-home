@@ -8,6 +8,7 @@ import type {
 const AVATAR_MAX_BYTES = 500 * 1024
 const MAX_PENDING_ATTEMPTS = 12
 const MAX_TRANSIENT_ATTEMPTS = 3
+export const VISIBLE_AVATAR_LOADING_MS = 6_000
 const ALLOWED_CONTENT_TYPES = new Set([
   'image/bmp',
   'image/gif',
@@ -73,7 +74,19 @@ export function VisibleIdentityAvatar({
     let cancelled = false
     let activeUrl: string | null = null
     let timer: number | null = null
+    let loadingTimer: number | null = window.setTimeout(() => {
+      loadingTimer = null
+      if (!cancelled) setIsLoading(false)
+    }, VISIBLE_AVATAR_LOADING_MS)
     let attempts = 0
+
+    const finishLoading = () => {
+      if (loadingTimer !== null) {
+        window.clearTimeout(loadingTimer)
+        loadingTimer = null
+      }
+      setIsLoading(false)
+    }
 
     const load = async () => {
       attempts += 1
@@ -95,7 +108,7 @@ export function VisibleIdentityAvatar({
         return
       }
       if (result.status !== 'ready') {
-        setIsLoading(false)
+        finishLoading()
         return
       }
       try {
@@ -105,10 +118,10 @@ export function VisibleIdentityAvatar({
           result.contentType,
         )
         setObjectUrl(activeUrl)
-        setIsLoading(false)
+        finishLoading()
       } catch {
         // Keep the deterministic initial when a response fails renderer checks.
-        setIsLoading(false)
+        finishLoading()
       }
     }
 
@@ -116,6 +129,7 @@ export function VisibleIdentityAvatar({
     return () => {
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
+      if (loadingTimer !== null) window.clearTimeout(loadingTimer)
       if (activeUrl) URL.revokeObjectURL(activeUrl)
     }
   }, [identity.address, identity.avatar, loader, network])

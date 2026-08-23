@@ -3,6 +3,7 @@ import { normalizeHomeV2RuntimeInvalidation } from './home-v2-runtime-invalidati
 
 assert.deepEqual(normalizeHomeV2RuntimeInvalidation({ kind: 'locked' }), {
   kind: 'locked',
+  network: null,
   tabId: null,
 })
 assert.deepEqual(normalizeHomeV2RuntimeInvalidation({
@@ -10,7 +11,16 @@ assert.deepEqual(normalizeHomeV2RuntimeInvalidation({
   tabId: 'tab-1',
 }), {
   kind: 'navigation-changed',
+  network: null,
   tabId: 'tab-1',
+})
+assert.deepEqual(normalizeHomeV2RuntimeInvalidation({
+  kind: 'node-changed',
+  network: 'qortium',
+}), {
+  kind: 'node-changed',
+  network: 'qortium',
+  tabId: null,
 })
 assert.throws(
   () => normalizeHomeV2RuntimeInvalidation({ kind: 'tab-closed' }),
@@ -19,6 +29,10 @@ assert.throws(
 assert.throws(
   () => normalizeHomeV2RuntimeInvalidation({ kind: 'restart' }),
   /is invalid/,
+)
+assert.throws(
+  () => normalizeHomeV2RuntimeInvalidation({ kind: 'node-changed' }),
+  /requires a network/,
 )
 
 console.log('Home v2 runtime invalidation tests passed')

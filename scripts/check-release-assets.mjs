@@ -130,6 +130,13 @@ function getExpectedArtifacts(version, options = {}) {
       path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-macos11-universal.dmg`),
     },
     {
+      group: 'desktop',
+      label: 'macOS 10.15 legacy x64 DMG',
+      matrixLabels: ['macOS 10.15 x64'],
+      name: `Qortium-Home-${version}-macos1015-x64.dmg`,
+      path: path.join(repoRoot, 'dist-release', `Qortium-Home-${version}-macos1015-x64.dmg`),
+    },
+    {
       group: 'android',
       label: `Android release APK${options.allowUnsignedAndroid ? ' (unsigned)' : ''}`,
       matrixLabels: ['Android APK'],

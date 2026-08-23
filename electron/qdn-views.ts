@@ -169,6 +169,11 @@ type SanitizedDisplaySettingsRequest = {
   tabId: string;
 };
 
+type SanitizedBridgeStatesRequest = {
+  bridgeStates: QdnBridgeStateDetail[];
+  tabId: string;
+};
+
 type SanitizedManagerRevisionsRequest = {
   managerRevisions: QdnManagerRevisions;
   tabId: string;
@@ -612,6 +617,17 @@ function sanitizeDisplaySettingsRequest(value: unknown): SanitizedDisplaySetting
   };
 }
 
+function sanitizeBridgeStatesRequest(value: unknown): SanitizedBridgeStatesRequest {
+  if (!isRecord(value)) {
+    throw new Error('QDN view bridge states request is required.');
+  }
+
+  return {
+    bridgeStates: sanitizeBridgeStates(value.bridgeStates),
+    tabId: sanitizeTabId(value.tabId),
+  };
+}
+
 function sanitizeHomeSettingsBroadcastRequest(value: unknown): SanitizedHomeSettingsBroadcastRequest {
   if (!isRecord(value) || !isRecord(value.detail)) {
     throw new Error('QDN Home settings broadcast is required.');
@@ -756,6 +772,15 @@ export function isQdnViewFocused(windowId: number, tabId: string) {
   const entry = qdnViewsByWindow.get(windowId)?.get(tabId);
 
   return !!entry && !entry.window.isDestroyed() && entry.window.isFocused() && entry.view.getVisible();
+}
+
+// Permission prompts need trusted Home chrome. A hidden background tab may
+// continue polling, but it must not summon that chrome and switch the user's
+// active app merely because its prior grant is absent or was revoked.
+export function isQdnViewVisible(windowId: number, tabId: string) {
+  const entry = qdnViewsByWindow.get(windowId)?.get(tabId);
+
+  return !!entry && !entry.window.isDestroyed() && entry.view.getVisible();
 }
 
 function getCanonicalQdnAppKey(resourceUrl: string | null) {
@@ -1656,7 +1681,11 @@ export function registerQdnViewIpcHandlers() {
     // does not move focus back to the host, so keystrokes would keep going to the
     // now-hidden app view — leaving a permission/unlock dialog unable to autofocus
     // its field or receive Enter/Escape. Return focus to the host web contents.
-    if (!window.isDestroyed()) {
+    // The hide may complete after the user has switched to another desktop
+    // window. In that case focusing Home here would raise it over the user's
+    // current work. Only transfer focus from the hidden app view to Home while
+    // Home itself still owns the OS focus.
+    if (!window.isDestroyed() && window.isFocused()) {
       window.webContents.focus();
     }
   });
@@ -1671,6 +1700,19 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.displaySettings = request.displaySettings;
+    queueQdnViewStateDelivery(entry);
+  });
+
+  // Route/capability revisions are state delivery, not view identity. Updating
+  // them independently prevents the renderer's 15-second node poll from
+  // tearing down and re-showing the native view merely to deliver an event.
+  ipcMain.handle('qdn-views:updateBridgeStates', (event, rawRequest: unknown) => {
+    const window = getSenderWindow(event);
+    const request = sanitizeBridgeStatesRequest(rawRequest);
+    const entry = qdnViewsByWindow.get(window.webContents.id)?.get(request.tabId);
+
+    if (!entry) return;
+    entry.bridgeStates = request.bridgeStates;
     queueQdnViewStateDelivery(entry);
   });
 
@@ -1749,7 +1791,7 @@ export function registerQdnViewIpcHandlers() {
     }
 
     entry.accountUnlocked = request.isUnlocked;
-    queueQdnViewStateDelivery(entry);
+    return queueQdnViewStateDelivery(entry);
   });
 
   ipcMain.handle('qdn-views:postMessage', async (event, rawRequest: unknown) => {

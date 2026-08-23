@@ -8,8 +8,10 @@ import {
   homeV2LanguageOptions,
   migrateLegacyAppearance,
   resolveHomeV2SystemLanguage,
+  stepHomeV2TextSize,
 } from './appearance'
 import {
+  createPermissionPrompt,
   createPermissionState,
   hasPermissionGrant,
   invalidatePermissionState,
@@ -27,6 +29,7 @@ import {
   buildAppResourceLocation,
   parseAppResourceLocation,
 } from './resource-location'
+import { DEFAULT_NEW_TAB_PREFERENCE } from './new-tab-preference'
 import {
   createProductState,
   ProductModelError,
@@ -39,13 +42,21 @@ import {
   sanitizeHomeV2AppTitle,
 } from './app-frame-messages'
 import { HomeV2FixturePreview } from './fixture/HomeV2FixturePreview'
+import { AppearanceSettingsPage } from './shell/AppearanceSettingsPage'
 import { HomeV2Prototype } from './shell/HomeV2Prototype'
+import {
+  resolveHomeV2SettingsSectionTarget,
+  SettingsPage,
+} from './shell/SettingsPage'
 import { PermissionDialog } from './shell/PermissionDialog'
+import type { HomeV2CoreManagement } from './shell/CoreManagerCards'
 import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
 import type { DualIdentityLookupResult } from './contracts'
+import { parseHomeV2TextSizeCommand } from '../home-v2-live/text-size-shortcut-client'
+import { HOME_V2_NOTIFICATION_POLICY_SCHEMA } from '../home-v2-live/notification-policy-client'
 import {
   createAndroidFixtureHost,
   createElectronFixtureHost,
@@ -280,6 +291,42 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(dashboard.tabs.length, 2)
   assert.equal(dashboard.activeTabId, null)
   assert.equal(dashboard.destination, 'dashboard')
+
+  const newTab = reduceProductState(withBothSources, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
+  assert.equal(newTab.tabs.length, 2)
+  assert.equal(newTab.activeTabId, null)
+  assert.equal(newTab.destination, 'newtab')
+  const restoredNewTab = restoreProductState(
+    JSON.parse(JSON.stringify(newTab)),
+  )
+  assert.equal(restoredNewTab.destination, 'newtab')
+  assert.equal(restoredNewTab.activeTabId, null)
+  assert.equal(restoredNewTab.tabs.length, 2)
+
+  const restoredReleaseDestination = restoreProductState({
+    ...JSON.parse(JSON.stringify(newTab)),
+    destination: 'releases',
+  })
+  assert.equal(restoredReleaseDestination.destination, 'dashboard')
+
+  for (const transientDestination of ['core-docs', 'welcome'] as const) {
+    const restored = restoreProductState({
+      ...JSON.parse(JSON.stringify(newTab)),
+      destination: transientDestination,
+    })
+    assert.equal(restored.destination, 'dashboard')
+  }
+
+  const restoredFutureDestination = restoreProductState({
+    ...JSON.parse(JSON.stringify(newTab)),
+    destination: 'future-page',
+  })
+  assert.equal(restoredFutureDestination.destination, 'dashboard')
+  assert.equal(restoredFutureDestination.activeTabId, null)
+  assert.equal(restoredFutureDestination.tabs.length, 2)
 
   const afterClose = reduceProductState(
     reduceProductState(dashboard, {
@@ -544,6 +591,62 @@ function testPermissionBrokerScopesAndInvalidation(): void {
   )
   assert.equal(hasPermissionGrant(qortalSession, sameAppNewTabPrompt), false)
 
+  const unifiedQortalPrompt = createPermissionPrompt({
+    ...qortalPermissionPromptFixture,
+    capability: 'account.read',
+    allowedScopes: ['single-request', 'session'],
+  })
+  const unifiedState = resolvePermissionPrompt(
+    queuePermissionPrompt(createPermissionState(), unifiedQortalPrompt),
+    unifiedQortalPrompt.id,
+    { approved: true, scope: 'session' },
+  ).state
+  const unifiedQortiumPrompt = createPermissionPrompt({
+    ...unifiedQortalPrompt,
+    id: fixtureIds.qdnPermissionRequest,
+    protocol: 'qdnRequest',
+    action: 'GET_SELECTED_ACCOUNT',
+    context: {
+      ...unifiedQortalPrompt.context,
+      nodeProfileRef: qdnPermissionPromptFixture.context.nodeProfileRef,
+      targetNetwork: 'qortium',
+    },
+  })
+  assert.equal(
+    hasPermissionGrant(unifiedState, unifiedQortiumPrompt),
+    true,
+    'one account.read approval must cover both Home protocols and chains',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, { kind: 'locked' }).grants.length,
+    1,
+    'locking must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'node-changed',
+      network: 'qortal',
+    }).grants.length,
+    1,
+    'node changes must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'navigation-changed',
+      tabId: unifiedQortalPrompt.context.tabId,
+    }).grants.length,
+    1,
+    'same-app navigation must preserve read-only account consent',
+  )
+  assert.equal(
+    invalidatePermissionState(unifiedState, {
+      kind: 'tab-closed',
+      tabId: unifiedQortalPrompt.context.tabId,
+    }).grants.length,
+    0,
+    'closing the tab must revoke read-only account consent',
+  )
+
   const afterTabClose = invalidatePermissionState(qortalSession, {
     kind: 'tab-closed',
     tabId: fixtureIds.qortalCompatTab,
@@ -570,6 +673,20 @@ function testPermissionBrokerScopesAndInvalidation(): void {
     1,
   )
   assert.equal(hasPermissionGrant(qortalAlways, sameAppNewTabPrompt), true)
+  assert.equal(
+    invalidatePermissionState(qortalAlways, {
+      kind: 'node-changed',
+      network: 'qortium',
+    }).grants.length,
+    1,
+  )
+  assert.equal(
+    invalidatePermissionState(qortalAlways, {
+      kind: 'node-changed',
+      network: 'qortal',
+    }).grants.length,
+    0,
+  )
   assert.equal(
     invalidatePermissionState(qortalAlways, { kind: 'locked' }).grants.length,
     0,
@@ -601,12 +718,50 @@ function testPermissionBrokerScopesAndInvalidation(): void {
 }
 
 function testDesktopAndPhoneContracts(): void {
+  const lookup = createDualIdentityLookup()
+  const selectedAccountLookup: DualIdentityLookupResult = {
+    ...lookup,
+    networks: {
+      qortium: {
+        ...lookup.networks.qortium,
+        primaryName: 'Zulu selected account',
+      },
+      qortal: {
+        ...lookup.networks.qortal,
+        primaryName: 'Yankee selected account',
+      },
+    },
+  }
+  const pinnedApps = {
+    pins: [
+      {
+        createdAt: 1,
+        displayUrl: 'qdn://APP/Chat/Chat',
+        id: 'qdn://APP/Chat/Chat',
+        label: 'Chat',
+      },
+      {
+        createdAt: 2,
+        displayUrl: 'qdn://APP/Wallets/Wallets',
+        id: 'qdn://APP/Wallets/Wallets',
+        label: 'Wallets',
+      },
+    ],
+    status: 'ready' as const,
+    onAdd: () => undefined,
+    onMove: () => undefined,
+    onOpen: () => undefined,
+    onRemove: () => undefined,
+    onRename: () => undefined,
+  }
   const desktop = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="desktop"
+      pinnedApps={pinnedApps}
+      selectedAccountLookup={selectedAccountLookup}
     />,
   )
   const phone = renderToStaticMarkup(
@@ -615,12 +770,23 @@ function testDesktopAndPhoneContracts(): void {
       productState={homeV2ProductFixture}
       permissionState={createPermissionState()}
       layout="phone"
+      pinnedApps={pinnedApps}
+      selectedAccountLookup={selectedAccountLookup}
     />,
   )
 
   assert.match(desktop, /data-layout="desktop"/)
   assert.match(desktop, /data-theme="light"/)
   assert.match(phone, /data-layout="phone"/)
+  const assertNetworkOrder = (html: string, className: string): void => {
+    const qortium = html.indexOf(
+      `class="${className}" data-network="qortium"`,
+    )
+    const qortal = html.indexOf(`class="${className}" data-network="qortal"`)
+    assert.notEqual(qortium, -1, `${className} must render Qortium`)
+    assert.notEqual(qortal, -1, `${className} must render Qortal`)
+    assert.ok(qortium < qortal, `${className} must render Qortium first`)
+  }
   for (const html of [desktop, phone]) {
     assert.match(html, /class="home-v2-browser-chrome"/)
     assert.match(html, /home-v2-home-mark/)
@@ -635,14 +801,23 @@ function testDesktopAndPhoneContracts(): void {
       'browser chrome must wrap the Dashboard rather than live inside it',
     )
     assert.doesNotMatch(html, /home-v2-sidebar/)
+    assert.doesNotMatch(html, /home-v2-window-brand/)
     assert.doesNotMatch(html, />Home</)
     assert.match(html, />Qortal</)
     assert.match(html, />Qortium</)
     assert.match(html, />AliceQ</)
     assert.match(html, />Alice</)
     assert.match(html, />Pinned apps</)
-    assert.match(html, />Account lookup</)
-    assert.match(html, /aria-label="Account address or name"/)
+    assert.doesNotMatch(html, />Account lookup</)
+    assert.doesNotMatch(html, /aria-label="Account address or name"/)
+    assert.match(
+      html,
+      /data-network="qortium"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Z<\/div>/,
+    )
+    assert.match(
+      html,
+      /data-network="qortal"[\s\S]*?home-v2-presence__avatar" data-loading="false" aria-hidden="true">Y<\/div>/,
+    )
     assert.match(html, />Chat</)
     assert.match(html, />Wallets</)
     assert.match(html, />Disabled</)
@@ -657,13 +832,16 @@ function testDesktopAndPhoneContracts(): void {
     assert.match(html, /fixture:tab:chat/)
     assert.match(html, /fixture:tab:qortal-compat/)
     assert.doesNotMatch(html, /role="dialog"/)
+    assertNetworkOrder(html, 'home-v2-node-pill')
+    assertNetworkOrder(html, 'home-v2-node-card')
+    assertNetworkOrder(html, 'home-v2-presence')
   }
 }
 
-function testDualIdentityLookupContract(): void {
+function createDualIdentityLookup(): DualIdentityLookupResult {
   const qortalAddress = 'QH143K2qjVdn864NSY7aNESo88ao1ZnALH'
   const qortiumAddress = 'QwbXDZs6N7YmfTaHoHX2FCTiDtUjsLH22E'
-  const lookup: DualIdentityLookupResult = {
+  return {
     inputKind: 'name',
     message: 'This name belongs to different addresses. The results are not merged.',
     networks: {
@@ -697,11 +875,19 @@ function testDualIdentityLookupContract(): void {
     sharedAddress: null,
     state: 'conflict',
   }
+}
+
+function testDualIdentityLookupContract(): void {
+  const lookup = createDualIdentityLookup()
+  const productState = reduceProductState(homeV2ProductFixture, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
   for (const layout of ['desktop', 'phone'] as const) {
     const html = renderToStaticMarkup(
       <HomeV2Prototype
         snapshot={homeV2Fixture}
-        productState={createProductState()}
+        productState={productState}
         permissionState={createPermissionState()}
         layout={layout}
         identityLookup={lookup}
@@ -710,12 +896,25 @@ function testDualIdentityLookupContract(): void {
         onIdentityLookupSubmit={() => undefined}
       />,
     )
+    assert.match(html, /value="home:\/\/newtab"/)
+    assert.match(html, /aria-label="New tab"/)
+    assert.match(html, />Registered accounts</)
+    assert.match(html, /aria-label="Account address or name"/)
     assert.match(html, /data-lookup-state="conflict"/)
     assert.match(html, />Name conflict</)
     assert.match(html, /results are not merged/)
-    assert.match(html, new RegExp(qortalAddress))
-    assert.match(html, new RegExp(qortiumAddress))
+    assert.match(html, new RegExp(lookup.networks.qortal.address ?? ''))
+    assert.match(html, new RegExp(lookup.networks.qortium.address ?? ''))
     assert.match(html, /qortal_avatar/)
+    const qortium = html.search(
+      /class="home-v2-identity-network"[^>]*data-network="qortium"/,
+    )
+    const qortal = html.search(
+      /class="home-v2-identity-network"[^>]*data-network="qortal"/,
+    )
+    assert.notEqual(qortium, -1, 'new-tab lookup must identify Qortium results')
+    assert.notEqual(qortal, -1, 'new-tab lookup must identify Qortal results')
+    assert.ok(qortium < qortal, 'new-tab lookup must render Qortium first')
   }
 }
 
@@ -754,6 +953,7 @@ function testProductMarkAssetsAndColorOwnership(): void {
   assert.doesNotMatch(qortiumRule[1], /accent/)
   assert.match(css, /\.home-v2-status-dot/)
   assert.match(css, /data-theme='dark'[\s\S]*?\.home-v2-home-mark img/)
+  assert.doesNotMatch(css, /home-v2-window-brand/)
 }
 
 function testStartupStatesAndAppearance(): void {
@@ -885,12 +1085,221 @@ function testStartupStatesAndAppearance(): void {
   assert.doesNotMatch(css, /#225b44/i)
 }
 
+function testSettingsScaffoldAndNewTabPreference(): void {
+  const settingsState = reduceProductState(createProductState(), {
+    type: 'navigate',
+    destination: 'settings',
+  })
+
+  for (const layout of ['desktop', 'phone'] as const) {
+    const html = renderToStaticMarkup(
+      <HomeV2Prototype
+        snapshot={homeV2Fixture}
+        productState={settingsState}
+        permissionState={createPermissionState()}
+        layout={layout}
+        newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+        notificationPolicy={{
+          enabled: true,
+          generation: 0,
+          schema: HOME_V2_NOTIFICATION_POLICY_SCHEMA,
+          status: 'available',
+          version: 1,
+        }}
+        onSetAppNotifications={async () => undefined}
+        onSetNewTabPreference={() => undefined}
+      />,
+    )
+    assert.match(html, new RegExp(`data-layout="${layout}"`))
+    assert.match(html, /aria-label="Settings sections"/)
+    const general = html.indexOf('>General</button>')
+    const appearance = html.indexOf('>Appearance</button>')
+    const account = html.indexOf('>Account</button>')
+    assert.notEqual(general, -1)
+    assert.notEqual(appearance, -1)
+    assert.notEqual(account, -1)
+    assert.ok(general < appearance && appearance < account)
+    assert.match(html, /aria-current="page">General<\/button>/)
+    assert.match(html, /<h2 id="general-settings-title">General<\/h2>/)
+    assert.match(html, />New tab</)
+    assert.match(html, /aria-label="New tab opens"/)
+    assert.match(html, /data-home-v2-notification-policy="available"/)
+    assert.match(html, /aria-label="App notifications"/)
+    assert.match(html, /role="switch"/)
+    assert.match(html, /value="search" selected="">Search page<\/option>/)
+    assert.match(html, />Dashboard<\/option>/)
+    assert.match(html, />Custom address<\/option>/)
+    assert.doesNotMatch(html, /aria-label="Theme"/)
+    assert.doesNotMatch(html, /aria-label="Custom new-tab address"/)
+  }
+
+  const customHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      newTabPreference={{
+        address: 'qdn://APP/NameOnly',
+        kind: 'custom',
+      }}
+      onSetNewTabPreference={() => undefined}
+    />,
+  )
+  assert.match(customHtml, /aria-label="Custom new-tab address"/)
+  assert.ok(customHtml.includes('value="qdn://APP/NameOnly"'))
+  assert.match(customHtml, />Save</)
+
+  const noAccountHtml = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={{
+        ...homeV2Fixture,
+        account: {
+          ...homeV2Fixture.account,
+          state: 'none',
+          selectedIdentityId: null,
+        },
+      }}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="phone"
+    />,
+  )
+  assert.doesNotMatch(noAccountHtml, />Account<\/button>/)
+
+  const browserChromeSource = readFileSync(
+    'src/v2/shell/BrowserChrome.tsx',
+    'utf8',
+  )
+  assert.match(browserChromeSource, /newTabPreference\.kind === 'dashboard'/)
+  assert.match(browserChromeSource, /newTabPreference\.kind === 'custom'/)
+  assert.match(browserChromeSource, /setAddress\(newTabPreference\.address\)/)
+  assert.match(browserChromeSource, /newTabDisabled=\{navigationDisabled\}/)
+}
+
+function testCoreManagementRenderingAndAndroidDegrade(): void {
+  const coreManagement: HomeV2CoreManagement = {
+    available: true,
+    busyActions: { qortal: null, qortium: null },
+    lastActions: { qortal: null, qortium: null },
+    statuses: {
+      qortium: {
+        capabilities: { canStart: false, canStop: true },
+        control: 'full',
+        install: 'home-managed',
+        issue: null,
+        network: 'qortium',
+        revision: 1,
+        runtime: 'running',
+        schema: 'home-v2-core-manager',
+      },
+      qortal: {
+        capabilities: { canStart: true, canStop: false },
+        control: 'api-only',
+        install: 'adopted',
+        issue: null,
+        network: 'qortal',
+        revision: 1,
+        runtime: 'stopped',
+        schema: 'home-v2-core-manager',
+      },
+    },
+    onAction: () => undefined,
+    onRefresh: () => undefined,
+  }
+  const dashboard = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      coreManagement={coreManagement}
+    />,
+  )
+  const managementStart = dashboard.indexOf('data-home-v2-core-management="desktop"')
+  const qortium = dashboard.indexOf('data-network="qortium"', managementStart)
+  const qortal = dashboard.indexOf('data-network="qortal"', managementStart)
+  assert.ok(managementStart >= 0 && qortium > managementStart && qortal > qortium)
+  assert.match(dashboard, /Qortium Core running · managed by Home/)
+  assert.match(dashboard, />Stop Core</)
+  assert.match(dashboard, /Adopted Qortal Core · stopped/)
+  assert.match(dashboard, />Start Core</)
+  assert.match(dashboard, /aria-label="Settings: Core management"/)
+
+  const settingsState = reduceProductState(createProductState(), {
+    type: 'navigate',
+    destination: 'settings',
+  })
+  const settings = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={settingsState}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      coreManagement={coreManagement}
+    />,
+  )
+  const general = settings.indexOf('>General</button>')
+  const runtime = settings.indexOf('>Runtime</button>')
+  const appearance = settings.indexOf('>Appearance</button>')
+  assert.ok(general >= 0 && runtime > general && appearance > runtime)
+
+  const targetedSettings = renderToStaticMarkup(
+    <SettingsPage
+      account={homeV2Fixture.account}
+      appearance={homeV2Fixture.appearance}
+      newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+      requestedSection="appearance"
+    />,
+  )
+  assert.match(targetedSettings, /aria-current="page">Appearance<\/button>/)
+  assert.match(targetedSettings, /aria-label="Theme"/)
+  assert.equal(resolveHomeV2SettingsSectionTarget('core'), 'core')
+  assert.equal(
+    resolveHomeV2SettingsSectionTarget('notifications'),
+    'qdn-apps',
+  )
+  assert.equal(stepHomeV2TextSize('medium', 'increase'), 'large')
+  assert.equal(stepHomeV2TextSize('medium', 'decrease'), 'small')
+  assert.equal(stepHomeV2TextSize('extra-small', 'decrease'), 'extra-small')
+  assert.equal(stepHomeV2TextSize('huge', 'increase'), 'huge')
+  assert.equal(
+    parseHomeV2TextSizeCommand('text-size-increase'),
+    'text-size-increase',
+  )
+  assert.equal(parseHomeV2TextSizeCommand('new-tab'), null)
+
+  const unavailableTarget = renderToStaticMarkup(
+    <SettingsPage
+      account={{ ...homeV2Fixture.account, state: 'none' }}
+      appearance={homeV2Fixture.appearance}
+      newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
+      requestedSection="notifications"
+    />,
+  )
+  assert.match(unavailableTarget, /aria-current="page">General<\/button>/)
+  assert.match(unavailableTarget, /<h2 id="general-settings-title">General<\/h2>/)
+
+  const android = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={homeV2Fixture}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="phone"
+      coreManagement={{ ...coreManagement, available: false }}
+    />,
+  )
+  assert.doesNotMatch(android, /data-home-v2-core-management/)
+  assert.doesNotMatch(android, />Start Core|>Stop Core/)
+  assert.doesNotMatch(android, /home-v2-qortal-maintenance|Qortal Core maintenance/)
+}
+
 function testAppearanceSettingsAndLegacyMigration(): void {
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',
     destination: 'settings',
   })
-  const html = renderToStaticMarkup(
+  const shellHtml = renderToStaticMarkup(
     <HomeV2Prototype
       snapshot={homeV2Fixture}
       productState={settingsState}
@@ -898,14 +1307,20 @@ function testAppearanceSettingsAndLegacyMigration(): void {
       layout="desktop"
     />,
   )
+  const html = renderToStaticMarkup(
+    <AppearanceSettingsPage
+      appearance={homeV2Fixture.appearance}
+      account={homeV2Fixture.account}
+    />,
+  )
 
-  assert.match(html, /data-theme-preference="system"/)
-  assert.match(html, /data-accent="clay"/)
-  assert.match(html, /data-text-size="medium"/)
-  assert.match(html, /data-language="system"/)
-  assert.match(html, /data-resolved-language="en"/)
-  assert.match(html, /lang="en" dir="ltr"/)
-  assert.match(html, /--v2-app-zoom:1/)
+  assert.match(shellHtml, /data-theme-preference="system"/)
+  assert.match(shellHtml, /data-accent="clay"/)
+  assert.match(shellHtml, /data-text-size="medium"/)
+  assert.match(shellHtml, /data-language="system"/)
+  assert.match(shellHtml, /data-resolved-language="en"/)
+  assert.match(shellHtml, /lang="en" dir="ltr"/)
+  assert.match(shellHtml, /--v2-app-zoom:1/)
   assert.match(html, />Appearance</)
   assert.match(html, />Theme</)
   assert.match(html, />Accent</)
@@ -927,18 +1342,13 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.doesNotMatch(html, />Modern</)
 
   const noAccountSettings = renderToStaticMarkup(
-    <HomeV2Prototype
-      snapshot={{
-        ...homeV2Fixture,
-        account: {
-          ...homeV2Fixture.account,
-          state: 'none',
-          selectedIdentityId: null,
-        },
+    <AppearanceSettingsPage
+      appearance={homeV2Fixture.appearance}
+      account={{
+        ...homeV2Fixture.account,
+        state: 'none',
+        selectedIdentityId: null,
       }}
-      productState={settingsState}
-      permissionState={createPermissionState()}
-      layout="desktop"
     />,
   )
   assert.doesNotMatch(noAccountSettings, />Account security</)
@@ -1188,11 +1598,19 @@ function testFixtureHtmlHasVisibleBootFallback(): void {
 function testProductionHomeV2EntryIsCapabilityScoped(): void {
   const preload = readFileSync('electron/home-v2-live-preload.cts', 'utf8')
   const bridge = readFileSync('electron/home-v2-node-bridge.ts', 'utf8')
+  const authorizedSenders = readFileSync('electron/home-v2-authorized-senders.ts', 'utf8')
+  const coreManagerBridge = readFileSync('electron/home-v2-core-manager-bridge.ts', 'utf8')
+  const coreDocsBridge = readFileSync('electron/home-v2-core-docs-bridge.ts', 'utf8')
+  const retainedViewerBridge = readFileSync('electron/home-v2-retained-viewer-bridge.ts', 'utf8')
+  const coreManager = readFileSync('electron/core-manager.ts', 'utf8')
+  const i2pdManager = readFileSync('electron/i2pd-manager.ts', 'utf8')
   const appStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
   const bootstrap = readFileSync('electron/home-v2-main.ts', 'utf8')
   const main = readFileSync('electron/main.ts', 'utf8')
   const qortalNodeSettings = readFileSync('electron/qortal-node-settings.ts', 'utf8')
   const qortiumNodeSettings = readFileSync('electron/node-settings.ts', 'utf8')
+  const homeV2LiveApp = readFileSync('src/home-v2-live/HomeV2LiveApp.tsx', 'utf8')
+  const androidHtml = readFileSync('src/home-v2-live/android/index.html', 'utf8')
   const platform = readFileSync('src/platform.ts', 'utf8')
   const html = readFileSync('v2-live.html', 'utf8')
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
@@ -1202,33 +1620,123 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   }
 
   assert.equal(packageJson.build.appId, 'org.qortium.home')
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /Account integration is not enabled in this build|Not connected in this build/,
+  )
+  assert.match(
+    homeV2LiveApp,
+    /Capacitor\.isNativePlatform\(\)[\s\S]{0,100}Capacitor\.getPlatform\(\) === 'android'/,
+    'Home 2 QDN settings may use Preferences only in the native Android host',
+  )
   assert.equal(packageJson.main, 'dist-electron/home-v2-main.js')
   assert.equal(packageJson.scripts['dist:linux:x64:v2-live'], undefined)
+  const androidV2VaultStart = platform.indexOf('// Home v2 public CHAT writes')
+  assert.notEqual(androidV2VaultStart, -1)
+  const androidV2VaultSource = platform.slice(androidV2VaultStart)
+  assert.match(androidV2VaultSource, /const ANDROID_HOME_V2_NODE_API_KEY = '';/)
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /readNodeSettings\(/,
+    'Home 2 Android vault helpers must keep the portable node client route authoritative instead of rediscovering the legacy route',
+  )
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /getSendablePlatformNodeApiKey\(/,
+    'Home 2 Android vault helpers must not graft a legacy node API key onto the portable route',
+  )
+  assert.doesNotMatch(
+    androidV2VaultSource,
+    /resolveNodeApiUrl\(/,
+    'Home 2 Android vault helpers must not independently select a second Qortium node',
+  )
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /action:\s*['"]FETCH_NODE_API['"][\s\S]{0,300}\/chat\/private\//,
+    'Android private-group validation must stay behind the permissioned vault instead of bypassing the generic read allowlist',
+  )
+  assert.match(
+    androidHtml,
+    /worker-src 'self'/,
+    'Android Home must permit its same-origin memory-PoW worker',
+  )
+  assert.doesNotMatch(androidHtml, /worker-src (?!'self')/)
   assert.match(preload, /exposeInMainWorld\('homeV2Nodes'/)
   assert.match(preload, /home-v2-nodes:getSnapshot/)
   assert.match(preload, /home-v2-nodes:setMode/)
   assert.match(preload, /home-v2-nodes:readIdentity/)
   assert.match(preload, /home-v2-nodes:readAvatar/)
   assert.match(preload, /home-v2-nodes:listAppResources/)
+  assert.match(preload, /exposeInMainWorld\('homeV2CoreManagers'/)
+  assert.match(preload, /home-v2-core-manager:getStatus/)
+  assert.match(preload, /home-v2-core-manager:start/)
+  assert.match(preload, /home-v2-core-manager:stop/)
+  assert.match(preload, /home-v2-qortal-adoption:list/)
+  assert.match(preload, /home-v2-qortal-adoption:browse/)
+  assert.match(preload, /home-v2-qortal-adoption:select/)
+  assert.match(preload, /exposeInMainWorld\('homeV2QdnSettings'/)
+  assert.match(preload, /home-v2-qdn-settings:get/)
+  assert.match(preload, /home-v2-qdn-settings:set-assignment/)
+  assert.match(preload, /home-v2-qdn-settings:set-muted/)
+  assert.match(preload, /home-v2-qdn-settings:revoke/)
+  assert.match(preload, /home-v2-qdn-settings:changed/)
+  assert.match(preload, /exposeInMainWorld\('homeV2NotificationPolicy'/)
+  assert.match(preload, /home-v2-notification-policy:get/)
+  assert.match(preload, /home-v2-notification-policy:set/)
+  assert.match(preload, /home-v2-notification-policy:changed/)
+  assert.match(preload, /exposeInMainWorld\('homeV2TextSizeShortcuts'/)
+  assert.match(preload, /isHomeV2TextSizeCommand\(value\)/)
+  assert.match(preload, /ipcRenderer\.on\('menu:command'/)
   assert.match(preload, /qdn-views:capture/)
   assert.match(preload, /home-v2-accounts:list/)
   assert.match(preload, /exposeInMainWorld\('homeV2Vault'/)
-  assert.doesNotMatch(preload, /qortiumHome|core:|sign/i)
+  assert.doesNotMatch(preload, /qortiumHome|core:|['"]sign(?:Transaction)?['"]/i)
   assert.doesNotMatch(preload, /ipcRenderer\.invoke\('accounts:/)
   assert.equal((preload.match(/require\(/g) ?? []).length, 1)
   assert.doesNotMatch(bridge, /apiKey|seedPhrase|sourceFilename/)
-  assert.match(bridge, /authorizedSenderIds/)
+  assert.match(bridge, /assertAuthorizedHomeV2Sender\(event\)/)
+  assert.match(authorizedSenders, /senderFrame !== sender\.mainFrame/)
+  assert.match(authorizedSenders, /did-start-navigation/)
+  assert.match(coreManagerBridge, /assertAuthorizedHomeV2Sender/)
+  assert.match(coreDocsBridge, /home-v2-core-docs:enable/)
+  assert.match(coreDocsBridge, /assertAuthorizedHomeV2Sender\(event\)/)
+  assert.match(coreDocsBridge, /node\.mode !== 'local'/)
+  assert.match(coreDocsBridge, /readRunningLocalCoreApiKeyFor/)
+  assert.match(coreDocsBridge, /\/admin\/settings/)
+  assert.match(coreDocsBridge, /\/admin\/restart/)
+  assert.match(retainedViewerBridge, /home-v2-retained-viewer:saveBytes/)
+  assert.match(retainedViewerBridge, /assertAuthorizedHomeV2Sender\(event\)/)
+  assert.match(retainedViewerBridge, /value\.bytes instanceof Uint8Array/)
+  assert.match(retainedViewerBridge, /value\.bytes\.byteLength > RETAINED_VIEWER_MAX_BYTES/)
+  assert.doesNotMatch(coreManagerBridge, /core:status|core:progress/)
+  assert.match(coreManager, /if \(!legacyCoreManagerRendererEventsEnabled\) return/)
+  assert.match(coreManager, /startForHomeV2:[\s\S]{0,160}publishEvents: false/)
+  assert.match(coreManager, /stopForHomeV2:[\s\S]{0,160}publishEvents: false/)
+  assert.match(i2pdManager, /if \(!legacyI2pdRendererEventsEnabled\) return/)
   assert.match(bridge, /IDENTITY_RESPONSE_LIMIT/)
   assert.match(bridge, /GROUP_AVATAR_MAX_BYTES/)
   assert.match(bridge, /Unsupported identity read/)
-  assert.match(bridge, /assertAuthorized\(event\.sender\)/)
   assert.match(bridge, /function endpointHost/)
   assert.match(bridge, /mode === 'public' && nodeApiUrl/)
   assert.match(bootstrap, /QORTIUM_HOME_V2/)
   assert.match(main, /home-v2-live-preload\.cjs/)
-  assert.match(main, /authorizeHomeV2NodeBridge/)
+  assert.match(main, /authorizeHomeV2Sender/)
+  assert.match(main, /registerHomeV2CoreManagerBridgeIpcHandlers/)
+  assert.match(main, /registerHomeV2QdnSettingsBridgeIpcHandlers/)
+  assert.match(
+    main,
+    /await registerHomeV2NotificationPolicyBridgeIpcHandlers\(\);[\s\S]{0,160}registerHomeV2AppBridgeIpcHandlers\(\);/,
+    'Home 2 must initialize the persisted notification gate before exposing app delivery',
+  )
+  assert.match(main, /disableLegacyCoreManagerRendererEvents/)
+  assert.match(main, /disableLegacyI2pdRendererEvents/)
   assert.match(main, /HOME_V2_SHELL_PARTITION/)
   assert.match(main, /partition: HOME_V2_SHELL_PARTITION/)
+  assert.doesNotMatch(
+    homeV2LiveApp,
+    /loadDisplaySettings/,
+    'Home 2 notification delivery must not consult the legacy display settings store',
+  )
   assert.match(appStage, /capture\(\{ tabId: resolved\.tab\.id \}\)/)
   assert.match(appStage, /suspendedRef/)
   assert.match(appStage, /home-v2-app-stage__snapshot/)
@@ -1313,6 +1821,7 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   const qdnViews = readFileSync('electron/qdn-views.ts', 'utf8')
   const qdnArchiveRender = readFileSync('electron/qdn-archive-render.ts', 'utf8')
   const appBridge = readFileSync('electron/home-v2-app-bridge.ts', 'utf8')
+  const sessionGrants = readFileSync('electron/home-v2-session-grants.ts', 'utf8')
   const rateLimiter = readFileSync('electron/home-v2-send-rate-limiter.ts', 'utf8')
   const appTabStage = readFileSync('src/v2/shell/AppTabStage.tsx', 'utf8')
   const renderPathIdentity = readFileSync('src/v2/shell/render-path-identity.ts', 'utf8')
@@ -1373,6 +1882,20 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
     /liveResourceMatchesGrant\(context\)[\s\S]{0,2400}sessionAccountReadGrants\.has\(grantKey\)/,
   )
   assert.match(appBridge, /liveResourceMatchesGrant\(freshContext\)/)
+  assert.match(appBridge, /isQdnViewVisible\(context\.windowId, context\.tabId\)/)
+  assert.match(qdnViews, /if \(!window\.isDestroyed\(\) && window\.isFocused\(\)\)/)
+  assert.match(qdnViews, /qdn-views:updateBridgeStates/)
+  assert.match(
+    qdnViews,
+    /qdn-views:updateAccountState'[\s\S]{0,1600}return queueQdnViewStateDelivery\(entry\)/,
+    'account-state IPC must not resolve before the app view receives the unlock state',
+  )
+  assert.match(appTabStage, /bridge\.updateBridgeStates/)
+  assert.match(sessionGrants, /return 'account\.read'/)
+  assert.match(sessionGrants, /HOME_V2_ACCOUNT_READ_ACTIONS/)
+  assert.match(sessionGrants, /return 'chat\.public\.mutate'/)
+  assert.match(sessionGrants, /return 'chat\.direct\.mutate'/)
+  assert.match(sessionGrants, /return 'chat\.private-group\.mutate'/)
 
   // Fix A, Android: the requestApp dispatcher still tracks the iframe's
   // self-reported live navigation location, now as UX/consistency
@@ -1545,15 +2068,20 @@ function testGrantIdentityAndSendRateLimitHardening(): void {
   assert.match(liveApp, /androidChatSendRateLimiter[\s\S]{0,40}createHomeV2SendRateLimiter/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.checkAndRecordSend/)
   assert.match(liveApp, /androidChatSendRateLimiter\.current\.reset\(\)/)
-  // H7B: both host surfaces revoke transient app authority on every runtime
-  // boundary and retain only opaque signed unknown outcomes across restart.
+  // H7B: both host surfaces revoke the affected transient app authority on
+  // each runtime boundary and retain only opaque signed unknown outcomes
+  // across restart. Node invalidation is explicitly network-scoped.
   assert.match(appBridge, /home-v2-app:invalidate-runtime/)
   assert.match(appBridge, /normalizeHomeV2RuntimeInvalidation/)
   assert.match(appBridge, /findStoredHomeV2PendingTransactionConflict/)
   assert.match(appBridge, /recordHomeV2PendingTransaction/)
   assert.match(liveApp, /invalidateAndroidRuntime\('account-changed'\)/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed'\)/)
-  assert.match(liveApp, /invalidateAndroidRuntime\('navigation-changed', tabId\)/)
+  assert.match(liveApp, /invalidateAndroidRuntime\('node-changed', null, network\)/)
+  assert.doesNotMatch(
+    liveApp,
+    /handleAppNavigationChanged[\s\S]{0,400}invalidateAndroidRuntime\('navigation-changed'/,
+    'same-app route changes must not revoke account-read consent',
+  )
   assert.match(liveApp, /invalidateAndroidRuntime\('tab-closed', tabId\)/)
   assert.match(liveApp, /findAndroidHomeV2PendingTransactionConflict/)
   assert.match(liveApp, /recordAndroidHomeV2PendingTransaction/)
@@ -1570,11 +2098,12 @@ function testShellStateMigratesAddressSelection(): void {
     'light',
     'en',
   )
-  assert.equal(legacy.version, 2)
+  assert.equal(legacy.version, 3)
+  assert.equal(legacy.onboarding.status, 'skipped')
   assert.equal(legacy.selectedAccountId, 'wallet:Qprimary')
   assert.equal(legacy.selectedAddressId, 'wallet:Qprimary:2')
   assert.deepEqual(serializeHomeV2ShellState(legacy), {
-    version: 2,
+    version: 3,
     appearance: {
       accent: legacy.appearance.accent,
       appZoom: legacy.appearance.appZoom,
@@ -1582,6 +2111,8 @@ function testShellStateMigratesAddressSelection(): void {
       textSize: legacy.appearance.textSize,
       theme: legacy.appearance.theme,
     },
+    newTabPreference: DEFAULT_NEW_TAB_PREFERENCE,
+    onboarding: legacy.onboarding,
     selectedAccountId: 'wallet:Qprimary',
     selectedAddressId: 'wallet:Qprimary:2',
     product: {
@@ -1590,6 +2121,28 @@ function testShellStateMigratesAddressSelection(): void {
       tabs: legacy.product.tabs,
     },
   })
+
+  const newTabProduct = reduceProductState(homeV2ProductFixture, {
+    type: 'navigate',
+    destination: 'newtab',
+  })
+  const serializedNewTab = serializeHomeV2ShellState({
+    ...legacy,
+    product: newTabProduct,
+  })
+  assert.equal(serializedNewTab.version, 3)
+  assert.equal(serializedNewTab.product.destination, 'newtab')
+  assert.equal(serializedNewTab.product.activeTabId, null)
+  assert.equal(serializedNewTab.product.tabs.length, 2)
+  const restoredNewTab = parseHomeV2ShellState(
+    JSON.parse(JSON.stringify(serializedNewTab)),
+    'light',
+    'en',
+  )
+  assert.equal(restoredNewTab.version, 3)
+  assert.equal(restoredNewTab.product.destination, 'newtab')
+  assert.equal(restoredNewTab.product.activeTabId, null)
+  assert.equal(restoredNewTab.product.tabs.length, 2)
 }
 
 await testMockHostFailsClosed()
@@ -1604,6 +2157,8 @@ testDesktopAndPhoneContracts()
 testDualIdentityLookupContract()
 testProductMarkAssetsAndColorOwnership()
 testStartupStatesAndAppearance()
+testSettingsScaffoldAndNewTabPreference()
+testCoreManagementRenderingAndAndroidDegrade()
 testAppearanceSettingsAndLegacyMigration()
 testPermissionDialogsOnDesktopAndPhone()
 testInteractiveFixturePreviewContract()

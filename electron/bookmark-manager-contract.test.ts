@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   BOOKMARK_MANAGER_SCHEMA_VERSION,
   validateBookmarkManagerMutation,
@@ -57,6 +58,35 @@ assert.throws(
   () => validateBookmarkManagerSnapshot({ ...snapshot, revision: -1 }),
   /revision must be a non-negative safe integer/,
 );
+
+const homeV2Preload = readFileSync(new URL('../electron/home-v2-live-preload.cts', import.meta.url), 'utf8');
+const homeV2Live = readFileSync(new URL('../src/home-v2-live/HomeV2LiveApp.tsx', import.meta.url), 'utf8');
+const homeV2Collections = readFileSync(new URL('../src/home-v2-live/collections-client.ts', import.meta.url), 'utf8');
+const homeV2Actions = readFileSync(new URL('../electron/home-v2-app-actions.ts', import.meta.url), 'utf8');
+const homeV2Bridge = readFileSync(new URL('../electron/home-v2-app-bridge.ts', import.meta.url), 'utf8');
+for (const marker of [
+  'qdn-app:bookmark-manager-request',
+  'qdn-app:resolveBookmarkManagerRequest',
+  'qdn-app:bookmarks-open',
+]) {
+  assert.match(homeV2Preload, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+}
+for (const action of ['BOOKMARKS_HAS_PERMISSION', 'BOOKMARKS_GET', 'BOOKMARKS_APPLY', 'BOOKMARKS_OPEN']) {
+  assert.match(homeV2Live, new RegExp(`action === '${action}'`), `${action} is handled by the Android Home 2 host`);
+}
+assert.match(homeV2Collections, /validateBookmarkManagerMutationRequest/);
+assert.match(homeV2Collections, /HOME_DATA_STALE/);
+for (const action of ['BOOKMARKS_HAS_PERMISSION', 'BOOKMARKS_GET', 'BOOKMARKS_APPLY', 'BOOKMARKS_OPEN']) {
+  assert.match(homeV2Actions, new RegExp(`'${action}'`), `${action} is advertised by Home 2 qdnRequest`);
+}
+assert.match(homeV2Bridge, /requireHomeV2BookmarkManagerPermission/);
+assert.match(homeV2Bridge, /requestHomeV2Collections/);
+assert.match(homeV2Bridge, /platformVersion: '2\.1'/);
+assert.match(readFileSync(new URL('../src/home-v2-live/node-client.ts', import.meta.url), 'utf8'), /platformVersion: '2\.1'/);
+assert.match(homeV2Live, /isAndroidHost && protocol === 'qdnRequest' && \(/,
+  'Android must not intercept QDN-only bookmark actions for qortalRequest');
+assert.match(homeV2Live, /activeAccountId: context\.selectedAccountId/,
+  'Android bookmark snapshots must use the calling tab account');
 assert.throws(
   () => validateBookmarkManagerSnapshot({ ...snapshot, schemaVersion: 2 }),
   /schemaVersion must be 1/,

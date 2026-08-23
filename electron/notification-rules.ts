@@ -615,3 +615,61 @@ export function sanitizeQdnNotificationStore(value: unknown): QdnNotificationSto
 
   return { version: 1, revision, grants, rules };
 }
+
+/** Strict persisted-store validation for trusted management surfaces. */
+export function parseStrictQdnNotificationStore(value: unknown): QdnNotificationStore | null {
+  const canonicalJson = (input: unknown): string => {
+    if (Array.isArray(input)) return `[${input.map(canonicalJson).join(',')}]`;
+    if (isRecord(input)) {
+      return `{${Object.keys(input).sort().map((key) =>
+        `${JSON.stringify(key)}:${canonicalJson(input[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(input) ?? 'undefined';
+  };
+  if (
+    !isRecord(value)
+    || Object.keys(value).some((key) => !['version', 'revision', 'grants', 'rules'].includes(key))
+    || value.version !== 1
+    || !Number.isSafeInteger(value.revision)
+    || (value.revision as number) < 0
+    || !isRecord(value.grants)
+    || !isRecord(value.rules)
+    || Object.keys(value.grants).length > 100
+    || Object.keys(value.rules).length > 100
+  ) return null;
+
+  for (const [appKey, grant] of Object.entries(value.grants)) {
+    try {
+      if (sanitizeQdnManagerAppKey(appKey) !== appKey) return null;
+    } catch {
+      return null;
+    }
+    if (
+      !isRecord(grant)
+      || Object.keys(grant).some((key) => !['grantedAt', 'muted'].includes(key))
+      || typeof grant.grantedAt !== 'string'
+      || !Number.isFinite(Date.parse(grant.grantedAt))
+      || !(grant.muted === undefined || typeof grant.muted === 'boolean')
+    ) return null;
+  }
+
+  const sanitized = sanitizeQdnNotificationStore(value);
+  for (const [appKey, entries] of Object.entries(value.rules)) {
+    try {
+      if (sanitizeQdnManagerAppKey(appKey) !== appKey || !Object.hasOwn(value.grants, appKey)) return null;
+    } catch {
+      return null;
+    }
+    if (
+      !Array.isArray(entries)
+      || entries.length > QDN_NOTIFICATION_RULES_PER_APP_MAX
+      || (sanitized.rules[appKey]?.length ?? 0) !== entries.length
+      || entries.some((entry) =>
+        !isRecord(entry)
+        || typeof entry.createdAt !== 'string'
+        || !Number.isFinite(Date.parse(entry.createdAt)))
+      || canonicalJson(entries) !== canonicalJson(sanitized.rules[appKey] ?? [])
+    ) return null;
+  }
+  return sanitized;
+}

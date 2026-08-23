@@ -268,6 +268,21 @@ export function grantQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue
   } satisfies QdnAppAssignmentsStore;
 }
 
+export function revokeQdnAppCapability(store: QdnAppAssignmentsStore, appKeyValue: unknown, capability: QdnAppCapability) {
+  const appKey = sanitizeQdnManagerAppKey(appKeyValue);
+  if (!storeHoldsQdnAppCapability(store, appKey, capability)) return store;
+  const nextCapabilities = { ...store.capabilityGrants[appKey] };
+  delete nextCapabilities[capability];
+  const capabilityGrants = { ...store.capabilityGrants };
+  if (Object.keys(nextCapabilities).length) capabilityGrants[appKey] = nextCapabilities;
+  else delete capabilityGrants[appKey];
+  return {
+    ...store,
+    capabilityGrants,
+    revision: store.revision + 1,
+  } satisfies QdnAppAssignmentsStore;
+}
+
 // Legacy stores predate the generic v2 schema. Preserve the chosen bookmarks
 // target, but intentionally do not carry over manager grants: v1 grants were
 // appointments tied to one role, whereas v2 capabilities are independent.

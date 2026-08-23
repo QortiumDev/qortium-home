@@ -1,12 +1,10 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
-import extract from 'extract-zip';
+import { extractZipSafely } from './safe-zip-extraction.js';
 import { extract as extractTar } from 'tar';
 import {
   ensurePreviewApiKey,
@@ -22,17 +20,39 @@ import {
 } from './core-runtime-files.js';
 import { readCoreJarIdentity, type CoreJarIdentity } from './core-jar-identity.js';
 import {
-  isCoreInstallActive,
+  isCoreInstallActiveForNetwork,
   isOnChainCoreInstallActive,
-  withCoreInstallLock,
+  withCoreInstallLockForNetwork,
 } from './core-install-lock.js';
 import { runCoreInstallTransaction } from './core-install-transaction.js';
+import { NetworkManagerEntryRegistry } from './core-manager-entry-registry.js';
+import { CoreManagerStateRegistry } from './core-manager-state.js';
+import { resolveCoreNativeObserverPath } from './core-native-observer-path.js';
+import { observeCoreListenerOwners } from './core-listener-owner.js';
+import { observeCurrentUserQortalProcesses } from './core-process-observation.js';
+import { downloadVerifiedCoreAsset } from './core-verified-download.js';
+import { sameManagedJavaGeneration } from './managed-java-generation.js';
+import {
+  sameQortiumCoreRelease,
+  selectFirstQortiumCoreRelease,
+  selectQortiumCoreRelease,
+  type QortiumCoreReleaseAsset,
+} from './qortium-release-policy.js';
 import {
   compareCoreVersions,
   coreCommitsMatch,
   getCoreSemver,
   getCoreTimestampMs,
 } from './core-version.js';
+import {
+  parseQortiumTransportSettingsJson,
+  QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES,
+  updateQortiumTransportSettings,
+  type QortiumSettingsObject,
+  type QortiumTransportMode,
+  type QortiumTransportModeState,
+} from './qortium-transport-mode.js';
+import { isApprovedQortiumTransportManagedTarget } from './qortium-transport-runtime-authority.js';
 import {
   readCoreUpdateSettings,
   setCoreUpdateSettings,
@@ -42,44 +62,49 @@ import {
 import { movePath } from './filesystem-move.js';
 import { startIfManaged as startI2pdIfManaged, stopIfManaged as stopI2pdIfManaged } from './i2pd-manager.js';
 import { selectManagedJavaBinary } from './managed-java-asset.js';
+import type { QortalCoreManager } from './qortal-core-manager.js';
+import {
+  createProductionQortalCoreManager,
+  type QortalCoreRuntimeOperations,
+} from './qortal-core-runtime.js';
+import {
+  observeMacosCoreListenerOwners,
+  observeMacosQortalProcesses,
+} from './macos-core-observation.js';
+import {
+  observeWindowsCoreListenerOwners,
+  observeWindowsQortalProcesses,
+  readWindowsSecureFile,
+} from './windows-core-observation.js';
+import { resolveVerifiedOpenJdkJava } from './qortal-java-launch.js';
+import { resolveQortalAdoptedInstallRecordPath } from './qortal-install-source.js';
+import { resolveQortalManagedInstallPaths } from './qortal-managed-install.js';
+import { probeProductionQortalExternalInstallCollision } from './home-v2-qortal-maintenance-discovery.js';
 import { readableNodeErrorMessage } from './node-error-body.js';
 import { userMessage } from './user-message.js';
 import {
   prepareManagedLongLivedCommand,
   sanitizeManagedChildEnvironment,
 } from './managed-child-process.js';
+import {
+  QORTIUM_CORE_DESCRIPTOR,
+  QORTAL_CORE_DESCRIPTOR,
+  getCoreGithubCommitUrl,
+  getCoreGithubLatestReleaseUrl,
+  getCoreGithubReleasesUrl,
+  getCoreGithubTaggedReleaseUrl,
+  getCoreHelperScriptPaths,
+  getCoreHelperStartArguments,
+  getCoreHelperStopArguments,
+  resolveCoreDescriptorPaths,
+  type CoreNetworkDescriptor,
+  type CoreNetworkId,
+} from './core-network-descriptor.js';
 
-const CORE_REPOSITORY = 'QortiumDev/qortium-core';
-const GITHUB_API_BASE_URL = `https://api.github.com/repos/${CORE_REPOSITORY}`;
-const GITHUB_USER_AGENT = 'QortiumHome/1.0';
-const MANAGED_CORE_DIR = 'managed-core';
-const CORE_DATA_DIR = 'qortium-core';
-const CORE_INSTALL_DIR = 'install';
-const CORE_RUNTIME_DIR = 'runtime';
-const CORE_CHAIN_FILE = 'previewchain.json';
-const CURRENT_CORE_FILE = 'current.json';
-const CURRENT_JAVA_FILE = 'current-java.json';
-const RUNTIME_CHAIN_FILE = 'runtime-chain.json';
-const RUNTIME_MIGRATION_BLOCKED_FILE = 'runtime-migration-blocked.json';
-const QORTIUM_PREVIEWNET_INITIAL_PEERS = [
-  '146.103.42.59:24892',
-  '185.207.104.78:24892',
-  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
-  '80.241.221.139:24892',
-  '3u25ana5e5hvriqqiuh6fcetxezsqm7la276ljtjxaoxt767n4hq.b32.i2p',
-  'zqcackxkhjzfbbc6daigc73zqhzdpgwua3mjc7xgn3hwjed5z3ca.b32.i2p',
-];
-const QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS = [
-  '146.103.42.59:24894',
-  '185.207.104.78:24894',
-  // Community-operated 24/7 node (unmanaged) - added for bootstrap redundancy.
-  '80.241.221.139:24894',
-  'qhk6g5hl7vqf5fmlgj6knbajtiszotaf2w26fwjapsr75kbz7fma.b32.i2p',
-  'hg3seiuul4pcz6a2svatdahzudphbm464vwqcmiejc77kumglwaq.b32.i2p',
-];
-const LOCAL_CORE_API_URL = 'http://127.0.0.1:24891';
-const LOCAL_CORE_STATUS_PATH = '/admin/status';
-const LOCAL_CORE_INFO_PATH = '/admin/info';
+// E1 starts with one fully described Qortium instance. Compatibility exports
+// remain Qortium wrappers, while the keyed manager registry below fails closed
+// for networks that do not yet have a production descriptor and pipeline.
+const CORE_DESCRIPTOR = QORTIUM_CORE_DESCRIPTOR;
 const START_TIMEOUT_MS = 120_000;
 const STOP_TIMEOUT_MS = 45_000;
 const STATUS_TIMEOUT_MS = 2_500;
@@ -101,30 +126,14 @@ const DOWNGRADE_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const ADOPTIUM_ASSETS_TIMEOUT_MS = 10_000;
 const JAVA_DISTRIBUTION = 'temurin';
 const ADOPTIUM_JAVA_ASSETS_API_BASE_URL = 'https://api.adoptium.net/v3/assets/latest';
-const CORE_RUNTIME_DIR_OVERRIDE = process.env.QORTIUM_HOME_CORE_RUNTIME_DIR?.trim();
-const RUNTIME_ENTRY_NAMES = [
-  'apikey.txt',
-  'db-preview',
-  'data-preview',
-  'i2p',
-  'lists',
-  'qortium-backup-preview',
-  'qortal-backup-preview',
-  'qortium.log',
-  'run-error.log',
-  'run.log',
-  'run.pid',
-  'settings-preview-local.json',
-  'settings-preview-seed-local.json',
-  'settings-preview-seed-netcup-local.json',
-];
-const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set([
-  'checkpoints',
-  'featureTriggers',
-  'featureTriggerScheduleEnforcementHeight',
-  'onlineAccountsSignatureV2Height',
-  'assetOrderBoundsHeight',
-]);
+const CORE_RUNTIME_DIR_OVERRIDE = CORE_DESCRIPTOR.storage.runtimeOverrideEnvironmentVariable
+  ? process.env[CORE_DESCRIPTOR.storage.runtimeOverrideEnvironmentVariable]?.trim()
+  : undefined;
+const CHAIN_CONFIG_HASH_EXCLUDED_FIELDS = new Set<string>(
+  CORE_DESCRIPTOR.chain.kind === 'file'
+    ? CORE_DESCRIPTOR.chain.compatibilityHashExcludedFields
+    : [],
+);
 
 type CoreChannel = 'prerelease' | 'stable';
 type JavaArchiveType = 'tar.gz' | 'zip';
@@ -136,13 +145,6 @@ type JavaPlatform = {
   arch: string;
   archiveType: JavaArchiveType;
   platform: NodeJS.Platform;
-};
-
-type GithubAsset = {
-  browser_download_url?: unknown;
-  digest?: unknown;
-  name?: unknown;
-  size?: unknown;
 };
 
 type GithubRelease = {
@@ -164,12 +166,7 @@ type GithubCommit = {
   sha?: unknown;
 };
 
-type CoreReleaseAsset = {
-  digest: string | null;
-  downloadUrl: string;
-  name: string;
-  size: number;
-};
+type CoreReleaseAsset = QortiumCoreReleaseAsset;
 
 type DownloadAsset = CoreReleaseAsset;
 
@@ -359,7 +356,23 @@ type CoreInstallRequest = {
   allowDowngrade?: unknown;
   channel?: unknown;
   downgradeToken?: unknown;
+  expectedTag?: unknown;
+  mode?: unknown;
 };
+
+type InternalCoreInstallRequest = CoreInstallRequest & {
+  activationLease?: () => Promise<void | (() => void)>;
+  preDownloadGuard?: () => Promise<void>;
+  skipCompletionStatus?: boolean;
+  skipLayoutMigration?: boolean;
+};
+
+type HomeV2AutomaticCoreInstallRequest = Readonly<{
+  activationLease: () => Promise<void | (() => void)>;
+  channel: 'prerelease' | 'stable';
+  expectedTag: string;
+  preDownloadGuard: () => Promise<void>;
+}>;
 
 class DowngradeConfirmationRequiredError extends Error {
   constructor(
@@ -371,16 +384,18 @@ class DowngradeConfirmationRequiredError extends Error {
   }
 }
 
-const downgradeConfirmations = new Map<string, DowngradeConfirmation>();
+const coreManagerStates = new CoreManagerStateRegistry<
+  CoreNetworkId,
+  CoreUpdateEngineStatus,
+  DowngradeConfirmation
+>(() => ({ available: null, helpersOutOfSync: null }));
+
+function getCoreManagerState(descriptor: CoreNetworkDescriptor = CORE_DESCRIPTOR) {
+  return coreManagerStates.forNetwork(descriptor.id);
+}
 
 function mintDowngradeConfirmation(targetVersion: string, installedVersion: string) {
   const now = Date.now();
-
-  for (const [token, confirmation] of downgradeConfirmations) {
-    if (Date.parse(confirmation.expiresAt) <= now) {
-      downgradeConfirmations.delete(token);
-    }
-  }
 
   const confirmation: DowngradeConfirmation = {
     expiresAt: new Date(now + DOWNGRADE_CONFIRMATION_TTL_MS).toISOString(),
@@ -389,7 +404,7 @@ function mintDowngradeConfirmation(targetVersion: string, installedVersion: stri
     token: randomBytes(32).toString('hex'),
   };
 
-  downgradeConfirmations.set(confirmation.token, confirmation);
+  coreManagerStates.storeDowngradeConfirmation(CORE_DESCRIPTOR.id, confirmation, now);
   return confirmation;
 }
 
@@ -398,14 +413,11 @@ function consumeDowngradeConfirmation(request: CoreInstallRequest, targetVersion
     return false;
   }
 
-  const confirmation = downgradeConfirmations.get(request.downgradeToken);
-
-  if (!confirmation) {
-    return false;
-  }
-
-  downgradeConfirmations.delete(request.downgradeToken);
-  return confirmation.targetVersion === targetVersion && Date.parse(confirmation.expiresAt) > Date.now();
+  return coreManagerStates.consumeDowngradeConfirmation(
+    CORE_DESCRIPTOR.id,
+    request.downgradeToken,
+    targetVersion,
+  );
 }
 
 type RunScriptOptions = {
@@ -439,61 +451,89 @@ function canonicalJsonStringify(value: unknown): string {
     .join(',')}}`;
 }
 
+function getCoreDescriptorPaths() {
+  return resolveCoreDescriptorPaths(CORE_DESCRIPTOR, {
+    appDataPath: app.getPath('appData'),
+    runtimeOverride: CORE_RUNTIME_DIR_OVERRIDE,
+    userDataPath: app.getPath('userData'),
+  });
+}
+
 function getCoreBasePath() {
-  return path.join(app.getPath('appData'), CORE_DATA_DIR);
+  return getCoreDescriptorPaths().basePath;
 }
 
 function getLegacyCoreBasePath() {
-  return path.join(app.getPath('userData'), MANAGED_CORE_DIR);
+  const legacyBasePath = getCoreDescriptorPaths().legacyBasePath;
+
+  if (!legacyBasePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy storage layout.`);
+  }
+
+  return legacyBasePath;
 }
 
 function getCoreDownloadsPath() {
-  return path.join(getCoreBasePath(), 'downloads');
+  return getCoreDescriptorPaths().downloadsPath;
 }
 
 function getCoreInstallPath() {
-  return path.join(getCoreBasePath(), CORE_INSTALL_DIR);
+  return getCoreDescriptorPaths().installPath;
 }
 
 function getJavaBasePath() {
-  return path.join(getCoreBasePath(), 'java');
+  return getCoreDescriptorPaths().javaBasePath;
 }
 
 function getLegacyJavaBasePath() {
-  return path.join(getLegacyCoreBasePath(), 'java');
+  const legacyJavaBasePath = getCoreDescriptorPaths().legacyJavaBasePath;
+
+  if (!legacyJavaBasePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy Java layout.`);
+  }
+
+  return legacyJavaBasePath;
 }
 
 function getJavaVersionsPath() {
-  return path.join(getJavaBasePath(), 'versions');
+  return getCoreDescriptorPaths().javaVersionsPath;
 }
 
 function getCurrentCorePath() {
-  return path.join(getCoreBasePath(), CURRENT_CORE_FILE);
+  return getCoreDescriptorPaths().currentCorePath;
 }
 
 function getLegacyCurrentCorePath() {
-  return path.join(getLegacyCoreBasePath(), CURRENT_CORE_FILE);
+  const legacyCurrentCorePath = getCoreDescriptorPaths().legacyCurrentCorePath;
+
+  if (!legacyCurrentCorePath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy metadata path.`);
+  }
+
+  return legacyCurrentCorePath;
 }
 
 function getCurrentJavaPath() {
-  return path.join(getJavaBasePath(), CURRENT_JAVA_FILE);
+  return getCoreDescriptorPaths().currentJavaPath;
 }
 
 function getLegacyCurrentJavaPath() {
-  return path.join(getLegacyJavaBasePath(), CURRENT_JAVA_FILE);
+  const legacyCurrentJavaPath = getCoreDescriptorPaths().legacyCurrentJavaPath;
+
+  if (!legacyCurrentJavaPath) {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core has no legacy Java metadata path.`);
+  }
+
+  return legacyCurrentJavaPath;
 }
 
 function getCoreRuntimePath() {
-  if (CORE_RUNTIME_DIR_OVERRIDE) {
-    return path.resolve(CORE_RUNTIME_DIR_OVERRIDE);
-  }
-
-  return path.join(getCoreBasePath(), CORE_RUNTIME_DIR);
+  return getCoreDescriptorPaths().runtimePath;
 }
 
 function getCoreLogPaths(runtimePath: string): CoreLogPaths {
   const logPaths: CoreLogPaths = {
-    appLogPath: path.join(runtimePath, 'qortium.log'),
+    appLogPath: path.join(runtimePath, CORE_DESCRIPTOR.storage.logFileName),
     launcherLogPath: path.join(runtimePath, 'run.log'),
   };
 
@@ -509,11 +549,11 @@ function getRunPidPath(runtimePath: string) {
 }
 
 function getRuntimeChainPath(runtimePath: string) {
-  return path.join(runtimePath, RUNTIME_CHAIN_FILE);
+  return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeChainFileName);
 }
 
 function getRuntimeMigrationBlockedPath(runtimePath: string) {
-  return path.join(runtimePath, RUNTIME_MIGRATION_BLOCKED_FILE);
+  return path.join(runtimePath, CORE_DESCRIPTOR.storage.runtimeMigrationBlockedFileName);
 }
 
 function normalizeFilesystemPath(value: string) {
@@ -553,7 +593,7 @@ async function moveRuntimeEntries(sourcePath: string, destinationPath: string) {
 
   await mkdir(destinationPath, { recursive: true });
 
-  for (const entryName of RUNTIME_ENTRY_NAMES) {
+  for (const entryName of CORE_DESCRIPTOR.storage.runtimeEntryNames) {
     const sourceEntryPath = path.join(sourcePath, entryName);
 
     if (!existsSync(sourceEntryPath)) {
@@ -619,7 +659,7 @@ async function persistReconciledCoreMetadata(
   modifiedSinceInstall: boolean,
   reconciledAt: string,
 ) {
-  if (isCoreInstallActive()) {
+  if (isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)) {
     return;
   }
 
@@ -636,7 +676,7 @@ async function persistReconciledCoreMetadata(
       latestCore.installPath !== installedCore.installPath ||
       latestCore.jarPath !== installedCore.jarPath ||
       latestCore.tagName !== installedCore.tagName ||
-      isCoreInstallActive()
+      isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)
     ) {
       return;
     }
@@ -651,7 +691,7 @@ async function persistReconciledCoreMetadata(
       reconciledAt: latestCore.reconciledAt ?? reconciledAt,
     };
 
-    if (isCoreInstallActive()) {
+    if (isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)) {
       return;
     }
 
@@ -662,7 +702,11 @@ async function persistReconciledCoreMetadata(
 }
 
 async function ensureBootstrapPeers(installPath: string, options: { strict?: boolean } = {}) {
-  const settingsPath = path.join(installPath, 'preview', 'settings-preview.json');
+  if (CORE_DESCRIPTOR.bootstrap.kind !== 'peer-injection') {
+    return;
+  }
+
+  const settingsPath = path.join(installPath, CORE_DESCRIPTOR.bootstrap.settingsRelativePath);
 
   if (!existsSync(settingsPath)) {
     const message = `Unable to ensure Previewnet bootstrap peers; settings template was not found at ${settingsPath}.`;
@@ -700,10 +744,13 @@ async function ensureBootstrapPeers(installPath: string, options: { strict?: boo
   }
 
   const settings = parsedSettings as Record<string, unknown>;
-  const initialPeers = mergeBootstrapPeerList(settings.initialPeers, QORTIUM_PREVIEWNET_INITIAL_PEERS);
+  const initialPeers = mergeBootstrapPeerList(
+    settings.initialPeers,
+    [...CORE_DESCRIPTOR.bootstrap.initialPeers],
+  );
   const initialDataPeers = mergeBootstrapPeerList(
     settings.initialDataPeers,
-    QORTIUM_PREVIEWNET_INITIAL_DATA_PEERS,
+    [...CORE_DESCRIPTOR.bootstrap.initialDataPeers],
   );
 
   if (!initialPeers.changed && !initialDataPeers.changed) {
@@ -737,13 +784,19 @@ function getCoreCompatiblePreviewChainSha256(parsedChain: Record<string, unknown
 }
 
 async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRuntimeChainIdentity> {
-  const previewChainPath = path.join(previewPath, CORE_CHAIN_FILE);
+  if (CORE_DESCRIPTOR.chain.kind !== 'file') {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core does not use a chain identity file.`);
+  }
+
+  const previewChainPath = path.join(previewPath, CORE_DESCRIPTOR.chain.fileName);
   let previewChainBytes: Buffer;
 
   try {
     previewChainBytes = await readFile(previewChainPath);
   } catch {
-    throw new Error(`The installed Core release is missing ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+    throw new Error(
+      `The installed Core release is missing ${CORE_DESCRIPTOR.chain.fileName}; runtime chain compatibility cannot be verified.`,
+    );
   }
 
   let networkId = 'unknown';
@@ -759,7 +812,9 @@ async function readCoreRuntimeChainIdentity(previewPath: string): Promise<CoreRu
     parsedChain = parsedPreviewChain;
     networkId = getString(parsedChain.networkId) || networkId;
   } catch {
-    throw new Error(`The installed Core release has an invalid ${CORE_CHAIN_FILE}; runtime chain compatibility cannot be verified.`);
+    throw new Error(
+      `The installed Core release has an invalid ${CORE_DESCRIPTOR.chain.fileName}; runtime chain compatibility cannot be verified.`,
+    );
   }
 
   return {
@@ -1015,7 +1070,14 @@ function sanitizePathSegment(value: string) {
   return value.replace(/[^a-z0-9._-]/gi, '_') || 'core';
 }
 
+let legacyCoreManagerRendererEventsEnabled = true;
+
+export function disableLegacyCoreManagerRendererEvents() {
+  legacyCoreManagerRendererEventsEnabled = false;
+}
+
 function publishProgress(progress: CoreProgress) {
+  if (!legacyCoreManagerRendererEventsEnabled) return;
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send('core:progress', progress);
@@ -1045,7 +1107,7 @@ async function fetchGithubJson<T>(url: string) {
   const response = await fetch(url, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': GITHUB_USER_AGENT,
+      'User-Agent': CORE_DESCRIPTOR.github.userAgent,
     },
   });
 
@@ -1066,39 +1128,10 @@ function normalizeGithubRelease(value: unknown): GithubRelease | null {
   return isObject(value) ? value : null;
 }
 
-function selectReleaseAsset(release: GithubRelease): CoreReleaseAsset | null {
-  if (!Array.isArray(release.assets)) {
-    return null;
-  }
-
-  const assets = release.assets.filter(isObject) as GithubAsset[];
-  const selectedAsset =
-    assets.find((asset) => getString(asset.name) === 'qortium-preview.zip') ??
-    assets.find((asset) => /^qortium.*\.zip$/i.test(getString(asset.name)));
-
-  if (!selectedAsset) {
-    return null;
-  }
-
-  const name = getString(selectedAsset.name);
-  const downloadUrl = getString(selectedAsset.browser_download_url);
-
-  if (!name || !downloadUrl) {
-    return null;
-  }
-
-  return {
-    name,
-    downloadUrl,
-    digest: getString(selectedAsset.digest) || null,
-    size: getNumber(selectedAsset.size),
-  };
-}
-
 function releaseToSummary(channel: CoreChannel, value: unknown): CoreReleaseSummary {
-  const release = normalizeGithubRelease(value);
+  const release = selectQortiumCoreRelease(value, channel);
 
-  if (!release || release.draft === true) {
+  if (!release) {
     return {
       available: false,
       channel,
@@ -1106,27 +1139,16 @@ function releaseToSummary(channel: CoreChannel, value: unknown): CoreReleaseSumm
     };
   }
 
-  const tagName = getString(release.tag_name);
-  const asset = selectReleaseAsset(release);
-
-  if (!tagName || !asset) {
-    return {
-      available: false,
-      channel,
-      message: `The latest ${channel} release does not include a supported Qortium zip asset.`,
-    };
-  }
-
   return {
     available: true,
     channel,
-    asset,
-    commit: getString(release.target_commitish),
+    asset: release.asset,
+    commit: release.commit,
     commitTimestamp: '',
-    tagName,
-    name: getString(release.name) || tagName,
-    htmlUrl: getString(release.html_url),
-    publishedAt: getString(release.published_at),
+    tagName: release.tagName,
+    name: release.name,
+    htmlUrl: release.htmlUrl,
+    publishedAt: release.publishedAt,
   };
 }
 
@@ -1137,7 +1159,7 @@ async function resolveReleaseCommit(summary: CoreReleaseSummary): Promise<CoreRe
 
   try {
     const commit = await fetchGithubJson<GithubCommit>(
-      `${GITHUB_API_BASE_URL}/commits/${encodeURIComponent(summary.tagName)}`,
+      getCoreGithubCommitUrl(CORE_DESCRIPTOR, summary.tagName),
     );
     const commitTimestamp = getString(commit?.commit?.committer?.date) || getString(commit?.commit?.author?.date);
 
@@ -1152,26 +1174,46 @@ async function resolveReleaseCommit(summary: CoreReleaseSummary): Promise<CoreRe
 }
 
 async function getLatestStableRelease(): Promise<CoreReleaseSummary> {
-  const release = await fetchGithubJson<unknown>(`${GITHUB_API_BASE_URL}/releases/latest`);
+  const release = await fetchGithubJson<unknown>(
+    getCoreGithubLatestReleaseUrl(CORE_DESCRIPTOR),
+  );
 
   return await resolveReleaseCommit(releaseToSummary('stable', release));
 }
 
 async function getLatestPrerelease(): Promise<CoreReleaseSummary> {
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=20`);
-  const release = Array.isArray(releases)
-    ? releases.find((candidate) => {
-        const normalizedCandidate = normalizeGithubRelease(candidate);
+  if (CORE_DESCRIPTOR.releaseChannels.kind !== 'github-stable-and-prerelease') {
+    return {
+      available: false,
+      channel: 'prerelease',
+      message: `No prerelease channel is configured for ${CORE_DESCRIPTOR.label} Core.`,
+    };
+  }
 
-        return normalizedCandidate?.draft !== true && normalizedCandidate?.prerelease === true;
-      })
-    : null;
+  const releases = await fetchGithubJson<unknown[]>(
+    getCoreGithubReleasesUrl(
+      CORE_DESCRIPTOR,
+      CORE_DESCRIPTOR.releaseChannels.prereleasePageSize,
+    ),
+  );
+  const selected = selectFirstQortiumCoreRelease(releases, 'prerelease');
+  if (selected) return await resolveReleaseCommit({
+    ...selected,
+    available: true,
+    commitTimestamp: '',
+  });
 
-  return await resolveReleaseCommit(releaseToSummary('prerelease', release));
+  return releaseToSummary('prerelease', null);
 }
 
 async function getReleaseMatchingCoreVersion(semver: string): Promise<AvailableCoreRelease | null> {
-  const releases = await fetchGithubJson<unknown[]>(`${GITHUB_API_BASE_URL}/releases?per_page=100`);
+  const matchingReleasePageSize =
+    CORE_DESCRIPTOR.releaseChannels.kind === 'github-stable-and-prerelease'
+      ? CORE_DESCRIPTOR.releaseChannels.matchingReleasePageSize
+      : 100;
+  const releases = await fetchGithubJson<unknown[]>(
+    getCoreGithubReleasesUrl(CORE_DESCRIPTOR, matchingReleasePageSize),
+  );
   const normalizedReleases = (Array.isArray(releases) ? releases : [])
     .map(normalizeGithubRelease)
     .filter((release): release is GithubRelease => !!release && release.draft !== true);
@@ -1193,7 +1235,7 @@ async function getReleaseMatchingCoreVersion(semver: string): Promise<AvailableC
   for (const tagName of [`v${semver}`, semver]) {
     const release = normalizeGithubRelease(
       await fetchGithubJson<unknown>(
-        `${GITHUB_API_BASE_URL}/releases/tags/${encodeURIComponent(tagName)}`,
+        getCoreGithubTaggedReleaseUrl(CORE_DESCRIPTOR, tagName),
       ),
     );
 
@@ -1241,6 +1283,34 @@ async function checkReleases() {
     stable,
     prerelease,
   };
+}
+
+async function assertQortiumReleaseUnchanged(release: AvailableCoreRelease) {
+  const refreshed = releaseToSummary(
+    release.channel,
+    await fetchGithubJson<unknown>(
+      getCoreGithubTaggedReleaseUrl(CORE_DESCRIPTOR, release.tagName),
+    ),
+  );
+
+  if (!refreshed.available || !sameQortiumCoreRelease(release, refreshed)) {
+    throw new Error(
+      'The selected Qortium Core release changed before download. Check releases again before installing.',
+    );
+  }
+
+  if (/^[0-9a-f]{40}$/i.test(release.commit)) {
+    const commit = await fetchGithubJson<GithubCommit>(
+      getCoreGithubCommitUrl(CORE_DESCRIPTOR, release.tagName),
+    );
+    const refreshedCommit = getString(commit?.sha);
+    if (!/^[0-9a-f]{40}$/i.test(refreshedCommit) ||
+      refreshedCommit.toLowerCase() !== release.commit.toLowerCase()) {
+      throw new Error(
+        'The selected Qortium Core release commit changed before download. Check releases again before installing.',
+      );
+    }
+  }
 }
 
 function parseInstalledCore(value: unknown, fallbackRuntimePath = getCoreRuntimePath()): InstalledCore | null {
@@ -1369,17 +1439,36 @@ async function readInstalledCoreMetadata(
   return null;
 }
 
+// Automatic Home 2 discovery must never enter layout migration or reconcile
+// installed metadata: either action can mutate shared runtime files. A stale
+// record is safe here because strict installation revalidates the live JAR and
+// generation again before download and activation.
+async function readInstalledCoreMetadataForHomeV2UpdateDiscovery(): Promise<InstalledCore | null> {
+  try {
+    const parsedCore: unknown = JSON.parse(await readFile(getCurrentCorePath(), 'utf8'));
+    const installedCore = parseInstalledCore(parsedCore, getCoreRuntimePath());
+    return installedCore &&
+      existsSync(installedCore.installPath) &&
+      existsSync(installedCore.previewPath) &&
+      existsSync(installedCore.jarPath)
+      ? installedCore
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readInstalledCore(): Promise<InstalledCore | null> {
   await ensureCoreLayout();
 
   return await readInstalledCoreMetadata();
 }
 
-export async function getManagedCorePreviewPath() {
+async function getQortiumManagedCorePreviewPath() {
   return (await readInstalledCore())?.previewPath ?? null;
 }
 
-export async function getManagedCoreRuntimePath() {
+async function getQortiumManagedCoreRuntimePath() {
   return (await readInstalledCore())?.runtimePath ?? null;
 }
 
@@ -1415,7 +1504,7 @@ async function waitForPidExit(pid: number, timeoutMs: number) {
   return !isPidRunning(pid);
 }
 
-export async function isManagedCoreRuntimeRunning() {
+async function isQortiumManagedCoreRuntimeRunning() {
   const installedCore = await readInstalledCore();
 
   if (!installedCore) {
@@ -1425,7 +1514,7 @@ export async function isManagedCoreRuntimeRunning() {
   return await isInstalledCoreRunning(installedCore);
 }
 
-export function scheduleManagedCoreUpdateCheck() {
+function scheduleQortiumManagedCoreUpdateCheck() {
   setTimeout(() => {
     void runCoreUpdateEngine();
   }, 1_000).unref();
@@ -1435,7 +1524,7 @@ export function scheduleManagedCoreUpdateCheck() {
 // managed i2pd router *should* be up to serve Core's fallback transport. Used to
 // reconcile the router with Core (on Home launch / quit) so i2pd's lifetime
 // tracks Core's, not Home's window.
-export async function isManagedCoreUsingI2p(): Promise<boolean> {
+async function isQortiumManagedCoreUsingI2p(): Promise<boolean> {
   const installedCore = await readInstalledCore();
 
   if (!installedCore || !(await isInstalledCoreRunning(installedCore))) {
@@ -1498,7 +1587,11 @@ async function stopLegacyInstalledCore(installedCore: InstalledCore, runtimePath
   });
 
   try {
-    await runScript(stopScript, [`--runtime-dir=${runtimePath}`], installedCore.previewPath);
+    await runScript(
+      stopScript,
+      getCoreHelperStopArguments(CORE_DESCRIPTOR, runtimePath),
+      installedCore.previewPath,
+    );
     await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), getCoreLogPaths(runtimePath)));
@@ -1637,8 +1730,6 @@ async function migrateRootRuntimeEntriesIfSafe(installedCore: InstalledCore | nu
   }
 }
 
-let coreLayoutMigrationPromise: Promise<void> | null = null;
-
 async function migrateCoreLayout() {
   await mkdir(getCoreBasePath(), { recursive: true });
   await cleanupStaleCoreOperationDirectories();
@@ -1677,14 +1768,7 @@ async function cleanupStaleCoreOperationDirectories() {
 }
 
 async function ensureCoreLayout() {
-  if (!coreLayoutMigrationPromise) {
-    coreLayoutMigrationPromise = migrateCoreLayout().catch((error) => {
-      coreLayoutMigrationPromise = null;
-      throw error;
-    });
-  }
-
-  await coreLayoutMigrationPromise;
+  await coreManagerStates.ensureLayout(CORE_DESCRIPTOR.id, migrateCoreLayout);
 }
 
 function getJavaPlatform(): JavaPlatform | null {
@@ -1783,8 +1867,28 @@ async function readInstalledJava(): Promise<ManagedJava | null> {
 }
 
 async function writeInstalledJava(installedJava: ManagedJava) {
-  await mkdir(getJavaBasePath(), { recursive: true });
-  await writeFile(getCurrentJavaPath(), `${JSON.stringify(installedJava, null, 2)}\n`, 'utf8');
+  return await coreManagerStates.queueManagedJavaMetadataMutation(CORE_DESCRIPTOR.id, async () => {
+    await mkdir(getJavaBasePath(), { recursive: true });
+    await writeFileAtomically(getCurrentJavaPath(), `${JSON.stringify(installedJava, null, 2)}\n`);
+    return installedJava;
+  });
+}
+
+async function refreshInstalledJavaIfCurrent(
+  expected: ManagedJava,
+  patch: Pick<ManagedJava, 'upgradeCheckedAt'> & Partial<Pick<ManagedJava, 'latestKnownVersion'>>,
+): Promise<ManagedJava> {
+  return await coreManagerStates.queueManagedJavaMetadataMutation(CORE_DESCRIPTOR.id, async () => {
+    const current = await readInstalledJavaMetadata();
+
+    if (!current || !sameManagedJavaGeneration(current, expected)) {
+      return current ?? expected;
+    }
+
+    const refreshed = { ...current, ...patch };
+    await writeFileAtomically(getCurrentJavaPath(), `${JSON.stringify(refreshed, null, 2)}\n`);
+    return refreshed;
+  });
 }
 
 function parseJavaMajorVersion(version: string) {
@@ -1862,6 +1966,33 @@ function isManagedJavaUpdateAvailable(installedJava: ManagedJava) {
   );
 }
 
+function sameInstalledCoreGeneration(left: InstalledCore | null, right: InstalledCore | null) {
+  if (!left || !right) return left === right;
+  return left.installPath === right.installPath && left.jarPath === right.jarPath &&
+    left.installedAt === right.installedAt && left.tagName === right.tagName &&
+    left.digest === right.digest && left.jarBuildVersion === right.jarBuildVersion &&
+    left.jarBuildTimestamp === right.jarBuildTimestamp &&
+    sameOptionalCoreCommit(left.jarCommit, right.jarCommit);
+}
+
+function sameOptionalCoreCommit(left: string | null | undefined, right: string | null | undefined) {
+  return (!left && !right) || coreCommitsMatch(left, right);
+}
+
+async function assertHomeV2CoreMaintenanceActivationSafe(
+  expected: InstalledCore | null,
+  mode: 'initial-install' | 'strict-update',
+) {
+  const current = await readInstalledCoreMetadata();
+  if (mode === 'initial-install' ? current !== null : !sameInstalledCoreGeneration(current, expected)) {
+    throw new Error('The installed Qortium Core changed during the maintenance operation.');
+  }
+  if (await observeQortiumMaintenanceRuntimeState() !== 'stopped') {
+    throw new Error('Qortium Core could not be proven stopped at the install boundary.');
+  }
+  return current;
+}
+
 // Refreshes what we know about newer managed-runtime versions (persisted in
 // the install metadata so status reads never wait on the network). Throttled;
 // the check stamp is written before fetching so an offline machine retries
@@ -1873,42 +2004,25 @@ async function refreshManagedJavaUpdateInfo(installedJava: ManagedJava): Promise
     return installedJava;
   }
 
-  let refreshed: ManagedJava = { ...installedJava, upgradeCheckedAt: new Date().toISOString() };
+  let refreshed = await refreshInstalledJavaIfCurrent(installedJava, {
+    upgradeCheckedAt: new Date().toISOString(),
+  });
 
-  await writeInstalledJava(refreshed);
+  if (!sameManagedJavaGeneration(refreshed, installedJava)) {
+    return refreshed;
+  }
 
   const javaPlatform = getJavaPlatform();
   const latestVersion = javaPlatform ? (await fetchLatestManagedJavaBinary(javaPlatform))?.version : null;
 
   if (latestVersion) {
-    refreshed = { ...refreshed, latestKnownVersion: latestVersion };
-    await writeInstalledJava(refreshed);
+    refreshed = await refreshInstalledJavaIfCurrent(refreshed, {
+      latestKnownVersion: latestVersion,
+      upgradeCheckedAt: refreshed.upgradeCheckedAt,
+    });
   }
 
   return refreshed;
-}
-
-let managedJavaRefreshInFlight = false;
-
-function scheduleManagedJavaUpdateRefresh(installedJava: ManagedJava) {
-  if (managedJavaRefreshInFlight) {
-    return;
-  }
-
-  managedJavaRefreshInFlight = true;
-  void refreshManagedJavaUpdateInfo(installedJava)
-    .then((refreshed) => {
-      if (
-        refreshed.latestKnownVersion !== installedJava.latestKnownVersion ||
-        refreshed.upgradeCheckedAt !== installedJava.upgradeCheckedAt
-      ) {
-        void publishCoreStatus();
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      managedJavaRefreshInFlight = false;
-    });
 }
 
 // Opt-in (update-settings.json, off by default): updates the Home-managed JRE —
@@ -2001,10 +2115,6 @@ async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<
     managedStatus = await detectJavaVersion(installedJava.javaPath, 'managed');
 
     if (managedStatus.available) {
-      // Fire-and-forget: availability below reads only persisted metadata, so
-      // a fresh check result shows up on a later status poll.
-      scheduleManagedJavaUpdateRefresh(installedJava);
-
       const managedUpgradeAvailable = isManagedJavaUpdateAvailable(installedJava);
 
       return {
@@ -2051,6 +2161,33 @@ async function getJavaStatus(options: { ensureLayout?: boolean } = {}): Promise<
   };
 }
 
+/**
+ * Internal cross-network launch selection. Qortal shares Qortium's verified
+ * managed Temurin install and the same supported-system-Java fallback, while
+ * retaining its own launch and lifecycle policy.
+ */
+export async function resolveSharedCoreJavaForLaunch() {
+  const java = await getJavaStatus({ ensureLayout: false });
+
+  if (
+    !java.available ||
+    !java.path.trim() ||
+    (java.source !== 'managed' && java.source !== 'system')
+  ) {
+    return null;
+  }
+
+  return { command: java.path, source: java.source } as const;
+}
+
+async function resolveSharedQortalJavaForLaunch() {
+  const java = await resolveSharedCoreJavaForLaunch();
+  if (!java) return null;
+  const environment = sanitizeManagedChildEnvironment();
+  const command = await resolveVerifiedOpenJdkJava(java.command, environment);
+  return command ? { ...java, command } : null;
+}
+
 function getJavaRuntimeEnv(java: JavaStatus) {
   const environment = sanitizeManagedChildEnvironment();
 
@@ -2082,7 +2219,10 @@ async function fetchCoreBuildInfo(
   signal: AbortSignal,
 ): Promise<{ buildVersion?: string; runningCommit?: string; runningVersion?: string }> {
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_INFO_PATH}`, { signal });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.infoPath}`,
+      { signal },
+    );
 
     if (!response.ok) {
       return {};
@@ -2113,14 +2253,17 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}${LOCAL_CORE_STATUS_PATH}`, {
-      signal: abortController.signal,
-    });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.statusPath}`,
+      {
+        signal: abortController.signal,
+      },
+    );
     const text = await response.text();
 
     if (!response.ok) {
       return {
-        localApiUrl: LOCAL_CORE_API_URL,
+        localApiUrl: CORE_DESCRIPTOR.localApi.url,
         owner: 'unknown',
         running: false,
         status: text,
@@ -2131,14 +2274,14 @@ async function fetchLocalCoreStatus(): Promise<CoreRuntimeStatus> {
 
     return {
       ...buildInfo,
-      localApiUrl: LOCAL_CORE_API_URL,
+      localApiUrl: CORE_DESCRIPTOR.localApi.url,
       owner: 'unknown',
       running: true,
       status: text ? (JSON.parse(text) as unknown) : null,
     };
   } catch {
     return {
-      localApiUrl: LOCAL_CORE_API_URL,
+      localApiUrl: CORE_DESCRIPTOR.localApi.url,
       owner: 'unknown',
       running: false,
       status: null,
@@ -2278,11 +2421,6 @@ type OnChainUpdateCandidate = {
 
 type CoreUpdateCandidate = GithubUpdateCandidate | OnChainUpdateCandidate;
 
-let coreUpdateEngineStatus: CoreUpdateEngineStatus = { available: null, helpersOutOfSync: null };
-let coreUpdateEnginePromise: Promise<void> | null = null;
-let coreUpdateEngineRerunPromise: Promise<void> | null = null;
-let coreUpdateInterval: NodeJS.Timeout | null = null;
-
 function getManagedCoreApiKey(installedCore: InstalledCore) {
   return (
     readRunningLocalCoreApiKey()?.apiKey ??
@@ -2303,11 +2441,14 @@ async function requestManagedCoreUpdate(installedCore: InstalledCore, method: 'G
   const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-      headers: { 'X-API-KEY': apiKey },
-      method,
-      signal: abortController.signal,
-    });
+    const response = await fetch(
+      `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.update.path}`,
+      {
+        headers: { 'X-API-KEY': apiKey },
+        method,
+        signal: abortController.signal,
+      },
+    );
     const text = await response.text();
 
     if (!response.ok) {
@@ -2460,7 +2601,7 @@ async function runCoreUpdateEnginePass() {
   }
 
   if (!installedCore) {
-    coreUpdateEngineStatus = {
+    getCoreManagerState().updateEngineStatus = {
       available: null,
       checkedAt,
       error: errors.length > 0 ? errors.join(' ') : undefined,
@@ -2523,7 +2664,7 @@ async function runCoreUpdateEnginePass() {
   let onChainInstallActive =
     candidate?.channel === 'on-chain' && isOnChainCoreInstallActive(candidate.status);
 
-  coreUpdateEngineStatus = {
+  getCoreManagerState().updateEngineStatus = {
     available: candidate
       ? toCoreUpdateAvailability(
           candidate,
@@ -2552,7 +2693,9 @@ async function runCoreUpdateEnginePass() {
     helperRelease &&
     updateSettings.coreUpdatePolicy === 'install'
   ) {
-    await withCoreInstallLock('helpers', () => refreshCoreHelpersUnlocked(helperRelease));
+    await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'helpers', () =>
+      refreshCoreHelpersUnlocked(helperRelease),
+    );
     installedCore = (await readInstalledCore()) ?? installedCore;
     candidate = selectCoreUpdateCandidate(
       getGithubUpdateCandidate(githubRelease, installedCore),
@@ -2571,14 +2714,22 @@ async function runCoreUpdateEnginePass() {
       return;
     }
 
-    coreUpdateEngineStatus.available = toCoreUpdateAvailability(candidate, 'installing');
-    await withCoreInstallLock('on-chain', () => requestManagedCoreUpdate(installedCore, 'POST'));
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
+      available: toCoreUpdateAvailability(candidate, 'installing'),
+    };
+    await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'on-chain', () =>
+      requestManagedCoreUpdate(installedCore, 'POST'),
+    );
     return;
   }
 
-  coreUpdateEngineStatus.available = toCoreUpdateAvailability(candidate, 'installing');
+  getCoreManagerState().updateEngineStatus = {
+    ...getCoreManagerState().updateEngineStatus,
+    available: toCoreUpdateAvailability(candidate, 'installing'),
+  };
   await installCore({ channel: candidate.githubChannel });
-  coreUpdateEngineStatus = {
+  getCoreManagerState().updateEngineStatus = {
     available: null,
     checkedAt: new Date().toISOString(),
     error: errors.length > 0 ? errors.join(' ') : undefined,
@@ -2589,6 +2740,7 @@ async function runCoreUpdateEnginePass() {
 }
 
 async function publishCoreStatus() {
+  if (!legacyCoreManagerRendererEventsEnabled) return;
   const status = await getStatus();
 
   for (const window of BrowserWindow.getAllWindows()) {
@@ -2599,50 +2751,37 @@ async function publishCoreStatus() {
 }
 
 function runCoreUpdateEngine() {
-  if (coreUpdateEnginePromise) {
-    return coreUpdateEnginePromise;
-  }
-
-  coreUpdateEnginePromise = (async () => {
-    try {
-      await runCoreUpdateEnginePass();
-    } catch (error) {
-      console.warn('Qortium Core update policy check failed.', error);
-      coreUpdateEngineStatus = {
-        ...coreUpdateEngineStatus,
-        available:
-          coreUpdateEngineStatus.available?.action === 'installing'
-            ? { ...coreUpdateEngineStatus.available, action: 'available' }
-            : coreUpdateEngineStatus.available,
-        checkedAt: new Date().toISOString(),
-        error: getErrorMessage(error),
-      };
-    }
-
-    await publishCoreStatus().catch((error) => {
-      console.warn('Unable to publish Qortium Core update status.', error);
-    });
-  })().finally(() => {
-    coreUpdateEnginePromise = null;
-  });
-
-  return coreUpdateEnginePromise;
+  return coreManagerStates.runUpdateEngine(CORE_DESCRIPTOR.id, runCoreUpdateEnginePassAndPublish);
 }
 
 function runCoreUpdateEngineAfterPolicyChange() {
-  if (!coreUpdateEnginePromise) {
-    return runCoreUpdateEngine();
+  return coreManagerStates.runUpdateEngineAfterPolicyChange(
+    CORE_DESCRIPTOR.id,
+    runCoreUpdateEnginePassAndPublish,
+  );
+}
+
+async function runCoreUpdateEnginePassAndPublish() {
+  try {
+    await runCoreUpdateEnginePass();
+  } catch (error) {
+    console.warn('Qortium Core update policy check failed.', error);
+    const currentStatus = getCoreManagerState().updateEngineStatus;
+
+    getCoreManagerState().updateEngineStatus = {
+      ...currentStatus,
+      available:
+        currentStatus.available?.action === 'installing'
+          ? { ...currentStatus.available, action: 'available' }
+          : currentStatus.available,
+      checkedAt: new Date().toISOString(),
+      error: getErrorMessage(error),
+    };
   }
 
-  if (!coreUpdateEngineRerunPromise) {
-    coreUpdateEngineRerunPromise = coreUpdateEnginePromise
-      .then(() => runCoreUpdateEngine())
-      .finally(() => {
-        coreUpdateEngineRerunPromise = null;
-      });
-  }
-
-  return coreUpdateEngineRerunPromise;
+  await publishCoreStatus().catch((error) => {
+    console.warn('Unable to publish Qortium Core update status.', error);
+  });
 }
 
 async function getStatus(): Promise<CoreStatus> {
@@ -2665,7 +2804,7 @@ async function getStatus(): Promise<CoreStatus> {
   // every status refresh instead of treating the launch-time layout check as a
   // permanent installation identity. Compatible changes self-reconcile the
   // runtime metadata; genuinely different chain data remains blocked.
-  if (installed && !isCoreInstallActive()) {
+  if (installed && !isCoreInstallActiveForNetwork(CORE_DESCRIPTOR.id)) {
     try {
       await ensureInstalledCoreRuntimeChain(installed, { recordIfMissing: true });
       blockedRuntime = null;
@@ -2687,7 +2826,7 @@ async function getStatus(): Promise<CoreStatus> {
   const runtimeBlocked = blockedRuntime ?? (await readRuntimeMigrationBlocked(getCoreRuntimePath()));
 
   return {
-    coreUpdate: coreUpdateEngineStatus,
+    coreUpdate: getCoreManagerState().updateEngineStatus,
     supported: process.platform === 'linux' || process.platform === 'darwin' || process.platform === 'win32',
     installed,
     java,
@@ -2708,57 +2847,29 @@ async function downloadFile(
   description = 'Core asset',
   progressMessage?: string,
 ): Promise<DownloadResult> {
-  const response = await fetch(asset.downloadUrl, {
-    headers: {
-      Accept: 'application/octet-stream,*/*',
-      'User-Agent': GITHUB_USER_AGENT,
-    },
-  });
+  const partialPath = `${destinationPath}.${randomBytes(8).toString('hex')}.partial`;
 
-  if (!response.ok || !response.body) {
-    const text = await response.text().catch(() => '');
-
-    throw new Error(text || `${description} download failed with HTTP ${response.status}.`);
-  }
-
-  const totalBytes = Number(response.headers.get('content-length')) || asset.size;
-  const hash = createHash('sha256');
-  let receivedBytes = 0;
-  const progressStream = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      receivedBytes += chunk.length;
-      hash.update(chunk);
-
+  return await downloadVerifiedCoreAsset({
+    asset,
+    destinationPath,
+    partialPath,
+    userAgent: CORE_DESCRIPTOR.github.userAgent,
+    onProgress(progress) {
       publishProgress({
         action: 'downloading',
         kind: 'info',
         message: progressMessage ?? `Downloading ${asset.name}.`,
-        percent: totalBytes ? Math.floor((receivedBytes / totalBytes) * 100) : undefined,
+        percent: progress.percent,
       });
-      callback(null, chunk);
     },
   });
-
-  await pipeline(
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-    progressStream,
-    createWriteStream(destinationPath),
-  );
-
-  const digest = `sha256:${hash.digest('hex')}`;
-
-  if (asset.digest && asset.digest !== digest) {
-    await rm(destinationPath, { force: true });
-    throw new Error(`Downloaded ${description} did not match the expected asset digest.`);
-  }
-
-  return {
-    digest,
-    size: totalBytes || receivedBytes,
-  };
 }
 
 async function findExtractedCorePaths(versionPath: string) {
+  if (CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers') {
+    throw new Error(`${CORE_DESCRIPTOR.label} Core does not use an extracted helper package.`);
+  }
+
   const candidates = [versionPath];
   const entries = await readdir(versionPath, { withFileTypes: true });
 
@@ -2769,8 +2880,11 @@ async function findExtractedCorePaths(versionPath: string) {
   }
 
   for (const candidate of candidates) {
-    const jarPath = path.join(candidate, 'qortium.jar');
-    const previewPath = path.join(candidate, 'preview');
+    const jarPath = path.join(candidate, CORE_DESCRIPTOR.package.jarFileName);
+    const previewPath = path.join(
+      candidate,
+      CORE_DESCRIPTOR.package.previewDirectoryName,
+    );
 
     if (existsSync(jarPath) && existsSync(previewPath)) {
       return {
@@ -2781,7 +2895,9 @@ async function findExtractedCorePaths(versionPath: string) {
     }
   }
 
-  throw new Error('Installed Core release did not contain qortium.jar and preview scripts.');
+  throw new Error(
+    `Installed Core release did not contain ${CORE_DESCRIPTOR.package.jarFileName} and preview scripts.`,
+  );
 }
 
 async function chmodPreviewScripts(previewPath: string) {
@@ -2821,7 +2937,11 @@ async function listReleaseHelperFiles(
     const relativePath = path.relative(installPath, sourcePath);
     const [topLevelEntry = ''] = relativePath.split(path.sep);
 
-    if (topLevelEntry.toLowerCase() === CORE_RUNTIME_DIR || entry.name.toLowerCase() === 'qortium.jar') {
+    if (
+      topLevelEntry.toLowerCase() ===
+        CORE_DESCRIPTOR.storage.runtimeDirectoryName.toLowerCase() ||
+      entry.name.toLowerCase() === CORE_DESCRIPTOR.package.jarFileName.toLowerCase()
+    ) {
       continue;
     }
 
@@ -2891,8 +3011,8 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
     !installedCore.jarSemver ||
     wereHelpersRefreshedForCoreVersion(installedCore)
   ) {
-    coreUpdateEngineStatus = {
-      ...coreUpdateEngineStatus,
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
       helpersOutOfSync: null,
     };
     return await getStatus();
@@ -2945,7 +3065,7 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
       message: userMessage('core.helpersExtracting', { name: release.asset.name }),
       percent: 0,
     });
-    await extract(downloadPath, { dir: stagingPath });
+    await extractZipSafely(downloadPath, { dir: stagingPath });
 
     const extractedCorePaths = await findExtractedCorePaths(stagingPath);
     const helperFiles = await listReleaseHelperFiles(extractedCorePaths.installPath);
@@ -3035,8 +3155,8 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
       throw error;
     }
 
-    coreUpdateEngineStatus = {
-      ...coreUpdateEngineStatus,
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
       checkedAt: new Date().toISOString(),
       helpersOutOfSync: null,
     };
@@ -3059,7 +3179,9 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
 }
 
 async function refreshCoreHelpers() {
-  return await withCoreInstallLock('helpers', () => refreshCoreHelpersUnlocked());
+  return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'helpers', () =>
+    refreshCoreHelpersUnlocked(),
+  );
 }
 
 async function findJavaExecutable(installPath: string) {
@@ -3103,7 +3225,7 @@ async function extractJavaArchive(
   destinationPath: string,
 ) {
   if (archiveType === 'zip') {
-    await extract(downloadPath, { dir: destinationPath });
+    await extractZipSafely(downloadPath, { dir: destinationPath });
     return;
   }
 
@@ -3113,9 +3235,14 @@ async function extractJavaArchive(
   });
 }
 
-async function installJava() {
-  await ensureCoreLayout();
+type JavaInstallOptions = {
+  readonly activationLease?: () => Promise<void | (() => void)>;
+  readonly preDownloadGuard?: () => Promise<void>;
+  readonly skipCompletionStatus?: boolean;
+  readonly skipLayoutMigration?: boolean;
+};
 
+async function installJavaUnlocked(options: JavaInstallOptions = {}) {
   const javaPlatform = getJavaPlatform();
 
   if (!javaPlatform) {
@@ -3134,7 +3261,8 @@ async function installJava() {
     );
   }
 
-  const previousJava = await readInstalledJavaMetadata();
+  const expectedGeneration = await readInstalledJavaMetadata();
+
   const archiveExtension = getJavaArchiveExtension(javaPlatform.archiveType);
   const archiveName = `${JAVA_DISTRIBUTION}-${MANAGED_JAVA_TARGET_MAJOR_VERSION}-${javaPlatform.apiOs}-${javaPlatform.apiArch}.${archiveExtension}`;
   const archive: DownloadAsset = {
@@ -3165,7 +3293,9 @@ async function installJava() {
   await rm(stagingPath, { recursive: true, force: true });
   await mkdir(stagingPath, { recursive: true });
 
+  let releaseActivation: (() => void) | undefined;
   try {
+    await options.preDownloadGuard?.();
     const download = await downloadFile(archive, downloadPath, 'Java runtime');
 
     publishProgress({
@@ -3182,18 +3312,33 @@ async function installJava() {
 
     const javaStatus = await detectJavaVersion(stagingJavaPath, 'managed');
 
-    if (!javaStatus.available || !javaStatus.version || !javaStatus.majorVersion) {
-      throw new Error(`Downloaded Java runtime is not Java ${MIN_JAVA_MAJOR_VERSION} or newer.`);
+    if (!javaStatus.available || !javaStatus.version ||
+      javaStatus.majorVersion !== MANAGED_JAVA_TARGET_MAJOR_VERSION) {
+      throw new Error(`Downloaded Java runtime is not Java ${MANAGED_JAVA_TARGET_MAJOR_VERSION}.`);
     }
 
+    const currentGeneration = await readInstalledJavaMetadata();
+    if (!sameManagedJavaGeneration(currentGeneration, expectedGeneration) &&
+      !(currentGeneration === null && expectedGeneration === null)) {
+      throw new Error('The selected managed Java generation changed during installation.');
+    }
+    if (currentGeneration && !isNewerJavaVersion(javaStatus.version, currentGeneration.version)) {
+      throw new Error('Adoptium did not offer a newer managed Java runtime.');
+    }
+
+    releaseActivation = (await options.activationLease?.()) || undefined;
+
+    // Managed Java directories are immutable once selected: either Core may
+    // still have the preceding runtime mapped even after it stops answering its
+    // API. A unique verified-version directory lets activation switch metadata
+    // without ever overwriting or deleting files beneath a JVM.
     const finalPath = path.join(
       getJavaVersionsPath(),
       sanitizePathSegment(
-        `${JAVA_DISTRIBUTION}-${MANAGED_JAVA_TARGET_MAJOR_VERSION}-${javaStatus.version}-${javaPlatform.platform}-${javaPlatform.arch}`,
+        `${JAVA_DISTRIBUTION}-${MANAGED_JAVA_TARGET_MAJOR_VERSION}-${javaStatus.version}-${download.digest.slice(0, 12)}-${Date.now()}-${randomBytes(6).toString('hex')}-${javaPlatform.platform}-${javaPlatform.arch}`,
       ),
     );
 
-    await rm(finalPath, { recursive: true, force: true });
     await rename(stagingPath, finalPath);
 
     const javaPath = await findJavaExecutable(finalPath);
@@ -3218,14 +3363,11 @@ async function installJava() {
       version: javaStatus.version,
     });
 
-    // Retire the runtime this install replaced. Best-effort: on Windows a
-    // recently-stopped JVM can still hold locks on its own install dir.
-    if (previousJava && previousJava.installPath !== finalPath) {
-      await rm(previousJava.installPath, { recursive: true, force: true }).catch(() => {});
-    }
+    // Keep every previously selected generation immutable. Either Core may
+    // still have one mapped; retired-generation cleanup is a separate task.
 
-    coreUpdateEngineStatus = {
-      ...coreUpdateEngineStatus,
+    getCoreManagerState().updateEngineStatus = {
+      ...getCoreManagerState().updateEngineStatus,
       javaUpdatePendingRestart: false,
     };
 
@@ -3236,13 +3378,47 @@ async function installJava() {
       percent: 100,
     });
 
-    return await getStatus();
+    return options.skipCompletionStatus ? undefined : await getStatus();
   } catch (error) {
     await rm(stagingPath, { recursive: true, force: true });
     throw error;
   } finally {
+    releaseActivation?.();
     await rm(downloadPath, { force: true });
   }
+}
+
+async function installJava(options: JavaInstallOptions = {}) {
+  // Layout migration may itself publish Java metadata, so keep it outside the
+  // non-reentrant install single-flight.
+  if (!options.skipLayoutMigration) await ensureCoreLayout();
+  return await coreManagerStates.runManagedJavaInstall(
+    CORE_DESCRIPTOR.id,
+    () => installJavaUnlocked(options),
+  );
+}
+
+async function getAutomaticUpdateStatusForHomeV2(options: {
+  readonly refreshManagedJava: boolean;
+}) {
+  const installed = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  let installedJava = options.refreshManagedJava ? await readInstalledJavaMetadata() : null;
+  if (installedJava) installedJava = await refreshManagedJavaUpdateInfo(installedJava);
+
+  if (!installedJava) return { installed, java: null };
+
+  const detected = await detectJavaVersion(installedJava.javaPath, 'managed');
+  const managedUpgradeAvailable = detected.available && isManagedJavaUpdateAvailable(installedJava);
+  return {
+    installed,
+    java: {
+      managedUpgradeAvailable,
+      source: detected.available ? 'managed' as const : 'unsupported' as const,
+      updateAvailableVersion: managedUpgradeAvailable
+        ? installedJava.latestKnownVersion ?? String(MANAGED_JAVA_TARGET_MAJOR_VERSION)
+        : null,
+    },
+  };
 }
 
 function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
@@ -3250,7 +3426,7 @@ function normalizeInstallRequest(request: CoreInstallRequest): CoreChannel {
     return request.channel;
   }
 
-  return 'prerelease';
+  return CORE_DESCRIPTOR.releaseChannels.defaultChannel;
 }
 
 async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCore: InstalledCore | null) {
@@ -3271,10 +3447,13 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
     const timeout = setTimeout(() => abortController.abort(), STATUS_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${LOCAL_CORE_API_URL}/admin/update`, {
-        headers: { 'X-API-KEY': apiKey },
-        signal: abortController.signal,
-      });
+      const response = await fetch(
+        `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.update.path}`,
+        {
+          headers: { 'X-API-KEY': apiKey },
+          signal: abortController.signal,
+        },
+      );
       const text = await response.text();
 
       if (!response.ok) {
@@ -3307,8 +3486,8 @@ async function ensureOnChainInstallIdle(runtime: CoreRuntimeStatus, installedCor
   throw new Error(`${userMessage('core.error.onChainIdleCheckFailed')} ${getErrorMessage(lastError)}`);
 }
 
-async function installCoreUnlocked(request: CoreInstallRequest) {
-  await ensureCoreLayout();
+async function installCoreUnlocked(request: InternalCoreInstallRequest) {
+  if (!request.skipLayoutMigration) await ensureCoreLayout();
 
   const channel = normalizeInstallRequest(request);
   const releases = await checkReleases();
@@ -3318,7 +3497,9 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     throw new Error(release.message);
   }
 
-  const existingCore = await readInstalledCoreMetadata();
+  const existingCore = request.skipLayoutMigration
+    ? await readInstalledCoreMetadataForHomeV2UpdateDiscovery()
+    : await readInstalledCoreMetadata();
   const versionComparison = existingCore
     ? compareCoreVersions(release.tagName, existingCore.jarSemver ?? existingCore.tagName)
     : null;
@@ -3327,6 +3508,23 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       ? versionComparison === 0
       : release.tagName === existingCore.tagName
     : false;
+
+  if (typeof request.expectedTag === 'string' && release.tagName !== request.expectedTag) {
+    throw new Error('The selected Qortium Core release changed. Check releases again before installing.');
+  }
+
+  if ((request.mode === 'initial-install' || request.mode === 'strict-update') &&
+    !/^[0-9a-f]{40}$/i.test(release.commit)) {
+    throw new Error('The Qortium Core release tag commit could not be verified.');
+  }
+
+  if (request.mode === 'initial-install' && existingCore) {
+    throw new Error('Qortium Core is already installed.');
+  }
+
+  if (request.mode === 'strict-update' && (!existingCore || versionComparison === null || versionComparison <= 0)) {
+    throw new Error('A strictly newer Qortium Core release is required.');
+  }
 
   if (
     versionComparison !== null &&
@@ -3370,6 +3568,12 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   // version to fall back to and restart if the update fails. A running core with
   // no/incomplete install metadata is left running and updated without the dance.
   const runtimeBefore = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), existingCore);
+  if (
+    (request.mode === 'initial-install' || request.mode === 'strict-update') &&
+    runtimeBefore.running
+  ) {
+    throw new Error('Stop Qortium Core before installing or updating it from Home 2.');
+  }
   if (runtimeBefore.running && runtimeBefore.owner === 'home' && existingCore !== null) {
     await ensureOnChainInstallIdle(runtimeBefore, existingCore);
   }
@@ -3396,7 +3600,10 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
   await rm(stagingPath, { recursive: true, force: true });
   await mkdir(stagingPath, { recursive: true });
 
+  let releaseActivation: (() => void) | undefined;
   try {
+    await assertQortiumReleaseUnchanged(release);
+    await request.preDownloadGuard?.();
     await downloadFile(release.asset, downloadPath);
 
     publishProgress({
@@ -3405,10 +3612,34 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       message: `Extracting ${release.asset.name}.`,
       percent: 0,
     });
-    await extract(downloadPath, { dir: stagingPath });
+    await extractZipSafely(downloadPath, { dir: stagingPath });
 
     const extractedCorePaths = await findExtractedCorePaths(stagingPath);
     const runtimeIdentity = await readCoreRuntimeChainIdentity(extractedCorePaths.previewPath);
+    const candidateJarIdentity = await readCoreJarIdentity(extractedCorePaths.jarPath);
+
+    if (!candidateJarIdentity || getCoreSemver(release.tagName) !== candidateJarIdentity.semver) {
+      throw new Error('The verified Qortium Core archive does not match its release tag.');
+    }
+    if ((request.mode === 'initial-install' || request.mode === 'strict-update') &&
+      (!candidateJarIdentity.commit || !coreCommitsMatch(release.commit, candidateJarIdentity.commit))) {
+      throw new Error('The verified Qortium Core archive does not match its release commit.');
+    }
+
+    if (request.mode === 'initial-install' || request.mode === 'strict-update') {
+      // Hold the process-wide operation lease before touching runtime-chain
+      // metadata or any other shared Core state. The following stopped proof
+      // therefore cannot race a Home 2 start or a policy revocation.
+      releaseActivation = (await request.activationLease?.()) || undefined;
+    }
+    const activationCore = request.mode === 'initial-install' || request.mode === 'strict-update'
+      ? await assertHomeV2CoreMaintenanceActivationSafe(existingCore, request.mode)
+      : existingCore;
+    if (request.mode === 'strict-update' &&
+      (!activationCore?.jarSemver ||
+        (compareCoreVersions(candidateJarIdentity.semver, activationCore.jarSemver) ?? 0) <= 0)) {
+      throw new Error('The verified Qortium Core archive is not strictly newer than the installed JAR.');
+    }
 
     await ensureRuntimeChainCompatible(getCoreRuntimePath(), release.tagName, runtimeIdentity);
     const installPath = getCoreInstallPath();
@@ -3446,6 +3677,12 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       );
       const jarIdentity = await readCoreJarIdentity(jarPath);
 
+      if (!jarIdentity || jarIdentity.buildVersion !== candidateJarIdentity.buildVersion ||
+        jarIdentity.buildTimestamp !== candidateJarIdentity.buildTimestamp ||
+        !sameOptionalCoreCommit(jarIdentity.commit, candidateJarIdentity.commit)) {
+        throw new Error('The Qortium Core candidate changed during activation.');
+      }
+
       await chmodPreviewScripts(previewPath);
 
       const installedCore: InstalledCore = {
@@ -3479,7 +3716,7 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
       }
     };
 
-    if (restartAfterInstall && existingCore) {
+    if (existingCore) {
       await runCoreInstallTransaction({
         activateCandidate,
         backupPath,
@@ -3510,6 +3747,7 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
 
     throw error;
   } finally {
+    releaseActivation?.();
     await rm(downloadPath, { force: true });
     await rm(stagingPath, { recursive: true, force: true });
   }
@@ -3523,18 +3761,52 @@ async function installCoreUnlocked(request: CoreInstallRequest) {
     percent: 100,
   });
 
-  coreUpdateEngineStatus = {
-    ...coreUpdateEngineStatus,
+  getCoreManagerState().updateEngineStatus = {
+    ...getCoreManagerState().updateEngineStatus,
     available: null,
     checkedAt: new Date().toISOString(),
     error: undefined,
   };
 
-  return await getStatus();
+  return request.skipCompletionStatus ? undefined : await getStatus();
 }
 
 async function installCore(request: CoreInstallRequest) {
-  return await withCoreInstallLock('github', () => installCoreUnlocked(request));
+  const input = isObject(request) ? request : {};
+  const allowlistedRequest: CoreInstallRequest = {
+    allowDowngrade: input.allowDowngrade,
+    channel: input.channel,
+    downgradeToken: input.downgradeToken,
+    expectedTag: input.expectedTag,
+    mode: input.mode,
+  };
+  return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'github', () =>
+    installCoreUnlocked(allowlistedRequest),
+  );
+}
+
+async function installCoreAutomaticallyForHomeV2(request: HomeV2AutomaticCoreInstallRequest) {
+  return await withCoreInstallLockForNetwork(CORE_DESCRIPTOR.id, 'github', () =>
+    installCoreUnlocked({
+      ...request,
+      mode: 'strict-update',
+      skipCompletionStatus: true,
+      skipLayoutMigration: true,
+    }),
+  );
+}
+
+type HomeV2AutomaticJavaInstallRequest = Readonly<{
+  activationLease: () => Promise<void | (() => void)>;
+  preDownloadGuard: () => Promise<void>;
+}>;
+
+async function installJavaAutomaticallyForHomeV2(request: HomeV2AutomaticJavaInstallRequest) {
+  return await installJava({
+    ...request,
+    skipCompletionStatus: true,
+    skipLayoutMigration: true,
+  });
 }
 
 function quoteWindowsCommandArg(arg: string) {
@@ -3599,7 +3871,12 @@ async function runScript(
   });
 }
 
-async function waitForRuntimeState(running: boolean, timeoutMs: number, action: CoreProgress['action']) {
+async function waitForRuntimeState(
+  running: boolean,
+  timeoutMs: number,
+  action: CoreProgress['action'],
+  publishEvents = true,
+) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -3609,12 +3886,14 @@ async function waitForRuntimeState(running: boolean, timeoutMs: number, action: 
       return runtime;
     }
 
-    publishProgress({
-      action,
-      kind: 'info',
-      message: running ? 'Waiting for local Core API.' : 'Waiting for local Core to stop.',
-      percent: Math.min(95, Math.floor(((Date.now() - startedAt) / timeoutMs) * 100)),
-    });
+    if (publishEvents) {
+      publishProgress({
+        action,
+        kind: 'info',
+        message: running ? 'Waiting for local Core API.' : 'Waiting for local Core to stop.',
+        percent: Math.min(95, Math.floor(((Date.now() - startedAt) / timeoutMs) * 100)),
+      });
+    }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
@@ -3622,15 +3901,19 @@ async function waitForRuntimeState(running: boolean, timeoutMs: number, action: 
 }
 
 function getStartScript(previewPath: string) {
-  return process.platform === 'win32'
-    ? path.join(previewPath, 'start.bat')
-    : path.join(previewPath, 'start.sh');
+  return getCoreHelperScriptPaths(
+    CORE_DESCRIPTOR,
+    previewPath,
+    process.platform,
+  ).startScriptPath;
 }
 
 function getStopScript(previewPath: string) {
-  return process.platform === 'win32'
-    ? path.join(previewPath, 'stop.bat')
-    : path.join(previewPath, 'stop.sh');
+  return getCoreHelperScriptPaths(
+    CORE_DESCRIPTOR,
+    previewPath,
+    process.platform,
+  ).stopScriptPath;
 }
 
 // Whether the managed Core has I2P enabled, read from its on-disk participant
@@ -3639,10 +3922,17 @@ function getStopScript(previewPath: string) {
 // true on any uncertainty so we never suppress the fallback by accident; only a
 // list that positively excludes I2P (e.g. ["IP"]) returns false.
 async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
+  if (CORE_DESCRIPTOR.managedI2p.kind !== 'runtime-settings') {
+    return false;
+  }
+
   try {
-    const raw = await readFile(path.join(runtimePath, 'settings-preview-local.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { allowedTransports?: unknown };
-    const list = parsed.allowedTransports;
+    const raw = await readFile(
+      path.join(runtimePath, CORE_DESCRIPTOR.settings.fileName),
+      'utf8',
+    );
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const list = parsed[CORE_DESCRIPTOR.managedI2p.allowedTransportsField];
 
     if (!Array.isArray(list) || list.length === 0) {
       return true;
@@ -3654,7 +3944,247 @@ async function isCoreI2pEnabled(runtimePath: string): Promise<boolean> {
   }
 }
 
-async function startCore(options: { quiet?: boolean } = {}) {
+type QortiumTransportSettingsSnapshot =
+  | {
+      exists: boolean;
+      fingerprint: string;
+      kind: 'known';
+      mode: QortiumTransportMode;
+      settings: QortiumSettingsObject;
+    }
+  | { kind: 'unknown' };
+
+export type QortiumTransportModeMutationResult =
+  | { kind: 'completed'; mode: QortiumTransportMode }
+  | {
+      code:
+        | 'core-install-missing'
+        | 'core-runtime-not-stopped'
+        | 'core-runtime-unknown'
+        | 'status-unavailable'
+        | 'target-changed';
+      kind: 'blocked';
+    };
+
+function filesystemErrorCode(error: unknown) {
+  return error instanceof Error && 'code' in error
+    ? (error as NodeJS.ErrnoException).code
+    : undefined;
+}
+
+function transportSettingsPath(runtimePath: string) {
+  return path.join(runtimePath, CORE_DESCRIPTOR.settings.fileName);
+}
+
+async function readQortiumTransportSettingsSnapshot(
+  runtimePath: string,
+): Promise<QortiumTransportSettingsSnapshot> {
+  const settingsPath = transportSettingsPath(runtimePath);
+  let before;
+  try {
+    before = await lstat(settingsPath);
+  } catch (error) {
+    return filesystemErrorCode(error) === 'ENOENT'
+      ? {
+          exists: false,
+          fingerprint: 'missing',
+          kind: 'known',
+          mode: 'direct-and-i2p',
+          settings: {},
+        }
+      : { kind: 'unknown' };
+  }
+  if (before.isSymbolicLink() || !before.isFile() || before.size < 0 ||
+    before.size > QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES) return { kind: 'unknown' };
+
+  let raw: Buffer;
+  let handle;
+  try {
+    handle = await open(settingsPath, 'r');
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino ||
+      opened.size !== before.size) return { kind: 'unknown' };
+    raw = Buffer.alloc(opened.size);
+    let position = 0;
+    while (position < opened.size) {
+      const { bytesRead } = await handle.read(raw, position, opened.size - position, position);
+      if (bytesRead <= 0) return { kind: 'unknown' };
+      position += bytesRead;
+    }
+  } catch {
+    return { kind: 'unknown' };
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+  if (raw.byteLength > QORTIUM_TRANSPORT_SETTINGS_MAX_BYTES) return { kind: 'unknown' };
+
+  let after;
+  try {
+    after = await lstat(settingsPath);
+  } catch {
+    return { kind: 'unknown' };
+  }
+  if (after.isSymbolicLink() || !after.isFile() || before.dev !== after.dev ||
+    before.ino !== after.ino || before.size !== after.size ||
+    before.mtimeMs !== after.mtimeMs) return { kind: 'unknown' };
+
+  const parsed = parseQortiumTransportSettingsJson(raw.toString('utf8'));
+  if (parsed.kind !== 'known') return { kind: 'unknown' };
+  return {
+    exists: true,
+    fingerprint: createHash('sha256').update(raw).digest('hex'),
+    kind: 'known',
+    mode: parsed.mode,
+    settings: parsed.settings,
+  };
+}
+
+function sameQortiumTransportSettingsSnapshot(
+  left: QortiumTransportSettingsSnapshot,
+  right: QortiumTransportSettingsSnapshot,
+) {
+  return left.kind === 'known' && right.kind === 'known' &&
+    left.exists === right.exists && left.fingerprint === right.fingerprint;
+}
+
+function sameQortiumTransportCoreTarget(left: InstalledCore, right: InstalledCore) {
+  return left.runtimePath === right.runtimePath && left.jarPath === right.jarPath &&
+    left.installPath === right.installPath && left.tagName === right.tagName &&
+    left.digest === right.digest;
+}
+
+function isApprovedQortiumTransportCoreTarget(installed: InstalledCore) {
+  if (CORE_DESCRIPTOR.package.kind !== 'zip-with-preview-helpers') return false;
+  const installPath = getCoreInstallPath();
+  return isApprovedQortiumTransportManagedTarget(
+    installed,
+    {
+      installPath,
+      jarPath: path.join(installPath, CORE_DESCRIPTOR.package.jarFileName),
+      previewPath: path.join(installPath, CORE_DESCRIPTOR.package.previewDirectoryName),
+      runtimePath: getCoreRuntimePath(),
+    },
+    process.platform,
+  );
+}
+
+async function preparePrivateTransportSettingsReplacement(
+  settingsPath: string,
+  contents: string,
+) {
+  const temporaryPath = `${settingsPath}.home-v2-transport-${process.pid}-${Date.now()}-${randomBytes(8).toString('hex')}.tmp`;
+  await writeFile(temporaryPath, contents, {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o600,
+  });
+  if (process.platform !== 'win32') await chmod(temporaryPath, 0o600);
+  return temporaryPath;
+}
+
+async function ensurePrivateTransportRuntimeDirectory(runtimePath: string) {
+  await mkdir(runtimePath, { recursive: true, mode: 0o700 });
+  const runtimeDirectory = await lstat(runtimePath);
+  if (runtimeDirectory.isSymbolicLink() || !runtimeDirectory.isDirectory()) {
+    throw new Error('The Qortium Core runtime path is not a private directory.');
+  }
+  if (process.platform !== 'win32') await chmod(runtimePath, 0o700);
+}
+
+export async function readQortiumTransportModeForHomeV2(): Promise<QortiumTransportModeState> {
+  const installed = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!installed || !isApprovedQortiumTransportCoreTarget(installed)) return 'unknown';
+  const snapshot = await readQortiumTransportSettingsSnapshot(installed.runtimePath);
+  return snapshot.kind === 'known' ? snapshot.mode : 'unknown';
+}
+
+export async function setQortiumTransportModeForHomeV2(
+  mode: QortiumTransportMode,
+): Promise<QortiumTransportModeMutationResult> {
+  const initialInstall = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!initialInstall) return { code: 'core-install-missing', kind: 'blocked' };
+  if (!isApprovedQortiumTransportCoreTarget(initialInstall)) {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  const initialRuntime = await observeQortiumMaintenanceRuntimeState();
+  if (initialRuntime === 'running') {
+    return { code: 'core-runtime-not-stopped', kind: 'blocked' };
+  }
+  if (initialRuntime !== 'stopped') {
+    return { code: 'core-runtime-unknown', kind: 'blocked' };
+  }
+
+  const initialSettings = await readQortiumTransportSettingsSnapshot(initialInstall.runtimePath);
+  if (initialSettings.kind !== 'known') {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  const built = updateQortiumTransportSettings(initialSettings.settings, mode);
+  if (built.kind !== 'built') return { code: 'status-unavailable', kind: 'blocked' };
+
+  try {
+    await ensurePrivateTransportRuntimeDirectory(initialInstall.runtimePath);
+  } catch {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+
+  const finalInstall = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!finalInstall || !isApprovedQortiumTransportCoreTarget(finalInstall) ||
+    !sameQortiumTransportCoreTarget(initialInstall, finalInstall)) {
+    return { code: 'target-changed', kind: 'blocked' };
+  }
+  const finalSettings = await readQortiumTransportSettingsSnapshot(finalInstall.runtimePath);
+  if (!sameQortiumTransportSettingsSnapshot(initialSettings, finalSettings)) {
+    return { code: 'target-changed', kind: 'blocked' };
+  }
+  const finalRuntime = await observeQortiumMaintenanceRuntimeState();
+  if (finalRuntime === 'running') {
+    return { code: 'core-runtime-not-stopped', kind: 'blocked' };
+  }
+  if (finalRuntime !== 'stopped') {
+    return { code: 'core-runtime-unknown', kind: 'blocked' };
+  }
+
+  const settingsPath = transportSettingsPath(finalInstall.runtimePath);
+  let temporaryPath: string;
+  try {
+    temporaryPath = await preparePrivateTransportSettingsReplacement(settingsPath, built.jsonLine);
+  } catch {
+    return { code: 'status-unavailable', kind: 'blocked' };
+  }
+  try {
+    const committedInstall = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+    const committedSettings = await readQortiumTransportSettingsSnapshot(finalInstall.runtimePath);
+    const committedRuntime = await observeQortiumMaintenanceRuntimeState();
+    if (!committedInstall || !isApprovedQortiumTransportCoreTarget(committedInstall) ||
+      !sameQortiumTransportCoreTarget(finalInstall, committedInstall) ||
+      !sameQortiumTransportSettingsSnapshot(finalSettings, committedSettings)) {
+      return { code: 'target-changed', kind: 'blocked' };
+    }
+    if (committedRuntime === 'running') {
+      return { code: 'core-runtime-not-stopped', kind: 'blocked' };
+    }
+    if (committedRuntime !== 'stopped') {
+      return { code: 'core-runtime-unknown', kind: 'blocked' };
+    }
+    await rename(temporaryPath, settingsPath);
+    if (process.platform !== 'win32') await chmod(settingsPath, 0o600);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+  const confirmed = await readQortiumTransportSettingsSnapshot(finalInstall.runtimePath);
+  return confirmed.kind === 'known' && confirmed.mode === mode
+    ? { kind: 'completed', mode }
+    : { code: 'status-unavailable', kind: 'blocked' };
+}
+
+type CoreLifecycleOptions = {
+  publishEvents?: boolean;
+  quiet?: boolean;
+  runUpdateEngine?: boolean;
+  upgradeJava?: boolean;
+};
+
+async function startCore(options: CoreLifecycleOptions = {}) {
   // The running-core key cache must not serve pre-start state while the core
   // comes up (and start-guards below need fresh data).
   invalidateRunningCoreApiKeyCache();
@@ -3668,13 +4198,13 @@ async function startCore(options: { quiet?: boolean } = {}) {
   const currentRuntime = await resolveRuntimeStatusOwner(await fetchLocalCoreStatus(), installedCore);
 
   if (currentRuntime.running) {
-    void runCoreUpdateEngine();
+    if (options.runUpdateEngine !== false) void runCoreUpdateEngine();
     return await getStatus();
   }
 
   // The core is confirmed stopped here, so a managed-runtime swap cannot pull
   // the JRE out from under a running JVM.
-  await maybeUpgradeManagedJava();
+  if (options.upgradeJava !== false) await maybeUpgradeManagedJava();
 
   const java = await getJavaStatus();
 
@@ -3688,7 +4218,10 @@ async function startCore(options: { quiet?: boolean } = {}) {
   // is ready when Core looks for it. Best-effort — never blocks Core startup.
   // Skip it when the node has I2P disabled (IP-only): no point running a router
   // Core won't use.
-  if (await isCoreI2pEnabled(installedCore.runtimePath)) {
+  if (
+    CORE_DESCRIPTOR.managedI2p.kind === 'runtime-settings' &&
+    (await isCoreI2pEnabled(installedCore.runtimePath))
+  ) {
     await startI2pdIfManaged();
   }
 
@@ -3703,27 +4236,34 @@ async function startCore(options: { quiet?: boolean } = {}) {
     );
   }
 
-  publishProgress({
-    action: 'starting',
-    kind: 'info',
-    message: 'Starting Qortium Core.',
-    percent: 5,
-  });
+  if (options.publishEvents !== false) {
+    publishProgress({
+      action: 'starting',
+      kind: 'info',
+      message: 'Starting Qortium Core.',
+      percent: 5,
+    });
+  }
   try {
     ensurePreviewApiKey(installedCore.runtimePath);
     await runScript(
       startScript,
-      ['--participant', `--runtime-dir=${installedCore.runtimePath}`],
+      getCoreHelperStartArguments(CORE_DESCRIPTOR, installedCore.runtimePath),
       installedCore.previewPath,
       getJavaRuntimeEnv(java),
       { stdio: 'ignore' },
     );
-    await waitForRuntimeState(true, START_TIMEOUT_MS, 'starting');
+    await waitForRuntimeState(
+      true,
+      START_TIMEOUT_MS,
+      'starting',
+      options.publishEvents !== false,
+    );
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), installedCore.logPaths));
   }
 
-  if (!options.quiet) {
+  if (!options.quiet && options.publishEvents !== false) {
     publishProgress({
       action: 'idle',
       kind: 'success',
@@ -3732,7 +4272,7 @@ async function startCore(options: { quiet?: boolean } = {}) {
     });
   }
 
-  void runCoreUpdateEngine();
+  if (options.runUpdateEngine !== false) void runCoreUpdateEngine();
 
   return await getStatus();
 }
@@ -3779,9 +4319,12 @@ async function stopCoreViaApi(installedCore: InstalledCore | null) {
     );
   }
 
-  const response = await fetch(`${LOCAL_CORE_API_URL}/admin/stop`, {
-    headers: { 'X-API-KEY': apiKey },
-  });
+  const response = await fetch(
+    `${CORE_DESCRIPTOR.localApi.url}${CORE_DESCRIPTOR.localApi.stopPath}`,
+    {
+      headers: { 'X-API-KEY': apiKey },
+    },
+  );
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -3789,7 +4332,7 @@ async function stopCoreViaApi(installedCore: InstalledCore | null) {
   }
 }
 
-async function stopCore(options: { quiet?: boolean } = {}) {
+async function stopCore(options: CoreLifecycleOptions = {}) {
   invalidateRunningCoreApiKeyCache();
 
   const installedCore = await readInstalledCore();
@@ -3803,17 +4346,19 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   const stopScript = installedCore ? getStopScript(installedCore.previewPath) : null;
   const isHomeOwned = currentRuntime.owner === 'home';
 
-  publishProgress({
-    action: 'stopping',
-    kind: 'info',
-    message: 'Stopping Qortium Core.',
-    percent: 5,
-  });
+  if (options.publishEvents !== false) {
+    publishProgress({
+      action: 'stopping',
+      kind: 'info',
+      message: 'Stopping Qortium Core.',
+      percent: 5,
+    });
+  }
   try {
     if (isHomeOwned && installedCore && stopScript && existsSync(stopScript)) {
       await runScript(
         stopScript,
-        [`--runtime-dir=${installedCore.runtimePath}`],
+        getCoreHelperStopArguments(CORE_DESCRIPTOR, installedCore.runtimePath),
         installedCore.previewPath,
         getJavaRuntimeEnv(await getJavaStatus()),
       );
@@ -3835,15 +4380,22 @@ async function stopCore(options: { quiet?: boolean } = {}) {
       await stopCoreViaApi(installedCore);
     }
 
-    await waitForRuntimeState(false, STOP_TIMEOUT_MS, 'stopping');
+    await waitForRuntimeState(
+      false,
+      STOP_TIMEOUT_MS,
+      'stopping',
+      options.publishEvents !== false,
+    );
   } catch (error) {
     throw new Error(withCoreLogPaths(getErrorMessage(error), logPaths));
   }
 
   // Stop the router we started alongside Core (no-op for an external router).
-  await stopI2pdIfManaged();
+  if (CORE_DESCRIPTOR.managedI2p.kind === 'runtime-settings') {
+    await stopI2pdIfManaged();
+  }
 
-  if (!options.quiet) {
+  if (!options.quiet && options.publishEvents !== false) {
     publishProgress({
       action: 'idle',
       kind: 'success',
@@ -3855,16 +4407,304 @@ async function stopCore(options: { quiet?: boolean } = {}) {
   return await getStatus();
 }
 
+export type QortiumCoreManagerEntry = {
+  readonly descriptor: CoreNetworkDescriptor;
+  readonly networkId: 'qortium';
+  checkReleases: typeof checkReleases;
+  checkUpdates(): Promise<CoreStatus>;
+  getManagedPreviewPath: typeof getQortiumManagedCorePreviewPath;
+  getManagedRuntimePath: typeof getQortiumManagedCoreRuntimePath;
+  getStatus: typeof getStatus;
+  getMaintenanceRuntimeStateForHomeV2: typeof observeQortiumMaintenanceRuntimeState;
+  getTransportModeForHomeV2: typeof readQortiumTransportModeForHomeV2;
+  install: typeof installCore;
+  installCoreAutomaticallyForHomeV2: typeof installCoreAutomaticallyForHomeV2;
+  installJava: typeof installJava;
+  installJavaAutomaticallyForHomeV2: typeof installJavaAutomaticallyForHomeV2;
+  getAutomaticUpdateStatusForHomeV2: typeof getAutomaticUpdateStatusForHomeV2;
+  isManagedCoreUsingI2p: typeof isQortiumManagedCoreUsingI2p;
+  isManagedRuntimeRunning: typeof isQortiumManagedCoreRuntimeRunning;
+  refreshHelpers: typeof refreshCoreHelpers;
+  scheduleUpdateCheck: typeof scheduleQortiumManagedCoreUpdateCheck;
+  setUpdateSettings(request: unknown): Promise<CoreStatus>;
+  setTransportModeForHomeV2: typeof setQortiumTransportModeForHomeV2;
+  start: typeof startCore;
+  startForHomeV2(): ReturnType<typeof startCore>;
+  stop: typeof stopCore;
+  stopForHomeV2(): ReturnType<typeof stopCore>;
+};
+
+const qortiumCoreManagerEntry: QortiumCoreManagerEntry = Object.freeze({
+  descriptor: CORE_DESCRIPTOR,
+  networkId: CORE_DESCRIPTOR.id,
+  checkReleases,
+  async checkUpdates() {
+    await runCoreUpdateEngine();
+    return await getStatus();
+  },
+  getManagedPreviewPath: getQortiumManagedCorePreviewPath,
+  getManagedRuntimePath: getQortiumManagedCoreRuntimePath,
+  getStatus,
+  getMaintenanceRuntimeStateForHomeV2: observeQortiumMaintenanceRuntimeState,
+  getTransportModeForHomeV2: readQortiumTransportModeForHomeV2,
+  install: installCore,
+  installCoreAutomaticallyForHomeV2,
+  installJava,
+  installJavaAutomaticallyForHomeV2,
+  getAutomaticUpdateStatusForHomeV2,
+  isManagedCoreUsingI2p: isQortiumManagedCoreUsingI2p,
+  isManagedRuntimeRunning: isQortiumManagedCoreRuntimeRunning,
+  refreshHelpers: refreshCoreHelpers,
+  scheduleUpdateCheck: scheduleQortiumManagedCoreUpdateCheck,
+  async setUpdateSettings(request: unknown) {
+    await setCoreUpdateSettings(isObject(request) ? request : {});
+    await runCoreUpdateEngineAfterPolicyChange();
+    return await getStatus();
+  },
+  setTransportModeForHomeV2: setQortiumTransportModeForHomeV2,
+  start: startCore,
+  startForHomeV2: () => startCore({
+    publishEvents: false,
+    quiet: true,
+    runUpdateEngine: false,
+    upgradeJava: false,
+  }),
+  stop: stopCore,
+  stopForHomeV2: () => stopCore({ publishEvents: false, quiet: true }),
+});
+
+export type CoreManagerEntry = QortiumCoreManagerEntry | QortalCoreManager;
+
+const coreManagerEntries = new NetworkManagerEntryRegistry<CoreNetworkId, CoreManagerEntry>([
+  qortiumCoreManagerEntry,
+]);
+
+export function registerQortalCoreManagerEntry(manager: QortalCoreManager) {
+  return coreManagerEntries.register(manager);
+}
+
+function qortalPlatformRuntimeOverrides(): Partial<QortalCoreRuntimeOperations> {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') return {};
+  const resolution = resolveCoreNativeObserverPath({
+    appPath: app.getAppPath(),
+    arch: process.arch,
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+  });
+  const supportedArchitecture = process.platform === 'darwin'
+    ? process.arch === 'x64' || process.arch === 'arm64'
+    : process.arch === 'x64';
+  if (resolution.kind !== 'resolved' || !supportedArchitecture) {
+    const reason = resolution.kind === 'unknown'
+      ? resolution.reason
+      : `The native Core observer is unsupported on ${process.platform}/${process.arch}.`;
+    return {
+      inspectListener: async () => ({ kind: 'unknown', reason }),
+      inspectProcesses: async () => ({ kind: 'unknown', processes: [], reason }),
+    };
+  }
+  if (process.platform === 'win32') {
+    const observer = { helperPath: resolution.executablePath } as const;
+    return {
+      inspectListener: async () => await observeWindowsCoreListenerOwners(12391, observer),
+      inspectProcesses: async (paths) => await observeWindowsQortalProcesses({
+        ...observer,
+        selectedJarPath: paths.jarPath,
+      }),
+      readSecureFile: async (targetPath, maxBytes) =>
+        await readWindowsSecureFile(targetPath, maxBytes, observer),
+    };
+  }
+  const observer = {
+    arch: process.arch as 'arm64' | 'x64',
+    helperPath: resolution.executablePath,
+  } as const;
+  return {
+    inspectListener: async () => await observeMacosCoreListenerOwners(12391, observer),
+    inspectProcesses: async (paths) => await observeMacosQortalProcesses({
+      ...observer,
+      selectedJarPath: paths.jarPath,
+    }),
+  };
+}
+
+async function observeQortiumMaintenanceRuntimeState(): Promise<'running' | 'stopped' | 'unknown'> {
+  if ((await fetchLocalCoreStatus()).running) return 'running';
+
+  let listener;
+  if (process.platform === 'linux') {
+    listener = await observeCoreListenerOwners(CORE_DESCRIPTOR.processProbe.apiPort);
+  } else if (process.platform === 'darwin' || process.platform === 'win32') {
+    const resolution = resolveCoreNativeObserverPath({
+      appPath: app.getAppPath(),
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+    });
+    if (resolution.kind !== 'resolved') return 'unknown';
+    if (process.platform === 'win32') {
+      if (process.arch !== 'x64') return 'unknown';
+      listener = await observeWindowsCoreListenerOwners(CORE_DESCRIPTOR.processProbe.apiPort, {
+        helperPath: resolution.executablePath,
+      });
+    } else {
+      if (process.arch !== 'x64' && process.arch !== 'arm64') return 'unknown';
+      listener = await observeMacosCoreListenerOwners(CORE_DESCRIPTOR.processProbe.apiPort, {
+        arch: process.arch,
+        helperPath: resolution.executablePath,
+      });
+    }
+  } else {
+    return 'unknown';
+  }
+
+  if (listener.kind === 'owners') return 'running';
+  if (listener.kind !== 'absent') return 'unknown';
+
+  const installed = await readInstalledCoreMetadataForHomeV2UpdateDiscovery();
+  if (!installed) return 'stopped';
+  if (!isApprovedQortiumTransportCoreTarget(installed)) return 'unknown';
+
+  let processes;
+  if (process.platform === 'linux') {
+    processes = await observeCurrentUserQortalProcesses({ selectedJarPath: installed.jarPath });
+  } else {
+    const resolution = resolveCoreNativeObserverPath({
+      appPath: app.getAppPath(),
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+    });
+    if (resolution.kind !== 'resolved') return 'unknown';
+    if (process.platform === 'win32') {
+      if (process.arch !== 'x64') return 'unknown';
+      processes = await observeWindowsQortalProcesses({
+        helperPath: resolution.executablePath,
+        selectedJarPath: installed.jarPath,
+      });
+    } else {
+      if (process.arch !== 'x64' && process.arch !== 'arm64') return 'unknown';
+      processes = await observeMacosQortalProcesses({
+        arch: process.arch,
+        helperPath: resolution.executablePath,
+        selectedJarPath: installed.jarPath,
+      });
+    }
+  }
+
+  if (processes.kind !== 'observed') return 'unknown';
+  return processes.processes.some((candidate) =>
+    candidate.classification.kind === 'qortal-direct-jar' && candidate.classification.selected)
+    ? 'running'
+    : 'stopped';
+}
+
+export function registerProductionCoreManagerEntries() {
+  const existing = coreManagerEntries.get('qortal');
+  if (existing) return existing;
+
+  const paths = resolveQortalManagedInstallPaths({
+    appDataPath: app.getPath('appData'),
+    userDataPath: app.getPath('userData'),
+  });
+  const runtimeOverrides = qortalPlatformRuntimeOverrides();
+  return registerQortalCoreManagerEntry(createProductionQortalCoreManager(
+    {
+      adoptedRecordPath: resolveQortalAdoptedInstallRecordPath(paths),
+      lockRoot: path.join(paths.basePath, 'operation-locks'),
+      paths,
+      ...(runtimeOverrides.readSecureFile ? {
+        readAdoptedRecord: async (recordPath: string, maxBytes: number) =>
+          (await runtimeOverrides.readSecureFile!(recordPath, maxBytes)).bytes,
+      } : {}),
+      userAgent: QORTAL_CORE_DESCRIPTOR.github.userAgent,
+    },
+    resolveSharedQortalJavaForLaunch,
+    runtimeOverrides,
+    {
+      inspectExternalInstallCollision: async () =>
+        await probeProductionQortalExternalInstallCollision(paths),
+    },
+  ));
+}
+
+export function getCoreManagerEntry(networkId: CoreNetworkId) {
+  return coreManagerEntries.get(networkId);
+}
+
+export function listCoreManagerNetworkIds() {
+  return coreManagerEntries.listNetworkIds();
+}
+
+export function requireCoreManagerEntry(networkId: CoreNetworkId) {
+  return coreManagerEntries.require(networkId);
+}
+
+function requireQortiumCoreManagerEntry() {
+  const manager = requireCoreManagerEntry('qortium');
+
+  if (manager.networkId !== 'qortium') {
+    throw new Error('The Qortium Core manager registry entry has the wrong network identity.');
+  }
+
+  return manager;
+}
+
+// Existing callers remain source-compatible while entering through the keyed
+// Qortium registration. E2 can add a Qortal entry without changing these v1
+// compatibility contracts or pretending that it exists before it does.
+export function getManagedCorePreviewPath() {
+  return requireQortiumCoreManagerEntry().getManagedPreviewPath();
+}
+
+export function getManagedCoreRuntimePath() {
+  return requireQortiumCoreManagerEntry().getManagedRuntimePath();
+}
+
+export function isManagedCoreRuntimeRunning() {
+  return requireQortiumCoreManagerEntry().isManagedRuntimeRunning();
+}
+
+export function scheduleManagedCoreUpdateCheck() {
+  requireQortiumCoreManagerEntry().scheduleUpdateCheck();
+}
+
+export function isManagedCoreUsingI2p() {
+  return requireQortiumCoreManagerEntry().isManagedCoreUsingI2p();
+}
+
+function ensureCoreUpdateEngineStarted(manager: QortiumCoreManagerEntry) {
+  if (
+    coreManagerStates.ensureUpdateInterval(manager.networkId, () => {
+      const interval = setInterval(() => {
+        void manager.checkUpdates();
+      }, CORE_UPDATE_CHECK_INTERVAL_MS);
+
+      interval.unref();
+      return interval;
+    })
+  ) {
+    setTimeout(() => {
+      void manager.checkUpdates();
+    }, 0).unref();
+  }
+}
+
 export function registerCoreManagerIpcHandlers() {
-  ipcMain.handle('core:checkReleases', () => checkReleases());
-  ipcMain.handle('core:getStatus', () => getStatus());
+  const manager = requireQortiumCoreManagerEntry();
+
+  ipcMain.handle('core:checkReleases', () => manager.checkReleases());
+  ipcMain.handle('core:getStatus', () => manager.getStatus());
   ipcMain.handle('core:install', async (_event, request: CoreInstallRequest = {}) => {
     try {
-      return await installCore(request);
+      return await manager.install(request);
     } catch (error) {
       if (error instanceof DowngradeConfirmationRequiredError) {
         return {
-          ...(await getStatus()),
+          ...(await manager.getStatus()),
           downgradeConfirmation: error.confirmation,
         };
       }
@@ -3872,28 +4712,18 @@ export function registerCoreManagerIpcHandlers() {
       throw error;
     }
   });
-  ipcMain.handle('core:installJava', () => installJava());
-  ipcMain.handle('core:refreshHelpers', () => refreshCoreHelpers());
+  ipcMain.handle('core:installJava', () => manager.installJava());
+  ipcMain.handle('core:refreshHelpers', () => manager.refreshHelpers());
   ipcMain.handle('core:setJavaAutoUpdate', async (_event, enabled: unknown) => {
-    await setCoreUpdateSettings({ javaUpdatePolicy: enabled === true ? 'install' : 'off' });
-    await runCoreUpdateEngineAfterPolicyChange();
-    return await getStatus();
+    return await manager.setUpdateSettings({
+      javaUpdatePolicy: enabled === true ? 'install' : 'off',
+    });
   });
   ipcMain.handle('core:setUpdatePolicy', async (_event, request: unknown) => {
-    await setCoreUpdateSettings(isObject(request) ? request : {});
-    await runCoreUpdateEngineAfterPolicyChange();
-    return await getStatus();
+    return await manager.setUpdateSettings(request);
   });
-  ipcMain.handle('core:start', () => startCore());
-  ipcMain.handle('core:stop', () => stopCore());
+  ipcMain.handle('core:start', () => manager.start());
+  ipcMain.handle('core:stop', () => manager.stop());
 
-  if (!coreUpdateInterval) {
-    coreUpdateInterval = setInterval(() => {
-      void runCoreUpdateEngine();
-    }, CORE_UPDATE_CHECK_INTERVAL_MS);
-    coreUpdateInterval.unref();
-    setTimeout(() => {
-      void runCoreUpdateEngine();
-    }, 0).unref();
-  }
+  ensureCoreUpdateEngineStarted(manager);
 }

@@ -13,6 +13,7 @@ export type BridgeProtocol = 'qdnRequest' | 'qortalRequest'
 export type PermissionRequestId = Brand<string, 'PermissionRequestId'>
 export type PermissionScope = 'single-request' | 'session' | 'always'
 export type PermissionCapability =
+  | 'account.read'
   | 'account.public.read'
   | 'qdn.publish'
   | 'qortal.account.read'
@@ -29,6 +30,7 @@ export type PermissionCapability =
   | 'group.membership'
   | 'group.administration'
   | 'notifications.show'
+  | 'bookmarks.manage'
   | 'transactions.pending.read'
   | 'transactions.pending.forget'
 
@@ -83,6 +85,9 @@ export interface PermissionPrompt {
     | 'SEND_PRIVATE_GROUP_CHAT_MESSAGE'
     | 'SEND_PRIVATE_GROUP_CHAT_REACTION'
     | 'SHOW_NOTIFICATION'
+    | 'BOOKMARKS_GET'
+    | 'BOOKMARKS_APPLY'
+    | 'BOOKMARKS_OPEN'
     | 'GET_PENDING_TRANSACTIONS'
     | 'FORGET_PENDING_TRANSACTION'
   readonly capability: PermissionCapability
@@ -136,11 +141,7 @@ export interface PermissionTransition {
 export type PermissionInvalidation =
   | { readonly kind: 'identity-changed'; readonly identityId: IdentityId }
   | { readonly kind: 'navigation-changed'; readonly tabId: TabId }
-  | {
-      readonly kind: 'node-changed'
-      readonly network: NetworkId
-      readonly nodeProfileRef: NodeProfileRef
-    }
+  | { readonly kind: 'node-changed'; readonly network: NetworkId }
   | { readonly kind: 'tab-closed'; readonly tabId: TabId }
   | { readonly kind: 'locked' }
 
@@ -203,15 +204,16 @@ function grantMatchesPrompt(
   grant: PermissionGrant,
   prompt: PermissionPrompt,
 ): boolean {
+  const unifiedAccountRead = grant.capability === 'account.read' && prompt.capability === 'account.read'
   return (
-    grant.protocol === prompt.protocol &&
-    grant.action === prompt.action &&
+    (unifiedAccountRead || grant.protocol === prompt.protocol) &&
+    (unifiedAccountRead || grant.action === prompt.action) &&
     grant.capability === prompt.capability &&
     grant.appIdentityKey === prompt.appIdentityKey &&
     grant.identityId === prompt.context.identityId &&
     grant.walletRef === prompt.context.walletRef &&
-    grant.targetNetwork === prompt.context.targetNetwork &&
-    grant.nodeProfileRef === prompt.context.nodeProfileRef &&
+    (unifiedAccountRead || grant.targetNetwork === prompt.context.targetNetwork) &&
+    (unifiedAccountRead || grant.nodeProfileRef === prompt.context.nodeProfileRef) &&
     (grant.scope === 'always' || grant.sourceTabId === prompt.context.tabId)
   )
 }
@@ -258,22 +260,21 @@ export function resolvePermissionPrompt(
       scope: decision.scope,
     })
     grants = [
-      ...state.grants.filter(
-        (candidate) =>
-          !(
-            candidate.scope === grant.scope &&
-            (grant.scope === 'always' ||
-              candidate.sourceTabId === grant.sourceTabId) &&
-            candidate.protocol === grant.protocol &&
-            candidate.capability === grant.capability &&
-            candidate.appIdentityKey === grant.appIdentityKey &&
-            candidate.action === grant.action &&
-            candidate.identityId === grant.identityId &&
-            candidate.walletRef === grant.walletRef &&
-            candidate.targetNetwork === grant.targetNetwork &&
-            candidate.nodeProfileRef === grant.nodeProfileRef
-          ),
-      ),
+      ...state.grants.filter((candidate) => {
+        const unifiedAccountRead = candidate.capability === 'account.read' && grant.capability === 'account.read'
+        return !(
+          candidate.scope === grant.scope &&
+          (grant.scope === 'always' || candidate.sourceTabId === grant.sourceTabId) &&
+          (unifiedAccountRead || candidate.protocol === grant.protocol) &&
+          candidate.capability === grant.capability &&
+          candidate.appIdentityKey === grant.appIdentityKey &&
+          (unifiedAccountRead || candidate.action === grant.action) &&
+          candidate.identityId === grant.identityId &&
+          candidate.walletRef === grant.walletRef &&
+          (unifiedAccountRead || candidate.targetNetwork === grant.targetNetwork) &&
+          (unifiedAccountRead || candidate.nodeProfileRef === grant.nodeProfileRef)
+        )
+      }),
       grant,
     ]
   }
@@ -300,7 +301,7 @@ export function invalidatePermissionState(
   if (change.kind === 'locked') {
     return freezePermissionState({
       pending: [],
-      grants: [],
+      grants: state.grants.filter((grant) => grant.capability === 'account.read'),
       revision: state.revision + 1,
     })
   }
@@ -313,10 +314,7 @@ export function invalidatePermissionState(
       case 'tab-closed':
         return prompt.context.tabId === change.tabId
       case 'node-changed':
-        return (
-          prompt.context.targetNetwork === change.network &&
-          prompt.context.nodeProfileRef === change.nodeProfileRef
-        )
+        return prompt.context.targetNetwork === change.network
     }
   }
   const affectsGrant = (grant: PermissionGrant): boolean => {
@@ -325,12 +323,10 @@ export function invalidatePermissionState(
         return grant.identityId === change.identityId
       case 'navigation-changed':
       case 'tab-closed':
-        return grant.scope === 'session' && grant.sourceTabId === change.tabId
+        return grant.scope === 'session' && grant.sourceTabId === change.tabId &&
+          (change.kind === 'tab-closed' || grant.capability !== 'account.read')
       case 'node-changed':
-        return (
-          grant.targetNetwork === change.network &&
-          grant.nodeProfileRef === change.nodeProfileRef
-        )
+        return grant.capability !== 'account.read' && grant.targetNetwork === change.network
     }
   }
 

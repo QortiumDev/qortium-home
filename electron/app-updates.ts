@@ -5,6 +5,11 @@ import { access, chmod, constants as fsConstants, mkdir, rename, rm, stat } from
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { isTrustedHomeAssetResponseUrl } from './app-update-discovery.js';
+import {
+  resolvePrivateHomeV2AppUpdateTarget,
+  sanitizeAppUpdatePathSegment,
+} from './app-update-paths.js';
 
 type AppUpdatePlatformOs = 'android' | 'linux' | 'macos' | 'unsupported' | 'windows';
 
@@ -126,10 +131,6 @@ async function isDirectoryWritable(dir: string) {
   } catch {
     return false;
   }
-}
-
-function sanitizePathSegment(value: string, fallback: string) {
-  return value.replace(/[^a-z0-9._-]/gi, '_') || fallback;
 }
 
 function normalizeDigest(value: unknown) {
@@ -300,7 +301,7 @@ function isSupportedPlatform(os: AppUpdatePlatformOs, arch: string) {
   return false;
 }
 
-function getUpdateEnvironment() {
+export function getUpdateEnvironment() {
   const os = getPlatformOs();
   const arch = process.arch;
   const osVersion = process.getSystemVersion();
@@ -343,7 +344,7 @@ function normalizeExternalUrl(value: unknown) {
   return url.toString();
 }
 
-async function openExternalUrl(value: unknown) {
+export async function openExternalUrl(value: unknown) {
   await shell.openExternal(normalizeExternalUrl(value));
 }
 
@@ -421,7 +422,7 @@ async function getVerifiedExistingDownload({
 }
 
 function getFallbackDownloadDir(releaseTag: string) {
-  return path.join(getAppUpdatesPath(), sanitizePathSegment(releaseTag, 'release'));
+  return path.join(getAppUpdatesPath(), sanitizeAppUpdatePathSegment(releaseTag, 'release'));
 }
 
 function getDefaultReleaseAssetDownloadDir(releaseTag: string) {
@@ -435,7 +436,7 @@ function getDefaultReleaseAssetDownloadDir(releaseTag: string) {
 }
 
 async function resolveReleaseAssetDownloadTarget(assetName: string, releaseTag: string): Promise<AppUpdateDownloadTarget> {
-  const fileName = sanitizePathSegment(assetName, 'download');
+  const fileName = sanitizeAppUpdatePathSegment(assetName, 'download');
   const { canceled, filePath } = await dialog.showSaveDialog({
     buttonLabel: 'Save',
     defaultPath: path.join(getDefaultReleaseAssetDownloadDir(releaseTag), fileName),
@@ -463,7 +464,7 @@ async function resolveReleaseAssetDownloadTarget(assetName: string, releaseTag: 
 // collide with the currently-running executable.
 async function resolveUpdateDownloadTarget(assetName: string, releaseTag: string): Promise<AppUpdateDownloadTarget> {
   const installDir = getInstallDir();
-  const fileName = sanitizePathSegment(assetName, 'update');
+  const fileName = sanitizeAppUpdatePathSegment(assetName, 'update');
   const wouldOverwriteRunningFile = path.join(installDir, fileName) === getInstallFile();
 
   if (!wouldOverwriteRunningFile && (await isDirectoryWritable(installDir))) {
@@ -479,6 +480,10 @@ async function resolveUpdateDownloadTarget(assetName: string, releaseTag: string
   };
 }
 
+async function resolvePrivateUpdateDownloadTarget(assetName: string, releaseTag: string) {
+  return resolvePrivateHomeV2AppUpdateTarget(getAppUpdatesPath(), assetName, releaseTag)
+}
+
 async function downloadAssetInternal(
   request: AppUpdateDownloadRequest,
   {
@@ -486,11 +491,17 @@ async function downloadAssetInternal(
     message,
     resolveDownloadTarget,
     verifyMessage,
+    publishProgress = publishDownloadProgress,
+    requireExpectedSize = false,
+    requireTrustedRedirect = false,
   }: {
     enforceNewer: boolean;
     message: string;
     resolveDownloadTarget: (assetName: string, releaseTag: string) => Promise<AppUpdateDownloadTarget>;
     verifyMessage: string;
+    publishProgress?: (progress: AppUpdateDownloadProgress) => void;
+    requireExpectedSize?: boolean;
+    requireTrustedRedirect?: boolean;
   },
 ) {
   const normalizedRequest = normalizeDownloadRequest(request);
@@ -530,14 +541,31 @@ async function downloadAssetInternal(
     throw new Error(text || `Update download failed with HTTP ${response.status}.`);
   }
 
+  if (requireTrustedRedirect) {
+    if (!isTrustedHomeAssetResponseUrl(response.url)) {
+      throw new Error('Update download left the trusted GitHub asset hosts.')
+    }
+  }
+
   const hash = createHash('sha256');
   let receivedBytes = 0;
   const totalBytes = getResponseContentLength(response) ?? (normalizedRequest.asset.size > 0 ? normalizedRequest.asset.size : null);
+  if (
+    requireExpectedSize &&
+    (!normalizedRequest.asset.size ||
+      (totalBytes !== null && totalBytes !== normalizedRequest.asset.size))
+  ) {
+    throw new Error('Update download size did not match the trusted GitHub asset metadata.')
+  }
   const digestStream = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       receivedBytes += chunk.length;
+      if (requireExpectedSize && receivedBytes > normalizedRequest.asset.size) {
+        callback(new Error('Update download exceeded the trusted GitHub asset size.'))
+        return
+      }
       hash.update(chunk);
-      publishDownloadProgress({
+      publishProgress({
         action: 'downloading',
         fileName,
         message,
@@ -550,7 +578,7 @@ async function downloadAssetInternal(
     },
   });
 
-  publishDownloadProgress({
+  publishProgress({
     action: 'downloading',
     fileName,
     message,
@@ -566,7 +594,12 @@ async function downloadAssetInternal(
     createWriteStream(partialPath),
   );
 
-  publishDownloadProgress({
+  if (requireExpectedSize && receivedBytes !== normalizedRequest.asset.size) {
+    await rm(partialPath, { force: true })
+    throw new Error('Update download size did not match the trusted GitHub asset metadata.')
+  }
+
+  publishProgress({
     action: 'verifying',
     fileName,
     message: verifyMessage,
@@ -614,6 +647,22 @@ async function downloadAsset(request: AppUpdateDownloadRequest) {
   });
 }
 
+export async function downloadVerifiedAppUpdate(request: AppUpdateDownloadRequest) {
+  const normalizedRequest = normalizeDownloadRequest(request)
+  if (!normalizedRequest.asset.digest) {
+    throw new Error('The selected update has no trusted SHA-256 digest.')
+  }
+  return downloadAssetInternal(normalizedRequest, {
+    enforceNewer: true,
+    message: 'Downloading Qortium Home update',
+    publishProgress: () => undefined,
+    requireExpectedSize: true,
+    requireTrustedRedirect: true,
+    resolveDownloadTarget: resolvePrivateUpdateDownloadTarget,
+    verifyMessage: 'Verifying Qortium Home update',
+  })
+}
+
 async function downloadReleaseAsset(request: AppUpdateDownloadRequest) {
   return downloadAssetInternal(request, {
     enforceNewer: false,
@@ -641,7 +690,7 @@ function normalizeDownloadedFilePath(value: unknown) {
   return filePath;
 }
 
-async function openDownloadedFile(value: unknown) {
+export async function openDownloadedFile(value: unknown) {
   const message = await shell.openPath(normalizeDownloadedFilePath(value));
 
   if (message) {
@@ -649,7 +698,7 @@ async function openDownloadedFile(value: unknown) {
   }
 }
 
-function showDownloadedFile(value: unknown) {
+export function showDownloadedFile(value: unknown) {
   shell.showItemInFolder(normalizeDownloadedFilePath(value));
 }
 

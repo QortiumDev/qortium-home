@@ -10,8 +10,12 @@ import { sanitizeHomeV2AppTitle } from './app-frame-messages'
 export type ShellDestination =
   | 'activity'
   | 'apps'
+  | 'core-docs'
   | 'dashboard'
+  | 'newtab'
+  | 'releases'
   | 'settings'
+  | 'welcome'
   | 'tab'
 
 export interface AppTab {
@@ -91,8 +95,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const destinations = new Set<ShellDestination>([
   'activity',
   'apps',
+  'core-docs',
   'dashboard',
+  'newtab',
+  'releases',
   'settings',
+  'welcome',
   'tab',
 ])
 
@@ -160,7 +168,13 @@ export function restoreProductState(value: unknown): ProductState {
       ? (value.activeTabId as TabId)
       : null
   return freezeProductState({
-    destination: destination === 'tab' && !activeTabId ? 'dashboard' : destination,
+    destination:
+      destination === 'releases' ||
+      destination === 'core-docs' ||
+      destination === 'welcome' ||
+      (destination === 'tab' && !activeTabId)
+        ? 'dashboard'
+        : destination,
     tabs,
     activeTabId: destination === 'tab' ? activeTabId : null,
     revision: 0,

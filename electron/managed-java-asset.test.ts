@@ -94,20 +94,130 @@ assert.equal(selectManagedJavaBinary([{ ...buildRelease(), version: {} }], LINUX
 // managed runtime becomes the interpreter that runs Core, so this asserts the
 // wiring that a null digest used to bypass.
 const coreManagerSource = readFileSync(path.join(repoRoot, 'electron/core-manager.ts'), 'utf8');
+const verifiedDownloadSource = readFileSync(
+  path.join(repoRoot, 'electron/core-verified-download.ts'),
+  'utf8',
+);
 const javaArchiveAsset = /const archive: DownloadAsset = \{([^}]*)\}/.exec(coreManagerSource)?.[1];
+const rendererInstallRequest = /type CoreInstallRequest = \{([\s\S]*?)\n};/
+  .exec(coreManagerSource)?.[1];
 
 assert(javaArchiveAsset, 'The managed Java download asset was not found in core-manager.ts.');
+assert(rendererInstallRequest, 'The renderer-reachable Core install request was not found.');
+assert.doesNotMatch(
+  rendererInstallRequest,
+  /activationLease|preDownloadGuard|skipCompletionStatus|skipLayoutMigration/,
+  'Automatic-only controls must not be forgeable through the legacy Core install IPC request.',
+);
+assert.match(
+  coreManagerSource,
+  /async function installCoreAutomaticallyForHomeV2[\s\S]{0,500}skipCompletionStatus: true[\s\S]{0,120}skipLayoutMigration: true/,
+  'Only the dedicated internal automatic Core method may enable the migration/status bypasses.',
+);
+assert.match(
+  coreManagerSource,
+  /async function installCore\(request: CoreInstallRequest\)[\s\S]{0,500}const allowlistedRequest: CoreInstallRequest[\s\S]{0,500}installCoreUnlocked\(allowlistedRequest\)/,
+  'Legacy Core install requests must be reconstructed before entering the internal installer.',
+);
 assert(
   javaArchiveAsset.includes('digest: javaBinary.checksum'),
   'The managed Java download must be verified against the checksum Adoptium published for it.',
+);
+assert.match(
+  coreManagerSource,
+  /sameManagedJavaGeneration\(current, expected\)/,
+  'Managed Java refreshes must compare the captured and current generation before publishing metadata.',
+);
+assert.match(
+  coreManagerSource,
+  /javaStatus\.majorVersion !== MANAGED_JAVA_TARGET_MAJOR_VERSION/,
+  'Managed Java activation must require the exact managed target major version.',
+);
+assert.match(
+  coreManagerSource,
+  /!isNewerJavaVersion\(javaStatus\.version, currentGeneration\.version\)/,
+  'Managed Java updates must refuse an equal or older fetched runtime.',
+);
+assert.match(
+  coreManagerSource,
+  /sameManagedJavaGeneration\(currentGeneration, expectedGeneration\)/,
+  'Managed Java activation must revalidate the selected generation after download.',
+);
+assert.doesNotMatch(
+  coreManagerSource,
+  /rm\(previousJava\.installPath/,
+  'Installing managed Java must not remove the generation another Core may still be using.',
+);
+assert.match(
+  coreManagerSource,
+  /runManagedJavaInstall[\s\S]{0,180}installJavaUnlocked/,
+  'Managed Java installation must be single-flighted.',
+);
+assert.match(
+  coreManagerSource,
+  /options\.preDownloadGuard\?\.\(\)[\s\S]{0,180}downloadFile\(archive, downloadPath, 'Java runtime'\)/,
+  'Automatic Java policy must be revalidated before the archive download begins.',
+);
+assert.match(
+  coreManagerSource,
+  /releaseActivation = \(await options\.activationLease\?\.\(\)\)[\s\S]{0,900}rename\(stagingPath, finalPath\)/,
+  'Automatic Java policy must be revocable immediately before immutable-generation activation.',
+);
+assert.match(
+  coreManagerSource,
+  /request\.preDownloadGuard\?\.\(\)[\s\S]{0,180}downloadFile\(release\.asset, downloadPath\)/,
+  'Automatic Core policy must be revalidated before the archive download begins.',
+);
+assert.match(
+  coreManagerSource,
+  /releaseActivation = \(await request\.activationLease\?\.\(\)\)[\s\S]{0,700}ensureRuntimeChainCompatible\(getCoreRuntimePath\(\)/,
+  'Automatic Core activation must hold its operation lease before mutating shared runtime state.',
+);
+assert.match(
+  coreManagerSource,
+  /startForHomeV2:[\s\S]{0,220}upgradeJava: false/,
+  'Home 2 lifecycle starts must not invoke the legacy Java update policy.',
+);
+const automaticStatusStart = coreManagerSource.indexOf('async function getAutomaticUpdateStatusForHomeV2');
+const automaticStatusEnd = coreManagerSource.indexOf('\nfunction normalizeInstallRequest', automaticStatusStart);
+const automaticStatusSource = automaticStatusStart >= 0 && automaticStatusEnd > automaticStatusStart
+  ? coreManagerSource.slice(automaticStatusStart, automaticStatusEnd)
+  : null;
+assert(automaticStatusSource, 'The Home 2 automatic update status seam was not found.');
+assert.doesNotMatch(
+  automaticStatusSource,
+  /ensureCoreLayout|getStatus\(|readInstalledCoreMetadata\(/,
+  'Automatic discovery must not enter Core layout migration or mutable status reconciliation.',
+);
+assert.match(
+  automaticStatusSource,
+  /readInstalledCoreMetadataForHomeV2UpdateDiscovery/,
+  'Automatic discovery must use the read-only installed-Core metadata seam.',
+);
+assert.match(
+  coreManagerSource,
+  /const existingCore = request\.skipLayoutMigration[\s\S]{0,180}readInstalledCoreMetadataForHomeV2UpdateDiscovery/,
+  'Automatic Core installation must not reconcile mutable installed metadata before its activation lease.',
+);
+assert.match(
+  coreManagerSource,
+  /if \(!request\.skipLayoutMigration\) await ensureCoreLayout\(\)/,
+  'Automatic Core installation must be able to bypass lifecycle-capable layout migration.',
+);
+assert.match(
+  coreManagerSource,
+  /if \(!options\.skipLayoutMigration\) await ensureCoreLayout\(\)/,
+  'Automatic Java installation must be able to bypass lifecycle-capable layout migration.',
 );
 assert(
   javaArchiveAsset.includes('downloadUrl: javaBinary.downloadUrl'),
   'The managed Java download must come from the same Adoptium record as its checksum.',
 );
 assert(
-  coreManagerSource.includes("asset.digest !== digest"),
-  'downloadFile must still compare the computed digest against the expected one.',
+  coreManagerSource.includes('downloadVerifiedCoreAsset') &&
+    verifiedDownloadSource.includes('digest !== input.asset.digest') &&
+    verifiedDownloadSource.includes('receivedBytes !== input.asset.size'),
+  'downloadFile must compare both the computed digest and exact byte count against the expected asset.',
 );
 
 console.log('Managed Java asset selection tests passed.');

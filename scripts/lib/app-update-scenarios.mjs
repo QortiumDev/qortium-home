@@ -66,7 +66,7 @@ export function buildRelease(version) {
       const name = template.replace('{version}', version);
 
       return {
-        browser_download_url: `https://example.invalid/${tagName}/${name}`,
+        browser_download_url: `https://github.com/QortiumDev/qortium-home/releases/download/${tagName}/${name}`,
         // Deterministic and distinct per asset, so a seed built from the wrong
         // asset cannot match by accident.
         digest: `sha256:${String(index + 1).repeat(64).slice(0, 64)}`,
@@ -75,9 +75,9 @@ export function buildRelease(version) {
       };
     }),
     draft: false,
-    html_url: `https://example.invalid/releases/${tagName}`,
+    html_url: `https://github.com/QortiumDev/qortium-home/releases/tag/${tagName}`,
     name: tagName,
-    prerelease: true,
+    prerelease: false,
     published_at: '2026-07-20T00:00:00Z',
     tag_name: tagName,
   };

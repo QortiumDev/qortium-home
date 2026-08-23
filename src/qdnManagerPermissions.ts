@@ -4,6 +4,7 @@ import {
   createDefaultQdnAppRolesStore,
   grantQdnAppCapability,
   migrateLegacyQdnAppStores,
+  revokeQdnAppCapability,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
   storeHoldsQdnAppCapability,
@@ -19,6 +20,7 @@ const listeners = new Set<(store: QdnAppAssignmentsStore) => void>();
 let cachedStore: QdnAppAssignmentsStore | null = null;
 let removeDesktopListener: (() => void) | null = null;
 let desktopMigration: Promise<void> | null = null;
+let localWriteChain = Promise.resolve();
 
 function parseJson(raw: string | null): unknown {
   if (!raw) return null;
@@ -86,12 +88,30 @@ async function readLocalStore() {
 }
 
 async function writeLocalStore(store: QdnAppAssignmentsStore) {
-  cachedStore = sanitizeQdnAppRolesStore(store);
-  const value = JSON.stringify(cachedStore);
+  const nextStore = sanitizeQdnAppRolesStore(store);
+  const value = JSON.stringify(nextStore);
   if (Capacitor.isNativePlatform()) await Preferences.set({ key: STORE_KEY, value });
   else window.localStorage.setItem(STORE_KEY, value);
+  cachedStore = nextStore;
   listeners.forEach((listener) => listener(cachedStore as QdnAppAssignmentsStore));
   return cachedStore;
+}
+
+function updateLocalStore(
+  mutate: (store: QdnAppAssignmentsStore) => QdnAppAssignmentsStore,
+  expectedRevision?: number,
+) {
+  const operation = localWriteChain.then(async () => {
+    const currentStore = sanitizeQdnAppRolesStore(await readLocalStore());
+    if (expectedRevision !== undefined && currentStore.revision !== expectedRevision) {
+      throw Object.assign(new Error('QDN app assignments changed; refresh and try again.'), {
+        code: 'HOME_DATA_STALE',
+      });
+    }
+    return writeLocalStore(mutate(currentStore));
+  });
+  localWriteChain = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export async function getQdnAppRolesStore(): Promise<QdnAppAssignmentsStore> {
@@ -115,17 +135,48 @@ export async function grantQdnManagerPermission(appKey: string, capability: QdnM
   return grantQdnAppCapabilityPermission(appKey, capability);
 }
 
-export async function grantQdnAppCapabilityPermission(appKey: string, capability: QdnAppCapability) {
-  const store = await readLocalStore();
-  return writeLocalStore(grantQdnAppCapability(store, appKey, capability));
+export async function grantQdnAppCapabilityPermission(
+  appKey: string,
+  capability: QdnAppCapability,
+  expectedRevision?: number,
+) {
+  return updateLocalStore(
+    (store) => grantQdnAppCapability(store, appKey, capability),
+    expectedRevision,
+  );
 }
 
-export async function setQdnAppAssignmentValue(input: { description?: unknown; label?: unknown; role: unknown; url: unknown }) {
+export async function revokeQdnAppCapabilityPermission(
+  appKey: string,
+  capability: QdnAppCapability,
+  expectedRevision?: number,
+) {
+  return updateLocalStore(
+    (store) => revokeQdnAppCapability(store, appKey, capability),
+    expectedRevision,
+  );
+}
+
+export async function setQdnAppAssignmentValue(
+  input: { description?: unknown; label?: unknown; role: unknown; url: unknown },
+  expectedRevision?: number,
+) {
   if (window.qortiumHome.qdn?.setAppAssignment) {
     await ensureDesktopMigration();
+    if (expectedRevision !== undefined) {
+      const currentStore = await window.qortiumHome.qdn.getAppAssignmentsStore?.();
+      if (!currentStore || currentStore.revision !== expectedRevision) {
+        throw Object.assign(new Error('QDN app assignments changed; refresh and try again.'), {
+          code: 'HOME_DATA_STALE',
+        });
+      }
+    }
     return window.qortiumHome.qdn.setAppAssignment(input);
   }
-  return writeLocalStore(setQdnAppAssignment(await readLocalStore(), input));
+  return updateLocalStore(
+    (store) => setQdnAppAssignment(store, input),
+    expectedRevision,
+  );
 }
 
 export function onQdnManagerPermissionsChanged(listener: (store: QdnAppAssignmentsStore) => void) {

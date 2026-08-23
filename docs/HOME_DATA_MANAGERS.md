@@ -1,6 +1,6 @@
 # Home data manager QDN bridge
 
-Home exposes two elevated, device-local manager capabilities to embedded QDN
+Home exposes two elevated, Home-profile manager capabilities to embedded QDN
 apps: bookmark management and notification management. These actions work when
 Home uses a local, custom, or public/network node because the managed data
 belongs to Home, not Core. Apps must still feature-detect them with
@@ -10,10 +10,24 @@ The data never becomes a QDN resource. Home does not publish or synchronize it,
 and a standalone browser copy of an app must not treat its own local storage as
 Home's data.
 
+Home 2 imports the v1 bookmarks tree, toolbar, dashboard pins, start pages,
+visibility, and shared revision once before serving this bridge. Desktop reads
+the old default Electron session through a hidden local migration document and
+stores the validated canonical snapshot in Home 2's isolated persistent
+partition. Android migrates the existing native Preferences in place. The
+legacy source remains intact, Android records a one-time migration marker,
+reloads are idempotent, and malformed or equally revised conflicting legacy
+data fails closed instead of silently becoming an empty collection. Mutations
+write the compatibility mirrors before the canonical CAS snapshot, which acts
+as the final commit marker.
+
 ## Permissions
 
-Manager permissions are separate from account permissions and from an app's
-permission to send notifications. They are keyed by the calling app's stable
+Manager permissions are separate from account permissions, from an app's
+assignment to a Home role, and from permission to send notifications. Home 2
+lists durable bookmark-manager grants in the trusted QDN Apps Settings surface
+and revokes them with an exact store-revision check. Revocation does not delete
+the user's saved links. Manager permissions are keyed by the calling app's stable
 `qdn://SERVICE/name/identifier` resource base (not its current deep-link path,
 query, or fragment) and persist as app-scoped capabilities until the user
 revokes them.
@@ -42,9 +56,10 @@ await qdnRequest({ action: 'NOTIFICATION_MANAGER_HAS_PERMISSION' });
 
 The first `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN`, or
 notification-manager read or mutation opens a durable permission dialog. A
-denial rejects the request and does not create a grant. The grant is
-device-local, does not depend on the selected account, and belongs only to the
-calling app.
+denial rejects the request and does not create a grant. The grant does not
+depend on the selected account and belongs only to the calling app's stable
+resource identity. Home does not publish or synchronize it, although a platform
+backup may restore the containing Home profile.
 
 If the app view changes while the permission dialog is open, Home rejects the
 stale request instead of granting or using the capability for the replacement

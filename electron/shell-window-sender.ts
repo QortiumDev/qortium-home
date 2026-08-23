@@ -6,8 +6,10 @@
 import { BrowserWindow, type WebContents } from 'electron';
 import { isTrustedQdnAppRolesSender } from './qdn-manager-permissions.js';
 import { getQdnViewContextForWebContents } from './qdn-views.js';
+import { getWidgetByWindowId } from './widget-registry.js';
 
 export function assertShellWindowSender(sender: WebContents, refusal: string) {
+  const shellWindow = BrowserWindow.fromWebContents(sender);
   const trusted = isTrustedQdnAppRolesSender({
     senderId: sender.id,
     isQdnView: getQdnViewContextForWebContents(sender) !== null,
@@ -16,5 +18,7 @@ export function assertShellWindowSender(sender: WebContents, refusal: string) {
       .map((window) => window.webContents.id),
   });
 
-  if (!trusted) throw new Error(refusal);
+  if (!trusted || !shellWindow || getWidgetByWindowId(shellWindow.id)) {
+    throw new Error(refusal);
+  }
 }

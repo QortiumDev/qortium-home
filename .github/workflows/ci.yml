@@ -58,7 +58,10 @@ jobs:
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
-      # Type-checks the renderer and the Electron main process.
+      - name: Type-check renderer
+        run: npx tsc -p tsconfig.json --noEmit
+
+      # Builds the production renderer and type-checks the Electron main process.
       - name: Build
         run: npm run build
 
@@ -114,10 +117,14 @@ jobs:
       - name: Test Android stream lifecycle
         run: npm run android:test:qdn-stream-lifecycle
 
+      - name: Assemble Android debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
   windows-core-install-lock:
-    name: Windows managed-Core install lock
+    name: Windows managed-Core authority
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -132,8 +139,27 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Build native Core observer
+        run: npm run build:native:windows
+
       - name: Build Electron main process
         run: npm run build:electron
+
+      - name: Stage and verify native Core observer
+        shell: pwsh
+        run: |
+          $resources = Join-Path $env:RUNNER_TEMP 'qortium-observer-resources'
+          $observerDirectory = Join-Path $resources 'native/windows/x64'
+          New-Item -ItemType Directory -Force $observerDirectory | Out-Null
+          Copy-Item '.native-build/windows/x64/qortium-core-observer.exe' $observerDirectory
+          npm run check:windows:core-observer -- --resources $resources
+
+      - name: Test native observer protocol and Java resolution
+        run: |
+          npm run test:core-native-observer
+          npm run test:core-native-observer-path
+          npm run test:qortal-java-launch
+          npm run test:windows-core-observation
 
       - name: Test real Windows install locks and rollback
         run: npm run test:core-install-transaction

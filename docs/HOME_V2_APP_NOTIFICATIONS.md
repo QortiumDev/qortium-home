@@ -56,10 +56,19 @@ Suppressed notifications return `shown: false` and one of `focused`, `muted`,
 ## Permission and provenance
 
 The first notification asks for one durable, revocable app-scoped permission.
-It is not tied to a wallet or node route and is shared by the app across both
-bridge protocols. The user can mute or revoke it through Home's existing app
-notification settings. Home checks the app's live resource identity again
-after approval before storing the grant.
+It is not tied to a wallet or node route. The stable QDN APP/WEBSITE resource
+identity owns one grant across the Qortium and Qortal bridge protocols; a route,
+query, fragment, selected account, or network switch does not create a second
+permission. Home checks the app's live resource identity again after approval
+before storing the grant.
+
+Home 2.1's trusted QDN Apps Settings page can mute or revoke that grant on
+desktop and Android. Muting hides alerts but retains the permission, rules, and
+Core subscriptions. Revoking deletes the grant and all of that app's rules. If
+a foreign-payment rule disclosed a watch-only wallet view to a Core, revocation
+stops future Home-managed use but cannot recall data that Core already received.
+The Settings host bridge exposes only redacted summaries and is denied to
+widgets; it is not a new QDN app action.
 
 Every displayed title ends with the registered app name and authoritative
 chain, for example `New mention — Chat · Qortium`. Home suppresses a
@@ -69,10 +78,42 @@ Home and activates the originating tab. Android stores the same tab, network,
 and conversation source in the local notification and activates the tab when
 it still exists.
 
+## Global delivery policy
+
+General Settings has one device/profile-wide **App notifications** switch.
+Turning it off suppresses direct app notifications. It is also the global gate
+for Home-managed background notifications when that watcher is activated in a
+later Home 2 tranche; it does not change notification grants, per-app mute
+state, saved rules, Core subscriptions, or operating-system notification permission.
+`NOTIFICATION_HAS_PERMISSION` therefore continues to report the app grant while
+global delivery is off, and a delivery request returns `shown: false` with
+`reason: "disabled"`. Home rechecks the policy immediately before scheduling
+so a switch change during notification preparation still wins.
+
+Desktop owns the exact versioned policy in
+`home-v2-notification-policy.json` under private Home data. Its narrow preload
+bridge authenticates the exact top-level Home document and uses an optimistic
+generation for multi-window changes. Android owns the same schema in Capacitor
+Preferences. When the new Android policy is absent, Home reads the old display
+settings once to preserve an explicit `appNotifications: false`, writes the new
+record, and does not consult the old store again. A missing policy defaults on;
+corrupt or unavailable state fails closed to off without overwriting the bad
+record.
+
+The policy is profile data. Android operating-system backup restore may restore
+an older saved value along with the rest of the app profile, so users should
+review the switch after restoring a device backup. This trusted setting is not
+a public QDN action and does not change QAVS `platformVersion: "2.0"`.
+
 ## Background boundary
 
 These actions let a running app show a notification. They do not migrate the
-legacy `NOTIFICATION_ADD` subscription-rule system into Home 2. Chat owns its
-bounded foreground polling for now. A Home-proxied dual-chain background
-subscription will be added only if measured delivery behavior shows that it is
-needed; it will require a separate network-qualified rule and watcher contract.
+legacy `NOTIFICATION_ADD` subscription-rule system into Home 2. The trusted
+Settings page may still summarize, mute, and revoke rules already stored in the
+Home profile. Desktop sends none of their account bindings, filters, watch-only
+data, titles, text, or links across IPC. Android reads its renderer-owned
+Preferences store and projects the same redacted state before the Settings
+component receives it. Chat owns its bounded foreground polling for now. A
+Home-proxied dual-chain background subscription will be added only if measured
+delivery behavior shows that it is needed; it will require a separate
+network-qualified rule and watcher contract.

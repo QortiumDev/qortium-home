@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, openSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,9 @@ const bootTimeoutMs = 180_000;
 const appTimeoutMs = 90_000;
 const cdpTimeoutMs = 90_000;
 const activityTimeoutMs = 30_000;
+const preferEmulator =
+  process.argv.slice(2).includes('--emulator') ||
+  process.env.QORTIUM_HOME_ANDROID_USE_EMULATOR === '1';
 
 function log(message) {
   console.log(`[android-update-install-smoke] ${message}`);
@@ -91,13 +95,14 @@ function getDebugApkPath() {
   return apks[0];
 }
 
-async function getAttachedDevice() {
+async function getAttachedDevice(emulatorOnly = false) {
   const { stdout } = await adb(['devices']);
   const devices = stdout
     .split(/\r?\n/)
     .map((line) => line.trim().split(/\s+/))
     .filter(([serial, state]) => serial && state === 'device')
-    .map(([serial]) => serial);
+    .map(([serial]) => serial)
+    .filter((serial) => !emulatorOnly || serial.startsWith('emulator-'));
 
   return devices[0] ?? null;
 }
@@ -128,7 +133,7 @@ async function waitUntil(label, timeoutMs, action) {
 }
 
 async function launchEmulatorIfNeeded() {
-  const existingDevice = await getAttachedDevice();
+  const existingDevice = await getAttachedDevice(preferEmulator);
 
   if (existingDevice) {
     log(`Using attached Android device ${existingDevice}.`);
@@ -172,7 +177,11 @@ async function launchEmulatorIfNeeded() {
 
   child.unref();
 
-  const serial = await waitUntil('Android emulator attachment', bootTimeoutMs, getAttachedDevice);
+  const serial = await waitUntil(
+    'Android emulator attachment',
+    bootTimeoutMs,
+    () => getAttachedDevice(true),
+  );
 
   await waitUntil('Android boot completion', bootTimeoutMs, async () => {
     const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed'], { timeout: 10_000 });
@@ -380,16 +389,20 @@ async function prepareUpdateFiles(serial, apkPath) {
   return {
     appUpdateDir,
     dataDir,
+    digest: `sha256:${createHash('sha256').update(readFileSync(apkPath)).digest('hex')}`,
     nonApkPath,
     validApkPath,
   };
 }
 
-async function callOpenDownloadedFile(client, filePath) {
+async function callOpenDownloadedFile(client, filePath, expectedDigest) {
   return evaluate(
     client,
     `
-      window.qortiumHome.updates.openDownloadedFile(${JSON.stringify(filePath)})
+      window.qortiumHome.updates.openDownloadedFile(
+        ${JSON.stringify(filePath)},
+        ${JSON.stringify(expectedDigest)},
+      )
         .then((result) => ({ ok: true, result: result ?? null }))
         .catch((error) => ({ ok: false, message: String(error && error.message || error) }))
     `,
@@ -397,8 +410,8 @@ async function callOpenDownloadedFile(client, filePath) {
   );
 }
 
-async function expectOpenDownloadedFileRejected(client, filePath, expectedMessage) {
-  const result = await callOpenDownloadedFile(client, filePath);
+async function expectOpenDownloadedFileRejected(client, filePath, expectedDigest, expectedMessage) {
+  const result = await callOpenDownloadedFile(client, filePath, expectedDigest);
 
   if (result?.ok) {
     fail(`Opening ${filePath} unexpectedly succeeded.`);
@@ -461,11 +474,29 @@ async function runUpdateInstallAssertions(client, serial, updateFiles) {
   await expectOpenDownloadedFileRejected(
     client,
     '/data/local/tmp/qortium-home-update-install-smoke.apk',
+    updateFiles.digest,
     'inside Qortium Home app data',
   );
-  await expectOpenDownloadedFileRejected(client, updateFiles.nonApkPath, 'must be an APK file');
+  await expectOpenDownloadedFileRejected(
+    client,
+    updateFiles.nonApkPath,
+    updateFiles.digest,
+    'must be an APK file',
+  );
+  await expectOpenDownloadedFileRejected(
+    client,
+    updateFiles.validApkPath,
+    `sha256:${'0'.repeat(64)}`,
+    'no longer matches',
+  );
+  await expectOpenDownloadedFileRejected(
+    client,
+    updateFiles.validApkPath,
+    undefined,
+    'verified SHA-256 digest is required',
+  );
 
-  const result = await callOpenDownloadedFile(client, updateFiles.validApkPath);
+  const result = await callOpenDownloadedFile(client, updateFiles.validApkPath, updateFiles.digest);
 
   if (result?.ok) {
     log('Valid update APK opened Android package installer.');

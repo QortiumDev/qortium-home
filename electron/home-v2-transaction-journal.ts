@@ -62,6 +62,7 @@ export interface HomeV2PendingTransaction {
   readonly network: HomeV2AppNetwork
   readonly protocol: HomeV2AppBridgeProtocol
   readonly signature: string
+  readonly stage?: 'key-announcement'
   readonly target: HomeV2TransactionTarget
   readonly timestamp: number
 }
@@ -141,6 +142,9 @@ export function sanitizeHomeV2PendingTransaction(value: unknown): HomeV2PendingT
   if (!isRecord(value) || !isHomeV2JournaledMutation(value.action)) {
     throw new Error('Pending transaction entry is invalid.')
   }
+  if (value.stage !== undefined && value.stage !== 'key-announcement') {
+    throw new Error('Pending transaction stage is invalid.')
+  }
   const protocol = value.protocol
   if (protocol !== 'qdnRequest' && protocol !== 'qortalRequest') {
     throw new Error('Pending transaction protocol is invalid.')
@@ -155,6 +159,7 @@ export function sanitizeHomeV2PendingTransaction(value: unknown): HomeV2PendingT
     network,
     protocol,
     signature: canonicalSignature(value.signature),
+    ...(value.stage === 'key-announcement' ? { stage: 'key-announcement' as const } : {}),
     target: normalizeTarget(value.target),
     timestamp: safeTimestamp(value.timestamp, 'Pending transaction timestamp'),
   })
@@ -233,6 +238,7 @@ export function toHomeV2PendingTransactionResult(
     createdAt: entry.createdAt,
     network: entry.network,
     signature: entry.signature,
+    ...(entry.stage ? { stage: entry.stage } : {}),
     target: entry.target,
     timestamp: entry.timestamp,
   })
@@ -271,7 +277,9 @@ export function findHomeV2PendingTransactionConflict(
   if (!isHomeV2JournaledMutation(input.action)) return null
   const target = homeV2TransactionTargetFromRequest(input.request)
   return getHomeV2PendingTransactions(journal, input, now).find((entry) =>
-    entry.action === input.action && JSON.stringify(entry.target) === JSON.stringify(target),
+    entry.action === input.action &&
+    entry.stage !== 'key-announcement' &&
+    JSON.stringify(entry.target) === JSON.stringify(target),
   ) ?? null
 }
 
@@ -301,6 +309,9 @@ export function createHomeV2PendingTransactionFromResult(input: {
     network: input.protocol === 'qortalRequest' ? 'qortal' : 'qortium',
     protocol: input.protocol,
     signature,
+    ...(input.result.stage === 'key-announcement' && input.result.messageSubmitted === false
+      ? { stage: 'key-announcement' as const }
+      : {}),
     target: homeV2TransactionTargetFromRequest(input.request),
     timestamp: input.result.timestamp,
   })

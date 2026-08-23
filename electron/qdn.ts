@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, type WebContents } from 'electron';
-import extract from 'extract-zip';
+import { extractZipSafely } from './safe-zip-extraction.js';
 import { zipSync } from 'fflate';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -650,12 +650,16 @@ const approvedQdnChatPermissions = new Set<string>();
 const lastQdnAppNotificationAt = new Map<string, number>();
 const QDN_APP_NOTIFICATION_MIN_INTERVAL_MS = 3_000;
 const QDN_APP_NOTIFICATION_TEXT_MAX_LENGTH = 240;
-// Synced from the renderer's persisted Display Settings on startup and on change;
-// true matches the setting's shipped default.
+// Home 2 initializes this from its main-process-owned device policy before any
+// trusted shell window is created. Legacy Home retains its renderer sync IPC.
 let qdnAppNotificationsEnabled = true;
 
 export function areQdnAppNotificationsEnabled() {
   return qdnAppNotificationsEnabled;
+}
+
+export function setQdnAppNotificationsEnabled(enabled: boolean) {
+  qdnAppNotificationsEnabled = enabled;
 }
 
 export function consumeQdnAppNotificationRateLimit(appKey: string) {
@@ -4565,7 +4569,7 @@ async function stageQdnPreviewSource(sourcePath: string) {
   if (extension === 'zip') {
     const stagingDir = await createQdnPreviewStagingDir(sourcePath);
 
-    await extract(sourcePath, { dir: stagingDir });
+    await extractZipSafely(sourcePath, { dir: stagingDir });
     const previewPath = await resolveExtractedQdnPreviewRoot(stagingDir);
 
     await assertQdnPreviewIndexFile(previewPath);
@@ -10029,7 +10033,7 @@ export function registerQdnIpcHandlers() {
   });
 
   ipcMain.handle('qdn:setAppNotificationsEnabled', (_event, enabled: unknown) => {
-    qdnAppNotificationsEnabled = enabled === true;
+    setQdnAppNotificationsEnabled(enabled === true);
   });
 
   ipcMain.handle('qdn:authorizeResource', async (_event, request: QdnAuthorizeResourceRequest) => {

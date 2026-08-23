@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   createDefaultQdnAppRolesStore,
   grantQdnAppCapability,
+  revokeQdnAppCapability,
   sanitizeQdnAppAssignmentUrl,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
@@ -45,6 +46,10 @@ assert.equal(storeHoldsQdnAppCapability(granted, 'qdn://APP/Bookmarks/Bookmarks'
 const moved = setQdnAppAssignment(granted, { role: 'bookmarks', url: 'qdn://APP/Other/Bookmarks#/saved' });
 assert.equal(storeHoldsQdnAppCapability(moved, 'qdn://APP/Bookmarks/Bookmarks', 'bookmarks.manage'), true);
 assert.equal(storeHoldsQdnAppCapability(moved, 'qdn://APP/Other/Bookmarks', 'bookmarks.manage'), false);
+const revokedGrant = revokeQdnAppCapability(moved, 'qdn://APP/Bookmarks/Bookmarks', 'bookmarks.manage');
+assert.equal(storeHoldsQdnAppCapability(revokedGrant, 'qdn://APP/Bookmarks/Bookmarks', 'bookmarks.manage'), false);
+assert.equal(revokedGrant.revision, moved.revision + 1);
+assert.equal(revokeQdnAppCapability(revokedGrant, 'qdn://APP/Bookmarks/Bookmarks', 'bookmarks.manage'), revokedGrant);
 
 // The old fixed-role v1 shape migrates its selected URL but deliberately drops
 // its role-bound grant rather than widening it into an independent permission.

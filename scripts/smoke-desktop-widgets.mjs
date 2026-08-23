@@ -433,6 +433,60 @@ async function main() {
       (url) => url.startsWith('http') && new URL(url).pathname.endsWith('/widget.html'),
       'widget face',
     )
+    const updateBridgeDenied = await face.evaluate(`
+      typeof window.homeV2AppUpdates?.check !== 'function'
+        ? Promise.resolve({ absent: true, denied: true, message: '' })
+        : window.homeV2AppUpdates.check('stable')
+          .then(() => ({ absent: false, denied: false, message: '' }))
+          .catch((error) => ({
+            absent: false,
+            denied: true,
+            message: String(error?.message ?? error),
+          }))
+    `)
+    assert.equal(
+      updateBridgeDenied.denied,
+      true,
+      'The shared widget preload must not authorize Home update discovery.',
+    )
+    if (!updateBridgeDenied.absent) {
+      assert.equal(
+        updateBridgeDenied.message.includes('not authorized'),
+        true,
+        `Widget update denial was unexpected: ${updateBridgeDenied.message}`,
+      )
+    }
+    const widgetShell = await home.renderer(
+      (url) => url.startsWith('file:') && url.includes('/widget.html?'),
+      'widget shell',
+    )
+    const qdnSettingsBridgeDenied = await widgetShell.evaluate(`
+      typeof window.homeV2QdnSettings?.get !== 'function'
+        ? Promise.resolve({ absent: true, denied: false, message: '' })
+        : window.homeV2QdnSettings.get()
+          .then(() => ({ absent: false, denied: false, message: '' }))
+          .catch((error) => ({
+            absent: false,
+            denied: true,
+            message: String(error?.message ?? error),
+          }))
+    `)
+    assert.equal(
+      qdnSettingsBridgeDenied.absent,
+      false,
+      'The shared widget preload must expose the Home QDN settings namespace.',
+    )
+    assert.equal(
+      qdnSettingsBridgeDenied.denied,
+      true,
+      'A widget must not be authorized to read trusted Home QDN settings.',
+    )
+    assert.match(
+      qdnSettingsBridgeDenied.message,
+      /authorized top-level Home v?2 (?:document|window)/i,
+      `Widget QDN settings denial was unexpected: ${qdnSettingsBridgeDenied.message}`,
+    )
+    widgetShell.close()
     const viewport = await face.evaluate('[window.innerWidth, window.innerHeight]')
     assert.deepEqual(
       viewport,

@@ -4,6 +4,7 @@ import type {
   PermissionScope,
   PermissionState,
 } from '../bridge-permissions'
+import { t, type TranslationKey } from '../../i18n'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 
 export interface PermissionDialogProps {
@@ -15,10 +16,10 @@ export interface PermissionDialogProps {
   ) => void
 }
 
-const permissionScopeLabels: Readonly<Record<PermissionScope, string>> = {
-  'single-request': 'Allow once',
-  session: 'Allow for this tab',
-  always: 'Always allow for this app',
+const permissionScopeLabelKeys: Readonly<Record<PermissionScope, TranslationKey>> = {
+  'single-request': 'home2.permission.allowOnce',
+  session: 'home2.permission.allowForTab',
+  always: 'home2.permission.alwaysAllowForApp',
 }
 
 export function PermissionDialog({
@@ -28,6 +29,7 @@ export function PermissionDialog({
 }: PermissionDialogProps) {
   const prompt = permissionState.pending[0]
   if (!prompt || prompt.context.tabId !== activeTabId) return null
+  const unifiedAccountRead = prompt.capability === 'account.read'
 
   return (
     <div className="home-v2-permission-backdrop">
@@ -41,21 +43,23 @@ export function PermissionDialog({
       >
         <div className="home-v2-permission-dialog__header">
           <div>
-            <span className="home-v2-protocol-badge">{prompt.protocol}</span>
+            <span className="home-v2-protocol-badge">
+              {unifiedAccountRead ? 'Qortal + Qortium' : prompt.protocol}
+            </span>
             <h2 id="home-v2-permission-title">{prompt.title}</h2>
           </div>
-          <NetworkBadge network={prompt.context.targetNetwork} />
+          {unifiedAccountRead ? null : <NetworkBadge network={prompt.context.targetNetwork} />}
         </div>
         <p>{prompt.summary}</p>
         <div className="home-v2-permission-context">
-          <span>App</span>
+          <span>{t('home2.permission.app')}</span>
           <strong>{prompt.appTitle}</strong>
-          <span>Account</span>
+          <span>{t('account.menuLabel')}</span>
           <strong>{prompt.context.identityId}</strong>
-          <span>Network</span>
-          <strong>{networkLabels[prompt.context.targetNetwork]}</strong>
-          <span>Action</span>
-          <strong>{prompt.action}</strong>
+          <span>{t('home2.permission.network')}</span>
+          <strong>{unifiedAccountRead ? 'Qortal + Qortium' : networkLabels[prompt.context.targetNetwork]}</strong>
+          <span>{t('home2.permission.action')}</span>
+          <strong>{unifiedAccountRead ? t('home2.permission.readOnlyAccountAccess') : prompt.action}</strong>
         </div>
         <dl className="home-v2-permission-details">
           {prompt.details.map((detail) => (
@@ -74,7 +78,7 @@ export function PermissionDialog({
               onResolvePermission?.(prompt.id, { approved: false })
             }
           >
-            Deny
+            {t('home2.permission.deny')}
           </button>
           {prompt.allowedScopes.map((scope) => (
             <button
@@ -89,12 +93,12 @@ export function PermissionDialog({
                 })
               }
             >
-              {permissionScopeLabels[scope]}
+              {t(permissionScopeLabelKeys[scope])}
             </button>
           ))}
         </div>
         {permissionState.pending.length > 1 ? (
-          <small>{permissionState.pending.length - 1} more request queued</small>
+          <small>{t('home2.permission.moreRequestsQueued', { count: permissionState.pending.length - 1 })}</small>
         ) : null}
       </section>
     </div>

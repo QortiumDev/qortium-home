@@ -1,21 +1,42 @@
-# Qortium Home 2.0 Project Plan
+# Qortium Home Project Plan
 
-Last updated: 2026-08-10
+Last updated: 2026-08-22
 
-Status: accepted product direction with Phase 1 complete, the desktop/Android
-Phase 2 read-only host and QDN-app slices implemented, and the production
-account-shell cutover implemented for review. Account custody and secure unlock
-are active behind recovery backups; transaction signing, payments, publishing,
-private chat, broader host actions, and Reticulum remain deferred.
+Status: Home 2.0.0 is the shipped production-shell baseline. The active 2.1.0
+delivery cycle restores and extends the deliberately slim trusted-host surface
+without returning to the legacy renderer or turning Home into a monolithic
+portal. See [HOME_2_1_PLAN.md](HOME_2_1_PLAN.md) for current release scope,
+sequencing, and progress.
 
 This is the canonical product and architecture plan for Qortium Home. When an
 older issue, note, or implementation assumption conflicts with this document,
 this document controls unless a newer recorded decision explicitly supersedes
 it.
 
+## Current delivery cycle: Home 2.1.0
+
+Home 2.1.0 is one combined feature prerelease. Its application version is
+independent of the QAVS compatibility level advertised to hosted apps:
+`hostVersion` advances to 2.1.0 at release preparation, while
+`platformVersion` advances to 2.1 because the restored bookmark manager family
+adds app-observable behavior and actions that Home 2.0.0 did not advertise.
+
+The release is gated on managed Qortal Core support, including safe adoption of
+existing installs. Adoption discovery is an on-demand trusted-shell operation:
+native browse does not disclose paths to the renderer, and the main process
+uses bounded opaque tokens, exact sender gating, and fresh candidate
+revalidation before writing only a selected record under Home app data. Home
+does not modify adopted files. Linux and macOS can browse and select; Windows
+waits for a native no-reparse/private-directory writer, and QDN apps and Android
+have no selection surface. Widget-window calls through the shared preload are
+denied by the exact Home-document sender gate. This adds no public app action and
+keeps QAVS `platformVersion: "2.0"`. Home stays Qortium-first in ordering and
+delegates full app experiences to QDN apps. The detailed implementation order
+and acceptance gates are maintained in [HOME_2_1_PLAN.md](HOME_2_1_PLAN.md).
+
 ## Product vision
 
-Qortium Home 2.0 is an app-focused client and trusted host for Qortium and
+Qortium Home is an app-focused client and trusted host for Qortium and
 Qortal. It should be capable of replacing Qortal Hub for users who want a
 cleaner, more predictable experience while preserving Qortium Home's strict
 app isolation, permissions, managed services, and multi-platform foundation.
@@ -51,7 +72,7 @@ separate side-by-side v2 application identity or a maintained legacy renderer.
 | Upgrade model | Replace the current renderer in place; freeze and retire v1 rather than maintaining two interfaces. |
 | Platforms | Desktop and Android are co-primary from the first v2 contracts and fixture slice. |
 | Reticulum | Optional Home-managed subsystem, available to both Qortal and Qortium with substantially more user control than Hub. |
-| Working name | Use Qortium Home 2.0 until a different final name is explicitly chosen. |
+| Product name | Use Qortium Home; release versions do not change the product name. |
 
 ## Product terminology
 
@@ -437,8 +458,10 @@ test-kit/
   hosts/                 throwing fake host plus desktop/Android contract fakes
 ```
 
-`src/App.tsx`, `src/platform.ts`, `electron/qdn.ts`, `src/styles.css`, and
+`src/platform.ts`, `electron/qdn.ts`, `src/styles.css`, and
 `electron/core-manager.ts` are migration sources, not target architecture.
+The retired Home v1 `src/App.tsx` source remains available in Git history when
+its behavior is needed as migration evidence.
 Extract contracts incrementally and move behavior only after focused fixtures
 exist.
 
@@ -773,7 +796,6 @@ unlocked, created, renamed, derived, or removed during this acceptance.
 
 ## Open questions
 
-- Final product name beyond the working Qortium Home 2.0 label.
 - Exact configurable Dashboard module set beyond Connections, Account, and
   Pinned Apps.
 - Exact portable Reticulum engine/language and compatible dependency set.

@@ -74,7 +74,11 @@ function avatarFor(
   primaryName: string | null,
   response: HomeV2IdentityReadResponse | null,
 ): IdentityAvatarPointer | null {
-  if (network === 'qortium' && response?.status === 200 && isRecord(response.data)) {
+  if (
+    network === 'qortium' &&
+    response?.status === 200 &&
+    isRecord(response.data)
+  ) {
     const service = nonEmptyString(response.data.service)
     const name = nonEmptyString(response.data.name)
     const identifier = nonEmptyString(response.data.identifier)
@@ -82,9 +86,25 @@ function avatarFor(
       return { identifier, name, service, source: 'account-pointer' }
     }
   }
-  if (!primaryName) return null
+  if (
+    !primaryName ||
+    response?.status !== 200 ||
+    !Array.isArray(response.data)
+  ) {
+    return null
+  }
+  const expectedIdentifier = network === 'qortal' ? 'qortal_avatar' : 'avatar'
+  const legacyExists = response.data.some((entry) => {
+    if (!isRecord(entry)) return false
+    return (
+      nonEmptyString(entry.service)?.toUpperCase() === 'THUMBNAIL' &&
+      nonEmptyString(entry.name)?.toLowerCase() === primaryName.toLowerCase() &&
+      nonEmptyString(entry.identifier) === expectedIdentifier
+    )
+  })
+  if (!legacyExists) return null
   return {
-    identifier: network === 'qortal' ? 'qortal_avatar' : 'avatar',
+    identifier: expectedIdentifier,
     name: primaryName,
     service: 'THUMBNAIL',
     source: 'legacy-name',
@@ -135,16 +155,30 @@ async function resolveAddressOnNetwork(
   const normalizedNames = primaryName && !names.includes(primaryName)
     ? [primaryName, ...names]
     : names
-  const avatarResponse =
-    network === 'qortium'
-      ? await safeRead(read, network, {
-          kind: 'accountAvatarInfo',
-          value: address,
-        })
-      : null
+  let avatar: IdentityAvatarPointer | null = null
+  if (network === 'qortium') {
+    const accountAvatarResponse = await safeRead(read, network, {
+      kind: 'accountAvatarInfo',
+      value: address,
+    })
+    avatar = avatarFor(network, primaryName, accountAvatarResponse)
+    if (!avatar && primaryName) {
+      const legacyAvatarResponse = await safeRead(read, network, {
+        kind: 'legacyAvatarResource',
+        value: primaryName,
+      })
+      avatar = avatarFor(network, primaryName, legacyAvatarResponse)
+    }
+  } else if (primaryName) {
+    const legacyAvatarResponse = await safeRead(read, network, {
+      kind: 'legacyAvatarResource',
+      value: primaryName,
+    })
+    avatar = avatarFor(network, primaryName, legacyAvatarResponse)
+  }
   return {
     address,
-    avatar: avatarFor(network, primaryName, avatarResponse),
+    avatar,
     detail:
       normalizedNames.length > 0
         ? `${normalizedNames.length} registered name${normalizedNames.length === 1 ? '' : 's'}`

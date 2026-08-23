@@ -283,5 +283,19 @@ assert.match(androidVaultSource, /isAndroidQortalPrivateGroupStagingUnavailable/
 assert.match(androidVaultSource, /if \(!isAndroidQortalPrivateGroupStagingUnavailable\(error\)\) throw error/)
 assert.match(actionCatalogueSource, /'SEND_PRIVATE_GROUP_CHAT_REACTION'/)
 assert.match(actionCatalogueSource, /'GET_PRIVATE_GROUP_CHAT_STATE'/)
+for (const source of [desktopBridgeSource, androidVaultSource]) {
+  assert.match(source, /keyAvailable: !!key/,
+    'private-group state must expose account-relative key availability')
+  assert.match(source, /key\?\.groupKey\.fill\(0\)/,
+    'private-group state probing must wipe resolved key bytes')
+  assert.match(source, /createQpgcAutomaticKeySetupUnknownResult\(announcementResult\)/,
+    'an uncertain automatic key announcement must prove the message was not submitted')
+  assert.match(source, /chatReference: null,[\s\S]{0,500}createQpgcKeyAnnouncement/,
+    'an automatic key announcement must be an independent control transaction')
+  assert.match(source, /keyBootstrapped: true/,
+    'an accepted automatic key announcement must continue through the original message send')
+  assert.match(source, /persistedGroupKey && !automaticKeyAnnouncementSignature && broadcastConfirmed/,
+    'automatic key setup must not re-persist after the message broadcast')
+}
 
 console.log('Home v2 private-group chat contract tests passed')

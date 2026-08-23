@@ -91,6 +91,43 @@ assert.equal(findHomeV2PendingTransactionConflict(journal, {
   request: { otherAddress: `Q${'b'.repeat(20)}` },
 }, now), null)
 
+const keyAnnouncementEntry = createHomeV2PendingTransactionFromResult({
+  accountId: entry.accountId,
+  action: 'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  appIdentity: entry.appIdentity,
+  now,
+  protocol: entry.protocol,
+  request: { groupId: 12 },
+  result: {
+    messageSubmitted: false,
+    outcome: 'unknown',
+    signature,
+    stage: 'key-announcement',
+    timestamp: entry.timestamp,
+  },
+})
+assert.deepEqual(keyAnnouncementEntry, {
+  ...entry,
+  action: 'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+  stage: 'key-announcement',
+  target: { kind: 'group', groupId: 12 },
+})
+assert.equal(findHomeV2PendingTransactionConflict(
+  upsertHomeV2PendingTransaction(createEmptyHomeV2TransactionJournal(), keyAnnouncementEntry!, now),
+  {
+    accountId: entry.accountId,
+    action: 'SEND_PRIVATE_GROUP_CHAT_MESSAGE',
+    appIdentity: entry.appIdentity,
+    network: entry.network,
+    request: { groupId: 12 },
+  },
+  now,
+), null, 'a key-only uncertainty must not block retrying a message that was never submitted')
+assert.throws(() => sanitizeHomeV2TransactionJournal({
+  entries: [{ ...entry, stage: 'message' }],
+  version: 1,
+}, now), /stage is invalid/)
+
 const expired = sanitizeHomeV2TransactionJournal({
   entries: [{ ...entry, createdAt: now - 31 * 24 * 60 * 60_000 }],
   version: 1,

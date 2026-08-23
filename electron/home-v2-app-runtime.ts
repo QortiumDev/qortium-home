@@ -32,7 +32,7 @@ export interface HomeV2AppRouteDescriptor {
 
 export interface HomeV2AppHostInfo {
   readonly hostName: 'qortium-home'
-  readonly hostVersion?: string
+  readonly hostVersion: string
   readonly network: HomeV2AppNetwork
   readonly platform: HomeV2AppPlatform
   readonly platformVersion: string
@@ -49,6 +49,10 @@ export interface HomeV2BridgeStateDetail {
 }
 
 export const HOME_V2_ROUTE_INDEPENDENT_ACTIONS = Object.freeze([
+  'BOOKMARKS_APPLY',
+  'BOOKMARKS_GET',
+  'BOOKMARKS_HAS_PERMISSION',
+  'BOOKMARKS_OPEN',
   'FORGET_PENDING_TRANSACTION',
   'GET_HOST_INFO',
   'GET_PENDING_TRANSACTIONS',
@@ -183,7 +187,7 @@ export function getHomeV2ContextualAppActions(
 
 export function getHomeV2AppHostInfo(input: {
   readonly accountId?: string | null
-  readonly hostVersion?: string
+  readonly hostVersion: string
   readonly node: HomeV2AppNodeState
   readonly platform: HomeV2AppPlatform
   readonly platformVersion: string
@@ -192,7 +196,7 @@ export function getHomeV2AppHostInfo(input: {
   const network = getHomeV2AppNetwork(input.protocol, 'GET_HOST_INFO')
   return Object.freeze({
     hostName: 'qortium-home',
-    ...(input.hostVersion ? { hostVersion: input.hostVersion } : {}),
+    hostVersion: input.hostVersion,
     network,
     platform: input.platform,
     platformVersion: input.platformVersion,

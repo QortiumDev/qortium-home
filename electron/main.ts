@@ -12,28 +12,39 @@ import {
 } from 'electron';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { autoUnlockHomeV2SelectedAccount, registerAccountIpcHandlers } from './accounts.js';
 import { registerAppUpdateIpcHandlers } from './app-updates.js';
 import {
-  isManagedCoreRuntimeRunning,
+  disableLegacyCoreManagerRendererEvents,
   isManagedCoreUsingI2p,
   registerCoreManagerIpcHandlers,
+  registerProductionCoreManagerEntries,
 } from './core-manager.js';
 import {
+  disableLegacyI2pdRendererEvents,
   registerI2pdManagerIpcHandlers,
   startIfManaged as startI2pdIfManaged,
+  stopRetainedChildForAppQuit as stopI2pdForAppQuit,
   stopIfManaged as stopI2pdIfManaged,
 } from './i2pd-manager.js';
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
-import {
-  authorizeHomeV2NodeBridge,
-  registerHomeV2NodeBridgeIpcHandlers,
-} from './home-v2-node-bridge.js';
+import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
+import { authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
+import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
+import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
+import { registerHomeV2ReleaseNotesBridgeIpcHandlers } from './home-v2-release-notes-bridge.js';
+import { registerHomeV2QdnSettingsBridgeIpcHandlers } from './home-v2-qdn-settings-bridge.js';
+import { registerHomeV2NotificationPolicyBridgeIpcHandlers } from './home-v2-notification-policy-bridge.js';
+import { registerHomeV2CollectionsBridgeIpcHandlers } from './home-v2-collections-bridge.js';
 import { registerHomeV2DesktopResourceStreamProtocol } from './home-v2-desktop-resource-stream.js';
 import { HOME_V2_RESOURCE_STREAM_SCHEME } from './home-v2-resource-stream-capability.js';
+import { HOME_V2_CORE_DOCS_SCHEME } from './home-v2-core-docs-contract.js';
+import { registerHomeV2CoreDocsProtocol } from './home-v2-core-docs-protocol.js';
+import { registerHomeV2CoreDocsBridgeIpcHandlers } from './home-v2-core-docs-bridge.js';
+import { registerHomeV2RetainedViewerBridgeIpcHandlers } from './home-v2-retained-viewer-bridge.js';
 import { registerNotificationStoreIpcHandlers } from './notification-store.js';
 import { startNotificationWatcher } from './notification-watcher.js';
 import {
@@ -64,16 +75,18 @@ const USER_DATA_DIR_NAME = 'qortium-home';
 const USER_DATA_DIR_OVERRIDE = process.env.QORTIUM_HOME_USER_DATA_DIR?.trim();
 const IS_HOME_V2 = process.env.QORTIUM_HOME_V2 === '1';
 
-protocol.registerSchemesAsPrivileged([{
-  scheme: HOME_V2_RESOURCE_STREAM_SCHEME,
-  privileges: {
-    corsEnabled: true,
-    secure: true,
-    standard: true,
-    stream: true,
-    supportFetchAPI: true,
-  },
-}]);
+protocol.registerSchemesAsPrivileged(
+  [HOME_V2_RESOURCE_STREAM_SCHEME, HOME_V2_CORE_DOCS_SCHEME].map((scheme) => ({
+    scheme,
+    privileges: {
+      corsEnabled: true,
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true,
+    },
+  })),
+);
 
 initZoom({ sync: syncQdnViewsForWindowZoom });
 
@@ -457,6 +470,15 @@ ipcMain.handle('system:reportStartupPaint', (_event, navToPaintMs: unknown) => {
 });
 
 function createWindow(options: CreateWindowOptions = {}) {
+  const loadRendererFromDist = shouldLoadRendererFromDist();
+  const developmentUrl = (
+    process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173'
+  ).replace(/\/+$/, '');
+  const homeV2RendererUrl = IS_HOME_V2
+    ? loadRendererFromDist
+      ? pathToFileURL(path.join(__dirname, '../dist/v2-live.html')).href
+      : `${developmentUrl}/v2-live.html`
+    : null;
   const windowState = getInitialWindowState(options);
   const window = new BrowserWindow({
     width: windowState?.width ?? DEFAULT_WINDOW_WIDTH,
@@ -483,11 +505,12 @@ function createWindow(options: CreateWindowOptions = {}) {
 
   if (IS_HOME_V2) {
     registerHomeV2DesktopResourceStreamProtocol(session.fromPartition(HOME_V2_SHELL_PARTITION));
-    authorizeHomeV2NodeBridge(window.webContents);
+    registerHomeV2CoreDocsProtocol(session.fromPartition(HOME_V2_SHELL_PARTITION));
+    authorizeHomeV2Sender(window.webContents, homeV2RendererUrl!);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-attach-webview', (event) => event.preventDefault());
     window.webContents.on('will-navigate', (event, targetUrl) => {
-      if (!targetUrl.startsWith('file:')) event.preventDefault();
+      if (targetUrl !== homeV2RendererUrl) event.preventDefault();
     });
     window.webContents.on('will-redirect', (event) => event.preventDefault());
 
@@ -577,7 +600,7 @@ function createWindow(options: CreateWindowOptions = {}) {
     window.maximize();
   }
 
-  if (shouldLoadRendererFromDist()) {
+  if (loadRendererFromDist) {
     void window.loadFile(
       path.join(
         __dirname,
@@ -585,8 +608,7 @@ function createWindow(options: CreateWindowOptions = {}) {
       ),
     );
   } else {
-    const developmentUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173';
-    void window.loadURL(IS_HOME_V2 ? `${developmentUrl}/v2-live.html` : developmentUrl);
+    void window.loadURL(homeV2RendererUrl ?? developmentUrl);
   }
 }
 
@@ -818,11 +840,11 @@ function registerWindowIpcHandlers() {
   });
 }
 
-// Reconcile the managed i2pd router with Core on launch, enforcing the invariant
-// "i2pd runs iff Core is running and I2P is enabled". This self-heals a router
-// left over from a previous session: if Core is up and using I2P we (re)start /
-// re-adopt it; otherwise we stop an orphan that outlived a Core shutdown that
-// happened while Home was closed. Best-effort — I2P is only a fallback transport.
+// Reconcile Home's current-process i2pd supervision with Core on launch. When
+// Core is running with I2P enabled, start the strict managed generation only if
+// no SAM router is already present. Otherwise stop only the child retained by
+// this Home process. A router surviving another Home process is treated as
+// external and is never adopted or signalled. Best-effort: I2P is a fallback.
 async function reconcileI2pdWithCore(): Promise<void> {
   try {
     if (await isManagedCoreUsingI2p()) {
@@ -851,17 +873,30 @@ app.on('second-instance', () => {
   createWindow({ placement: 'secondary' });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!gotSingleInstanceLock) {
     return;
   }
 
   logStartupMilestone('main process ready');
   installNodeTlsForDefaultSessions();
+  registerProductionCoreManagerEntries();
 
   if (IS_HOME_V2) {
+    disableLegacyCoreManagerRendererEvents();
+    disableLegacyI2pdRendererEvents();
     registerAccountIpcHandlers();
     registerHomeV2NodeBridgeIpcHandlers();
+    registerHomeV2CoreManagerBridgeIpcHandlers();
+    registerHomeV2AppUpdateBridgeIpcHandlers();
+    registerHomeV2ReleaseNotesBridgeIpcHandlers();
+    registerHomeV2QdnSettingsBridgeIpcHandlers();
+    registerHomeV2CollectionsBridgeIpcHandlers();
+    registerHomeV2CoreDocsBridgeIpcHandlers();
+    registerHomeV2RetainedViewerBridgeIpcHandlers();
+    // Initialize the authoritative notification gate before registering the
+    // app bridge or creating any trusted shell window.
+    await registerHomeV2NotificationPolicyBridgeIpcHandlers();
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     Menu.setApplicationMenu(null);
@@ -876,6 +911,10 @@ app.whenReady().then(() => {
       console.error('Home 2.0 profile backup or account auto-unlock was unavailable.', error);
     }
     createWindow();
+    // Home 2 uses the same host-owned Qortium Core/i2pd lifecycle as the legacy
+    // shell. Reconcile once after the production managers are registered; the
+    // Home 2 bridge remains invoke-only and does not re-enable legacy events.
+    void reconcileI2pdWithCore();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -932,13 +971,11 @@ app.on('window-all-closed', () => {
   }
 });
 
-// The managed i2pd router tracks Core's lifetime, not Home's window. Core is
-// designed to keep running after Home closes, so on quit we stop i2pd ONLY when
-// Core is also stopped — otherwise we'd strand a still-running Core without its
-// I2P fallback transport. When we leave i2pd running, the detached router holds
-// the SAM port for Core and the next Home launch reconciles it (see app.whenReady
-// below). Defer the quit until this check runs.
-const QUIT_I2PD_SHUTDOWN_TIMEOUT_MS = 4000;
+// Never intentionally lose the ChildProcess authority needed to stop Home's
+// router safely. A normal quit therefore stops only the live child retained by
+// this process, even when Core remains running; the next Home launch can start
+// the strict managed generation again. A router left by a crash is treated as
+// external rather than adopted from mutable PID evidence.
 let i2pdShutdownComplete = false;
 app.on('before-quit', (event) => {
   // A redundant second instance (no lock) never started the shared i2pd/Core, so
@@ -950,24 +987,18 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   void (async () => {
     try {
-      // Bound the shutdown so a hung i2pd/Core check can never block the quit and
-      // leave the user force-killing the app — which is what orphans the helper
-      // processes and the AppImage FUSE mount in the first place.
-      await Promise.race([
-        (async () => {
-          if (!(await isManagedCoreRuntimeRunning())) {
-            await stopI2pdIfManaged();
-          }
-        })(),
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, QUIT_I2PD_SHUTDOWN_TIMEOUT_MS);
-        }),
-      ]);
+      // The manager has its own bounded SIGTERM wait. Await it in full so the
+      // app never discards the only safe ChildProcess authority at a shorter
+      // outer timeout.
+      await stopI2pdForAppQuit();
     } catch {
-      // Quit regardless of any i2pd shutdown error.
-    } finally {
-      i2pdShutdownComplete = true;
-      app.quit();
+      // Keep Home alive with its ChildProcess authority intact. A later quit
+      // retries the bounded stop; force termination remains the user's explicit
+      // escape hatch if the child cannot be stopped.
+      console.error('Home could not confirm that its managed i2pd child stopped; quit was cancelled.');
+      return;
     }
+    i2pdShutdownComplete = true;
+    app.quit();
   })();
 });

@@ -34,6 +34,380 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - chore(release): prepare Qortium Home 2.1.0
+
+Qortium Home is now prepared as version 2.1.0, with Android advancing from
+version code 38 to 39 and the QDN app compatibility level remaining at 2.1 for
+the restored bookmark-manager contract. A new automated check keeps the
+desktop, Android, lockfile, and QAVS release values aligned and prevents the
+retired Home 1 renderer entry points from returning. The root development
+document now points only to Home 2 so existing smoke harnesses cannot revive
+the removed renderer.
+
+The release instructions now separate ordinary local builds from the native
+platform acceptance, signed Android install-over-2.0.0 test, tagging, asset
+upload, and publication checkpoints. This preparation does not sign, tag,
+upload, or publish a release.
+
+Android QDN apps now receive the same 2.1.0 host version in `GET_HOST_INFO` as
+desktop apps, and the release checker/publisher includes the separate macOS
+10.15 x64 compatibility DMG alongside the other six platform artifacts. CI
+also runs the renderer TypeScript check explicitly instead of relying on the
+production bundler to catch type errors.
+
+Release preparation also removed Home's production use of an unpatched ZIP
+extractor after its symlink-traversal advisory became visible in the audit.
+Home now performs its own sequential extraction into exclusive, no-follow
+files, accepts only normalized relative regular-file and directory entries,
+and refuses symbolic links and special files before writing them. This applies
+to QDN preview/render archives and managed Qortium Core, Java, and i2pd ZIPs;
+the production dependency audit is clean.
+
+### 2026-08-23 - feat(android): restore Home 2 approved Core updates
+
+Home 2 on Android can once again check and request a Qortium Core update that
+the configured node reports as approved on-chain. The control lives in Runtime
+settings and works only with an explicitly configured Qortium custom node and
+API key; public nodes, Qortal nodes, missing credentials, and remote plaintext
+HTTP remain unavailable for this action. The key is encrypted through Android
+Keystore, bound to the selected node origin, omitted from Home and QDN app
+snapshots, and never grants embedded apps an administrative capability.
+
+Before requesting installation, Home refreshes the selected node's update
+status, leaves an existing download or installation alone, refuses redirected
+admin requests, and aborts if the saved node or key changes between the check
+and mutation. The existing Android Home APK check, verified download, and
+Package Installer handoff remain unchanged; unattended APK download remains
+disabled and is still downgraded to Notify.
+
+### 2026-08-23 - feat(collections): migrate saved Home links into Home 2
+
+Home 2 now carries forward the user's bookmarks tree, bookmark toolbar,
+dashboard pins, start pages, visibility choice, and shared revision on first
+run. Desktop reads the old default Electron profile through a hidden,
+network-disabled migration document and writes the validated snapshot into the
+isolated Home 2 profile; Android migrates the same existing native Preferences
+in place and records a one-time migration marker. The old source data is
+retained, the import is idempotent, raw canonical and mirror schemas are
+validated before use, and malformed or equally revised conflicting data fails
+closed instead of being replaced with an empty collection. Mirror updates land
+before the canonical CAS snapshot so a partial write cannot falsely commit a
+new revision.
+
+The delegated QDN Bookmarks app can now feature-detect, read, update, and open
+these saved links on desktop and Android under a durable `bookmarks.manage`
+permission. Updates use the existing schema and exact revision check so a stale
+manager cannot overwrite newer data, and an account-specific saved link opens
+under that account only while it still exists. Durable bookmark access is
+listed and revocable from trusted QDN Apps Settings on both platforms. This completes the previously
+deferred Home 2 bookmark-manager action family, so QAVS `platformVersion`
+advances from `2.0` to `2.1` while the separate Home application version remains
+on its planned 2.1.0 track.
+
+### 2026-08-22 - feat(core): add Home 2 automatic Qortal updates
+
+Home 2's existing desktop Core update settings now include a separate Qortal
+Core policy. Off performs no scheduled Qortal checks. Notify reports a newer
+stable release without changing files. Install can apply only a strictly newer,
+verified release to a stopped Qortal installation that Home created and whose
+settings still prove that Home owns GitHub-based replacement. Existing policy
+files migrate without losing the user's Qortium Core or Java choices.
+
+Adopted installations, Qortal's native updater, missing installs, and uncertain
+ownership remain non-mutating and do not cause a scheduled GitHub release
+request. A policy or lifecycle change revokes automatic work before download
+and again before activation; Home holds the shared Qortal operation lease while
+the manager repeats its stopped-state, ownership, target, candidate, and
+external-runtime checks around the filesystem transaction. Android receives no
+Core maintenance surface, and this trusted desktop setting adds no public QDN
+app action or QAVS platform-version change.
+
+### 2026-08-22 - feat(core): add Home 2 Qortal adoption selection
+
+Home 2 can now discover existing Qortal installations on demand and let the
+user choose a supported installation from the trusted Runtime settings page.
+Linux and macOS can also open the operating system's native folder picker. Home
+shows only a source, version, running state, and numbered candidate; the
+renderer never receives a filesystem path.
+
+The main process gives each discovery result a short-lived bounded opaque token
+and accepts selection only from the exact authorized top-level Home document.
+It rechecks the token and the installation immediately before saving a selected
+record under Home's own application data. Home does not write into or modify
+the adopted installation. Windows browse and selection remain unavailable
+until the native helper can safely write a no-reparse record in a private
+directory. QDN apps and Android receive no discovery or selection surface;
+widget-window calls through the shared preload are denied by the exact Home
+document sender gate. This trusted-host feature adds no public app action and
+keeps QAVS `platformVersion: "2.0"`.
+
+A hardened packaged Linux x64 fixture verified on-demand Hub discovery,
+opaque-token selection, a private Home-owned selected record, and byte-for-byte
+unchanged adopted JAR and settings files. Packaged macOS selection and
+real-Qortal native-host acceptance remain release gates.
+
+### 2026-08-22 - feat(notifications): add Home 2 global policy
+
+Home 2 now has its own device-wide App notifications switch in General
+Settings on desktop and Android. Turning it off stops direct app alerts and is
+also the global gate for the Home-managed background watcher when that is
+activated in a later Home 2 tranche. It does not delete an app's notification
+grant, mute choice, saved rules, or Core subscriptions. Permission checks
+continue to report the app's grant independently of the switch.
+
+Desktop keeps the policy in a small private main-process file and accepts
+changes only from the exact trusted Home document, using a generation check so
+stale windows cannot overwrite a newer choice. Android keeps the same versioned
+policy in native preferences and, only when that new record is absent, carries
+forward an explicit disabled choice from the old display-settings record. Home
+2 never reads the legacy record while delivering a notification. Missing state
+retains the historical default of on; corrupt or unavailable state fails closed
+to off. This trusted Settings control adds no QDN app action and does not change
+QAVS `platformVersion: "2.0"`.
+
+### 2026-08-22 - feat(settings): add Home 2 Settings section routing
+
+Home 2 can now open a specific Settings section from another trusted part of
+the Home interface without adding a URL or an app-facing command. The Core
+management card on the Dashboard opens Runtime settings directly, while the
+former Notifications destination remains a compatibility alias for the QDN
+Apps section where notification controls now live. Opening Settings normally
+still starts on General, so an earlier targeted visit does not become a sticky
+preference. This internal routing is shared by desktop and Android and does not
+change QDN app actions, add a public IPC request, or alter the QAVS platform
+version.
+
+This change also makes two intentional Home 2 presentation omissions explicit.
+The old Classic/Modern/Fun UI-skin selector and the keyboard-shortcut hint rows
+beside text size and page zoom are not carried forward. The zoom and text-size
+shortcuts themselves remain available; every other reviewed v1 Settings gap is
+kept, migrated, or assigned to its existing roadmap follow-up.
+
+### 2026-08-22 - feat(settings): add Home 2 QDN permissions
+
+Home 2's QDN Apps Settings section can now choose the saved app for each
+existing Home role and manage notification access on desktop and Android. An
+assigned app still needs its own permission before it can manage Home data, and
+these choices are saved in the Home profile. Notification grants use one stable
+QDN resource identity across Qortium and Qortal: muting hides alerts while
+keeping the grant, rules, and Core subscriptions; revoking removes the grant and
+all of that app's rules. Home warns that watch-only wallet data already shared
+with a Core for foreign-payment notifications cannot be recalled.
+
+The desktop exposes only redacted summaries to the exact trusted Home shell and
+rejects widgets, subframes, and navigated documents before reading the stores.
+Android uses the same revision-checked profile semantics. Corrupt or unavailable
+notification state fails closed. Desktop sends no raw rules, account bindings,
+filters, watch-only keys, notification text, links, paths, or capability grants
+across IPC. Android reads its renderer-owned Preferences store and projects the
+same redacted management state before the Settings component receives it. This
+Settings-only slice adds no public QDN app action and keeps QAVS
+`platformVersion: "2.0"`; app-facing assignment delegation remains a separate
+follow-up.
+
+### 2026-08-22 - feat(core): add Home 2 transport maintenance
+
+Desktop Runtime settings can now choose Qortium Core's Direct + I2P, Direct
+only, or I2P only transport mode while Core is stopped. Home preserves every
+unrelated Core setting, writes the selected transport list through a private
+atomic replacement, and rechecks the installed Core target, unchanged settings,
+and strongly stopped runtime immediately before activation. Modes that use I2P
+remain unavailable until a local router completes a real bounded SAM handshake;
+a successful local SAM exchange is described only as router readiness, not proof
+of I2P reachability or privacy.
+
+Home can also install, start, and update its own pinned i2pd build on supported
+desktop targets. The main process selects an exact Qortium release asset for the
+current OS and architecture, requires its fixed byte size and SHA-256 digest,
+extracts it into an immutable generation, and re-hashes the selected binary
+before each launch. Home supervises only the child process it started in the
+current session: it never adopts PID files, scans process command lines, exposes
+paths or process details to the renderer, or stops another local router. Router
+and Core mutations share the Home 2 maintenance coordinator and report success
+only after a fresh status confirms the requested state. Android Core/i2pd
+management, retired-generation cleanup, signing, publication, and live network
+acceptance remain outside this change.
+
+### 2026-08-22 - feat(core): add Home 2 Qortal maintenance
+
+Desktop Runtime settings can now install a verified stable Qortal Core into
+Home's managed data or update an existing Home-managed Qortal Core when it is
+stopped and a strictly newer release is available. Release discovery and the
+mutation-time refetch stay in the main process. Home requires the exact
+official `qortal.jar` URL, GitHub SHA-256 and byte size, resolves the release
+tag to an immutable commit, and rejects a downloaded JAR unless its embedded
+version and commit match that release. The renderer supplies only the action
+and expected tag; it never receives or chooses URLs, digests, paths, commits,
+or raw GitHub metadata.
+
+New Home-managed installations explicitly turn Qortal's native automatic
+updater off so only one system owns later JAR replacement. Home rechecks that
+setting, the stopped runtime, the selected target, and release identity before
+an update transaction. Existing adopted installations remain read-only, and a
+Qortal installation using its native updater remains Qortal-owned. Before
+creating another install, Home also checks the conventional Qortal data
+directory and requires candidate selection when an existing installation is
+found. Automatic Qortal updates, adopted-file mutation, candidate-selection
+UI, Android Core maintenance, i2pd/transport, signing, and publication remain
+outside this change.
+
+### 2026-08-22 - feat(core): add Home 2 Core update policies
+
+Desktop Runtime settings can now keep automatic Qortium Core and managed-Java
+maintenance Off, notify about a newer version, or install it automatically.
+Home stores those choices in an exact versioned private file with optimistic
+generations, atomic replacement, and one-field conflict recovery. Valid legacy
+choices migrate once; malformed new state fails closed with both policies Off
+until the user explicitly saves a replacement.
+
+One main-process scheduler checks at startup and every six hours, independently
+of open Home windows. Policy generations and a shared lifecycle/mutation
+coordinator revoke stale work before download and again before activation. Core automation uses
+only the installed channel, only a strictly newer verified release, and only
+when Qortium Core is strongly proven stopped; it never bootstraps, changes
+channel, repairs, downgrades, or stops a running Core. Java automation only
+updates an existing Home-managed runtime and atomically selects another
+immutable verified generation, leaving running Cores on the files they already
+mapped. Off performs no scheduled GitHub or Adoptium lookup. Qortal updates,
+host-triggered on-chain Core updates, Android Core/Java management,
+i2pd/transport, retired-Java cleanup, signing, and publication remain outside
+this change.
+
+### 2026-08-22 - feat(core): add Home 2 Core maintenance
+
+Desktop Runtime settings can now install a verified Qortium Preview Core or
+update an existing Home-managed Core when its own release channel has a
+strictly newer version. Home performs release discovery itself, re-checks the
+exact official tagged release before download, requires its canonical SHA-256
+and positive byte size, and verifies both while streaming. The page receives
+only the release channel, version, capability, and bounded outcome; it cannot
+supply a URL, digest, path, downgrade approval, reinstall request, or Qortal
+mutation. Core must be stopped before this manual install or update.
+
+The same panel can install managed Java when Java is missing, unsupported, or
+behind Home's managed target. Java versions now publish as immutable,
+single-flight generations through atomic metadata. A delayed update check can
+no longer point Home back to an older generation, and installation never
+deletes or overwrites files that a running Qortium or Qortal Core may still be
+using. Automatic Core/Java policies, Qortal installation, i2pd/transport,
+Android Core maintenance, retired Java cleanup, signing, and publication stay
+outside this change.
+
+### 2026-08-22 - feat(updates): persist Home 2 update policy
+
+Home 2 now remembers the selected Home release channel and automatic-update
+policy. On desktop, the trusted main process owns a small versioned settings
+file with private permissions, atomic replacement, and a generation check so
+two stale windows cannot silently overwrite one another. Because Home 2 uses
+an isolated browser partition, desktop starts from the main process's safe
+Notify/Stable defaults instead of pretending it can read Home 1 renderer
+storage. Off performs no startup network work, Notify checks once per saved
+settings generation, and Download automatically checks and downloads a
+verified package without opening, installing, or replacing the running
+application. Every Home 2 desktop download lands under Home's private update
+directory rather than beside the running package.
+
+Android remembers Off or Notify only through native private preferences and
+continues to support explicit verified APK downloads and installer handoff.
+Automatic download is deliberately unavailable there until release discovery,
+streaming download, opaque receipts, package identity, and signer verification
+are all native; the current renderer-held URL and path flow is not expanded
+into unattended authority. Focused tests cover malformed state, host generation
+claims, policy-gated startup checks, exact check-then-download ordering,
+serialized rapid changes, private download targets, and Android's fail-closed
+automatic boundary. Packaged desktop and Android emulator smokes verify
+rehydration and the real persistence surfaces.
+
+### 2026-08-22 - feat(updates): restore Home 2 application updates
+
+Home 2 now exposes Qortium Home update checks and verified downloads in the
+Runtime settings section on desktop and Android. Desktop release discovery and
+asset selection run in the main process through a new sender-gated, versioned
+bridge; widgets, subframes, navigated documents, extra request fields, raw
+GitHub data, download URLs, and filesystem paths are not accepted or returned.
+Home re-fetches the fixed official release immediately before download, accepts
+only the matching platform package, requires GitHub SHA-256 metadata, enforces
+the declared byte size, and gives the renderer only a short-lived opaque handle
+for revealing the verified file.
+
+Android retains its native APK path while applying the same official-release,
+digest, size, and signed-APK rules. The installer now re-hashes the canonical
+app-private APK immediately before handing it to Android, so a missing,
+changed, unsigned, misplaced, or non-APK file cannot reach the package
+installer. The Android update-state and installer smokes now exercise the
+shipped Home 2 screen, and CI explicitly assembles the debug APK. Core/Java,
+i2pd/transport, Home auto-download policy, signing, publishing, and release
+work remain separate roadmap tranches.
+
+### 2026-08-22 - feat(core): add Home 2 Core management UI
+
+Home 2 now shows Qortium-first Core management cards on the desktop Dashboard
+and in a new Runtime settings section. Each card uses only the sender-gated,
+redacted manager status added in the preceding change: it can refresh status,
+offer Start or Stop only when the manager authorizes that action, explain
+managed versus authenticated API control, and report bounded outcomes without
+showing paths, process details, keys, or raw manager failures. Stopping a Core
+that Home controls only through its authenticated API requires an explicit
+in-app confirmation and never kills the process directly. Starting or stopping
+a Core does not silently change the selected Public, Local, or Custom node
+connection.
+
+The renderer now validates every versioned Core status and action result,
+rejects stale polling responses, prevents overlapping actions using the same
+serialization rules as the main process, and refreshes node state after a Core
+action. The large live shell no longer owns node polling and mutation state;
+that wiring is isolated in a tested node/Core controller before more management
+panels are added. Android deliberately omits the desktop lifecycle controls
+while retaining its existing portable node status. The new static interface
+copy is translated across all 23 catalogs. Install/update, Java, i2pd,
+transport, and policy controls remain later parts of the 2.1 roadmap.
+
+### 2026-08-22 - feat(core): add gated Home 2 lifecycle controls
+
+Home 2 now has a small desktop-only bridge for reading the state of Qortium and
+Qortal Core and requesting start or stop. The bridge accepts an explicit
+network, checks that every request came from the trusted top-level Home
+document, and returns only coarse installation, runtime, control, capability,
+and outcome fields. Paths, API-key evidence, process identifiers, launch
+receipts, ownership records, arbitrary failure causes, and downgrade tokens
+never cross into the renderer.
+
+Widgets and subframes remain unauthorized even though widgets share Home's
+preload. Authorization is bound to the exact trusted document and is revoked
+on destruction or navigation. Core actions are capability-preflighted,
+revalidated inside the existing managers, serialized per network, and starts
+are also serialized across networks because Qortium and Qortal share managed
+Java. Legacy Core and i2pd progress/status broadcasts are disabled in Home 2;
+this first bridge is invoke-only and does not register the ungated legacy IPC
+surface. Install, update, Java, i2pd, policy, progress, and management UI
+controls remain later work.
+
+### 2026-08-22 - feat(core): control adopted Qortal runtimes
+
+Home can now retain an explicitly selected existing Qortal installation in its
+own private app data on supported POSIX systems, without writing metadata or
+API keys into the adopted directory. The selection is published atomically
+without replacing another selection and binds the exact Qortal JAR plus a
+bounded digest of `settings.json`; changed, aliased, stale, insecure, or racing
+evidence remains blocked. Windows selection writes stay disabled until Home has
+a native no-reparse, private-directory writer, while securely reading an
+already present record remains supported. Selection and initial install share
+the same canonical lock key even when the managed install directory has not
+been created yet.
+
+A valid adopted installation can now be started directly with Java from its
+own directory and stopped only through Qortal's authenticated API using its
+existing key. Home rechecks the selected files and process/listener authority
+at each launch and stop boundary, never invokes foreign scripts, never kills an
+adopted PID, and leaves Qortal running when Home exits. Install and update
+mutation, Home 2 IPC and renderer controls, Windows record creation, and
+real-Qortal native-OS acceptance remain later gates. A packaged Linux
+protocol-fixture run verified selection, ready start, Home exit with Qortal
+continuing, complete AppImage resource release, unchanged adopted files, and
+authenticated API-only stop. Packaged Linux starts use Home's controlled
+argument-preserving wrapper solely to close inherited AppImage descriptors
+before it replaces itself with the exact Java command.
+
 ### 2026-08-21 - fix(widgets): preserve transparent QDN view backgrounds
 
 Fixed QDN widgets showing an opaque white rectangle around shaped or partially
@@ -43,6 +417,247 @@ widget's QDN page defaults to an opaque white background of its own,
 independent of the host window. Home now gives widget `WebContentsView`s an
 explicit transparent native background while leaving the background behavior
 of normal app tabs untouched.
+
+### 2026-08-21 - fix(core): resolve Windows secure-file drive paths
+
+Home's Windows helper can now securely open ordinary drive-letter paths after
+resolving the drive to its native device mapping. The native open still refuses
+filesystem symlinks, junctions, and other reparse points, while retaining the
+existing stable-file, private-permissions, and current-user checks. This fixes
+the secure API-key read found during the real-Qortal Windows acceptance pass
+without weakening the fail-closed boundary.
+
+### 2026-08-21 - feat(core): add adopted Qortal install discovery
+
+Home can now inspect canonical Qortal installation candidates without changing
+their files, combine duplicate path, running-process, and Qortal Hub hints, and
+keep multiple foreign candidates separate for an explicit future choice. A
+Home-managed path always takes precedence over a foreign candidate.
+
+An explicitly selected adopted installation can be represented by a strict
+Home-app-data record containing its canonical paths and adoption-time JAR and
+settings identity. The internal Qortal manager now recognizes a valid record,
+but deliberately exposes no install, update, start, or stop capability for it
+yet. When the node is proven stopped, Home can already classify whether its
+settings leave updates with Qortal or would allow future Home-managed updates.
+Missing, aliased, malformed, insecure, changed, or ambiguous evidence
+continues to fail closed, and observation never writes into the adopted Qortal
+directory. No Home 2 preload, IPC, or renderer controls are added by this
+change.
+
+### 2026-08-21 - feat(core): add native macOS and Windows Qortal authority
+
+Home can now apply the existing fail-closed Qortal lifecycle rules on macOS
+and Windows x64 through small packaged native observers. They bind a candidate
+Java process to its owner, exact command evidence, working directory, managed
+JAR, stable birth identity, and the complete owner set for Qortal's local API
+listener before Home treats the process as managed. Missing, changing,
+malformed, ambiguous, or inaccessible evidence remains unknown and prevents
+control.
+
+The macOS helper uses current-user process and socket evidence with a
+boot-session identity, while the Windows helper conservatively validates the
+native x64 process layout, preserves the raw Windows command line, and rejects
+ambiguous argument reconstruction or unsupported layouts. Windows API-key
+reads now also use a no-reparse native open, stable volume/file identity, and a
+private current-user security descriptor instead of following a filesystem
+alias. Both helpers are built and verified as exact packaged resources. This
+adds no Home 2 controls yet; signed release artifacts and real-Qortal
+start/relaunch/readiness/stop acceptance on each native OS remain release
+gates.
+
+### 2026-08-21 - feat(core): build verified Qortal lifecycle foundations
+
+Home now has a fail-closed staging path for Qortal releases. It writes into an
+exclusive partial file, requires the exact declared byte count and SHA-256
+digest, and then checks the JAR's embedded build version against the selected
+stable release before the candidate can advance. Partial and destination paths
+must resolve to distinct names in the same staging directory.
+
+The matching install primitive changes only `qortal.jar`: it uses atomic
+same-directory renames for initial installs and updates, preserves Qortal's
+settings, API key, database, data, lists, and logs, and restores the previous
+JAR and metadata when activation fails. Cross-device copy fallbacks, symlinked
+JAR endpoints, stale backup collisions, and incomplete rollback are rejected or
+reported explicitly. Linux process discovery also now finds Qortal's default
+`settings.json` in the Java process's working directory when the JAR lives
+elsewhere.
+
+A fresh Home-managed install can now add Qortal's minimal settings file and a
+private pre-seeded API key, then commit a separate managed-install record only
+after the activated JAR's size, digest, and embedded identity are rechecked.
+Update rollback restores the prior record exactly, while fresh-install rollback
+removes only files that this transaction created. The key itself is never
+copied into metadata.
+
+JAR mutations now have a cooperative cross-process filesystem lease keyed by
+network and the canonical target. It uses exclusive private lock files,
+refuses live or uncertain owners, and retains proven-dead locks for explicit
+recovery rather than risking deletion of a replacement lock. Target snapshots
+record the canonical path, filesystem identity, digest, and uncached embedded
+JAR identity so a future manager can revalidate immediately before mutation.
+Qortal's stopped settings chain can also be read with its comment,
+trailing-comma, `userPath`, and default-value behavior to decide whether
+updates belong to Qortal itself, Home, or neither when evidence is uncertain.
+This is an update-ownership projection, not proof that every unrelated setting
+will pass Qortal's complete configuration validation.
+
+These remain main-process foundations only. No Qortal lifecycle is registered
+or exposed to Home 2.
+
+That composition now has a standalone, fail-closed coordinator. It serializes
+install, update, start, and stop; rechecks process, readiness, policy, release,
+candidate, and managed-JAR evidence inside the lease; launches Java without a
+caller-controlled shell from the install directory with literal
+`settings.json`; and permits authenticated stop only for positively Home-owned
+processes. Same-version and downgrade updates are refused, native Qortal update
+ownership wins, and adopted installs remain observation-only. The coordinator
+deliberately requires strong process, listener, Java, readiness, and API seams
+that are not implemented yet, so it is tested but not registered or reachable.
+Verified per-operation candidates that are not consumed are retained for
+explicit recovery: Node cannot safely unlink a pathname only if it still names
+the inode that Home inspected.
+
+The coordinator now has a Linux production adapter and is registered internally
+after Electron finalizes its data paths. Runtime control requires stable
+`/proc` PID/start identity, exact Qortal argv/cwd/JAR, and no second visible
+holder of listener 12391 within the current local-user trust boundary, plus
+JAR-matching mainnet `/admin/info` and structurally valid
+`/admin/status`, and unchanged authority after probing. API-key control follows
+Qortal's effective `userPath` settings, requires a private Home-owned Base58
+key, disables local-auth bypass, verifies the key live, and rechecks authority
+before `/admin/stop`. Qortal shares the verified managed Java runtime and only
+accepts an OpenJDK system fallback after resolving and probing the exact
+executable under the sanitized launch environment. Home 2 still exposes no
+Core lifecycle IPC.
+
+### 2026-08-21 - feat(shell): advance the Home 2.1 trusted shell
+
+Home's plus button now opens a dedicated new-tab page for finding public
+accounts by registered name or chain address across Qortium and Qortal. The
+standalone lookup has moved off Dashboard, Qortium results appear first, and
+the selected-account card keeps its existing cross-network identity details.
+Open QDN app tabs remain available when New tab is selected, and the new
+internal destination is restored safely without changing the saved-state
+format. QDN app and Home addresses continue to use the browser address bar.
+
+Missing legacy avatars now fall back promptly to an account initial instead of
+showing a long-running spinner. Home first verifies that the named avatar
+resource exists, preserves bounded background loading for published images
+that are not local yet, and applies the same behavior on desktop and Android.
+
+Settings now has a small section navigator for General, Appearance, and the
+active account. General can choose whether the plus button opens the Search
+page, Dashboard, or a custom Home/QDN app address, and the choice is restored
+on the next launch. Custom addresses are checked before saving and then use the
+same guarded address bar flow as addresses entered by hand, including its
+identifier choices and error messages.
+
+Home 2's static browser chrome, new-tab page, Dashboard, Settings, account and
+permission controls, resource viewer, and component fallback labels now use
+the shared Home translation runtime. All 23 existing language catalogs carry
+the same Home 2 keys and placeholders, a language change updates lazy-loaded
+copy without restarting, and right-to-left languages set the shell direction
+as well as its text. Runtime-generated permission, identity, and node details
+remain a separate localization step. Existing language values exposed to QDN
+apps are unchanged.
+
+Core management now derives the existing Qortium storage, release archive,
+Previewnet chain, bootstrap, local API, helper-script, and i2pd behavior from a
+typed network descriptor instead of scattered single-network constants. Local
+Core API-key discovery is also isolated by network and optional runtime target,
+with stale asynchronous lookups prevented from repopulating an invalidated
+cache. Existing Qortium APIs and behavior remain the compatibility path; this
+is groundwork for the later Qortal lifecycle and adoption work, not exposure of
+those controls to Home 2 yet.
+
+Core's in-memory layout, update scheduling, downgrade confirmations, and
+install operations are now isolated by network as well. A keyed manager
+registry contains only the existing Qortium implementation, so requesting a
+Qortal manager fails closed until its real release and adoption pipelines are
+added. The classic Qortium controls now enter through that registered manager,
+while Home 2 still receives no Core-management preload or IPC capability.
+
+The Qortal side now has its own truthful descriptor and strict stable-release
+selector. Home recognizes Qortal's direct `qortal.jar` launch, normal API and
+stop endpoints, shared managed Java location, snapshot bootstrap, and native
+auto-update setting without claiming that Qortal implements Qortium's
+`/admin/update` API. A release qualifies only when one exact `qortal.jar` asset
+has a mandatory SHA-256 digest, positive safe size, and the matching official
+Qortal GitHub download URL. Download, installation, adoption, and UI wiring are
+still deliberately absent at this foundation stage.
+
+### 2026-08-21 - feat(shell): start Home 2.1 with Qortium-first chrome
+
+Home now has one clear browser tab row instead of an extra Home brand block that
+looked like a second tab. Qortium appears first in the toolbar node controls,
+connection cards, and selected-account presence, with regression coverage
+preserving that ordering on desktop and phone layouts. Obsolete startup wording
+no longer claims that account integration or Reticulum is unavailable in the
+build.
+
+The canonical project plan now identifies 2.0.0 as the shipped baseline and
+tracks the combined feature cycle as Home 2.1.0. The release plan preserves
+Home's slim QDN-app-focused boundary, makes managed Qortal Core a release gate,
+and records the safe implementation sequence and cross-platform checks. Home's
+application release version is now distinct from its advertised QAVS platform
+level; the level may stay at 2.0 only if a final bridge audit proves that no new
+app-facing action or observable behavior ships.
+
+### 2026-08-20 - fix(apps): preserve focus and permission sessions
+
+Home 2 no longer hides and re-shows the active desktop app when routine node
+telemetry refreshes, and a delayed native-view hide can no longer pull desktop
+focus back to Home after the user moves to another window. Route-state updates
+still reach hosted apps through a separate bridge-state delivery path. Missing
+permissions from hidden app tabs are refused without switching tabs or raising
+trusted Home chrome, while duplicate prompts are suppressed and session grants
+are revoked only for the affected Home window, tab, account, or network. A
+clearly disclosed tab approval for chat changes now covers sending, editing,
+deleting, and reacting within the same public, direct, or private-group chat;
+key management, publishing, administration, and all existing target, ownership,
+route, signing, and rate-limit checks remain separate and unchanged.
+
+A single clearly disclosed read-only account approval now covers the selected
+Home account on both Qortal and Qortium for that app tab, including account
+identity, direct messages, private groups, searches and attachments, and the
+app's pending transaction records. It survives locking, unlocking, node
+failover, and normal in-app navigation, while a real account change, tab
+closure, or Home restart still revokes it. Unlocking and every mutation remain
+separate. Restored app
+tabs now show a neutral node-checking state until the first connection check
+finishes, and unlock completion waits for the updated account state to reach
+the app before the original operation resumes.
+
+Private-group state now distinguishes node-level QPGC availability from
+whether the selected account actually has the current group key. Desktop and
+Android automatically create and announce a Qortium group key for all current
+members when the first message, edit, delete, or reaction finds no usable key,
+then continue the original operation without another app action or permission
+prompt. Manual key controls remain a Qortal compatibility concern, not normal
+Qortium user workflow. A newly announced or rotated key is kept unavailable
+locally when its announcement broadcast is uncertain; Home records that control
+signature while proving that the user's message was not submitted, so retrying
+the message is safe and retained announcement discovery can reconcile the key.
+
+Android Home 2 now keeps the node route selected by its portable Qortal/Qortium
+connection client authoritative through public and direct chat, private-group
+reads and writes, private attachments, and group membership or administration.
+Those helpers no longer perform a second legacy Qortium node discovery or
+borrow a legacy node API key, preventing valid requests from being rejected
+when the two independent public-node selectors chose different healthy nodes.
+Private-group state validation also stays on the dedicated permissioned vault
+path instead of routing Home's own `/chat/private/...` request through the
+generic app read allowlist, which intentionally excludes private API routes.
+The Android connection client also retains a recently verified public route
+through a brief failed health-probe cycle instead of reporting the network
+unavailable between successful checks. Android's renderer policy now permits
+only Home's same-origin memory-proof worker, allowing CHAT proof-of-work to run
+without opening general network or cross-origin worker access.
+The Android app bridge now also keeps every CHAT proof-of-work mutation open
+for the same long-running window as ordinary message sends, so private-group,
+direct, edit, delete, reaction, and key-management requests do not time out in
+the hosted app while Home is still computing and may still broadcast them.
 
 ### 2026-08-19 - fix(release): restore Core compatibility and unlock ordering
 

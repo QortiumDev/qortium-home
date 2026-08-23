@@ -196,6 +196,7 @@ function getRemoteBuildScript(target) {
     return `
 set -euo pipefail
 version="$(node -p "require('./package.json').version")"
+npm run build:native:macos
 npm run build
 npm install --no-save --package-lock=false electron@${macos11ElectronVersion}
 QORTIUM_HOME_EXPECTED_ELECTRON_VERSION=${macos11ElectronVersion} node scripts/test-qdn-app-preload.mjs
@@ -209,6 +210,7 @@ if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
   exit 1
 fi
 node scripts/verify-macos-min-version.mjs "$app_path" 11.0.0
+node scripts/verify-macos-core-observer.mjs "$app_path"
 normal_dmg="dist-release/Qortium-Home-$version-universal.dmg"
 legacy_dmg="dist-release/Qortium-Home-$version-macos11-universal.dmg"
 if [ ! -f "$normal_dmg" ]; then
