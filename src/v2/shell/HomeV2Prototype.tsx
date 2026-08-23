@@ -58,6 +58,10 @@ import type {
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
+import {
+  HomeV2ReleaseNotesPage,
+  type HomeV2ReleaseNotesTarget,
+} from './HomeV2ReleaseNotesPage'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -94,6 +98,7 @@ export interface HomeV2PrototypeProps {
   readonly appUpdates?: HomeV2AppUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
+  readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
   readonly requestApp?: (
     protocol: HomeV2AppBridgeProtocol,
     request: unknown,
@@ -152,6 +157,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetLanguage?: (language: HomeV2Language) => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
+  readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
 }
 
 function NewTabPage(props: HomeV2PrototypeProps) {
@@ -706,7 +712,7 @@ function InternalPage({
 }: {
   readonly destination: Exclude<
     ShellDestination,
-    'tab' | 'dashboard' | 'newtab' | 'settings'
+    'tab' | 'dashboard' | 'newtab' | 'releases' | 'settings'
   >
 }) {
   const copy: Record<typeof destination, readonly [TranslationKey, TranslationKey]> = {
@@ -967,6 +973,11 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onReload={props.onReload}
         navigationDisabled={!!overlayOwnerTabId}
         newTabPreference={props.newTabPreference}
+        releaseNotesAddress={
+          productState.destination === 'releases' && props.releaseNotesTarget
+            ? `home://releases/${props.releaseNotesTarget.product}/${encodeURIComponent(props.releaseNotesTarget.tagName)}`
+            : undefined
+        }
       />
       <main
         className="home-v2-page-viewport"
@@ -1008,6 +1019,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             qdnAppsManagement={props.qdnAppsManagement}
             notificationPolicy={props.notificationPolicy}
             onSetAppNotifications={props.onSetAppNotifications}
+            onOpenReleaseNotes={(tagName) => props.onOpenReleaseNotes?.({
+              product: 'home',
+              tagName,
+            })}
             requestedSection={requestedSettingsSection}
           />
         ) : productState.destination === 'dashboard' ||
@@ -1018,6 +1033,15 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           />
         ) : productState.destination === 'newtab' ? (
           <NewTabPage {...props} />
+        ) : productState.destination === 'releases' && props.releaseNotesTarget ? (
+          <HomeV2ReleaseNotesPage
+            target={props.releaseNotesTarget}
+            onNavigate={props.onOpenReleaseNotes ?? (() => undefined)}
+          />
+        ) : productState.destination === 'releases' ? (
+          <section className="home-v2-internal-page" role="alert">
+            <h1>{t('releaseNotes.loadFailed')}</h1>
+          </section>
         ) : (
           <InternalPage destination={productState.destination} />
         )}

@@ -52,6 +52,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly requestedSection?: HomeV2SettingsSectionTarget
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
+  readonly onOpenReleaseNotes?: (tagName: string) => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
 }
 
@@ -303,7 +304,10 @@ export function SettingsPage(props: SettingsPageProps) {
                 </section>
               ) : null}
               {props.appUpdates?.available ? (
-                <HomeUpdateSettings updates={props.appUpdates} />
+                <HomeUpdateSettings
+                  updates={props.appUpdates}
+                  onOpenReleaseNotes={props.onOpenReleaseNotes}
+                />
               ) : null}
             </div>
           ) : activeSection === 'qdn-apps' &&

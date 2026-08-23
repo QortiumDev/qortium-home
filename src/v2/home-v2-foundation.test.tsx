@@ -306,6 +306,12 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(restoredNewTab.activeTabId, null)
   assert.equal(restoredNewTab.tabs.length, 2)
 
+  const restoredReleaseDestination = restoreProductState({
+    ...JSON.parse(JSON.stringify(newTab)),
+    destination: 'releases',
+  })
+  assert.equal(restoredReleaseDestination.destination, 'dashboard')
+
   const restoredFutureDestination = restoreProductState({
     ...JSON.parse(JSON.stringify(newTab)),
     destination: 'future-page',

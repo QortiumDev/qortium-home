@@ -30,6 +30,7 @@ function fixture(os: 'android' | 'linux', withDownload = false): HomeV2AppUpdate
     message: null,
     openDownloaded: async () => undefined,
     openReleasePage: async () => undefined,
+    revealDownloaded: async () => undefined,
     preferencesLoaded: true,
     result: {
       asset: { digestAvailable: true, name: os === 'android' ? 'Home.apk' : 'Home.AppImage', size: 123 },
@@ -62,6 +63,10 @@ assert.deepEqual(
 )
 assert.equal(rootElement.querySelector('[data-home-v2-update-action="download"]')?.textContent?.trim(), 'Download update')
 assert.equal(rootElement.textContent?.includes('Show file'), false)
+
+await act(async () => { root.render(<HomeUpdateSettings updates={fixture('linux', true)} />) })
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="open"]')?.textContent?.trim(), 'Open file')
+assert.equal(rootElement.querySelector('[data-home-v2-update-action="reveal"]')?.textContent?.trim(), 'Show file')
 
 await act(async () => { root.render(<HomeUpdateSettings updates={fixture('android', true)} />) })
 assert.equal(rootElement.querySelector('[data-home-v2-app-updates="android"]') !== null, true)

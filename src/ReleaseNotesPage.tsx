@@ -17,6 +17,20 @@ type ReleaseListItem = {
   tagName: string;
 };
 
+export type ReleaseNotesSourceDocument = {
+  documentId: string;
+  releases: ReleaseListItem[];
+  selected: ReleaseListItem & { body: string };
+};
+
+export type ReleaseNotesSource = {
+  load: (
+    product: ReleaseNotesRoute['product'],
+    tagName: string | null,
+  ) => Promise<ReleaseNotesSourceDocument>;
+  openLink: (documentId: string, url: string) => Promise<void>;
+};
+
 type DownloadStatus = { kind: 'error' | 'success'; message: string } | null;
 
 type ReleaseLinkHandler = (url: string) => void;
@@ -209,7 +223,10 @@ function renderRawLinks(text: string, keyPrefix: string, onOpenLink: ReleaseLink
       nodes.push(text.slice(cursor, match.index));
     }
 
-    nodes.push(renderUrlLink(match[0], onOpenLink, match[0], `${keyPrefix}-url-${match.index}`));
+    const url = match[0].replace(/[.,;:!?]+$/, '');
+    const punctuation = match[0].slice(url.length);
+    nodes.push(renderUrlLink(url, onOpenLink, url, `${keyPrefix}-url-${match.index}`));
+    if (punctuation) nodes.push(punctuation);
     cursor = match.index + match[0].length;
   }
 
@@ -309,23 +326,36 @@ function renderReleaseBody(body: string, onOpenLink: ReleaseLinkHandler) {
 export function ReleaseNotesPage({
   onOpenReleaseNotes,
   route,
+  source,
 }: {
   onOpenReleaseNotes: (product: 'core' | 'home', tagName: string) => void;
   route: ReleaseNotesRoute;
+  source?: ReleaseNotesSource;
 }) {
   const [state, setState] = useState<ReleaseNotesState>({ kind: 'loading' });
   const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>(null);
   const [releases, setReleases] = useState<ReleaseListItem[]>([]);
   const [releaseListError, setReleaseListError] = useState<string | null>(null);
+  const [sourceDocumentId, setSourceDocumentId] = useState<string | null>(null);
 
   useEffect(() => {
     let isDisposed = false;
 
     setState({ kind: 'loading' });
     setDownloadStatus(null);
-    fetchReleaseNotes(route)
-      .then((release) => {
+    const request = source
+      ? source.load(route.product, route.tagName)
+      : fetchReleaseNotes(route);
+    request.then((result) => {
         if (!isDisposed) {
+          const release = source
+            ? (result as ReleaseNotesSourceDocument).selected
+            : (result as Awaited<ReturnType<typeof fetchReleaseNotes>>);
+          if (source) {
+            const document = result as ReleaseNotesSourceDocument;
+            setReleases(document.releases);
+            setSourceDocumentId(document.documentId);
+          }
           setState({ kind: 'loaded', ...release });
         }
       })
@@ -341,10 +371,16 @@ export function ReleaseNotesPage({
     return () => {
       isDisposed = true;
     };
-  }, [route.product, route.tagName]);
+  }, [route.product, route.tagName, source]);
 
   useEffect(() => {
     let isDisposed = false;
+
+    if (source) {
+      return () => {
+        isDisposed = true;
+      };
+    }
 
     setReleaseListError(null);
     fetchReleaseList(route.product)
@@ -362,7 +398,7 @@ export function ReleaseNotesPage({
     return () => {
       isDisposed = true;
     };
-  }, [route.product]);
+  }, [route.product, source]);
 
   const releaseOptions = useMemo(() => {
     if (releases.some((release) => release.tagName === route.tagName)) {
@@ -388,6 +424,18 @@ export function ReleaseNotesPage({
   const publishedAt = state.kind === 'loaded' ? formatPublishedAt(state.publishedAt) : '';
 
   async function openReleaseLink(url: string) {
+    if (source) {
+      if (!sourceDocumentId) return;
+      try {
+        setDownloadStatus(null);
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') throw new Error('unsupported-link');
+        await source.openLink(sourceDocumentId, parsed.toString());
+      } catch {
+        setDownloadStatus({ kind: 'error', message: t('releaseNotes.loadFailed') });
+      }
+      return;
+    }
     const downloadAsset = getGithubReleaseDownload(url);
 
     if (!downloadAsset) {
@@ -432,7 +480,9 @@ export function ReleaseNotesPage({
 
     try {
       setReleaseListError(null);
-      const targetReleases = await fetchReleaseList(product);
+      const targetReleases = source
+        ? (await source.load(product, null)).releases
+        : await fetchReleaseList(product);
       const exactRelease = targetReleases.find((release) => release.tagName === route.tagName);
       const fallbackRelease = exactRelease ?? getHighestRelease(targetReleases);
 
@@ -498,7 +548,7 @@ export function ReleaseNotesPage({
           <button
             className="button button--secondary"
             type="button"
-            onClick={() => openExternalUrl(state.htmlUrl)}
+            onClick={() => handleReleaseLink(state.htmlUrl)}
           >
             <ExternalLink aria-hidden="true" size={18} strokeWidth={2} />
             {t('releaseNotes.openGithub')}

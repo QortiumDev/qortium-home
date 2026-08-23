@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
+  parseHomeV2ReleaseNotesAddress,
   parseNewTabPreference,
   validateCustomNewTabAddress,
 } from './new-tab-preference'
@@ -14,6 +15,7 @@ function testCustomAddressValidation(): void {
   const accepted = [
     ['home://dashboard', 'home://dashboard'],
     [' HOME://NEWTAB/ ', 'HOME://NEWTAB/'],
+    ['home://releases/home/v2.1.0', 'home://releases/home/v2.1.0'],
     ['qdn://APP/QortiumHome', 'qdn://APP/QortiumHome'],
     [
       ' qdn://APP/QortiumHome ',
@@ -42,6 +44,8 @@ function testCustomAddressValidation(): void {
     '   ',
     'dashboard',
     'home://unknown',
+    'home://releases',
+    'home://releases/other/v2.1.0',
     'https://example.invalid/app',
     'qdn://',
     'qdn://APP',
@@ -60,6 +64,15 @@ function testCustomAddressValidation(): void {
       `expected custom new-tab address to be rejected: ${input.slice(0, 80)}`,
     )
   }
+  assert.deepEqual(parseHomeV2ReleaseNotesAddress('HOME://RELEASES/CORE/v1.2.3'), {
+    product: 'core',
+    tagName: 'v1.2.3',
+  })
+  assert.deepEqual(parseHomeV2ReleaseNotesAddress('home://releases/home/v2.1.0%2Dbeta.1'), {
+    product: 'home',
+    tagName: 'v2.1.0-beta.1',
+  })
+  assert.equal(parseHomeV2ReleaseNotesAddress('home://releases/home/%zz'), null)
 }
 
 function testPreferenceParsingFailsClosed(): void {

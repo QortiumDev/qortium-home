@@ -125,7 +125,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
   const [channel, setChannel] = useState<HomeV2AppUpdateChannel>('stable')
   const [result, setResult] = useState<HomeV2AppUpdateCheck | null>(null)
   const [download, setDownload] = useState<HomeV2AppUpdateDownload | null>(null)
-  const [busy, setBusy] = useState<'check' | 'download' | 'open' | null>(null)
+  const [busy, setBusy] = useState<'check' | 'download' | 'open' | 'reveal' | null>(null)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const requestSequence = useRef(0)
   const automaticCheckKey = useRef('')
@@ -484,8 +484,8 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
     setBusy('open')
     try {
       if (desktopClient) {
-        const action = parseHomeV2AppUpdateAction(await desktopClient.reveal(download.downloadId))
-        if (action.outcome !== 'completed') throw new Error('reveal-failed')
+        const action = parseHomeV2AppUpdateAction(await desktopClient.open(download.downloadId))
+        if (action.outcome !== 'completed') throw new Error('open-failed')
       } else {
         const native = nativeDownload.current
         if (!native || !SHA256_PATTERN.test(native.digest)) throw new Error('unverified-download')
@@ -497,6 +497,19 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
       setBusy(null)
     }
   }, [desktopClient, download, nativeClient])
+
+  const revealDownloaded = useCallback(async () => {
+    if (!desktopClient || !download?.digestVerified || !download.canReveal) return
+    setBusy('reveal')
+    try {
+      const action = parseHomeV2AppUpdateAction(await desktopClient.reveal(download.downloadId))
+      if (action.outcome !== 'completed') throw new Error('reveal-failed')
+    } catch {
+      setMessage({ tone: 'error', text: t('updates.checkFailed') })
+    } finally {
+      setBusy(null)
+    }
+  }, [desktopClient, download])
 
   const openReleasePage = useCallback(async () => {
     if (!result?.release) return
@@ -532,6 +545,7 @@ export function useHomeV2AppUpdates(nativeHostOverride: AndroidHomeV2UpdateHost 
     message,
     openDownloaded,
     openReleasePage,
+    revealDownloaded,
     preferencesLoaded,
     result,
     setChannel: (nextChannel: HomeV2AppUpdateChannel) => {

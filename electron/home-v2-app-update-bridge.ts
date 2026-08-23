@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import {
   downloadVerifiedAppUpdate,
   getUpdateEnvironment,
+  openDownloadedFile,
   openExternalUrl,
   showDownloadedFile,
 } from './app-updates.js'
@@ -25,6 +26,7 @@ export function registerHomeV2AppUpdateBridgeIpcHandlers() {
     downloadAsset: downloadVerifiedAppUpdate,
     fetchRelease: fetchTrustedHomeRelease,
     getEnvironment: getUpdateEnvironment,
+    openDownloadedFile,
     readSettings: readHomeV2AppUpdateSettings,
     openReleasePage: openExternalUrl,
     revealDownloadedFile: showDownloadedFile,
@@ -42,6 +44,7 @@ export function registerHomeV2AppUpdateBridgeIpcHandlers() {
   )
   ipcMain.handle('home-v2-app-update:check', handlers.check)
   ipcMain.handle('home-v2-app-update:download', handlers.download)
+  ipcMain.handle('home-v2-app-update:open', handlers.open)
   ipcMain.handle('home-v2-app-update:reveal', handlers.reveal)
   ipcMain.handle('home-v2-app-update:open-release-page', handlers.openReleasePage)
   ipcMain.handle('home-v2-app-update:get-settings', settingsHandlers.get)
