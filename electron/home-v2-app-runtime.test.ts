@@ -82,6 +82,7 @@ for (const action of ['BAN_FROM_GROUP', 'KICK_FROM_GROUP']) {
 
 const unreachableInfo = getHomeV2AppHostInfo({
   accountId: 'wallet:one:0',
+  hostVersion: '2.1.0',
   node: { ...reachablePublic, capabilities: { read: false }, nodeApiUrl: null },
   platform: 'desktop',
   platformVersion: '2.0',
@@ -106,6 +107,7 @@ for (const action of ['SELECT_QDN_PUBLISH_SOURCE', 'PUBLISH_QDN_RESOURCE']) {
 assert.notEqual(unreachableInfo.route.revision, publicInfo.route.revision)
 
 const androidLocalInfo = getHomeV2AppHostInfo({
+  hostVersion: '2.1.0',
   node: {
     capabilities: { read: false },
     customConfigured: false,
@@ -136,6 +138,7 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
 ])
 
 const authenticatedCustomInfo = getHomeV2AppHostInfo({
+  hostVersion: '2.1.0',
   node: {
     capabilities: { read: true },
     customAuthenticated: true,
@@ -200,6 +203,7 @@ for (const routeCase of operationalRoutes) {
   for (const protocol of ['qdnRequest', 'qortalRequest'] as const) {
     const info = getHomeV2AppHostInfo({
       accountId: 'wallet:one:0',
+      hostVersion: '2.1.0',
       node: {
         capabilities: { read: true },
         customAuthenticated: 'customAuthenticated' in routeCase ? routeCase.customAuthenticated : false,

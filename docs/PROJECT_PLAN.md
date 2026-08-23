@@ -458,8 +458,10 @@ test-kit/
   hosts/                 throwing fake host plus desktop/Android contract fakes
 ```
 
-`src/App.tsx`, `src/platform.ts`, `electron/qdn.ts`, `src/styles.css`, and
+`src/platform.ts`, `electron/qdn.ts`, `src/styles.css`, and
 `electron/core-manager.ts` are migration sources, not target architecture.
+The retired Home v1 `src/App.tsx` source remains available in Git history when
+its behavior is needed as migration evidence.
 Extract contracts incrementally and move behavior only after focused fixtures
 exist.
 

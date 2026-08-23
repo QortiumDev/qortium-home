@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import { access, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import extract from 'extract-zip';
+import { extractZipSafely } from './safe-zip-extraction.js';
 
 const ARCHIVE_RENDER_DIR = 'qdn-archive-render';
 const ARCHIVE_FILENAME = 'resource.zip';
@@ -228,7 +228,7 @@ export async function prepareQdnArchiveRender(
     await writeFile(archivePath, archiveBuffer);
 
     try {
-      await extract(archivePath, { dir: contentsDir });
+      await extractZipSafely(archivePath, { dir: contentsDir });
     } finally {
       await rm(archivePath, { force: true });
     }

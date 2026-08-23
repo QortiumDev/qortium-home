@@ -34,6 +34,35 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - chore(release): prepare Qortium Home 2.1.0
+
+Qortium Home is now prepared as version 2.1.0, with Android advancing from
+version code 38 to 39 and the QDN app compatibility level remaining at 2.1 for
+the restored bookmark-manager contract. A new automated check keeps the
+desktop, Android, lockfile, and QAVS release values aligned and prevents the
+retired Home 1 renderer entry points from returning. The root development
+document now points only to Home 2 so existing smoke harnesses cannot revive
+the removed renderer.
+
+The release instructions now separate ordinary local builds from the native
+platform acceptance, signed Android install-over-2.0.0 test, tagging, asset
+upload, and publication checkpoints. This preparation does not sign, tag,
+upload, or publish a release.
+
+Android QDN apps now receive the same 2.1.0 host version in `GET_HOST_INFO` as
+desktop apps, and the release checker/publisher includes the separate macOS
+10.15 x64 compatibility DMG alongside the other six platform artifacts. CI
+also runs the renderer TypeScript check explicitly instead of relying on the
+production bundler to catch type errors.
+
+Release preparation also removed Home's production use of an unpatched ZIP
+extractor after its symlink-traversal advisory became visible in the audit.
+Home now performs its own sequential extraction into exclusive, no-follow
+files, accepts only normalized relative regular-file and directory entries,
+and refuses symbolic links and special files before writing them. This applies
+to QDN preview/render archives and managed Qortium Core, Java, and i2pd ZIPs;
+the production dependency audit is clean.
+
 ### 2026-08-23 - feat(android): restore Home 2 approved Core updates
 
 Home 2 on Android can once again check and request a Qortium Core update that

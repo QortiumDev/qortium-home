@@ -208,7 +208,8 @@ assert.equal(disabledQortiumActions.some((action) => action.startsWith('WIDGET_'
 const disabledQortiumHostInfo = await client.requestApp(
   'qdnRequest',
   { action: 'GET_HOST_INFO' },
-) as { network: string; platform: string; protocol: string; route: Record<string, unknown> }
+) as { hostVersion: string; network: string; platform: string; protocol: string; route: Record<string, unknown> }
+assert.equal(disabledQortiumHostInfo.hostVersion, '2.1.0')
 assert.equal(disabledQortiumHostInfo.network, 'qortium')
 assert.equal(disabledQortiumHostInfo.platform, 'android')
 assert.equal(disabledQortiumHostInfo.protocol, 'qdnRequest')

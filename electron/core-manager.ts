@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import extract from 'extract-zip';
+import { extractZipSafely } from './safe-zip-extraction.js';
 import { extract as extractTar } from 'tar';
 import {
   ensurePreviewApiKey,
@@ -3065,7 +3065,7 @@ async function refreshCoreHelpersUnlocked(expectedRelease?: AvailableCoreRelease
       message: userMessage('core.helpersExtracting', { name: release.asset.name }),
       percent: 0,
     });
-    await extract(downloadPath, { dir: stagingPath });
+    await extractZipSafely(downloadPath, { dir: stagingPath });
 
     const extractedCorePaths = await findExtractedCorePaths(stagingPath);
     const helperFiles = await listReleaseHelperFiles(extractedCorePaths.installPath);
@@ -3225,7 +3225,7 @@ async function extractJavaArchive(
   destinationPath: string,
 ) {
   if (archiveType === 'zip') {
-    await extract(downloadPath, { dir: destinationPath });
+    await extractZipSafely(downloadPath, { dir: destinationPath });
     return;
   }
 
@@ -3612,7 +3612,7 @@ async function installCoreUnlocked(request: InternalCoreInstallRequest) {
       message: `Extracting ${release.asset.name}.`,
       percent: 0,
     });
-    await extract(downloadPath, { dir: stagingPath });
+    await extractZipSafely(downloadPath, { dir: stagingPath });
 
     const extractedCorePaths = await findExtractedCorePaths(stagingPath);
     const runtimeIdentity = await readCoreRuntimeChainIdentity(extractedCorePaths.previewPath);

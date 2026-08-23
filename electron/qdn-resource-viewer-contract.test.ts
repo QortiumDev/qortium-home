@@ -144,7 +144,6 @@ function readRepoSource(...candidates: string[]) {
 
 const desktop = readRepoSource('../electron/qdn.ts', './qdn.ts');
 const android = readRepoSource('../src/platform.ts', './platform.ts');
-const app = readRepoSource('../src/App.tsx', './App.tsx');
 const preload = readRepoSource('../electron/preload.cts', './preload.cts');
 const homeV2Desktop = readRepoSource('../electron/home-v2-app-bridge.ts', './home-v2-app-bridge.ts');
 const homeV2DesktopStream = readRepoSource(
@@ -178,7 +177,6 @@ for (const [label, source] of [
   );
 }
 
-assert(app.includes('onOpenResourceViewer'), 'Home must thread the generic viewer callback into QDN app frames.');
 assert(preload.includes('qdn-app:open-resource-viewer'), 'Desktop preload must expose the viewer event.');
 for (const source of [homeV2Desktop, homeV2Android]) {
   for (const action of ['GET_QDN_RESOURCE_STREAM_URL', 'OPEN_QDN_RESOURCE_VIEWER', 'SAVE_QDN_RESOURCE']) {
