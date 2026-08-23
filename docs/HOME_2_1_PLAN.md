@@ -218,8 +218,18 @@ during release preparation.
   preference enums, downgrades any old automatic value to Notify, and keeps
   manual verified APK updates; automatic download remains disabled until the
   complete discovery/download/receipt/install boundary is native and opaque.
-  Release notes, signing, publication, Core/Java/i2pd update surfaces, and that
-  Android native prerequisite remain open.
+  Release notes, signing, publication, managed Core/Java/i2pd maintenance, and
+  that Android native prerequisite remain open.
+- [x] Restore Android's host-triggered approved Qortium Core update path in
+  Home 2 Runtime settings. The Android adapter owns a separate authenticated
+  custom-node authority: its API key is Keystore-protected, bound to the exact
+  HTTPS or loopback origin, redacted from node/QDN-app snapshots, and never
+  advertised as an embedded-app admin capability. `/admin/update` responses
+  are strictly reduced to bounded status fields, redirects are refused,
+  install requests are single-flighted, and Home rechecks the same pinned
+  node/key before POST while leaving an absent, downloading, installing, or
+  Core-owned automatic update alone. Public nodes, Qortal, and Android local
+  Core mode remain fail-closed.
 - [x] Add the manual Qortium Core maintenance slice to desktop Runtime
   settings. Release discovery stays main-process-owned and selects the default
   Preview channel for initial install or the installed channel for a strictly
@@ -240,8 +250,8 @@ during release preparation.
   and the stopped-only strict-update transaction, or publishes a verified
   strictly newer immutable managed-Java generation. Policy and lifecycle
   changes revoke work before download and again at activation. Automatic initial install, channel
-  switching, Qortal mutation, host-triggered on-chain updates, Android
-  Core/Java maintenance, and i2pd/transport remain later work.
+  switching, Qortal mutation, Android managed Core/Java maintenance, and
+  i2pd/transport remain later work.
 - [x] Add manual stable-only Qortal maintenance to desktop Runtime settings.
   A separate sender-gated Qortal contract keeps Qortium channel/Java policy
   semantics unchanged and accepts only an expected stable tag. The main

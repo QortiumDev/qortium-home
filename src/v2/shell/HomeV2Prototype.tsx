@@ -58,6 +58,7 @@ import type {
 import type { HomeV2AppUpdates } from '../../home-v2-live/app-update-controller'
 import type { HomeV2QdnSettingsManagement } from '../../home-v2-live/qdn-settings-client'
 import type { HomeV2NotificationPolicyState } from '../../home-v2-live/notification-policy-client'
+import type { HomeV2OnChainCoreUpdates } from '../../home-v2-live/on-chain-core-update-controller'
 import {
   HomeV2ReleaseNotesPage,
   type HomeV2ReleaseNotesTarget,
@@ -107,6 +108,7 @@ export interface HomeV2PrototypeProps {
   readonly nodeClient?: HomeV2NodeClient | null
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
+  readonly onChainCoreUpdates?: HomeV2OnChainCoreUpdates
   readonly qdnAppsManagement?: HomeV2QdnSettingsManagement
   readonly notificationPolicy?: HomeV2NotificationPolicyState | null
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
@@ -1015,6 +1017,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             onToggleLockOnExit={props.onToggleLockOnExit}
             coreManagement={props.coreManagement}
             appUpdates={props.appUpdates}
+            onChainCoreUpdates={props.onChainCoreUpdates}
             qdnAppsManagement={props.qdnAppsManagement}
             notificationPolicy={props.notificationPolicy}
             onSetAppNotifications={props.onSetAppNotifications}

@@ -4,6 +4,7 @@ import {
   buildHomeV2AppResourceSearchPath,
   createPortableNodeClient,
   normalizeHomeV2AvatarReadResult,
+  parseHomeV2CoreOnChainUpdateStatus,
   parseHomeV2AppResourceCandidates,
   parseHomeV2AvatarResponse,
   normalizePortableNodeUrl,
@@ -27,7 +28,11 @@ const syncedStatus = {
 type Snapshot = {
   nodes: {
     qortal: { error: string | null; localCoreState: string; nodeApiUrl: string | null }
-    qortium: { nodeApiUrl: string | null }
+    qortium: {
+      capabilities: { admin: boolean }
+      customAuthenticated: boolean
+      nodeApiUrl: string | null
+    }
   }
   version: number
 }
@@ -60,6 +65,7 @@ const preferences = new Map<string, string>([
     }),
   ],
 ])
+const secrets = new Map<string, string>()
 const latency = new Map([
   ['https://ext-node.qortal.link', 50],
   ['https://api.qortal.org', 10],
@@ -71,22 +77,54 @@ let lastRequestedUrl = ''
 let lastRequestedBinaryUrl = ''
 let lastRequestedBinaryTimeoutMs: number | undefined
 let lastRequestedTimeoutMs: number | undefined
+let lastRequestedMethod: string | undefined
+let lastRequestedHeaders: Readonly<Record<string, string>> | undefined
+let lastDisableRedirects: boolean | undefined
+let coreUpdateGetCount = 0
+let coreUpdatePostCount = 0
+let coreUpdateResponse: unknown = { updateAvailable: true }
+let onCoreUpdateGet: (() => void | Promise<void>) | null = null
 let savedResource: { fileName: string; mimeType: string; size: number } | null = null
 
 const dependencies: PortableNodeClientDependencies = {
   async getPreference(key) {
     return preferences.get(key) ?? null
   },
+  async getSecret(key) {
+    return secrets.get(key) ?? null
+  },
+  async removeSecret(key) {
+    secrets.delete(key)
+  },
   async setPreference(key, value) {
     preferences.set(key, value)
   },
-  async requestJson(url, _method, timeoutMs) {
+  async setSecret(key, value) {
+    secrets.set(key, value)
+  },
+  async requestJson(url, method, timeoutMs, headers, disableRedirects) {
     lastRequestedUrl = url
+    lastRequestedMethod = method
+    lastRequestedHeaders = headers
+    lastDisableRedirects = disableRedirects
     lastRequestedTimeoutMs = timeoutMs
     const origin = new URL(url).origin
     requestCount.set(origin, (requestCount.get(origin) ?? 0) + 1)
     if (unavailable.has(origin)) {
       return { data: null, latencyMs: 1, ok: false, status: 503 }
+    }
+    if (url.endsWith('/admin/update')) {
+      if (method === 'POST') coreUpdatePostCount += 1
+      else {
+        coreUpdateGetCount += 1
+        await onCoreUpdateGet?.()
+      }
+      return {
+        data: coreUpdateResponse,
+        latencyMs: 1,
+        ok: true,
+        status: 200,
+      }
     }
     return {
       data: url.includes(`/names/primary/QH143K2qjVdn864NSY7aNESo88ao1ZnALH`)
@@ -141,6 +179,10 @@ const dependencies: PortableNodeClientDependencies = {
 }
 
 const client = createPortableNodeClient(dependencies)
+assert.equal(typeof client.checkCoreUpdate, 'function')
+assert.equal(typeof client.installCoreUpdate, 'function')
+const checkCoreUpdate = () => client.checkCoreUpdate!()
+const installCoreUpdate = () => client.installCoreUpdate!()
 
 await client.saveShellState({ version: 1, selectedAccountId: 'wallet:one:2' })
 assert.deepEqual(await client.getShellState(), {
@@ -805,6 +847,156 @@ assert.equal(
 await assert.rejects(
   () => client.readIdentity('qortal', { kind: 'name', value: '' }),
   /1 to 128/,
+)
+
+await assert.rejects(
+  checkCoreUpdate,
+  /authenticated custom Qortium node/,
+)
+
+unavailable.delete('https://qortium-admin.example')
+const authenticated = (await client.setCustomUrl(
+  'qortium',
+  'https://qortium-admin.example/path',
+  'private-test-api-key',
+)) as Snapshot
+assert.equal(authenticated.nodes.qortium.customAuthenticated, true)
+assert.equal(authenticated.nodes.qortium.capabilities.admin, false)
+assert.doesNotMatch(JSON.stringify(authenticated), /private-test-api-key/)
+assert.doesNotMatch(
+  preferences.get('home-v2-live-node:qortium') ?? '',
+  /private-test-api-key/,
+)
+const preservedCredential = (await client.setCustomUrl(
+  'qortium',
+  'https://qortium-admin.example',
+)) as Snapshot
+assert.equal(preservedCredential.nodes.qortium.customAuthenticated, true)
+const clearedCredential = (await client.setCustomUrl(
+  'qortium',
+  'https://qortium-admin.example',
+  '',
+)) as Snapshot
+assert.equal(clearedCredential.nodes.qortium.customAuthenticated, false)
+await client.setCustomUrl(
+  'qortium',
+  'https://qortium-admin.example',
+  'private-test-api-key',
+)
+
+coreUpdateResponse = {
+  binaryResourcePercentLoaded: 42,
+  binaryResourceStatus: 'DOWNLOADING',
+  secretUnexpectedField: 'must-be-redacted',
+  updateAvailable: true,
+}
+const checkedUpdate = await checkCoreUpdate()
+assert.deepEqual(checkedUpdate, {
+  binaryResourcePercentLoaded: 42,
+  binaryResourceStatus: 'DOWNLOADING',
+  updateAvailable: true,
+})
+assert.equal(lastRequestedUrl, 'https://qortium-admin.example/admin/update')
+assert.equal(lastRequestedMethod, 'GET')
+assert.equal(lastRequestedTimeoutMs, 30_000)
+assert.equal(lastRequestedHeaders?.['X-API-KEY'], 'private-test-api-key')
+assert.equal(lastDisableRedirects, true)
+assert.doesNotMatch(JSON.stringify(checkedUpdate), /secretUnexpectedField/)
+
+coreUpdateGetCount = 0
+coreUpdatePostCount = 0
+coreUpdateResponse = { message: 'ready', updateAvailable: true }
+const [firstInstall, secondInstall] = await Promise.all([
+  installCoreUpdate(),
+  installCoreUpdate(),
+])
+assert.deepEqual(firstInstall, secondInstall)
+assert.equal(coreUpdateGetCount, 1)
+assert.equal(coreUpdatePostCount, 1)
+
+coreUpdateGetCount = 0
+coreUpdatePostCount = 0
+coreUpdateResponse = { autoUpdateMode: 'INSTALL', updateAvailable: true }
+await installCoreUpdate()
+assert.equal(coreUpdateGetCount, 1)
+assert.equal(coreUpdatePostCount, 0)
+
+coreUpdateGetCount = 0
+coreUpdatePostCount = 0
+coreUpdateResponse = { status: 'INSTALL_IN_PROGRESS', updateAvailable: true }
+await installCoreUpdate()
+assert.equal(coreUpdateGetCount, 1)
+assert.equal(coreUpdatePostCount, 0)
+
+coreUpdateGetCount = 0
+coreUpdatePostCount = 0
+coreUpdateResponse = { updateAvailable: false }
+await installCoreUpdate()
+assert.equal(coreUpdateGetCount, 1)
+assert.equal(coreUpdatePostCount, 0)
+
+coreUpdateGetCount = 0
+coreUpdatePostCount = 0
+coreUpdateResponse = { autoUpdateMode: 'NOTIFY', updateAvailable: true }
+onCoreUpdateGet = () => {
+  preferences.set(
+    'home-v2-live-node:qortium',
+    JSON.stringify({
+      customUrl: 'https://replacement-admin.example',
+      mode: 'custom',
+    }),
+  )
+  secrets.set(
+    'home-v2-qortium-node-api-key-v1',
+    JSON.stringify({
+      apiKey: 'replacement-key',
+      nodeApiUrl: 'https://replacement-admin.example',
+      version: 1,
+    }),
+  )
+}
+await assert.rejects(
+  installCoreUpdate,
+  /changed before the Core update request/,
+)
+onCoreUpdateGet = null
+assert.equal(coreUpdateGetCount, 1)
+assert.equal(coreUpdatePostCount, 0)
+
+await client.setCustomUrl(
+  'qortium',
+  'https://qortium-admin.example',
+  'private-test-api-key',
+)
+
+const changedHost = (await client.setCustomUrl(
+  'qortium',
+  'https://different-admin.example',
+)) as Snapshot
+assert.equal(changedHost.nodes.qortium.customAuthenticated, false)
+assert.equal(changedHost.nodes.qortium.capabilities.admin, false)
+await assert.rejects(
+  checkCoreUpdate,
+  /Save the custom Qortium node API key/,
+)
+
+await client.setCustomUrl('qortal', 'https://custom.example', 'must-not-be-stored')
+assert.doesNotMatch(preferences.get('home-v2-live-node:qortal') ?? '', /must-not-be-stored/)
+assert.throws(
+  () => parseHomeV2CoreOnChainUpdateStatus([]),
+  /invalid/,
+)
+assert.throws(
+  () => parseHomeV2CoreOnChainUpdateStatus({ updateAvailable: 'yes' }),
+  /invalid/,
+)
+assert.throws(
+  () => parseHomeV2CoreOnChainUpdateStatus({}),
+  /invalid/,
+)
+assert.throws(
+  () => parseHomeV2CoreOnChainUpdateStatus(JSON.stringify({ message: 'x'.repeat(130 * 1024) })),
+  /too large/,
 )
 
 console.log('Home v2 portable node client tests passed.')

@@ -351,6 +351,7 @@ export function useHomeV2NodeCoreController(options: {
   const saveCustomNode = useCallback(async (
     network: NetworkId,
     customUrl: string,
+    apiKey?: string,
   ) => {
     if (!nodeClient || nodeMutationInFlight.current) return false
     nodeMutationInFlight.current = true
@@ -358,7 +359,7 @@ export function useHomeV2NodeCoreController(options: {
     setNodeBusyNetwork(network)
     try {
       const next = parseHomeV2NodesSnapshot(
-        await nodeClient.setCustomUrl(network, customUrl),
+        await nodeClient.setCustomUrl(network, customUrl, apiKey),
       )
       if (sequence === nodeRefreshSequence.current) setNodes(next)
       return true

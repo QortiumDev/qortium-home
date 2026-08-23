@@ -22,3 +22,4 @@ globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.windo
 
 await import('../dist-electron/home-v2-update-settings.test.js')
 await import('../dist-electron/home-v2-update-controller.test.js')
+await import('../dist-electron/home-v2-on-chain-core-update-controller.test.js')

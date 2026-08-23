@@ -88,6 +88,7 @@ import {
   useHomeV2NodeCoreController,
 } from './node-core-controller'
 import { useHomeV2AppUpdates } from './app-update-controller'
+import { useHomeV2OnChainCoreUpdates } from './on-chain-core-update-controller'
 import {
   HomeV2CollectionsClient,
   type HomeV2CollectionsAccounts,
@@ -511,6 +512,9 @@ export function HomeV2LiveApp() {
   const [snapshotState, setSnapshot] = useState(initialSnapshot)
   const [customNetwork, setCustomNetwork] = useState<NetworkId | null>(null)
   const [customUrl, setCustomUrl] = useState('')
+  const [customApiKey, setCustomApiKey] = useState('')
+  const [removeCustomApiKey, setRemoveCustomApiKey] = useState(false)
+  const [coreUpdateAuthorityRevision, setCoreUpdateAuthorityRevision] = useState(0)
   const [customError, setCustomError] = useState<string | null>(null)
   const [identityInput, setIdentityInput] = useState('')
   const [identityLookup, setIdentityLookup] =
@@ -545,6 +549,11 @@ export function HomeV2LiveApp() {
   const nodeCoreController = useHomeV2NodeCoreController({
     coreClient: window.homeV2CoreManagers ?? null,
     nodeClient,
+  })
+  const onChainCoreUpdates = useHomeV2OnChainCoreUpdates(nodeClient, {
+    authenticated: nodeCoreController.nodes.qortium.customAuthenticated,
+    authorityRevision: coreUpdateAuthorityRevision,
+    available: isAndroidHost,
   })
   const appUpdates = useHomeV2AppUpdates()
   const snapshot = useMemo<HomeV2Snapshot>(
@@ -3983,6 +3992,10 @@ export function HomeV2LiveApp() {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => {
+    if (network === 'qortium' && onChainCoreUpdates.busy === 'install') {
+      setShellNotice('Wait for the approved Core update request before changing the Qortium node.')
+      return
+    }
     invalidateAndroidRuntime('node-changed', null, network)
     window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed', network })
     setIdentityLookup(null)
@@ -3992,18 +4005,48 @@ export function HomeV2LiveApp() {
   const openCustomNode = (network: NetworkId) => {
     setCustomNetwork(network)
     setCustomUrl(snapshot.nodes[network].customUrl ?? '')
+    setCustomApiKey('')
+    setRemoveCustomApiKey(false)
     setCustomError(null)
+  }
+
+  const closeCustomNode = () => {
+    setCustomApiKey('')
+    setRemoveCustomApiKey(false)
+    setCustomError(null)
+    setCustomNetwork(null)
   }
 
   const saveCustomNode = async () => {
     if (!customNetwork) return
+    if (
+      customNetwork === 'qortium' &&
+      onChainCoreUpdates.busy === 'install'
+    ) {
+      setCustomError('Wait for the approved Core update request before changing the Qortium node.')
+      return
+    }
     invalidateAndroidRuntime('node-changed', null, customNetwork)
     window.homeV2Apps?.invalidateRuntime({ kind: 'node-changed', network: customNetwork })
     setIdentityLookup(null)
     setCustomError(null)
     try {
-      const saved = await nodeCoreController.saveCustomNode(customNetwork, customUrl)
-      if (saved) setCustomNetwork(null)
+      const apiKey = isAndroidHost && customNetwork === 'qortium'
+        ? removeCustomApiKey
+          ? ''
+          : customApiKey.trim() || undefined
+        : undefined
+      const saved = await nodeCoreController.saveCustomNode(
+        customNetwork,
+        customUrl,
+        apiKey,
+      )
+      if (saved) {
+        if (customNetwork === 'qortium') {
+          setCoreUpdateAuthorityRevision((current) => current + 1)
+        }
+        closeCustomNode()
+      }
     } catch (error) {
       setCustomError(
         error instanceof Error ? error.message : 'Unable to save the custom node.',
@@ -4223,18 +4266,59 @@ export function HomeV2LiveApp() {
             }}
           />
         </label>
+        {isAndroidHost && customNetwork === 'qortium' ? (
+          <>
+            <label>
+              <span>Node API key</span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={customApiKey}
+                placeholder={
+                  snapshot.nodes.qortium.customAuthenticated
+                    ? 'Saved — leave blank to keep it'
+                    : 'Required for approved Core updates'
+                }
+                onChange={(event) => {
+                  setCustomApiKey(event.target.value)
+                  if (event.target.value) setRemoveCustomApiKey(false)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void saveCustomNode()
+                }}
+              />
+            </label>
+            {snapshot.nodes.qortium.customAuthenticated ? (
+              <label className="home-v2-custom-node-dialog__remove-key">
+                <input
+                  type="checkbox"
+                  checked={removeCustomApiKey}
+                  onChange={(event) => {
+                    setRemoveCustomApiKey(event.target.checked)
+                    if (event.target.checked) setCustomApiKey('')
+                  }}
+                />
+                <span>Remove the saved API key</span>
+              </label>
+            ) : null}
+          </>
+        ) : null}
         <div
           className="home-v2-custom-node-dialog__message"
           aria-live="polite"
         >
-          {customError ?? 'Saving also selects Custom mode.'}
+          {customError ?? (
+            isAndroidHost && customNetwork === 'qortium'
+              ? 'The API key is protected by Android Keystore and sent only to this custom node over HTTPS or loopback HTTP; redirects are refused.'
+              : 'Saving also selects Custom mode.'
+          )}
         </div>
         <footer>
           <button
             type="button"
             className="home-v2-secondary-button"
             disabled={nodeCoreController.nodeBusyNetwork !== null}
-            onClick={() => setCustomNetwork(null)}
+            onClick={closeCustomNode}
           >
             Cancel
           </button>
@@ -4395,6 +4479,7 @@ export function HomeV2LiveApp() {
         },
       }}
       appUpdates={appUpdates.available ? appUpdates : undefined}
+      onChainCoreUpdates={onChainCoreUpdates.available ? onChainCoreUpdates : undefined}
       releaseNotesTarget={releaseNotesTarget}
       coreDocsNetwork={coreDocsNetwork}
       coreDocsTransport={homeV2CoreDocsTransport()}
