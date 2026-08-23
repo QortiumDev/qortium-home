@@ -69,12 +69,17 @@ import {
   useHomeV2NodeCoreController,
 } from './node-core-controller'
 import { useHomeV2AppUpdates } from './app-update-controller'
+import { HomeV2CollectionsClient } from './collections-client'
 import {
   getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
   getQdnResourceViewerRequest,
 } from '../../electron/qdn-resource-viewer-contract'
 import type { QdnAppRequest } from '../../electron/qdn-request-values'
+import {
+  validateBookmarkManagerMutationRequest,
+  validateBookmarksOpenRequest,
+} from '../../electron/bookmark-manager-contract'
 import {
   assertHomeV2OpenPublicGroup,
   isHomeV2PublicChatAction,
@@ -148,8 +153,11 @@ import {
   setAppNotificationMuted,
 } from '../notificationStore'
 import {
+  grantQdnManagerPermission,
   getQdnAppRolesStore,
+  hasQdnManagerPermission,
   onQdnManagerPermissionsChanged,
+  revokeQdnAppCapabilityPermission,
   setQdnAppAssignmentValue,
 } from '../qdnManagerPermissions'
 import {
@@ -428,6 +436,7 @@ function parseHomeV2ResourceViewerState(value: unknown): HomeV2ResourceViewerSta
 
 export function HomeV2LiveApp() {
   const isAndroidHost = useRef(!window.homeV2Nodes).current
+  const collectionsClient = useRef(new HomeV2CollectionsClient()).current
   const notificationPolicyClient = useMemo(
     () =>
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
@@ -448,6 +457,13 @@ export function HomeV2LiveApp() {
             : 'unavailable'
         },
         revokeNotifications: revokeAppNotifications,
+        revokeBookmarks(appKey, expectedRevision) {
+          return revokeQdnAppCapabilityPermission(
+            appKey,
+            'bookmarks.manage',
+            expectedRevision,
+          )
+        },
         setAssignment: setQdnAppAssignmentValue,
         setMuted: setAppNotificationMuted,
         subscribeAssignments(listener) {
@@ -1034,8 +1050,18 @@ export function HomeV2LiveApp() {
   }, [updateAppearance])
 
   const openApp = useCallback(
-    (app: AppDescriptor, requestedLocation?: AppTabContext['resourceLocation']) => {
+    (
+      app: AppDescriptor,
+      requestedLocation?: AppTabContext['resourceLocation'],
+      requestedAccountId?: string | null,
+    ) => {
       setShellNotice(null)
+      const requestedAccount = requestedAccountId
+        ? accountCatalogueRef.current.accounts.find((account) => account.id === requestedAccountId)
+        : null
+      if (requestedAccountId && !requestedAccount) {
+        throw new Error('The saved Home account is no longer available.')
+      }
       tabSequence.current += 1
       const tabId = brand<TabId>(
         `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
@@ -1046,13 +1072,17 @@ export function HomeV2LiveApp() {
         tabId,
         context: {
           appId: app.id,
-          identityId: snapshot.identity.id,
+          identityId: requestedAccount
+            ? brand<IdentityId>(`home-v2:identity:${requestedAccount.id}`)
+            : snapshot.identity.id,
           resourceLocation:
             requestedLocation ??
             buildAppResourceLocation(app.sourceNetwork, app.resourceIdentity),
           sourceNetwork: app.sourceNetwork,
           tabId,
-          walletRef: snapshot.identity.selectedWallet,
+          walletRef: requestedAccount
+            ? brand<WalletRef>(`home-v2:wallet:${requestedAccount.walletId}`)
+            : snapshot.identity.selectedWallet,
         },
       })
     },
@@ -1074,7 +1104,7 @@ export function HomeV2LiveApp() {
   }, [])
 
   const openAddress = useCallback(
-    async (address: string): Promise<AddressOpenResult> => {
+    async (address: string, requestedAccountId?: string | null): Promise<AddressOpenResult> => {
       try {
         const internal = parseHomeV2InternalAddress(address)
         if (internal) {
@@ -1137,7 +1167,7 @@ export function HomeV2LiveApp() {
           targetNetworks: [parsed.sourceNetwork],
           placement: 'recommended',
         }
-        openApp(app, resourceLocation)
+        openApp(app, resourceLocation, requestedAccountId)
         return { status: 'opened' }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Invalid app address.'
@@ -1154,6 +1184,63 @@ export function HomeV2LiveApp() {
     return bridge.onOpenAddress((value) => {
       if (!isRecord(value) || typeof value.address !== 'string') return
       void openAddress(value.address)
+    })
+  }, [openAddress])
+
+  useEffect(() => {
+    void collectionsClient.initialize().catch((error) => {
+      console.warn('Unable to initialize saved Home links.', error)
+      setShellNotice(error instanceof Error ? error.message : 'Saved Home links are unavailable.')
+    })
+  }, [collectionsClient])
+
+  useEffect(() => {
+    const bridge = window.homeV2Collections
+    if (!bridge) return
+    const accounts = (requestedAccountId: unknown) => {
+      const availableAccounts = accountCatalogueRef.current.accounts.map((account) => ({
+        id: account.id,
+        label: account.label,
+      }))
+      return {
+        activeAccountId: typeof requestedAccountId === 'string' &&
+          availableAccounts.some((account) => account.id === requestedAccountId)
+          ? requestedAccountId
+          : null,
+        availableAccounts,
+      }
+    }
+    return bridge.onRequest((value) => {
+      if (!isRecord(value) || typeof value.id !== 'string') return
+      const requestId = value.id
+      const requestAccounts = accounts(value.accountId)
+      const operation = value.operation === 'apply'
+        ? collectionsClient.apply(value.request, requestAccounts)
+        : value.operation === 'get'
+          ? collectionsClient.getSnapshot(requestAccounts)
+          : Promise.reject(new Error('Unsupported bookmark manager operation.'))
+      void operation.then(
+        (result) => bridge.resolveRequest({ requestId, result }),
+        (error: unknown) => bridge.resolveRequest({
+          error: {
+            ...((error as { code?: unknown })?.code && typeof (error as { code?: unknown }).code === 'string'
+              ? { code: (error as { code: string }).code }
+              : {}),
+            message: error instanceof Error ? error.message : 'Bookmark manager request failed.',
+          },
+          requestId,
+        }),
+      ).catch((error) => console.warn('Unable to resolve bookmark manager request.', error))
+    })
+  }, [collectionsClient, selectedAccountId])
+
+  useEffect(() => {
+    const bridge = window.homeV2Collections
+    if (!bridge) return
+    return bridge.onOpen((value) => {
+      if (!isRecord(value) || typeof value.address !== 'string') return
+      const accountId = typeof value.accountId === 'string' ? value.accountId : null
+      void openAddress(value.address, accountId)
     })
   }, [openAddress])
 
@@ -1199,6 +1286,9 @@ export function HomeV2LiveApp() {
             value.action !== 'OPEN_CHAT_ATTACHMENT_VIEWER' &&
             value.action !== 'SAVE_CHAT_ATTACHMENT' &&
             value.action !== 'SHOW_NOTIFICATION' &&
+            value.action !== 'BOOKMARKS_GET' &&
+            value.action !== 'BOOKMARKS_APPLY' &&
+            value.action !== 'BOOKMARKS_OPEN' &&
             value.action !== 'OPEN_AS_WIDGET' &&
             !isHomeV2PublicChatAction(value.action) &&
             !isHomeV2DirectChatReadAction(value.action) &&
@@ -1208,6 +1298,9 @@ export function HomeV2LiveApp() {
             !isHomeV2GroupMembershipAction(value.action) &&
             !isHomeV2GroupAdminAction(value.action))) ||
         (value.action !== 'SHOW_NOTIFICATION' &&
+          value.action !== 'BOOKMARKS_GET' &&
+          value.action !== 'BOOKMARKS_APPLY' &&
+          value.action !== 'BOOKMARKS_OPEN' &&
           value.action !== 'OPEN_AS_WIDGET' &&
           typeof value.accountId !== 'string') ||
         typeof value.tabId !== 'string' ||
@@ -1310,9 +1403,12 @@ export function HomeV2LiveApp() {
         value.action === 'OPEN_CHAT_ATTACHMENT_VIEWER' ||
         value.action === 'SAVE_CHAT_ATTACHMENT'
       const isNotification = value.action === 'SHOW_NOTIFICATION'
+      const isBookmarkManager = value.action === 'BOOKMARKS_GET' ||
+        value.action === 'BOOKMARKS_APPLY' ||
+        value.action === 'BOOKMARKS_OPEN'
       const isJournalRead = value.action === 'GET_PENDING_TRANSACTIONS'
       const isJournalForget = value.action === 'FORGET_PENDING_TRANSACTION'
-      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isJournalForget
+      const operationLabel = isChatWrite || isDirectRead || isDirectWrite || isPrivateGroupRead || isPrivateGroupWrite || isGroupWrite || isPublish || isPrivateAttachment || isNotification || isBookmarkManager || isJournalForget
         ? String(value.writeOperationLabel)
         : ''
       const prompt = createPermissionPrompt({
@@ -1347,6 +1443,8 @@ export function HomeV2LiveApp() {
                 ? 'chat.attachment'
               : isNotification
                 ? 'notifications.show'
+              : isBookmarkManager
+                ? 'bookmarks.manage'
               : isJournalForget
                 ? 'transactions.pending.forget'
               : isJournalRead
@@ -1361,6 +1459,8 @@ export function HomeV2LiveApp() {
             ? `home-v2:identity:none`
             : isNotification
             ? `home-v2:identity:app:${appIdentityKey}`
+            : isBookmarkManager
+            ? `home-v2:identity:app:${appIdentityKey}`
             : `home-v2:identity:${accountId}`),
           nodeProfileRef: snapshot.nodes[value.targetNetwork].ref,
           tabId: brand<TabId>(value.tabId),
@@ -1373,6 +1473,8 @@ export function HomeV2LiveApp() {
           ? 'Allow a floating window?'
           : isNotification
           ? 'Allow app notifications?'
+          : isBookmarkManager
+          ? 'Allow saved-link management?'
           : isAccountRead
           ? 'Allow read-only account access?'
           : isJournalRead
@@ -1386,6 +1488,8 @@ export function HomeV2LiveApp() {
           ? `${appTitle} wants to open a frameless window that stays above other applications.`
           : isNotification
           ? `${appTitle} wants to show system notifications until revoked in Settings.`
+          : isBookmarkManager
+          ? `${appTitle} wants to manage bookmarks, toolbar links, dashboard pins, and start pages on this device.`
           : isAccountRead
           ? homeV2AccountReadPermissionSummary(appTitle)
           : isJournalRead
@@ -1404,6 +1508,12 @@ export function HomeV2LiveApp() {
           ? [
               { label: 'App', value: appTitle },
               { label: 'Chain', value: value.targetNetwork === 'qortal' ? 'Qortal' : 'Qortium' },
+              { label: 'Scope', value: 'Until revoked in Settings' },
+            ]
+          : isBookmarkManager
+          ? [
+              { label: 'App', value: appTitle },
+              { label: 'Access', value: 'All saved Home links on this device' },
               { label: 'Scope', value: 'Until revoked in Settings' },
             ]
           : isAccountRead
@@ -1505,6 +1615,8 @@ export function HomeV2LiveApp() {
         allowedScopes: isWidgetPrompt
           ? ['single-request', 'session']
           : isNotification
+          ? ['always']
+          : isBookmarkManager
           ? ['always']
           : value.writeSingleRequestOnly === true
           ? ['single-request']
@@ -1669,6 +1781,102 @@ export function HomeV2LiveApp() {
           console.warn('[home-v2-app] Unable to retain an ambiguous signed transaction:', error)
           return isRecord(result) ? { ...result, journalStored: false } : result
         }
+      }
+      if (isAndroidHost && protocol === 'qdnRequest' && (
+        action === 'BOOKMARKS_HAS_PERMISSION' ||
+        action === 'BOOKMARKS_GET' ||
+        action === 'BOOKMARKS_APPLY' ||
+        action === 'BOOKMARKS_OPEN'
+      )) {
+        const parsedApp = resolveAppIdentity()
+        if (action === 'BOOKMARKS_HAS_PERMISSION') {
+          return { granted: await hasQdnManagerPermission(parsedApp.identityKey, 'bookmarks.manage') }
+        }
+        if (!await hasQdnManagerPermission(parsedApp.identityKey, 'bookmarks.manage')) {
+          const targetNetwork: NetworkId = 'qortium'
+          const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
+          const prompt = createPermissionPrompt({
+            id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
+            protocol,
+            action,
+            capability: 'bookmarks.manage',
+            appId,
+            appIdentityKey: parsedApp.identityKey,
+            appTitle: parsedApp.title,
+            context: {
+              appId,
+              identityId: brand<IdentityId>(`home-v2:identity:app:${parsedApp.identityKey}`),
+              nodeProfileRef: snapshot.nodes[targetNetwork].ref,
+              tabId: brand<TabId>(context.tabId),
+              targetNetwork,
+              walletRef: null,
+            },
+            title: 'Allow saved-link management?',
+            summary: `${parsedApp.title} wants to manage bookmarks, toolbar links, dashboard pins, and start pages on this device.`,
+            details: [
+              { label: 'App', value: parsedApp.title },
+              { label: 'Access', value: 'All saved Home links on this device' },
+            ],
+            allowedScopes: ['always'],
+          })
+          const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
+          if (!decision.approved || decision.scope !== 'always') {
+            throw new Error('Home data manager permission was denied.')
+          }
+          const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          if (!currentTab || currentTab.context.resourceLocation !== context.resourceLocation) {
+            throw new Error('QDN manager request is stale because the app view changed before approval.')
+          }
+          await grantQdnManagerPermission(parsedApp.identityKey, 'bookmarks.manage')
+        }
+        const currentTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+        if (!currentTab || currentTab.context.resourceLocation !== context.resourceLocation) {
+          throw new Error('QDN manager request is stale because the app view changed before it could run.')
+        }
+        const accounts = {
+          activeAccountId: context.selectedAccountId,
+          availableAccounts: accountCatalogueRef.current.accounts.map((account) => ({
+            id: account.id,
+            label: account.label,
+          })),
+        }
+        if (action === 'BOOKMARKS_GET') {
+          const result = await collectionsClient.getSnapshot(accounts)
+          const completedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          if (!completedTab || completedTab.context.resourceLocation !== context.resourceLocation) {
+            throw new Error('QDN manager request is stale because the app view changed while it was running.')
+          }
+          return result
+        }
+        if (action === 'BOOKMARKS_APPLY') {
+          const record = isRecord(requestValue) ? requestValue : {}
+          const mutationRequest = validateBookmarkManagerMutationRequest(
+            record.request ?? {
+              expectedRevision: record.expectedRevision,
+              mutation: record.mutation,
+            },
+          )
+          const result = await collectionsClient.apply(mutationRequest, accounts)
+          const completedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
+          if (!completedTab || completedTab.context.resourceLocation !== context.resourceLocation) {
+            throw new Error('QDN manager request is stale because the app view changed while it was running.')
+          }
+          return result
+        }
+        const record = isRecord(requestValue) ? requestValue : {}
+        const openRequest = validateBookmarksOpenRequest(
+          record.request ?? { accountId: record.accountId ?? null, address: record.address },
+        )
+        const openAccountId = openRequest.accountId ?? context.selectedAccountId
+        if (
+          openAccountId &&
+          !accountCatalogueRef.current.accounts.some((account) => account.id === openAccountId)
+        ) {
+          throw new Error('BOOKMARKS_OPEN accountId does not match a saved Home account.')
+        }
+        const opened = await openAddress(openRequest.address, openAccountId)
+        if (opened.status !== 'opened') throw new Error(opened.message ?? 'Saved Home link could not be opened.')
+        return true
       }
       if (isAndroidHost && (action === 'NOTIFICATION_HAS_PERMISSION' || action === 'SHOW_NOTIFICATION')) {
         const targetNetwork: NetworkId = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
@@ -3522,7 +3730,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [nodeClient, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
+    [collectionsClient, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const setNodeMode = async (

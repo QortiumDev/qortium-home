@@ -653,7 +653,7 @@ export function createPortableNodeClient(
         accountId: context?.selectedAccountId,
         node: selectedNode,
         platform: 'android',
-        platformVersion: '2.0',
+        platformVersion: '2.1',
         protocol,
       })
       if (action === 'SHOW_ACTIONS') {

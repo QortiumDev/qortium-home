@@ -34,6 +34,30 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - feat(collections): migrate saved Home links into Home 2
+
+Home 2 now carries forward the user's bookmarks tree, bookmark toolbar,
+dashboard pins, start pages, visibility choice, and shared revision on first
+run. Desktop reads the old default Electron profile through a hidden,
+network-disabled migration document and writes the validated snapshot into the
+isolated Home 2 profile; Android migrates the same existing native Preferences
+in place and records a one-time migration marker. The old source data is
+retained, the import is idempotent, raw canonical and mirror schemas are
+validated before use, and malformed or equally revised conflicting data fails
+closed instead of being replaced with an empty collection. Mirror updates land
+before the canonical CAS snapshot so a partial write cannot falsely commit a
+new revision.
+
+The delegated QDN Bookmarks app can now feature-detect, read, update, and open
+these saved links on desktop and Android under a durable `bookmarks.manage`
+permission. Updates use the existing schema and exact revision check so a stale
+manager cannot overwrite newer data, and an account-specific saved link opens
+under that account only while it still exists. Durable bookmark access is
+listed and revocable from trusted QDN Apps Settings on both platforms. This completes the previously
+deferred Home 2 bookmark-manager action family, so QAVS `platformVersion`
+advances from `2.0` to `2.1` while the separate Home application version remains
+on its planned 2.1.0 track.
+
 ### 2026-08-22 - feat(core): add Home 2 automatic Qortal updates
 
 Home 2's existing desktop Core update settings now include a separate Qortal

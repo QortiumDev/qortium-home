@@ -30,6 +30,18 @@ import {
 } from './qdn-views.js'
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js'
 import {
+  grantQdnManagerPermission,
+  hasQdnManagerPermission,
+} from './qdn-manager-permission-store.js'
+import {
+  validateBookmarkManagerMutationRequest,
+  validateBookmarksOpenRequest,
+} from './bookmark-manager-contract.js'
+import {
+  openHomeV2CollectionAddress,
+  requestHomeV2Collections,
+} from './home-v2-collections-bridge.js'
+import {
   grantAppNotifications,
   hasNotificationGrant,
   readNotificationStore,
@@ -258,6 +270,7 @@ import {
   type HomeV2AppHostInfo,
 } from './home-v2-app-runtime.js'
 import {
+  accountExists,
   getAccountProfile,
   getAccountSecretKey,
   getAccountSigningPublicKey,
@@ -459,6 +472,70 @@ async function requireHomeV2NotificationPermission(
     throw new Error('Notification app context changed before approval completed.')
   }
   grantAppNotifications(appKey)
+}
+
+async function requireHomeV2BookmarkManagerPermission(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  action: 'BOOKMARKS_APPLY' | 'BOOKMARKS_GET' | 'BOOKMARKS_OPEN',
+) {
+  if (!liveResourceMatchesGrant(context)) {
+    throw new Error('Bookmark manager app context changed before approval completed.')
+  }
+  const appKey = homeV2AppIdentityKey(context)
+  if (hasQdnManagerPermission(appKey, 'bookmarks.manage')) return
+  if (!isQdnViewVisible(context.windowId, context.tabId)) {
+    throw new Error('Open this app tab to review the requested bookmark manager permission.')
+  }
+  const hostWindow = getContextWindow(context)
+  if (!hostWindow || hostWindow.isDestroyed()) {
+    throw new Error('The bookmark manager request does not belong to an active Home window.')
+  }
+  const grantKey = `bookmarks|${context.windowId}|${context.tabId}|${appKey}|${protocol}`
+  if (Array.from(pendingAccountReads.values()).some(
+    (pending) => pending.hostWebContentsId === hostWindow.webContents.id && pending.grantKey === grantKey,
+  )) {
+    throw new Error('This bookmark manager permission request is already pending for the app tab.')
+  }
+  const requestId = randomUUID()
+  const decision = await new Promise<PermissionDecision>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingAccountReads.delete(requestId)
+      resolve({ approved: false, scope: null })
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.send('home-v2-app:permission-timeout', { requestId })
+      }
+    }, 60_000)
+    pendingAccountReads.set(requestId, {
+      grantKey,
+      hostWebContentsId: hostWindow.webContents.id,
+      tabId: context.tabId,
+      resolve,
+      timeout,
+    })
+    hostWindow.webContents.send('home-v2-app:permission-request', {
+      accountId: context.accountId,
+      action,
+      appIdentityKey: appKey,
+      appTitle: homeV2NotificationAppName(appKey),
+      protocol,
+      requestId,
+      resourceUrl: context.resourceUrl,
+      tabId: context.tabId,
+      targetNetwork: 'qortium',
+      writeKind: 'bookmarks',
+      writeOperationLabel: 'Manage saved Home links',
+    })
+  })
+  if (!decision.approved || decision.scope !== 'always') {
+    throw new Error('Home data manager permission was denied.')
+  }
+  const freshContext = getQdnViewContextForWebContents(sender)
+  if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+    throw new Error('Bookmark manager app context changed before approval completed.')
+  }
+  grantQdnManagerPermission(appKey, 'bookmarks.manage')
 }
 
 async function showHomeV2DesktopNotification(
@@ -4675,6 +4752,47 @@ async function handleRequestWithRuntime(
   if (action === 'WHICH_UI') return 'QORTIUM_HOME_ELECTRON'
   if (action === 'GET_HOST_INFO') return hostInfo
   const network = getHomeV2AppNetwork(protocol, action)
+  if (action === 'BOOKMARKS_HAS_PERMISSION') {
+    return { granted: hasQdnManagerPermission(homeV2AppIdentityKey(context), 'bookmarks.manage') }
+  }
+  if (action === 'BOOKMARKS_GET' || action === 'BOOKMARKS_APPLY' || action === 'BOOKMARKS_OPEN') {
+    await requireHomeV2BookmarkManagerPermission(sender, context, protocol, action)
+    const freshContext = getQdnViewContextForWebContents(sender)
+    if (!freshContext || !sameViewContext(context, freshContext) || !liveResourceMatchesGrant(freshContext)) {
+      throw new Error('QDN manager request is stale because the app view changed before it could run.')
+    }
+    if (action === 'BOOKMARKS_OPEN') {
+      const request = validateBookmarksOpenRequest(
+        requestValue.request ?? {
+          accountId: requestValue.accountId ?? null,
+          address: requestValue.address,
+        },
+      )
+      if (request.accountId && !accountExists(request.accountId)) {
+        throw new Error('BOOKMARKS_OPEN accountId does not match a saved Home account.')
+      }
+      openHomeV2CollectionAddress(context, request)
+      return true
+    }
+    const mutationRequest = action === 'BOOKMARKS_APPLY'
+      ? validateBookmarkManagerMutationRequest(
+          requestValue.request ?? {
+            expectedRevision: requestValue.expectedRevision,
+            mutation: requestValue.mutation,
+          },
+        )
+      : undefined
+    const result = await requestHomeV2Collections(
+      context,
+      action === 'BOOKMARKS_GET' ? 'get' : 'apply',
+      mutationRequest,
+    )
+    const completedContext = getQdnViewContextForWebContents(sender)
+    if (!completedContext || !sameViewContext(context, completedContext) || !liveResourceMatchesGrant(completedContext)) {
+      throw new Error('QDN manager request is stale because the app view changed while it was running.')
+    }
+    return result
+  }
   if (action === 'NOTIFICATION_HAS_PERMISSION') {
     return {
       granted: hasNotificationGrant(homeV2AppIdentityKey(context)),
@@ -5093,7 +5211,7 @@ async function handleRequest(
       hostVersion: app.getVersion(),
       node: network === 'qortal' ? qortalNode : qortiumNode,
       platform: 'desktop',
-      platformVersion: '2.0',
+      platformVersion: '2.1',
       protocol,
     })
     const routes = {

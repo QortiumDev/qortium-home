@@ -9,7 +9,8 @@ import {
 } from './home-v2-qdn-settings-contract.js'
 import {
   readQdnAppRolesStore,
-  onQdnAppAssignmentsChanged,
+  onQdnAppStoreChanged,
+  revokeQdnAppCapabilityPermissionIfRevision,
   setQdnAppAssignmentValueIfRevision,
 } from './qdn-manager-permission-store.js'
 import {
@@ -45,6 +46,13 @@ export function registerHomeV2QdnSettingsBridgeIpcHandlers() {
   const service = createHomeV2QdnSettingsService({
     inspectNotifications: inspectNotificationStore,
     readAssignments: readQdnAppRolesStore,
+    revokeBookmarks(expectedRevision, appKey) {
+      return revokeQdnAppCapabilityPermissionIfRevision(
+        expectedRevision,
+        appKey,
+        'bookmarks.manage',
+      )
+    },
     revokeNotifications(expectedRevision, appKey) {
       assertNotificationRevision(expectedRevision)
       return revokeAppNotifications(appKey)
@@ -63,6 +71,7 @@ export function registerHomeV2QdnSettingsBridgeIpcHandlers() {
   ipcMain.handle('home-v2-qdn-settings:set-assignment', handlers.setAssignment)
   ipcMain.handle('home-v2-qdn-settings:set-muted', handlers.setMuted)
   ipcMain.handle('home-v2-qdn-settings:revoke', handlers.revoke)
-  onQdnAppAssignmentsChanged(broadcastHomeV2QdnSettingsChanged)
+  ipcMain.handle('home-v2-qdn-settings:revoke-bookmarks', handlers.revokeBookmarks)
+  onQdnAppStoreChanged(broadcastHomeV2QdnSettingsChanged)
   onNotificationStoreChanged(broadcastHomeV2QdnSettingsChanged)
 }

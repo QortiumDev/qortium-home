@@ -12,11 +12,21 @@ export type HomeV2QdnNotificationGrant = Readonly<{
   ruleCount: number
 }>
 
+export type HomeV2QdnBookmarkGrant = Readonly<{
+  appKey: string
+  grantedAt: string
+}>
+
 export type HomeV2QdnSettingsState = Readonly<{
   assignments: Readonly<{
     assignments: Readonly<Record<string, HomeV2QdnAssignment>>
     revision: number
     version: 2
+  }>
+  bookmarks: Readonly<{
+    apps: readonly HomeV2QdnBookmarkGrant[]
+    revision: number
+    version: 1
   }>
   notifications: Readonly<{
     apps: readonly HomeV2QdnNotificationGrant[]
@@ -50,9 +60,15 @@ export type HomeV2QdnNotificationRevokeRequest = Readonly<{
   expectedNotificationRevision: number
 }>
 
+export type HomeV2QdnBookmarkRevokeRequest = Readonly<{
+  appKey: string
+  expectedAssignmentRevision: number
+}>
+
 export interface HomeV2QdnSettingsAdapter {
   get(): Promise<unknown>
   revoke(request: HomeV2QdnNotificationRevokeRequest): Promise<unknown>
+  revokeBookmarks(request: HomeV2QdnBookmarkRevokeRequest): Promise<unknown>
   setAssignment(request: HomeV2QdnAssignmentRequest): Promise<unknown>
   setMuted(request: HomeV2QdnNotificationMuteRequest): Promise<unknown>
   subscribe?(listener: () => void): () => void
@@ -61,6 +77,7 @@ export interface HomeV2QdnSettingsAdapter {
 export interface HomeV2QdnSettingsClient {
   get(): Promise<HomeV2QdnSettingsState>
   revoke(request: HomeV2QdnNotificationRevokeRequest): Promise<HomeV2QdnSettingsState>
+  revokeBookmarks(request: HomeV2QdnBookmarkRevokeRequest): Promise<HomeV2QdnSettingsState>
   setAssignment(request: HomeV2QdnAssignmentRequest): Promise<HomeV2QdnSettingsState>
   setMuted(request: HomeV2QdnNotificationMuteRequest): Promise<HomeV2QdnSettingsState>
   subscribe(listener: () => void): () => void
@@ -193,18 +210,36 @@ function parseGrant(value: unknown): HomeV2QdnNotificationGrant {
   })
 }
 
+function parseBookmarkGrant(value: unknown): HomeV2QdnBookmarkGrant {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['appKey', 'grantedAt']) ||
+    !boundedText(value.appKey, 2_048) ||
+    !/^qdn:\/\/(?:APP|WEBSITE)\/[^/?#]+(?:\/[^/?#]+)?$/i.test(value.appKey) ||
+    !boundedText(value.grantedAt, 100) ||
+    !Number.isFinite(Date.parse(value.grantedAt))
+  ) throw new Error('Home 2 QDN bookmark grant was malformed.')
+  return Object.freeze({ appKey: value.appKey, grantedAt: value.grantedAt })
+}
+
 export function parseHomeV2QdnSettingsState(
   value: unknown,
 ): HomeV2QdnSettingsState {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['assignments', 'notifications', 'revision', 'schema']) ||
+    !hasExactKeys(value, ['assignments', 'bookmarks', 'notifications', 'revision', 'schema']) ||
     value.schema !== 'home-v2-qdn-settings-state' ||
     value.revision !== 1 ||
     !isRecord(value.assignments) ||
     !hasExactKeys(value.assignments, ['assignments', 'revision', 'version']) ||
     value.assignments.version !== 2 ||
     !safeGeneration(value.assignments.revision) ||
+    !isRecord(value.bookmarks) ||
+    !hasExactKeys(value.bookmarks, ['apps', 'revision', 'version']) ||
+    value.bookmarks.version !== 1 ||
+    !safeGeneration(value.bookmarks.revision) ||
+    !Array.isArray(value.bookmarks.apps) ||
+    value.bookmarks.apps.length > 100 ||
     !isRecord(value.notifications) ||
     !hasExactKeys(value.notifications, ['apps', 'revision', 'status', 'version']) ||
     value.notifications.version !== 1 ||
@@ -218,7 +253,14 @@ export function parseHomeV2QdnSettingsState(
   if (!Object.keys(defaultAssignments).every((role) => Object.hasOwn(assignments, role))) {
     throw new Error('Home 2 QDN settings omitted a default app assignment.')
   }
+  if (value.bookmarks.revision !== value.assignments.revision) {
+    throw new Error('Home 2 QDN bookmark settings revision was inconsistent.')
+  }
   const apps = value.notifications.apps.map(parseGrant)
+  const bookmarkApps = value.bookmarks.apps.map(parseBookmarkGrant)
+  if (new Set(bookmarkApps.map(({ appKey }) => appKey)).size !== bookmarkApps.length) {
+    throw new Error('Home 2 QDN settings contained duplicate bookmark grants.')
+  }
   if (new Set(apps.map(({ appKey }) => appKey)).size !== apps.length) {
     throw new Error('Home 2 QDN settings contained duplicate notification grants.')
   }
@@ -233,6 +275,13 @@ export function parseHomeV2QdnSettingsState(
       assignments,
       revision: value.assignments.revision,
       version: 2,
+    }),
+    bookmarks: Object.freeze({
+      apps: Object.freeze(
+        [...bookmarkApps].sort((left, right) => left.appKey.localeCompare(right.appKey)),
+      ),
+      revision: value.bookmarks.revision,
+      version: 1,
     }),
     notifications: Object.freeze({
       apps: Object.freeze(
@@ -275,6 +324,10 @@ export interface PortableHomeV2QdnSettingsDependencies {
   ) => 'corrupt' | 'unavailable'
   readAssignments(): Promise<unknown>
   readNotifications(): Promise<unknown>
+  revokeBookmarks(
+    appKey: string,
+    expectedRevision: number,
+  ): Promise<unknown>
   revokeNotifications(
     appKey: string,
     expectedRevision: number,
@@ -302,8 +355,21 @@ function projectPortableAssignments(value: unknown) {
   if (!Object.keys(defaultAssignments).every((role) => Object.hasOwn(assignments, role))) {
     throw new Error('Portable QDN assignments omitted a default role.')
   }
+  const capabilityGrants = isRecord(value.capabilityGrants) ? value.capabilityGrants : {}
+  const bookmarkApps = Object.entries(capabilityGrants).flatMap(([appKey, capabilities]) => {
+    if (!isRecord(capabilities) || !isRecord(capabilities['bookmarks.manage'])) return []
+    return [parseBookmarkGrant({
+      appKey,
+      grantedAt: capabilities['bookmarks.manage'].grantedAt,
+    })]
+  })
   return {
     assignments,
+    bookmarks: {
+      apps: bookmarkApps,
+      revision: value.revision,
+      version: 1 as const,
+    },
     revision: value.revision,
     version: 2 as const,
   }
@@ -381,7 +447,12 @@ export function createPortableHomeV2QdnSettingsAdapter(
       }
     }
     return parseHomeV2QdnSettingsState({
-      assignments,
+      assignments: {
+        assignments: assignments.assignments,
+        revision: assignments.revision,
+        version: assignments.version,
+      },
+      bookmarks: assignments.bookmarks,
       notifications,
       revision: 1,
       schema: 'home-v2-qdn-settings-state',
@@ -394,6 +465,13 @@ export function createPortableHomeV2QdnSettingsAdapter(
       await dependencies.revokeNotifications(
         request.appKey,
         request.expectedNotificationRevision,
+      )
+      return readState()
+    },
+    async revokeBookmarks(request) {
+      await dependencies.revokeBookmarks(
+        request.appKey,
+        request.expectedAssignmentRevision,
       )
       return readState()
     },
@@ -432,6 +510,9 @@ export function createHomeV2QdnSettingsClient(
     },
     async revoke(request) {
       return parseHomeV2QdnSettingsState(await adapter.revoke(request))
+    },
+    async revokeBookmarks(request) {
+      return parseHomeV2QdnSettingsState(await adapter.revokeBookmarks(request))
     },
     async setAssignment(request) {
       return parseHomeV2QdnSettingsState(await adapter.setAssignment(request))

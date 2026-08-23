@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   createDefaultQdnAppRolesStore,
   grantQdnAppCapability,
+  revokeQdnAppCapability,
   setQdnAppAssignment,
   type QdnAppAssignmentsStore,
 } from './qdn-manager-permissions.js'
@@ -12,7 +13,11 @@ import {
 import type { QdnNotificationStore } from './notification-rules.js'
 
 let assignments = grantQdnAppCapability(
-  createDefaultQdnAppRolesStore(),
+  grantQdnAppCapability(
+    createDefaultQdnAppRolesStore(),
+    'qdn://APP/Bookmarks/Bookmarks',
+    'bookmarks.manage',
+  ),
   'qdn://APP/Reader/Reader',
   'assignments.read',
 )
@@ -63,6 +68,11 @@ function inspectNotifications() {
 const service = createHomeV2QdnSettingsService({
   inspectNotifications,
   readAssignments,
+  revokeBookmarks(expectedRevision, appKey) {
+    assert.equal(expectedRevision, assignments.revision, 'bookmark permission CAS must reject stale callers')
+    assignments = revokeQdnAppCapability(assignments, appKey, 'bookmarks.manage')
+    return assignments
+  },
   revokeNotifications(expectedRevision, appKey) {
     notificationMutations += 1
     assert.equal(expectedRevision, notifications.revision, 'notification CAS must reject stale callers')
@@ -104,6 +114,9 @@ const getRequest = { revision: 1, schema: 'home-v2-qdn-settings-get-request' }
 const initial = service.get(getRequest)
 assert.equal(initial.assignments.version, 2)
 assert.equal(initial.assignments.assignments.bookmarks.url, 'qdn://APP/Bookmarks/Bookmarks')
+assert.deepEqual(initial.bookmarks.apps.map(({ appKey }) => appKey), [
+  'qdn://APP/Bookmarks/Bookmarks',
+])
 assert.equal(initial.notifications.revision, 4)
 assert.equal(initial.notifications.status, 'available')
 assert.deepEqual(initial.notifications.apps, [{
@@ -167,6 +180,22 @@ assert.throws(() => service.setAssignment({
   schema: 'home-v2-qdn-settings-set-assignment-request',
   url: `qdn://APP/${'x'.repeat(2_100)}`,
 }), /valid QDN APP or WEBSITE/)
+
+const bookmarkRevoked = service.revokeBookmarks({
+  appKey: 'qdn://APP/Bookmarks/Bookmarks#/all',
+  expectedAssignmentRevision: assignments.revision,
+  revision: 1,
+  schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+})
+assert.deepEqual(bookmarkRevoked.bookmarks.apps, [])
+assert.equal(bookmarkRevoked.bookmarks.revision, assignments.revision)
+assert.throws(() => service.revokeBookmarks({
+  appKey: 'qdn://APP/Bookmarks/Bookmarks',
+  expectedAssignmentRevision: assignments.revision,
+  extra: true,
+  revision: 1,
+  schema: 'home-v2-qdn-settings-revoke-bookmarks-request',
+}), /exact/)
 
 const muted = service.setMuted({
   appKey: 'qdn://app/Notify/Notify#/settings',
@@ -251,6 +280,7 @@ const deniedHandlers = createAuthorizedHomeV2QdnSettingsHandlers(() => {
 for (const handler of [
   deniedHandlers.get,
   deniedHandlers.revoke,
+  deniedHandlers.revokeBookmarks,
   deniedHandlers.setAssignment,
   deniedHandlers.setMuted,
 ]) {

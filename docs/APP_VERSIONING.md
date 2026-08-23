@@ -102,15 +102,14 @@ enforcement.
 Hosts that support this standard answer the `qdnRequest` action
 `GET_HOST_INFO` with:
 
-For example, the planned Home 2.1.0 response remains at platform level 2.0
-only if its final bridge audit finds no new advertised actions or observable
-semantics:
+Home 2.1.0 advances the platform level because it restores the app-facing
+bookmark manager action family:
 
 ```json
 {
   "hostName": "qortium-home",
   "hostVersion": "2.1.0",
-  "platformVersion": "2.0"
+  "platformVersion": "2.1"
 }
 ```
 

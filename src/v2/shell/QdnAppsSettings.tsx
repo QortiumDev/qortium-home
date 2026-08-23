@@ -4,6 +4,7 @@ import {
   getHomeV2QdnAssignmentRows,
   normalizeHomeV2QdnAssignmentUrl,
   type HomeV2QdnAssignmentRow,
+  type HomeV2QdnBookmarkGrant,
   type HomeV2QdnNotificationGrant,
   type HomeV2QdnSettingsClient,
   type HomeV2QdnSettingsState,
@@ -212,6 +213,65 @@ function NotificationGrantCard({
   )
 }
 
+function BookmarkGrantCard({
+  busy,
+  disabled,
+  grant,
+  onRevoke,
+}: Readonly<{
+  busy: boolean
+  disabled: boolean
+  grant: HomeV2QdnBookmarkGrant
+  onRevoke: (grant: HomeV2QdnBookmarkGrant) => Promise<void>
+}>) {
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false)
+  return (
+    <article
+      className="home-v2-setting-row"
+      data-qdn-bookmark-grant={grant.appKey}
+    >
+      <div className="home-v2-setting-row__copy">
+        <strong>{getAppName(grant.appKey)}</strong>
+        <code dir="ltr">{grant.appKey}</code>
+        <span>{t('qdnApps.grantedAt', { date: formatGrantedAt(grant.grantedAt) })}</span>
+      </div>
+      <div className="home-v2-setting-row__control">
+        {confirmingRevoke ? (
+          <div data-qdn-bookmark-revoke-confirm="true" role="alert">
+            <strong>{t('notifications.revoke')}</strong>
+            <span>{t('managerPermissions.access.bookmarks')}</span>
+            <button
+              className="home-v2-secondary-button"
+              disabled={busy}
+              type="button"
+              onClick={() => setConfirmingRevoke(false)}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              className="home-v2-danger-button"
+              disabled={disabled || busy}
+              type="button"
+              onClick={() => void onRevoke(grant)}
+            >
+              {t('notifications.revoke')}
+            </button>
+          </div>
+        ) : (
+          <button
+            className="home-v2-danger-button"
+            disabled={disabled || busy}
+            type="button"
+            onClick={() => setConfirmingRevoke(true)}
+          >
+            {t('notifications.revoke')}
+          </button>
+        )}
+      </div>
+    </article>
+  )
+}
+
 export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
   const [snapshot, setSnapshot] = useState<HomeV2QdnSettingsState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -306,6 +366,15 @@ export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
       }))
   }
 
+  const revokeBookmarks = async (grant: HomeV2QdnBookmarkGrant) => {
+    if (!snapshot) return
+    await applyMutation(`bookmarks:${grant.appKey}`, () =>
+      client.revokeBookmarks({
+        appKey: grant.appKey,
+        expectedAssignmentRevision: snapshot.bookmarks.revision,
+      }))
+  }
+
   const actionsDisabled = loading || stale || snapshot === null
 
   return (
@@ -348,6 +417,26 @@ export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
             />
           ))}
         </div>
+      ) : null}
+
+      {snapshot?.bookmarks.apps.length ? (
+        <section aria-labelledby="home-v2-qdn-bookmark-controls-title">
+          <div className="home-v2-settings-panel__heading">
+            <h3 id="home-v2-qdn-bookmark-controls-title">
+              {t('bookmarks.manageTitle')}
+            </h3>
+            <p>{t('managerPermissions.access.bookmarks')}</p>
+          </div>
+          {snapshot.bookmarks.apps.map((grant) => (
+            <BookmarkGrantCard
+              busy={busy === `bookmarks:${grant.appKey}`}
+              disabled={actionsDisabled || busy !== null}
+              grant={grant}
+              key={grant.appKey}
+              onRevoke={revokeBookmarks}
+            />
+          ))}
+        </section>
       ) : null}
 
       {snapshot ? (

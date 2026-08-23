@@ -4,6 +4,7 @@ import {
   createDefaultQdnAppRolesStore,
   grantQdnAppCapability,
   migrateLegacyQdnAppStores,
+  revokeQdnAppCapability,
   sanitizeQdnAppRolesStore,
   setQdnAppAssignment,
   storeHoldsQdnAppCapability,
@@ -141,6 +142,17 @@ export async function grantQdnAppCapabilityPermission(
 ) {
   return updateLocalStore(
     (store) => grantQdnAppCapability(store, appKey, capability),
+    expectedRevision,
+  );
+}
+
+export async function revokeQdnAppCapabilityPermission(
+  appKey: string,
+  capability: QdnAppCapability,
+  expectedRevision?: number,
+) {
+  return updateLocalStore(
+    (store) => revokeQdnAppCapability(store, appKey, capability),
     expectedRevision,
   );
 }

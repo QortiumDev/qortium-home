@@ -1,6 +1,6 @@
 # Qortium Home 2.1.0 delivery plan
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 Status: active. Home 2.0.0 at `5606faa` is the implementation baseline.
 
@@ -15,13 +15,12 @@ Home 2.1.0 is one combined feature prerelease. The release adds substantial
 trusted-shell and managed-service behavior, so it uses a minor application
 version rather than a 2.0.1 patch version.
 
-The QAVS compatibility level remains `platformVersion: "2.0"` only if a final
-bridge audit proves that the release advertises exactly the same actions and
-observable semantics as 2.0.0. `SHOW_ACTIONS` supports runtime discovery but
-does not replace manifest compatibility: if required bookmark/delegation work
-adds an advertised action or app-observable behavior, the platform level also
-advances to 2.1. Android advances from version code 38 to 39 during release
-preparation.
+The QAVS compatibility level advances to `platformVersion: "2.1"`: the F9
+bookmark/delegation work restores an app-observable action family that Home
+2.0.0 did not advertise. `SHOW_ACTIONS` remains the runtime discovery
+authority, while the explicit platform level lets apps declare that they need
+the restored manager surface. Android advances from version code 38 to 39
+during release preparation.
 
 ## Product boundaries
 
@@ -304,6 +303,21 @@ preparation.
   notification delivery no longer consults the legacy display-settings store.
   This trusted setting adds no public QDN action and keeps QAVS
   `platformVersion: "2.0"`.
+- [x] Restore the F9 saved-link collection authority on desktop and Android.
+  The first Home 2 run imports the v1 bookmarks tree, toolbar, dashboard pins,
+  start pages, visibility, and revision into an authoritative validated
+  snapshot. Desktop crosses the deliberate Electron partition boundary through
+  a one-shot hidden local migration document; Android uses the existing native
+  Preferences keys plus a one-time marker. Raw schemas and equal-revision
+  agreement are checked strictly, current or legacy corruption fails closed,
+  canonical-last writes prevent partial mutations from advancing CAS,
+  migration is idempotent, and the source data is retained. The QDN Bookmarks manager gets
+  the existing schema, revision-CAS mutation contract, durable
+  `bookmarks.manage` approval, and account-aware `BOOKMARKS_OPEN` behavior on
+  both platforms. The trusted QDN Apps Settings surface lists and revokes each
+  durable bookmark grant with an exact store-revision check. These newly
+  advertised Home 2 actions advance QAVS
+  `platformVersion` to `2.1`.
 
 ## Required gates
 

@@ -21,6 +21,11 @@ export type HomeV2QdnNotificationSummary = {
   readonly ruleCount: number
 }
 
+export type HomeV2QdnBookmarkGrantSummary = {
+  readonly appKey: string
+  readonly grantedAt: string
+}
+
 export type HomeV2QdnNotificationState = {
   readonly apps: readonly HomeV2QdnNotificationSummary[]
   readonly revision: number | null
@@ -30,6 +35,11 @@ export type HomeV2QdnNotificationState = {
 
 export type HomeV2QdnSettingsState = {
   readonly assignments: HomeV2QdnAssignmentState
+  readonly bookmarks: Readonly<{
+    apps: readonly HomeV2QdnBookmarkGrantSummary[]
+    revision: number
+    version: 1
+  }>
   readonly notifications: HomeV2QdnNotificationState
   readonly revision: 1
   readonly schema: 'home-v2-qdn-settings-state'
@@ -38,6 +48,10 @@ export type HomeV2QdnSettingsState = {
 type Dependencies = {
   readonly inspectNotifications: () => HomeV2QdnNotificationInspection
   readonly readAssignments: () => QdnAppAssignmentsStore
+  readonly revokeBookmarks: (
+    expectedRevision: number,
+    appKey: string,
+  ) => QdnAppAssignmentsStore
   readonly revokeNotifications: (
     expectedRevision: number,
     appKey: string,
@@ -122,6 +136,18 @@ function parseRevoke(value: unknown) {
   }
 }
 
+function parseRevokeBookmarks(value: unknown) {
+  if (
+    !exact(value, ['appKey', 'expectedAssignmentRevision', 'revision', 'schema']) ||
+    value.revision !== 1 ||
+    value.schema !== 'home-v2-qdn-settings-revoke-bookmarks-request'
+  ) throw new Error('An exact Home 2 bookmark permission revoke request is required.')
+  return {
+    appKey: sanitizeQdnManagerAppKey(value.appKey),
+    expectedRevision: revision(value.expectedAssignmentRevision, 'Expected assignment revision'),
+  }
+}
+
 export function redactHomeV2QdnSettingsState(
   assignmentsStore: QdnAppAssignmentsStore,
   notificationInspection: HomeV2QdnNotificationInspection,
@@ -130,6 +156,11 @@ export function redactHomeV2QdnSettingsState(
     Object.entries(assignmentsStore.assignments).map(([role, assignment]) => [role, { ...assignment }]),
   )
   const notificationStore = notificationInspection.store
+  const bookmarkApps = Object.entries(assignmentsStore.capabilityGrants)
+    .flatMap(([appKey, capabilities]) => capabilities['bookmarks.manage']
+      ? [{ appKey, grantedAt: capabilities['bookmarks.manage'].grantedAt }]
+      : [])
+    .sort((left, right) => left.appKey.localeCompare(right.appKey))
   const apps = notificationStore ? Object.entries(notificationStore.grants)
     .map(([appKey, grant]) => {
       const rules = notificationStore.rules[appKey] ?? []
@@ -147,6 +178,11 @@ export function redactHomeV2QdnSettingsState(
       assignments,
       revision: assignmentsStore.revision,
       version: 2,
+    },
+    bookmarks: {
+      apps: bookmarkApps,
+      revision: assignmentsStore.revision,
+      version: 1,
     },
     notifications: {
       apps,
@@ -185,6 +221,11 @@ export function createHomeV2QdnSettingsService(dependencies: Dependencies) {
       dependencies.revokeNotifications(request.expectedRevision, request.appKey)
       return state()
     },
+    revokeBookmarks(value: unknown) {
+      const request = parseRevokeBookmarks(value)
+      dependencies.revokeBookmarks(request.expectedRevision, request.appKey)
+      return state()
+    },
     setAssignment(value: unknown) {
       const request = parseSetAssignment(value)
       const current = dependencies.readAssignments()
@@ -218,6 +259,10 @@ export function createAuthorizedHomeV2QdnSettingsHandlers(
     revoke(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)
       return service.revoke(value)
+    },
+    revokeBookmarks(event: IpcMainInvokeEvent, value: unknown) {
+      assertAuthorized(event)
+      return service.revokeBookmarks(value)
     },
     setAssignment(event: IpcMainInvokeEvent, value: unknown) {
       assertAuthorized(event)
