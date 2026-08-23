@@ -239,13 +239,8 @@ for (const [label, source] of [
 // the Home interface underneath them.
 assert.match(
   viewsSource,
-  /tabId\.startsWith\(['"]widget:['"]\)/,
-  'only widget QDN views should opt into transparent compositing',
-)
-assert.match(
-  viewsSource,
-  /\.setBackgroundColor\(['"]#00000000['"]\)/,
-  'widget WebContentsView must have a fully transparent native background',
+  /if \(isWidgetTabId\(tabId\)\) \{\s*entry\.view\.setBackgroundColor\(['"]#00000000['"]\);?\s*\}/,
+  'only widget QDN views should receive a fully transparent native background',
 )
 assert.match(
   windowSource,

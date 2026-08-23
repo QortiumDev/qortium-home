@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - test(widgets): verify transparent QDN compositing
+
+Widget transparency now has a real compositor regression gate in addition to
+its source contract. The desktop smoke captures the shaped QDN face and checks
+that a clipped corner remains fully transparent while painted content stays
+opaque. CI runs that smoke on every pull request, and the source guard now
+binds the transparent `WebContentsView` background directly to Home's canonical
+widget-tab classification instead of matching unrelated source fragments. The
+headless driver also terminates the complete `xvfb-run` process group so a
+successful compositor check cannot leave CI waiting on orphaned output pipes.
+
 ### 2026-08-23 - chore(release): prepare Qortium Home 2.1.0
 
 Qortium Home is now prepared as version 2.1.0, with Android advancing from

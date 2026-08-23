@@ -28,6 +28,7 @@ import {
   type QdnManagerRevisions,
 } from './qdn-manager-events.js';
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
+import { isWidgetTabId } from './widget-registry.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
 
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
@@ -1380,7 +1381,7 @@ function createViewEntry(
   // corners) renders solid white instead of showing the desktop through it.
   // Ordinary desktop app tabs are unaffected: they always sit inside opaque
   // Home chrome, so this is scoped to widget tabIds only.
-  if (tabId.startsWith('widget:')) {
+  if (isWidgetTabId(tabId)) {
     entry.view.setBackgroundColor('#00000000');
   }
 
