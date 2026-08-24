@@ -243,7 +243,7 @@ function DesktopAppStage(props: AppTabStageProps) {
     }
   }, [props.suspended, resolved])
 
-  return <section className="home-v2-app-stage home-v2-app-stage--live">
+  return <section className="home-v2-app-stage home-v2-app-stage--live" tabIndex={-1}>
     <div ref={hostRef} className="home-v2-app-view-host" />
     {snapshotUrl ? <img className="home-v2-app-stage__snapshot" src={snapshotUrl} alt="" /> : null}
     {resolution.status ? <div className="home-v2-app-stage__status" role="status">{resolution.status}</div> : null}
@@ -540,7 +540,7 @@ function AndroidAppStage(props: AppTabStageProps) {
     return () => props.onNavigationControllerChange?.(resolved.tab.id, null)
   }, [props.onNavigationControllerChange, resolved, source, token])
 
-  return <section className="home-v2-app-stage home-v2-app-stage--live">
+  return <section className="home-v2-app-stage home-v2-app-stage--live" tabIndex={-1}>
     {source ? <iframe
       key={`${resolved?.tab.id ?? 'app'}:${props.reloadVersion ?? 0}`}
       ref={frameRef}

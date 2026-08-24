@@ -31,7 +31,7 @@ import {
 import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
-import { authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
+import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
@@ -487,6 +487,7 @@ function createWindow(options: CreateWindowOptions = {}) {
     y: windowState?.y,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
+    autoHideMenuBar: IS_HOME_V2,
     title: 'Qortium Home',
     icon: getWindowIconPath(),
     backgroundColor: '#121515',
@@ -805,6 +806,22 @@ function registerMenuIpcHandlers() {
   });
 }
 
+function registerHomeV2ZoomIpcHandlers() {
+  // Narrow Home 2 surface: the shell renderer can only step its own window's
+  // zoom (Ctrl+wheel over shell-owned surfaces); no absolute set is exposed.
+  ipcMain.handle('home-v2-zoom:step', (event, direction: unknown) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    if (direction === 'in') {
+      zoomIn(event.sender);
+    } else if (direction === 'out') {
+      zoomOut(event.sender);
+    } else {
+      throw new Error('Unknown zoom step direction.');
+    }
+  });
+}
+
 function registerZoomIpcHandlers() {
   ipcMain.handle('zoom:get', (event) => getZoomPercent(event.sender));
 
@@ -899,7 +916,12 @@ app.whenReady().then(async () => {
     await registerHomeV2NotificationPolicyBridgeIpcHandlers();
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
-    Menu.setApplicationMenu(null);
+    registerHomeV2ZoomIpcHandlers();
+    // The application menu is what carries the browser keyboard accelerators
+    // (new/close/reopen tab, back/forward, reload, focus address bar). Home 2
+    // windows keep the menu BAR hidden (autoHideMenuBar) so only the
+    // accelerators — and Alt to peek at the menu — are user-visible.
+    buildApplicationMenu();
     // Widgets outlive main Home windows, so Home can end up running with
     // nothing on screen. The tray is what makes that state visible, and it is
     // the only route to closing a widget whose app never painted.

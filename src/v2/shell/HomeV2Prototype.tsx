@@ -27,6 +27,7 @@ import type {
   VisibleAvatarLoader,
 } from '../contracts'
 import { subscribeHomeV2MenuCommands } from '../menu-commands'
+import { stepHomeV2WindowZoom } from '../zoom-client'
 import type {
   PermissionDecision,
   PermissionRequestId,
@@ -740,7 +741,7 @@ function InternalPage({
     apps: ['home2.apps', 'home2.internal.appsDescription'],
   } as const
   return (
-    <section className="home-v2-internal-page">
+    <section className="home-v2-internal-page" tabIndex={-1}>
       <span className="home-v2-eyebrow">home://{destination}</span>
       <h1>{t(copy[destination][0])}</h1>
       <p>{t(copy[destination][1])}</p>
@@ -861,6 +862,17 @@ function Dashboard(props: DashboardProps) {
 export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const [requestedSettingsSection, setRequestedSettingsSection] =
     useState<HomeV2SettingsSectionTarget>('general')
+  // Renderer-local shortcut targets; assigned after the guarded tab handlers
+  // exist so the once-mounted key listener always sees current-render state.
+  const localShortcuts = useRef<{
+    cycleTab: (offset: -1 | 1) => boolean
+    selectTab: (index: number) => boolean
+    reload: () => boolean
+  }>({
+    cycleTab: () => false,
+    selectTab: () => false,
+    reload: () => false,
+  })
   const textSizeControl = useRef({
     current: props.snapshot.appearance.textSize,
     update: props.onSetTextSize,
@@ -890,32 +902,87 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       return true
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.isComposing ||
-        event.altKey ||
-        !event.shiftKey ||
-        (!event.ctrlKey && !event.metaKey)
-      ) {
+      if (event.defaultPrevented || event.isComposing) return
+      const key = event.key.toLowerCase()
+      const primary = event.ctrlKey || event.metaKey
+      // Text size: Ctrl/Cmd+Shift +/-/0. Ctrl/Cmd without Shift is native
+      // window zoom, handled by the main process before it reaches the DOM.
+      if (primary && event.shiftKey && !event.altKey) {
+        const command =
+          key === '+' || key === '='
+            ? 'text-size-increase'
+            : key === '-' || key === '_'
+              ? 'text-size-decrease'
+              : key === '0' || key === ')'
+                ? 'text-size-reset'
+                : null
+        if (command && applyTextSizeCommand(command)) {
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+      }
+      const shortcuts = localShortcuts.current
+      if (event.ctrlKey && !event.altKey && key === 'tab') {
+        if (shortcuts.cycleTab(event.shiftKey ? -1 : 1)) event.preventDefault()
         return
       }
-      const key = event.key.toLowerCase()
-      const command =
-        key === '+' || key === '='
-          ? 'text-size-increase'
-          : key === '-' || key === '_'
-            ? 'text-size-decrease'
-            : key === '0' || key === ')'
-              ? 'text-size-reset'
-              : null
-      if (command && applyTextSizeCommand(command)) {
-        event.preventDefault()
-        event.stopPropagation()
+      if (primary && !event.altKey && !event.shiftKey) {
+        if (key === 'pageup' || key === 'pagedown') {
+          if (shortcuts.cycleTab(key === 'pageup' ? -1 : 1)) {
+            event.preventDefault()
+          }
+          return
+        }
+        if (/^[1-9]$/.test(key)) {
+          // Ctrl/Cmd+9 selects the last tab, matching browser convention.
+          if (shortcuts.selectTab(key === '9' ? -1 : Number(key) - 1)) {
+            event.preventDefault()
+          }
+          return
+        }
+      }
+      if (key === 'f5' && !primary && !event.altKey && !event.shiftKey) {
+        if (shortcuts.reload()) event.preventDefault()
+      }
+    }
+    // Ctrl/Cmd+wheel steps native window zoom; with Shift it steps text size.
+    // One mouse notch reports a large delta, so consuming the accumulator at
+    // the threshold keeps one notch = one step while trackpad deltas gather.
+    // Skipped when the zoom bridge is absent (Android; pinch zoom is native).
+    let wheelAccumulator = 0
+    const handleWheel = (event: WheelEvent) => {
+      if (!window.homeV2Zoom) return
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX
+      if (delta === 0) return
+      if (
+        (wheelAccumulator > 0 && delta < 0) ||
+        (wheelAccumulator < 0 && delta > 0)
+      ) {
+        wheelAccumulator = 0
+      }
+      wheelAccumulator += delta
+      if (Math.abs(wheelAccumulator) < 50) return
+      const direction = wheelAccumulator < 0 ? 'in' : 'out'
+      wheelAccumulator = 0
+      if (event.shiftKey) {
+        applyTextSizeCommand(
+          direction === 'in' ? 'text-size-increase' : 'text-size-decrease',
+        )
+      } else {
+        void stepHomeV2WindowZoom(direction)
       }
     }
     window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('wheel', handleWheel, {
+      capture: true,
+      passive: false,
+    })
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('wheel', handleWheel, true)
     }
   }, [])
   const translationVersion = useHomeV2Translation(
@@ -977,6 +1044,39 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       }),
     [],
   )
+  localShortcuts.current = {
+    cycleTab: (offset) => {
+      if (productState.tabs.length === 0 || !guardedActivateTab) return false
+      const ids = productState.tabs.map((tab) => tab.id)
+      const currentIndex =
+        productState.destination === 'tab' && productState.activeTabId
+          ? ids.indexOf(productState.activeTabId)
+          : -1
+      const nextIndex =
+        currentIndex < 0
+          ? offset === 1
+            ? 0
+            : ids.length - 1
+          : (currentIndex + offset + ids.length) % ids.length
+      guardedActivateTab(ids[nextIndex])
+      return true
+    },
+    selectTab: (index) => {
+      if (!guardedActivateTab) return false
+      const target =
+        index === -1
+          ? productState.tabs[productState.tabs.length - 1]
+          : productState.tabs[index]
+      if (!target) return false
+      guardedActivateTab(target.id)
+      return true
+    },
+    reload: () => {
+      if (!props.onReload) return false
+      props.onReload()
+      return true
+    },
+  }
 
   return (
     <div

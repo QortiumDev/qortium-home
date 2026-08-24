@@ -34,6 +34,23 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): enable the application menu and local browser shortcuts
+
+Home 2 windows never installed the application menu, so even after the
+menu-command plumbing was fixed the keyboard accelerators had nothing to
+fire them. The menu is now installed for Home 2 with its bar hidden
+(press Alt to peek at it), which makes Ctrl+T, Ctrl+W, Ctrl+Shift+T,
+Ctrl+R, Ctrl+L, and Alt+Left/Right work end to end. The shell also
+gained the browser shortcuts that never depended on the menu: Ctrl+Tab
+and Ctrl+Shift+Tab (and Ctrl+PageUp/PageDown) cycle app tabs, Ctrl+1
+through 8 jump to a tab and Ctrl+9 to the last one, F5 reloads, Alt+D
+focuses the address bar, and F6/Shift+F6 cycle focus between the tab
+strip, the address bar, and the page. Holding Ctrl while scrolling the
+mouse wheel over Home's own surfaces now zooms the window (with Shift
+it steps the text size), matching what already worked over app content.
+The zoom wheel uses a new minimal, sender-verified step-only channel;
+nothing is exposed to QDN apps.
+
 ### 2026-08-24 - fix(home-v2): restore browser keyboard shortcuts and mouse navigation
 
 Home 2 kept the application menu and its shortcuts (new tab, close tab,

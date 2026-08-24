@@ -42,6 +42,11 @@ contextBridge.exposeInMainWorld('homeV2MenuCommands', {
   },
 })
 
+contextBridge.exposeInMainWorld('homeV2Zoom', {
+  step: (direction: 'in' | 'out') =>
+    ipcRenderer.invoke('home-v2-zoom:step', direction),
+})
+
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
   getShellState: () => ipcRenderer.invoke('home-v2-shell:getState'),
