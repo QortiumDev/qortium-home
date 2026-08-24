@@ -200,6 +200,61 @@ export function BrowserChrome({
       ),
     [],
   )
+  // F6/Shift+F6 cycle focus between the tab strip, the address bar, and the
+  // content region; Alt+D is the browser alias for focusing the address bar.
+  // Region targets are looked up by their design-system classes inside this
+  // shell root — the regions live in sibling components.
+  const cycleRegionFocus = useRef<(forward: boolean) => void>(() => {})
+  cycleRegionFocus.current = (forward) => {
+    const root = addressInputRef.current?.closest('.home-v2-shell')
+    if (!root) return
+    const tabButton =
+      root.querySelector<HTMLElement>(
+        '.home-v2-tab > button[aria-selected="true"]',
+      ) ?? root.querySelector<HTMLElement>('.home-v2-tab > button[role="tab"]')
+    const address = navigationDisabled ? null : addressInputRef.current
+    const content = root.querySelector<HTMLElement>(
+      '.home-v2-app-stage--live, .home-v2-internal-page',
+    )
+    const regions = [tabButton, address, content].filter(
+      (element): element is HTMLElement => !!element,
+    )
+    if (regions.length === 0) return
+    const active = document.activeElement
+    const currentIndex = regions.findIndex(
+      (element) => element === active || element.contains(active),
+    )
+    const nextIndex =
+      currentIndex < 0
+        ? forward
+          ? 0
+          : regions.length - 1
+        : (currentIndex + (forward ? 1 : -1) + regions.length) % regions.length
+    regions[nextIndex].focus()
+  }
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return
+      const key = event.key.toLowerCase()
+      if (
+        key === 'd' &&
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey
+      ) {
+        menuCommandHandler.current('focus-address-bar')
+        event.preventDefault()
+        return
+      }
+      if (key === 'f6' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        cycleRegionFocus.current(!event.shiftKey)
+        event.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [])
   return (
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">

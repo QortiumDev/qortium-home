@@ -1827,6 +1827,8 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /'reopen-closed-tab'/)
   assert.match(preload, /'focus-address-bar'/)
   assert.match(preload, /ipcRenderer\.on\('menu:command'/)
+  assert.match(preload, /exposeInMainWorld\('homeV2Zoom'/)
+  assert.match(preload, /home-v2-zoom:step/)
   assert.match(preload, /qdn-views:capture/)
   assert.match(preload, /home-v2-accounts:list/)
   assert.match(preload, /exposeInMainWorld\('homeV2Vault'/)
