@@ -210,7 +210,7 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
           {initialLoadFailed ? (
             <>
               <p className="home-v2-core-notice" role="alert">{t('home2.qortalMaintenance.status.unavailable')}</p>
-              <button type="button" onClick={() => void refresh()}>{t('home2.qortalMaintenance.retry')}</button>
+              <button className="home-v2-secondary-button" type="button" onClick={() => void refresh()}>{t('home2.qortalMaintenance.retry')}</button>
             </>
           ) : <p role="status">{t('home2.qortalMaintenance.loading')}</p>}
         </div>
@@ -426,7 +426,7 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
         </div>
         <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
           {status.capabilities.canCheckRelease ? (
-            <button type="button" disabled={busy !== null} onClick={() => void check()}>
+            <button className="home-v2-secondary-button" type="button" disabled={busy !== null} onClick={() => void check()}>
               {busy === 'check'
                 ? t('home2.qortalMaintenance.checking')
                 : t('home2.qortalMaintenance.checkStable')}
@@ -457,7 +457,7 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
             </div>
             <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
               {!adoptionList ? (
-                <button type="button" disabled={busy !== null}
+                <button className="home-v2-secondary-button" type="button" disabled={busy !== null}
                   onClick={() => void reviewAdoptionCandidates()}>
                   {busy === 'adoption-list'
                     ? t('home2.qortalMaintenance.adoption.loading')
@@ -465,11 +465,11 @@ export function QortalMaintenancePanel({ management }: { readonly management: Ho
                 </button>
               ) : (
                 <>
-                  <button type="button" disabled={busy !== null}
+                  <button className="home-v2-secondary-button" type="button" disabled={busy !== null}
                     onClick={() => void reviewAdoptionCandidates()}>
                     {t('home2.qortalMaintenance.adoption.retry')}
                   </button>
-                  <button type="button" disabled={busy !== null || !adoptionList.canBrowse}
+                  <button className="home-v2-secondary-button" type="button" disabled={busy !== null || !adoptionList.canBrowse}
                     onClick={() => void browseAdoption()}>
                     {busy === 'adoption-browse'
                       ? t('home2.qortalMaintenance.adoption.browsing')

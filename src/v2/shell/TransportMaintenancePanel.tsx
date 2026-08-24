@@ -189,7 +189,7 @@ export function TransportMaintenancePanel({
               <p className="home-v2-core-notice" role="alert">
                 {t('home2.transportMaintenance.status.unavailable')}
               </p>
-              <button type="button" onClick={() => void refresh()}>
+              <button className="home-v2-secondary-button" type="button" onClick={() => void refresh()}>
                 {t('home2.transportMaintenance.retry')}
               </button>
             </>
@@ -284,7 +284,7 @@ export function TransportMaintenancePanel({
             </select>
           ) : null}
           {currentMode ? (
-            <button type="button" aria-describedby="transport-maintenance-mode-note"
+            <button className="home-v2-primary-button" type="button" aria-describedby="transport-maintenance-mode-note"
               disabled={busy !== null || stale || !modeChanged || !modeAllowed}
               onClick={() => void run('set-mode', selectedMode)}>
               {busy === 'set-mode'

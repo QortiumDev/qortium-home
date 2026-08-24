@@ -210,7 +210,7 @@ export function HomeV2WelcomePage(props: HomeV2WelcomePageProps) {
 
         <footer className="home-v2-welcome__footer">
           {step === 'node' ? <span /> : (
-            <button type="button" onClick={() => props.onStepChange?.(step === 'finish' ? 'account' : 'node')}>
+            <button className="home-v2-secondary-button" type="button" onClick={() => props.onStepChange?.(step === 'finish' ? 'account' : 'node')}>
               <ChevronLeft aria-hidden="true" size={18} /> {t('welcome.back')}
             </button>
           )}

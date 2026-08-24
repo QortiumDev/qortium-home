@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): standardize settings buttons and native controls
+
+Several buttons in the Settings Runtime section (such as "Check release",
+"Apply transport mode", and the Qortal adoption actions) had no Home styling
+at all, so they rendered as raw operating-system widgets — in dark mode this
+made some of them nearly unreadable. Those buttons now use the shared Home 2
+button styles, with checks and lookups as secondary buttons and actions that
+change something as primary buttons. The shell also tells the browser which
+color scheme is active, so any native control (dropdowns, checkboxes, text
+fields) follows the app theme instead of the operating-system theme. Text
+fields and checkboxes inside settings rows pick up the shared field styling,
+disabled buttons are now visibly dimmed everywhere, and the danger button's
+colors moved into the shared palette. No behavior changed — this is purely
+visual consistency and readability.
+
 ### 2026-08-24 - feat(home-v2): unify avatars and app icons
 
 Home-owned avatar and app-icon surfaces now share one bounded image cache, so
