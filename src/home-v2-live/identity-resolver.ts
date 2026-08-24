@@ -225,6 +225,32 @@ export function normalizeIdentityLookupInput(input: string) {
   return query
 }
 
+export async function resolveIdentityOnNetwork(
+  input: string,
+  network: NetworkId,
+  read: IdentityRead,
+): Promise<NetworkIdentityLookup> {
+  const query = normalizeIdentityLookupInput(input)
+  if (classifyIdentityLookupInput(query) === 'address') {
+    return resolveAddressOnNetwork(read, network, query, false)
+  }
+  const nameResponse = await safeRead(read, network, {
+    kind: 'name',
+    value: query,
+  })
+  const direct = directNameState(network, nameResponse)
+  if (direct.state === 'unavailable') {
+    return unavailableNetwork(network, direct.detail)
+  }
+  if (!direct.owner) {
+    return {
+      ...unavailableNetwork(network, direct.detail),
+      state: 'not-found',
+    }
+  }
+  return resolveAddressOnNetwork(read, network, direct.owner, true)
+}
+
 export async function resolveDualIdentity(
   input: string,
   read: IdentityRead,

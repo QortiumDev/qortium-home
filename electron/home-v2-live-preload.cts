@@ -53,6 +53,14 @@ contextBridge.exposeInMainWorld('homeV2Nodes', {
       }
     },
   ) => ipcRenderer.invoke('home-v2-nodes:readAvatar', network, request),
+  readAppIcon: (
+    network: 'qortal' | 'qortium',
+    request: {
+      identifier: string | null
+      name: string
+      service: 'APP' | 'WEBSITE'
+    },
+  ) => ipcRenderer.invoke('home-v2-nodes:readAppIcon', network, request),
   setMode: (
     network: 'qortal' | 'qortium',
     mode: 'custom' | 'disabled' | 'local' | 'public',

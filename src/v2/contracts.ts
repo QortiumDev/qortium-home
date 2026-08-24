@@ -69,6 +69,17 @@ export type VisibleAvatarLoader = (
   request: VisibleAvatarReadRequest,
 ) => Promise<VisibleAvatarReadResult>
 
+export interface VisibleAppIconReadRequest {
+  readonly identifier: string | null
+  readonly name: string
+  readonly service: 'APP' | 'WEBSITE'
+}
+
+export type VisibleAppIconLoader = (
+  network: NetworkId,
+  request: VisibleAppIconReadRequest,
+) => Promise<VisibleAvatarReadResult>
+
 export interface HomeV2AccountCatalogueEntry {
   readonly address: string
   readonly addressIndex: number

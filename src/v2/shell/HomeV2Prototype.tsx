@@ -23,6 +23,7 @@ import type {
   HomeV2VaultState,
   NetworkId,
   NodeConnectionMode,
+  VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
 import type {
@@ -100,6 +101,7 @@ export interface HomeV2PrototypeProps {
   readonly identityLookupInput?: string
   readonly newTabPreference?: NewTabPreference
   readonly loadVisibleAvatar?: VisibleAvatarLoader
+  readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly accountCatalogue?: HomeV2AccountCatalogue
   readonly vaultState?: HomeV2VaultState
   readonly selectedAccountId?: string | null
@@ -837,6 +839,7 @@ function Dashboard(props: DashboardProps) {
         <HomeV2PinnedApps
           {...pinnedApps}
           allowAdd={qortiumEnabled}
+          loadVisibleAppIcon={props.loadVisibleAppIcon}
           pins={visiblePins}
         />
       ) : null}
@@ -999,6 +1002,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
               : 'core://'
             : undefined
         }
+        selectedAccountLookup={props.selectedAccountLookup}
+        loadVisibleAvatar={props.loadVisibleAvatar}
+        loadVisibleAppIcon={props.loadVisibleAppIcon}
       />
       <main
         className="home-v2-page-viewport"
@@ -1041,6 +1047,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             appUpdates={props.appUpdates}
             onChainCoreUpdates={props.onChainCoreUpdates}
             qdnAppsManagement={props.qdnAppsManagement}
+            loadVisibleAppIcon={props.loadVisibleAppIcon}
             notificationPolicy={props.notificationPolicy}
             onSetAppNotifications={props.onSetAppNotifications}
             onOpenReleaseNotes={(tagName) => props.onOpenReleaseNotes?.({
@@ -1112,6 +1119,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       {props.overlay}
       <PermissionDialog
         activeTabId={activeTab?.id ?? null}
+        loadVisibleAppIcon={props.loadVisibleAppIcon}
         permissionState={permissionState}
         onResolvePermission={onResolvePermission}
       />

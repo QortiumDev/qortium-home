@@ -83,6 +83,7 @@ import type {
   HomeV2AppRequestContext,
   HomeV2NodeClient,
 } from './node-client'
+import { createHomeV2AppIconLoader } from './app-icon-loader'
 import type { HomeV2VaultClient } from './vault-client'
 import {
   parseHomeV2NodesSnapshot,
@@ -916,6 +917,10 @@ export function HomeV2LiveApp() {
             message: 'Avatar loading is unavailable.',
             status: 'unavailable' as const,
           }),
+    [nodeClient],
+  )
+  const loadVisibleAppIcon = useMemo(
+    () => (nodeClient ? createHomeV2AppIconLoader(nodeClient) : undefined),
     [nodeClient],
   )
 
@@ -4671,6 +4676,7 @@ export function HomeV2LiveApp() {
       identityLookupInput={identityInput}
       newTabPreference={newTabPreference}
       loadVisibleAvatar={loadVisibleAvatar}
+      loadVisibleAppIcon={loadVisibleAppIcon}
       accountCatalogue={accountCatalogue}
       vaultState={vaultState}
       selectedAccountId={selectedAccountId}

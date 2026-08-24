@@ -34,6 +34,17 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): unify avatars and app icons
+
+Home-owned avatar and app-icon surfaces now share one bounded image cache, so
+a missing or unavailable image stops showing a permanent loading spinner while
+the last good image can remain visible during a later refresh. The toolbar
+shows the selected account's separate Qortium and Qortal avatars for whichever
+networks are enabled. QDN app tabs, pinned apps, permission prompts, and the
+QDN Apps Settings lists now resolve APP or WEBSITE favicons first, then fall
+back to the publisher's same-network account avatar and finally a stable
+monogram. Desktop and Android use the same safe, size-limited icon contract.
+
 ### 2026-08-24 - feat(context-menu): standardize Home actions
 
 Home now owns a versioned context menu for Qortium and Qortal accounts,

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 import {
   isHomeV2QdnSettingsStaleError,
   getHomeV2QdnAssignmentRows,
@@ -10,10 +17,35 @@ import {
   type HomeV2QdnSettingsState,
 } from '../../home-v2-live/qdn-settings-client'
 import { t } from '../../i18n'
+import type { VisibleAppIconLoader } from '../contracts'
+import { HomeV2AppIcon } from './HomeV2AppIcon'
 
 type QdnAppsSettingsProps = Readonly<{
   client: HomeV2QdnSettingsClient
+  loadVisibleAppIcon?: VisibleAppIconLoader
 }>
+
+function AppIdentityCopy({
+  appKey,
+  children,
+  loadVisibleAppIcon,
+}: Readonly<{
+  appKey: string
+  children: ReactNode
+  loadVisibleAppIcon?: VisibleAppIconLoader
+}>) {
+  return (
+    <div className="home-v2-setting-row__copy" data-has-app-icon="true">
+      <HomeV2AppIcon
+        displayUrl={appKey}
+        loader={loadVisibleAppIcon}
+        size={34}
+        variant="row"
+      />
+      <div className="home-v2-setting-row__copy-text">{children}</div>
+    </div>
+  )
+}
 
 function getAppName(appKey: string) {
   const match = /^qdn:\/\/[^/]+\/([^/]+)/i.exec(appKey)
@@ -37,11 +69,13 @@ function AssignmentRow({
   busy,
   disabled,
   onSave,
+  loadVisibleAppIcon,
 }: Readonly<{
   assignment: HomeV2QdnAssignmentRow
   busy: boolean
   disabled: boolean
   onSave: (assignment: HomeV2QdnAssignmentRow, url: string) => Promise<void>
+  loadVisibleAppIcon?: VisibleAppIconLoader
 }>) {
   const [url, setUrl] = useState(assignment.url ?? '')
   const [invalid, setInvalid] = useState(false)
@@ -77,11 +111,14 @@ function AssignmentRow({
       data-qdn-assignment-role={assignment.role}
       onSubmit={save}
     >
-      <div className="home-v2-setting-row__copy">
+      <AppIdentityCopy
+        appKey={assignment.url ?? assignment.defaultUrl ?? ''}
+        loadVisibleAppIcon={loadVisibleAppIcon}
+      >
         <strong>{assignment.label}</strong>
         <span>{assignment.description ?? assignment.role}</span>
         <code dir="ltr">{assignment.role}</code>
-      </div>
+      </AppIdentityCopy>
       <div className="home-v2-setting-row__control">
         <input
           aria-describedby={invalid ? errorId : undefined}
@@ -140,12 +177,14 @@ function NotificationGrantCard({
   grant,
   onMute,
   onRevoke,
+  loadVisibleAppIcon,
 }: Readonly<{
   busy: boolean
   disabled: boolean
   grant: HomeV2QdnNotificationGrant
   onMute: (grant: HomeV2QdnNotificationGrant, muted: boolean) => Promise<void>
   onRevoke: (grant: HomeV2QdnNotificationGrant) => Promise<void>
+  loadVisibleAppIcon?: VisibleAppIconLoader
 }>) {
   const [confirmingRevoke, setConfirmingRevoke] = useState(false)
 
@@ -154,7 +193,10 @@ function NotificationGrantCard({
       className="home-v2-setting-row"
       data-qdn-notification-grant={grant.appKey}
     >
-      <div className="home-v2-setting-row__copy">
+      <AppIdentityCopy
+        appKey={grant.appKey}
+        loadVisibleAppIcon={loadVisibleAppIcon}
+      >
         <strong>{getAppName(grant.appKey)}</strong>
         <code dir="ltr">{grant.appKey}</code>
         <span>
@@ -166,7 +208,7 @@ function NotificationGrantCard({
             {t('notifications.foreignPaymentPrivacy')}
           </span>
         ) : null}
-      </div>
+      </AppIdentityCopy>
       <div className="home-v2-setting-row__control">
         <label>
           <input
@@ -218,11 +260,13 @@ function BookmarkGrantCard({
   disabled,
   grant,
   onRevoke,
+  loadVisibleAppIcon,
 }: Readonly<{
   busy: boolean
   disabled: boolean
   grant: HomeV2QdnBookmarkGrant
   onRevoke: (grant: HomeV2QdnBookmarkGrant) => Promise<void>
+  loadVisibleAppIcon?: VisibleAppIconLoader
 }>) {
   const [confirmingRevoke, setConfirmingRevoke] = useState(false)
   return (
@@ -230,11 +274,14 @@ function BookmarkGrantCard({
       className="home-v2-setting-row"
       data-qdn-bookmark-grant={grant.appKey}
     >
-      <div className="home-v2-setting-row__copy">
+      <AppIdentityCopy
+        appKey={grant.appKey}
+        loadVisibleAppIcon={loadVisibleAppIcon}
+      >
         <strong>{getAppName(grant.appKey)}</strong>
         <code dir="ltr">{grant.appKey}</code>
         <span>{t('qdnApps.grantedAt', { date: formatGrantedAt(grant.grantedAt) })}</span>
-      </div>
+      </AppIdentityCopy>
       <div className="home-v2-setting-row__control">
         {confirmingRevoke ? (
           <div data-qdn-bookmark-revoke-confirm="true" role="alert">
@@ -272,7 +319,10 @@ function BookmarkGrantCard({
   )
 }
 
-export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
+export function QdnAppsSettings({
+  client,
+  loadVisibleAppIcon,
+}: QdnAppsSettingsProps) {
   const [snapshot, setSnapshot] = useState<HomeV2QdnSettingsState | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -413,6 +463,7 @@ export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
               busy={busy === `assignment:${assignment.role}`}
               disabled={actionsDisabled || busy !== null}
               key={assignment.role}
+              loadVisibleAppIcon={loadVisibleAppIcon}
               onSave={saveAssignment}
             />
           ))}
@@ -433,6 +484,7 @@ export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
               disabled={actionsDisabled || busy !== null}
               grant={grant}
               key={grant.appKey}
+              loadVisibleAppIcon={loadVisibleAppIcon}
               onRevoke={revokeBookmarks}
             />
           ))}
@@ -462,6 +514,7 @@ export function QdnAppsSettings({ client }: QdnAppsSettingsProps) {
                 disabled={actionsDisabled || busy !== null}
                 grant={grant}
                 key={grant.appKey}
+                loadVisibleAppIcon={loadVisibleAppIcon}
                 onMute={setMuted}
                 onRevoke={revoke}
               />

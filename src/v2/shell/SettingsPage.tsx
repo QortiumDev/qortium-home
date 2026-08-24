@@ -6,6 +6,7 @@ import type {
   NetworkId,
   NodeConnectionMode,
   NodeSummary,
+  VisibleAppIconLoader,
 } from '../contracts'
 import {
   validateCustomNewTabAddress,
@@ -77,6 +78,7 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
     network: NetworkId,
     mode: NodeConnectionMode,
   ) => void | Promise<void>
+  readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
 function NetworkAvailabilitySettings({
@@ -467,7 +469,10 @@ export function SettingsPage(props: SettingsPageProps) {
           ) : activeSection === 'qdn-apps' &&
             props.qdnAppsManagement?.available &&
             props.qdnAppsManagement.client ? (
-            <QdnAppsSettings client={props.qdnAppsManagement.client} />
+            <QdnAppsSettings
+              client={props.qdnAppsManagement.client}
+              loadVisibleAppIcon={props.loadVisibleAppIcon}
+            />
           ) : activeSection === 'appearance' || activeSection === 'account' ? (
             <AppearanceSettingsPage
               {...props}

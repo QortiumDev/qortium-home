@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { t } from '../../i18n'
-import type { HomeV2Snapshot, NetworkId } from '../contracts'
+import type {
+  DualIdentityLookupResult,
+  HomeV2Snapshot,
+  NetworkId,
+  VisibleAppIconLoader,
+  VisibleAvatarLoader,
+} from '../contracts'
 import type { ProductState, ShellDestination } from '../product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
@@ -9,6 +15,7 @@ import {
 import { networkLabels } from './NetworkBadge'
 import { NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
+import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 
 export interface BrowserChromeProps {
   readonly snapshot: HomeV2Snapshot
@@ -33,6 +40,9 @@ export interface BrowserChromeProps {
   readonly newTabPreference?: NewTabPreference
   readonly releaseNotesAddress?: string
   readonly coreDocsAddress?: string
+  readonly selectedAccountLookup?: DualIdentityLookupResult | null
+  readonly loadVisibleAvatar?: VisibleAvatarLoader
+  readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
 export type AddressOpenResult =
@@ -100,6 +110,9 @@ export function BrowserChrome({
   newTabPreference = DEFAULT_NEW_TAB_PREFERENCE,
   releaseNotesAddress,
   coreDocsAddress,
+  selectedAccountLookup,
+  loadVisibleAvatar,
+  loadVisibleAppIcon,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(
     productState,
@@ -168,6 +181,7 @@ export function BrowserChrome({
           onNavigate={onNavigate}
           onNewTab={openNewTab}
           newTabDisabled={navigationDisabled}
+          loadVisibleAppIcon={loadVisibleAppIcon}
         />
       </div>
       <div className="home-v2-browser-toolbar">
@@ -322,11 +336,28 @@ export function BrowserChrome({
             data-account-state={snapshot.account.state}
             onClick={() => onNavigate?.('dashboard')}
           >
-            <span aria-hidden="true">
-              {snapshot.account.state === 'none'
-                ? '+'
-                : snapshot.identity.displayLabel.slice(0, 1)}
-            </span>
+            {snapshot.account.state === 'none' ? (
+              <span aria-hidden="true">+</span>
+            ) : selectedAccountLookup ? (
+              <span className="home-v2-account-avatars" aria-hidden="true">
+                {(['qortium', 'qortal'] as const)
+                  .filter((network) => snapshot.nodes[network].mode !== 'disabled')
+                  .map((network) => (
+                    <VisibleIdentityAvatar
+                      className="home-v2-account-avatar"
+                      identity={selectedAccountLookup.networks[network]}
+                      key={network}
+                      loader={loadVisibleAvatar}
+                      network={network}
+                      query={selectedAccountLookup.query}
+                    />
+                  ))}
+              </span>
+            ) : (
+              <span aria-hidden="true">
+                {snapshot.identity.displayLabel.slice(0, 1)}
+              </span>
+            )}
             {accountLabel(snapshot)}
           </button>
         </div>

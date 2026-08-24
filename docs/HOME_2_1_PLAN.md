@@ -65,6 +65,9 @@ during release preparation.
 - [x] Put Qortium first in public identity results on desktop and phone.
 - [x] Keep QDN app navigation in the existing browser address bar.
 - [x] Stop missing legacy avatars from presenting as long-running downloads.
+- [x] Share bounded avatar and app-icon loading across Home-owned surfaces,
+  including terminal missing-image fallbacks, dual-network toolbar avatars,
+  and APP/WEBSITE favicon-to-publisher-avatar fallback on desktop and Android.
 - [x] Add General, Appearance, and Account settings-section navigation.
 - [x] Persist a new-tab target of Search page, Dashboard, or a validated custom
   Home/QDN app address without changing the saved-state version.

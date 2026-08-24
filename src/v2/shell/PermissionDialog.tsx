@@ -6,6 +6,8 @@ import type {
 } from '../bridge-permissions'
 import { t, type TranslationKey } from '../../i18n'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
+import { HomeV2AppIcon } from './HomeV2AppIcon'
+import type { VisibleAppIconLoader } from '../contracts'
 
 export interface PermissionDialogProps {
   readonly activeTabId?: string | null
@@ -14,6 +16,7 @@ export interface PermissionDialogProps {
     requestId: PermissionRequestId,
     decision: PermissionDecision,
   ) => void
+  readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
 const permissionScopeLabelKeys: Readonly<Record<PermissionScope, TranslationKey>> = {
@@ -26,6 +29,7 @@ export function PermissionDialog({
   activeTabId,
   permissionState,
   onResolvePermission,
+  loadVisibleAppIcon,
 }: PermissionDialogProps) {
   const prompt = permissionState.pending[0]
   if (!prompt || prompt.context.tabId !== activeTabId) return null
@@ -42,6 +46,12 @@ export function PermissionDialog({
         data-bridge-action={prompt.action}
       >
         <div className="home-v2-permission-dialog__header">
+          <HomeV2AppIcon
+            displayUrl={prompt.appIdentityKey}
+            loader={loadVisibleAppIcon}
+            size={36}
+            variant="row"
+          />
           <div>
             <span className="home-v2-protocol-badge">
               {unifiedAccountRead ? 'Qortal + Qortium' : prompt.protocol}

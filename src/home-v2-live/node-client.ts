@@ -3,6 +3,7 @@ import type {
   NetworkId,
   NodeConnectionMode,
   NodeSummary,
+  VisibleAppIconReadRequest,
   VisibleAvatarReadRequest,
   VisibleAvatarReadResult,
 } from '../v2/contracts'
@@ -40,6 +41,11 @@ import {
   type HomeV2IdentityReadKind,
   type HomeV2IdentityReadRequest,
 } from '../../electron/home-v2-identity-read'
+import {
+  buildHomeV2AppIconPath,
+  getHomeV2AppIconContentType,
+  HOME_V2_APP_ICON_MAX_BYTES,
+} from '../../electron/home-v2-app-icon'
 import { getAvatarDescriptorFromHeaders } from '../../electron/qdn-group-avatar-input'
 import {
   createHomeV2BridgeError,
@@ -67,6 +73,10 @@ export interface HomeV2NodeClient {
   readAvatar(
     network: NetworkId,
     request: VisibleAvatarReadRequest,
+  ): Promise<VisibleAvatarReadResult>
+  readAppIcon(
+    network: NetworkId,
+    request: VisibleAppIconReadRequest,
   ): Promise<VisibleAvatarReadResult>
   readIdentity(
     network: NetworkId,
@@ -250,9 +260,6 @@ export function normalizeHomeV2AvatarReadResult(
   request: VisibleAvatarReadRequest,
   result: VisibleAvatarReadResult,
 ): VisibleAvatarReadResult {
-  if (request.pointer.source === 'legacy-name' && result.status === 'missing') {
-    return { retryAfterSeconds: 2, status: 'pending' }
-  }
   return result
 }
 
@@ -368,6 +375,47 @@ export function parseHomeV2AvatarResponse(response: {
   if (!contentType) {
     return { message: 'Avatar was not a supported image.', status: 'unavailable' }
   }
+  return {
+    body: response.data,
+    contentLength: bytes.byteLength,
+    contentType,
+    status: 'ready',
+  }
+}
+
+export function parseHomeV2AppIconResponse(response: {
+  data: unknown
+  headers: Readonly<Record<string, string>>
+  status: number
+}): VisibleAvatarReadResult {
+  if (response.status === 202) {
+    return {
+      retryAfterSeconds: retryAfterSeconds(headerValue(response.headers, 'retry-after')),
+      status: 'pending',
+    }
+  }
+  if (response.status === 404) return { status: 'missing' }
+  if (response.status < 200 || response.status >= 300) {
+    return { message: `App icon request returned HTTP ${response.status}.`, status: 'unavailable' }
+  }
+  if (typeof response.data !== 'string') {
+    return { message: 'App icon response was not binary data.', status: 'unavailable' }
+  }
+  const declaredLength = Number(headerValue(response.headers, 'content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > HOME_V2_APP_ICON_MAX_BYTES) {
+    return { message: 'App icon exceeded the 256 KiB limit.', status: 'unavailable' }
+  }
+  let bytes: Uint8Array
+  try {
+    bytes = decodePortableBase64(response.data)
+  } catch {
+    return { message: 'App icon response was not valid base64.', status: 'unavailable' }
+  }
+  if (bytes.byteLength > HOME_V2_APP_ICON_MAX_BYTES) {
+    return { message: 'App icon exceeded the 256 KiB limit.', status: 'unavailable' }
+  }
+  const contentType = getHomeV2AppIconContentType(bytes)
+  if (!contentType) return { status: 'missing' }
   return {
     body: response.data,
     contentLength: bytes.byteLength,
@@ -1296,6 +1344,43 @@ export function createPortableNodeClient(
       } catch (error) {
         return {
           message: error instanceof Error ? error.message : 'Avatar request failed.',
+          status: 'unavailable' as const,
+        }
+      }
+    },
+    async readAppIcon(network, request) {
+      const settings = await readSettings(network)
+      if (settings.mode === 'disabled' || settings.mode === 'local') {
+        return {
+          message:
+            settings.mode === 'disabled'
+              ? `${network} access is disabled.`
+              : 'Local Core connections are not available on Android.',
+          status: 'unavailable' as const,
+        }
+      }
+      const recent = recentReadableNodes[network]
+      const nodeApiUrl =
+        settings.mode === 'custom'
+          ? settings.customUrl
+          : recent && dependencies.now() - recent.verifiedAt < 30_000
+            ? recent.nodeApiUrl
+            : (await resolvePublic(network))?.nodeApiUrl ?? ''
+      if (!nodeApiUrl) {
+        return {
+          message: `No healthy ${network} node was available.`,
+          status: 'unavailable' as const,
+        }
+      }
+      try {
+        return parseHomeV2AppIconResponse(
+          await dependencies.requestBinary(
+            `${nodeApiUrl}${buildHomeV2AppIconPath(request)}`,
+          ),
+        )
+      } catch (error) {
+        return {
+          message: error instanceof Error ? error.message : 'App icon request failed.',
           status: 'unavailable' as const,
         }
       }

@@ -462,6 +462,31 @@ body,
   flex: 0 0 18px;
 }
 
+.home-v2-app-icon {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 24%;
+  color: var(--v2-accent-ink);
+  background: var(--v2-accent);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.home-v2-app-icon__image {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+}
+
+.home-v2-app-icon--tab {
+  border-radius: 4px;
+}
+
 .home-v2-tab__close,
 .home-v2-new-tab {
   border: 0;
@@ -668,7 +693,7 @@ body,
   flex-basis: 7px;
 }
 
-.home-v2-account-button > span {
+.home-v2-account-button > span:not(.home-v2-account-avatars) {
   display: grid;
   width: 22px;
   height: 22px;
@@ -677,6 +702,27 @@ body,
   color: var(--v2-accent-ink);
   background: var(--v2-accent);
   font-weight: 750;
+}
+
+.home-v2-account-avatars {
+  display: flex;
+  width: auto;
+  height: 22px;
+  align-items: center;
+  background: transparent;
+}
+
+.home-v2-account-avatar {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 2px solid var(--v2-surface);
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.home-v2-account-avatar + .home-v2-account-avatar {
+  margin-inline-start: -7px;
 }
 
 .home-v2-page-viewport {
@@ -1766,6 +1812,24 @@ body,
   gap: 4px;
 }
 
+.home-v2-setting-row__copy[data-has-app-icon='true'] {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.home-v2-setting-row__copy-text {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.home-v2-setting-row__copy-text code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .home-v2-setting-row__copy strong {
   font-size: calc(14px * var(--v2-type-scale));
 }
@@ -1953,6 +2017,11 @@ body,
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.home-v2-permission-dialog__header > div {
+  min-width: 0;
+  flex: 1;
 }
 
 .home-v2-permission-dialog h2 {
@@ -2285,7 +2354,8 @@ body,
 }
 
 .home-v2-shell[data-layout='phone'] .home-v2-account-button {
-  width: 34px;
+  width: auto;
+  min-width: 34px;
   padding: 5px;
 }
 
@@ -2418,7 +2488,8 @@ body,
   }
 
   .home-v2-account-button {
-    width: 34px;
+    width: auto;
+    min-width: 34px;
     padding: 5px;
   }
 
