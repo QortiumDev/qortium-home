@@ -271,11 +271,15 @@ const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_GLOBAL = 20
 const HOME_V2_NOTIFICATION_MIN_INTERVAL_MS = 3_000
 
 function initialSnapshot(): Omit<HomeV2Snapshot, 'nodes'> {
-  const resolvedTheme =
+  const systemTheme =
     typeof window !== 'undefined' &&
     window.matchMedia?.('(prefers-color-scheme: dark)').matches
       ? 'dark'
       : 'light'
+  const resolvedTheme =
+    defaultHomeV2Appearance.theme === 'system'
+      ? systemTheme
+      : defaultHomeV2Appearance.theme
   return {
     account: {
       state: 'none',

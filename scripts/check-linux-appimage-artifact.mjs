@@ -5,6 +5,7 @@ import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { access, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findForbiddenProductionEntry } from './packaged-entry-policy.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rootPackage = JSON.parse(
@@ -90,12 +91,7 @@ for (const requiredEntry of [
   }
 }
 
-const forbiddenEntry = entries.find((entry) =>
-  entry === '/dist/index.html' ||
-  entry === '/dist-electron/v2-fixture-main.js' ||
-  entry === '/dist-electron/.tsbuildinfo' ||
-  /^\/dist-electron\/.*\.test\.js$/.test(entry),
-);
+const forbiddenEntry = findForbiddenProductionEntry(entries);
 if (forbiddenEntry) {
   throw new Error(`Production archive contains forbidden content: ${forbiddenEntry}`);
 }

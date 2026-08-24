@@ -247,16 +247,49 @@ try {
     await waitUntil('Home shell controls', () =>
       evaluate(client, `Boolean(document.querySelector('button[aria-label="Settings"]'))`),
     )
-    await evaluate(
-      client,
-      `(() => {
-        const skip = [...document.querySelectorAll('.home-v2-welcome button')]
-          .find((button) => button.textContent.trim() === 'Skip setup');
-        skip?.click();
-      })()`,
+    await waitUntil('initial Home shell state persistence', () =>
+      existsSync(path.join(profileDirectory, 'home-v2-shell-state.json')),
     )
+    const initialDestination = await waitUntil('Welcome or Dashboard', () =>
+      evaluate(
+        client,
+        `document.querySelector('.home-v2-dashboard')
+          ? 'dashboard'
+          : [...document.querySelectorAll('.home-v2-welcome button')]
+              .some((button) => button.textContent.trim() === 'Skip setup')
+            ? 'welcome'
+            : null`,
+      ),
+    )
+    if (initialDestination === 'welcome') {
+      await evaluate(
+        client,
+        `([...document.querySelectorAll('.home-v2-welcome button')]
+          .find((button) => button.textContent.trim() === 'Skip setup')).click()`,
+      )
+    }
     await waitUntil('Dashboard after optional Welcome setup', () =>
       evaluate(client, `Boolean(document.querySelector('.home-v2-dashboard'))`),
+    )
+    const freshDesktopAppearance = await evaluate(
+      client,
+      `(() => {
+        const shell = document.querySelector('.home-v2-shell');
+        const viewport = document.querySelector('.home-v2-page-viewport');
+        return {
+          preference: shell?.getAttribute('data-theme-preference'),
+          resolved: shell?.getAttribute('data-theme'),
+          documentWidth: document.documentElement.clientWidth,
+          viewportWidth: viewport?.getBoundingClientRect().width ?? 0,
+        };
+      })()`,
+    )
+    assert.equal(freshDesktopAppearance.preference, 'dark')
+    assert.equal(freshDesktopAppearance.resolved, 'dark')
+    assert.equal(
+      Math.abs(freshDesktopAppearance.viewportWidth - (freshDesktopAppearance.documentWidth - 36)) < 1,
+      true,
+      `Desktop viewport did not use the available width: ${JSON.stringify(freshDesktopAppearance)}`,
     )
     const dashboardCoreCards = await waitUntil('Dashboard Core management', () =>
       evaluate(

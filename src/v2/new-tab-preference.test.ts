@@ -117,6 +117,8 @@ function testPreferenceParsingFailsClosed(): void {
 function testShellStateMigrationAndRoundTrips(): void {
   const fallback = createHomeV2ShellState('light', 'en')
   assert.equal(fallback.version, 3)
+  assert.equal(fallback.appearance.theme, 'dark')
+  assert.equal(fallback.appearance.resolvedTheme, 'dark')
   assert.equal(fallback.onboarding.status, 'in-progress')
   assert.equal(fallback.newTabPreference, DEFAULT_NEW_TAB_PREFERENCE)
 
@@ -140,9 +142,35 @@ function testShellStateMigrationAndRoundTrips(): void {
   ]) {
     const parsed = parseHomeV2ShellState(stored, 'light', 'en')
     assert.equal(parsed.version, 3)
+    assert.equal(parsed.appearance.theme, 'dark')
+    assert.equal(parsed.appearance.resolvedTheme, 'dark')
     assert.equal(parsed.onboarding.status, 'skipped')
     assert.equal(parsed.newTabPreference, DEFAULT_NEW_TAB_PREFERENCE)
   }
+
+  const explicitSystemTheme = parseHomeV2ShellState(
+    {
+      version: 3,
+      appearance: { theme: 'system' },
+      product: fallback.product,
+    },
+    'light',
+    'en',
+  )
+  assert.equal(explicitSystemTheme.appearance.theme, 'system')
+  assert.equal(explicitSystemTheme.appearance.resolvedTheme, 'light')
+
+  const explicitLightTheme = parseHomeV2ShellState(
+    {
+      version: 3,
+      appearance: { theme: 'light' },
+      product: fallback.product,
+    },
+    'dark',
+    'en',
+  )
+  assert.equal(explicitLightTheme.appearance.theme, 'light')
+  assert.equal(explicitLightTheme.appearance.resolvedTheme, 'light')
 
   const preferences = [
     DEFAULT_NEW_TAB_PREFERENCE,

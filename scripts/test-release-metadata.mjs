@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findForbiddenProductionEntry } from './packaged-entry-policy.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const expectedVersion = '2.1.0';
@@ -25,6 +26,24 @@ assert.equal(
   packageJson.build?.mac?.x64ArchFiles,
   'Contents/Resources/native/macos/{x64,arm64}/qortium-core-observer',
   'universal macOS builds must preserve both prebuilt architecture-specific Core observers',
+);
+assert.ok(
+  packageJson.build?.files?.includes('!**/node_modules/**/android/build/**'),
+  'desktop packages must exclude generated Android dependency build output',
+);
+assert.equal(
+  findForbiddenProductionEntry([
+    '/node_modules/example/node_modules/@capacitor-community/safe-area/android/build/.transforms/results.bin',
+  ]),
+  '/node_modules/example/node_modules/@capacitor-community/safe-area/android/build/.transforms/results.bin',
+  'the package checker must reject generated Android dependency build output at any dependency depth',
+);
+assert.equal(
+  findForbiddenProductionEntry([
+    '/node_modules/@capacitor-community/safe-area/android/src/main/AndroidManifest.xml',
+  ]),
+  undefined,
+  'the package checker must retain required Android dependency sources',
 );
 assert.match(
   androidGradle,

@@ -132,8 +132,8 @@ export const homeV2LanguageOptions = [
 }[]
 
 export const defaultHomeV2Appearance: HomeV2AppearanceSettings = {
-  theme: 'system',
-  resolvedTheme: 'light',
+  theme: 'dark',
+  resolvedTheme: 'dark',
   accent: 'clay',
   textSize: 'medium',
   appZoom: 100,

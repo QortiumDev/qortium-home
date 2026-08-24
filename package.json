@@ -345,6 +345,7 @@
         ]
       },
       "package.json",
+      "!**/node_modules/**/android/build/**",
       "!**/node_modules/@napi-rs/**"
     ],
     "extraResources": [
