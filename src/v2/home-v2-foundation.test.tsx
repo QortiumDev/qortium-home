@@ -440,6 +440,64 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     'settings',
   ])
 
+  // Tab drag reorder (P-4): tabs reorder within their own group only.
+  const [firstTab, secondTab] = dashboard.tabs
+  const swappedTabs = reduceProductState(dashboard, {
+    type: 'reorder-tab',
+    tabId: firstTab.id,
+    toIndex: 1,
+  })
+  assert.deepEqual(
+    swappedTabs.tabs.map((tab) => tab.id),
+    [secondTab.id, firstTab.id],
+  )
+  assert.equal(swappedTabs.destination, dashboard.destination)
+  assert.equal(
+    reduceProductState(dashboard, {
+      type: 'reorder-tab',
+      tabId: firstTab.id,
+      toIndex: 0,
+    }),
+    dashboard,
+  )
+  const clampedReorder = reduceProductState(dashboard, {
+    type: 'reorder-tab',
+    tabId: firstTab.id,
+    toIndex: 99,
+  })
+  assert.deepEqual(
+    clampedReorder.tabs.map((tab) => tab.id),
+    [secondTab.id, firstTab.id],
+  )
+  assert.throws(
+    () =>
+      reduceProductState(dashboard, {
+        type: 'reorder-tab',
+        tabId: fixtureIds.tab,
+        toIndex: 0,
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_NOT_FOUND')
+      return true
+    },
+  )
+  const swappedPages = reduceProductState(settingsOpen, {
+    type: 'reorder-internal',
+    page: 'settings',
+    toIndex: 0,
+  })
+  assert.deepEqual(swappedPages.internalPages, ['settings', 'dashboard'])
+  assert.equal(swappedPages.destination, 'settings')
+  assert.equal(
+    reduceProductState(settingsOpen, {
+      type: 'reorder-internal',
+      page: 'settings',
+      toIndex: 5,
+    }),
+    settingsOpen,
+  )
+
   assert.throws(
     () =>
       reduceProductState(empty, {

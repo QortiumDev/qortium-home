@@ -4882,6 +4882,12 @@ export function HomeV2LiveApp() {
         dispatchProduct({ type: 'close-tab', tabId })
       }}
       onCloseInternal={(page) => dispatchProduct({ type: 'close-internal', page })}
+      onReorderTab={(tabId, toIndex) =>
+        dispatchProduct({ type: 'reorder-tab', tabId, toIndex })
+      }
+      onReorderInternal={(page, toIndex) =>
+        dispatchProduct({ type: 'reorder-internal', page, toIndex })
+      }
       onAppNavigationChanged={handleAppNavigationChanged}
       onAppNavigationControllerChange={handleAppNavigationControllerChange}
       onAppTitleChanged={handleAppTitleChanged}

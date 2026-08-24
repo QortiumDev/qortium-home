@@ -164,6 +164,11 @@ export interface HomeV2PrototypeProps {
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseInternal?: (page: InternalPageId) => void
+  readonly onReorderTab?: (
+    tabId: ProductState['tabs'][number]['id'],
+    toIndex: number,
+  ) => void
+  readonly onReorderInternal?: (page: InternalPageId, toIndex: number) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -1001,6 +1006,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     onActivateTab,
     onCloseTab,
     onCloseInternal,
+    onReorderTab,
+    onReorderInternal,
     onNavigate,
     onResolvePermission,
   } = props
@@ -1121,6 +1128,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         onActivateTab={guardedActivateTab}
         onCloseTab={onCloseTab}
         onCloseInternal={guardedCloseInternal}
+        onReorderTab={onReorderTab}
+        onReorderInternal={onReorderInternal}
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
         onOpenAsWidget={props.onOpenAsWidget}
