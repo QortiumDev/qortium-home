@@ -72,6 +72,20 @@ function placeholders(template: string): string[] {
     .sort()
 }
 
+// Brand and format tokens are never translated, so they must not count as
+// evidence that a string is prose.
+const UNTRANSLATED_TOKENS = new Set([
+  'api', 'apk', 'appimage', 'core', 'csv', 'epub', 'gb', 'github', 'home',
+  'html', 'http', 'hub', 'i2p', 'i2pd', 'id', 'java', 'json', 'kb',
+  'markdown', 'mb', 'pdf', 'qdn', 'qortal', 'qortium', 'sam', 'tb', 'ui',
+  'url',
+])
+
+function meaningfulWords(template: string): string[] {
+  return (template.replace(/\{[^}]*\}/g, '').match(/[A-Za-z][A-Za-z0-9'’-]*/g) ?? [])
+    .filter((word) => !UNTRANSLATED_TOKENS.has(word.toLowerCase()))
+}
+
 async function switchToFreshLocale(language: 'fr'): Promise<number> {
   let notifications = 0
 
@@ -142,6 +156,23 @@ async function main() {
         placeholders(en[key]),
         `${language}.${key} must preserve the English interpolation parameters`,
       )
+    }
+
+    // Untranslated-English guard. Single words that a language genuinely
+    // shares with English ("Status" in German, "No" in Spanish, "Password"
+    // in Italian) are correct translations, so the rule targets PROSE:
+    // once a value carries three or more meaningful words, an identical
+    // copy means the sentence was never translated. This is what regressed
+    // before — whole blocks of English maintenance and release copy shipped
+    // inside every locale (parity review P-9, owner decision #20).
+    if (language !== 'en') {
+      for (const key of englishKeys as TranslationKey[]) {
+        if (catalog[key] !== en[key]) continue
+        assert.ok(
+          meaningfulWords(en[key]).length < 3,
+          `${language}.${key} is an untranslated English sentence: ${JSON.stringify(en[key])}`,
+        )
+      }
     }
   }
 
