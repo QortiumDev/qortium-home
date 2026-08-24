@@ -527,6 +527,149 @@ body,
   padding: 8px 12px;
 }
 
+.home-v2-bookmark-toolbar {
+  position: relative;
+  min-width: 0;
+  border-top: 1px solid var(--v2-line);
+  padding: 5px 10px 6px;
+  background: color-mix(in srgb, var(--v2-chrome), var(--v2-surface) 28%);
+}
+
+.home-v2-bookmark-toolbar__items {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.home-v2-bookmark-toolbar__item,
+.home-v2-bookmark-toolbar__nested-folder > summary {
+  display: flex;
+  min-width: 0;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 4px 8px;
+  color: var(--v2-ink);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.home-v2-bookmark-toolbar__item > span:last-child,
+.home-v2-bookmark-toolbar__nested-folder > summary > span:last-child {
+  max-width: 15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-v2-bookmark-toolbar__item:hover:not(:disabled),
+.home-v2-bookmark-toolbar__item:focus-visible,
+.home-v2-bookmark-toolbar__nested-folder > summary:hover,
+.home-v2-bookmark-toolbar__nested-folder > summary:focus-visible {
+  border-color: var(--v2-line);
+  outline: none;
+  background: var(--v2-surface-soft);
+}
+
+.home-v2-bookmark-toolbar__item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.home-v2-bookmark-toolbar__account {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--v2-accent-ink);
+  background: var(--v2-accent);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.home-v2-bookmark-toolbar__folder-menu,
+.home-v2-bookmark-toolbar__context-menu {
+  position: fixed;
+  z-index: 80;
+  width: min(270px, calc(100vw - 16px));
+  max-height: min(420px, calc(100vh - 16px));
+  overflow: auto;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--v2-surface-raised);
+  box-shadow: var(--v2-shadow);
+}
+
+.home-v2-bookmark-toolbar__menu-items {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.home-v2-bookmark-toolbar__menu-items .home-v2-bookmark-toolbar__item,
+.home-v2-bookmark-toolbar__nested-folder > summary {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: start;
+}
+
+.home-v2-bookmark-toolbar__nested-folder > summary::-webkit-details-marker {
+  display: none;
+}
+
+.home-v2-bookmark-toolbar__nested-folder[open] > summary {
+  background: var(--v2-surface-soft);
+}
+
+.home-v2-bookmark-toolbar__nested-folder > .home-v2-bookmark-toolbar__menu-items {
+  margin-inline-start: 14px;
+  border-inline-start: 1px solid var(--v2-line);
+  padding-inline-start: 4px;
+}
+
+.home-v2-bookmark-toolbar__context-menu {
+  display: grid;
+  width: min(230px, calc(100vw - 16px));
+  gap: 2px;
+}
+
+.home-v2-bookmark-toolbar__context-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: start;
+}
+
+.home-v2-bookmark-toolbar__context-menu button:hover,
+.home-v2-bookmark-toolbar__context-menu button:focus-visible {
+  outline: none;
+  background: var(--v2-surface-soft);
+}
+
+.home-v2-browser-chrome:has(.home-v2-bookmark-toolbar)
+  + .home-v2-page-viewport[data-app-active='true'] {
+  height: calc(100vh - 140px);
+}
+
 .home-v2-browser-controls,
 .home-v2-browser-actions {
   display: flex;
@@ -2369,6 +2512,16 @@ body,
   padding-inline: 7px;
 }
 
+.home-v2-shell[data-layout='phone'] .home-v2-bookmark-toolbar {
+  padding-inline: 7px;
+}
+
+.home-v2-shell[data-layout='phone'] .home-v2-bookmark-toolbar__item {
+  max-width: min(12rem, 52vw);
+  min-height: 32px;
+  padding-inline: 7px;
+}
+
 .home-v2-shell[data-layout='phone'] .home-v2-node-pill,
 .home-v2-shell[data-layout='phone'] .home-v2-toolbar-button {
   display: none;
@@ -2479,6 +2632,16 @@ body,
   .home-v2-browser-toolbar {
     grid-template-columns: auto 1fr auto;
     gap: 5px;
+    padding-inline: 7px;
+  }
+
+  .home-v2-bookmark-toolbar {
+    padding-inline: 7px;
+  }
+
+  .home-v2-bookmark-toolbar__item {
+    max-width: min(12rem, 52vw);
+    min-height: 32px;
     padding-inline: 7px;
   }
 

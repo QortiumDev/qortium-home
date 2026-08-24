@@ -263,4 +263,30 @@ assert.deepEqual(historical.snapshot.startPages, [{
   displayUrl: 'qdn://APP/Polls/Polls',
 }])
 
+clearFakeCollectionPreferences()
+const toolbarClient = new HomeV2CollectionsClient()
+const emptyToolbar = await toolbarClient.getSnapshot(accounts)
+const toolbarLinkAdded = await toolbarClient.apply({
+  expectedRevision: emptyToolbar.revision,
+  mutation: {
+    link: {
+      accountId: 'account-1',
+      displayUrl: 'qdn://APP/Chat/Chat',
+      title: 'Chat',
+    },
+    rootId: 'toolbar',
+    type: 'addTreeLink',
+  },
+}, accounts)
+const toolbarShown = await toolbarClient.apply({
+  expectedRevision: toolbarLinkAdded.snapshot.revision,
+  mutation: {
+    toolbarVisibility: 'dashboard',
+    type: 'setToolbarVisibility',
+  },
+}, accounts)
+assert.equal(toolbarShown.snapshot.toolbar[0]?.type, 'bookmark')
+assert.equal(toolbarShown.snapshot.toolbarVisibility, 'dashboard')
+assert.equal((await toolbarClient.getSnapshot(accounts)).revision, toolbarShown.snapshot.revision)
+
 console.log('Home 2 collections client tests passed.')

@@ -16,6 +16,10 @@ import { networkLabels } from './NetworkBadge'
 import { NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
+import {
+  HomeV2BookmarkToolbar,
+  type HomeV2BookmarkToolbarProps,
+} from './HomeV2BookmarkToolbar'
 
 export interface BrowserChromeProps {
   readonly snapshot: HomeV2Snapshot
@@ -43,6 +47,10 @@ export interface BrowserChromeProps {
   readonly selectedAccountLookup?: DualIdentityLookupResult | null
   readonly loadVisibleAvatar?: VisibleAvatarLoader
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
+  readonly bookmarkToolbar?: Omit<
+    HomeV2BookmarkToolbarProps,
+    'isDashboardRoute'
+  >
 }
 
 export type AddressOpenResult =
@@ -113,6 +121,7 @@ export function BrowserChrome({
   selectedAccountLookup,
   loadVisibleAvatar,
   loadVisibleAppIcon,
+  bookmarkToolbar,
 }: BrowserChromeProps) {
   const currentAddress = browserAddress(
     productState,
@@ -362,6 +371,15 @@ export function BrowserChrome({
           </button>
         </div>
       </div>
+      {bookmarkToolbar ? (
+        <HomeV2BookmarkToolbar
+          {...bookmarkToolbar}
+          isDashboardRoute={
+            productState.destination === 'dashboard' ||
+            productState.destination === 'newtab'
+          }
+        />
+      ) : null}
     </header>
   )
 }
