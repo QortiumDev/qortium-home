@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): open saved start pages on launch
+
+Start pages saved in Home 1 (and managed through the bookmarks data
+that Home 2 already migrated) now work again: on a fresh launch, each
+saved start page opens as its own tab, with the first one active —
+exactly the Home 1 behavior. A restored session always wins (if your
+last session's tabs come back, start pages stay out of the way), the
+welcome flow suppresses them, and a start page bound to an account that
+no longer exists opens with the current account instead of failing.
+This was the last planned Home 1 feature that had not yet been rebuilt
+in Home 2.
+
 ### 2026-08-24 - fix(home-v2): hide the toolbar pill of a disabled network
 
 When a network is turned off in Settings, its toolbar status pill no

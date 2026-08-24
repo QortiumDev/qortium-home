@@ -59,6 +59,7 @@ import {
   parseHomeV2MenuCommand,
   parseHomeV2TextSizeCommand,
 } from './menu-commands'
+import { planStartPageLaunch } from '../home-v2-live/start-page-launch'
 import { HOME_V2_NOTIFICATION_POLICY_SCHEMA } from '../home-v2-live/notification-policy-client'
 import {
   createAndroidFixtureHost,
@@ -1556,6 +1557,46 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.equal(parseHomeV2MenuCommand('text-size-reset'), 'text-size-reset')
   assert.equal(parseHomeV2MenuCommand('toggle-devtools'), null)
   assert.equal(parseHomeV2MenuCommand(7), null)
+
+  // F3 start-page launch plan: restored tabs win, onboarding suppresses,
+  // dead account bindings fall back to the current account.
+  const startPages = [
+    { accountId: 'wallet:Qa', displayUrl: 'qdn://APP/Chat/Chat' },
+    { accountId: 'wallet:Qgone', displayUrl: 'qdn://APP/Trust/Trust' },
+    { accountId: null, displayUrl: '  ' },
+    { accountId: null, displayUrl: 'home://apps' },
+  ]
+  assert.deepEqual(
+    planStartPageLaunch({
+      appTabCount: 0,
+      onboardingInProgress: false,
+      startPages,
+      knownAccountIds: ['wallet:Qa'],
+    }),
+    [
+      { accountId: 'wallet:Qa', displayUrl: 'qdn://APP/Chat/Chat' },
+      { accountId: null, displayUrl: 'qdn://APP/Trust/Trust' },
+      { accountId: null, displayUrl: 'home://apps' },
+    ],
+  )
+  assert.deepEqual(
+    planStartPageLaunch({
+      appTabCount: 2,
+      onboardingInProgress: false,
+      startPages,
+      knownAccountIds: ['wallet:Qa'],
+    }),
+    [],
+  )
+  assert.deepEqual(
+    planStartPageLaunch({
+      appTabCount: 0,
+      onboardingInProgress: true,
+      startPages,
+      knownAccountIds: ['wallet:Qa'],
+    }),
+    [],
+  )
 
   const unavailableTarget = renderToStaticMarkup(
     <SettingsPage
