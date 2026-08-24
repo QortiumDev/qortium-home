@@ -27,10 +27,18 @@ const syncedStatus = {
 
 type Snapshot = {
   nodes: {
-    qortal: { error: string | null; localCoreState: string; nodeApiUrl: string | null }
+    qortal: {
+      error: string | null
+      lastEnabledMode: string
+      localCoreState: string
+      mode: string
+      nodeApiUrl: string | null
+    }
     qortium: {
       capabilities: { admin: boolean }
       customAuthenticated: boolean
+      lastEnabledMode: string
+      mode: string
       nodeApiUrl: string | null
     }
   }
@@ -184,6 +192,13 @@ assert.equal(typeof client.installCoreUpdate, 'function')
 const checkCoreUpdate = () => client.checkCoreUpdate!()
 const installCoreUpdate = () => client.installCoreUpdate!()
 
+const initialNetworkSnapshot = await client.getSnapshot() as Snapshot
+assert.equal(initialNetworkSnapshot.nodes.qortal.mode, 'disabled')
+assert.equal(initialNetworkSnapshot.nodes.qortal.lastEnabledMode, 'public')
+assert.equal(initialNetworkSnapshot.nodes.qortium.mode, 'disabled')
+assert.equal(initialNetworkSnapshot.nodes.qortium.lastEnabledMode, 'public')
+await client.setMode('qortal', 'public')
+
 await client.saveShellState({ version: 1, selectedAccountId: 'wallet:one:2' })
 assert.deepEqual(await client.getShellState(), {
   version: 1,
@@ -223,6 +238,18 @@ assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_USER_ACCOUNT'), 
 assert.equal(getHomeV2AppActions('qortalRequest').includes('GET_SELECTED_ACCOUNT'), false)
 assert.equal(getHomeV2AppActions('qortalRequest').includes('UNLOCK_SELECTED_ACCOUNT'), false)
 await client.setMode('qortium', 'public')
+await client.setMode('qortium', 'disabled')
+const disabledAfterPublic = await client.getSnapshot() as Snapshot
+assert.equal(disabledAfterPublic.nodes.qortium.mode, 'disabled')
+assert.equal(disabledAfterPublic.nodes.qortium.lastEnabledMode, 'public')
+await client.setMode(
+  'qortium',
+  disabledAfterPublic.nodes.qortium.lastEnabledMode as 'public',
+)
+assert.equal(
+  (await client.getSnapshot() as Snapshot).nodes.qortium.mode,
+  'public',
+)
 const resourceContext = {
   resourceLocation: 'qortal://APP/Chat',
   selectedAccountId: null,

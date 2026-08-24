@@ -116,6 +116,10 @@ assert.throws(() =>
 )
 
 const nodes = createInitialHomeV2Nodes()
+assert.equal(nodes.qortium.mode, 'local')
+assert.equal(nodes.qortium.lastEnabledMode, 'local')
+assert.equal(nodes.qortal.mode, 'disabled')
+assert.equal(nodes.qortal.lastEnabledMode, 'local')
 const parsedNodes = parseHomeV2NodesSnapshot({ version: 1, nodes })
 assert.equal(parsedNodes.qortium.network, 'qortium')
 assert.equal(parsedNodes.qortal.network, 'qortal')

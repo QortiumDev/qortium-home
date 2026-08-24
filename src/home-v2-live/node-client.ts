@@ -120,6 +120,7 @@ export interface HomeV2IdentityReadResponse {
 interface PortableNodeSettings {
   apiKey: string
   customUrl: string
+  lastEnabledMode: Exclude<NodeConnectionMode, 'disabled'>
   mode: NodeConnectionMode
 }
 
@@ -450,8 +451,20 @@ function normalizePortableNodeApiKey(value: unknown) {
   return apiKey
 }
 
-function parseSettings(value: string | null): PortableNodeSettings {
-  if (!value) return { apiKey: '', customUrl: '', mode: 'public' }
+function defaultPortableSettings(network: NetworkId): PortableNodeSettings {
+  return {
+    apiKey: '',
+    customUrl: '',
+    lastEnabledMode: 'public',
+    mode: network === 'qortium' ? 'public' : 'disabled',
+  }
+}
+
+function parseSettings(
+  value: string | null,
+  network: NetworkId,
+): PortableNodeSettings {
+  if (!value) return defaultPortableSettings(network)
   try {
     const parsed: unknown = JSON.parse(value)
     if (!isRecord(parsed)) throw new Error()
@@ -466,12 +479,24 @@ function parseSettings(value: string | null): PortableNodeSettings {
       mode === 'public' ||
       mode === 'custom'
     ) {
-      return { apiKey: '', customUrl, mode }
+      const rawLastEnabledMode = parsed.lastEnabledMode
+      const storedLastEnabledMode =
+        rawLastEnabledMode === 'public' ||
+        (rawLastEnabledMode === 'custom' && customUrl)
+          ? rawLastEnabledMode
+          : 'public'
+      return {
+        apiKey: '',
+        customUrl,
+        lastEnabledMode: mode === 'disabled' ? storedLastEnabledMode :
+          mode === 'local' ? 'public' : mode,
+        mode,
+      }
     }
   } catch {
-    // Invalid preview-only preferences fall back to Public without mutation.
+    // Invalid portable preferences fall back without mutating their store.
   }
-  return { apiKey: '', customUrl: '', mode: 'public' }
+  return defaultPortableSettings(network)
 }
 
 export function parseHomeV2CoreOnChainUpdateStatus(
@@ -586,6 +611,7 @@ function emptySummary(
     ref: `home-v2:node:${network}` as NodeSummary['ref'],
     network,
     label: disabled ? 'Disabled node' : `${settings.mode[0].toUpperCase()}${settings.mode.slice(1)} node`,
+    lastEnabledMode: settings.lastEnabledMode,
     mode: settings.mode,
     state: 'offline',
     statusText: disabled ? 'Disabled' : settings.mode === 'local' ? 'Not available' : 'Unavailable',
@@ -623,7 +649,10 @@ export function createPortableNodeClient(
   let coreUpdateInstallInFlight: Promise<HomeV2CoreOnChainUpdateStatus> | null = null
 
   async function readSettings(network: NetworkId) {
-    const settings = parseSettings(await dependencies.getPreference(settingsKey(network)))
+    const settings = parseSettings(
+      await dependencies.getPreference(settingsKey(network)),
+      network,
+    )
     if (network !== 'qortium' || !settings.customUrl) return settings
     const protectedValue = await dependencies.getSecret(QORTIUM_CORE_API_KEY_SECRET)
     if (!protectedValue) return settings
@@ -648,6 +677,7 @@ export function createPortableNodeClient(
     }
     await dependencies.setPreference(settingsKey(network), JSON.stringify({
       customUrl: settings.customUrl,
+      lastEnabledMode: settings.lastEnabledMode,
       mode: settings.mode,
     }))
     if (network === 'qortium' && settings.apiKey && settings.customUrl) {
@@ -1301,7 +1331,17 @@ export function createPortableNodeClient(
       if (mode === 'custom' && !settings.customUrl) {
         throw new Error('Configure a custom node URL first.')
       }
-      await writeSettings(network, { ...settings, mode })
+      const normalizedMode = mode === 'local' ? 'public' : mode
+      await writeSettings(network, {
+        ...settings,
+        lastEnabledMode:
+          normalizedMode === 'disabled'
+            ? settings.mode === 'disabled' || settings.mode === 'local'
+              ? settings.lastEnabledMode
+              : settings.mode
+            : normalizedMode,
+        mode,
+      })
       return getSnapshot()
     },
     installCoreUpdate,
@@ -1319,6 +1359,7 @@ export function createPortableNodeClient(
         ...settings,
         apiKey: nextApiKey,
         customUrl: normalizedUrl,
+        lastEnabledMode: 'custom',
         mode: 'custom',
       })
       return getSnapshot()

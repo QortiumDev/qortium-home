@@ -29,6 +29,7 @@ const IPC_REFUSAL = 'Qortal node settings are only available to a Home window.'
 
 type QortalNodeSettingsRequest = {
   customUrl?: unknown
+  lastEnabledMode?: unknown
   mode?: unknown
 }
 
@@ -85,7 +86,7 @@ function getLocalUrl() {
 }
 
 function getDefaultSettings(): QortalNodeSettings {
-  return { customUrl: '', mode: 'local' }
+  return { customUrl: '', lastEnabledMode: 'local', mode: 'disabled' }
 }
 
 function normalizeRequest(value: QortalNodeSettingsRequest): QortalNodeSettings {
@@ -104,7 +105,15 @@ function normalizeRequest(value: QortalNodeSettingsRequest): QortalNodeSettings 
   if (mode === 'custom' && !customUrl) {
     throw new Error('Custom Qortal node URL is required.')
   }
-  return { customUrl, mode }
+  const rawLastEnabledMode = value.lastEnabledMode
+  const lastEnabledMode = mode === 'disabled'
+    ? rawLastEnabledMode === 'local' ||
+      rawLastEnabledMode === 'public' ||
+      (rawLastEnabledMode === 'custom' && customUrl)
+      ? rawLastEnabledMode
+      : 'local'
+    : mode
+  return { customUrl, lastEnabledMode, mode }
 }
 
 function readSettings(): QortalNodeSettings {
@@ -258,7 +267,11 @@ export async function getQortalNodeStatusForHomeV2() {
 }
 
 export async function getQortalLocalNodeStatusForHomeV2() {
-  return testSettings({ customUrl: '', mode: 'local' })
+  return testSettings({
+    customUrl: '',
+    lastEnabledMode: 'local',
+    mode: 'local',
+  })
 }
 
 export async function saveQortalNodeModeForHomeV2(
@@ -267,6 +280,10 @@ export async function saveQortalNodeModeForHomeV2(
   const current = readSettings()
   const settings = normalizeRequest({
     customUrl: current.customUrl,
+    lastEnabledMode:
+      mode === 'disabled' && current.mode !== 'disabled'
+        ? current.mode
+        : current.lastEnabledMode,
     mode,
   })
   writeSettings(settings)
@@ -278,7 +295,11 @@ export async function saveQortalCustomUrlForHomeV2(customUrl: string) {
   if (!isNodeApiKeyTransportSafe(normalizedUrl)) {
     throw new Error('Remote custom nodes must use HTTPS.')
   }
-  const settings = normalizeRequest({ customUrl: normalizedUrl, mode: 'custom' })
+  const settings = normalizeRequest({
+    customUrl: normalizedUrl,
+    lastEnabledMode: 'custom',
+    mode: 'custom',
+  })
   writeSettings(settings)
   return getSettingsSnapshot(settings)
 }

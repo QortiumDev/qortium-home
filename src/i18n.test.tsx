@@ -6,6 +6,7 @@ import {
   homeV2LanguageOptions,
 } from './v2/appearance'
 import { SettingsPage } from './v2/shell/SettingsPage'
+import { homeV2Fixture } from './v2/test-kit/fixtures'
 import {
   getTranslationLanguage,
   setTranslationLanguage,
@@ -104,6 +105,7 @@ function renderSettings(): string {
         state: 'none',
       }}
       appearance={defaultHomeV2Appearance}
+      nodes={homeV2Fixture.nodes}
       newTabPreference={{ kind: 'search' }}
     />,
   )

@@ -307,6 +307,17 @@ function normalizeNodeSummary(
           internalMode === 'public'
         ? internalMode
         : 'local'
+  const internalLastEnabledMode = stringField(settings, 'lastEnabledMode')
+  const lastEnabledMode: Exclude<NodeMode, 'disabled'> =
+    internalLastEnabledMode === 'network'
+      ? 'public'
+      : internalLastEnabledMode === 'custom' ||
+          internalLastEnabledMode === 'public' ||
+          internalLastEnabledMode === 'local'
+        ? internalLastEnabledMode
+        : mode === 'disabled'
+          ? 'local'
+          : mode
   const statusResult = isRecord(rawStatus) ? rawStatus : {}
   const ok = statusResult.ok === true
   const disabled = mode === 'disabled' || statusResult.disabled === true
@@ -342,6 +353,7 @@ function normalizeNodeSummary(
       mode === 'public' && nodeApiUrl
         ? endpointHost(nodeApiUrl)
         : nodeApiUrl ?? `${modeLabel(mode)} node`,
+    lastEnabledMode,
     mode,
     state,
     statusText,
@@ -371,10 +383,12 @@ function normalizeNodeSummary(
 async function buildSnapshot() {
   const [qortalSettings, qortiumSettings] = await Promise.all([
       getQortalNodeSettingsForHomeV2().catch((error: unknown) => ({
-        mode: 'local',
+        lastEnabledMode: 'local',
+        mode: 'disabled',
         resolutionError: error instanceof Error ? error.message : 'Unable to read Qortal node settings.',
       })),
       getNodeSettingsForHomeV2().catch((error: unknown) => ({
+        lastEnabledMode: 'local',
         mode: 'local',
         resolutionError: error instanceof Error ? error.message : 'Unable to read Qortium node settings.',
       })),
@@ -396,13 +410,17 @@ async function buildSnapshot() {
   const [qortalStatus, qortalLocalStatus, qortiumStatus, qortiumLocalStatus] =
     await Promise.all([
       qortalStatusPromise,
-      stringField(qortalSettings, 'mode') === 'local'
-        ? qortalStatusPromise
-        : getQortalLocalNodeStatusForHomeV2(),
+      stringField(qortalSettings, 'mode') === 'disabled'
+        ? null
+        : stringField(qortalSettings, 'mode') === 'local'
+          ? qortalStatusPromise
+          : getQortalLocalNodeStatusForHomeV2(),
       qortiumStatusPromise,
-      stringField(qortiumSettings, 'mode') === 'local'
-        ? qortiumStatusPromise
-        : getLocalNodeStatusForHomeV2(),
+      stringField(qortiumSettings, 'mode') === 'disabled'
+        ? null
+        : stringField(qortiumSettings, 'mode') === 'local'
+          ? qortiumStatusPromise
+          : getLocalNodeStatusForHomeV2(),
     ])
 
   return {

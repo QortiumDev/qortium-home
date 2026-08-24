@@ -1226,6 +1226,90 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   assert.match(dashboard, />Start Core</)
   assert.match(dashboard, /aria-label="Settings: Core management"/)
 
+  const qortalDisabledSnapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      qortal: {
+        ...homeV2Fixture.nodes.qortal,
+        mode: 'disabled' as const,
+        state: 'offline' as const,
+      },
+    },
+  }
+  const qortalDisabledDashboard = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={qortalDisabledSnapshot}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      coreManagement={coreManagement}
+    />,
+  )
+  assert.match(
+    qortalDisabledDashboard,
+    /class="home-v2-node-card" data-network="qortium"/,
+  )
+  assert.doesNotMatch(
+    qortalDisabledDashboard,
+    /class="home-v2-(?:node-card|core-card|presence)" data-network="qortal"/,
+  )
+
+  const qortiumDisabledSnapshot = {
+    ...homeV2Fixture,
+    nodes: {
+      ...homeV2Fixture.nodes,
+      qortium: {
+        ...homeV2Fixture.nodes.qortium,
+        mode: 'disabled' as const,
+        state: 'offline' as const,
+      },
+    },
+  }
+  const qortiumDisabledDashboard = renderToStaticMarkup(
+    <HomeV2Prototype
+      snapshot={qortiumDisabledSnapshot}
+      productState={createProductState()}
+      permissionState={createPermissionState()}
+      layout="desktop"
+      coreManagement={coreManagement}
+      pinnedApps={{
+        pins: [
+          {
+            createdAt: 1,
+            customLabel: 'Hidden QDN Pin',
+            displayUrl: 'qdn://APP/Hidden/Hidden',
+            id: 'qdn://APP/Hidden/Hidden',
+            label: 'Hidden',
+          },
+          {
+            createdAt: 2,
+            customLabel: 'Global Home Pin',
+            displayUrl: 'home://bookmarks',
+            id: 'home://bookmarks',
+            label: 'Bookmarks',
+          },
+        ],
+        status: 'ready',
+        onAdd: () => undefined,
+        onMove: () => undefined,
+        onOpen: () => undefined,
+        onRemove: () => undefined,
+        onRename: () => undefined,
+      }}
+    />,
+  )
+  assert.match(
+    qortiumDisabledDashboard,
+    /class="home-v2-node-card" data-network="qortal"/,
+  )
+  assert.doesNotMatch(
+    qortiumDisabledDashboard,
+    /class="home-v2-(?:node-card|core-card|presence)" data-network="qortium"/,
+  )
+  assert.match(qortiumDisabledDashboard, /Global Home Pin/)
+  assert.doesNotMatch(qortiumDisabledDashboard, /Hidden QDN Pin/)
+
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',
     destination: 'settings',
@@ -1248,6 +1332,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     <SettingsPage
       account={homeV2Fixture.account}
       appearance={homeV2Fixture.appearance}
+      nodes={homeV2Fixture.nodes}
       newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
       requestedSection="appearance"
     />,
@@ -1273,6 +1358,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     <SettingsPage
       account={{ ...homeV2Fixture.account, state: 'none' }}
       appearance={homeV2Fixture.appearance}
+      nodes={homeV2Fixture.nodes}
       newTabPreference={DEFAULT_NEW_TAB_PREFERENCE}
       requestedSection="notifications"
     />,

@@ -41,16 +41,48 @@ assert.equal(
 
 assert.deepEqual(parseQortalNodeSettings({ mode: 'disabled' }), {
   customUrl: '',
+  lastEnabledMode: 'local',
+  mode: 'disabled',
+})
+assert.deepEqual(parseQortalNodeSettings(null), {
+  customUrl: '',
+  lastEnabledMode: 'local',
   mode: 'disabled',
 })
 assert.deepEqual(
+  parseQortalNodeSettings({
+    lastEnabledMode: 'public',
+    mode: 'disabled',
+  }),
+  {
+    customUrl: '',
+    lastEnabledMode: 'public',
+    mode: 'disabled',
+  },
+)
+assert.deepEqual(
+  parseQortalNodeSettings({
+    lastEnabledMode: 'custom',
+    mode: 'disabled',
+  }),
+  {
+    customUrl: '',
+    lastEnabledMode: 'local',
+    mode: 'disabled',
+  },
+)
+assert.deepEqual(
   parseQortalNodeSettings({ mode: 'custom', customUrl: 'node.example:12391' }),
-  { customUrl: 'https://node.example:12391', mode: 'custom' },
+  {
+    customUrl: 'https://node.example:12391',
+    lastEnabledMode: 'custom',
+    mode: 'custom',
+  },
 )
 
 await assert.rejects(
   resolveQortalNodePolicy(
-    { customUrl: '', mode: 'disabled' },
+    { customUrl: '', lastEnabledMode: 'local', mode: 'disabled' },
     {
       localUrl: 'http://127.0.0.1:12391',
       resolvePublic: async () => 'https://public.example',
@@ -63,7 +95,7 @@ await assert.rejects(
 )
 assert.deepEqual(
   await resolveQortalNodePolicy(
-    { customUrl: '', mode: 'local' },
+    { customUrl: '', lastEnabledMode: 'local', mode: 'local' },
     {
       localUrl: 'http://127.0.0.1:12391',
       resolvePublic: async () => 'https://public.example',
@@ -75,6 +107,7 @@ assert.deepEqual(
   await resolveQortalNodePolicy(
     {
       customUrl: 'https://custom.example:12391',
+      lastEnabledMode: 'custom',
       mode: 'custom',
     },
     {
@@ -121,7 +154,7 @@ assert.deepEqual(attempts, [
 let disabledProbeCalls = 0
 await assert.rejects(
   resolveQortalNodePolicy(
-    { customUrl: '', mode: 'disabled' },
+    { customUrl: '', lastEnabledMode: 'local', mode: 'disabled' },
     {
       localUrl: 'http://127.0.0.1:12391',
       resolvePublic: async () => {

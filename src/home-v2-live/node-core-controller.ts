@@ -53,7 +53,8 @@ export function createInitialHomeV2Node(network: NetworkId): NodeSummary {
     ref: `home-v2:node:${network}` as NodeProfileRef,
     network,
     label: 'Checking configured node',
-    mode: 'local',
+    lastEnabledMode: 'local',
+    mode: network === 'qortium' ? 'local' : 'disabled',
     state: 'unknown',
     statusText: 'Checking',
     isTrusted: true,
@@ -110,6 +111,14 @@ export function parseHomeV2NodeSummary(
     ref: String(value.ref ?? `home-v2:node:${network}`) as NodeProfileRef,
     network,
     label: String(value.label ?? 'Configured node'),
+    lastEnabledMode:
+      value.lastEnabledMode === 'custom' ||
+      value.lastEnabledMode === 'public' ||
+      value.lastEnabledMode === 'local'
+        ? value.lastEnabledMode
+        : mode === 'disabled'
+          ? 'local'
+          : mode,
     mode,
     state,
     statusText: String(value.statusText ?? 'Unknown'),

@@ -13,6 +13,7 @@ import {
   parseHomeV2CoreUpdatePolicyState,
 } from '../../home-v2-live/core-manager-client'
 import { t } from '../../i18n'
+import type { NetworkId } from '../contracts'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 
 function corePolicyDescription(policy: HomeV2CoreUpdatePolicy) {
@@ -39,8 +40,16 @@ function qortalPolicyDescription(policy: HomeV2CoreUpdatePolicy) {
   return 'Home installs a strictly newer stable release only when its Home-managed Qortal Core is proven stopped. Adopted and node-native installs are never changed.'
 }
 
-export function CoreMaintenancePanel({ management }: { readonly management: HomeV2CoreManagement }) {
+export function CoreMaintenancePanel({
+  management,
+  networks = ['qortium', 'qortal'],
+}: {
+  readonly management: HomeV2CoreManagement
+  readonly networks?: readonly NetworkId[]
+}) {
   const client = window.homeV2CoreManagers
+  const qortiumEnabled = networks.includes('qortium')
+  const qortalEnabled = networks.includes('qortal')
   const [status, setStatus] = useState<HomeV2CoreMaintenanceStatus | null>(null)
   const [policy, setPolicy] = useState<HomeV2CoreUpdatePolicyState | null>(null)
   const [release, setRelease] = useState<HomeV2CoreMaintenanceRelease | null>(null)
@@ -93,13 +102,18 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
     }
   }, [client])
 
-  if (!client) return null
+  useEffect(() => {
+    setRelease(null)
+    setNotice(null)
+  }, [qortalEnabled, qortiumEnabled])
+
+  if (!client || networks.length === 0) return null
   if (!status || !policy) {
     return (
       <section className="home-v2-core-maintenance" aria-busy={!initialLoadFailed}
         aria-labelledby="core-maintenance-title">
         <div className="home-v2-settings-panel__heading">
-          <h3 id="core-maintenance-title">Qortium Core maintenance</h3>
+          <h3 id="core-maintenance-title">Core maintenance</h3>
           {initialLoadFailed ? (
             <p className="home-v2-core-notice" role="alert">
               Core maintenance status is unavailable.
@@ -245,10 +259,14 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
     <section className="home-v2-core-maintenance" aria-busy={busy !== null}
       aria-labelledby="core-maintenance-title">
       <div className="home-v2-settings-panel__heading">
-        <h3 id="core-maintenance-title">Qortium Core maintenance</h3>
-        <p>Install a verified Preview release or update an existing Home-managed Core.</p>
+        <h3 id="core-maintenance-title">
+          {qortiumEnabled
+            ? 'Qortium Core maintenance'
+            : 'Qortal Core maintenance'}
+        </h3>
+        <p>Review verified releases and automatic maintenance policies.</p>
       </div>
-      {status.core.installedVersion ? (
+      {qortiumEnabled && status.core.installedVersion ? (
         <div className="home-v2-setting-row">
           <div className="home-v2-setting-row__copy">
             <strong id="qortium-core-update-policy-label">{t('core.coreUpdatePolicyLabel')}</strong>
@@ -292,7 +310,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
           </select>
         </div>
       ) : null}
-      <div className="home-v2-setting-row">
+      {qortalEnabled ? <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong id="qortal-core-update-policy-label">{t('core.qortalUpdatePolicyLabel')}</strong>
           <span id="qortal-core-update-policy-description">
@@ -311,26 +329,27 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
           <option value="notify">{t('core.updatePolicy.notify')}</option>
           <option value="install">{t('core.updatePolicy.install')}</option>
         </select>
-      </div>
+      </div> : null}
       {policy.settingsIssue ? (
         <p className="home-v2-core-notice" role="alert">
           Stored update policies are unavailable. Automatic checks are off until you save a new policy.
         </p>
-      ) : policy.activity.core.state === 'pending-safe-state' ? (
+      ) : qortiumEnabled && policy.activity.core.state === 'pending-safe-state' ? (
         <p className="home-v2-core-notice" role="status">
           A verified Core update is waiting for Qortium Core to stop safely.
         </p>
-      ) : policy.activity.qortal.state === 'pending-safe-state' ? (
+      ) : qortalEnabled && policy.activity.qortal.state === 'pending-safe-state' ? (
         <p className="home-v2-core-notice" role="status">
           A verified Qortal Core update is waiting for Home-managed Qortal Core to stop safely.
         </p>
-      ) : policy.activity.core.state === 'available' || policy.activity.java.state === 'available' ? (
+      ) : (qortiumEnabled && policy.activity.core.state === 'available') ||
+        policy.activity.java.state === 'available' ? (
         <p className="home-v2-core-notice" role="status">
-          {policy.activity.core.version
+          {qortiumEnabled && policy.activity.core.version
             ? `Qortium Core ${policy.activity.core.version} is available.`
             : `Managed Java ${policy.activity.java.version ?? ''} is available.`}
         </p>
-      ) : policy.activity.qortal.state === 'available' ? (
+      ) : qortalEnabled && policy.activity.qortal.state === 'available' ? (
         <p className="home-v2-core-notice" role="status">
           Qortal Core {policy.activity.qortal.version ?? ''} is available.
         </p>
@@ -339,7 +358,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
           The last automatic maintenance pass did not complete.
         </p>
       ) : null}
-      <div className="home-v2-setting-row">
+      {qortiumEnabled ? <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>Qortium Core</strong>
           <span>{coreVersion}{status.core.channel ? ` · ${status.core.channel}` : ''}</span>
@@ -355,7 +374,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
             </button>
           ) : null}
         </div>
-      </div>
+      </div> : null}
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>Managed Java</strong>
@@ -368,7 +387,7 @@ export function CoreMaintenancePanel({ management }: { readonly management: Home
           </button>
         </div>
       </div>
-      {status.core.runtime !== 'stopped' && release?.action !== 'none' ? (
+      {qortiumEnabled && status.core.runtime !== 'stopped' && release?.action !== 'none' ? (
         <p className="home-v2-core-notice">Stop Qortium Core before installing or updating it.</p>
       ) : null}
       {notice ? <p className="home-v2-core-notice" role="status">{notice}</p> : null}

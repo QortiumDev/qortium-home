@@ -13,6 +13,7 @@ export const QORTAL_PUBLIC_NODE_API_URLS = [
 
 export interface QortalNodeSettings {
   customUrl: string
+  lastEnabledMode: Exclude<QortalNodeSettingsMode, 'disabled'>
   mode: QortalNodeSettingsMode
 }
 
@@ -54,7 +55,9 @@ function booleanField(status: unknown, key: string) {
 }
 
 export function parseQortalNodeSettings(value: unknown): QortalNodeSettings {
-  if (!isRecord(value)) return { customUrl: '', mode: 'local' }
+  if (!isRecord(value)) {
+    return { customUrl: '', lastEnabledMode: 'local', mode: 'disabled' }
+  }
   const customValue = getString(value.customUrl)
   let customUrl = ''
   if (customValue) {
@@ -71,9 +74,20 @@ export function parseQortalNodeSettings(value: unknown): QortalNodeSettings {
     mode !== 'public' &&
     mode !== 'custom'
   ) {
-    return { customUrl: '', mode: 'local' }
+    return { customUrl: '', lastEnabledMode: 'local', mode: 'disabled' }
   }
-  return { customUrl, mode }
+  const rawLastEnabledMode = value.lastEnabledMode
+  const storedLastEnabledMode =
+    rawLastEnabledMode === 'local' ||
+    rawLastEnabledMode === 'public' ||
+    (rawLastEnabledMode === 'custom' && customUrl)
+      ? rawLastEnabledMode
+      : 'local'
+  return {
+    customUrl,
+    lastEnabledMode: mode === 'disabled' ? storedLastEnabledMode : mode,
+    mode,
+  }
 }
 
 export function isFullySyncedQortalStatus(status: unknown) {

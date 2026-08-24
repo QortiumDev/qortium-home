@@ -4567,7 +4567,7 @@ export function HomeV2LiveApp() {
         })
       }}
       onRefreshNode={() => void nodeCoreController.refreshNodes()}
-      onSetNodeMode={(network, mode) => void setNodeMode(network, mode)}
+      onSetNodeMode={setNodeMode}
       onConfigureCustomNode={openCustomNode}
       onIdentityLookupInput={(value) => {
         setIdentityInput(value)

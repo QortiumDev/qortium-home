@@ -224,14 +224,21 @@ function CoreManagerCard({
 
 export function CoreManagerCards({
   management,
+  networks = ['qortium', 'qortal'],
 }: {
   readonly management?: HomeV2CoreManagement
+  readonly networks?: readonly NetworkId[]
 }) {
-  if (!management?.available) return null
+  if (!management?.available || networks.length === 0) return null
   return (
     <div className="home-v2-core-grid" data-home-v2-core-management="desktop">
-      <CoreManagerCard management={management} network="qortium" />
-      <CoreManagerCard management={management} network="qortal" />
+      {networks.map((network) => (
+        <CoreManagerCard
+          key={network}
+          management={management}
+          network={network}
+        />
+      ))}
     </div>
   )
 }

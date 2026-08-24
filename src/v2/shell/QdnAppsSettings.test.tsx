@@ -435,6 +435,61 @@ assert.equal(
   true,
 )
 
+const networkModeRequests: Array<readonly [string, string]> = []
+await act(async () => {
+  root.render(
+    <SettingsPage
+      account={{
+        lockOnExit: true,
+        manuallyLocked: false,
+        rememberUnlock: false,
+        secureStorageAvailable: true,
+        selectedIdentityId: null,
+        state: 'none',
+      }}
+      appearance={defaultHomeV2Appearance}
+      nodes={{
+        qortium: { lastEnabledMode: 'public', mode: 'disabled' },
+        qortal: { lastEnabledMode: 'public', mode: 'public' },
+      }}
+      newTabPreference={{ kind: 'search' }}
+      qdnAppsManagement={{ available: true, client }}
+      requestedSection="qdn-apps"
+      onSetNodeMode={async (network, mode) => {
+        networkModeRequests.push([network, mode])
+      }}
+    />,
+  )
+  await settle()
+})
+assert.equal(button('General').getAttribute('aria-current'), 'page')
+assert.equal(
+  [...container.querySelectorAll('nav button')].some(
+    (candidate) => candidate.textContent?.trim() === 'QDN Apps',
+  ),
+  false,
+)
+const qortiumSwitch = container.querySelector(
+  'input[aria-label="Qortium connection mode"]',
+) as HTMLInputElement
+const qortalSwitch = container.querySelector(
+  'input[aria-label="Qortal connection mode"]',
+) as HTMLInputElement
+assert.equal(qortiumSwitch.checked, false)
+assert.equal(qortalSwitch.checked, true)
+await act(async () => {
+  qortiumSwitch.click()
+  await settle()
+})
+await act(async () => {
+  qortalSwitch.click()
+  await settle()
+})
+assert.deepEqual(networkModeRequests, [
+  ['qortium', 'public'],
+  ['qortal', 'disabled'],
+])
+
 await act(async () => root.unmount())
 container.remove()
 console.log('Home 2 QDN app settings tests passed.')

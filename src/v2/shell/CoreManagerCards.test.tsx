@@ -176,6 +176,14 @@ try {
 
   act(() =>
     root.render(
+      <CoreManagerCards management={management} networks={['qortal']} />,
+    ),
+  )
+  assert.equal(container.querySelector('[data-network="qortium"]'), null)
+  assert.ok(container.querySelector('[data-network="qortal"]'))
+
+  act(() =>
+    root.render(
       <CoreManagerCards management={{ ...management, available: false }} />,
     ),
   )
