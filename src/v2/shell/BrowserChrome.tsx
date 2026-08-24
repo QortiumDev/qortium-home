@@ -7,6 +7,7 @@ import type {
   VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
+import { subscribeHomeV2MenuCommands } from '../menu-commands'
 import type { ProductState, ShellDestination } from '../product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
@@ -135,6 +136,7 @@ export function BrowserChrome({
   const [widgetBusy, setWidgetBusy] = useState(false)
   const [widgetError, setWidgetError] = useState<string | null>(null)
   const addressRequest = useRef(0)
+  const addressInputRef = useRef<HTMLInputElement | null>(null)
   useEffect(() => {
     addressRequest.current += 1
     setAddress(currentAddress)
@@ -180,6 +182,24 @@ export function BrowserChrome({
     }
     onNavigate?.('newtab')
   }
+  // Chrome-owned menu commands. The handler lives in a ref so the IPC
+  // subscription mounts once while always seeing the current render's state.
+  const menuCommandHandler = useRef<(command: string) => void>(() => {})
+  menuCommandHandler.current = (command) => {
+    if (command === 'new-tab') {
+      openNewTab()
+    } else if (command === 'focus-address-bar' && !navigationDisabled) {
+      addressInputRef.current?.focus()
+      addressInputRef.current?.select()
+    }
+  }
+  useEffect(
+    () =>
+      subscribeHomeV2MenuCommands((command) =>
+        menuCommandHandler.current(command),
+      ),
+    [],
+  )
   return (
     <header className="home-v2-browser-chrome">
       <div className="home-v2-browser-tabs-row">
@@ -227,6 +247,7 @@ export function BrowserChrome({
         >
           <span aria-hidden="true">⌕</span>
           <input
+            ref={addressInputRef}
             aria-label={t('home2.browser.addressAndSearch')}
             disabled={navigationDisabled}
             spellCheck={false}

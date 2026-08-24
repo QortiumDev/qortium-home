@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): restore browser keyboard shortcuts and mouse navigation
+
+Home 2 kept the application menu and its shortcuts (new tab, close tab,
+reopen closed tab, reload, back, forward, focus the address bar) but the
+window silently ignored everything except the text-size shortcuts, so
+Ctrl+T, Ctrl+W, Ctrl+R, Ctrl+L, Ctrl+Shift+T, and Alt+Left/Right did
+nothing. The shell now receives the full validated set of menu commands:
+new tab follows the configured new-tab preference, close tab closes the
+active app tab (refused while a permission prompt owns it), reopen
+closed tab reopens the most recently closed app tab from this session,
+reload refreshes the active tab or the dashboard, back and forward step
+the active app's history, and focus address bar selects the address
+field. The mouse back and forward side buttons now also work while the
+shell itself has focus. Only commands from the fixed allow-list are
+accepted, and nothing new is exposed to QDN apps.
 ### 2026-08-24 - fix(home-v2): standardize settings buttons and native controls
 
 Several buttons in the Settings Runtime section (such as "Check release",

@@ -45,7 +45,10 @@ import {
 } from '../v2/new-tab-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
 import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
-import { subscribeHomeV2TextSizeCommands } from './text-size-shortcut-client'
+import {
+  parseHomeV2TextSizeCommand,
+  subscribeHomeV2MenuCommands,
+} from '../v2/menu-commands'
 import {
   HomeV2ResourceViewer,
   type HomeV2ResourceViewerState,
@@ -1174,19 +1177,54 @@ export function HomeV2LiveApp() {
   )
   const menuTextSize = useRef(snapshotState.appearance.textSize)
   menuTextSize.current = snapshotState.appearance.textSize
+  // Session-only stack of recently closed app-tab locations (newest last),
+  // consumed by the reopen-closed-tab menu command.
+  const closedAppTabs = useRef<string[]>([])
+  // Navigation handlers live late in the render scope; the menu subscription
+  // reads them through this ref so it can stay mounted once.
+  const menuNavigation = useRef<{
+    goBack: () => void
+    goForward: () => void
+    reload: () => void
+    reopenClosedTab: () => void
+  } | null>(null)
   useEffect(() => {
-    return subscribeHomeV2TextSizeCommands((command) => {
-      const next =
-        command === 'text-size-reset'
-          ? 'medium'
-          : stepHomeV2TextSize(
-              menuTextSize.current,
-              command === 'text-size-increase' ? 'increase' : 'decrease',
-            )
-      menuTextSize.current = next
-      updateAppearance({ textSize: next })
+    return subscribeHomeV2MenuCommands((command) => {
+      const textSize = parseHomeV2TextSizeCommand(command)
+      if (textSize) {
+        const next =
+          textSize === 'text-size-reset'
+            ? 'medium'
+            : stepHomeV2TextSize(
+                menuTextSize.current,
+                textSize === 'text-size-increase' ? 'increase' : 'decrease',
+              )
+        menuTextSize.current = next
+        updateAppearance({ textSize: next })
+        return
+      }
+      const navigation = menuNavigation.current
+      if (!navigation) return
+      if (command === 'go-back') navigation.goBack()
+      else if (command === 'go-forward') navigation.goForward()
+      else if (command === 'reload-tab') navigation.reload()
+      else if (command === 'reopen-closed-tab') navigation.reopenClosedTab()
     })
   }, [updateAppearance])
+  useEffect(() => {
+    // The main process forwards mouse back/forward app-commands only while
+    // focus is outside the shell renderer, so the focused case lands here.
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button !== 3 && event.button !== 4) return
+      const navigation = menuNavigation.current
+      if (!navigation) return
+      event.preventDefault()
+      if (event.button === 3) navigation.goBack()
+      else navigation.goForward()
+    }
+    window.addEventListener('mouseup', onMouseUp)
+    return () => window.removeEventListener('mouseup', onMouseUp)
+  }, [])
 
   const openApp = useCallback(
     (
@@ -4722,6 +4760,26 @@ export function HomeV2LiveApp() {
       }
     }
   }
+  const reloadActiveSurface = () => {
+    if (productState.activeTabId) {
+      if (window.homeV2Apps) {
+        void window.homeV2Apps.reload({ tabId: productState.activeTabId })
+      } else {
+        setAppReloadVersion((current) => current + 1)
+      }
+    } else {
+      void nodeCoreController.refreshAll()
+    }
+  }
+  menuNavigation.current = {
+    goBack: () => navigateActiveApp(-1),
+    goForward: () => navigateActiveApp(1),
+    reload: reloadActiveSurface,
+    reopenClosedTab: () => {
+      const location = closedAppTabs.current.pop()
+      if (location) void openAddress(location)
+    },
+  }
 
   return (
     <HomeV2Prototype
@@ -4799,6 +4857,11 @@ export function HomeV2LiveApp() {
         dispatchProduct({ type: 'activate-tab', tabId })
       }
       onCloseTab={(tabId) => {
+        const closingTab = productState.tabs.find((tab) => tab.id === tabId)
+        if (closingTab) {
+          closedAppTabs.current.push(closingTab.context.resourceLocation)
+          if (closedAppTabs.current.length > 10) closedAppTabs.current.shift()
+        }
         invalidateAndroidRuntime('tab-closed', tabId)
         window.homeV2Apps?.invalidateRuntime({ kind: 'tab-closed', tabId })
         void window.homeV2Apps?.destroy({ tabId })
@@ -4949,17 +5012,7 @@ export function HomeV2LiveApp() {
       }
       onGoBack={() => navigateActiveApp(-1)}
       onGoForward={() => navigateActiveApp(1)}
-      onReload={() => {
-        if (productState.activeTabId) {
-          if (window.homeV2Apps) {
-            void window.homeV2Apps.reload({ tabId: productState.activeTabId })
-          } else {
-            setAppReloadVersion((current) => current + 1)
-          }
-        } else {
-          void nodeCoreController.refreshAll()
-        }
-      }}
+      onReload={reloadActiveSurface}
       onSetTheme={(theme: HomeV2ThemePreference) =>
         updateAppearance({
           theme,
