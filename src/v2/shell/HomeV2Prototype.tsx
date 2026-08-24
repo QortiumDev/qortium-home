@@ -33,7 +33,11 @@ import type {
   PermissionRequestId,
   PermissionState,
 } from '../bridge-permissions'
-import type { ProductState, ShellDestination } from '../product-model'
+import type {
+  InternalPageId,
+  ProductState,
+  ShellDestination,
+} from '../product-model'
 import type { NewTabPreference } from '../new-tab-preference'
 import { useHomeV2Translation } from '../i18n'
 import {
@@ -159,6 +163,7 @@ export interface HomeV2PrototypeProps {
   readonly onReload?: () => void
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
+  readonly onCloseInternal?: (page: InternalPageId) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -995,6 +1000,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     layout,
     onActivateTab,
     onCloseTab,
+    onCloseInternal,
     onNavigate,
     onResolvePermission,
   } = props
@@ -1025,6 +1031,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         if (destination === 'settings') setRequestedSettingsSection('general')
         onNavigate?.(destination)
       }
+  const guardedCloseInternal = overlayOwnerTabId
+    ? () => undefined
+    : onCloseInternal
   const openSettingsSection = (section: HomeV2SettingsSectionTarget) => {
     if (overlayOwnerTabId) return
     setRequestedSettingsSection(section)
@@ -1035,7 +1044,13 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const closeActiveTabCommand = useRef<() => void>(() => {})
   closeActiveTabCommand.current = () => {
     if (overlayOwnerTabId) return
-    if (activeTab) onCloseTab?.(activeTab.id)
+    if (activeTab) {
+      onCloseTab?.(activeTab.id)
+      return
+    }
+    if (productState.destination !== 'tab') {
+      onCloseInternal?.(productState.destination)
+    }
   }
   useEffect(
     () =>
@@ -1105,6 +1120,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         productState={productState}
         onActivateTab={guardedActivateTab}
         onCloseTab={onCloseTab}
+        onCloseInternal={guardedCloseInternal}
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
         onOpenAsWidget={props.onOpenAsWidget}

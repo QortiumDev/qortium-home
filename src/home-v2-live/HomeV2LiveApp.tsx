@@ -4881,6 +4881,7 @@ export function HomeV2LiveApp() {
         }
         dispatchProduct({ type: 'close-tab', tabId })
       }}
+      onCloseInternal={(page) => dispatchProduct({ type: 'close-internal', page })}
       onAppNavigationChanged={handleAppNavigationChanged}
       onAppNavigationControllerChange={handleAppNavigationControllerChange}
       onAppTitleChanged={handleAppTitleChanged}

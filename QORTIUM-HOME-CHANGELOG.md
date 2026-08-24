@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): allow multiple internal pages open as tabs
+
+Home 2 previously kept a single shared slot for its own pages, so
+opening Settings replaced the Dashboard tab and the two could never be
+open at the same time. Home pages (Dashboard, Settings, Apps, the new
+tab page, and the rest) now open as ordinary tabs: each page opens at
+most once, gets its own closable tab before the app tabs, and stays
+open while you switch elsewhere. Closing a page tab moves you to its
+neighbor, then to an app tab, and closing the very last surface reopens
+the Dashboard so the window is never empty. Ctrl+W now also closes the
+active Home page tab, closing the last app tab returns to the most
+recent Home page, and open pages are remembered across restarts (pages
+that depend on transient state, like release notes and the Core API
+docs, still reopen fresh). Older saved window states migrate to a
+single Dashboard tab automatically.
+
 ### 2026-08-24 - fix(home-v2): raise the type floor and scale all shell text
 
 Home 2 used more than thirty hard-coded 10-12px text sizes on regular

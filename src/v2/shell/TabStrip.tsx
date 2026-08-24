@@ -1,5 +1,9 @@
 import type { TabId } from '../contracts'
-import type { ProductState, ShellDestination } from '../product-model'
+import type {
+  InternalPageId,
+  ProductState,
+  ShellDestination,
+} from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { HomeMark } from './ProductMarks'
@@ -10,6 +14,7 @@ export interface TabStripProps {
   readonly productState: ProductState
   readonly onActivateTab?: (tabId: TabId) => void
   readonly onCloseTab?: (tabId: TabId) => void
+  readonly onCloseInternal?: (page: InternalPageId) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -35,32 +40,46 @@ export function TabStrip({
   productState,
   onActivateTab,
   onCloseTab,
+  onCloseInternal,
   onNavigate,
   onNewTab,
   newTabDisabled,
   loadVisibleAppIcon,
 }: TabStripProps) {
-  const internalDestination =
-    productState.destination === 'tab' ? 'dashboard' : productState.destination
-  const internalLabel = t(internalTabLabelKeys[internalDestination])
   return (
     <div className="home-v2-tabs" role="tablist" aria-label={t('tabs.listLabel')}>
-      <div
-        className={`home-v2-tab home-v2-tab--dashboard${
-          productState.destination !== 'tab' ? ' is-active' : ''
-        }`}
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={productState.destination !== 'tab'}
-          className={productState.destination !== 'tab' ? 'is-active' : ''}
-          onClick={() => onNavigate?.(internalDestination)}
-        >
-          <HomeMark className="home-v2-tab__favicon" />
-          {internalLabel}
-        </button>
-      </div>
+      {productState.internalPages.map((page) => {
+        const isActive = productState.destination === page
+        const label = t(internalTabLabelKeys[page])
+        return (
+          <div
+            className={`home-v2-tab home-v2-tab--dashboard${
+              isActive ? ' is-active' : ''
+            }`}
+            key={`internal:${page}`}
+            data-internal-page={page}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={isActive ? 'is-active' : ''}
+              onClick={() => onNavigate?.(page)}
+            >
+              <HomeMark className="home-v2-tab__favicon" />
+              {label}
+            </button>
+            <button
+              type="button"
+              className="home-v2-tab__close"
+              aria-label={t('tabs.closeNamed', { label })}
+              onClick={() => onCloseInternal?.(page)}
+            >
+              ×
+            </button>
+          </div>
+        )
+      })}
       {productState.tabs.map((tab) => {
         const isActive = productState.activeTabId === tab.id
         return (
