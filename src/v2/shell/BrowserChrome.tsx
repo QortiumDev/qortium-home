@@ -7,6 +7,13 @@ import type {
   VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
+import {
+  ArrowLeft,
+  ArrowRight,
+  PictureInPicture2,
+  RotateCw,
+  Settings,
+} from 'lucide-react'
 import { subscribeHomeV2MenuCommands } from '../menu-commands'
 import type {
   ProductState,
@@ -18,7 +25,7 @@ import {
   type NewTabPreference,
 } from '../new-tab-preference'
 import { networkLabels } from './NetworkBadge'
-import { NetworkMark } from './ProductMarks'
+import { HomeMark, NetworkMark } from './ProductMarks'
 import { TabStrip } from './TabStrip'
 import { VisibleIdentityAvatar } from './VisibleIdentityAvatar'
 import {
@@ -308,21 +315,22 @@ export function BrowserChrome({
           aria-label={t('home2.browser.pageNavigation')}
         >
           <button type="button" disabled={!canGoBack} aria-label={t('common.back')} title={t('common.back')} onClick={onGoBack}>
-            ←
+            <ArrowLeft aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <button type="button" disabled={!canGoForward} aria-label={t('common.forward')} title={t('common.forward')} onClick={onGoForward}>
-            →
+            <ArrowRight aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <button type="button" aria-label={t('home2.browser.reload')} title={t('home2.browser.reload')} onClick={onReload}>
-            ↻
+            <RotateCw aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <button
             type="button"
+            className="home-v2-home-button"
             aria-label={t('common.dashboard')}
             title={t('common.dashboard')}
             onClick={() => onNavigate?.('dashboard')}
           >
-            ⌂
+            <HomeMark />
           </button>
         </div>
         <form
@@ -430,18 +438,9 @@ export function BrowserChrome({
                   .finally(() => setWidgetBusy(false))
               }}
             >
-              ⧉
+              <PictureInPicture2 aria-hidden="true" size={18} strokeWidth={2} />
             </button>
           ) : null}
-          <button
-            type="button"
-            className="home-v2-toolbar-button"
-            aria-label={t('home2.apps')}
-            title={t('home2.apps')}
-            onClick={() => onNavigate?.('apps')}
-          >
-            ◫
-          </button>
           <button
             type="button"
             className="home-v2-toolbar-button"
@@ -449,7 +448,7 @@ export function BrowserChrome({
             title={t('common.settings')}
             onClick={() => onNavigate?.('settings')}
           >
-            ⚙
+            <Settings aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           <button
             type="button"

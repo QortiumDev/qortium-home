@@ -205,7 +205,7 @@ export interface HomeV2PrototypeProps {
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
   readonly onWelcomeAccountAction?: (action: 'create' | 'import' | 'private') => void
   readonly onWelcomeComplete?: (
-    destination: 'appearance' | 'apps' | 'dashboard',
+    destination: 'appearance' | 'dashboard',
   ) => void
   readonly onWelcomeSkip?: () => void
   readonly onWelcomeStepChange?: (step: HomeV2OnboardingStep) => void
@@ -805,6 +805,15 @@ function Dashboard(props: DashboardProps) {
         ) : null}
       </header>
 
+      {qortiumEnabled || visiblePins.length > 0 ? (
+        <HomeV2PinnedApps
+          {...pinnedApps}
+          allowAdd={qortiumEnabled}
+          loadVisibleAppIcon={props.loadVisibleAppIcon}
+          pins={visiblePins}
+        />
+      ) : null}
+
       {enabledNetworks.length > 0 ? <section
         className="home-v2-connections"
         aria-labelledby="connections-title"
@@ -856,14 +865,6 @@ function Dashboard(props: DashboardProps) {
 
       <AccountCard {...props} />
 
-      {qortiumEnabled || visiblePins.length > 0 ? (
-        <HomeV2PinnedApps
-          {...pinnedApps}
-          allowAdd={qortiumEnabled}
-          loadVisibleAppIcon={props.loadVisibleAppIcon}
-          pins={visiblePins}
-        />
-      ) : null}
     </div>
   )
 }

@@ -467,6 +467,12 @@ body,
   text-overflow: ellipsis;
 }
 
+.home-v2-home-button .home-v2-home-mark {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+}
+
 .home-v2-tab__favicon {
   width: 18px;
   height: 18px;

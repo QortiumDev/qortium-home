@@ -8,8 +8,6 @@ import { parseAppResourceLocation } from './resource-location'
 import { sanitizeHomeV2AppTitle } from './app-frame-messages'
 
 export type ShellDestination =
-  | 'activity'
-  | 'apps'
   | 'core-docs'
   | 'dashboard'
   | 'newtab'
@@ -189,8 +187,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const tabPages: ReadonlySet<string> = new Set<TabPageId>([
-  'activity',
-  'apps',
   'dashboard',
   'newtab',
   'settings',

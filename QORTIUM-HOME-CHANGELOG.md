@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): dashboard-first chrome and dashboard polish
+
+Four changes from the owner review of the tab work. Pressing "+" now
+opens the Dashboard by default instead of the search page (the setting
+is unchanged, only its default). The deprecated Apps page has been
+removed along with its toolbar button — nothing was ever drawn for it,
+so the button opened an empty tab — and the unused Activity page went
+with it; the welcome guide's "explore apps" card, which pointed at that
+page, is gone too. The toolbar icons are real icons instead of small
+text symbols: back, forward, reload, settings and the widget button now
+match the rest of the interface, the Home button carries the Qortium
+Home mark, and Home page tabs use slightly larger icons. Pinned apps
+now sit at the top of the Dashboard, above the connection and Core
+cards, since they are what most people open first.
+
 ### 2026-08-24 - feat(home-v2): one tab strip for Home pages and apps
 
 Home pages and app tabs are now a single row of tabs instead of two
