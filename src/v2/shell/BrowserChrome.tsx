@@ -9,9 +9,9 @@ import type {
 } from '../contracts'
 import { subscribeHomeV2MenuCommands } from '../menu-commands'
 import type {
-  InternalPageId,
   ProductState,
   ShellDestination,
+  TabPageId,
 } from '../product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
@@ -31,12 +31,12 @@ export interface BrowserChromeProps {
   readonly productState: ProductState
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
-  readonly onCloseInternal?: (page: InternalPageId) => void
+  /** Opens another instance of an internal page (the "+" / Ctrl+T route). */
+  readonly onOpenInternalTab?: (page: TabPageId) => void
   readonly onReorderTab?: (
     tabId: ProductState['tabs'][number]['id'],
     toIndex: number,
   ) => void
-  readonly onReorderInternal?: (page: InternalPageId, toIndex: number) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -117,9 +117,8 @@ export function BrowserChrome({
   productState,
   onActivateTab,
   onCloseTab,
-  onCloseInternal,
+  onOpenInternalTab,
   onReorderTab,
-  onReorderInternal,
   onNavigate,
   onOpenAddress,
   onOpenAsWidget,
@@ -184,16 +183,16 @@ export function BrowserChrome({
   }
   const openNewTab = () => {
     if (navigationDisabled) return
-    if (newTabPreference.kind === 'dashboard') {
-      onNavigate?.('dashboard')
-      return
-    }
     if (newTabPreference.kind === 'custom') {
       setAddress(newTabPreference.address)
       void submitAddress(newTabPreference.address)
       return
     }
-    onNavigate?.('newtab')
+    // Always a NEW tab, even when that page is already open: "+" and Ctrl+T
+    // are how duplicate instances are created.
+    const page = newTabPreference.kind === 'dashboard' ? 'dashboard' : 'newtab'
+    if (onOpenInternalTab) onOpenInternalTab(page)
+    else onNavigate?.(page)
   }
   // Chrome-owned menu commands. The handler lives in a ref so the IPC
   // subscription mounts once while always seeing the current render's state.
@@ -297,10 +296,7 @@ export function BrowserChrome({
           productState={productState}
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
-          onCloseInternal={onCloseInternal}
           onReorderTab={onReorderTab}
-          onReorderInternal={onReorderInternal}
-          onNavigate={onNavigate}
           onNewTab={openNewTab}
           newTabDisabled={navigationDisabled}
           loadVisibleAppIcon={loadVisibleAppIcon}

@@ -4919,12 +4919,18 @@ export function HomeV2LiveApp() {
         }
         dispatchProduct({ type: 'close-tab', tabId })
       }}
-      onCloseInternal={(page) => dispatchProduct({ type: 'close-internal', page })}
+      onOpenInternalTab={(page) => {
+        tabSequence.current += 1
+        dispatchProduct({
+          type: 'open-internal',
+          page,
+          tabId: brand<TabId>(
+            `home-v2:tab:${Date.now().toString(36)}:${tabSequence.current}`,
+          ),
+        })
+      }}
       onReorderTab={(tabId, toIndex) =>
         dispatchProduct({ type: 'reorder-tab', tabId, toIndex })
-      }
-      onReorderInternal={(page, toIndex) =>
-        dispatchProduct({ type: 'reorder-internal', page, toIndex })
       }
       onAppNavigationChanged={handleAppNavigationChanged}
       onAppNavigationControllerChange={handleAppNavigationControllerChange}

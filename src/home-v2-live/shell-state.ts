@@ -115,9 +115,7 @@ export function serializeHomeV2ShellState(state: HomeV2ShellState) {
     selectedAddressId: state.selectedAddressId,
     product: {
       activeTabId: state.product.activeTabId,
-      destination: state.product.destination,
-      internalPages: state.product.internalPages,
-      tabs: state.product.tabs,
+      entries: state.product.entries,
     },
   }
 }

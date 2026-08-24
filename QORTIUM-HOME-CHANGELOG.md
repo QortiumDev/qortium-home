@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): one tab strip for Home pages and apps
+
+Home pages and app tabs are now a single row of tabs instead of two
+separate groups. A Home page can sit anywhere among the app tabs and be
+dragged past them freely, and the same page can be open more than once —
+pressing "+" (or Ctrl+T) always opens another tab rather than jumping to
+the one already open, while choosing a page from elsewhere in Home still
+takes you to the tab you already have. Closing a tab moves to its
+neighbour whatever kind it is, and the last tab can never be closed into
+an empty window. Home pages also get their own icons, so a Dashboard tab
+and a Settings tab no longer look identical. The Welcome, release-notes
+and Core API pages now open as full-window pages instead of quietly
+adding a tab, which also removes the stray "Welcome" tab some sessions
+showed. Existing saved windows are migrated to the new layout.
+
 ### 2026-08-24 - fix(home-v2): repair tab switching with a real mouse
 
 Adding drag-to-reorder broke the tab strip for ordinary use: tabs could

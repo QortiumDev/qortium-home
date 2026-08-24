@@ -35,6 +35,7 @@ import {
   ProductModelError,
   reduceProductState,
   restoreProductState,
+  type ProductState,
 } from './product-model'
 import {
   readHomeV2AppNavigationMessage,
@@ -54,7 +55,7 @@ import {
   parseHomeV2ShellState,
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
-import type { DualIdentityLookupResult } from './contracts'
+import type { DualIdentityLookupResult, TabId } from './contracts'
 import {
   parseHomeV2MenuCommand,
   parseHomeV2TextSizeCommand,
@@ -286,14 +287,26 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     restored.tabs.map((tab) => tab.context.resourceLocation),
     withBothSources.tabs.map((tab) => tab.context.resourceLocation),
   )
-  assert.deepEqual(restoreProductState({ tabs: [{ id: '../../unsafe' }] }), createProductState())
+  // Unsafe or unparseable tabs restore to the default single dashboard tab.
+  // Compared structurally rather than by deepEqual: every internal tab now
+  // carries its own generated id, so two independently created states are
+  // never deeply equal even when they represent the same thing.
+  const unsafeRestored = restoreProductState({ tabs: [{ id: '../../unsafe' }] })
+  assert.equal(unsafeRestored.entries.length, 1)
+  assert.equal(unsafeRestored.entries[0].kind, 'internal')
+  assert.equal(unsafeRestored.destination, 'dashboard')
+  assert.equal(unsafeRestored.tabs.length, 0)
 
   const dashboard = reduceProductState(withBothSources, {
     type: 'navigate',
     destination: 'dashboard',
   })
   assert.equal(dashboard.tabs.length, 2)
-  assert.equal(dashboard.activeTabId, null)
+  assert.equal(
+    dashboard.entries.find((entry) => entry.id === dashboard.activeTabId)?.kind,
+    'internal',
+    'an internal page is showing, so no app tab is active',
+  )
   assert.equal(dashboard.destination, 'dashboard')
 
   const newTab = reduceProductState(withBothSources, {
@@ -301,35 +314,52 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
     destination: 'newtab',
   })
   assert.equal(newTab.tabs.length, 2)
-  assert.equal(newTab.activeTabId, null)
+  assert.equal(
+    newTab.entries.find((entry) => entry.id === newTab.activeTabId)?.kind,
+    'internal',
+    'an internal page is showing, so no app tab is active',
+  )
   assert.equal(newTab.destination, 'newtab')
   const restoredNewTab = restoreProductState(
     JSON.parse(JSON.stringify(newTab)),
   )
   assert.equal(restoredNewTab.destination, 'newtab')
-  assert.equal(restoredNewTab.activeTabId, null)
+  assert.equal(
+    restoredNewTab.entries.find((entry) => entry.id === restoredNewTab.activeTabId)?.kind,
+    'internal',
+    'an internal page is showing, so no app tab is active',
+  )
   assert.equal(restoredNewTab.tabs.length, 2)
 
-  const restoredReleaseDestination = restoreProductState({
-    ...JSON.parse(JSON.stringify(newTab)),
-    destination: 'releases',
-  })
-  assert.equal(restoredReleaseDestination.destination, 'dashboard')
-
-  for (const transientDestination of ['core-docs', 'welcome'] as const) {
+  // A persisted state can no longer force the shell onto a transient page:
+  // destination is derived from the restored tabs, and `transient` always
+  // starts clear, so release notes / docs / onboarding never come back on
+  // their own however the saved payload was written.
+  for (const transientDestination of ['releases', 'core-docs', 'welcome', 'future-page'] as const) {
     const restored = restoreProductState({
       ...JSON.parse(JSON.stringify(newTab)),
       destination: transientDestination,
     })
-    assert.equal(restored.destination, 'dashboard')
+    assert.equal(restored.transient, null)
+    assert.equal(restored.destination, 'newtab')
+    assert.ok(
+      restored.entries.every(
+        (entry) => entry.kind === 'app' || entry.page !== ('welcome' as never),
+      ),
+      'transient pages must never restore as tabs',
+    )
   }
 
   const restoredFutureDestination = restoreProductState({
     ...JSON.parse(JSON.stringify(newTab)),
     destination: 'future-page',
   })
-  assert.equal(restoredFutureDestination.destination, 'dashboard')
-  assert.equal(restoredFutureDestination.activeTabId, null)
+  assert.equal(restoredFutureDestination.destination, 'newtab')
+  assert.equal(
+    restoredFutureDestination.entries.find((entry) => entry.id === restoredFutureDestination.activeTabId)?.kind,
+    'internal',
+    'an internal page is showing, so no app tab is active',
+  )
   assert.equal(restoredFutureDestination.tabs.length, 2)
 
   const afterClose = reduceProductState(
@@ -342,139 +372,105 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(afterClose.tabs.length, 1)
   assert.equal(afterClose.activeTabId, fixtureIds.qortalCompatTab)
 
-  // Multiple simultaneous internal tabs (owner decision #17, 2026-08-24).
+  // One mixed tab strip: internal pages and app tabs share a single ordered
+  // list, a page may be open more than once, and transient pages never take a
+  // tab (owner decision #17 plus the 2026-08-24 review).
+  const kinds = (state: ProductState) =>
+    state.entries.map((entry) => (entry.kind === 'internal' ? entry.page : 'app'))
+  const pageId = (state: ProductState, page: string) =>
+    state.entries.find((entry) => entry.kind === 'internal' && entry.page === page)!.id
+
+  assert.deepEqual(kinds(dashboard), ['dashboard', 'app', 'app'])
   const settingsOpen = reduceProductState(dashboard, {
     type: 'navigate',
     destination: 'settings',
   })
-  assert.deepEqual(settingsOpen.internalPages, ['dashboard', 'settings'])
+  assert.deepEqual(kinds(settingsOpen), ['dashboard', 'app', 'app', 'settings'])
   assert.equal(settingsOpen.destination, 'settings')
+  assert.equal(settingsOpen.activeTabId, pageId(settingsOpen, 'settings'))
+
+  // navigate focuses an open page instead of stacking duplicates...
   const backToDashboard = reduceProductState(settingsOpen, {
     type: 'navigate',
     destination: 'dashboard',
   })
-  assert.deepEqual(backToDashboard.internalPages, ['dashboard', 'settings'])
+  assert.deepEqual(kinds(backToDashboard), ['dashboard', 'app', 'app', 'settings'])
   assert.equal(backToDashboard.destination, 'dashboard')
-  const closedActivePage = reduceProductState(settingsOpen, {
-    type: 'close-internal',
+
+  // ...while open-internal always adds another instance (the "+" route).
+  const twoSettings = reduceProductState(settingsOpen, {
+    type: 'open-internal',
     page: 'settings',
+    tabId: ('home-v2:tab:settings-2' as TabId),
   })
-  assert.deepEqual(closedActivePage.internalPages, ['dashboard'])
-  assert.equal(closedActivePage.destination, 'dashboard')
-  const closedInactivePage = reduceProductState(settingsOpen, {
-    type: 'close-internal',
-    page: 'dashboard',
+  assert.deepEqual(kinds(twoSettings), [
+    'dashboard',
+    'app',
+    'app',
+    'settings',
+    'settings',
+  ])
+  assert.equal(twoSettings.activeTabId, 'home-v2:tab:settings-2')
+  assert.equal(twoSettings.destination, 'settings')
+
+  // Closing the active tab falls to its neighbour, whatever kind that is.
+  const afterSettingsClose = reduceProductState(twoSettings, {
+    type: 'close-tab',
+    tabId: ('home-v2:tab:settings-2' as TabId),
   })
-  assert.deepEqual(closedInactivePage.internalPages, ['settings'])
-  assert.equal(closedInactivePage.destination, 'settings')
+  assert.deepEqual(kinds(afterSettingsClose), ['dashboard', 'app', 'app', 'settings'])
+  assert.equal(afterSettingsClose.destination, 'settings')
+
+  // The strip is never left empty.
+  let emptied = createProductState()
+  emptied = reduceProductState(emptied, {
+    type: 'close-tab',
+    tabId: emptied.activeTabId,
+  })
+  assert.deepEqual(kinds(emptied), ['dashboard'])
+
+  // Transient pages render full-window and take no tab.
+  const welcome = reduceProductState(settingsOpen, {
+    type: 'navigate',
+    destination: 'welcome',
+  })
+  assert.equal(welcome.destination, 'welcome')
+  assert.equal(welcome.transient, 'welcome')
+  assert.deepEqual(kinds(welcome), kinds(settingsOpen))
+  const leftWelcome = reduceProductState(welcome, {
+    type: 'activate-tab',
+    tabId: pageId(welcome, 'dashboard'),
+  })
+  assert.equal(leftWelcome.transient, null)
+  assert.equal(leftWelcome.destination, 'dashboard')
+
+  // Reordering crosses kinds: an app tab can move ahead of an internal page.
+  const reordered = reduceProductState(settingsOpen, {
+    type: 'reorder-tab',
+    tabId: fixtureIds.chatTab,
+    toIndex: 0,
+  })
+  assert.deepEqual(kinds(reordered), ['app', 'dashboard', 'app', 'settings'])
+  assert.equal(
+    reduceProductState(settingsOpen, {
+      type: 'reorder-tab',
+      tabId: fixtureIds.chatTab,
+      toIndex: 1,
+    }),
+    settingsOpen,
+    'reordering to the same index must not churn state',
+  )
+  const clampedReorder = reduceProductState(settingsOpen, {
+    type: 'reorder-tab',
+    tabId: pageId(settingsOpen, 'dashboard'),
+    toIndex: 99,
+  })
+  assert.deepEqual(kinds(clampedReorder), ['app', 'app', 'settings', 'dashboard'])
   assert.throws(
     () =>
       reduceProductState(settingsOpen, {
-        type: 'close-internal',
-        page: 'apps',
-      }),
-    (error) => {
-      assert.ok(error instanceof ProductModelError)
-      assert.equal(error.code, 'TAB_NOT_FOUND')
-      return true
-    },
-  )
-  // Closing the last internal page while app tabs exist activates a tab.
-  const noInternalLeft = reduceProductState(dashboard, {
-    type: 'close-internal',
-    page: 'dashboard',
-  })
-  assert.equal(noInternalLeft.destination, 'tab')
-  assert.deepEqual(noInternalLeft.internalPages, [])
-  assert.equal(noInternalLeft.activeTabId, dashboard.tabs[0].id)
-  // ...and with nothing else open the dashboard reopens.
-  const reopenedDashboard = reduceProductState(createProductState(), {
-    type: 'close-internal',
-    page: 'dashboard',
-  })
-  assert.equal(reopenedDashboard.destination, 'dashboard')
-  assert.deepEqual(reopenedDashboard.internalPages, ['dashboard'])
-  // Closing the last app tab falls back to the LAST open internal page.
-  const settingsThenTab = reduceProductState(settingsOpen, {
-    type: 'activate-tab',
-    tabId: fixtureIds.chatTab,
-  })
-  const oneTabLeft = reduceProductState(settingsThenTab, {
-    type: 'close-tab',
-    tabId: fixtureIds.chatTab,
-  })
-  const noTabsLeft = reduceProductState(oneTabLeft, {
-    type: 'close-tab',
-    tabId: fixtureIds.qortalCompatTab,
-  })
-  assert.equal(noTabsLeft.destination, 'settings')
-  assert.deepEqual(noTabsLeft.internalPages, ['dashboard', 'settings'])
-  // Restore keeps open internal pages, migrates legacy states, dedupes, and
-  // drops transient pages exactly like the destination downgrade.
-  const restoredPages = restoreProductState(
-    JSON.parse(JSON.stringify(settingsOpen)),
-  )
-  assert.deepEqual(restoredPages.internalPages, ['dashboard', 'settings'])
-  assert.equal(restoredPages.destination, 'settings')
-  const legacySerialized = JSON.parse(JSON.stringify(settingsOpen)) as Record<
-    string,
-    unknown
-  >
-  delete legacySerialized.internalPages
-  const legacyRestored = restoreProductState(legacySerialized)
-  assert.deepEqual(legacyRestored.internalPages, ['dashboard', 'settings'])
-  const messyRestored = restoreProductState({
-    ...JSON.parse(JSON.stringify(settingsOpen)),
-    internalPages: [
-      'dashboard',
-      'releases',
-      'welcome',
-      'core-docs',
-      'dashboard',
-      'future-page',
-      'apps',
-    ],
-  })
-  assert.deepEqual(messyRestored.internalPages, [
-    'dashboard',
-    'apps',
-    'settings',
-  ])
-
-  // Tab drag reorder (P-4): tabs reorder within their own group only.
-  const [firstTab, secondTab] = dashboard.tabs
-  const swappedTabs = reduceProductState(dashboard, {
-    type: 'reorder-tab',
-    tabId: firstTab.id,
-    toIndex: 1,
-  })
-  assert.deepEqual(
-    swappedTabs.tabs.map((tab) => tab.id),
-    [secondTab.id, firstTab.id],
-  )
-  assert.equal(swappedTabs.destination, dashboard.destination)
-  assert.equal(
-    reduceProductState(dashboard, {
-      type: 'reorder-tab',
-      tabId: firstTab.id,
-      toIndex: 0,
-    }),
-    dashboard,
-  )
-  const clampedReorder = reduceProductState(dashboard, {
-    type: 'reorder-tab',
-    tabId: firstTab.id,
-    toIndex: 99,
-  })
-  assert.deepEqual(
-    clampedReorder.tabs.map((tab) => tab.id),
-    [secondTab.id, firstTab.id],
-  )
-  assert.throws(
-    () =>
-      reduceProductState(dashboard, {
         type: 'reorder-tab',
-        tabId: fixtureIds.tab,
+        tabId: ('home-v2:tab:missing' as TabId),
         toIndex: 0,
       }),
     (error) => {
@@ -483,21 +479,31 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
       return true
     },
   )
-  const swappedPages = reduceProductState(settingsOpen, {
-    type: 'reorder-internal',
-    page: 'settings',
-    toIndex: 0,
-  })
-  assert.deepEqual(swappedPages.internalPages, ['settings', 'dashboard'])
-  assert.equal(swappedPages.destination, 'settings')
-  assert.equal(
-    reduceProductState(settingsOpen, {
-      type: 'reorder-internal',
-      page: 'settings',
-      toIndex: 5,
-    }),
-    settingsOpen,
+
+  // Restore round-trips the mixed order and drops nothing valid.
+  const restoredEntries = restoreProductState(
+    JSON.parse(JSON.stringify(settingsOpen)),
   )
+  assert.deepEqual(kinds(restoredEntries), kinds(settingsOpen))
+  assert.equal(restoredEntries.destination, 'settings')
+  assert.equal(restoredEntries.transient, null)
+
+  // Pre-unified saved states (separate internalPages + tabs) migrate.
+  const legacyProduct = {
+    activeTabId: fixtureIds.chatTab,
+    destination: 'tab',
+    internalPages: ['dashboard', 'settings', 'releases', 'future-page'],
+    tabs: JSON.parse(JSON.stringify(settingsOpen.tabs)),
+  }
+  const migrated = restoreProductState(legacyProduct)
+  assert.deepEqual(kinds(migrated), ['dashboard', 'settings', 'app', 'app'])
+  assert.equal(migrated.activeTabId, fixtureIds.chatTab)
+  assert.equal(migrated.destination, 'tab')
+  const migratedWithoutPages = restoreProductState({
+    activeTabId: null,
+    tabs: JSON.parse(JSON.stringify(settingsOpen.tabs)),
+  })
+  assert.deepEqual(kinds(migratedWithoutPages), ['dashboard', 'app', 'app'])
 
   assert.throws(
     () =>
@@ -2466,9 +2472,7 @@ function testShellStateMigratesAddressSelection(): void {
     selectedAddressId: 'wallet:Qprimary:2',
     product: {
       activeTabId: legacy.product.activeTabId,
-      destination: legacy.product.destination,
-      internalPages: legacy.product.internalPages,
-      tabs: legacy.product.tabs,
+      entries: legacy.product.entries,
     },
   })
 
@@ -2481,9 +2485,15 @@ function testShellStateMigratesAddressSelection(): void {
     product: newTabProduct,
   })
   assert.equal(serializedNewTab.version, 3)
-  assert.equal(serializedNewTab.product.destination, 'newtab')
-  assert.equal(serializedNewTab.product.activeTabId, null)
-  assert.equal(serializedNewTab.product.tabs.length, 2)
+  assert.equal(
+    serializedNewTab.product.entries.filter((entry) => entry.kind === 'app').length,
+    2,
+  )
+  assert.ok(
+    serializedNewTab.product.entries.some(
+      (entry) => entry.kind === 'internal' && entry.page === 'newtab',
+    ),
+  )
   const restoredNewTab = parseHomeV2ShellState(
     JSON.parse(JSON.stringify(serializedNewTab)),
     'light',
@@ -2491,7 +2501,12 @@ function testShellStateMigratesAddressSelection(): void {
   )
   assert.equal(restoredNewTab.version, 3)
   assert.equal(restoredNewTab.product.destination, 'newtab')
-  assert.equal(restoredNewTab.product.activeTabId, null)
+  assert.equal(
+    restoredNewTab.product.entries.find(
+      (entry) => entry.id === restoredNewTab.product.activeTabId,
+    )?.kind,
+    'internal',
+  )
   assert.equal(restoredNewTab.product.tabs.length, 2)
 }
 
