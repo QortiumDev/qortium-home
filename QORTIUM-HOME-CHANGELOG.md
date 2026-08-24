@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): hide the toolbar pill of a disabled network
+
+When a network is turned off in Settings, its toolbar status pill no
+longer appears greyed out next to the address bar — it is hidden
+entirely, matching how the disabled network's dashboard cards and
+settings already behave. Community feedback asked for the two networks
+to be cleanly separable; with this change, disabling Qortal (or
+Qortium) removes it from the everyday chrome completely until it is
+re-enabled.
+
 ### 2026-08-24 - feat(home-v2): allow multiple internal pages open as tabs
 
 Home 2 previously kept a single shared slot for its own pages, so

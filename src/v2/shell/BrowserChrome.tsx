@@ -365,7 +365,9 @@ export function BrowserChrome({
           ) : null}
         </form>
         <div className="home-v2-browser-actions">
-          {(['qortium', 'qortal'] as const).map((network) => (
+          {(['qortium', 'qortal'] as const)
+            .filter((network) => snapshot.nodes[network].mode !== 'disabled')
+            .map((network) => (
             <button
               key={network}
               type="button"
