@@ -98,6 +98,7 @@ import {
   HomeV2CollectionsClient,
   type HomeV2CollectionsAccounts,
 } from './collections-client'
+import { planStartPageLaunch } from './start-page-launch'
 import {
   buildAdjacentDashboardPinMoveMutation,
   buildDashboardPinMoveMutation,
@@ -1503,6 +1504,40 @@ export function HomeV2LiveApp() {
     }
     return next
   }, [collectionsClient, freshShellProfile, getCollectionsAccounts])
+
+  // F3: open saved start pages on a fresh launch. One-shot per process, at
+  // the first moment shell state and the collections snapshot are both
+  // ready. The plan mirrors v1 (restored tabs win; onboarding suppresses).
+  const startPagesLaunched = useRef(false)
+  useEffect(() => {
+    if (startPagesLaunched.current) return
+    if (!shellStateReady || !collectionsSnapshot) return
+    startPagesLaunched.current = true
+    const plan = planStartPageLaunch({
+      appTabCount: productStateRef.current.tabs.length,
+      onboardingInProgress: onboarding.status === 'in-progress',
+      startPages: collectionsSnapshot.startPages ?? [],
+      knownAccountIds: accountCatalogueRef.current.accounts.map(
+        (account) => account.id,
+      ),
+    })
+    if (plan.length === 0) return
+    void (async () => {
+      for (const entry of plan) {
+        try {
+          await openAddress(entry.displayUrl, entry.accountId ?? undefined)
+        } catch {
+          // A start page that no longer resolves is skipped, not fatal.
+        }
+      }
+      // v1 made the FIRST start page the active tab; the loop leaves the
+      // last one active. The strip order is already correct.
+      const tabs = productStateRef.current.tabs
+      if (tabs.length > 1 && productStateRef.current.activeTabId !== tabs[0].id) {
+        dispatchProduct({ type: 'activate-tab', tabId: tabs[0].id })
+      }
+    })()
+  }, [collectionsSnapshot, onboarding, openAddress, shellStateReady])
 
   const refreshDashboardPins = useCallback(async () => {
     setDashboardPinsPhase('loading')
