@@ -776,7 +776,7 @@ function testDesktopAndPhoneContracts(): void {
   )
 
   assert.match(desktop, /data-layout="desktop"/)
-  assert.match(desktop, /data-theme="light"/)
+  assert.match(desktop, /data-theme="dark"/)
   assert.match(phone, /data-layout="phone"/)
   const assertNetworkOrder = (html: string, className: string): void => {
     const qortium = html.indexOf(
@@ -1400,7 +1400,7 @@ function testAppearanceSettingsAndLegacyMigration(): void {
     />,
   )
 
-  assert.match(shellHtml, /data-theme-preference="system"/)
+  assert.match(shellHtml, /data-theme-preference="dark"/)
   assert.match(shellHtml, /data-accent="clay"/)
   assert.match(shellHtml, /data-text-size="medium"/)
   assert.match(shellHtml, /data-language="system"/)
@@ -1497,8 +1497,23 @@ function testAppearanceSettingsAndLegacyMigration(): void {
   assert.equal(resolveHomeV2SystemLanguage('zh-Hant-TW'), 'zh-TW')
   assert.equal(resolveHomeV2SystemLanguage('unknown'), 'en')
   assert.deepEqual(migrateLegacyAppearance(null), defaultHomeV2Appearance)
+  assert.deepEqual(
+    migrateLegacyAppearance({ theme: 'system' }, 'light'),
+    {
+      ...defaultHomeV2Appearance,
+      theme: 'system',
+      resolvedTheme: 'light',
+    },
+  )
   assert.equal(migrateLegacyAppearance({ appZoom: 400 }).appZoom, 200)
   assert.equal(migrateLegacyAppearance({ appZoom: 20 }).appZoom, 50)
+
+  const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
+  assert.match(css, /html,\s*body,\s*#root\s*\{[^}]*height:\s*100%;[^}]*margin:\s*0;/)
+  const desktopViewportRule = /\.home-v2-page-viewport\s*\{([^}]*)\}/.exec(css)
+  assert.ok(desktopViewportRule)
+  assert.match(desktopViewportRule[1], /width:\s*calc\(100% - 36px\)/)
+  assert.doesNotMatch(desktopViewportRule[1], /1180px|max-width/)
 }
 
 function testPermissionDialogsOnDesktopAndPhone(): void {

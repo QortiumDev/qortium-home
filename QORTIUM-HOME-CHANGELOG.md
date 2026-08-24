@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - fix(release): polish desktop defaults and packaging
+
+Fresh Home profiles now start in dark mode while continuing to honor every
+saved System, Light, or Dark choice. Desktop Dashboard and Settings pages use
+the available window width instead of stopping at an arbitrary 1180-pixel cap;
+phone layouts and deliberately narrow reading or dialog surfaces keep their
+focused widths.
+
+Desktop packaging also excludes generated Android dependency build output, so
+building Android first cannot silently bloat a later AppImage. The hardened
+package checker now rejects those generated files if they reappear.
+
 ### 2026-08-23 - feat(settings): control network availability
 
 General Settings now lets people enable or disable Qortium and Qortal across

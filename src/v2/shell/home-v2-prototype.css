@@ -1,3 +1,10 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
 .home-v2-shell {
   --v2-bg: #edece8;
   --v2-bg-deep: #dedbd5;
@@ -673,7 +680,7 @@
 }
 
 .home-v2-page-viewport {
-  width: min(1180px, calc(100% - 36px));
+  width: calc(100% - 36px);
   min-height: calc(100vh - 98px);
   margin: 0 auto;
   padding: 32px 0 56px;
