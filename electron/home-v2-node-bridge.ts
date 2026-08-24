@@ -58,6 +58,12 @@ import {
 import {
   buildHomeV2IdentityReadPath,
 } from './home-v2-identity-read.js'
+import {
+  buildHomeV2AppIconPath,
+  getHomeV2AppIconContentType,
+  HOME_V2_APP_ICON_MAX_BYTES,
+  normalizeHomeV2AppIconReadRequest,
+} from './home-v2-app-icon.js'
 
 type NetworkId = 'qortal' | 'qortium'
 type NodeMode = 'custom' | 'disabled' | 'local' | 'public'
@@ -211,7 +217,7 @@ function normalizeAvatarReadRequest(network: NetworkId, value: unknown) {
 async function readBoundedBytes(response: Response, maxBytes: number) {
   const declaredLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-    throw new Error('Avatar exceeded the 500 KiB limit.')
+    throw new Error('Image exceeded the configured size limit.')
   }
   if (!response.body) return new Uint8Array()
   const reader = response.body.getReader()
@@ -223,7 +229,7 @@ async function readBoundedBytes(response: Response, maxBytes: number) {
     length += value.byteLength
     if (length > maxBytes) {
       await reader.cancel()
-      throw new Error('Avatar exceeded the 500 KiB limit.')
+      throw new Error('Image exceeded the configured size limit.')
     }
     chunks.push(value)
   }
@@ -584,9 +590,7 @@ export async function readResolvedHomeV2Avatar(
       }
     }
     if (response.status === 404) {
-      return request.legacyAsync
-        ? { retryAfterSeconds: 2, status: 'pending' as const }
-        : { status: 'missing' as const }
+      return { status: 'missing' as const }
     }
     if (!response.ok) {
       return {
@@ -617,6 +621,61 @@ export async function readResolvedHomeV2Avatar(
   } catch (error) {
     return {
       message: error instanceof Error ? error.message : 'Avatar request failed.',
+      status: 'unavailable' as const,
+    }
+  }
+}
+
+export async function readHomeV2AppIcon(network: NetworkId, requestValue: unknown) {
+  let request: ReturnType<typeof normalizeHomeV2AppIconReadRequest>
+  try {
+    request = normalizeHomeV2AppIconReadRequest(requestValue)
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'App icon request is invalid.',
+      status: 'unavailable' as const,
+    }
+  }
+  const snapshot = await getRecentSnapshot()
+  const node = snapshot.nodes[network]
+  if (!node.capabilities.read || !node.nodeApiUrl) {
+    return {
+      message: node.error ?? `${network} node is unavailable.`,
+      status: 'unavailable' as const,
+    }
+  }
+  try {
+    const response = await nodeFetch(
+      `${node.nodeApiUrl}${buildHomeV2AppIconPath(request)}`,
+      { method: 'GET', signal: AbortSignal.timeout(8_000) },
+    )
+    if (response.status === 202) {
+      return {
+        retryAfterSeconds: getGroupAvatarRetryAfterSeconds(
+          response.headers.get('retry-after') ?? undefined,
+        ),
+        status: 'pending' as const,
+      }
+    }
+    if (response.status === 404) return { status: 'missing' as const }
+    if (!response.ok) {
+      return {
+        message: `App icon request returned HTTP ${response.status}.`,
+        status: 'unavailable' as const,
+      }
+    }
+    const bytes = await readBoundedBytes(response, HOME_V2_APP_ICON_MAX_BYTES)
+    const contentType = getHomeV2AppIconContentType(bytes)
+    if (!contentType) return { status: 'missing' as const }
+    return {
+      body: Buffer.from(bytes).toString('base64'),
+      contentLength: bytes.byteLength,
+      contentType,
+      status: 'ready' as const,
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : 'App icon request failed.',
       status: 'unavailable' as const,
     }
   }
@@ -780,6 +839,13 @@ export function registerHomeV2NodeBridgeIpcHandlers() {
     (event, networkValue: unknown, requestValue: unknown) => {
       assertAuthorizedHomeV2Sender(event)
       return readHomeV2Avatar(normalizeNetwork(networkValue), requestValue)
+    },
+  )
+  ipcMain.handle(
+    'home-v2-nodes:readAppIcon',
+    (event, networkValue: unknown, requestValue: unknown) => {
+      assertAuthorizedHomeV2Sender(event)
+      return readHomeV2AppIcon(normalizeNetwork(networkValue), requestValue)
     },
   )
   ipcMain.handle(

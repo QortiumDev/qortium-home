@@ -1,0 +1,259 @@
+import { useEffect, useState } from 'react'
+import type { VisibleAvatarReadResult } from '../contracts'
+
+type ImageSnapshot = {
+  readonly loading: boolean
+  readonly status: 'fallback' | 'loading' | 'ready'
+  readonly url: string | null
+}
+
+type ImageEntry = {
+  active: boolean
+  expiresAt: number
+  inflight: Promise<void> | null
+  loadingTimer: number | null
+  maxBytes: number
+  snapshot: ImageSnapshot
+  subscribers: Set<(snapshot: ImageSnapshot) => void>
+}
+
+const MAX_PENDING_ATTEMPTS = 12
+const MAX_TRANSIENT_ATTEMPTS = 3
+const MAX_CACHE_ENTRIES = 200
+const MISSING_CACHE_MS = 5 * 60_000
+const READY_CACHE_MS = 5 * 60_000
+const UNAVAILABLE_CACHE_MS = 30_000
+const ALLOWED_CONTENT_TYPES = new Set([
+  'image/bmp',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/vnd.microsoft.icon',
+  'image/webp',
+])
+
+const FALLBACK: ImageSnapshot = {
+  loading: false,
+  status: 'fallback',
+  url: null,
+}
+const entries = new Map<string, ImageEntry>()
+
+function emit(entry: ImageEntry, snapshot: ImageSnapshot) {
+  entry.snapshot = snapshot
+  for (const subscriber of entry.subscribers) subscriber(snapshot)
+}
+
+function clearLoadingTimer(entry: ImageEntry) {
+  if (entry.loadingTimer !== null) {
+    window.clearTimeout(entry.loadingTimer)
+    entry.loadingTimer = null
+  }
+}
+
+function beginLoading(entry: ImageEntry, loadingMs: number) {
+  clearLoadingTimer(entry)
+  emit(entry, { loading: true, status: 'loading', url: null })
+  entry.loadingTimer = window.setTimeout(() => {
+    entry.loadingTimer = null
+    if (entry.active && entry.snapshot.status === 'loading') {
+      emit(entry, { ...entry.snapshot, loading: false })
+    }
+  }, loadingMs)
+}
+
+function finishFallback(entry: ImageEntry, expiresAt: number) {
+  clearLoadingTimer(entry)
+  if (entry.snapshot.url) URL.revokeObjectURL(entry.snapshot.url)
+  entry.expiresAt = expiresAt
+  emit(entry, FALLBACK)
+}
+
+function finishUnavailable(entry: ImageEntry) {
+  if (entry.snapshot.status === 'ready') {
+    entry.expiresAt = Date.now() + UNAVAILABLE_CACHE_MS
+    return
+  }
+  finishFallback(entry, Date.now() + UNAVAILABLE_CACHE_MS)
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+export function validateHomeV2ImagePayload(
+  body: string,
+  contentLength: number,
+  contentType: string,
+  maxBytes: number,
+) {
+  if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+    throw new Error('Image content type is not allowed.')
+  }
+  const binary = globalThis.atob(body)
+  if (binary.length !== contentLength || binary.length > maxBytes) {
+    throw new Error('Image byte length did not match the bounded response.')
+  }
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
+function imageObjectUrl(result: Extract<VisibleAvatarReadResult, { status: 'ready' }>, maxBytes: number) {
+  const bytes = validateHomeV2ImagePayload(
+    result.body,
+    result.contentLength,
+    result.contentType,
+    maxBytes,
+  )
+  return URL.createObjectURL(new Blob([bytes], { type: result.contentType }))
+}
+
+function pruneCache() {
+  if (entries.size <= MAX_CACHE_ENTRIES) return
+  for (const [key, entry] of entries) {
+    if (entry.inflight || entry.subscribers.size > 0) continue
+    entries.delete(key)
+    entry.active = false
+    clearLoadingTimer(entry)
+    if (entry.snapshot.url) URL.revokeObjectURL(entry.snapshot.url)
+    if (entries.size <= MAX_CACHE_ENTRIES) return
+  }
+}
+
+async function resolveEntry(
+  key: string,
+  entry: ImageEntry,
+  load: () => Promise<VisibleAvatarReadResult>,
+) {
+  let pendingAttempts = 0
+  let transientAttempts = 0
+  while (entry.active && entries.get(key) === entry) {
+    const result = await load().catch(() => ({
+      message: 'Image request failed.',
+      status: 'unavailable' as const,
+    }))
+    if (!entry.active || entries.get(key) !== entry) return
+    if (result.status === 'ready') {
+      try {
+        const url = imageObjectUrl(result, entry.maxBytes)
+        const previousUrl = entry.snapshot.url
+        clearLoadingTimer(entry)
+        entry.expiresAt = Date.now() + READY_CACHE_MS
+        emit(entry, { loading: false, status: 'ready', url })
+        if (previousUrl && previousUrl !== url) URL.revokeObjectURL(previousUrl)
+      } catch {
+        finishUnavailable(entry)
+      }
+      return
+    }
+    if (result.status === 'missing') {
+      finishFallback(entry, Date.now() + MISSING_CACHE_MS)
+      return
+    }
+    if (result.status === 'unavailable') {
+      transientAttempts += 1
+      finishUnavailable(entry)
+      if (transientAttempts >= MAX_TRANSIENT_ATTEMPTS) return
+      await wait(2_000)
+      continue
+    }
+    pendingAttempts += 1
+    if (pendingAttempts >= MAX_PENDING_ATTEMPTS) {
+      finishUnavailable(entry)
+      return
+    }
+    const delaySeconds = Math.max(
+      1,
+      Math.min(result.retryAfterSeconds ?? 5, 10),
+    )
+    await wait(delaySeconds * 1_000)
+  }
+}
+
+function subscribe(
+  cacheKey: string,
+  loadingMs: number,
+  maxBytes: number,
+  load: () => Promise<VisibleAvatarReadResult>,
+  subscriber: (snapshot: ImageSnapshot) => void,
+) {
+  let entry = entries.get(cacheKey)
+  if (entry) {
+    entries.delete(cacheKey)
+    entries.set(cacheKey, entry)
+  } else {
+    entry = {
+      active: true,
+      expiresAt: 0,
+      inflight: null,
+      loadingTimer: null,
+      maxBytes,
+      snapshot: FALLBACK,
+      subscribers: new Set(),
+    }
+    entries.set(cacheKey, entry)
+  }
+  entry.maxBytes = maxBytes
+  entry.subscribers.add(subscriber)
+  const expired =
+    Date.now() >= entry.expiresAt
+  if (expired && entry.snapshot.status === 'fallback' && !entry.inflight) {
+    beginLoading(entry, loadingMs)
+  }
+  subscriber(entry.snapshot)
+  if ((expired || entry.snapshot.status === 'loading') && !entry.inflight) {
+    entry.inflight = resolveEntry(cacheKey, entry, load).finally(() => {
+      entry!.inflight = null
+      pruneCache()
+    })
+  }
+  pruneCache()
+  return () => {
+    entry!.subscribers.delete(subscriber)
+  }
+}
+
+export function rejectHomeV2Image(cacheKey: string, url: string) {
+  const entry = entries.get(cacheKey)
+  if (!entry || entry.snapshot.url !== url) return
+  finishFallback(entry, Date.now() + MISSING_CACHE_MS)
+}
+
+export function clearHomeV2ImageCacheForTests() {
+  for (const entry of entries.values()) {
+    entry.active = false
+    clearLoadingTimer(entry)
+    if (entry.snapshot.url) URL.revokeObjectURL(entry.snapshot.url)
+  }
+  entries.clear()
+}
+
+export function useHomeV2Image({
+  cacheKey,
+  load,
+  loadingMs,
+  maxBytes,
+}: {
+  readonly cacheKey: string | null
+  readonly load?: () => Promise<VisibleAvatarReadResult>
+  readonly loadingMs: number
+  readonly maxBytes: number
+}) {
+  const [state, setState] = useState<{
+    readonly cacheKey: string | null
+    readonly snapshot: ImageSnapshot
+  }>({ cacheKey: null, snapshot: FALLBACK })
+  useEffect(() => {
+    if (!cacheKey || !load) {
+      setState({ cacheKey: null, snapshot: FALLBACK })
+      return undefined
+    }
+    return subscribe(cacheKey, loadingMs, maxBytes, load, (snapshot) => {
+      setState({ cacheKey, snapshot })
+    })
+  }, [cacheKey, load, loadingMs, maxBytes])
+  return state.cacheKey === cacheKey ? state.snapshot : FALLBACK
+}

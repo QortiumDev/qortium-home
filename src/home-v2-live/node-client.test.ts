@@ -6,6 +6,7 @@ import {
   normalizeHomeV2AvatarReadResult,
   parseHomeV2CoreOnChainUpdateStatus,
   parseHomeV2AppResourceCandidates,
+  parseHomeV2AppIconResponse,
   parseHomeV2AvatarResponse,
   normalizePortableNodeUrl,
   type PortableNodeClientDependencies,
@@ -15,6 +16,7 @@ import { validateVisibleAvatarPayload } from '../v2/shell/VisibleIdentityAvatar'
 import { getHomeV2AppActions } from '../../electron/home-v2-app-actions'
 import { getHomeV2ContextualAppActions } from '../../electron/home-v2-app-runtime'
 import { buildHomeV2IdentityReadPath } from '../../electron/home-v2-identity-read'
+import { buildHomeV2AppIconPath } from '../../electron/home-v2-app-icon'
 
 const syncedStatus = {
   height: 123,
@@ -592,7 +594,7 @@ assert.deepEqual(
     avatarRequest,
     { status: 'missing' },
   ),
-  { retryAfterSeconds: 2, status: 'pending' },
+  { status: 'missing' },
 )
 assert.deepEqual(
   normalizeHomeV2AvatarReadResult(
@@ -616,6 +618,23 @@ assert.equal(
     status: 200,
   }).status,
   'unavailable',
+)
+assert.equal(
+  buildHomeV2AppIconPath({ identifier: 'Chat', name: 'Chat', service: 'APP' }),
+  '/arbitrary/APP/Chat/Chat?filepath=favicon.ico&async=true',
+)
+const readyIco = parseHomeV2AppIconResponse({
+  data: 'AAABAA==',
+  headers: {},
+  status: 200,
+})
+assert.equal(readyIco.status, 'ready')
+if (readyIco.status === 'ready') {
+  assert.equal(readyIco.contentType, 'image/vnd.microsoft.icon')
+}
+assert.deepEqual(
+  parseHomeV2AppIconResponse({ data: '', headers: {}, status: 404 }),
+  { status: 'missing' },
 )
 
 await client.setMode('qortal', 'public')
@@ -821,6 +840,16 @@ await assert.rejects(
 )
 const avatar = await client.readAvatar('qortal', avatarRequest)
 assert.equal(avatar.status, 'ready')
+const appIcon = await client.readAppIcon('qortal', {
+  identifier: 'Chat',
+  name: 'Chat',
+  service: 'APP',
+})
+assert.equal(appIcon.status, 'ready')
+assert.match(
+  lastRequestedBinaryUrl,
+  /\/arbitrary\/APP\/Chat\/Chat\?filepath=favicon\.ico&async=true$/,
+)
 assert.equal(normalizePortableNodeUrl('localhost:12391'), 'https://localhost:12391')
 assert.equal(
   normalizePortableNodeUrl('http://127.0.0.1:12391/path'),

@@ -6,6 +6,7 @@ import {
   VISIBLE_AVATAR_LOADING_MS,
   VisibleIdentityAvatar,
 } from './VisibleIdentityAvatar'
+import { clearHomeV2ImageCacheForTests } from './useHomeV2Image'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -80,6 +81,7 @@ document.body.appendChild(container)
 const root = createRoot(container)
 
 try {
+  clearHomeV2ImageCacheForTests()
   await act(async () => {
     root.render(
       <VisibleIdentityAvatar
@@ -120,11 +122,63 @@ try {
   assert.equal(loaderCalls, 2)
   assert.equal(image?.getAttribute('src'), 'blob:qortium-avatar-test')
 
-  let boundedLoaderCalls = 0
+  const missingIdentity: NetworkIdentityLookup = {
+    ...identity,
+    avatar: { ...identity.avatar!, name: 'Missing' },
+    primaryName: 'Missing',
+  }
+  let missingLoaderCalls = 0
+  const missingLoader = async () => {
+    missingLoaderCalls += 1
+    return { status: 'missing' as const }
+  }
   await act(async () => {
     root.render(
       <VisibleIdentityAvatar
-        identity={identity}
+        identity={missingIdentity}
+        loader={missingLoader}
+        network="qortal"
+        query="Missing"
+      />,
+    )
+    await Promise.resolve()
+  })
+  assert.equal(missingLoaderCalls, 1)
+  assert.equal(
+    container.querySelector('.home-v2-presence__avatar')?.getAttribute('data-loading'),
+    'false',
+  )
+  await act(async () => {
+    root.render(
+      <VisibleIdentityAvatar
+        identity={{ ...missingIdentity }}
+        loader={missingLoader}
+        network="qortal"
+        query="Missing"
+      />,
+    )
+    await Promise.resolve()
+  })
+  assert.equal(
+    missingLoaderCalls,
+    1,
+    'a terminal missing avatar must remain cached across a Home-owned remount',
+  )
+  assert.equal(
+    container.querySelector('.home-v2-presence__avatar')?.getAttribute('data-loading'),
+    'false',
+  )
+
+  let boundedLoaderCalls = 0
+  const pendingIdentity: NetworkIdentityLookup = {
+    ...identity,
+    avatar: { ...identity.avatar!, name: 'Pending' },
+    primaryName: 'Pending',
+  }
+  await act(async () => {
+    root.render(
+      <VisibleIdentityAvatar
+        identity={pendingIdentity}
         loader={async () => {
           boundedLoaderCalls += 1
           return { retryAfterSeconds: 1, status: 'pending' }
@@ -155,6 +209,7 @@ try {
   )
 } finally {
   await act(async () => root.unmount())
+  clearHomeV2ImageCacheForTests()
   container.remove()
   window.setTimeout = originalSetTimeout
   window.clearTimeout = originalClearTimeout

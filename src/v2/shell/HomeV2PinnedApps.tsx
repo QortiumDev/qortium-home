@@ -17,6 +17,8 @@ import { getDashboardPinDisplay } from "../../dashboardPinDisplay";
 import { t } from "../../i18n";
 import { useMenuKeyboard } from "../../useMenuKeyboard";
 import type { HomeV2ContextMenuPresentationItem } from "./HomeV2ContextMenu";
+import { HomeV2AppIcon, getHomeV2AppIconTarget } from "./HomeV2AppIcon";
+import type { VisibleAppIconLoader } from "../contracts";
 import "./home-v2-pinned-apps.css";
 
 export type HomeV2PinnedAppsStatus = "error" | "loading" | "ready";
@@ -54,6 +56,7 @@ export interface HomeV2PinnedAppsProps {
     dropPosition: DashboardPinDropPosition,
   ) => void | Promise<void>;
   readonly onRetry?: () => void | Promise<void>;
+  readonly loadVisibleAppIcon?: VisibleAppIconLoader;
 }
 
 const PIN_DRAG_START_MIN_DISTANCE_PX = 8;
@@ -119,6 +122,7 @@ export function HomeV2PinnedApps({
   onMove,
   onReorder,
   onRetry,
+  loadVisibleAppIcon,
 }: HomeV2PinnedAppsProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addAddress, setAddAddress] = useState("");
@@ -609,6 +613,7 @@ export function HomeV2PinnedApps({
           {renderedPins.map((pin) => {
             const display = getDashboardPinDisplay(pin);
             const Icon = display.Icon;
+            const appIconTarget = getHomeV2AppIconTarget(pin.displayUrl);
             return (
               <li
                 key={pin.id}
@@ -670,7 +675,16 @@ export function HomeV2PinnedApps({
                     className="home-v2-pinned-apps__icon"
                     aria-hidden="true"
                   >
-                    <Icon size={32} strokeWidth={1.8} />
+                    {appIconTarget ? (
+                      <HomeV2AppIcon
+                        displayUrl={pin.displayUrl}
+                        loader={loadVisibleAppIcon}
+                        size={38}
+                        variant="pin"
+                      />
+                    ) : (
+                      <Icon size={32} strokeWidth={1.8} />
+                    )}
                   </span>
                   <span className="home-v2-pinned-apps__copy">
                     {display.shortLabel}

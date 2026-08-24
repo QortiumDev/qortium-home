@@ -3,6 +3,8 @@ import type { ProductState, ShellDestination } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { HomeMark } from './ProductMarks'
+import { HomeV2AppIcon } from './HomeV2AppIcon'
+import type { VisibleAppIconLoader } from '../contracts'
 
 export interface TabStripProps {
   readonly productState: ProductState
@@ -13,6 +15,7 @@ export interface TabStripProps {
   ) => void
   readonly onNewTab?: () => void
   readonly newTabDisabled?: boolean
+  readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
 const internalTabLabelKeys: Readonly<
@@ -35,6 +38,7 @@ export function TabStrip({
   onNavigate,
   onNewTab,
   newTabDisabled,
+  loadVisibleAppIcon,
 }: TabStripProps) {
   const internalDestination =
     productState.destination === 'tab' ? 'dashboard' : productState.destination
@@ -72,6 +76,12 @@ export function TabStrip({
               className={isActive ? 'is-active' : ''}
               onClick={() => onActivateTab?.(tab.id)}
             >
+              <HomeV2AppIcon
+                displayUrl={tab.context.resourceLocation}
+                loader={loadVisibleAppIcon}
+                size={18}
+                variant="tab"
+              />
               <span>{tab.title}</span>
               <NetworkBadge network={tab.context.sourceNetwork} />
             </button>
