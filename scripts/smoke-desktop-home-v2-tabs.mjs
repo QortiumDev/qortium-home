@@ -13,7 +13,7 @@
 //   node scripts/smoke-desktop-home-v2-tabs.mjs
 //   QORTIUM_HOME_APPIMAGE=/path/to.AppImage node scripts/smoke-desktop-home-v2-tabs.mjs
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -110,10 +110,27 @@ async function main() {
     : [`--remote-debugging-port=${port}`]
 
   log(`starting ${path.basename(appImage)} (CDP ${port})`)
+  // detached => the app becomes its own process group leader, so the whole
+  // tree (xvfb-run -> AppImage -> extracted binary -> zygotes) can be signalled
+  // at once. Killing just the spawned pid leaves the real app running, which is
+  // how earlier runs stranded Home instances on the machine.
   const child = spawn(command, args, {
+    detached: true,
     env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '1', QORTIUM_HOME_USER_DATA_DIR: profile },
     stdio: 'ignore',
   })
+
+  const shutdown = () => {
+    try { process.kill(-child.pid, 'SIGTERM') } catch {}
+    setTimeout(() => {
+      try { process.kill(-child.pid, 'SIGKILL') } catch {}
+    }, 2000).unref?.()
+  }
+  // Cover the paths that skip `finally`: Ctrl+C, kill, and uncaught throws.
+  const onSignal = () => { shutdown(); process.exit(130) }
+  process.once('SIGINT', onSignal)
+  process.once('SIGTERM', onSignal)
+  process.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL') } catch {} })
 
   let cdp = null
   try {
@@ -231,9 +248,10 @@ async function main() {
     log(`PASS — tabs: ${after.map((tab) => `${tab.key}${tab.selected ? '*' : ''}`).join(' ')}`)
   } finally {
     try { cdp?.socket.close() } catch {}
-    child.kill('SIGTERM')
-    await sleep(1500)
-    child.kill('SIGKILL')
+    shutdown()
+    await sleep(2000)
+    try { process.kill(-child.pid, 'SIGKILL') } catch {}
+    try { rmSync(profile, { force: true, recursive: true }) } catch {}
   }
 }
 
