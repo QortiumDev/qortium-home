@@ -143,10 +143,11 @@ Tree `rootId` values are `bookmarks` and `toolbar`; move operations additionally
 accept `pins` and `startPages`. A link draft contains `displayUrl`, `title`, and
 an optional nullable `accountId`.
 
-Every successful change advances the bookmark revision. Existing Home controls
-such as the bookmark star, toolbar, dashboard pin controls, start-page controls,
-and the built-in manager advance the same revision. An unchanged mutation
-returns `changed: false` without advancing it.
+Every successful change advances the bookmark revision. Home's toolbar,
+dashboard pin controls, and visibility setting use the same authoritative
+snapshot as the assigned Bookmarks manager app, so their changes advance that
+same revision. An unchanged mutation returns `changed: false` without
+advancing it.
 
 If `expectedRevision` is no longer current, the request rejects with error code
 `HOME_DATA_STALE`. Fetch a new snapshot, reconcile the user's pending edit, and

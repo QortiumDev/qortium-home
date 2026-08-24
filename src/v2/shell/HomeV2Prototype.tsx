@@ -75,6 +75,8 @@ import {
   HomeV2PinnedApps,
   type HomeV2PinnedAppsProps,
 } from './HomeV2PinnedApps'
+import type { HomeV2BookmarkToolbarProps } from './HomeV2BookmarkToolbar'
+import type { BookmarkToolbarVisibility } from '../../bookmarkToolbar'
 import './home-v2-prototype.css'
 
 export type HomeV2Layout = 'desktop' | 'phone'
@@ -116,6 +118,11 @@ export interface HomeV2PrototypeProps {
   readonly releaseNotesTarget?: HomeV2ReleaseNotesTarget | null
   readonly onboarding?: HomeV2OnboardingState
   readonly pinnedApps?: HomeV2PinnedAppsProps
+  readonly bookmarkToolbar?: Omit<
+    HomeV2BookmarkToolbarProps,
+    'isDashboardRoute'
+  >
+  readonly bookmarkToolbarVisibility?: BookmarkToolbarVisibility
   readonly coreDocsNetwork?: NetworkId | null
   readonly coreDocsTransport?: HomeV2CoreDocsTransport
   readonly enableCoreDocs?: (network: NetworkId) => Promise<unknown>
@@ -179,6 +186,9 @@ export interface HomeV2PrototypeProps {
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
+  readonly onSetBookmarkToolbarVisibility?: (
+    visibility: BookmarkToolbarVisibility,
+  ) => void | Promise<void>
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
   readonly onSetAppNotifications?: (enabled: boolean) => Promise<void>
   readonly onOpenReleaseNotes?: (target: HomeV2ReleaseNotesTarget) => void
@@ -1005,6 +1015,15 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         selectedAccountLookup={props.selectedAccountLookup}
         loadVisibleAvatar={props.loadVisibleAvatar}
         loadVisibleAppIcon={props.loadVisibleAppIcon}
+        bookmarkToolbar={
+          props.bookmarkToolbar
+            ? {
+                ...props.bookmarkToolbar,
+                disabled:
+                  !!overlayOwnerTabId || props.bookmarkToolbar.disabled,
+              }
+            : undefined
+        }
       />
       <main
         className="home-v2-page-viewport"
@@ -1039,6 +1058,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             onSetTextSize={props.onSetTextSize}
             onSetAppZoom={props.onSetAppZoom}
             onSetLanguage={props.onSetLanguage}
+            bookmarkToolbarVisibility={props.bookmarkToolbarVisibility}
+            onSetBookmarkToolbarVisibility={
+              props.onSetBookmarkToolbarVisibility
+            }
             onSetNewTabPreference={props.onSetNewTabPreference}
             onSetNodeMode={props.onSetNodeMode}
             onToggleRememberUnlock={props.onToggleRememberUnlock}

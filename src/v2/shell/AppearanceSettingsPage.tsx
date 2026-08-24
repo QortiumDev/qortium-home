@@ -1,5 +1,9 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { t } from '../../i18n'
+import {
+  BOOKMARK_TOOLBAR_VISIBILITIES,
+  type BookmarkToolbarVisibility,
+} from '../../bookmarkToolbar'
 import {
   homeV2AccentOptions,
   homeV2LanguageOptions,
@@ -21,6 +25,10 @@ export interface AppearanceSettingsPageProps {
   readonly onSetTextSize?: (textSize: HomeV2TextSize) => void
   readonly onSetAppZoom?: (appZoom: number) => void
   readonly onSetLanguage?: (language: HomeV2Language) => void
+  readonly bookmarkToolbarVisibility?: BookmarkToolbarVisibility
+  readonly onSetBookmarkToolbarVisibility?: (
+    visibility: BookmarkToolbarVisibility,
+  ) => void | Promise<void>
   readonly onToggleRememberUnlock?: () => void
   readonly onToggleLockOnExit?: () => void
   readonly section?: 'account' | 'appearance' | 'all'
@@ -55,11 +63,15 @@ export function AppearanceSettingsPage({
   onSetTextSize,
   onSetAppZoom,
   onSetLanguage,
+  bookmarkToolbarVisibility,
+  onSetBookmarkToolbarVisibility,
   onToggleRememberUnlock,
   onToggleLockOnExit,
   section = 'all',
   showHeading = true,
 }: AppearanceSettingsPageProps) {
+  const [toolbarSaving, setToolbarSaving] = useState(false)
+  const [toolbarError, setToolbarError] = useState(false)
   const resolvedThemeLabel = t(
     appearance.resolvedTheme === 'dark'
       ? 'display.theme.dark'
@@ -222,6 +234,40 @@ export function AppearanceSettingsPage({
               ))}
             </select>
           </SettingRow>
+
+          {bookmarkToolbarVisibility ? (
+            <SettingRow
+              label={t('bookmarks.toolbarVisibility')}
+              description={
+                toolbarSaving
+                  ? t('common.saving')
+                  : toolbarError
+                    ? t('common.error')
+                    : t(`bookmarks.toolbarVisibility.${bookmarkToolbarVisibility}`)
+              }
+            >
+              <select
+                aria-label={t('bookmarks.toolbarVisibility')}
+                value={bookmarkToolbarVisibility}
+                disabled={!onSetBookmarkToolbarVisibility || toolbarSaving}
+                onChange={(event) => {
+                  if (!onSetBookmarkToolbarVisibility) return
+                  const visibility = event.target.value as BookmarkToolbarVisibility
+                  setToolbarSaving(true)
+                  setToolbarError(false)
+                  void Promise.resolve(onSetBookmarkToolbarVisibility(visibility))
+                    .catch(() => setToolbarError(true))
+                    .finally(() => setToolbarSaving(false))
+                }}
+              >
+                {BOOKMARK_TOOLBAR_VISIBILITIES.map((visibility) => (
+                  <option key={visibility} value={visibility}>
+                    {t(`bookmarks.toolbarVisibility.${visibility}`)}
+                  </option>
+                ))}
+              </select>
+            </SettingRow>
+          ) : null}
         </section>
       ) : null}
 

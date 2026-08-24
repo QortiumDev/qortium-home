@@ -48,6 +48,17 @@ fields and checkboxes inside settings rows pick up the shared field styling,
 disabled buttons are now visibly dimmed everywhere, and the danger button's
 colors moved into the shared palette. No behavior changed — this is purely
 visual consistency and readability.
+### 2026-08-24 - feat(home-v2): restore the bookmarks toolbar
+
+Home 2 once again shows the user's saved bookmark toolbar beneath the address
+bar while leaving full collection management in the assigned Bookmarks QDN
+app. Existing Always, Dashboard/New Tab, and Hidden choices are preserved, an
+empty toolbar takes no space, and the visibility choice is available in
+Appearance Settings. Links retain their saved account context, APP and WEBSITE
+entries reuse Home's app icons, nested folders remain navigable, and standard
+resource actions are available through right-click, keyboard, or long press.
+The compact row scrolls horizontally on phones instead of silently dropping a
+user-selected toolbar.
 
 ### 2026-08-24 - feat(home-v2): unify avatars and app icons
 
