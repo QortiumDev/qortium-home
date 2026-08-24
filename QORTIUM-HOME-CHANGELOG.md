@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): raise the type floor and scale all shell text
+
+Home 2 used more than thirty hard-coded 10-12px text sizes on regular
+copy and a 15px body size, and the Appearance text-size setting only
+scaled a fraction of the interface. The shell now has a small type ramp
+matching the Home 1 standard: 13px is the floor for secondary copy,
+16px is the body size, and 21px the section heading size. Every text
+size in the Home 2 shell (including the pinned apps, bookmark toolbar,
+context menus, and the resource viewer) now multiplies by the text-size
+setting, so choosing Large or Huge enlarges all of the interface
+instead of only parts of it. The only exceptions are single-letter
+monogram badges drawn inside fixed circles, which keep their glyph
+size. No colors, spacing, or behavior changed.
+
 ### 2026-08-24 - fix(home-v2): enable the application menu and local browser shortcuts
 
 Home 2 windows never installed the application menu, so even after the
