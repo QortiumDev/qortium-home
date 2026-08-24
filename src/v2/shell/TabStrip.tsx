@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   type KeyboardEvent,
   type MouseEvent,
@@ -73,7 +74,9 @@ export function TabStrip({
 }: TabStripProps) {
   const tabElements = useRef(new Map<string, HTMLDivElement>())
   const dragState = useRef<TabDragState | null>(null)
+  const detachDragListeners = useRef<(() => void) | null>(null)
   const suppressClickKey = useRef<string | null>(null)
+  useEffect(() => () => detachDragListeners.current?.(), [])
 
   const groupKeys = (kind: TabDragKind) =>
     kind === 'internal'
@@ -110,10 +113,27 @@ export function TabStrip({
       startY: event.clientY,
       hasReordered: false,
     }
-    event.currentTarget.setPointerCapture(event.pointerId)
+    // Deliberately NOT setPointerCapture: capturing on the tab makes Chromium
+    // target the follow-up `click` at the capture element, so the inner
+    // button[role=tab] never receives it and tabs stop switching entirely
+    // (regression shipped in PR #351). Window-level listeners track the drag
+    // just as well — including outside the strip — and leave click intact.
+    detachDragListeners.current?.()
+    const onMove = (moveEvent: globalThis.PointerEvent) =>
+      handleDragMove(moveEvent)
+    const onEnd = (endEvent: globalThis.PointerEvent) => handleDragEnd(endEvent)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onEnd)
+    window.addEventListener('pointercancel', onEnd)
+    detachDragListeners.current = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onEnd)
+      window.removeEventListener('pointercancel', onEnd)
+      detachDragListeners.current = null
+    }
   }
 
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const handleDragMove = (event: globalThis.PointerEvent) => {
     const drag = dragState.current
     if (!drag || drag.pointerId !== event.pointerId) return
     if (
@@ -145,14 +165,14 @@ export function TabStrip({
     dispatchReorder(drag.kind, drag.key, insertIndex)
   }
 
-  const handlePointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+  const handleDragEnd = (event: globalThis.PointerEvent) => {
     const drag = dragState.current
     if (!drag || drag.pointerId !== event.pointerId) return
+    // A completed reorder must not also activate the tab the pointer landed
+    // on; an ordinary press (no reorder) still clicks through normally.
     if (drag.hasReordered) suppressClickKey.current = drag.key
     dragState.current = null
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
+    detachDragListeners.current?.()
   }
 
   const consumeSuppressedClick = (key: string) => {
@@ -217,9 +237,6 @@ export function TabStrip({
             data-internal-page={page}
             ref={registerTab(key)}
             onPointerDown={(event) => handlePointerDown(event, 'internal', key)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerEnd}
-            onPointerCancel={handlePointerEnd}
             onAuxClick={(event) =>
               handleAuxClick(event, () => onCloseInternal?.(page))
             }
@@ -259,9 +276,6 @@ export function TabStrip({
             data-tab-id={tab.id}
             ref={registerTab(key)}
             onPointerDown={(event) => handlePointerDown(event, 'app', key)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerEnd}
-            onPointerCancel={handlePointerEnd}
             onAuxClick={(event) =>
               handleAuxClick(event, () => onCloseTab?.(tab.id))
             }

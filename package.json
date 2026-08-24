@@ -261,7 +261,8 @@
     "test:widget-launch": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-launch.test.js",
     "test:widget-shell-contract": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-shell-contract.test.js",
     "test:widget-sizing": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-sizing.test.js",
-    "test:widget-snapping": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-snapping.test.js"
+    "test:widget-snapping": "node scripts/ensure-electron-build.mjs && node dist-electron/widget-snapping.test.js",
+    "smoke:desktop:home-v2-tabs": "node scripts/smoke-desktop-home-v2-tabs.mjs"
   },
   "dependencies": {
     "@capacitor-community/safe-area": "^8.0.1",
