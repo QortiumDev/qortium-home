@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): stop apps reloading on a brief node hiccup
+
+Open apps could reload on their own every so often, losing whatever was
+typed into them — a half-written chat message would simply vanish. The
+cause was the fifteen-second node status check: a single failed check
+was enough for Home to declare both networks unreadable, which made the
+open app stop resolving and reload, then reload a second time when the
+next check succeeded. Home now needs three failed checks in a row
+(about forty-five seconds) before reporting a node as unavailable, and
+keeps showing the last known status until then, so ordinary network
+blips no longer disturb the app you are using. A related fault that
+reloaded the app view twice per hiccup on Android has been fixed as
+well. Genuine outages are still reported, just not instantly.
+
 ### 2026-08-24 - feat(home-v2): dashboard-first chrome and dashboard polish
 
 Four changes from the owner review of the tab work. Pressing "+" now

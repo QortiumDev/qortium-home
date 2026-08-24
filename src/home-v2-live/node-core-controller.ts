@@ -166,6 +166,13 @@ export function parseHomeV2NodesSnapshot(value: unknown): HomeV2Nodes {
   })
 }
 
+/**
+ * Consecutive failed status polls before the nodes are reported unavailable.
+ * Three at the 15s poll interval is ~45s of grace, which rides out ordinary
+ * network blips without hiding a genuine outage for long.
+ */
+const UNAVAILABLE_AFTER_FAILED_POLLS = 3
+
 export function unavailableHomeV2Node(
   node: NodeSummary,
   error: unknown,
@@ -242,6 +249,14 @@ export function useHomeV2NodeCoreController(options: {
   })
   const nodeMutationInFlight = useRef(false)
   const nodeRefreshSequence = useRef(0)
+  // A single failed poll must not declare both nodes unreadable. Everything
+  // downstream keys off `capabilities.read` — an app tab whose node reads as
+  // unreadable stops resolving, which on Android swaps the iframe key and
+  // reloads the app, destroying anything typed into it. Flaky networks make
+  // one-off failures routine, so require several in a row (~45s at the 15s
+  // poll) before reporting the nodes as unavailable, and keep showing the last
+  // good status until then.
+  const consecutiveNodeFailures = useRef(0)
 
   const markNodesUnavailable = useCallback((error: unknown) => {
     setNodes((current) => ({
@@ -255,9 +270,15 @@ export function useHomeV2NodeCoreController(options: {
     const sequence = ++nodeRefreshSequence.current
     try {
       const next = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())
-      if (sequence === nodeRefreshSequence.current) setNodes(next)
+      if (sequence !== nodeRefreshSequence.current) return
+      consecutiveNodeFailures.current = 0
+      setNodes(next)
     } catch (error) {
-      if (sequence === nodeRefreshSequence.current) markNodesUnavailable(error)
+      if (sequence !== nodeRefreshSequence.current) return
+      consecutiveNodeFailures.current += 1
+      if (consecutiveNodeFailures.current >= UNAVAILABLE_AFTER_FAILED_POLLS) {
+        markNodesUnavailable(error)
+      }
     }
   }, [markNodesUnavailable, nodeClient])
 
