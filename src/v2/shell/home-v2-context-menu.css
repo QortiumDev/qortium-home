@@ -39,7 +39,7 @@
 
 .home-v2-context-menu > header span {
   color: var(--v2-muted);
-  font-size: 0.76rem;
+  font-size: var(--v2-type-small);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;

@@ -30,11 +30,18 @@ body,
   --v2-danger-solid: #934337;
   --v2-shadow: 0 12px 30px rgb(48 44 39 / 9%);
   --v2-type-scale: 1;
+
+  /* Type ramp: 13px is the readable floor for secondary copy (the v1
+     standard), 16px the body size. Every font-size in the v2 shell routes
+     through --v2-type-scale so the text-size setting scales all of it. */
+  --v2-type-small: calc(13px * var(--v2-type-scale));
+  --v2-type-base: calc(16px * var(--v2-type-scale));
+  --v2-type-heading: calc(21px * var(--v2-type-scale));
   color-scheme: light;
   min-height: 100%;
   color: var(--v2-ink);
   background: var(--v2-bg);
-  font-size: calc(15px * var(--v2-type-scale));
+  font-size: var(--v2-type-base);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   zoom: var(--v2-app-zoom, 1);
 }
@@ -225,12 +232,12 @@ body,
   align-items: baseline;
   margin: 0;
   color: var(--v2-ink);
-  font-size: 1.55rem;
+  font-size: calc(25px * var(--v2-type-scale));
 }
 
 .home-v2-shell .release-notes-page__title-block h1 span:not(:first-child) {
   color: var(--v2-muted);
-  font-size: 0.9rem;
+  font-size: calc(14px * var(--v2-type-scale));
   font-weight: 650;
 }
 
@@ -249,7 +256,7 @@ body,
   margin: 14px 0 4px;
   overflow-wrap: anywhere;
   color: var(--v2-ink);
-  font-size: 1.2rem;
+  font-size: calc(19px * var(--v2-type-scale));
 }
 
 .home-v2-shell .release-notes-page__body-heading:first-child {
@@ -503,7 +510,7 @@ body,
   height: 27px;
   margin-right: 4px;
   border-radius: 50%;
-  font-size: 19px;
+  font-size: calc(19px * var(--v2-type-scale));
 }
 
 .home-v2-tab__close:hover,
@@ -519,7 +526,7 @@ body,
   flex: 0 0 32px;
   margin-bottom: 2px;
   border-radius: 9px;
-  font-size: 20px;
+  font-size: calc(20px * var(--v2-type-scale));
 }
 
 .home-v2-browser-toolbar {
@@ -563,7 +570,7 @@ body,
   color: var(--v2-ink);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--v2-type-small);
   list-style: none;
   white-space: nowrap;
 }
@@ -598,6 +605,7 @@ body,
   border-radius: 50%;
   color: var(--v2-accent-ink);
   background: var(--v2-accent);
+  /* Monogram glyph anchored to its fixed circle, not readable copy. */
   font-size: 9px;
   font-weight: 800;
 }
@@ -691,7 +699,7 @@ body,
   border-radius: 9px;
   background: transparent;
   cursor: pointer;
-  font-size: 18px;
+  font-size: calc(18px * var(--v2-type-scale));
 }
 
 .home-v2-browser-controls button:disabled {
@@ -719,7 +727,7 @@ body,
   color: var(--v2-ink);
   background: transparent;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-address > button {
@@ -730,7 +738,7 @@ body,
   color: var(--v2-ink);
   background: var(--v2-surface-soft);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   font-weight: 700;
 }
 
@@ -750,7 +758,7 @@ body,
   color: var(--v2-ink);
   background: var(--v2-surface-raised);
   box-shadow: var(--v2-shadow);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
   line-height: 1.35;
 }
 
@@ -801,7 +809,7 @@ body,
   background: var(--v2-surface);
   cursor: pointer;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-status-dot {
@@ -865,6 +873,7 @@ body,
   flex: 0 0 22px;
   border: 2px solid var(--v2-surface);
   border-radius: 50%;
+  /* Monogram glyph anchored to its fixed circle, not readable copy. */
   font-size: 10px;
 }
 
@@ -922,12 +931,12 @@ body,
 
 .home-v2-dashboard h2 {
   margin-top: 4px;
-  font-size: 21px;
+  font-size: var(--v2-type-heading);
 }
 
 .home-v2-dashboard h3 {
   margin-top: 5px;
-  font-size: 17px;
+  font-size: calc(17px * var(--v2-type-scale));
 }
 
 .home-v2-dashboard p,
@@ -941,7 +950,7 @@ body,
 
 .home-v2-eyebrow {
   color: var(--v2-accent);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   font-weight: 800;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -1050,7 +1059,7 @@ body,
   flex: 0 0 auto;
   gap: 7px;
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
   font-weight: 750;
 }
 
@@ -1076,7 +1085,7 @@ body,
   padding: 7px 9px;
   border-radius: 4px;
   background: var(--v2-surface-soft);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-core-card__actions {
@@ -1102,7 +1111,7 @@ body,
 .home-v2-core-confirm p {
   margin: 0;
   color: var(--v2-muted);
-  font-size: 13px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-core-confirm > div {
@@ -1156,7 +1165,7 @@ body,
 .home-v2-qortal-adoption__candidates legend {
   padding: 0 0 8px;
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
   font-weight: 700;
 }
 
@@ -1183,7 +1192,7 @@ body,
 
 .home-v2-qortal-adoption__candidate small {
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-node-card,
@@ -1215,7 +1224,7 @@ body,
   flex: 0 0 auto;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--v2-type-small);
   font-weight: 750;
 }
 
@@ -1225,7 +1234,7 @@ body,
   align-items: center;
   gap: 12px;
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-node-mode-control select,
@@ -1257,7 +1266,7 @@ body,
   overflow: hidden;
   margin: 0;
   gap: 3px;
-  font-size: 13px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-node-actions {
@@ -1299,14 +1308,14 @@ body,
 .home-v2-custom-node-dialog__message {
   margin-top: 6px;
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-custom-node-dialog label {
   display: grid;
   gap: 7px;
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
   font-weight: 700;
 }
 
@@ -1371,7 +1380,7 @@ body,
 
 .home-v2-dialog form > label > span {
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
   font-weight: 750;
 }
 
@@ -1393,7 +1402,7 @@ body,
   padding: 4px 8px;
   color: var(--v2-muted);
   background: transparent;
-  font-size: 24px;
+  font-size: calc(24px * var(--v2-type-scale));
 }
 
 .home-v2-dialog footer {
@@ -1403,7 +1412,7 @@ body,
 .home-v2-dialog-error,
 .home-v2-account-recovery {
   color: var(--v2-danger, #a54232);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-danger-button {
@@ -1444,7 +1453,7 @@ body,
   overflow: hidden;
   color: var(--v2-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1458,7 +1467,7 @@ body,
 
 .home-v2-node-detail small {
   color: var(--v2-muted);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-surface-notice {
@@ -1467,7 +1476,7 @@ body,
   padding: 6px 10px;
   color: var(--v2-muted);
   background: var(--v2-surface-soft);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   font-weight: 750;
 }
 
@@ -1479,7 +1488,7 @@ body,
   border: 1px solid currentColor;
   border-radius: 999px;
   padding: 2px 7px 2px 5px;
-  font-size: 10px;
+  font-size: var(--v2-type-small);
   font-weight: 800;
   letter-spacing: 0.035em;
   line-height: 1.3;
@@ -1533,7 +1542,7 @@ body,
 }
 
 .home-v2-new-tab-intro h1 {
-  font-size: clamp(30px, 5vw, 46px);
+  font-size: calc(clamp(30px, 5vw, 46px) * var(--v2-type-scale));
   font-weight: 650;
 }
 
@@ -1562,7 +1571,7 @@ body,
   border-radius: 999px;
   padding: 5px 10px;
   color: var(--v2-muted);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   font-weight: 800;
 }
 
@@ -1586,7 +1595,7 @@ body,
   display: grid;
   gap: 5px;
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-identity-search input {
@@ -1602,7 +1611,7 @@ body,
 .home-v2-lookup-message {
   margin: 0;
   color: var(--v2-muted);
-  font-size: 13px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-lookup-placeholder {
@@ -1658,7 +1667,7 @@ body,
 .home-v2-identity-network__copy code,
 .home-v2-identity-network__copy small {
   color: var(--v2-muted);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-lock-state {
@@ -1666,7 +1675,7 @@ body,
   border-radius: 999px;
   padding: 5px 10px;
   color: var(--v2-muted);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   font-weight: 800;
 }
 
@@ -1685,7 +1694,7 @@ body,
   display: grid;
   gap: 5px;
   color: var(--v2-muted);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-account-select select {
@@ -1761,7 +1770,7 @@ body,
 .home-v2-presence__details code {
   overflow: hidden;
   color: var(--v2-muted);
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1781,7 +1790,7 @@ body,
   border-radius: 12px;
   padding: 13px;
   color: var(--v2-muted);
-  font-size: 13px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-account-placeholder strong {
@@ -1808,7 +1817,7 @@ body,
 }
 
 .home-v2-app-card__copy p {
-  font-size: 13px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-app-card__actions {
@@ -1833,7 +1842,7 @@ body,
   border: 1px solid var(--v2-line);
   background: var(--v2-surface-raised);
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-internal-page,
@@ -1854,7 +1863,7 @@ body,
   width: 64px;
   height: 64px;
   margin-bottom: 15px;
-  font-size: 26px;
+  font-size: calc(26px * var(--v2-type-scale));
 }
 
 .home-v2-app-stage code {
@@ -1941,7 +1950,7 @@ body,
 .home-v2-settings-panel__heading p {
   margin: 5px 0 0;
   color: var(--v2-muted);
-  font-size: calc(13px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-setting-group-heading {
@@ -1953,12 +1962,12 @@ body,
 }
 
 .home-v2-setting-group-heading strong {
-  font-size: calc(13px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-setting-group-heading span {
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-setting-row {
@@ -2004,7 +2013,7 @@ body,
 
 .home-v2-setting-row__copy span {
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
   line-height: 1.4;
 }
 
@@ -2032,7 +2041,7 @@ body,
 
 .home-v2-new-tab-setting [role='alert'] {
   color: var(--v2-danger);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-setting-row select {
@@ -2064,13 +2073,13 @@ body,
 
 .home-v2-update-details dt {
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-update-details dd {
   overflow-wrap: anywhere;
   margin: 0;
-  font-size: calc(13px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
   font-weight: 650;
 }
 
@@ -2087,7 +2096,7 @@ body,
   margin: 0;
   padding: 0 22px 18px;
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-update-message[data-tone='error'] {
@@ -2109,7 +2118,7 @@ body,
   background: transparent;
   cursor: pointer;
   padding: 7px 11px;
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-accent-select {
@@ -2133,7 +2142,7 @@ body,
   justify-content: flex-end;
   gap: 8px;
   color: var(--v2-muted);
-  font-size: calc(12px * var(--v2-type-scale));
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-toggle-control input {
@@ -2199,7 +2208,7 @@ body,
 .home-v2-protocol-badge {
   color: var(--v2-accent);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--v2-type-small);
   font-weight: 800;
 }
 
@@ -2211,7 +2220,7 @@ body,
   padding: 13px;
   border-radius: 11px;
   background: var(--v2-surface-soft);
-  font-size: 12px;
+  font-size: var(--v2-type-small);
 }
 
 .home-v2-permission-context span,
@@ -2302,7 +2311,7 @@ body,
 
 .home-v2-welcome__header h1 {
   margin-top: 5px;
-  font-size: clamp(1.65rem, 3vw, 2.4rem);
+  font-size: calc(clamp(26px, 3vw, 38px) * var(--v2-type-scale));
 }
 
 .home-v2-welcome__header p,
@@ -2326,7 +2335,7 @@ body,
   gap: 7px;
   justify-items: center;
   color: var(--v2-muted);
-  font-size: 0.8rem;
+  font-size: var(--v2-type-small);
   font-weight: 700;
 }
 
@@ -2412,7 +2421,7 @@ body,
 
 .home-v2-welcome__choices em {
   color: var(--v2-accent);
-  font-size: 0.75rem;
+  font-size: var(--v2-type-small);
   font-style: normal;
   font-weight: 750;
 }

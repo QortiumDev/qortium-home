@@ -86,7 +86,7 @@
 .doc-viewer__zoom-level {
   overflow: hidden;
   color: var(--color-text-subtle);
-  font-size: 0.8rem;
+  font-size: var(--v2-type-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -132,9 +132,9 @@
 .qdn-archive__bar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--color-frame-surface); border-bottom: 1px solid var(--color-control-selected); }
 .qdn-archive__count,
 .qdn-archive__crumb,
-.qdn-archive__size { color: var(--color-text-secondary); font-size: 12px; }
+.qdn-archive__size { color: var(--color-text-secondary); font-size: var(--v2-type-small); }
 .qdn-archive__tree { min-width: 0; min-height: 0; padding: 6px 0; overflow: auto; }
-.qdn-archive__row { display: flex; gap: 6px; align-items: center; width: 100%; min-width: 0; padding: 4px 12px 4px 8px; font-size: 13px; }
+.qdn-archive__row { display: flex; gap: 6px; align-items: center; width: 100%; min-width: 0; padding: 4px 12px 4px 8px; font-size: var(--v2-type-small); }
 .qdn-archive__row--dir,
 .qdn-archive__open { color: inherit; text-align: left; background: none; border: 0; cursor: pointer; }
 .qdn-archive__row--dir:hover,
@@ -193,7 +193,7 @@
 
 .home-v2-resource-viewer h2 {
   margin-top: 3px;
-  font-size: 1.05rem;
+  font-size: calc(17px * var(--v2-type-scale));
 }
 
 .home-v2-resource-viewer header p {
@@ -201,14 +201,14 @@
   margin-top: 3px;
   overflow: hidden;
   color: var(--v2-muted);
-  font-size: 0.78rem;
+  font-size: var(--v2-type-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .home-v2-resource-viewer__eyebrow {
   color: var(--v2-accent);
-  font-size: 0.72rem;
+  font-size: var(--v2-type-small);
   font-weight: 750;
   letter-spacing: 0.06em;
   text-transform: uppercase;
