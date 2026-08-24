@@ -1415,6 +1415,15 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     qortalDisabledDashboard,
     /class="home-v2-(?:node-card|core-card|presence)" data-network="qortal"/,
   )
+  // A disabled network's toolbar pill is hidden entirely, not shown greyed.
+  assert.match(
+    qortalDisabledDashboard,
+    /class="home-v2-node-pill" data-network="qortium"/,
+  )
+  assert.doesNotMatch(
+    qortalDisabledDashboard,
+    /class="home-v2-node-pill" data-network="qortal"/,
+  )
 
   const qortiumDisabledSnapshot = {
     ...homeV2Fixture,
