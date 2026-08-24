@@ -45,6 +45,16 @@ contextBridge.exposeInMainWorld('homeV2MenuCommands', {
 contextBridge.exposeInMainWorld('homeV2Zoom', {
   step: (direction: 'in' | 'out') =>
     ipcRenderer.invoke('home-v2-zoom:step', direction),
+  set: (percent: number) => ipcRenderer.invoke('home-v2-zoom:set', percent),
+  // Keyboard/wheel zoom changes originate in main; the shell follows them so
+  // the Appearance setting cannot drift away from the actual zoom.
+  onChanged: (listener: (percent: number) => void) => {
+    const handler = (_event: unknown, value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) listener(value)
+    }
+    ipcRenderer.on('zoom:changed', handler)
+    return () => ipcRenderer.removeListener('zoom:changed', handler)
+  },
 })
 
 contextBridge.exposeInMainWorld('homeV2Nodes', {
