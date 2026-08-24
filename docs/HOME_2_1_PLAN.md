@@ -68,6 +68,11 @@ during release preparation.
 - [x] Share bounded avatar and app-icon loading across Home-owned surfaces,
   including terminal missing-image fallbacks, dual-network toolbar avatars,
   and APP/WEBSITE favicon-to-publisher-avatar fallback on desktop and Android.
+- [x] Restore the lightweight bookmark toolbar without restoring the native
+  manager: honor migrated Always, Dashboard/New Tab, and Hidden choices; keep
+  links account-aware; support nested folders, app icons, standard resource
+  actions, and a horizontally scrolling phone layout; expose visibility in
+  Appearance Settings through the authoritative collections snapshot.
 - [x] Add General, Appearance, and Account settings-section navigation.
 - [x] Persist a new-tab target of Search page, Dashboard, or a validated custom
   Home/QDN app address without changing the saved-state version.

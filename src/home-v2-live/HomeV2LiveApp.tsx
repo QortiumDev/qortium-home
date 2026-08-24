@@ -112,9 +112,11 @@ import {
   validateBookmarkManagerMutationRequest,
   validateBookmarksOpenRequest,
   type BookmarkManagerDashboardPin,
+  type BookmarkManagerLink,
   type BookmarkManagerMutation,
   type BookmarkManagerSnapshot,
 } from '../../electron/bookmark-manager-contract'
+import type { BookmarkToolbarVisibility } from '../bookmarkToolbar'
 import {
   assertHomeV2OpenPublicGroup,
   isHomeV2PublicChatAction,
@@ -261,23 +263,29 @@ function getContextMenuTargetLabel(target: HomeV2ContextMenuTarget) {
   return `${target.service}/${target.name}`
 }
 
-function getDashboardPinContextMenuTarget(
-  pin: BookmarkManagerDashboardPin,
+function getSavedResourceContextMenuTarget(
+  displayUrl: string,
 ): HomeV2ContextMenuTarget | null {
-  const protocol: HomeV2AppBridgeProtocol | null = pin.displayUrl.toLowerCase().startsWith('qortal://')
+  const protocol: HomeV2AppBridgeProtocol | null = displayUrl.toLowerCase().startsWith('qortal://')
     ? 'qortalRequest'
-    : pin.displayUrl.toLowerCase().startsWith('qdn://')
+    : displayUrl.toLowerCase().startsWith('qdn://')
       ? 'qdnRequest'
       : null
   if (!protocol) return null
   try {
     return normalizeHomeV2ContextMenuRequest(protocol, {
       version: 1,
-      target: { kind: 'resource', address: pin.displayUrl },
+      target: { kind: 'resource', address: displayUrl },
     }).target
   } catch {
     return null
   }
+}
+
+function getDashboardPinContextMenuTarget(
+  pin: BookmarkManagerDashboardPin,
+): HomeV2ContextMenuTarget | null {
+  return getSavedResourceContextMenuTarget(pin.displayUrl)
 }
 
 function publicChatOperationLabel(action: HomeV2PublicChatAction) {
@@ -566,7 +574,8 @@ export function HomeV2LiveApp() {
   const [identityLookupBusy, setIdentityLookupBusy] = useState(false)
   const [identityLookupError, setIdentityLookupError] = useState<string | null>(null)
   const [shellNotice, setShellNotice] = useState<string | null>(null)
-  const [dashboardPins, setDashboardPins] = useState<readonly BookmarkManagerDashboardPin[]>([])
+  const [collectionsSnapshot, setCollectionsSnapshot] =
+    useState<BookmarkManagerSnapshot | null>(null)
   const [dashboardPinsPhase, setDashboardPinsPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [dashboardPinsError, setDashboardPinsError] = useState<string | null>(null)
   const [dashboardPinsBusy, setDashboardPinsBusy] = useState(false)
@@ -1395,8 +1404,8 @@ export function HomeV2LiveApp() {
     [selectedAccountId],
   )
 
-  const applyDashboardPinSnapshot = useCallback((next: BookmarkManagerSnapshot) => {
-    setDashboardPins(next.dashboardPins)
+  const applyCollectionsSnapshot = useCallback((next: BookmarkManagerSnapshot) => {
+    setCollectionsSnapshot(next)
     setDashboardPinsError(null)
     setDashboardPinsPhase('ready')
   }, [])
@@ -1462,13 +1471,13 @@ export function HomeV2LiveApp() {
     setDashboardPinsError(null)
     try {
       const next = await loadDashboardPinsSnapshot()
-      applyDashboardPinSnapshot(next)
+      applyCollectionsSnapshot(next)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Saved Home links are unavailable.'
       setDashboardPinsError(message)
       setDashboardPinsPhase('error')
     }
-  }, [applyDashboardPinSnapshot, loadDashboardPinsSnapshot])
+  }, [applyCollectionsSnapshot, loadDashboardPinsSnapshot])
 
   useEffect(() => {
     if (!accountCatalogueReady || freshShellProfile === null) return
@@ -1477,7 +1486,7 @@ export function HomeV2LiveApp() {
     setDashboardPinsError(null)
     void (async () => {
       const next = await loadDashboardPinsSnapshot()
-      if (!cancelled) applyDashboardPinSnapshot(next)
+      if (!cancelled) applyCollectionsSnapshot(next)
     })().catch((error) => {
       if (cancelled) return
       console.warn('Unable to initialize saved Home links.', error)
@@ -1491,7 +1500,7 @@ export function HomeV2LiveApp() {
     }
   }, [
     accountCatalogueReady,
-    applyDashboardPinSnapshot,
+    applyCollectionsSnapshot,
     freshShellProfile,
     loadDashboardPinsSnapshot,
   ])
@@ -1506,7 +1515,7 @@ export function HomeV2LiveApp() {
       setDashboardPinsError(null)
       try {
         const result = await applyCollectionsMutation(mutation)
-        applyDashboardPinSnapshot(result.snapshot)
+        applyCollectionsSnapshot(result.snapshot)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Saved Home links could not be updated.'
         setDashboardPinsError(message)
@@ -1515,7 +1524,7 @@ export function HomeV2LiveApp() {
         setDashboardPinsBusy(false)
       }
     },
-    [applyCollectionsMutation, applyDashboardPinSnapshot],
+    [applyCollectionsMutation, applyCollectionsSnapshot],
   )
 
   const addDashboardPin = useCallback(
@@ -1584,7 +1593,9 @@ export function HomeV2LiveApp() {
     async (pin: BookmarkManagerDashboardPin) => {
       const result = await openAddress(pin.displayUrl, pin.accountId ?? selectedAccountId)
       if (result.status !== 'opened') {
-        throw new Error(result.message ?? 'Saved Home link could not be opened.')
+        setShellNotice(
+          result.message ?? 'Saved Home link could not be opened.',
+        )
       }
     },
     [openAddress, selectedAccountId],
@@ -1615,6 +1626,61 @@ export function HomeV2LiveApp() {
     [openDashboardPin],
   )
 
+  const setBookmarkToolbarVisibility = useCallback(
+    async (toolbarVisibility: BookmarkToolbarVisibility) => {
+      const result = await applyCollectionsMutation({
+        type: 'setToolbarVisibility',
+        toolbarVisibility,
+      })
+      applyCollectionsSnapshot(result.snapshot)
+    },
+    [applyCollectionsMutation, applyCollectionsSnapshot],
+  )
+
+  const openBookmarkToolbarLink = useCallback(
+    async (link: BookmarkManagerLink) => {
+      const result = await openAddress(
+        link.displayUrl,
+        link.accountId ?? selectedAccountId,
+      )
+      if (result.status !== 'opened') {
+        setShellNotice(
+          result.message ?? 'Saved Home link could not be opened.',
+        )
+      }
+    },
+    [openAddress, selectedAccountId],
+  )
+
+  const getBookmarkToolbarContextMenuItems = useCallback(
+    (link: BookmarkManagerLink) => {
+      const target = getSavedResourceContextMenuTarget(link.displayUrl)
+      return target ? getHomeV2ContextMenuItems(target) : []
+    },
+    [],
+  )
+
+  const runBookmarkToolbarContextMenuAction = useCallback(
+    async (link: BookmarkManagerLink, action: string) => {
+      const target = getSavedResourceContextMenuTarget(link.displayUrl)
+      const item = target
+        ? getHomeV2ContextMenuItems(target).find(
+            (candidate) => candidate.action === action,
+          )
+        : null
+      if (!target || !item) {
+        throw new Error('That bookmark context action is unavailable.')
+      }
+      const operation = getHomeV2ContextMenuOperation(target, item.action)
+      if (operation.kind === 'copy') {
+        await writeContextMenuClipboard(operation.value)
+      } else {
+        await openBookmarkToolbarLink(link)
+      }
+    },
+    [openBookmarkToolbarLink],
+  )
+
   useEffect(() => {
     const bridge = window.homeV2Collections
     if (!bridge) return
@@ -1632,7 +1698,7 @@ export function HomeV2LiveApp() {
       void operation.then(
         (result) => {
           if (value.operation === 'apply' && 'snapshot' in result) {
-            applyDashboardPinSnapshot(result.snapshot)
+            applyCollectionsSnapshot(result.snapshot)
           }
           bridge.resolveRequest({ requestId, result })
         },
@@ -1647,7 +1713,7 @@ export function HomeV2LiveApp() {
         }),
       ).catch((error) => console.warn('Unable to resolve bookmark manager request.', error))
     })
-  }, [applyDashboardPinSnapshot, collectionsClient, getCollectionsAccounts])
+  }, [applyCollectionsSnapshot, collectionsClient, getCollectionsAccounts])
 
   useEffect(() => {
     const bridge = window.homeV2Collections
@@ -2308,7 +2374,7 @@ export function HomeV2LiveApp() {
             },
           )
           const result = await collectionsClient.apply(mutationRequest, accounts)
-          applyDashboardPinSnapshot(result.snapshot)
+          applyCollectionsSnapshot(result.snapshot)
           const completedTab = productStateRef.current.tabs.find((tab) => tab.id === context.tabId)
           if (!completedTab || completedTab.context.resourceLocation !== context.resourceLocation) {
             throw new Error('QDN manager request is stale because the app view changed while it was running.')
@@ -4182,7 +4248,7 @@ export function HomeV2LiveApp() {
       }
       return nodeClient.requestApp(protocol, requestValue, context)
     },
-    [applyDashboardPinSnapshot, collectionsClient, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
+    [applyCollectionsSnapshot, collectionsClient, nodeClient, openAddress, productState.tabs, queueAndroidPermissionPrompt, queueAndroidSessionGrantPermission, selectedAccountId, snapshot.nodes, vaultClient],
   )
 
   const setNodeMode = async (
@@ -4703,8 +4769,16 @@ export function HomeV2LiveApp() {
       enableCoreDocs={enableHomeV2CoreDocs}
       probeCoreDocs={probeHomeV2CoreDocs}
       onboarding={onboarding}
+      bookmarkToolbar={{
+        snapshot: collectionsSnapshot,
+        getContextMenuItems: getBookmarkToolbarContextMenuItems,
+        loadVisibleAppIcon,
+        onContextMenuAction: runBookmarkToolbarContextMenuAction,
+        onOpen: openBookmarkToolbarLink,
+      }}
+      bookmarkToolbarVisibility={collectionsSnapshot?.toolbarVisibility}
       pinnedApps={{
-        pins: dashboardPins,
+        pins: collectionsSnapshot?.dashboardPins ?? [],
         status: dashboardPinsPhase,
         error: dashboardPinsError,
         busy: dashboardPinsBusy,
@@ -4893,6 +4967,7 @@ export function HomeV2LiveApp() {
         })
       }
       onSetAccent={(accent: HomeV2Accent) => updateAppearance({ accent })}
+      onSetBookmarkToolbarVisibility={setBookmarkToolbarVisibility}
       onSetTextSize={(textSize: HomeV2TextSize) =>
         updateAppearance({ textSize })
       }
