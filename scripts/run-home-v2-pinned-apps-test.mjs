@@ -16,7 +16,16 @@ globalThis.HTMLElement = dom.window.HTMLElement
 globalThis.HTMLButtonElement = dom.window.HTMLButtonElement
 globalThis.HTMLInputElement = dom.window.HTMLInputElement
 globalThis.Event = dom.window.Event
+globalThis.KeyboardEvent = dom.window.KeyboardEvent
 globalThis.MouseEvent = dom.window.MouseEvent
+globalThis.PointerEvent = class PointerEvent extends dom.window.MouseEvent {
+  constructor(type, init = {}) {
+    super(type, init)
+    this.pointerId = init.pointerId ?? 1
+    this.pointerType = init.pointerType ?? 'mouse'
+  }
+}
+dom.window.PointerEvent = globalThis.PointerEvent
 globalThis.Node = dom.window.Node
 globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window)
 globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window)

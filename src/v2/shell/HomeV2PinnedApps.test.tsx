@@ -7,12 +7,19 @@ const callbacks = {
   onAdd: async () => undefined,
   onMove: async () => undefined,
   onOpen: async () => undefined,
+  onReorder: async () => undefined,
   onRemove: async () => undefined,
   onRename: async () => undefined,
   onRetry: async () => undefined,
 } satisfies Pick<
   HomeV2PinnedAppsProps,
-  'onAdd' | 'onMove' | 'onOpen' | 'onRemove' | 'onRename' | 'onRetry'
+  | 'onAdd'
+  | 'onMove'
+  | 'onOpen'
+  | 'onRemove'
+  | 'onRename'
+  | 'onReorder'
+  | 'onRetry'
 >
 
 const pins: DashboardPin[] = [
@@ -35,15 +42,13 @@ const ready = renderToStaticMarkup(
   <HomeV2PinnedApps {...callbacks} pins={pins} status="ready" />,
 )
 assert.match(ready, /Pinned apps/)
-assert.match(ready, /qdn:\/\/APP\/Chat\/Chat/)
 assert.match(ready, /My saved place/)
-assert.match(ready, /home:\/\/bookmarks/)
 assert.match(ready, /aria-label="Open Chat"/)
-assert.match(ready, /aria-label="Back: Chat" disabled=""/)
-assert.match(ready, /aria-label="Forward: Chat"/)
-assert.match(ready, /aria-label="Forward: My saved place" disabled=""/)
-assert.match(ready, /aria-label="Rename My saved place"/)
-assert.match(ready, /aria-label="Remove My saved place"/)
+assert.match(ready, /aria-haspopup="menu"/)
+assert.match(ready, /class="home-v2-pinned-apps__grid"/)
+assert.doesNotMatch(ready, /qdn:\/\/APP\/Chat\/Chat/)
+assert.doesNotMatch(ready, /home:\/\/bookmarks/)
+assert.doesNotMatch(ready, /home-v2-pinned-apps__actions/)
 
 const empty = renderToStaticMarkup(
   <HomeV2PinnedApps {...callbacks} pins={[]} status="ready" />,

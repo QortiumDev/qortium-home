@@ -750,6 +750,7 @@ function testDesktopAndPhoneContracts(): void {
     status: 'ready' as const,
     onAdd: () => undefined,
     onMove: () => undefined,
+    onReorder: () => undefined,
     onOpen: () => undefined,
     onRemove: () => undefined,
     onRename: () => undefined,
@@ -1293,6 +1294,7 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
         status: 'ready',
         onAdd: () => undefined,
         onMove: () => undefined,
+        onReorder: () => undefined,
         onOpen: () => undefined,
         onRemove: () => undefined,
         onRename: () => undefined,
@@ -1309,6 +1311,28 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
   )
   assert.match(qortiumDisabledDashboard, /Global Home Pin/)
   assert.doesNotMatch(qortiumDisabledDashboard, /Hidden QDN Pin/)
+
+  const css = readFileSync('src/v2/shell/home-v2-prototype.css', 'utf8')
+  for (const selector of [
+    '.home-v2-node-grid',
+    '.home-v2-core-grid',
+    '.home-v2-presence-list',
+  ]) {
+    const rule = new RegExp(
+      `${selector.replaceAll('.', '\\.')}\\s*\\{([^}]*)\\}`,
+    ).exec(css)
+    assert.ok(rule, `${selector} must define its own layout`)
+    assert.match(
+      rule[1],
+      /grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(min\(100%,\s*360px\),\s*1fr\)\)/,
+      `${selector} must expand a sole enabled network and share space when both are enabled`,
+    )
+    assert.doesNotMatch(
+      rule[1],
+      /repeat\(2,/,
+      `${selector} must not reserve an empty network column`,
+    )
+  }
 
   const settingsState = reduceProductState(createProductState(), {
     type: 'navigate',

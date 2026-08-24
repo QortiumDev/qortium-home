@@ -11,6 +11,8 @@ export type DashboardPinMoveMutation = Extract<
   { type: 'moveItem' }
 >
 
+export type DashboardPinDropPosition = 'after' | 'before'
+
 export const HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS = [
   {
     displayUrl: 'qdn://APP/Chat/Chat',
@@ -41,12 +43,24 @@ export function buildAdjacentDashboardPinMoveMutation(
   const targetPin = dashboardPins[targetIndex]
   if (!targetPin) return null
 
+  return buildDashboardPinMoveMutation(
+    pinId,
+    targetPin.id,
+    direction === 'earlier' ? 'before' : 'after',
+  )
+}
+
+export function buildDashboardPinMoveMutation(
+  pinId: string,
+  targetPinId: string,
+  dropPosition: DashboardPinDropPosition,
+): DashboardPinMoveMutation {
   return {
     type: 'moveItem',
     itemId: pinId,
     sourceRootId: 'pins',
     targetRootId: 'pins',
-    targetItemId: targetPin.id,
-    targetPosition: direction === 'earlier' ? 'before' : 'after',
+    targetItemId: targetPinId,
+    targetPosition: dropPosition,
   }
 }

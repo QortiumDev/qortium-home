@@ -754,6 +754,7 @@ function Dashboard(props: DashboardProps) {
     status: 'ready' as const,
     onAdd: () => undefined,
     onMove: () => undefined,
+    onReorder: () => undefined,
     onOpen: () => undefined,
     onRemove: () => undefined,
     onRename: () => undefined,

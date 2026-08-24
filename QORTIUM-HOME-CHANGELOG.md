@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - fix(layout): use dashboard space more effectively
+
+Dashboard node, Core, and account-presence cards now use the space belonging to
+the networks that are actually enabled. A single Qortium-only or Qortal-only
+setup fills the available row instead of reserving an empty column, while two
+enabled networks continue to share the row and narrow windows collapse the
+cards naturally. Pinned apps return to compact, draggable launcher buttons
+instead of half-width management cards. Their rename, remove, and accessible
+move controls now stay in a desktop right-click or mobile long-press menu.
+
 ### 2026-08-23 - fix(release): polish desktop defaults and packaging
 
 Fresh Home profiles now start in dark mode while continuing to honor every

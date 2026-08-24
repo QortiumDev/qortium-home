@@ -220,6 +220,15 @@ try {
     ])
 
     await waitUntil('custom pin label rendered', () =>
+      client.evaluate(`!!document.querySelector('[aria-label="Open My Trust"]')`))
+    await client.evaluate(`(() => {
+      const open = document.querySelector('[aria-label="Open My Trust"]');
+      if (!(open instanceof HTMLButtonElement)) throw new Error('Pinned app button is missing.');
+      open.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, button: 2, cancelable: true, clientX: 160, clientY: 160,
+      }));
+    })()`)
+    await waitUntil('rename control rendered in pin menu', () =>
       client.evaluate(`!!document.querySelector('[aria-label="Rename My Trust"]')`))
     await client.evaluate(`(() => {
       const rename = document.querySelector('[aria-label="Rename My Trust"]');
@@ -245,7 +254,14 @@ try {
       return current?.dashboardPins?.some((pin) => pin.customLabel === 'Pinned Trust') ? current : null
     })
 
-    await waitUntil('move control rendered', () =>
+    await client.evaluate(`(() => {
+      const open = document.querySelector('[aria-label="Open Pinned Trust"]');
+      if (!(open instanceof HTMLButtonElement)) throw new Error('Renamed pin button is missing.');
+      open.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, button: 2, cancelable: true, clientX: 160, clientY: 160,
+      }));
+    })()`)
+    await waitUntil('move control rendered in pin menu', () =>
       client.evaluate(`!!document.querySelector('[aria-label="Back: Pinned Trust"]')`))
     await client.evaluate(`document.querySelector('[aria-label="Back: Pinned Trust"]').click()`)
     await waitUntil('reordered Dashboard pins', async () => {
@@ -254,7 +270,14 @@ try {
       return current?.dashboardPins?.[0]?.customLabel === 'Pinned Trust' ? current : null
     })
 
-    await waitUntil('remove control rendered', () =>
+    await client.evaluate(`(() => {
+      const open = document.querySelector('[aria-label="Open Help"]');
+      if (!(open instanceof HTMLButtonElement)) throw new Error('Help pin button is missing.');
+      open.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, button: 2, cancelable: true, clientX: 160, clientY: 160,
+      }));
+    })()`)
+    await waitUntil('remove control rendered in pin menu', () =>
       client.evaluate(`!!document.querySelector('[aria-label="Remove Help"]')`))
     await client.evaluate(`document.querySelector('[aria-label="Remove Help"]').click()`)
     const afterRemove = await waitUntil('removed Dashboard pin', async () => {
