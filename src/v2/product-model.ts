@@ -58,6 +58,16 @@ export type ProductAction =
       readonly destination: Exclude<ShellDestination, 'tab'>
     }
   | { readonly type: 'close-internal'; readonly page: InternalPageId }
+  | {
+      readonly type: 'reorder-tab'
+      readonly tabId: TabId
+      readonly toIndex: number
+    }
+  | {
+      readonly type: 'reorder-internal'
+      readonly page: InternalPageId
+      readonly toIndex: number
+    }
   | { readonly type: 'restore'; readonly state: ProductState }
 
 export class ProductModelError extends Error {
@@ -429,6 +439,59 @@ function setTabTitle(
   })
 }
 
+// toIndex is the tab's desired final index within its own group (clamped).
+// Reordering never changes which surface is active.
+function reorderAppTab(
+  state: ProductState,
+  tabId: TabId,
+  toIndex: number,
+): ProductState {
+  const fromIndex = state.tabs.findIndex((tab) => tab.id === tabId)
+  if (fromIndex < 0) {
+    throw new ProductModelError('TAB_NOT_FOUND', `Tab ${tabId} was not found.`)
+  }
+  const clamped = Math.max(
+    0,
+    Math.min(state.tabs.length - 1, Math.trunc(toIndex)),
+  )
+  if (clamped === fromIndex) return state
+  const tabs = [...state.tabs]
+  const [moved] = tabs.splice(fromIndex, 1)
+  tabs.splice(clamped, 0, moved)
+  return freezeProductState({
+    ...state,
+    tabs,
+    revision: state.revision + 1,
+  })
+}
+
+function reorderInternalPage(
+  state: ProductState,
+  page: InternalPageId,
+  toIndex: number,
+): ProductState {
+  const fromIndex = state.internalPages.indexOf(page)
+  if (fromIndex < 0) {
+    throw new ProductModelError(
+      'TAB_NOT_FOUND',
+      `Internal page ${page} is not open.`,
+    )
+  }
+  const clamped = Math.max(
+    0,
+    Math.min(state.internalPages.length - 1, Math.trunc(toIndex)),
+  )
+  if (clamped === fromIndex) return state
+  const internalPages = [...state.internalPages]
+  const [moved] = internalPages.splice(fromIndex, 1)
+  internalPages.splice(clamped, 0, moved)
+  return freezeProductState({
+    ...state,
+    internalPages,
+    revision: state.revision + 1,
+  })
+}
+
 export function reduceProductState(
   state: ProductState,
   action: ProductAction,
@@ -454,6 +517,10 @@ export function reduceProductState(
       })
     case 'close-internal':
       return closeInternalPage(state, action.page)
+    case 'reorder-tab':
+      return reorderAppTab(state, action.tabId, action.toIndex)
+    case 'reorder-internal':
+      return reorderInternalPage(state, action.page, action.toIndex)
     case 'restore':
       return freezeProductState(action.state)
   }

@@ -32,6 +32,11 @@ export interface BrowserChromeProps {
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseInternal?: (page: InternalPageId) => void
+  readonly onReorderTab?: (
+    tabId: ProductState['tabs'][number]['id'],
+    toIndex: number,
+  ) => void
+  readonly onReorderInternal?: (page: InternalPageId, toIndex: number) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -113,6 +118,8 @@ export function BrowserChrome({
   onActivateTab,
   onCloseTab,
   onCloseInternal,
+  onReorderTab,
+  onReorderInternal,
   onNavigate,
   onOpenAddress,
   onOpenAsWidget,
@@ -269,6 +276,8 @@ export function BrowserChrome({
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
           onCloseInternal={onCloseInternal}
+          onReorderTab={onReorderTab}
+          onReorderInternal={onReorderInternal}
           onNavigate={onNavigate}
           onNewTab={openNewTab}
           newTabDisabled={navigationDisabled}
