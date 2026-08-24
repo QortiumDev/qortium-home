@@ -34,6 +34,19 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): repair tab switching with a real mouse
+
+Adding drag-to-reorder broke the tab strip for ordinary use: tabs could
+no longer be switched by clicking them with a mouse. The drag code held
+on to the pointer at the tab level, which made the browser deliver the
+resulting click to the tab container instead of the tab button, so
+nothing happened. Dragging now tracks the pointer without taking it
+over, which restores normal clicking while keeping drag-to-reorder
+working, including when the pointer leaves the tab strip. A new tab
+smoke test drives the packaged app with genuine mouse input and checks
+both switching and reordering, because the existing tests click through
+JavaScript and so could never have caught this.
+
 ### 2026-08-24 - fix(i18n): translate the remaining English text in every language
 
 Every non-English language in Home carried a large block of untranslated
