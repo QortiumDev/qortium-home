@@ -34,6 +34,21 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(i18n): translate the remaining English text in every language
+
+Every non-English language in Home carried a large block of untranslated
+English — roughly 260 to 290 strings each, covering the Qortal and
+transport maintenance screens, the saved-links and bookmark strings,
+Core error messages, and the whole release-notes surface. All 22
+languages have now been translated: 5,870 strings in total. Placeholder
+values like {version} were preserved exactly, and words a language
+genuinely shares with English (for example "Status" in German or
+"Password" in Italian) were deliberately left alone rather than forced
+into awkward substitutes. A new test guards against the problem coming
+back: if any language ever ships an English sentence of three or more
+words as its own translation, the test fails and names the language and
+key.
+
 ### 2026-08-24 - fix(home-v2): bookmark toolbar follow-up fixes
 
 Four small fixes from the bookmarks toolbar review. Clicking a
