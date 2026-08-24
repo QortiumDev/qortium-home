@@ -1666,7 +1666,9 @@ export function HomeV2LiveApp() {
     async (pin: BookmarkManagerDashboardPin) => {
       const result = await openAddress(pin.displayUrl, pin.accountId ?? selectedAccountId)
       if (result.status !== 'opened') {
-        setShellNotice(
+        // Reject so the pinned-apps inline alert (role=alert) renders the
+        // failure next to the pin the user clicked (toolbar review FIX #1).
+        throw new Error(
           result.message ?? 'Saved Home link could not be opened.',
         )
       }
@@ -4868,6 +4870,7 @@ export function HomeV2LiveApp() {
         loadVisibleAppIcon,
         onContextMenuAction: runBookmarkToolbarContextMenuAction,
         onOpen: openBookmarkToolbarLink,
+        onActionError: setShellNotice,
       }}
       bookmarkToolbarVisibility={collectionsSnapshot?.toolbarVisibility}
       pinnedApps={{
