@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import type { BookmarkManagerDashboardPin } from '../../electron/bookmark-manager-contract'
 import {
   buildAdjacentDashboardPinMoveMutation,
+  buildDashboardPinMoveMutation,
   HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
   shouldSeedHomeV2DefaultDashboardPins,
 } from './dashboard-pins'
@@ -57,6 +58,15 @@ assert.deepEqual(buildAdjacentDashboardPinMoveMutation(pins, 'Help', 'later'), {
 assert.equal(buildAdjacentDashboardPinMoveMutation(pins, 'Chat', 'earlier'), null)
 assert.equal(buildAdjacentDashboardPinMoveMutation(pins, 'Trust', 'later'), null)
 assert.equal(buildAdjacentDashboardPinMoveMutation(pins, 'Missing', 'earlier'), null)
+
+assert.deepEqual(buildDashboardPinMoveMutation('Chat', 'Trust', 'after'), {
+  type: 'moveItem',
+  itemId: 'Chat',
+  sourceRootId: 'pins',
+  targetRootId: 'pins',
+  targetItemId: 'Trust',
+  targetPosition: 'after',
+})
 
 const concurrentlyReordered = [pin('Trust'), pin('Chat'), pin('Boards'), pin('Help')]
 assert.deepEqual(

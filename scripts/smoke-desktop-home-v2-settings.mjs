@@ -35,6 +35,10 @@ const coreDashboardScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_CORE_DASHBOARD_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-core-dashboard.png',
 )
+const pinnedAppsScreenshotPath = path.resolve(
+  process.env.QORTIUM_HOME_PINNED_APPS_SCREENSHOT?.trim() ||
+    '/tmp/qortium-home-2.1-pinned-apps.png',
+)
 const qortalMaintenanceScreenshotPath = path.resolve(
   process.env.QORTIUM_HOME_QORTAL_MAINTENANCE_SCREENSHOT?.trim() ||
     '/tmp/qortium-home-2.1-qortal-maintenance.png',
@@ -303,6 +307,61 @@ try {
       ),
     )
     assert.deepEqual(dashboardCoreCards, ['qortium'])
+    await waitUntil('compact default pinned apps', () =>
+      evaluate(
+        client,
+        `document.querySelectorAll('.home-v2-pinned-apps__card').length === 2`,
+      ),
+    )
+    const qortiumOnlyLayout = await evaluate(
+      client,
+      `(() => {
+        const measure = (selector, cardSelector) => {
+          const grid = document.querySelector(selector);
+          const cards = [...(grid?.querySelectorAll(cardSelector) ?? [])];
+          return {
+            cardWidths: cards.map((card) => card.getBoundingClientRect().width),
+            gridWidth: grid?.getBoundingClientRect().width ?? 0,
+          };
+        };
+        return {
+          core: measure('.home-v2-core-grid', '.home-v2-core-card'),
+          nodes: measure('.home-v2-node-grid', '.home-v2-node-card'),
+          pinned: [...document.querySelectorAll('.home-v2-pinned-apps__card')]
+            .map((card) => card.getBoundingClientRect().width),
+          pinnedText: document.querySelector('.home-v2-pinned-apps')?.textContent ?? '',
+          permanentPinActions: Boolean(document.querySelector('.home-v2-pinned-apps__actions')),
+        };
+      })()`,
+    )
+    for (const [name, measurement] of Object.entries({
+      core: qortiumOnlyLayout.core,
+      nodes: qortiumOnlyLayout.nodes,
+    })) {
+      assert.equal(measurement.cardWidths.length, 1)
+      assert.equal(
+        Math.abs(measurement.cardWidths[0] - measurement.gridWidth) < 1,
+        true,
+        `Qortium-only ${name} card did not fill its row: ${JSON.stringify(measurement)}`,
+      )
+    }
+    assert.equal(qortiumOnlyLayout.pinned.length, 2)
+    assert.equal(qortiumOnlyLayout.pinned.every((width) => width <= 80), true)
+    assert.equal(qortiumOnlyLayout.pinnedText.includes('qdn://'), false)
+    assert.equal(qortiumOnlyLayout.permanentPinActions, false)
+    await evaluate(
+      client,
+      `document.querySelector('.home-v2-pinned-apps')?.scrollIntoView({ block: 'center' })`,
+    )
+    await delay(100)
+    const pinnedAppsScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    writeFileSync(
+      pinnedAppsScreenshotPath,
+      Buffer.from(pinnedAppsScreenshot.data, 'base64'),
+    )
+    await evaluate(client, `window.scrollTo(0, 0)`)
     const dashboardMaintenance = await evaluate(
       client,
       `(() => [...document.querySelectorAll('.home-v2-core-maintenance')].map((maintenance) => ({
@@ -396,7 +455,71 @@ try {
         })()`,
       ),
     )
+    const dualNetworkLayout = await evaluate(
+      client,
+      `(() => {
+        const grid = document.querySelector('.home-v2-node-grid');
+        return {
+          cardWidths: [...(grid?.querySelectorAll('.home-v2-node-card') ?? [])]
+            .map((card) => card.getBoundingClientRect().width),
+          gridWidth: grid?.getBoundingClientRect().width ?? 0,
+        };
+      })()`,
+    )
+    assert.equal(dualNetworkLayout.cardWidths.length, 2)
+    assert.equal(
+      Math.abs(dualNetworkLayout.cardWidths[0] - dualNetworkLayout.cardWidths[1]) < 1,
+      true,
+      `Dual-network cards did not share their row: ${JSON.stringify(dualNetworkLayout)}`,
+    )
     await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
+    await waitUntil('General settings after dual-network layout check', () =>
+      evaluate(client, `Boolean(document.querySelector('input[aria-label="Qortium connection mode"]'))`),
+    )
+    await evaluate(
+      client,
+      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+    )
+    await waitUntil('disabled Qortium network', () =>
+      evaluate(
+        client,
+        `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === false`,
+      ),
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Dashboard"]').click()`)
+    const qortalOnlyLayout = await waitUntil('Qortal-only Dashboard layout', () =>
+      evaluate(
+        client,
+        `(() => {
+          const grid = document.querySelector('.home-v2-node-grid');
+          const cards = [...(grid?.querySelectorAll('.home-v2-node-card') ?? [])];
+          if (cards.length !== 1 || cards[0].getAttribute('data-network') !== 'qortal') return null;
+          return {
+            cardWidth: cards[0].getBoundingClientRect().width,
+            gridWidth: grid.getBoundingClientRect().width,
+          };
+        })()`,
+      ),
+    )
+    assert.equal(
+      Math.abs(qortalOnlyLayout.cardWidth - qortalOnlyLayout.gridWidth) < 1,
+      true,
+      `Qortal-only card did not fill its row: ${JSON.stringify(qortalOnlyLayout)}`,
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
+    await waitUntil('General settings after Qortal-only layout check', () =>
+      evaluate(client, `Boolean(document.querySelector('input[aria-label="Qortium connection mode"]'))`),
+    )
+    await evaluate(
+      client,
+      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+    )
+    await waitUntil('restored Qortium network', () =>
+      evaluate(
+        client,
+        `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === true`,
+      ),
+    )
 
     const initialNotificationPolicy = await waitUntil('Home 2 notification policy', () =>
       evaluate(
@@ -993,7 +1116,7 @@ try {
     )
     assert.equal(rtlPersisted.appearance.language, 'ar')
     console.log(
-      `Packaged Home settings/QDN apps/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${qdnAppsScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${qortalMaintenanceScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
+      `Packaged Home settings/QDN apps/Core/updater/new-tab/i18n smoke passed; screenshots: ${coreDashboardScreenshotPath}, ${pinnedAppsScreenshotPath}, ${qdnAppsScreenshotPath}, ${screenshotPath}, ${coreScreenshotPath}, ${qortalMaintenanceScreenshotPath}, ${updateScreenshotPath}, ${rtlScreenshotPath}`,
     )
   } finally {
     client.close()

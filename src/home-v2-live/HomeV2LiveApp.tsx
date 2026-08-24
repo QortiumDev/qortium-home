@@ -95,6 +95,7 @@ import {
 } from './collections-client'
 import {
   buildAdjacentDashboardPinMoveMutation,
+  buildDashboardPinMoveMutation,
   HOME_V2_DEFAULT_DASHBOARD_PIN_DRAFTS,
   shouldSeedHomeV2DefaultDashboardPins,
   type DashboardPinMoveDirection,
@@ -1443,6 +1444,15 @@ export function HomeV2LiveApp() {
     async (pinId: string, direction: DashboardPinMoveDirection) => {
       await mutateDashboardPins((current) =>
         buildAdjacentDashboardPinMoveMutation(current.dashboardPins, pinId, direction),
+      )
+    },
+    [mutateDashboardPins],
+  )
+
+  const reorderDashboardPin = useCallback(
+    async (pinId: string, targetPinId: string, dropPosition: 'after' | 'before') => {
+      await mutateDashboardPins(
+        buildDashboardPinMoveMutation(pinId, targetPinId, dropPosition),
       )
     },
     [mutateDashboardPins],
@@ -4497,6 +4507,7 @@ export function HomeV2LiveApp() {
         busy: dashboardPinsBusy,
         onAdd: ({ displayUrl, title }) => addDashboardPin(displayUrl, title),
         onMove: moveDashboardPin,
+        onReorder: reorderDashboardPin,
         onOpen: openDashboardPin,
         onRemove: (pin) =>
           mutateDashboardPins({ type: 'removeDashboardPin', pinId: pin.id }),
