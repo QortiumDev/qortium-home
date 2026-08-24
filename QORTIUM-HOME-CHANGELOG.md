@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(home-v2): stop asking permission to read
+
+Opening an app no longer asks for permission. Apps can read the selected
+account, its pending transaction records, and private chat — direct
+messages, private groups and their attachments — without a prompt.
+Nothing about key handling changed: Home decrypts and signs inside
+itself and wipes the key from memory afterwards, so an app never
+receives key material either before or after this change. Everything
+that leaves the device still asks: sending or editing chat messages,
+publishing, saving an attachment to disk, joining or leaving a group,
+group moderation, private group key changes, and unlocking the account.
+Opening the chat app and reading your messages is now silent, which is
+what people expected all along.
+
 ### 2026-08-24 - fix(home-v2): correct the layout at every app zoom level
 
 With app zoom set to anything other than 100%, Home laid itself out

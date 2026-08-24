@@ -712,6 +712,15 @@ async function requireAccountReadPermission(
   if (!liveResourceMatchesGrant(context)) {
     throw new Error('Account access context changed before approval completed.')
   }
+  // Read-only actions are permissionless (owner decision, 2026-08-24).
+  // Home decrypts private chat in-process and zeroes the key buffer, so no
+  // key material ever reaches an app; reads therefore expose data the app is
+  // being trusted with anyway once the user opens it. Everything that SENDS,
+  // publishes, spends, unlocks the account or writes to disk still gates
+  // below. The checks above this line are NOT skipped: an unselected account
+  // and a drifted live resource are still refused.
+  if (isHomeV2AccountReadAction(action)) return
+
   const targetNetwork = protocol === 'qortalRequest' ? 'qortal' : 'qortium'
   const routeIndependent = action === 'GET_PENDING_TRANSACTIONS' || action === 'FORGET_PENDING_TRANSACTION'
   const nodeBefore = routeIndependent ? null : await getHomeV2ReadableNode(targetNetwork)
