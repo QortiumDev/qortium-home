@@ -49,12 +49,14 @@ export type NodeSettingsMode = 'custom' | 'disabled' | 'local' | 'network';
 type NodeSettings = {
   apiKey: string;
   customUrl: string;
+  lastEnabledMode: Exclude<NodeSettingsMode, 'disabled'>;
   mode: NodeSettingsMode;
 };
 
 type NodeSettingsRequest = {
   apiKey?: unknown;
   customUrl?: unknown;
+  lastEnabledMode?: unknown;
   mode?: unknown;
 };
 
@@ -172,6 +174,7 @@ function getDefaultNodeSettings(): NodeSettings {
   return {
     apiKey: '',
     customUrl: '',
+    lastEnabledMode: 'local',
     mode: 'local',
   };
 }
@@ -195,11 +198,19 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
   }
 
   const rawMode = (rawSettings as { mode?: unknown }).mode;
+  const rawLastEnabledMode = (rawSettings as { lastEnabledMode?: unknown }).lastEnabledMode;
+  const storedLastEnabledMode: Exclude<NodeSettingsMode, 'disabled'> =
+    rawLastEnabledMode === 'local' ||
+    rawLastEnabledMode === 'network' ||
+    (rawLastEnabledMode === 'custom' && customUrl)
+      ? rawLastEnabledMode
+      : 'local';
 
   if (rawMode === 'custom' && customUrl) {
     return {
       apiKey,
       customUrl,
+      lastEnabledMode: 'custom',
       mode: 'custom',
     };
   }
@@ -208,14 +219,16 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
     return {
       apiKey: '',
       customUrl,
+      lastEnabledMode: 'network',
       mode: 'network',
     };
   }
 
   if (rawMode === 'disabled') {
     return {
-      apiKey: '',
+      apiKey,
       customUrl,
+      lastEnabledMode: storedLastEnabledMode,
       mode: 'disabled',
     };
   }
@@ -224,6 +237,7 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
     return {
       apiKey: rawMode === 'local' ? apiKey : '',
       customUrl,
+      lastEnabledMode: 'local',
       mode: 'local',
     };
   }
@@ -231,6 +245,7 @@ function parseStoredNodeSettings(value: unknown): NodeSettings {
   return {
     apiKey,
     customUrl,
+    lastEnabledMode: 'local',
     mode: 'local',
   };
 }
@@ -431,7 +446,7 @@ function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings 
 
   const rawCustomUrl = getString(value.customUrl);
   const customUrl = rawCustomUrl ? normalizeNodeApiUrl(rawCustomUrl) : '';
-  const apiKey = value.mode === 'network' || value.mode === 'disabled' ? '' : getString(value.apiKey);
+  const apiKey = value.mode === 'network' ? '' : getString(value.apiKey);
 
   if (value.mode === 'custom' && !customUrl) {
     throw new Error('Custom node URL is required.');
@@ -440,6 +455,14 @@ function normalizeNodeSettingsRequest(value: NodeSettingsRequest): NodeSettings 
   return {
     apiKey,
     customUrl,
+    lastEnabledMode:
+      value.mode === 'disabled'
+        ? value.lastEnabledMode === 'local' ||
+          value.lastEnabledMode === 'network' ||
+          (value.lastEnabledMode === 'custom' && customUrl)
+          ? value.lastEnabledMode
+          : 'local'
+        : value.mode,
     mode: value.mode,
   };
 }
@@ -1352,6 +1375,10 @@ export async function saveNodeModeForHomeV2(
   const settings = normalizeNodeSettingsRequest({
     apiKey: current.apiKey,
     customUrl: current.customUrl,
+    lastEnabledMode:
+      mode === 'disabled' && current.mode !== 'disabled'
+        ? current.mode
+        : current.lastEnabledMode,
     mode: mode === 'public' ? 'network' : mode,
   });
   writeNodeSettings(settings);
@@ -1368,6 +1395,7 @@ export async function saveNodeCustomUrlForHomeV2(customUrl: string) {
   const settings = normalizeNodeSettingsRequest({
     apiKey: current.apiKey,
     customUrl: normalizedUrl,
+    lastEnabledMode: 'custom',
     mode: 'custom',
   });
   writeNodeSettings(settings);

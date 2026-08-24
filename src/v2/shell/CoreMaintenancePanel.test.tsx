@@ -232,6 +232,25 @@ try {
     { expectedGeneration: 5, field: 'javaUpdatePolicy' },
   ])
 
+  await act(async () => {
+    root.render(
+      <CoreMaintenancePanel management={management} networks={['qortal']} />,
+    )
+    await Promise.resolve()
+  })
+  assert.equal(container.querySelector('[data-home-v2-core-update-policy]'), null)
+  assert.ok(container.querySelector('[data-home-v2-qortal-update-policy]'))
+  assert.match(container.textContent ?? '', /Managed Java/)
+
+  await act(async () => {
+    root.render(
+      <CoreMaintenancePanel management={management} networks={['qortium']} />,
+    )
+    await Promise.resolve()
+  })
+  assert.ok(container.querySelector('[data-home-v2-core-update-policy]'))
+  assert.equal(container.querySelector('[data-home-v2-qortal-update-policy]'), null)
+
   act(() => root.unmount())
   const getMaintenanceStatus = client.getMaintenanceStatus
   const getUpdatePolicy = client.getUpdatePolicy

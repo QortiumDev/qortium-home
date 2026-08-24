@@ -202,6 +202,7 @@ export interface NodeSummary {
   readonly ref: NodeProfileRef
   readonly network: NetworkId
   readonly label: string
+  readonly lastEnabledMode: Exclude<NodeConnectionMode, 'disabled'>
   readonly mode: NodeConnectionMode
   readonly state: NodeState
   readonly statusText: string

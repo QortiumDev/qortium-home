@@ -158,7 +158,7 @@ export interface HomeV2PrototypeProps {
   readonly onSetNodeMode?: (
     network: NetworkId,
     mode: NodeConnectionMode,
-  ) => void
+  ) => void | Promise<void>
   readonly onRefreshNode?: (network: NetworkId) => void
   readonly onConfigureCustomNode?: (network: NetworkId) => void
   readonly onIdentityLookupInput?: (value: string) => void
@@ -549,6 +549,9 @@ function AccountCard({
     : hasAccount
       ? 'current'
       : 'none'
+  const enabledNetworks = (['qortium', 'qortal'] as const).filter(
+    (network) => snapshot.nodes[network].mode !== 'disabled',
+  )
 
   return (
     <section className="home-v2-panel home-v2-account-panel">
@@ -686,20 +689,19 @@ function AccountCard({
       ) : null}
       <div className="home-v2-account-content">
         {hasAccount ? (
-          <div className="home-v2-presence-list">
-            <IdentityPresence
-              snapshot={snapshot}
-              network="qortium"
-              lookup={selectedAccountLookup}
-              loader={loadVisibleAvatar}
-            />
-            <IdentityPresence
-              snapshot={snapshot}
-              network="qortal"
-              lookup={selectedAccountLookup}
-              loader={loadVisibleAvatar}
-            />
-          </div>
+          enabledNetworks.length > 0 ? (
+            <div className="home-v2-presence-list">
+              {enabledNetworks.map((network) => (
+                <IdentityPresence
+                  key={network}
+                  snapshot={snapshot}
+                  network={network}
+                  lookup={selectedAccountLookup}
+                  loader={loadVisibleAvatar}
+                />
+              ))}
+            </div>
+          ) : null
         ) : (
           <div className="home-v2-account-placeholder">
             <strong>{t('account.noAccountSelected')}</strong>
@@ -756,6 +758,18 @@ function Dashboard(props: DashboardProps) {
     onRemove: () => undefined,
     onRename: () => undefined,
   }
+  const enabledNetworks = (['qortium', 'qortal'] as const).filter(
+    (network) => snapshot.nodes[network].mode !== 'disabled',
+  )
+  const qortiumEnabled = enabledNetworks.includes('qortium')
+  const visiblePins = pinnedApps.pins.filter((pin) => {
+    const address = pin.displayUrl.trim().toLowerCase()
+    if (address.startsWith('home://')) return true
+    if (address.startsWith('qortal://') || address.startsWith('qortal-core://')) {
+      return enabledNetworks.includes('qortal')
+    }
+    return qortiumEnabled
+  })
   return (
     <div className="home-v2-dashboard">
       <header className="home-v2-dashboard-intro">
@@ -767,7 +781,7 @@ function Dashboard(props: DashboardProps) {
         ) : null}
       </header>
 
-      <section
+      {enabledNetworks.length > 0 ? <section
         className="home-v2-connections"
         aria-labelledby="connections-title"
       >
@@ -777,24 +791,20 @@ function Dashboard(props: DashboardProps) {
           </div>
         </div>
         <div className="home-v2-node-grid">
-          <NodeCard
-            snapshot={snapshot}
-            network="qortium"
-            onSetNodeMode={onSetNodeMode}
-            onRefreshNode={onRefreshNode}
-            onConfigureCustomNode={onConfigureCustomNode}
-          />
-          <NodeCard
-            snapshot={snapshot}
-            network="qortal"
-            onSetNodeMode={onSetNodeMode}
-            onRefreshNode={onRefreshNode}
-            onConfigureCustomNode={onConfigureCustomNode}
-          />
+          {enabledNetworks.map((network) => (
+            <NodeCard
+              key={network}
+              snapshot={snapshot}
+              network={network}
+              onSetNodeMode={onSetNodeMode}
+              onRefreshNode={onRefreshNode}
+              onConfigureCustomNode={onConfigureCustomNode}
+            />
+          ))}
         </div>
-      </section>
+      </section> : null}
 
-      {props.coreManagement?.available ? (
+      {props.coreManagement?.available && enabledNetworks.length > 0 ? (
         <section
           className="home-v2-core-management"
           aria-labelledby="core-management-title"
@@ -813,13 +823,22 @@ function Dashboard(props: DashboardProps) {
               {t('common.settings')}
             </button>
           </div>
-          <CoreManagerCards management={props.coreManagement} />
+          <CoreManagerCards
+            management={props.coreManagement}
+            networks={enabledNetworks}
+          />
         </section>
       ) : null}
 
       <AccountCard {...props} />
 
-      <HomeV2PinnedApps {...pinnedApps} />
+      {qortiumEnabled || visiblePins.length > 0 ? (
+        <HomeV2PinnedApps
+          {...pinnedApps}
+          allowAdd={qortiumEnabled}
+          pins={visiblePins}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1004,6 +1023,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
           <SettingsPage
             appearance={snapshot.appearance}
             account={snapshot.account}
+            nodes={snapshot.nodes}
             newTabPreference={
               props.newTabPreference ?? { kind: 'search' }
             }
@@ -1013,6 +1033,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             onSetAppZoom={props.onSetAppZoom}
             onSetLanguage={props.onSetLanguage}
             onSetNewTabPreference={props.onSetNewTabPreference}
+            onSetNodeMode={props.onSetNodeMode}
             onToggleRememberUnlock={props.onToggleRememberUnlock}
             onToggleLockOnExit={props.onToggleLockOnExit}
             coreManagement={props.coreManagement}

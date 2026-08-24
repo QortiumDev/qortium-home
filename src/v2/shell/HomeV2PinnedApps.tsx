@@ -24,6 +24,7 @@ export interface HomeV2PinnedAppsProps {
   readonly status: HomeV2PinnedAppsStatus
   readonly error?: string | null
   readonly busy?: boolean
+  readonly allowAdd?: boolean
   readonly onOpen: (pin: DashboardPin) => void | Promise<void>
   readonly onAdd: (draft: HomeV2PinnedAppsDraft) => void | Promise<void>
   readonly onRename: (
@@ -50,6 +51,7 @@ export function HomeV2PinnedApps({
   status,
   error,
   busy = false,
+  allowAdd = true,
   onOpen,
   onAdd,
   onRename,
@@ -151,7 +153,7 @@ export function HomeV2PinnedApps({
         <div>
           <h2 id="pinned-apps-title">{t('home2.dashboard.pinnedApps')}</h2>
         </div>
-        <button
+        {allowAdd ? <button
           ref={addButtonRef}
           type="button"
           className="home-v2-link-button home-v2-pinned-apps__add-button"
@@ -165,10 +167,10 @@ export function HomeV2PinnedApps({
         >
           <Plus aria-hidden="true" size={17} />
           {t('common.create')}
-        </button>
+        </button> : null}
       </div>
 
-      {showAddForm && status === 'ready' ? (
+      {allowAdd && showAddForm && status === 'ready' ? (
         <form className="home-v2-pinned-apps__form" onSubmit={submitAdd}>
           <label>
             <span>{t('bookmarks.urlLabel')}</span>

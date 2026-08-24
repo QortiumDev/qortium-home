@@ -34,6 +34,14 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-23 - feat(settings): control network availability
+
+General Settings now lets people enable or disable Qortium and Qortal across
+Home. Qortium starts enabled while Qortal starts disabled, and Home remembers
+each network's previous connection choice when it is turned back on. Disabled
+networks disappear from their Dashboard and Settings areas without stopping a
+running Core, changing automatic updates, or removing saved configuration.
+
 ### 2026-08-23 - security: harden reporting and native build paths
 
 Home now documents a private path for reporting vulnerabilities without

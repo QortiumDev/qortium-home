@@ -263,13 +263,13 @@ try {
         client,
         `(() => {
           const cards = [...document.querySelectorAll('.home-v2-core-card')];
-          return cards.length === 2
+          return cards.length === 1
             ? cards.map((card) => card.getAttribute('data-network'))
             : null;
         })()`,
       ),
     )
-    assert.deepEqual(dashboardCoreCards, ['qortium', 'qortal'])
+    assert.deepEqual(dashboardCoreCards, ['qortium'])
     const dashboardMaintenance = await evaluate(
       client,
       `(() => [...document.querySelectorAll('.home-v2-core-maintenance')].map((maintenance) => ({
@@ -328,6 +328,42 @@ try {
       options: ['Search page', 'Dashboard', 'Custom address'],
       value: 'search',
     })
+    const initialNetworkSettings = await evaluate(
+      client,
+      `(() => ({
+        qortal: document.querySelector('input[aria-label="Qortal connection mode"]')?.checked,
+        qortium: document.querySelector('input[aria-label="Qortium connection mode"]')?.checked,
+      }))()`,
+    )
+    assert.deepEqual(initialNetworkSettings, { qortal: false, qortium: true })
+    await evaluate(
+      client,
+      `document.querySelector('input[aria-label="Qortal connection mode"]').click()`,
+    )
+    await waitUntil('enabled Qortal network', () =>
+      evaluate(
+        client,
+        `document.querySelector('input[aria-label="Qortal connection mode"]')?.checked === true`,
+      ),
+    )
+    assert.deepEqual(
+      JSON.parse(
+        readFileSync(path.join(profileDirectory, 'qortal-node-settings.json'), 'utf8'),
+      ),
+      { customUrl: '', lastEnabledMode: 'local', mode: 'local' },
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Dashboard"]').click()`)
+    await waitUntil('Qortal dashboard tiles after enable', () =>
+      evaluate(
+        client,
+        `(() => {
+          const cards = [...document.querySelectorAll('.home-v2-core-card')];
+          return cards.length === 2 &&
+            cards.some((card) => card.getAttribute('data-network') === 'qortal');
+        })()`,
+      ),
+    )
+    await evaluate(client, `document.querySelector('button[aria-label="Settings"]').click()`)
 
     const initialNotificationPolicy = await waitUntil('Home 2 notification policy', () =>
       evaluate(
@@ -530,6 +566,70 @@ try {
       evaluate(client, `Boolean(document.querySelector('[data-qdn-notification-empty="true"]'))`),
     )
 
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'General')).click()`,
+    )
+    await evaluate(
+      client,
+      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+    )
+    await waitUntil('disabled Qortium network settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const qdnApps = [...document.querySelectorAll('.home-v2-settings-nav button')]
+            .some((button) => button.textContent.trim() === 'QDN Apps');
+          return document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === false &&
+            !qdnApps;
+        })()`,
+      ),
+    )
+    const disabledQortiumSettings = JSON.parse(
+      readFileSync(path.join(profileDirectory, 'node-settings.json'), 'utf8'),
+    )
+    assert.equal(disabledQortiumSettings.customUrl, '')
+    assert.equal(disabledQortiumSettings.lastEnabledMode, 'local')
+    assert.equal(disabledQortiumSettings.mode, 'disabled')
+    assert.match(disabledQortiumSettings.apiKey, /^[A-Za-z0-9_-]+$/)
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'Runtime')).click()`,
+    )
+    const qortalOnlyRuntime = await waitUntil('Qortal-only Runtime settings', () =>
+      evaluate(
+        client,
+        `(() => {
+          const cards = [...document.querySelectorAll('.home-v2-core-card')]
+            .map((card) => card.getAttribute('data-network'));
+          return cards.length === 1 && cards[0] === 'qortal' &&
+            !document.querySelector('.home-v2-transport-maintenance') &&
+            Boolean(document.querySelector('.home-v2-qortal-maintenance'));
+        })()`,
+      ),
+    )
+    assert.equal(qortalOnlyRuntime, true)
+    await evaluate(
+      client,
+      `([...document.querySelectorAll('.home-v2-settings-nav button')]
+        .find((button) => button.textContent.trim() === 'General')).click()`,
+    )
+    await evaluate(
+      client,
+      `document.querySelector('input[aria-label="Qortium connection mode"]').click()`,
+    )
+    await waitUntil('restored Qortium network mode', () =>
+      evaluate(
+        client,
+        `document.querySelector('input[aria-label="Qortium connection mode"]')?.checked === true`,
+      ),
+    )
+    assert.deepEqual(
+      JSON.parse(readFileSync(path.join(profileDirectory, 'node-settings.json'), 'utf8')),
+      { ...disabledQortiumSettings, mode: 'local' },
+    )
     await evaluate(
       client,
       `([...document.querySelectorAll('.home-v2-settings-nav button')]

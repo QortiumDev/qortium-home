@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { t } from '../../i18n'
 import type { HomeV2AppearanceSettings } from '../appearance'
-import type { AccountSessionSummary } from '../contracts'
+import type {
+  AccountSessionSummary,
+  NetworkId,
+  NodeConnectionMode,
+  NodeSummary,
+} from '../contracts'
 import {
   validateCustomNewTabAddress,
   type NewTabPreference,
@@ -44,9 +49,19 @@ export function resolveHomeV2SettingsSectionTarget(
   return section === 'notifications' ? 'qdn-apps' : section
 }
 
+type SettingsNetworkNodes = Readonly<
+  Record<NetworkId, Pick<NodeSummary, 'lastEnabledMode' | 'mode'>>
+>
+
+const DEFAULT_SETTINGS_NODES: SettingsNetworkNodes = {
+  qortium: { lastEnabledMode: 'local', mode: 'local' },
+  qortal: { lastEnabledMode: 'local', mode: 'disabled' },
+}
+
 export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly appearance: HomeV2AppearanceSettings
   readonly account: AccountSessionSummary
+  readonly nodes?: SettingsNetworkNodes
   readonly newTabPreference: NewTabPreference
   readonly coreManagement?: HomeV2CoreManagement
   readonly appUpdates?: HomeV2AppUpdates
@@ -58,21 +73,105 @@ export interface SettingsPageProps extends AppearanceSettingsPageProps {
   readonly onOpenReleaseNotes?: (tagName: string) => void
   readonly onRestartWelcome?: () => void
   readonly onSetNewTabPreference?: (preference: NewTabPreference) => void
+  readonly onSetNodeMode?: (
+    network: NetworkId,
+    mode: NodeConnectionMode,
+  ) => void | Promise<void>
+}
+
+function NetworkAvailabilitySettings({
+  nodes,
+  onSetNodeMode,
+}: Pick<SettingsPageProps, 'nodes' | 'onSetNodeMode'>) {
+  const resolvedNodes = nodes ?? DEFAULT_SETTINGS_NODES
+  const [busyNetwork, setBusyNetwork] = useState<NetworkId | null>(null)
+  const [errorNetwork, setErrorNetwork] = useState<NetworkId | null>(null)
+
+  const setEnabled = async (network: NetworkId, enabled: boolean) => {
+    if (!onSetNodeMode || busyNetwork) return
+    setBusyNetwork(network)
+    setErrorNetwork(null)
+    try {
+      await onSetNodeMode(
+        network,
+        enabled ? resolvedNodes[network].lastEnabledMode : 'disabled',
+      )
+    } catch {
+      setErrorNetwork(network)
+    } finally {
+      setBusyNetwork(null)
+    }
+  }
+
+  return (
+    <div className="home-v2-network-availability">
+      <div className="home-v2-setting-group-heading">
+        <strong>{t('connections.title')}</strong>
+        <span>{t('home2.node.connectionMode')}</span>
+      </div>
+      {(['qortium', 'qortal'] as const).map((network) => {
+        const enabled = resolvedNodes[network].mode !== 'disabled'
+        const networkLabel = network === 'qortium' ? 'Qortium' : 'Qortal'
+        return (
+          <div
+            className="home-v2-setting-row"
+            data-home-v2-network-setting={network}
+            key={network}
+          >
+            <div className="home-v2-setting-row__copy">
+              <strong>{networkLabel}</strong>
+              <span>
+                {t('home2.node.connectionModeFor', { network: networkLabel })}
+              </span>
+              {busyNetwork === network ? (
+                <span role="status">{t('common.saving')}</span>
+              ) : errorNetwork === network ? (
+                <span role="alert">{t('node.updateSettingsFailed')}</span>
+              ) : null}
+            </div>
+            <div className="home-v2-setting-row__control">
+              <label>
+                <input
+                  aria-label={t('home2.node.connectionModeFor', {
+                    network: networkLabel,
+                  })}
+                  checked={enabled}
+                  disabled={!onSetNodeMode || busyNetwork !== null}
+                  role="switch"
+                  type="checkbox"
+                  onChange={(event) => void setEnabled(network, event.target.checked)}
+                />
+                {t(
+                  enabled
+                    ? 'home2.settings.enabled'
+                    : 'home2.settings.disabled',
+                )}
+              </label>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function GeneralSettings({
+  nodes,
   newTabPreference,
   notificationPolicy,
   onSetAppNotifications,
   onSetNewTabPreference,
   onRestartWelcome,
+  onSetNodeMode,
 }: Pick<
   SettingsPageProps,
   | 'newTabPreference'
+  | 'nodes'
   | 'notificationPolicy'
   | 'onSetAppNotifications'
   | 'onSetNewTabPreference'
   | 'onRestartWelcome'
+  | 'onSetNodeMode'
 >) {
   const [selectedKind, setSelectedKind] = useState(newTabPreference.kind)
   const [customAddress, setCustomAddress] = useState(
@@ -119,6 +218,10 @@ function GeneralSettings({
         <h2 id="general-settings-title">{t('home2.settings.general')}</h2>
         <p>{t('home2.settings.newTabDescription')}</p>
       </div>
+      <NetworkAvailabilitySettings
+        nodes={nodes}
+        onSetNodeMode={onSetNodeMode}
+      />
       <div className="home-v2-setting-row">
         <div className="home-v2-setting-row__copy">
           <strong>{t('home2.settings.newTab')}</strong>
@@ -235,12 +338,21 @@ function GeneralSettings({
 }
 
 export function SettingsPage(props: SettingsPageProps) {
+  const nodes = props.nodes ?? DEFAULT_SETTINGS_NODES
+  const enabledNetworks = (['qortium', 'qortal'] as const).filter(
+    (network) => nodes[network].mode !== 'disabled',
+  )
+  const qortiumEnabled = enabledNetworks.includes('qortium')
+  const networkCoreAvailable =
+    !!props.coreManagement?.available && enabledNetworks.length > 0
   const coreAvailable =
-    !!props.coreManagement?.available ||
+    networkCoreAvailable ||
     !!props.appUpdates?.available ||
-    !!props.onChainCoreUpdates?.available
+    (qortiumEnabled && !!props.onChainCoreUpdates?.available)
   const qdnAppsAvailable =
-    !!props.qdnAppsManagement?.available && !!props.qdnAppsManagement.client
+    qortiumEnabled &&
+    !!props.qdnAppsManagement?.available &&
+    !!props.qdnAppsManagement.client
   const accountAvailable = props.account.state !== 'none'
   const resolvedRequestedSection = resolveHomeV2SettingsSectionTarget(
     props.requestedSection ?? 'general',
@@ -304,18 +416,20 @@ export function SettingsPage(props: SettingsPageProps) {
         <div className="home-v2-settings-content">
           {activeSection === 'general' ? (
             <GeneralSettings
+              nodes={nodes}
               newTabPreference={props.newTabPreference}
               notificationPolicy={props.notificationPolicy}
               onSetAppNotifications={props.onSetAppNotifications}
               onSetNewTabPreference={props.onSetNewTabPreference}
               onRestartWelcome={props.onRestartWelcome}
+              onSetNodeMode={props.onSetNodeMode}
             />
           ) : activeSection === 'core' &&
             (props.coreManagement?.available ||
               props.appUpdates?.available ||
               props.onChainCoreUpdates?.available) ? (
             <div className="home-v2-runtime-settings">
-              {props.coreManagement?.available ? (
+              {networkCoreAvailable && props.coreManagement ? (
                 <section
                   className="home-v2-settings-panel home-v2-core-settings"
                   aria-labelledby="core-settings-title"
@@ -324,13 +438,23 @@ export function SettingsPage(props: SettingsPageProps) {
                     <h2 id="core-settings-title">{t('home2.core.title')}</h2>
                     <p>{t('home2.core.settingsDescription')}</p>
                   </div>
-                  <CoreManagerCards management={props.coreManagement} />
-                  <CoreMaintenancePanel management={props.coreManagement} />
-                  <TransportMaintenancePanel management={props.coreManagement} />
-                  <QortalMaintenancePanel management={props.coreManagement} />
+                  <CoreManagerCards
+                    management={props.coreManagement}
+                    networks={enabledNetworks}
+                  />
+                  <CoreMaintenancePanel
+                    management={props.coreManagement}
+                    networks={enabledNetworks}
+                  />
+                  {qortiumEnabled ? (
+                    <TransportMaintenancePanel management={props.coreManagement} />
+                  ) : null}
+                  {enabledNetworks.includes('qortal') ? (
+                    <QortalMaintenancePanel management={props.coreManagement} />
+                  ) : null}
                 </section>
               ) : null}
-              {props.onChainCoreUpdates?.available ? (
+              {qortiumEnabled && props.onChainCoreUpdates?.available ? (
                 <OnChainCoreUpdateSettings updates={props.onChainCoreUpdates} />
               ) : null}
               {props.appUpdates?.available ? (

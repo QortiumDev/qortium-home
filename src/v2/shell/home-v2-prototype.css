@@ -1723,6 +1723,23 @@
   font-size: calc(13px * var(--v2-type-scale));
 }
 
+.home-v2-setting-group-heading {
+  display: grid;
+  gap: 4px;
+  padding: 15px 22px 10px;
+  background: color-mix(in srgb, var(--v2-surface) 92%, var(--v2-accent));
+  border-bottom: 1px solid var(--v2-line);
+}
+
+.home-v2-setting-group-heading strong {
+  font-size: calc(13px * var(--v2-type-scale));
+}
+
+.home-v2-setting-group-heading span {
+  color: var(--v2-muted);
+  font-size: calc(12px * var(--v2-type-scale));
+}
+
 .home-v2-setting-row {
   display: grid;
   min-height: 78px;
