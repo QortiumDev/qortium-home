@@ -55,7 +55,10 @@ import {
   serializeHomeV2ShellState,
 } from '../home-v2-live/shell-state'
 import type { DualIdentityLookupResult } from './contracts'
-import { parseHomeV2TextSizeCommand } from '../home-v2-live/text-size-shortcut-client'
+import {
+  parseHomeV2MenuCommand,
+  parseHomeV2TextSizeCommand,
+} from './menu-commands'
 import { HOME_V2_NOTIFICATION_POLICY_SCHEMA } from '../home-v2-live/notification-policy-client'
 import {
   createAndroidFixtureHost,
@@ -1377,6 +1380,16 @@ function testCoreManagementRenderingAndAndroidDegrade(): void {
     'text-size-increase',
   )
   assert.equal(parseHomeV2TextSizeCommand('new-tab'), null)
+  assert.equal(parseHomeV2MenuCommand('new-tab'), 'new-tab')
+  assert.equal(parseHomeV2MenuCommand('reopen-closed-tab'), 'reopen-closed-tab')
+  assert.equal(parseHomeV2MenuCommand('close-tab'), 'close-tab')
+  assert.equal(parseHomeV2MenuCommand('go-back'), 'go-back')
+  assert.equal(parseHomeV2MenuCommand('go-forward'), 'go-forward')
+  assert.equal(parseHomeV2MenuCommand('reload-tab'), 'reload-tab')
+  assert.equal(parseHomeV2MenuCommand('focus-address-bar'), 'focus-address-bar')
+  assert.equal(parseHomeV2MenuCommand('text-size-reset'), 'text-size-reset')
+  assert.equal(parseHomeV2MenuCommand('toggle-devtools'), null)
+  assert.equal(parseHomeV2MenuCommand(7), null)
 
   const unavailableTarget = renderToStaticMarkup(
     <SettingsPage
@@ -1809,8 +1822,10 @@ function testProductionHomeV2EntryIsCapabilityScoped(): void {
   assert.match(preload, /home-v2-notification-policy:get/)
   assert.match(preload, /home-v2-notification-policy:set/)
   assert.match(preload, /home-v2-notification-policy:changed/)
-  assert.match(preload, /exposeInMainWorld\('homeV2TextSizeShortcuts'/)
-  assert.match(preload, /isHomeV2TextSizeCommand\(value\)/)
+  assert.match(preload, /exposeInMainWorld\('homeV2MenuCommands'/)
+  assert.match(preload, /isHomeV2MenuCommand\(value\)/)
+  assert.match(preload, /'reopen-closed-tab'/)
+  assert.match(preload, /'focus-address-bar'/)
   assert.match(preload, /ipcRenderer\.on\('menu:command'/)
   assert.match(preload, /qdn-views:capture/)
   assert.match(preload, /home-v2-accounts:list/)

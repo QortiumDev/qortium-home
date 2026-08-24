@@ -26,6 +26,7 @@ import type {
   VisibleAppIconLoader,
   VisibleAvatarLoader,
 } from '../contracts'
+import { subscribeHomeV2MenuCommands } from '../menu-commands'
 import type {
   PermissionDecision,
   PermissionRequestId,
@@ -962,6 +963,20 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     setRequestedSettingsSection(section)
     onNavigate?.('settings')
   }
+  // Menu close-tab targets the active app tab. Refused while a trusted
+  // overlay owns a tab — closing under a pending prompt would strand it.
+  const closeActiveTabCommand = useRef<() => void>(() => {})
+  closeActiveTabCommand.current = () => {
+    if (overlayOwnerTabId) return
+    if (activeTab) onCloseTab?.(activeTab.id)
+  }
+  useEffect(
+    () =>
+      subscribeHomeV2MenuCommands((command) => {
+        if (command === 'close-tab') closeActiveTabCommand.current()
+      }),
+    [],
+  )
 
   return (
     <div

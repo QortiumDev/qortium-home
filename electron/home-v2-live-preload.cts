@@ -1,20 +1,41 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron')
 
-type HomeV2TextSizeCommand =
+type HomeV2MenuCommand =
+  | 'close-tab'
+  | 'focus-address-bar'
+  | 'go-back'
+  | 'go-forward'
+  | 'new-tab'
+  | 'reload-tab'
+  | 'reopen-closed-tab'
   | 'text-size-decrease'
   | 'text-size-increase'
   | 'text-size-reset'
 
-function isHomeV2TextSizeCommand(value: unknown): value is HomeV2TextSizeCommand {
-  return value === 'text-size-decrease' ||
-    value === 'text-size-increase' ||
-    value === 'text-size-reset'
+const HOME_V2_MENU_COMMANDS = new Set<HomeV2MenuCommand>([
+  'close-tab',
+  'focus-address-bar',
+  'go-back',
+  'go-forward',
+  'new-tab',
+  'reload-tab',
+  'reopen-closed-tab',
+  'text-size-decrease',
+  'text-size-increase',
+  'text-size-reset',
+])
+
+function isHomeV2MenuCommand(value: unknown): value is HomeV2MenuCommand {
+  return (
+    typeof value === 'string' &&
+    HOME_V2_MENU_COMMANDS.has(value as HomeV2MenuCommand)
+  )
 }
 
-contextBridge.exposeInMainWorld('homeV2TextSizeShortcuts', {
-  onCommand: (listener: (command: HomeV2TextSizeCommand) => void) => {
+contextBridge.exposeInMainWorld('homeV2MenuCommands', {
+  onCommand: (listener: (command: HomeV2MenuCommand) => void) => {
     const handler = (_event: unknown, value: unknown) => {
-      if (isHomeV2TextSizeCommand(value)) listener(value)
+      if (isHomeV2MenuCommand(value)) listener(value)
     }
     ipcRenderer.on('menu:command', handler)
     return () => ipcRenderer.removeListener('menu:command', handler)
