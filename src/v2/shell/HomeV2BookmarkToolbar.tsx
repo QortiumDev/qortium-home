@@ -32,6 +32,11 @@ type FolderMenu = {
   readonly y: number
 } | null
 
+function toolbarErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  return t('common.error')
+}
+
 export interface HomeV2BookmarkToolbarProps {
   readonly disabled?: boolean
   readonly isDashboardRoute: boolean
@@ -44,6 +49,8 @@ export interface HomeV2BookmarkToolbarProps {
     link: BookmarkManagerLink,
   ) => readonly HomeV2ContextMenuPresentationItem[]
   readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  /** Surfaces toolbar open/context-action failures (they have no inline alert). */
+  readonly onActionError?: (message: string) => void
   readonly snapshot: BookmarkManagerSnapshot | null
 }
 
@@ -88,6 +95,7 @@ function ToolbarLink({
   loadVisibleAppIcon,
   menuItem = false,
   onOpen,
+  onActionError,
   onOpenMenu,
 }: {
   readonly accountLabel?: string
@@ -96,6 +104,7 @@ function ToolbarLink({
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
   readonly menuItem?: boolean
   readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
+  readonly onActionError?: (message: string) => void
   readonly onOpenMenu: (
     link: BookmarkManagerLink,
     x: number,
@@ -135,7 +144,9 @@ function ToolbarLink({
           longPressed.current = false
           return
         }
-        void Promise.resolve(onOpen(item)).catch(() => undefined)
+        void Promise.resolve(onOpen(item)).catch((error) =>
+          onActionError?.(toolbarErrorMessage(error)),
+        )
       }}
       onContextMenu={(event) => {
         event.preventDefault()
@@ -179,12 +190,14 @@ function ToolbarItems({
   loadVisibleAppIcon,
   onOpenFolder,
   onOpen,
+  onActionError,
   onOpenMenu,
 }: {
   readonly accountLabels: ReadonlyMap<string, string>
   readonly disabled: boolean
   readonly items: readonly BookmarkManagerTreeItem[]
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
+  readonly onActionError?: (message: string) => void
   readonly onOpenFolder: (
     folder: BookmarkManagerFolder,
     x: number,
@@ -217,6 +230,7 @@ function ToolbarItems({
           </button>
         ) : (
           <ToolbarLink
+            onActionError={onActionError}
             accountLabel={item.accountId
               ? accountLabels.get(item.accountId)
               : undefined}
@@ -239,12 +253,14 @@ function FolderMenuItems({
   items,
   loadVisibleAppIcon,
   onOpen,
+  onActionError,
   onOpenMenu,
 }: {
   readonly accountLabels: ReadonlyMap<string, string>
   readonly disabled: boolean
   readonly items: readonly BookmarkManagerTreeItem[]
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
+  readonly onActionError?: (message: string) => void
   readonly onOpen: (link: BookmarkManagerLink) => void | Promise<void>
   readonly onOpenMenu: (
     link: BookmarkManagerLink,
@@ -266,6 +282,7 @@ function FolderMenuItems({
               <span>{item.title}</span>
             </summary>
             <FolderMenuItems
+              onActionError={onActionError}
               accountLabels={accountLabels}
               disabled={disabled}
               items={item.children}
@@ -276,6 +293,7 @@ function FolderMenuItems({
           </details>
         ) : (
           <ToolbarLink
+            onActionError={onActionError}
             accountLabel={item.accountId
               ? accountLabels.get(item.accountId)
               : undefined}
@@ -300,6 +318,7 @@ export function HomeV2BookmarkToolbar({
   loadVisibleAppIcon,
   onContextMenuAction,
   onOpen,
+  onActionError,
   snapshot,
 }: HomeV2BookmarkToolbarProps) {
   const [menu, setMenu] = useState<ToolbarMenu>(null)
@@ -363,6 +382,7 @@ export function HomeV2BookmarkToolbar({
       data-toolbar-visibility={snapshot.toolbarVisibility}
     >
       <ToolbarItems
+        onActionError={onActionError}
         accountLabels={accountLabels}
         disabled={disabled}
         items={snapshot.toolbar}
@@ -387,6 +407,7 @@ export function HomeV2BookmarkToolbar({
           style={{ left: folderMenu.x, top: folderMenu.y }}
         >
           <FolderMenuItems
+              onActionError={onActionError}
             accountLabels={accountLabels}
             disabled={disabled}
             items={folderMenu.folder.children}
@@ -417,7 +438,9 @@ export function HomeV2BookmarkToolbar({
                   setMenu(null)
                   void Promise.resolve(
                     onContextMenuAction?.(menu.link, item.action),
-                  ).catch(() => undefined)
+                  ).catch((error) =>
+                    onActionError?.(toolbarErrorMessage(error)),
+                  )
                 }}
               >
                 <Icon aria-hidden="true" size={17} />

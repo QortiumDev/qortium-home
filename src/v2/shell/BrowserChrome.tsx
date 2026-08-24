@@ -268,8 +268,30 @@ export function BrowserChrome({
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [])
+  // The page viewport sizes itself against the real chrome height via
+  // --v2-chrome-height (text-size scaling and the bookmark toolbar both
+  // change it), replacing the old hardcoded 98px/140px offsets.
+  const chromeRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const element = chromeRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const shell = element.closest<HTMLElement>('.home-v2-shell')
+    if (!shell) return
+    const apply = () =>
+      shell.style.setProperty(
+        '--v2-chrome-height',
+        `${Math.round(element.getBoundingClientRect().height)}px`,
+      )
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      shell.style.removeProperty('--v2-chrome-height')
+    }
+  }, [])
   return (
-    <header className="home-v2-browser-chrome">
+    <header className="home-v2-browser-chrome" ref={chromeRef}>
       <div className="home-v2-browser-tabs-row">
         <TabStrip
           productState={productState}

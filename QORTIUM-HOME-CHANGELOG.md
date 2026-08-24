@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): bookmark toolbar follow-up fixes
+
+Four small fixes from the bookmarks toolbar review. Clicking a
+dashboard pin that fails to open shows its error next to the pin again
+instead of only a passing notice line. Failures when opening a toolbar
+bookmark or running one of its right-click actions are no longer
+silent. The app view below the toolbar now sizes itself from the real
+measured height of the browser chrome, so the layout stays correct
+with the toolbar shown or hidden and at every text size (previously
+two hardcoded heights assumed the default text size and a fixed
+toolbar). And the toolbar visibility setting row in Appearance no
+longer pops in late — it shows immediately as loading until saved
+links finish loading.
+
 ### 2026-08-24 - feat(home-v2): open saved start pages on launch
 
 Start pages saved in Home 1 (and managed through the bookmarks data

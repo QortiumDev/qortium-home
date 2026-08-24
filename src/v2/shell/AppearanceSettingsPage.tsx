@@ -235,21 +235,27 @@ export function AppearanceSettingsPage({
             </select>
           </SettingRow>
 
-          {bookmarkToolbarVisibility ? (
+          {bookmarkToolbarVisibility || onSetBookmarkToolbarVisibility ? (
             <SettingRow
               label={t('bookmarks.toolbarVisibility')}
               description={
-                toolbarSaving
-                  ? t('common.saving')
-                  : toolbarError
-                    ? t('common.error')
-                    : t(`bookmarks.toolbarVisibility.${bookmarkToolbarVisibility}`)
+                !bookmarkToolbarVisibility
+                  ? t('common.loading')
+                  : toolbarSaving
+                    ? t('common.saving')
+                    : toolbarError
+                      ? t('common.error')
+                      : t(`bookmarks.toolbarVisibility.${bookmarkToolbarVisibility}`)
               }
             >
               <select
                 aria-label={t('bookmarks.toolbarVisibility')}
-                value={bookmarkToolbarVisibility}
-                disabled={!onSetBookmarkToolbarVisibility || toolbarSaving}
+                value={bookmarkToolbarVisibility ?? 'always'}
+                disabled={
+                  !bookmarkToolbarVisibility ||
+                  !onSetBookmarkToolbarVisibility ||
+                  toolbarSaving
+                }
                 onChange={(event) => {
                   if (!onSetBookmarkToolbarVisibility) return
                   const visibility = event.target.value as BookmarkToolbarVisibility

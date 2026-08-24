@@ -677,11 +677,6 @@ body,
   background: var(--v2-surface-soft);
 }
 
-.home-v2-browser-chrome:has(.home-v2-bookmark-toolbar)
-  + .home-v2-page-viewport[data-app-active='true'] {
-  height: calc(100vh - 140px);
-}
-
 .home-v2-browser-controls,
 .home-v2-browser-actions {
   display: flex;
@@ -883,14 +878,14 @@ body,
 
 .home-v2-page-viewport {
   width: calc(100% - 36px);
-  min-height: calc(100vh - 98px);
+  min-height: calc(100vh - var(--v2-chrome-height, 98px));
   margin: 0 auto;
   padding: 32px 0 56px;
 }
 
 .home-v2-page-viewport[data-app-active='true'] {
   width: 100%;
-  height: calc(100vh - 98px);
+  height: calc(100vh - var(--v2-chrome-height, 98px));
   min-height: 0;
   padding: 0;
 }
