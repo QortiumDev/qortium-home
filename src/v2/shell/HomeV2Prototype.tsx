@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -1034,7 +1035,9 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const guardedNavigate = overlayOwnerTabId
     ? () => undefined
     : (destination: Exclude<ShellDestination, 'tab'>) => {
-        if (destination === 'settings') setRequestedSettingsSection('general')
+        // Deliberately does NOT reset the Settings section: returning to an
+        // open Settings tab must leave it where the user left it. Deep links
+        // still choose a section through openSettingsSection().
         onNavigate?.(destination)
       }
   const openSettingsSection = (section: HomeV2SettingsSectionTarget) => {
@@ -1044,6 +1047,46 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   }
   // Menu close-tab targets the active app tab. Refused while a trusted
   // overlay owns a tab — closing under a pending prompt would strand it.
+  // Each tab remembers where it was scrolled to. The document is the scroll
+  // container, so switching tabs would otherwise dump every page at the top.
+  const scrollByTab = useRef(new Map<string, number>())
+  useLayoutEffect(() => {
+    const target = scrollByTab.current.get(productState.activeTabId as string) ?? 0
+    window.scrollTo(0, target)
+    if (target === 0) return
+    // Pages that fill in asynchronously (Settings waits on Core status) are
+    // still short at this point, so the browser clamps the restore to 0.
+    // Retry over the next few frames until the position is reachable, and
+    // stop as soon as the user scrolls somewhere themselves.
+    let cancelled = false
+    let frames = 0
+    const settle = () => {
+      // ~3s of frames: Settings waits on Core status over the network before
+      // it is tall enough for a deep restore to be reachable.
+      if (cancelled || frames >= 180) return
+      frames += 1
+      if (Math.abs(window.scrollY - target) > 1) window.scrollTo(0, target)
+      if (window.scrollY !== target) requestAnimationFrame(settle)
+    }
+    const stop = () => { cancelled = true }
+    window.addEventListener('wheel', stop, { once: true, passive: true })
+    window.addEventListener('touchstart', stop, { once: true, passive: true })
+    window.addEventListener('keydown', stop, { once: true })
+    requestAnimationFrame(settle)
+    return () => {
+      cancelled = true
+      window.removeEventListener('wheel', stop)
+      window.removeEventListener('touchstart', stop)
+      window.removeEventListener('keydown', stop)
+    }
+  }, [productState.activeTabId])
+  useEffect(() => {
+    const tabId = productState.activeTabId as string
+    const onScroll = () => scrollByTab.current.set(tabId, window.scrollY)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [productState.activeTabId])
+
   const closeActiveTabCommand = useRef<() => void>(() => {})
   closeActiveTabCommand.current = () => {
     if (overlayOwnerTabId) return
@@ -1161,57 +1204,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         data-app-active={activeTab ? 'true' : 'false'}
         data-app-overlay-active={appOverlayActive ? 'true' : 'false'}
       >
-        {activeTab ? (
-          <AppTabStage
-            productState={productState}
-            snapshot={snapshot}
-            translationVersion={translationVersion}
-            nodeClient={props.nodeClient}
-            selectedAccountId={props.selectedAccountId}
-            reloadVersion={props.appReloadVersion}
-            suspended={appOverlayActive}
-            onNavigationChanged={props.onAppNavigationChanged}
-            onNavigationControllerChange={props.onAppNavigationControllerChange}
-            onOpenAddress={props.onOpenAddress}
-            onTitleChanged={props.onAppTitleChanged}
-            requestApp={props.requestApp}
-          />
-        ) : productState.destination === 'settings' ? (
-          <SettingsPage
-            appearance={snapshot.appearance}
-            account={snapshot.account}
-            nodes={snapshot.nodes}
-            newTabPreference={
-              props.newTabPreference ?? { kind: 'search' }
-            }
-            onSetTheme={props.onSetTheme}
-            onSetAccent={props.onSetAccent}
-            onSetTextSize={props.onSetTextSize}
-            onSetAppZoom={props.onSetAppZoom}
-            onSetLanguage={props.onSetLanguage}
-            bookmarkToolbarVisibility={props.bookmarkToolbarVisibility}
-            onSetBookmarkToolbarVisibility={
-              props.onSetBookmarkToolbarVisibility
-            }
-            onSetNewTabPreference={props.onSetNewTabPreference}
-            onSetNodeMode={props.onSetNodeMode}
-            onToggleRememberUnlock={props.onToggleRememberUnlock}
-            onToggleLockOnExit={props.onToggleLockOnExit}
-            coreManagement={props.coreManagement}
-            appUpdates={props.appUpdates}
-            onChainCoreUpdates={props.onChainCoreUpdates}
-            qdnAppsManagement={props.qdnAppsManagement}
-            loadVisibleAppIcon={props.loadVisibleAppIcon}
-            notificationPolicy={props.notificationPolicy}
-            onSetAppNotifications={props.onSetAppNotifications}
-            onOpenReleaseNotes={(tagName) => props.onOpenReleaseNotes?.({
-              product: 'home',
-              tagName,
-            })}
-            onRestartWelcome={props.onRestartWelcome}
-            requestedSection={requestedSettingsSection}
-          />
-        ) : productState.destination === 'welcome' && props.onboarding ? (
+        {productState.transient ? (
+          productState.transient === 'welcome' && props.onboarding ? (
           <HomeV2WelcomePage
             accountCatalogue={props.accountCatalogue}
             coreManagement={props.coreManagement}
@@ -1241,34 +1235,104 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
             transport={props.coreDocsTransport}
             onOpenCoreSettings={() => openSettingsSection('core')}
           />
-        ) : productState.destination === 'dashboard' ||
-          productState.destination === 'tab' ? (
-          <Dashboard
-            {...props}
-            onOpenSettingsSection={openSettingsSection}
-          />
-        ) : productState.destination === 'newtab' ? (
-          <NewTabPage {...props} />
-        ) : productState.destination === 'releases' && props.releaseNotesTarget ? (
+          ) : productState.transient === 'releases' && props.releaseNotesTarget ? (
           <HomeV2ReleaseNotesPage
             target={props.releaseNotesTarget}
             onNavigate={props.onOpenReleaseNotes ?? (() => undefined)}
           />
-        ) : productState.destination === 'releases' ? (
+          ) : productState.transient === 'releases' ? (
           <section className="home-v2-internal-page" role="alert">
             <h1>{t('releaseNotes.loadFailed')}</h1>
           </section>
-        ) : productState.destination === 'welcome' ? (
+          ) : productState.transient === 'welcome' ? (
           <section className="home-v2-internal-page" role="alert">
             <h1>{t('welcome.error')}</h1>
           </section>
-        ) : productState.destination === 'core-docs' ? (
+          ) : productState.transient === 'core-docs' ? (
           <section className="home-v2-internal-page" role="alert">
             <h1>{t('api.loadFailed')}</h1>
           </section>
-        ) : (
-          <InternalPage destination={productState.destination} />
-        )}
+          ) : (
+            <InternalPage destination={productState.transient} />
+          )
+        ) : null}
+        {/* Every open tab stays mounted and is merely hidden when inactive:
+            unmounting would throw away scroll position, form state and any
+            in-progress work the moment the user glanced at another tab. */}
+        {productState.entries.map((entry) => {
+          const isActive = entry.id === productState.activeTabId
+          if (entry.kind === 'app') {
+            // App tabs keep their own persistence: on desktop the native view
+            // survives hidden, on Android the stage is keyed per tab.
+            return isActive && !productState.transient ? (
+              <AppTabStage
+                productState={productState}
+                snapshot={snapshot}
+                translationVersion={translationVersion}
+                nodeClient={props.nodeClient}
+                selectedAccountId={props.selectedAccountId}
+                reloadVersion={props.appReloadVersion}
+                suspended={appOverlayActive}
+                onNavigationChanged={props.onAppNavigationChanged}
+                onNavigationControllerChange={props.onAppNavigationControllerChange}
+                onOpenAddress={props.onOpenAddress}
+                onTitleChanged={props.onAppTitleChanged}
+                requestApp={props.requestApp}
+              />
+            ) : null
+          }
+          return (
+            <div
+              className="home-v2-page-slot"
+              key={entry.id}
+              data-internal-page={entry.page}
+              hidden={!isActive || !!productState.transient}
+            >
+              {entry.page === 'settings' ? (
+              <SettingsPage
+                appearance={snapshot.appearance}
+                account={snapshot.account}
+                nodes={snapshot.nodes}
+                newTabPreference={
+                  props.newTabPreference ?? { kind: 'search' }
+                }
+                onSetTheme={props.onSetTheme}
+                onSetAccent={props.onSetAccent}
+                onSetTextSize={props.onSetTextSize}
+                onSetAppZoom={props.onSetAppZoom}
+                onSetLanguage={props.onSetLanguage}
+                bookmarkToolbarVisibility={props.bookmarkToolbarVisibility}
+                onSetBookmarkToolbarVisibility={
+                  props.onSetBookmarkToolbarVisibility
+                }
+                onSetNewTabPreference={props.onSetNewTabPreference}
+                onSetNodeMode={props.onSetNodeMode}
+                onToggleRememberUnlock={props.onToggleRememberUnlock}
+                onToggleLockOnExit={props.onToggleLockOnExit}
+                coreManagement={props.coreManagement}
+                appUpdates={props.appUpdates}
+                onChainCoreUpdates={props.onChainCoreUpdates}
+                qdnAppsManagement={props.qdnAppsManagement}
+                loadVisibleAppIcon={props.loadVisibleAppIcon}
+                notificationPolicy={props.notificationPolicy}
+                onSetAppNotifications={props.onSetAppNotifications}
+                onOpenReleaseNotes={(tagName) => props.onOpenReleaseNotes?.({
+                  product: 'home',
+                  tagName,
+                })}
+                onRestartWelcome={props.onRestartWelcome}
+                requestedSection={requestedSettingsSection}
+              />
+              ) : entry.page === 'newtab' ? (
+                <NewTabPage {...props} />
+              ) : entry.page === 'dashboard' ? (
+                <Dashboard {...props} onOpenSettingsSection={openSettingsSection} />
+              ) : (
+                <InternalPage destination={entry.page} />
+              )}
+            </div>
+          )
+        })}
       </main>
       {props.overlay}
       <PermissionDialog

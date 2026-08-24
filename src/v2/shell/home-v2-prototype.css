@@ -882,6 +882,17 @@ body,
   margin-inline-start: -7px;
 }
 
+/* Wrapper for a kept-mounted tab page. `display: contents` keeps it invisible
+   to layout, so each page still lays out as a direct child of the viewport,
+   while [hidden] takes the inactive ones out of flow entirely. */
+.home-v2-page-slot {
+  display: contents;
+}
+
+.home-v2-page-slot[hidden] {
+  display: none;
+}
+
 .home-v2-page-viewport {
   width: calc(100% - 36px);
   min-height: calc(100vh - var(--v2-chrome-height, 98px));

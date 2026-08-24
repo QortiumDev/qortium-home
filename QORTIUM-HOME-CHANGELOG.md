@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): keep your place when switching tabs
+
+Home pages no longer restart when you switch away from them. Previously
+only the page you were looking at existed at all, so glancing at another
+tab threw away everything about the one you left: Settings jumped back
+to the General section and to the top of the page, and anything
+half-filled-in was gone. Every open tab now stays loaded and is simply
+hidden while another is in front, and each tab remembers its own scroll
+position, including pages like Settings whose content finishes loading a
+moment after you open it. App tabs on the desktop already kept their
+state and continue to.
+
 ### 2026-08-24 - fix(home-v2): stop apps reloading on a brief node hiccup
 
 Open apps could reload on their own every so often, losing whatever was
