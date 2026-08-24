@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - fix(home-v2): correct the layout at every app zoom level
+
+With app zoom set to anything other than 100%, Home laid itself out
+taller than the window: the top bar could be pushed off the top and the
+bottom of the open app — the chat composer, for instance — was pushed
+off the bottom. Home was scaling itself with a page-styling zoom, but
+the height calculations it used are not aware of that kind of zoom, so
+the whole shell overflowed by roughly the zoom amount. App zoom now uses
+the window's own zoom, the same one the keyboard shortcuts and Ctrl and
+the mouse wheel already use, which scales everything consistently. The
+window now fits exactly at 80%, 120% and 150%, embedded apps scale with
+the rest of the interface, and zooming with the keyboard or wheel keeps
+the Appearance setting in step instead of letting the two drift apart.
+
 ### 2026-08-24 - fix(home-v2): keep your place when switching tabs
 
 Home pages no longer restart when you switch away from them. Previously

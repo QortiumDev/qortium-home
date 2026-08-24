@@ -28,7 +28,11 @@ import type {
   VisibleAvatarLoader,
 } from '../contracts'
 import { subscribeHomeV2MenuCommands } from '../menu-commands'
-import { stepHomeV2WindowZoom } from '../zoom-client'
+import {
+  hasHomeV2NativeZoom,
+  setHomeV2WindowZoom,
+  stepHomeV2WindowZoom,
+} from '../zoom-client'
 import type {
   PermissionDecision,
   PermissionRequestId,
@@ -1049,6 +1053,12 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   // overlay owns a tab — closing under a pending prompt would strand it.
   // Each tab remembers where it was scrolled to. The document is the scroll
   // container, so switching tabs would otherwise dump every page at the top.
+  const nativeZoom = hasHomeV2NativeZoom()
+  useEffect(() => {
+    if (!nativeZoom) return
+    void setHomeV2WindowZoom(snapshot.appearance.appZoom)
+  }, [nativeZoom, snapshot.appearance.appZoom])
+
   const scrollByTab = useRef(new Map<string, number>())
   useLayoutEffect(() => {
     const target = scrollByTab.current.get(productState.activeTabId as string) ?? 0
@@ -1151,7 +1161,11 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
       }
       style={
         {
-          '--v2-app-zoom': snapshot.appearance.appZoom / 100,
+          // Native zoom does the scaling on desktop, so the CSS zoom must stay
+          // neutral there; `100vh` is not zoom-aware and a CSS-zoomed shell
+          // overflows the window. Android has no native zoom bridge and keeps
+          // the CSS path.
+          '--v2-app-zoom': nativeZoom ? 1 : snapshot.appearance.appZoom / 100,
         } as CSSProperties
       }
     >

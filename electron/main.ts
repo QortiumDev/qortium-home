@@ -809,6 +809,23 @@ function registerMenuIpcHandlers() {
 function registerHomeV2ZoomIpcHandlers() {
   // Narrow Home 2 surface: the shell renderer can only step its own window's
   // zoom (Ctrl+wheel over shell-owned surfaces); no absolute set is exposed.
+  // Absolute set backs the Appearance "app zoom" setting. Native zoom is used
+  // rather than CSS `zoom` because `100vh` is not zoom-aware: inside a
+  // CSS-zoomed shell the viewport math overflowed the window (measured: 841px
+  // of content in a 720px window at 120%), cutting off the chrome and the
+  // bottom of the open app.
+  ipcMain.handle('home-v2-zoom:set', (event, percent: unknown) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    if (typeof percent !== 'number' || !Number.isFinite(percent)) {
+      throw new Error('Zoom percent must be a finite number.');
+    }
+
+    // No zoom:changed echo to the requester: it already knows the value it
+    // asked for, and echoing renderer-originated sets can oscillate.
+    return setZoomPercent(event.sender, percent, false);
+  });
+
   ipcMain.handle('home-v2-zoom:step', (event, direction: unknown) => {
     assertAuthorizedHomeV2Sender(event);
 

@@ -49,6 +49,7 @@ import {
   parseHomeV2TextSizeCommand,
   subscribeHomeV2MenuCommands,
 } from '../v2/menu-commands'
+import { subscribeHomeV2WindowZoom } from '../v2/zoom-client'
 import {
   HomeV2ResourceViewer,
   type HomeV2ResourceViewerState,
@@ -1210,6 +1211,14 @@ export function HomeV2LiveApp() {
       else if (command === 'go-forward') navigation.goForward()
       else if (command === 'reload-tab') navigation.reload()
       else if (command === 'reopen-closed-tab') navigation.reopenClosedTab()
+    })
+  }, [updateAppearance])
+  useEffect(() => {
+    // Keyboard (Ctrl +/-) and Ctrl+wheel zoom are applied by the main process.
+    // Mirror the result into the appearance setting so the Appearance slider
+    // and the actual window zoom cannot drift apart.
+    return subscribeHomeV2WindowZoom((percent) => {
+      updateAppearance({ appZoom: clampHomeV2AppZoom(percent) })
     })
   }, [updateAppearance])
   useEffect(() => {
