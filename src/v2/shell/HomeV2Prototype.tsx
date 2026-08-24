@@ -34,9 +34,9 @@ import type {
   PermissionState,
 } from '../bridge-permissions'
 import type {
-  InternalPageId,
   ProductState,
   ShellDestination,
+  TabPageId,
 } from '../product-model'
 import type { NewTabPreference } from '../new-tab-preference'
 import { useHomeV2Translation } from '../i18n'
@@ -163,12 +163,11 @@ export interface HomeV2PrototypeProps {
   readonly onReload?: () => void
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
-  readonly onCloseInternal?: (page: InternalPageId) => void
+  readonly onOpenInternalTab?: (page: TabPageId) => void
   readonly onReorderTab?: (
     tabId: ProductState['tabs'][number]['id'],
     toIndex: number,
   ) => void
-  readonly onReorderInternal?: (page: InternalPageId, toIndex: number) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -1005,9 +1004,8 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
     layout,
     onActivateTab,
     onCloseTab,
-    onCloseInternal,
+    onOpenInternalTab,
     onReorderTab,
-    onReorderInternal,
     onNavigate,
     onResolvePermission,
   } = props
@@ -1038,9 +1036,6 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         if (destination === 'settings') setRequestedSettingsSection('general')
         onNavigate?.(destination)
       }
-  const guardedCloseInternal = overlayOwnerTabId
-    ? () => undefined
-    : onCloseInternal
   const openSettingsSection = (section: HomeV2SettingsSectionTarget) => {
     if (overlayOwnerTabId) return
     setRequestedSettingsSection(section)
@@ -1051,13 +1046,7 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
   const closeActiveTabCommand = useRef<() => void>(() => {})
   closeActiveTabCommand.current = () => {
     if (overlayOwnerTabId) return
-    if (activeTab) {
-      onCloseTab?.(activeTab.id)
-      return
-    }
-    if (productState.destination !== 'tab') {
-      onCloseInternal?.(productState.destination)
-    }
+    onCloseTab?.(productState.activeTabId)
   }
   useEffect(
     () =>
@@ -1127,9 +1116,10 @@ export function HomeV2Prototype(props: HomeV2PrototypeProps) {
         productState={productState}
         onActivateTab={guardedActivateTab}
         onCloseTab={onCloseTab}
-        onCloseInternal={guardedCloseInternal}
+        onOpenInternalTab={
+          overlayOwnerTabId ? undefined : onOpenInternalTab
+        }
         onReorderTab={onReorderTab}
-        onReorderInternal={onReorderInternal}
         onNavigate={guardedNavigate}
         onOpenAddress={props.onOpenAddress}
         onOpenAsWidget={props.onOpenAsWidget}

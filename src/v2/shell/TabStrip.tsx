@@ -5,12 +5,9 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react'
+import { Compass, LayoutDashboard, Rocket, Settings } from 'lucide-react'
 import type { TabId } from '../contracts'
-import type {
-  InternalPageId,
-  ProductState,
-  ShellDestination,
-} from '../product-model'
+import type { ProductState, ShellEntry, TabPageId } from '../product-model'
 import { t, type TranslationKey } from '../../i18n'
 import { NetworkBadge, networkLabels } from './NetworkBadge'
 import { HomeMark } from './ProductMarks'
@@ -21,38 +18,47 @@ export interface TabStripProps {
   readonly productState: ProductState
   readonly onActivateTab?: (tabId: TabId) => void
   readonly onCloseTab?: (tabId: TabId) => void
-  readonly onCloseInternal?: (page: InternalPageId) => void
   readonly onReorderTab?: (tabId: TabId, toIndex: number) => void
-  readonly onReorderInternal?: (page: InternalPageId, toIndex: number) => void
-  readonly onNavigate?: (
-    destination: Exclude<ShellDestination, 'tab'>,
-  ) => void
   readonly onNewTab?: () => void
   readonly newTabDisabled?: boolean
   readonly loadVisibleAppIcon?: VisibleAppIconLoader
 }
 
-const internalTabLabelKeys: Readonly<
-  Record<Exclude<ShellDestination, 'tab'>, TranslationKey>
-> = {
+const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> = {
   activity: 'home2.activity',
   apps: 'home2.apps',
-  'core-docs': 'coreApi.title',
   dashboard: 'common.dashboard',
   newtab: 'home2.tabs.newTab',
-  releases: 'releaseNotes.open',
   settings: 'common.settings',
-  welcome: 'welcome.title',
+}
+
+/**
+ * Every internal page used to render the same Home mark, so a Dashboard tab
+ * and a Settings tab were identical apart from their label.
+ */
+function InternalTabIcon({ page }: { readonly page: TabPageId }) {
+  if (page === 'dashboard') return <HomeMark className="home-v2-tab__favicon" />
+  const Icon =
+    page === 'settings'
+      ? Settings
+      : page === 'apps'
+        ? Rocket
+        : page === 'activity'
+          ? Compass
+          : LayoutDashboard
+  return (
+    <Icon
+      className="home-v2-tab__favicon"
+      aria-hidden="true"
+      size={18}
+      strokeWidth={1.9}
+    />
+  )
 }
 
 const TAB_DRAG_START_MIN_DISTANCE_PX = 5
 
-/** Tabs drag-reorder within their own group: internal pages stay grouped
- *  before app tabs. `key` is `internal:<page>` or the app tab id. */
-type TabDragKind = 'app' | 'internal'
-
 interface TabDragState {
-  kind: TabDragKind
   key: string
   pointerId: number
   startX: number
@@ -60,14 +66,17 @@ interface TabDragState {
   hasReordered: boolean
 }
 
+function entryLabel(entry: ShellEntry): string {
+  return entry.kind === 'internal'
+    ? t(internalTabLabelKeys[entry.page])
+    : entry.title
+}
+
 export function TabStrip({
   productState,
   onActivateTab,
   onCloseTab,
-  onCloseInternal,
   onReorderTab,
-  onReorderInternal,
-  onNavigate,
   onNewTab,
   newTabDisabled,
   loadVisibleAppIcon,
@@ -78,59 +87,11 @@ export function TabStrip({
   const suppressClickKey = useRef<string | null>(null)
   useEffect(() => () => detachDragListeners.current?.(), [])
 
-  const groupKeys = (kind: TabDragKind) =>
-    kind === 'internal'
-      ? productState.internalPages.map((page) => `internal:${page}`)
-      : productState.tabs.map((tab) => tab.id as string)
-
-  const dispatchReorder = (kind: TabDragKind, key: string, toIndex: number) => {
-    if (kind === 'internal') {
-      onReorderInternal?.(key.slice('internal:'.length) as InternalPageId, toIndex)
-    } else {
-      onReorderTab?.(key as TabId, toIndex)
-    }
-  }
+  const orderedKeys = () => productState.entries.map((entry) => entry.id as string)
 
   const registerTab = (key: string) => (element: HTMLDivElement | null) => {
     if (element) tabElements.current.set(key, element)
     else tabElements.current.delete(key)
-  }
-
-  const handlePointerDown = (
-    event: PointerEvent<HTMLDivElement>,
-    kind: TabDragKind,
-    key: string,
-  ) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    // The close button must receive an ordinary click without pointer capture.
-    if ((event.target as HTMLElement).closest('.home-v2-tab__close')) return
-    if (kind === 'internal' ? !onReorderInternal : !onReorderTab) return
-    dragState.current = {
-      kind,
-      key,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      hasReordered: false,
-    }
-    // Deliberately NOT setPointerCapture: capturing on the tab makes Chromium
-    // target the follow-up `click` at the capture element, so the inner
-    // button[role=tab] never receives it and tabs stop switching entirely
-    // (regression shipped in PR #351). Window-level listeners track the drag
-    // just as well — including outside the strip — and leave click intact.
-    detachDragListeners.current?.()
-    const onMove = (moveEvent: globalThis.PointerEvent) =>
-      handleDragMove(moveEvent)
-    const onEnd = (endEvent: globalThis.PointerEvent) => handleDragEnd(endEvent)
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onEnd)
-    window.addEventListener('pointercancel', onEnd)
-    detachDragListeners.current = () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onEnd)
-      window.removeEventListener('pointercancel', onEnd)
-      detachDragListeners.current = null
-    }
   }
 
   const handleDragMove = (event: globalThis.PointerEvent) => {
@@ -143,10 +104,9 @@ export function TabStrip({
     ) {
       return
     }
-    // Live reorder: the tab's final index is where the pointer would insert
-    // it among its group siblings (first sibling whose midpoint is right of
-    // the pointer). The model no-ops when the index is unchanged.
-    const keys = groupKeys(drag.kind)
+    // Live reorder across the whole strip: internal pages and app tabs are one
+    // ordered list, so a tab can be dragged anywhere among its siblings.
+    const keys = orderedKeys()
     const fromIndex = keys.indexOf(drag.key)
     if (fromIndex < 0 || keys.length < 2) return
     const siblings = keys.filter((key) => key !== drag.key)
@@ -162,7 +122,7 @@ export function TabStrip({
     }
     if (insertIndex === fromIndex) return
     drag.hasReordered = true
-    dispatchReorder(drag.kind, drag.key, insertIndex)
+    onReorderTab?.(drag.key as TabId, insertIndex)
   }
 
   const handleDragEnd = (event: globalThis.PointerEvent) => {
@@ -173,6 +133,39 @@ export function TabStrip({
     if (drag.hasReordered) suppressClickKey.current = drag.key
     dragState.current = null
     detachDragListeners.current?.()
+  }
+
+  const handlePointerDown = (
+    event: PointerEvent<HTMLDivElement>,
+    key: string,
+  ) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    // The close button must receive an ordinary click.
+    if ((event.target as HTMLElement).closest('.home-v2-tab__close')) return
+    if (!onReorderTab) return
+    dragState.current = {
+      key,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      hasReordered: false,
+    }
+    // Deliberately NOT setPointerCapture: capturing on the tab makes Chromium
+    // target the follow-up `click` at the capture element, so the inner
+    // button[role=tab] never receives it and tabs stop switching entirely
+    // (regression shipped in PR #351, fixed in #356).
+    detachDragListeners.current?.()
+    const onMove = (moveEvent: globalThis.PointerEvent) => handleDragMove(moveEvent)
+    const onEnd = (endEvent: globalThis.PointerEvent) => handleDragEnd(endEvent)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onEnd)
+    window.addEventListener('pointercancel', onEnd)
+    detachDragListeners.current = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onEnd)
+      window.removeEventListener('pointercancel', onEnd)
+      detachDragListeners.current = null
+    }
   }
 
   const consumeSuppressedClick = (key: string) => {
@@ -187,7 +180,7 @@ export function TabStrip({
     event: KeyboardEvent<HTMLButtonElement>,
     key: string,
   ) => {
-    const keys = [...groupKeys('internal'), ...groupKeys('app')]
+    const keys = orderedKeys()
     const currentIndex = keys.indexOf(key)
     if (currentIndex < 0) return
     let nextIndex: number | null = null
@@ -224,21 +217,22 @@ export function TabStrip({
         }
       }}
     >
-      {productState.internalPages.map((page) => {
-        const isActive = productState.destination === page
-        const label = t(internalTabLabelKeys[page])
-        const key = `internal:${page}`
+      {productState.entries.map((entry) => {
+        const key = entry.id as string
+        const isActive = productState.activeTabId === entry.id
+        const label = entryLabel(entry)
         return (
           <div
-            className={`home-v2-tab home-v2-tab--dashboard${
-              isActive ? ' is-active' : ''
-            }`}
+            className={`home-v2-tab${
+              entry.kind === 'internal' ? ' home-v2-tab--dashboard' : ''
+            }${isActive ? ' is-active' : ''}`}
             key={key}
-            data-internal-page={page}
+            data-tab-id={key}
+            data-internal-page={entry.kind === 'internal' ? entry.page : undefined}
             ref={registerTab(key)}
-            onPointerDown={(event) => handlePointerDown(event, 'internal', key)}
+            onPointerDown={(event) => handlePointerDown(event, key)}
             onAuxClick={(event) =>
-              handleAuxClick(event, () => onCloseInternal?.(page))
+              handleAuxClick(event, () => onCloseTab?.(entry.id))
             }
           >
             <button
@@ -248,66 +242,37 @@ export function TabStrip({
               className={isActive ? 'is-active' : ''}
               onClick={() => {
                 if (consumeSuppressedClick(key)) return
-                onNavigate?.(page)
+                onActivateTab?.(entry.id)
               }}
               onKeyDown={(event) => handleTabKeyDown(event, key)}
             >
-              <HomeMark className="home-v2-tab__favicon" />
-              {label}
+              {entry.kind === 'internal' ? (
+                <InternalTabIcon page={entry.page} />
+              ) : (
+                <HomeV2AppIcon
+                  displayUrl={entry.context.resourceLocation}
+                  loader={loadVisibleAppIcon}
+                  size={18}
+                  variant="tab"
+                />
+              )}
+              <span>{label}</span>
+              {entry.kind === 'app' ? (
+                <NetworkBadge network={entry.context.sourceNetwork} />
+              ) : null}
             </button>
             <button
               type="button"
               className="home-v2-tab__close"
-              aria-label={t('tabs.closeNamed', { label })}
-              onClick={() => onCloseInternal?.(page)}
-            >
-              ×
-            </button>
-          </div>
-        )
-      })}
-      {productState.tabs.map((tab) => {
-        const isActive = productState.activeTabId === tab.id
-        const key = tab.id as string
-        return (
-          <div
-            className={`home-v2-tab${isActive ? ' is-active' : ''}`}
-            key={key}
-            data-tab-id={tab.id}
-            ref={registerTab(key)}
-            onPointerDown={(event) => handlePointerDown(event, 'app', key)}
-            onAuxClick={(event) =>
-              handleAuxClick(event, () => onCloseTab?.(tab.id))
-            }
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={isActive ? 'is-active' : ''}
-              onClick={() => {
-                if (consumeSuppressedClick(key)) return
-                onActivateTab?.(tab.id)
-              }}
-              onKeyDown={(event) => handleTabKeyDown(event, key)}
-            >
-              <HomeV2AppIcon
-                displayUrl={tab.context.resourceLocation}
-                loader={loadVisibleAppIcon}
-                size={18}
-                variant="tab"
-              />
-              <span>{tab.title}</span>
-              <NetworkBadge network={tab.context.sourceNetwork} />
-            </button>
-            <button
-              type="button"
-              className="home-v2-tab__close"
-              aria-label={t('home2.tabs.closeFrom', {
-                label: tab.title,
-                network: networkLabels[tab.context.sourceNetwork],
-              })}
-              onClick={() => onCloseTab?.(tab.id)}
+              aria-label={
+                entry.kind === 'app'
+                  ? t('home2.tabs.closeFrom', {
+                      label,
+                      network: networkLabels[entry.context.sourceNetwork],
+                    })
+                  : t('tabs.closeNamed', { label })
+              }
+              onClick={() => onCloseTab?.(entry.id)}
             >
               ×
             </button>

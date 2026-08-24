@@ -18,6 +18,29 @@ export type ShellDestination =
   | 'welcome'
   | 'tab'
 
+export type InternalPageId = Exclude<ShellDestination, 'tab'>
+
+/**
+ * Pages that own unpersisted side state in the shell (the release target, the
+ * docs network, onboarding progress). They render full-window instead of
+ * taking a tab, so there is only ever one of each and they never survive a
+ * restart.
+ */
+export type TransientPageId = 'core-docs' | 'releases' | 'welcome'
+
+/** Internal pages that can hold a tab, and may do so more than once. */
+export type TabPageId = Exclude<InternalPageId, TransientPageId>
+
+const transientPages: ReadonlySet<InternalPageId> = new Set<InternalPageId>([
+  'core-docs',
+  'releases',
+  'welcome',
+])
+
+export function isTransientPage(page: InternalPageId): page is TransientPageId {
+  return transientPages.has(page)
+}
+
 export interface AppTab {
   readonly id: TabId
   readonly appId: AppId
@@ -25,17 +48,31 @@ export interface AppTab {
   readonly context: AppTabContext
 }
 
-export type InternalPageId = Exclude<ShellDestination, 'tab'>
+/**
+ * One entry in the tab strip. Internal pages and apps share a single ordered
+ * list, so they interleave and drag past each other freely, and a page may
+ * appear more than once — every instance has its own id.
+ */
+export type ShellEntry =
+  | { readonly kind: 'internal'; readonly id: TabId; readonly page: TabPageId }
+  | {
+      readonly kind: 'app'
+      readonly id: TabId
+      readonly appId: AppId
+      readonly title: string
+      readonly context: AppTabContext
+    }
 
 export interface ProductState {
-  readonly destination: ShellDestination
-  /**
-   * Internal pages open as tabs, in tab-strip order. Each page is open at
-   * most once; a non-'tab' destination is always a member of this list.
-   */
-  readonly internalPages: readonly InternalPageId[]
+  /** Source of truth: every tab, in strip order. Never empty. */
+  readonly entries: readonly ShellEntry[]
+  readonly activeTabId: TabId
+  /** Full-window page that temporarily replaces the active tab's content. */
+  readonly transient: TransientPageId | null
+  /** Derived: app entries only, for surfaces that ignore internal pages. */
   readonly tabs: readonly AppTab[]
-  readonly activeTabId: TabId | null
+  /** Derived: transient page, else the active internal page, else 'tab'. */
+  readonly destination: ShellDestination
   readonly revision: number
 }
 
@@ -53,19 +90,20 @@ export type ProductAction =
       readonly tabId: TabId
       readonly title: string | null
     }
+  /** Focuses an existing tab for the page, opening one only if none is open. */
   | {
       readonly type: 'navigate'
-      readonly destination: Exclude<ShellDestination, 'tab'>
+      readonly destination: InternalPageId
     }
-  | { readonly type: 'close-internal'; readonly page: InternalPageId }
+  /** Always opens another instance of the page (the "+" / Ctrl+T route). */
+  | {
+      readonly type: 'open-internal'
+      readonly page: TabPageId
+      readonly tabId: TabId
+    }
   | {
       readonly type: 'reorder-tab'
       readonly tabId: TabId
-      readonly toIndex: number
-    }
-  | {
-      readonly type: 'reorder-internal'
-      readonly page: InternalPageId
       readonly toIndex: number
     }
   | { readonly type: 'restore'; readonly state: ProductState }
@@ -83,27 +121,65 @@ export class ProductModelError extends Error {
   }
 }
 
-function freezeTab(tab: AppTab): AppTab {
-  return Object.freeze({
-    ...tab,
-    context: Object.freeze({ ...tab.context }),
-  })
+let fallbackTabSequence = 0
+
+/** Ids only have to be unique within a window. */
+function nextInternalTabId(): TabId {
+  fallbackTabSequence += 1
+  return `home-v2:internal:${fallbackTabSequence}` as TabId
 }
 
-function freezeProductState(state: ProductState): ProductState {
+function freezeEntry(entry: ShellEntry): ShellEntry {
+  return entry.kind === 'app'
+    ? Object.freeze({ ...entry, context: Object.freeze({ ...entry.context }) })
+    : Object.freeze({ ...entry })
+}
+
+function freezeProductState(
+  state: Omit<ProductState, 'tabs' | 'destination'>,
+): ProductState {
+  const entries: readonly ShellEntry[] = state.entries.length
+    ? state.entries
+    : [
+        {
+          kind: 'internal' as const,
+          id: nextInternalTabId(),
+          page: 'dashboard' as const,
+        },
+      ]
+  const activeTabId = entries.some((entry) => entry.id === state.activeTabId)
+    ? state.activeTabId
+    : entries[0].id
+  const active = entries.find((entry) => entry.id === activeTabId)!
+  const appTabs = entries.filter(
+    (entry): entry is Extract<ShellEntry, { kind: 'app' }> =>
+      entry.kind === 'app',
+  )
   return Object.freeze({
     ...state,
-    internalPages: Object.freeze([...state.internalPages]),
-    tabs: Object.freeze(state.tabs.map(freezeTab)),
+    entries: Object.freeze(entries.map(freezeEntry)),
+    activeTabId,
+    tabs: Object.freeze(
+      appTabs.map((entry) =>
+        Object.freeze({
+          id: entry.id,
+          appId: entry.appId,
+          title: entry.title,
+          context: Object.freeze({ ...entry.context }),
+        }),
+      ),
+    ),
+    destination:
+      state.transient ?? (active.kind === 'internal' ? active.page : 'tab'),
   })
 }
 
 export function createProductState(): ProductState {
+  const id = nextInternalTabId()
   return freezeProductState({
-    destination: 'dashboard',
-    internalPages: ['dashboard'],
-    tabs: [],
-    activeTabId: null,
+    entries: [{ kind: 'internal', id, page: 'dashboard' }],
+    activeTabId: id,
+    transient: null,
     revision: 0,
   })
 }
@@ -112,126 +188,124 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-const destinations = new Set<ShellDestination>([
+const tabPages: ReadonlySet<string> = new Set<TabPageId>([
   'activity',
   'apps',
-  'core-docs',
   'dashboard',
   'newtab',
-  'releases',
   'settings',
-  'welcome',
-  'tab',
 ])
 
-export function restoreProductState(value: unknown): ProductState {
-  if (!isRecord(value) || !Array.isArray(value.tabs)) return createProductState()
-  const tabs: AppTab[] = []
-  for (const candidate of value.tabs.slice(0, 12)) {
-    if (!isRecord(candidate) || !isRecord(candidate.context)) continue
-    const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
-    const appId = typeof candidate.appId === 'string' ? candidate.appId.trim() : ''
-    const title = sanitizeHomeV2AppTitle(candidate.title)
-    const context = candidate.context
-    const resourceLocation =
-      typeof context.resourceLocation === 'string'
-        ? context.resourceLocation.trim()
-        : ''
-    if (
-      !id ||
-      id.length > 80 ||
-      !appId ||
-      appId.length > 400 ||
-      !title ||
-      context.appId !== appId ||
-      context.tabId !== id ||
-      (context.sourceNetwork !== 'qortal' &&
-        context.sourceNetwork !== 'qortium')
-    ) {
-      continue
-    }
-    try {
-      const parsed = parseAppResourceLocation(resourceLocation)
-      if (parsed.sourceNetwork !== context.sourceNetwork) continue
-    } catch {
-      continue
-    }
-    tabs.push(
-      freezeTab({
-        id: id as TabId,
-        appId: appId as AppId,
-        title,
-        context: {
-          appId: appId as AppId,
-          identityId:
-            typeof context.identityId === 'string'
-              ? (context.identityId as AppTabContext['identityId'])
-              : ('home-v2:identity:none' as AppTabContext['identityId']),
-          resourceLocation:
-            resourceLocation as AppTabContext['resourceLocation'],
-          sourceNetwork: context.sourceNetwork,
-          tabId: id as TabId,
-          walletRef:
-            typeof context.walletRef === 'string'
-              ? (context.walletRef as AppTabContext['walletRef'])
-              : null,
-        },
-      }),
-    )
+function parseAppEntry(candidate: unknown): ShellEntry | null {
+  if (!isRecord(candidate) || !isRecord(candidate.context)) return null
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+  const appId = typeof candidate.appId === 'string' ? candidate.appId.trim() : ''
+  const title = sanitizeHomeV2AppTitle(candidate.title)
+  const context = candidate.context
+  const resourceLocation =
+    typeof context.resourceLocation === 'string'
+      ? context.resourceLocation.trim()
+      : ''
+  if (
+    !id ||
+    id.length > 80 ||
+    !appId ||
+    appId.length > 400 ||
+    !title ||
+    context.appId !== appId ||
+    context.tabId !== id ||
+    (context.sourceNetwork !== 'qortal' && context.sourceNetwork !== 'qortium')
+  ) {
+    return null
   }
-  const destination = destinations.has(value.destination as ShellDestination)
-    ? (value.destination as ShellDestination)
-    : 'dashboard'
-  const activeTabId =
-    typeof value.activeTabId === 'string' &&
-    tabs.some((tab) => tab.id === value.activeTabId)
-      ? (value.activeTabId as TabId)
-      : null
-  const finalDestination =
-    destination === 'releases' ||
-    destination === 'core-docs' ||
-    destination === 'welcome' ||
-    (destination === 'tab' && !activeTabId)
-      ? 'dashboard'
-      : destination
-  // Transient pages carry side state (release target, docs network,
-  // onboarding) that is not persisted, so they never restore as open tabs —
-  // matching the destination downgrade above.
-  const internalPages: InternalPageId[] = []
-  if (Array.isArray(value.internalPages)) {
-    for (const candidate of value.internalPages.slice(0, 8)) {
-      if (typeof candidate !== 'string') continue
-      if (!destinations.has(candidate as ShellDestination)) continue
-      const page = candidate as InternalPageId
-      if (
-        (page as ShellDestination) === 'tab' ||
-        page === 'releases' ||
-        page === 'core-docs' ||
-        page === 'welcome' ||
-        internalPages.includes(page)
-      ) {
-        continue
+  try {
+    const parsed = parseAppResourceLocation(resourceLocation)
+    if (parsed.sourceNetwork !== context.sourceNetwork) return null
+  } catch {
+    return null
+  }
+  return {
+    kind: 'app',
+    id: id as TabId,
+    appId: appId as AppId,
+    title,
+    context: {
+      appId: appId as AppId,
+      identityId:
+        typeof context.identityId === 'string'
+          ? (context.identityId as AppTabContext['identityId'])
+          : ('home-v2:identity:none' as AppTabContext['identityId']),
+      resourceLocation: resourceLocation as AppTabContext['resourceLocation'],
+      sourceNetwork: context.sourceNetwork,
+      tabId: id as TabId,
+      walletRef:
+        typeof context.walletRef === 'string'
+          ? (context.walletRef as AppTabContext['walletRef'])
+          : null,
+    },
+  }
+}
+
+export function restoreProductState(value: unknown): ProductState {
+  if (!isRecord(value)) return createProductState()
+  const entries: ShellEntry[] = []
+  const seenIds = new Set<string>()
+
+  const pushEntry = (entry: ShellEntry | null) => {
+    if (!entry || seenIds.has(entry.id)) return
+    seenIds.add(entry.id)
+    entries.push(entry)
+  }
+
+  if (Array.isArray(value.entries)) {
+    for (const candidate of value.entries.slice(0, 20)) {
+      if (!isRecord(candidate)) continue
+      if (candidate.kind === 'internal') {
+        const page = typeof candidate.page === 'string' ? candidate.page : ''
+        const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+        if (!tabPages.has(page) || !id || id.length > 80) continue
+        pushEntry({ kind: 'internal', id: id as TabId, page: page as TabPageId })
+      } else {
+        pushEntry(parseAppEntry(candidate))
       }
-      internalPages.push(page)
     }
   } else {
-    // Older persisted states predate multiple internal tabs.
-    internalPages.push('dashboard')
+    // Pre-unified states: a separate internalPages list plus app tabs.
+    if (Array.isArray(value.internalPages)) {
+      for (const candidate of value.internalPages.slice(0, 8)) {
+        if (typeof candidate !== 'string' || !tabPages.has(candidate)) continue
+        pushEntry({
+          kind: 'internal',
+          id: nextInternalTabId(),
+          page: candidate as TabPageId,
+        })
+      }
+    }
+    if (Array.isArray(value.tabs)) {
+      for (const candidate of value.tabs.slice(0, 12)) {
+        pushEntry(parseAppEntry(candidate))
+      }
+    }
+    if (!entries.some((entry) => entry.kind === 'internal')) {
+      entries.unshift({
+        kind: 'internal',
+        id: nextInternalTabId(),
+        page: 'dashboard',
+      })
+    }
   }
-  if (
-    finalDestination !== 'tab' &&
-    !internalPages.includes(finalDestination)
-  ) {
-    internalPages.push(finalDestination)
-  }
-  if (internalPages.length === 0 && finalDestination !== 'tab') {
-    internalPages.push('dashboard')
-  }
+
+  const activeTabId =
+    typeof value.activeTabId === 'string' &&
+    entries.some((entry) => entry.id === value.activeTabId)
+      ? (value.activeTabId as TabId)
+      : (entries[0]?.id ?? nextInternalTabId())
+
   return freezeProductState({
-    destination: finalDestination,
-    internalPages,
-    tabs,
-    activeTabId: destination === 'tab' ? activeTabId : null,
+    entries,
+    activeTabId,
+    // Transient pages never restore: their side state is not persisted.
+    transient: null,
     revision: 0,
   })
 }
@@ -283,135 +357,77 @@ function openApp(
     )
   }
 
-  const existing = state.tabs.find((tab) =>
-    contextsIdentifySameTab(tab.context, action.context),
+  const existing = state.entries.find(
+    (entry) =>
+      entry.kind === 'app' &&
+      contextsIdentifySameTab(entry.context, action.context),
   )
   if (existing) {
     return freezeProductState({
       ...state,
-      destination: 'tab',
+      transient: null,
       activeTabId: existing.id,
       revision: state.revision + 1,
     })
   }
-  if (state.tabs.some((tab) => tab.id === action.tabId)) {
+  if (state.entries.some((entry) => entry.id === action.tabId)) {
     throw new ProductModelError(
       'TAB_ALREADY_EXISTS',
       `Tab ${action.tabId} already exists.`,
     )
   }
 
-  const tab = freezeTab({
-    id: action.tabId,
-    appId: action.app.id,
-    title: action.app.title,
-    context: {
-      ...action.context,
-      tabId: action.tabId,
-    },
-  })
   return freezeProductState({
-    destination: 'tab',
-    internalPages: state.internalPages,
-    tabs: [...state.tabs, tab],
-    activeTabId: tab.id,
+    ...state,
+    entries: [
+      ...state.entries,
+      {
+        kind: 'app',
+        id: action.tabId,
+        appId: action.app.id,
+        title: action.app.title,
+        context: { ...action.context, tabId: action.tabId },
+      },
+    ],
+    transient: null,
+    activeTabId: action.tabId,
     revision: state.revision + 1,
   })
 }
 
 function activateTab(state: ProductState, tabId: TabId): ProductState {
-  if (!state.tabs.some((tab) => tab.id === tabId)) {
+  if (!state.entries.some((entry) => entry.id === tabId)) {
     throw new ProductModelError('TAB_NOT_FOUND', `Tab ${tabId} was not found.`)
   }
   return freezeProductState({
     ...state,
-    destination: 'tab',
+    transient: null,
     activeTabId: tabId,
     revision: state.revision + 1,
   })
 }
 
 function closeTab(state: ProductState, tabId: TabId): ProductState {
-  const closingIndex = state.tabs.findIndex((tab) => tab.id === tabId)
+  const closingIndex = state.entries.findIndex((entry) => entry.id === tabId)
   if (closingIndex < 0) {
     throw new ProductModelError('TAB_NOT_FOUND', `Tab ${tabId} was not found.`)
   }
-
-  const tabs = state.tabs.filter((tab) => tab.id !== tabId)
+  const entries = state.entries.filter((entry) => entry.id !== tabId)
   if (state.activeTabId !== tabId) {
     return freezeProductState({
       ...state,
-      tabs,
+      entries,
       revision: state.revision + 1,
     })
   }
-
-  const nextActive = tabs[Math.min(closingIndex, tabs.length - 1)] ?? null
-  // With no app tab left, fall back to the last open internal page (or
-  // reopen the dashboard when the user closed every internal tab too).
-  const fallbackPage =
-    state.internalPages[state.internalPages.length - 1] ?? 'dashboard'
-  return freezeProductState({
-    destination: nextActive ? 'tab' : fallbackPage,
-    internalPages:
-      nextActive || state.internalPages.includes(fallbackPage)
-        ? state.internalPages
-        : [...state.internalPages, fallbackPage],
-    tabs,
-    activeTabId: nextActive?.id ?? null,
-    revision: state.revision + 1,
-  })
-}
-
-function closeInternalPage(
-  state: ProductState,
-  page: InternalPageId,
-): ProductState {
-  const closingIndex = state.internalPages.indexOf(page)
-  if (closingIndex < 0) {
-    throw new ProductModelError(
-      'TAB_NOT_FOUND',
-      `Internal page ${page} is not open.`,
-    )
-  }
-  const internalPages = state.internalPages.filter(
-    (candidate) => candidate !== page,
-  )
-  if (state.destination !== page) {
-    return freezeProductState({
-      ...state,
-      internalPages,
-      revision: state.revision + 1,
-    })
-  }
-  const fallbackPage =
-    internalPages[Math.min(closingIndex, internalPages.length - 1)] ?? null
-  if (fallbackPage) {
-    return freezeProductState({
-      ...state,
-      destination: fallbackPage,
-      internalPages,
-      activeTabId: null,
-      revision: state.revision + 1,
-    })
-  }
-  const nextActive = state.tabs[0] ?? null
-  if (nextActive) {
-    return freezeProductState({
-      ...state,
-      destination: 'tab',
-      internalPages,
-      activeTabId: nextActive.id,
-      revision: state.revision + 1,
-    })
-  }
-  // Never leave the window empty: closing the last surface reopens the
-  // dashboard.
+  // Closing the active tab moves to its neighbour; emptying the strip
+  // reopens the dashboard rather than leaving a blank window.
+  const nextActive = entries[Math.min(closingIndex, entries.length - 1)]
   return freezeProductState({
     ...state,
-    destination: 'dashboard',
-    internalPages: ['dashboard'],
-    activeTabId: null,
+    entries,
+    transient: null,
+    activeTabId: nextActive?.id ?? nextInternalTabId(),
     revision: state.revision + 1,
   })
 }
@@ -421,8 +437,8 @@ function setTabTitle(
   tabId: TabId,
   requestedTitle: string | null,
 ): ProductState {
-  const current = state.tabs.find((tab) => tab.id === tabId)
-  if (!current) {
+  const current = state.entries.find((entry) => entry.id === tabId)
+  if (!current || current.kind !== 'app') {
     throw new ProductModelError('TAB_NOT_FOUND', `Tab ${tabId} was not found.`)
   }
   const fallback = parseAppResourceLocation(
@@ -432,62 +448,79 @@ function setTabTitle(
   if (title === current.title) return state
   return freezeProductState({
     ...state,
-    tabs: state.tabs.map((tab) =>
-      tab.id === tabId ? { ...tab, title } : tab,
+    entries: state.entries.map((entry) =>
+      entry.id === tabId && entry.kind === 'app' ? { ...entry, title } : entry,
     ),
     revision: state.revision + 1,
   })
 }
 
-// toIndex is the tab's desired final index within its own group (clamped).
-// Reordering never changes which surface is active.
-function reorderAppTab(
+function openInternal(
+  state: ProductState,
+  page: TabPageId,
+  tabId: TabId,
+): ProductState {
+  if (state.entries.some((entry) => entry.id === tabId)) {
+    throw new ProductModelError(
+      'TAB_ALREADY_EXISTS',
+      `Tab ${tabId} already exists.`,
+    )
+  }
+  return freezeProductState({
+    ...state,
+    entries: [...state.entries, { kind: 'internal', id: tabId, page }],
+    transient: null,
+    activeTabId: tabId,
+    revision: state.revision + 1,
+  })
+}
+
+function navigate(
+  state: ProductState,
+  destination: InternalPageId,
+): ProductState {
+  if (isTransientPage(destination)) {
+    return freezeProductState({
+      ...state,
+      transient: destination,
+      revision: state.revision + 1,
+    })
+  }
+  const existing = state.entries.find(
+    (entry) => entry.kind === 'internal' && entry.page === destination,
+  )
+  if (existing) {
+    return freezeProductState({
+      ...state,
+      transient: null,
+      activeTabId: existing.id,
+      revision: state.revision + 1,
+    })
+  }
+  return openInternal(state, destination, nextInternalTabId())
+}
+
+// toIndex is the entry's desired final index in the single ordered strip.
+function reorderTab(
   state: ProductState,
   tabId: TabId,
   toIndex: number,
 ): ProductState {
-  const fromIndex = state.tabs.findIndex((tab) => tab.id === tabId)
+  const fromIndex = state.entries.findIndex((entry) => entry.id === tabId)
   if (fromIndex < 0) {
     throw new ProductModelError('TAB_NOT_FOUND', `Tab ${tabId} was not found.`)
   }
   const clamped = Math.max(
     0,
-    Math.min(state.tabs.length - 1, Math.trunc(toIndex)),
+    Math.min(state.entries.length - 1, Math.trunc(toIndex)),
   )
   if (clamped === fromIndex) return state
-  const tabs = [...state.tabs]
-  const [moved] = tabs.splice(fromIndex, 1)
-  tabs.splice(clamped, 0, moved)
+  const entries = [...state.entries]
+  const [moved] = entries.splice(fromIndex, 1)
+  entries.splice(clamped, 0, moved)
   return freezeProductState({
     ...state,
-    tabs,
-    revision: state.revision + 1,
-  })
-}
-
-function reorderInternalPage(
-  state: ProductState,
-  page: InternalPageId,
-  toIndex: number,
-): ProductState {
-  const fromIndex = state.internalPages.indexOf(page)
-  if (fromIndex < 0) {
-    throw new ProductModelError(
-      'TAB_NOT_FOUND',
-      `Internal page ${page} is not open.`,
-    )
-  }
-  const clamped = Math.max(
-    0,
-    Math.min(state.internalPages.length - 1, Math.trunc(toIndex)),
-  )
-  if (clamped === fromIndex) return state
-  const internalPages = [...state.internalPages]
-  const [moved] = internalPages.splice(fromIndex, 1)
-  internalPages.splice(clamped, 0, moved)
-  return freezeProductState({
-    ...state,
-    internalPages,
+    entries,
     revision: state.revision + 1,
   })
 }
@@ -506,21 +539,11 @@ export function reduceProductState(
     case 'set-tab-title':
       return setTabTitle(state, action.tabId, action.title)
     case 'navigate':
-      return freezeProductState({
-        ...state,
-        destination: action.destination,
-        internalPages: state.internalPages.includes(action.destination)
-          ? state.internalPages
-          : [...state.internalPages, action.destination],
-        activeTabId: null,
-        revision: state.revision + 1,
-      })
-    case 'close-internal':
-      return closeInternalPage(state, action.page)
+      return navigate(state, action.destination)
+    case 'open-internal':
+      return openInternal(state, action.page, action.tabId)
     case 'reorder-tab':
-      return reorderAppTab(state, action.tabId, action.toIndex)
-    case 'reorder-internal':
-      return reorderInternalPage(state, action.page, action.toIndex)
+      return reorderTab(state, action.tabId, action.toIndex)
     case 'restore':
       return freezeProductState(action.state)
   }

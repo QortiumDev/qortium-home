@@ -197,7 +197,13 @@ async function main() {
         return JSON.stringify({ left: rect.left, top: rect.top, width: rect.width, height: rect.height })
       })()`))
       const from = centreOf(firstBox)
-      const to = centreOf(lastBox)
+      // Drop PAST the last tab's midpoint, not on its centre: "insert after"
+      // only triggers once the pointer crosses that midpoint, so releasing at
+      // the centre is a no-op by design and would make this assertion flaky.
+      const to = {
+        x: Math.round(lastBox.left + lastBox.width - 4),
+        y: Math.round(lastBox.top + lastBox.height / 2),
+      }
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1,
       })
