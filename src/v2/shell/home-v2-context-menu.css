@@ -1,0 +1,103 @@
+.home-v2-context-menu-overlay {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 34%);
+}
+
+.home-v2-context-menu {
+  width: min(100%, 32rem);
+  max-height: min(75vh, 38rem);
+  overflow: auto;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 1rem;
+  box-shadow: 0 1.25rem 3rem rgb(0 0 0 / 24%);
+}
+
+.home-v2-context-menu > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.home-v2-context-menu > header > div {
+  min-width: 0;
+}
+
+.home-v2-context-menu > header span,
+.home-v2-context-menu > header strong {
+  display: block;
+}
+
+.home-v2-context-menu > header span {
+  color: var(--v2-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-v2-context-menu > header strong {
+  margin-top: 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-v2-context-menu__close,
+.home-v2-context-menu__items button {
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+
+.home-v2-context-menu__close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.home-v2-context-menu__items {
+  padding: 0.35rem 0.6rem 0.75rem;
+}
+
+.home-v2-context-menu__items [role="separator"] {
+  height: 1px;
+  margin: 0.35rem 0.4rem;
+  background: var(--v2-line);
+}
+
+.home-v2-context-menu__items button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.82rem 0.75rem;
+  border-radius: 0.7rem;
+  text-align: start;
+}
+
+.home-v2-context-menu__close:hover,
+.home-v2-context-menu__close:focus-visible,
+.home-v2-context-menu__items button:hover,
+.home-v2-context-menu__items button:focus-visible {
+  background: var(--v2-surface-soft);
+  outline: none;
+}
+
+@media (min-width: 48rem) {
+  .home-v2-context-menu-overlay {
+    align-items: center;
+  }
+}

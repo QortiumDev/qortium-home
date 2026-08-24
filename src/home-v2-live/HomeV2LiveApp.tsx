@@ -44,6 +44,7 @@ import {
   type NewTabPreference,
 } from '../v2/new-tab-preference'
 import { HomeV2Prototype } from '../v2/shell/HomeV2Prototype'
+import { HomeV2ContextMenu } from '../v2/shell/HomeV2ContextMenu'
 import { subscribeHomeV2TextSizeCommands } from './text-size-shortcut-client'
 import {
   HomeV2ResourceViewer,
@@ -233,6 +234,17 @@ import {
   homeV2AndroidPublishSources,
   selectHomeV2AndroidPublishSource,
 } from './public-publish-source'
+import {
+  dismissedHomeV2ContextMenuResult,
+  getHomeV2ContextMenuItems,
+  getHomeV2ContextMenuOperation,
+  handledHomeV2ContextMenuResult,
+  normalizeHomeV2ContextMenuRequest,
+  type HomeV2ContextMenuActionId,
+  type HomeV2ContextMenuResult,
+  type HomeV2ContextMenuTarget,
+} from '../../electron/home-v2-context-menu'
+import { writeContextMenuClipboard } from '../contextMenuClipboard'
 
 function brand<Type extends string>(value: string): Type {
   return value as Type
@@ -240,6 +252,31 @@ function brand<Type extends string>(value: string): Type {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getContextMenuTargetLabel(target: HomeV2ContextMenuTarget) {
+  if (target.kind === 'account') return target.name ?? target.address
+  if (target.kind === 'group') return target.name ?? `Group ${target.groupId}`
+  return `${target.service}/${target.name}`
+}
+
+function getDashboardPinContextMenuTarget(
+  pin: BookmarkManagerDashboardPin,
+): HomeV2ContextMenuTarget | null {
+  const protocol: HomeV2AppBridgeProtocol | null = pin.displayUrl.toLowerCase().startsWith('qortal://')
+    ? 'qortalRequest'
+    : pin.displayUrl.toLowerCase().startsWith('qdn://')
+      ? 'qdnRequest'
+      : null
+  if (!protocol) return null
+  try {
+    return normalizeHomeV2ContextMenuRequest(protocol, {
+      version: 1,
+      target: { kind: 'resource', address: pin.displayUrl },
+    }).target
+  } catch {
+    return null
+  }
 }
 
 function publicChatOperationLabel(action: HomeV2PublicChatAction) {
@@ -267,6 +304,7 @@ function isHomeV2GroupWriteAction(action: string) {
 // small queue cap so a misbehaving/malicious app cannot pile up unbounded
 // pending prompts.
 const ANDROID_PERMISSION_PROMPT_TIMEOUT_MS = 60_000
+const ANDROID_CONTEXT_MENU_TIMEOUT_MS = 60_000
 const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_PER_APP = 3
 const MAX_PENDING_ANDROID_PERMISSION_PROMPTS_GLOBAL = 20
 const HOME_V2_NOTIFICATION_MIN_INTERVAL_MS = 3_000
@@ -534,6 +572,20 @@ export function HomeV2LiveApp() {
   const [freshShellProfile, setFreshShellProfile] = useState<boolean | null>(null)
   const dashboardPinSeedDecisionMade = useRef(false)
   const [resourceViewer, setResourceViewer] = useState<HomeV2ResourceViewerState | null>(null)
+  const [androidContextMenu, setAndroidContextMenu] = useState<{
+    readonly id: string
+    readonly tabId: string
+    readonly target: HomeV2ContextMenuTarget
+  } | null>(null)
+  const androidContextMenuResolver = useRef<{
+    readonly id: string
+    readonly network: NetworkId
+    readonly reject: (reason: unknown) => void
+    readonly resolve: (result: HomeV2ContextMenuResult) => void
+    readonly resourceLocation: string
+    readonly tabId: string
+    readonly timeout: number
+  } | null>(null)
   const [accountDialog, setAccountDialog] = useState<{
     mode: AccountDialogMode
     accountId?: string
@@ -700,6 +752,17 @@ export function HomeV2LiveApp() {
     void import('./android-app-host')
       .then(({ releaseHomeV2AndroidResourceStreams }) => releaseHomeV2AndroidResourceStreams())
       .catch(() => undefined)
+    const pendingContextMenu = androidContextMenuResolver.current
+    if (
+      pendingContextMenu &&
+      (!tabId || pendingContextMenu.tabId === tabId) &&
+      (!network || pendingContextMenu.network === network)
+    ) {
+      androidContextMenuResolver.current = null
+      window.clearTimeout(pendingContextMenu.timeout)
+      setAndroidContextMenu(null)
+      pendingContextMenu.resolve(dismissedHomeV2ContextMenuResult())
+    }
     for (const [requestId, meta] of androidPendingPermissionMeta.current) {
       if (tabId && meta.tabId !== tabId) continue
       if (network && meta.network !== network) continue
@@ -709,6 +772,17 @@ export function HomeV2LiveApp() {
       androidPermissionResolvers.current.delete(requestId)
       window.clearTimeout(resolver.timeout)
       resolver.resolve({ approved: false })
+    }
+  }, [isAndroidHost])
+
+  useEffect(() => {
+    if (!isAndroidHost) return
+    return () => {
+      const pending = androidContextMenuResolver.current
+      if (!pending) return
+      androidContextMenuResolver.current = null
+      window.clearTimeout(pending.timeout)
+      pending.resolve(dismissedHomeV2ContextMenuResult())
     }
   }, [isAndroidHost])
 
@@ -1246,6 +1320,49 @@ export function HomeV2LiveApp() {
     [nodeClient, openApp],
   )
 
+  const resolveAndroidContextMenu = useCallback(
+    async (action: HomeV2ContextMenuActionId | null) => {
+      const pending = androidContextMenuResolver.current
+      if (!pending) return
+      androidContextMenuResolver.current = null
+      window.clearTimeout(pending.timeout)
+      setAndroidContextMenu(null)
+      if (!action) {
+        pending.resolve(dismissedHomeV2ContextMenuResult())
+        return
+      }
+      try {
+        const activeTab = productStateRef.current.tabs.find(
+          (tab) => tab.id === productStateRef.current.activeTabId,
+        )
+        if (
+          !activeTab ||
+          activeTab.id !== pending.tabId ||
+          activeTab.context.resourceLocation !== pending.resourceLocation
+        ) {
+          throw new Error('The app context changed before the context menu action completed.')
+        }
+        const menu = androidContextMenu
+        if (!menu || menu.id !== pending.id) {
+          throw new Error('The Home context menu is no longer active.')
+        }
+        const operation = getHomeV2ContextMenuOperation(menu.target, action)
+        if (operation.kind === 'copy') {
+          await writeContextMenuClipboard(operation.value)
+        } else {
+          const opened = await openAddress(operation.address, selectedAccountId)
+          if (opened.status !== 'opened') {
+            throw new Error(opened.message ?? 'The resource could not be opened.')
+          }
+        }
+        pending.resolve(handledHomeV2ContextMenuResult(action))
+      } catch (error) {
+        pending.reject(error)
+      }
+    },
+    [androidContextMenu, openAddress, selectedAccountId],
+  )
+
   useEffect(() => {
     const bridge = window.homeV2Apps
     if (!bridge) return
@@ -1466,6 +1583,31 @@ export function HomeV2LiveApp() {
       }
     },
     [openAddress, selectedAccountId],
+  )
+
+  const getDashboardPinContextMenuItems = useCallback(
+    (pin: BookmarkManagerDashboardPin) => {
+      const target = getDashboardPinContextMenuTarget(pin)
+      return target ? getHomeV2ContextMenuItems(target) : []
+    },
+    [],
+  )
+
+  const runDashboardPinContextMenuAction = useCallback(
+    async (pin: BookmarkManagerDashboardPin, action: string) => {
+      const target = getDashboardPinContextMenuTarget(pin)
+      const item = target
+        ? getHomeV2ContextMenuItems(target).find((candidate) => candidate.action === action)
+        : null
+      if (!target || !item) throw new Error('That pinned-app context action is unavailable.')
+      const operation = getHomeV2ContextMenuOperation(target, item.action)
+      if (operation.kind === 'copy') {
+        await writeContextMenuClipboard(operation.value)
+      } else {
+        await openDashboardPin(pin)
+      }
+    },
+    [openDashboardPin],
   )
 
   useEffect(() => {
@@ -2013,10 +2155,46 @@ export function HomeV2LiveApp() {
       requestValue: unknown,
       context: HomeV2AppRequestContext,
     ) => {
-      if (!nodeClient) throw new Error('The app bridge is unavailable.')
       const action = isRecord(requestValue) && typeof requestValue.action === 'string'
         ? requestValue.action.trim().toUpperCase()
         : ''
+      if (isAndroidHost && action === 'SHOW_CONTEXT_MENU') {
+        const activeTab = productStateRef.current.tabs.find(
+          (tab) => tab.id === productStateRef.current.activeTabId,
+        )
+        if (
+          !activeTab ||
+          activeTab.id !== context.tabId ||
+          activeTab.context.resourceLocation !== context.resourceLocation
+        ) {
+          throw new Error('Open this app tab to show its Home context menu.')
+        }
+        if (androidContextMenuResolver.current) {
+          throw new Error('This app tab already has an open Home context menu.')
+        }
+        const request = normalizeHomeV2ContextMenuRequest(protocol, requestValue)
+        const id = globalThis.crypto.randomUUID()
+        setAndroidContextMenu({ id, tabId: context.tabId, target: request.target })
+        return new Promise<HomeV2ContextMenuResult>((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            const pending = androidContextMenuResolver.current
+            if (!pending || pending.id !== id) return
+            androidContextMenuResolver.current = null
+            setAndroidContextMenu(null)
+            pending.resolve(dismissedHomeV2ContextMenuResult())
+          }, ANDROID_CONTEXT_MENU_TIMEOUT_MS)
+          androidContextMenuResolver.current = {
+            id,
+            network: request.target.network,
+            reject,
+            resolve,
+            resourceLocation: context.resourceLocation,
+            tabId: context.tabId,
+            timeout,
+          }
+        })
+      }
+      if (!nodeClient) throw new Error('The app bridge is unavailable.')
       const resolveAppIdentity = () => {
         try {
           const parsed = parseAppResourceLocation(context.resourceLocation)
@@ -4356,7 +4534,8 @@ export function HomeV2LiveApp() {
     ? accountDialog.requestTabId ?? null
     : null
   const resourceViewerTabId = resourceViewer?.sourceTabId ?? null
-  const appOverlayTabId = accountPromptTabId ?? permissionPromptTabId ?? resourceViewerTabId
+  const contextMenuTabId = androidContextMenu?.tabId ?? null
+  const appOverlayTabId = accountPromptTabId ?? permissionPromptTabId ?? contextMenuTabId ?? resourceViewerTabId
   const accountDialogVisible =
     !!accountDialog &&
     (!accountPromptTabId || productState.activeTabId === accountPromptTabId)
@@ -4404,6 +4583,24 @@ export function HomeV2LiveApp() {
       saveRetainedFile={saveHomeV2RetainedViewerFile}
       resource={resourceViewer}
       onClose={() => setResourceViewer(null)}
+    />
+  ) : null
+
+  const contextMenuItems = androidContextMenu
+    ? getHomeV2ContextMenuItems(androidContextMenu.target)
+    : []
+  const contextMenuOverlay = androidContextMenu && productState.activeTabId === androidContextMenu.tabId ? (
+    <HomeV2ContextMenu
+      items={contextMenuItems}
+      targetKind={androidContextMenu.target.kind}
+      targetLabel={getContextMenuTargetLabel(androidContextMenu.target)}
+      onAction={(action) => {
+        const item = contextMenuItems.find((candidate) => candidate.action === action)
+        if (item) void resolveAndroidContextMenu(item.action)
+      }}
+      onDismiss={() => {
+        void resolveAndroidContextMenu(null)
+      }}
     />
   ) : null
 
@@ -4466,7 +4663,7 @@ export function HomeV2LiveApp() {
           ? `Updating ${nodeCoreController.nodeBusyNetwork === 'qortal' ? 'Qortal' : 'Qortium'}…`
           : shellNotice ?? 'Accounts, connections, and QDN apps'
       }
-      overlay={customNodeDialog ?? accountDialogOverlay ?? resourceViewerOverlay}
+      overlay={customNodeDialog ?? accountDialogOverlay ?? contextMenuOverlay ?? resourceViewerOverlay}
       appOverlayTabId={appOverlayTabId ? brand<TabId>(appOverlayTabId) : null}
       identityLookup={identityLookup}
       identityLookupBusy={identityLookupBusy}
@@ -4505,7 +4702,9 @@ export function HomeV2LiveApp() {
         status: dashboardPinsPhase,
         error: dashboardPinsError,
         busy: dashboardPinsBusy,
+        getContextMenuItems: getDashboardPinContextMenuItems,
         onAdd: ({ displayUrl, title }) => addDashboardPin(displayUrl, title),
+        onContextMenuAction: runDashboardPinContextMenuAction,
         onMove: moveDashboardPin,
         onReorder: reorderDashboardPin,
         onOpen: openDashboardPin,

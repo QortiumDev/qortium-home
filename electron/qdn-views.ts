@@ -30,6 +30,10 @@ import {
 import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js';
 import { isWidgetTabId } from './widget-registry.js';
 import { resetZoom, zoomIn, zoomOut } from './zoom.js';
+import {
+  getHomeV2ContextMenuPopupPoint,
+  type HomeV2ContextMenuAnchor,
+} from './home-v2-context-menu.js';
 
 const TAB_ID_PATTERN = /^[a-z0-9._:-]{1,80}$/i;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -855,6 +859,33 @@ export function getQdnViewContextForWebContents(webContents: WebContents): QdnVi
   }
 
   return null;
+}
+
+export function getQdnViewContextMenuPopupHost(
+  webContents: WebContents,
+  anchor: HomeV2ContextMenuAnchor | null,
+): { readonly window: BrowserWindow; readonly x: number; readonly y: number } | null {
+  for (const windowViews of qdnViewsByWindow.values()) {
+    for (const entry of windowViews.values()) {
+      if (entry.view.webContents.id !== webContents.id) continue
+      if (
+        !entry.hostCssBounds ||
+        entry.window.isDestroyed() ||
+        !entry.window.isFocused() ||
+        entry.view.webContents.isDestroyed() ||
+        !entry.view.getVisible()
+      ) {
+        return null
+      }
+      const point = getHomeV2ContextMenuPopupPoint(
+        entry.hostCssBounds,
+        getHostZoomFactor(entry.window),
+        anchor,
+      )
+      return Object.freeze({ window: entry.window, ...point })
+    }
+  }
+  return null
 }
 
 // The "Open as widget" toolbar action is issued by the Home shell rather than

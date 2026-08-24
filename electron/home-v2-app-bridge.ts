@@ -1,10 +1,13 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
+  Menu,
   Notification,
   webContents,
+  type MenuItemConstructorOptions,
   type Session,
   type WebContents,
 } from 'electron'
@@ -21,6 +24,7 @@ import {
 import { nodeFetch } from './node-tls.js'
 import {
   getQdnViewContextForTab,
+  getQdnViewContextMenuPopupHost,
   getQdnViewContextForWebContents,
   isQdnViewFocused,
   isQdnViewVisible,
@@ -73,6 +77,14 @@ import {
   type HomeV2AppBridgeProtocol,
   type HomeV2AppNetwork,
 } from './home-v2-app-actions.js'
+import {
+  dismissedHomeV2ContextMenuResult,
+  getHomeV2ContextMenuItems,
+  getHomeV2ContextMenuOperation,
+  handledHomeV2ContextMenuResult,
+  normalizeHomeV2ContextMenuRequest,
+  type HomeV2ContextMenuActionId,
+} from './home-v2-context-menu.js'
 import {
   getQdnResourceStreamProxyMimeType,
   getQdnResourceStreamRequest,
@@ -388,6 +400,13 @@ const pendingAccountReads = new Map<string, {
   readonly timeout: ReturnType<typeof setTimeout>
 }>()
 const pendingSessionGrantDecisions = new Map<string, Promise<PermissionDecision>>()
+const pendingContextMenus = new Map<number, {
+  readonly hostWebContentsId: number
+  readonly menu: Menu
+  readonly tabId: string
+  readonly targetNetwork: HomeV2AppNetwork
+  readonly window: BrowserWindow
+}>()
 const sessionAccountReadGrants = createHomeV2SessionGrantStore()
 // Fix B (security review finding 8): bounds how often an already-granted tab
 // can broadcast chat sends. See home-v2-send-rate-limiter.ts for the shared
@@ -4724,6 +4743,89 @@ async function sendHomeV2GroupMembershipAction(
   }
 }
 
+async function showHomeV2DesktopContextMenu(
+  sender: WebContents,
+  context: QdnViewContext,
+  protocol: HomeV2AppBridgeProtocol,
+  requestValue: Record<string, unknown>,
+) {
+  if (pendingContextMenus.has(sender.id)) {
+    throw new Error('This app tab already has an open Home context menu.')
+  }
+  const request = normalizeHomeV2ContextMenuRequest(protocol, requestValue)
+  const popupHost = getQdnViewContextMenuPopupHost(sender, request.anchor)
+  if (!popupHost) {
+    throw new Error('Open this app tab to show its Home context menu.')
+  }
+  const items = getHomeV2ContextMenuItems(request.target)
+  let selectedAction: HomeV2ContextMenuActionId | null = null
+  const template: MenuItemConstructorOptions[] = []
+  let previousGroup: (typeof items)[number]['group'] | null = null
+  for (const item of items) {
+    if (previousGroup && previousGroup !== item.group) template.push({ type: 'separator' })
+    template.push({
+      label: item.label,
+      click: () => {
+        selectedAction = item.action
+      },
+    })
+    previousGroup = item.group
+  }
+  const menu = Menu.buildFromTemplate(template)
+  pendingContextMenus.set(sender.id, {
+    hostWebContentsId: context.windowId,
+    menu,
+    tabId: context.tabId,
+    targetNetwork: request.target.network,
+    window: popupHost.window,
+  })
+  return new Promise((resolve, reject) => {
+    const finish = async () => {
+      pendingContextMenus.delete(sender.id)
+      if (!selectedAction) {
+        resolve(dismissedHomeV2ContextMenuResult())
+        return
+      }
+      try {
+        const fresh = getQdnViewContextForWebContents(sender)
+        if (
+          !fresh ||
+          !sameViewContext(context, fresh) ||
+          !liveResourceMatchesGrant(fresh) ||
+          !isQdnViewVisible(fresh.windowId, fresh.tabId)
+        ) {
+          throw new Error('The app context changed before the context menu action completed.')
+        }
+        const operation = getHomeV2ContextMenuOperation(request.target, selectedAction)
+        if (operation.kind === 'copy') {
+          clipboard.writeText(operation.value)
+        } else {
+          popupHost.window.webContents.send('home-v2-app:open-address', {
+            address: operation.address,
+            sourceTabId: context.tabId,
+          })
+        }
+        resolve(handledHomeV2ContextMenuResult(selectedAction))
+      } catch (error) {
+        reject(error)
+      }
+    }
+    try {
+      menu.popup({
+        callback: () => {
+          void finish()
+        },
+        window: popupHost.window,
+        x: popupHost.x,
+        y: popupHost.y,
+      })
+    } catch (error) {
+      pendingContextMenus.delete(sender.id)
+      reject(error)
+    }
+  })
+}
+
 async function handleRequestWithRuntime(
   sender: WebContents,
   context: QdnViewContext,
@@ -4751,6 +4853,9 @@ async function handleRequestWithRuntime(
   }
   if (action === 'WHICH_UI') return 'QORTIUM_HOME_ELECTRON'
   if (action === 'GET_HOST_INFO') return hostInfo
+  if (action === 'SHOW_CONTEXT_MENU') {
+    return showHomeV2DesktopContextMenu(sender, context, protocol, requestValue)
+  }
   const network = getHomeV2AppNetwork(protocol, action)
   if (action === 'BOOKMARKS_HAS_PERMISSION') {
     return { granted: hasQdnManagerPermission(homeV2AppIdentityKey(context), 'bookmarks.manage') }
@@ -5340,6 +5445,12 @@ export function registerHomeV2AppBridgeIpcHandlers() {
     }
     homeV2DesktopPublishSources.clear()
     clearHomeV2DesktopResourceStreams()
+    for (const pending of pendingContextMenus.values()) {
+      if (pending.hostWebContentsId !== hostWebContentsId) continue
+      if (invalidation.tabId && pending.tabId !== invalidation.tabId) continue
+      if (invalidation.network && pending.targetNetwork !== invalidation.network) continue
+      pending.menu.closePopup(pending.window)
+    }
     for (const [requestId, pending] of pendingAccountReads) {
       if (pending.hostWebContentsId !== hostWebContentsId) continue
       if (invalidation.tabId && pending.tabId !== invalidation.tabId) continue

@@ -33,6 +33,14 @@ function button(label: string) {
   return found as HTMLButtonElement
 }
 
+function buttonText(label: string) {
+  const found = [...container.querySelectorAll('button')].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  )
+  assert(found, `expected button with text ${label}`)
+  return found as HTMLButtonElement
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     window.HTMLInputElement.prototype,
@@ -64,7 +72,12 @@ try {
       <HomeV2PinnedApps
         pins={pins}
         status="ready"
+        getContextMenuItems={() => [
+          { action: 'resource.open-new-tab', group: 'open', label: 'Open in new tab' },
+          { action: 'resource.copy-address', group: 'copy', label: 'Copy resource link' },
+        ]}
         onAdd={(draft) => { actions.push(['add', draft]) }}
+        onContextMenuAction={(pin, action) => { actions.push(['context', pin.id, action]) }}
         onMove={(pinId, direction) => { actions.push(['move', pinId, direction]) }}
         onReorder={(pinId, targetPinId, position) => {
           actions.push(['reorder', pinId, targetPinId, position])
@@ -78,6 +91,10 @@ try {
 
   await act(async () => button('Open Chat').click())
   assert.deepEqual(actions.at(-1), ['open', 'chat'])
+
+  await openMenu('Open Chat')
+  await act(async () => buttonText('Open in new tab').click())
+  assert.deepEqual(actions.at(-1), ['context', 'chat', 'resource.open-new-tab'])
 
   await act(async () => button('Create Pinned apps').click())
   const addInputs = [...container.querySelectorAll('.home-v2-pinned-apps__form input')]

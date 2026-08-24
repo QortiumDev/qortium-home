@@ -17,6 +17,9 @@ import {
 const qdnActions = getHomeV2AppActions('qdnRequest')
 const qortalActions = getHomeV2AppActions('qortalRequest')
 
+assert.equal(qdnActions.includes('SHOW_CONTEXT_MENU'), true)
+assert.equal(qortalActions.includes('SHOW_CONTEXT_MENU'), true)
+
 assert.equal(qdnActions.includes('GET_SELECTED_ACCOUNT'), true)
 assert.equal(qdnActions.includes('UNLOCK_SELECTED_ACCOUNT'), true)
 assert.equal(qdnActions.includes('FETCH_QDN_RESOURCE'), true)
