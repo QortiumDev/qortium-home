@@ -7,7 +7,7 @@ export type NewTabPreference =
   | { readonly address: string; readonly kind: 'custom' }
 
 export const DEFAULT_NEW_TAB_PREFERENCE: NewTabPreference = Object.freeze({
-  kind: 'search',
+  kind: 'dashboard',
 })
 
 const INTERNAL_ADDRESS_PATTERN =

@@ -1294,8 +1294,9 @@ function testSettingsScaffoldAndNewTabPreference(): void {
     assert.match(html, /data-home-v2-notification-policy="available"/)
     assert.match(html, /aria-label="App notifications"/)
     assert.match(html, /role="switch"/)
-    assert.match(html, /value="search" selected="">Search page<\/option>/)
-    assert.match(html, />Dashboard<\/option>/)
+    // Dashboard is the default new-tab target (owner decision 2026-08-24).
+    assert.match(html, /value="dashboard" selected="">Dashboard<\/option>/)
+    assert.match(html, />Search page<\/option>/)
     assert.match(html, />Custom address<\/option>/)
     assert.doesNotMatch(html, /aria-label="Theme"/)
     assert.doesNotMatch(html, /aria-label="Custom new-tab address"/)

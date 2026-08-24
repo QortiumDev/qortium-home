@@ -5,7 +5,6 @@ import {
   Globe2,
   LayoutDashboard,
   Palette,
-  Rocket,
   Server,
   UserRound,
 } from 'lucide-react'
@@ -31,7 +30,7 @@ export interface HomeV2WelcomePageProps {
   readonly snapshot: HomeV2Snapshot
   readonly vaultState?: HomeV2VaultState
   readonly onAccountAction?: (action: 'create' | 'import' | 'private') => void
-  readonly onComplete?: (destination: 'appearance' | 'apps' | 'dashboard') => void
+  readonly onComplete?: (destination: 'appearance' | 'dashboard') => void
   readonly onConfigureCustomNode?: () => void
   readonly onOpenNames?: () => void
   readonly onSetNodeMode?: (mode: NodeConnectionMode) => void
@@ -192,11 +191,6 @@ export function HomeV2WelcomePage(props: HomeV2WelcomePageProps) {
               <button type="button" onClick={() => props.onComplete?.('appearance')}>
                 <Palette aria-hidden="true" size={24} />
                 <span><strong>{t('welcome.finish.customize')}</strong><small>{t('welcome.finish.customizeDescription')}</small></span>
-                <ChevronRight aria-hidden="true" size={20} />
-              </button>
-              <button type="button" onClick={() => props.onComplete?.('apps')}>
-                <Rocket aria-hidden="true" size={24} />
-                <span><strong>{t('welcome.finish.explore')}</strong><small>{t('welcome.finish.exploreDescription')}</small></span>
                 <ChevronRight aria-hidden="true" size={20} />
               </button>
               <button type="button" onClick={() => props.onComplete?.('dashboard')}>
