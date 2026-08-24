@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.7
+        uses: github/codeql-action/init@v4.37.8
         with:
           languages: javascript-typescript
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v4.37.7
+        uses: github/codeql-action/analyze@v4.37.8
         with:
           category: "/language:javascript-typescript"
 
@@ -77,7 +77,7 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleDebug
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.7
+        uses: github/codeql-action/init@v4.37.8
         with:
           languages: java-kotlin
           build-mode: manual
@@ -96,6 +96,6 @@ jobs:
             -x :capacitor-cordova-android-plugins:compileDebugJavaWithJavac
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v4.37.7
+        uses: github/codeql-action/analyze@v4.37.8
         with:
           category: "/language:java-kotlin"
