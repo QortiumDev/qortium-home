@@ -542,7 +542,12 @@ function AndroidAppStage(props: AppTabStageProps) {
 
   return <section className="home-v2-app-stage home-v2-app-stage--live" tabIndex={-1}>
     {source ? <iframe
-      key={`${resolved?.tab.id ?? 'app'}:${props.reloadVersion ?? 0}`}
+      // The key must NOT depend on `resolved`: a transient unreadable node
+      // makes it null while `source` stays set, so the key flipped
+      // tabId -> 'app' and back, remounting the iframe and reloading the app
+      // twice per hiccup. AndroidAppStage is already keyed per tab by its
+      // caller, so only an explicit reload needs to change this key.
+      key={`app:${props.reloadVersion ?? 0}`}
       ref={frameRef}
       className="home-v2-app-frame"
       src={source}

@@ -190,4 +190,72 @@ try {
   container.remove()
 }
 
+// A transient poll failure must NOT report the nodes as unreadable. Everything
+// downstream keys off capabilities.read, and losing it reloads the open app —
+// which wipes anything the user was typing. Only a sustained outage counts.
+{
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    let snapshotCalls = 0
+    let failing = true
+    const nodeClient = {
+      getSnapshot: () => {
+        snapshotCalls += 1
+        return failing
+          ? Promise.reject(new Error('network blip'))
+          : Promise.resolve(nodeSnapshot('recovered'))
+      },
+      setMode: () => Promise.resolve(nodeSnapshot('recovered')),
+    } as unknown as HomeV2NodeClient
+
+    await act(async () => {
+      root.render(<Harness coreClient={null} nodeClient={nodeClient} />)
+      await Promise.resolve()
+    })
+
+    const readable = () => controller.nodes.qortium.capabilities.read
+    const initiallyReadable = readable()
+
+    // Two failures in a row are absorbed.
+    for (let attempt = snapshotCalls; attempt < 2; attempt += 1) {
+      await act(async () => {
+        await controller.refreshNodes()
+      })
+      assert.equal(
+        readable(),
+        initiallyReadable,
+        'a single failed poll must not change node readability',
+      )
+    }
+
+    // The third consecutive failure is treated as a real outage.
+    await act(async () => {
+      await controller.refreshNodes()
+    })
+    assert.equal(readable(), false, 'a sustained outage must mark nodes unavailable')
+
+    // Recovery clears the streak, so the next blip is absorbed again.
+    failing = false
+    await act(async () => {
+      await controller.refreshNodes()
+    })
+    assert.equal(controller.nodes.qortium.label, 'recovered-qortium')
+    failing = true
+    await act(async () => {
+      await controller.refreshNodes()
+    })
+    assert.equal(
+      readable(),
+      controller.nodes.qortium.capabilities.read,
+      'the failure streak must reset after a successful poll',
+    )
+    assert.equal(controller.nodes.qortium.label, 'recovered-qortium')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+}
+
 console.log('home v2 node/core controller hook tests passed')
