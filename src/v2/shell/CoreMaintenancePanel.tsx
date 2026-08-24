@@ -364,7 +364,7 @@ export function CoreMaintenancePanel({
           <span>{coreVersion}{status.core.channel ? ` · ${status.core.channel}` : ''}</span>
         </div>
         <div className="home-v2-setting-row__control home-v2-core-maintenance__actions">
-          <button type="button" disabled={busy !== null} onClick={() => void check()}>
+          <button className="home-v2-secondary-button" type="button" disabled={busy !== null} onClick={() => void check()}>
             {busy === 'check' ? 'Checking…' : 'Check release'}
           </button>
           {release?.tag && release.action !== 'none' ? (

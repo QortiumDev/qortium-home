@@ -27,8 +27,10 @@ body,
   --v2-status-online: #327653;
   --v2-status-syncing: #9a671e;
   --v2-danger: #985448;
+  --v2-danger-solid: #934337;
   --v2-shadow: 0 12px 30px rgb(48 44 39 / 9%);
   --v2-type-scale: 1;
+  color-scheme: light;
   min-height: 100%;
   color: var(--v2-ink);
   background: var(--v2-bg);
@@ -108,7 +110,9 @@ body,
   --v2-status-online: #74bc91;
   --v2-status-syncing: #d2a65b;
   --v2-danger: #d28776;
+  --v2-danger-solid: #934337;
   --v2-shadow: 0 18px 44px rgb(0 0 0 / 32%);
+  color-scheme: dark;
 }
 
 .home-v2-shell[data-accent='green'] {
@@ -976,6 +980,14 @@ body,
   padding: 5px 0;
 }
 
+.home-v2-primary-button:disabled,
+.home-v2-secondary-button:disabled,
+.home-v2-link-button:disabled,
+.home-v2-danger-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .home-v2-connections,
 .home-v2-core-management,
 .home-v2-launcher {
@@ -1226,6 +1238,19 @@ body,
   padding: 8px 30px 8px 10px;
 }
 
+.home-v2-setting-row input:not([type='checkbox']):not([type='radio']) {
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 8px;
+  color: var(--v2-ink);
+  background: var(--v2-surface-raised);
+  padding: 8px 10px;
+}
+
+.home-v2-setting-row input[type='checkbox'],
+.home-v2-setting-row input[type='radio'] {
+  accent-color: var(--v2-accent);
+}
+
 .home-v2-node-detail {
   display: grid;
   min-block-size: 24px;
@@ -1382,11 +1407,11 @@ body,
 }
 
 .home-v2-danger-button {
-  border: 1px solid #934337;
+  border: 1px solid var(--v2-danger-solid);
   border-radius: 9px;
   padding: 9px 13px;
   color: #fff;
-  background: #934337;
+  background: var(--v2-danger-solid);
   font: inherit;
   font-weight: 750;
 }
