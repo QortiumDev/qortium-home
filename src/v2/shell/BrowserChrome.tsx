@@ -8,7 +8,11 @@ import type {
   VisibleAvatarLoader,
 } from '../contracts'
 import { subscribeHomeV2MenuCommands } from '../menu-commands'
-import type { ProductState, ShellDestination } from '../product-model'
+import type {
+  InternalPageId,
+  ProductState,
+  ShellDestination,
+} from '../product-model'
 import {
   DEFAULT_NEW_TAB_PREFERENCE,
   type NewTabPreference,
@@ -27,6 +31,7 @@ export interface BrowserChromeProps {
   readonly productState: ProductState
   readonly onActivateTab?: (tabId: ProductState['tabs'][number]['id']) => void
   readonly onCloseTab?: (tabId: ProductState['tabs'][number]['id']) => void
+  readonly onCloseInternal?: (page: InternalPageId) => void
   readonly onNavigate?: (
     destination: Exclude<ShellDestination, 'tab'>,
   ) => void
@@ -107,6 +112,7 @@ export function BrowserChrome({
   productState,
   onActivateTab,
   onCloseTab,
+  onCloseInternal,
   onNavigate,
   onOpenAddress,
   onOpenAsWidget,
@@ -262,6 +268,7 @@ export function BrowserChrome({
           productState={productState}
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
+          onCloseInternal={onCloseInternal}
           onNavigate={onNavigate}
           onNewTab={openNewTab}
           newTabDisabled={navigationDisabled}

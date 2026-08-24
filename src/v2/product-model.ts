@@ -25,8 +25,15 @@ export interface AppTab {
   readonly context: AppTabContext
 }
 
+export type InternalPageId = Exclude<ShellDestination, 'tab'>
+
 export interface ProductState {
   readonly destination: ShellDestination
+  /**
+   * Internal pages open as tabs, in tab-strip order. Each page is open at
+   * most once; a non-'tab' destination is always a member of this list.
+   */
+  readonly internalPages: readonly InternalPageId[]
   readonly tabs: readonly AppTab[]
   readonly activeTabId: TabId | null
   readonly revision: number
@@ -50,6 +57,7 @@ export type ProductAction =
       readonly type: 'navigate'
       readonly destination: Exclude<ShellDestination, 'tab'>
     }
+  | { readonly type: 'close-internal'; readonly page: InternalPageId }
   | { readonly type: 'restore'; readonly state: ProductState }
 
 export class ProductModelError extends Error {
@@ -75,6 +83,7 @@ function freezeTab(tab: AppTab): AppTab {
 function freezeProductState(state: ProductState): ProductState {
   return Object.freeze({
     ...state,
+    internalPages: Object.freeze([...state.internalPages]),
     tabs: Object.freeze(state.tabs.map(freezeTab)),
   })
 }
@@ -82,6 +91,7 @@ function freezeProductState(state: ProductState): ProductState {
 export function createProductState(): ProductState {
   return freezeProductState({
     destination: 'dashboard',
+    internalPages: ['dashboard'],
     tabs: [],
     activeTabId: null,
     revision: 0,
@@ -167,14 +177,49 @@ export function restoreProductState(value: unknown): ProductState {
     tabs.some((tab) => tab.id === value.activeTabId)
       ? (value.activeTabId as TabId)
       : null
+  const finalDestination =
+    destination === 'releases' ||
+    destination === 'core-docs' ||
+    destination === 'welcome' ||
+    (destination === 'tab' && !activeTabId)
+      ? 'dashboard'
+      : destination
+  // Transient pages carry side state (release target, docs network,
+  // onboarding) that is not persisted, so they never restore as open tabs —
+  // matching the destination downgrade above.
+  const internalPages: InternalPageId[] = []
+  if (Array.isArray(value.internalPages)) {
+    for (const candidate of value.internalPages.slice(0, 8)) {
+      if (typeof candidate !== 'string') continue
+      if (!destinations.has(candidate as ShellDestination)) continue
+      const page = candidate as InternalPageId
+      if (
+        (page as ShellDestination) === 'tab' ||
+        page === 'releases' ||
+        page === 'core-docs' ||
+        page === 'welcome' ||
+        internalPages.includes(page)
+      ) {
+        continue
+      }
+      internalPages.push(page)
+    }
+  } else {
+    // Older persisted states predate multiple internal tabs.
+    internalPages.push('dashboard')
+  }
+  if (
+    finalDestination !== 'tab' &&
+    !internalPages.includes(finalDestination)
+  ) {
+    internalPages.push(finalDestination)
+  }
+  if (internalPages.length === 0 && finalDestination !== 'tab') {
+    internalPages.push('dashboard')
+  }
   return freezeProductState({
-    destination:
-      destination === 'releases' ||
-      destination === 'core-docs' ||
-      destination === 'welcome' ||
-      (destination === 'tab' && !activeTabId)
-        ? 'dashboard'
-        : destination,
+    destination: finalDestination,
+    internalPages,
     tabs,
     activeTabId: destination === 'tab' ? activeTabId : null,
     revision: 0,
@@ -257,6 +302,7 @@ function openApp(
   })
   return freezeProductState({
     destination: 'tab',
+    internalPages: state.internalPages,
     tabs: [...state.tabs, tab],
     activeTabId: tab.id,
     revision: state.revision + 1,
@@ -291,10 +337,71 @@ function closeTab(state: ProductState, tabId: TabId): ProductState {
   }
 
   const nextActive = tabs[Math.min(closingIndex, tabs.length - 1)] ?? null
+  // With no app tab left, fall back to the last open internal page (or
+  // reopen the dashboard when the user closed every internal tab too).
+  const fallbackPage =
+    state.internalPages[state.internalPages.length - 1] ?? 'dashboard'
   return freezeProductState({
-    destination: nextActive ? 'tab' : 'dashboard',
+    destination: nextActive ? 'tab' : fallbackPage,
+    internalPages:
+      nextActive || state.internalPages.includes(fallbackPage)
+        ? state.internalPages
+        : [...state.internalPages, fallbackPage],
     tabs,
     activeTabId: nextActive?.id ?? null,
+    revision: state.revision + 1,
+  })
+}
+
+function closeInternalPage(
+  state: ProductState,
+  page: InternalPageId,
+): ProductState {
+  const closingIndex = state.internalPages.indexOf(page)
+  if (closingIndex < 0) {
+    throw new ProductModelError(
+      'TAB_NOT_FOUND',
+      `Internal page ${page} is not open.`,
+    )
+  }
+  const internalPages = state.internalPages.filter(
+    (candidate) => candidate !== page,
+  )
+  if (state.destination !== page) {
+    return freezeProductState({
+      ...state,
+      internalPages,
+      revision: state.revision + 1,
+    })
+  }
+  const fallbackPage =
+    internalPages[Math.min(closingIndex, internalPages.length - 1)] ?? null
+  if (fallbackPage) {
+    return freezeProductState({
+      ...state,
+      destination: fallbackPage,
+      internalPages,
+      activeTabId: null,
+      revision: state.revision + 1,
+    })
+  }
+  const nextActive = state.tabs[0] ?? null
+  if (nextActive) {
+    return freezeProductState({
+      ...state,
+      destination: 'tab',
+      internalPages,
+      activeTabId: nextActive.id,
+      revision: state.revision + 1,
+    })
+  }
+  // Never leave the window empty: closing the last surface reopens the
+  // dashboard.
+  return freezeProductState({
+    ...state,
+    destination: 'dashboard',
+    internalPages: ['dashboard'],
+    activeTabId: null,
     revision: state.revision + 1,
   })
 }
@@ -339,9 +446,14 @@ export function reduceProductState(
       return freezeProductState({
         ...state,
         destination: action.destination,
+        internalPages: state.internalPages.includes(action.destination)
+          ? state.internalPages
+          : [...state.internalPages, action.destination],
         activeTabId: null,
         revision: state.revision + 1,
       })
+    case 'close-internal':
+      return closeInternalPage(state, action.page)
     case 'restore':
       return freezeProductState(action.state)
   }

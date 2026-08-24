@@ -341,6 +341,105 @@ function testProductModelKeepsSourceQualifiedTabs(): void {
   assert.equal(afterClose.tabs.length, 1)
   assert.equal(afterClose.activeTabId, fixtureIds.qortalCompatTab)
 
+  // Multiple simultaneous internal tabs (owner decision #17, 2026-08-24).
+  const settingsOpen = reduceProductState(dashboard, {
+    type: 'navigate',
+    destination: 'settings',
+  })
+  assert.deepEqual(settingsOpen.internalPages, ['dashboard', 'settings'])
+  assert.equal(settingsOpen.destination, 'settings')
+  const backToDashboard = reduceProductState(settingsOpen, {
+    type: 'navigate',
+    destination: 'dashboard',
+  })
+  assert.deepEqual(backToDashboard.internalPages, ['dashboard', 'settings'])
+  assert.equal(backToDashboard.destination, 'dashboard')
+  const closedActivePage = reduceProductState(settingsOpen, {
+    type: 'close-internal',
+    page: 'settings',
+  })
+  assert.deepEqual(closedActivePage.internalPages, ['dashboard'])
+  assert.equal(closedActivePage.destination, 'dashboard')
+  const closedInactivePage = reduceProductState(settingsOpen, {
+    type: 'close-internal',
+    page: 'dashboard',
+  })
+  assert.deepEqual(closedInactivePage.internalPages, ['settings'])
+  assert.equal(closedInactivePage.destination, 'settings')
+  assert.throws(
+    () =>
+      reduceProductState(settingsOpen, {
+        type: 'close-internal',
+        page: 'apps',
+      }),
+    (error) => {
+      assert.ok(error instanceof ProductModelError)
+      assert.equal(error.code, 'TAB_NOT_FOUND')
+      return true
+    },
+  )
+  // Closing the last internal page while app tabs exist activates a tab.
+  const noInternalLeft = reduceProductState(dashboard, {
+    type: 'close-internal',
+    page: 'dashboard',
+  })
+  assert.equal(noInternalLeft.destination, 'tab')
+  assert.deepEqual(noInternalLeft.internalPages, [])
+  assert.equal(noInternalLeft.activeTabId, dashboard.tabs[0].id)
+  // ...and with nothing else open the dashboard reopens.
+  const reopenedDashboard = reduceProductState(createProductState(), {
+    type: 'close-internal',
+    page: 'dashboard',
+  })
+  assert.equal(reopenedDashboard.destination, 'dashboard')
+  assert.deepEqual(reopenedDashboard.internalPages, ['dashboard'])
+  // Closing the last app tab falls back to the LAST open internal page.
+  const settingsThenTab = reduceProductState(settingsOpen, {
+    type: 'activate-tab',
+    tabId: fixtureIds.chatTab,
+  })
+  const oneTabLeft = reduceProductState(settingsThenTab, {
+    type: 'close-tab',
+    tabId: fixtureIds.chatTab,
+  })
+  const noTabsLeft = reduceProductState(oneTabLeft, {
+    type: 'close-tab',
+    tabId: fixtureIds.qortalCompatTab,
+  })
+  assert.equal(noTabsLeft.destination, 'settings')
+  assert.deepEqual(noTabsLeft.internalPages, ['dashboard', 'settings'])
+  // Restore keeps open internal pages, migrates legacy states, dedupes, and
+  // drops transient pages exactly like the destination downgrade.
+  const restoredPages = restoreProductState(
+    JSON.parse(JSON.stringify(settingsOpen)),
+  )
+  assert.deepEqual(restoredPages.internalPages, ['dashboard', 'settings'])
+  assert.equal(restoredPages.destination, 'settings')
+  const legacySerialized = JSON.parse(JSON.stringify(settingsOpen)) as Record<
+    string,
+    unknown
+  >
+  delete legacySerialized.internalPages
+  const legacyRestored = restoreProductState(legacySerialized)
+  assert.deepEqual(legacyRestored.internalPages, ['dashboard', 'settings'])
+  const messyRestored = restoreProductState({
+    ...JSON.parse(JSON.stringify(settingsOpen)),
+    internalPages: [
+      'dashboard',
+      'releases',
+      'welcome',
+      'core-docs',
+      'dashboard',
+      'future-page',
+      'apps',
+    ],
+  })
+  assert.deepEqual(messyRestored.internalPages, [
+    'dashboard',
+    'apps',
+    'settings',
+  ])
+
   assert.throws(
     () =>
       reduceProductState(empty, {
@@ -2260,6 +2359,7 @@ function testShellStateMigratesAddressSelection(): void {
     product: {
       activeTabId: legacy.product.activeTabId,
       destination: legacy.product.destination,
+      internalPages: legacy.product.internalPages,
       tabs: legacy.product.tabs,
     },
   })
