@@ -212,6 +212,12 @@
   opacity: 0.45;
 }
 
+.home-v2-pinned-apps__menu-separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--v2-line);
+}
+
 .home-v2-pinned-apps__menu > .home-v2-pinned-apps__remove {
   color: var(--v2-danger, #c2413b);
 }

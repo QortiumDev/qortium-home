@@ -1,6 +1,6 @@
 # Home 2 bridge compatibility ledger
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 This ledger tracks the Home 2 app bridge. It is a compatibility record, not a
 claim that every Q-App already works. `SHOW_ACTIONS` is the runtime authority:
@@ -59,6 +59,7 @@ This F4 slice does not add `GET_APP_ASSIGNMENTS` or
 | `SHOW_ACTIONS` | both | Protocol-, route-, and platform-specific callable string array | No prompt; disabled or platform-impossible routes remove node-dependent actions, while a temporary outage keeps implemented actions discoverable | yes | yes |
 | `WHICH_UI` | both | Host identifier string | No prompt | yes | yes |
 | `GET_HOST_INFO` | both | Host/platform metadata plus authoritative protocol, network, configured/effective route, availability, reachability, and opaque route revision | No prompt | yes | yes |
+| `SHOW_CONTEXT_MENU` | both | `{ version: 1, status: "handled", action }` or `{ version: 1, status: "dismissed" }` after a fixed Home-owned account, group, or resource menu | Route-independent; protocol fixes the network; sender/tab/resource context and untrusted anchor are validated; v1 performs only copy and APP-tab navigation | yes | yes |
 | `BOOKMARKS_HAS_PERMISSION`, `BOOKMARKS_GET`, `BOOKMARKS_APPLY`, `BOOKMARKS_OPEN` | `qdnRequest` | Permission state, validated saved-link snapshot, revision-CAS mutation result, or `true` after an account-aware open | Route-independent durable `bookmarks.manage` approval; invalid addresses, missing accounts, stale revisions, changed app contexts, and malformed saved data fail closed | yes | yes |
 | `GET_PENDING_TRANSACTIONS` | both | This app/account/chain's opaque unknown-outcome entries without Home-internal account or app keys; an automatic QPGC setup entry may include `stage: "key-announcement"` | Route-independent scoped `transactions.pending.read` approval; message and key material are never stored | yes | yes |
 | `FORGET_PENDING_TRANSACTION` | both | `{ forgotten, network, signature }` | Route-independent single-request `transactions.pending.forget` approval after app reconciliation | yes | yes |

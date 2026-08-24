@@ -36,6 +36,10 @@ assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
   qortal: publicInfo.route,
   qortium: publicInfo.route,
 }).includes('SEND_CHAT_MESSAGE'), true)
+assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
+  qortal: publicInfo.route,
+  qortium: publicInfo.route,
+}).includes('SHOW_CONTEXT_MENU'), true)
 for (const action of ['SEND_CHAT_EDIT', 'SEND_CHAT_DELETE', 'SEND_CHAT_REACTION']) {
   assert.equal(getHomeV2AvailableAppActions('qdnRequest', {
     qortal: publicInfo.route,
@@ -132,6 +136,7 @@ assert.deepEqual(getHomeV2AvailableAppActions('qortalRequest', {
   'IS_USING_PUBLIC_NODE',
   'NOTIFICATION_HAS_PERMISSION',
   'OPEN_NEW_TAB',
+  'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
   'SHOW_ACTIONS',
   'WHICH_UI',
@@ -418,6 +423,7 @@ for (const action of [
   'OPEN_NEW_TAB',
   'PUBLISH_QDN_RESOURCE',
   'SEND_CHAT_MESSAGE',
+  'SHOW_CONTEXT_MENU',
   'SHOW_NOTIFICATION',
 ]) {
   assert.equal(widgetActions.includes(action), false, `widget must not advertise ${action}`)
@@ -431,5 +437,6 @@ const androidActions = getHomeV2ContextualAppActions(
 )
 assert.equal(androidActions.includes('OPEN_AS_WIDGET'), false)
 assert.equal(androidActions.some((action) => action.startsWith('WIDGET_')), false)
+assert.equal(androidActions.includes('SHOW_CONTEXT_MENU'), true)
 
 console.log('Home v2 app runtime contract tests passed.')

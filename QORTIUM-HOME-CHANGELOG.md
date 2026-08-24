@@ -34,6 +34,18 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-24 - feat(context-menu): standardize Home actions
+
+Home now owns a versioned context menu for Qortium and Qortal accounts,
+groups, apps, websites, and other QDN resources. Apps can request the same
+trusted menu through `qdnRequest` or `qortalRequest` instead of recreating its
+labels and platform behavior. Desktop uses a native menu anchored safely to
+the requesting app view, Android uses an accessible Home sheet, and the first
+safe action set copies account/group/resource identifiers or opens APP
+resources in a new tab. Pinned apps use the same resource-action vocabulary;
+future payment, chat, membership, viewer, bookmark, and rating items remain
+behind their existing typed Home permission paths.
+
 ### 2026-08-23 - fix(layout): use dashboard space more effectively
 
 Dashboard node, Core, and account-presence cards now use the space belonging to

@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   reorderDashboardPins,
   type DashboardPin,
@@ -16,6 +16,7 @@ import {
 import { getDashboardPinDisplay } from "../../dashboardPinDisplay";
 import { t } from "../../i18n";
 import { useMenuKeyboard } from "../../useMenuKeyboard";
+import type { HomeV2ContextMenuPresentationItem } from "./HomeV2ContextMenu";
 import "./home-v2-pinned-apps.css";
 
 export type HomeV2PinnedAppsStatus = "error" | "loading" | "ready";
@@ -32,7 +33,14 @@ export interface HomeV2PinnedAppsProps {
   readonly error?: string | null;
   readonly busy?: boolean;
   readonly allowAdd?: boolean;
+  readonly getContextMenuItems?: (
+    pin: DashboardPin,
+  ) => readonly HomeV2ContextMenuPresentationItem[];
   readonly onOpen: (pin: DashboardPin) => void | Promise<void>;
+  readonly onContextMenuAction?: (
+    pin: DashboardPin,
+    action: string,
+  ) => void | Promise<void>;
   readonly onAdd: (draft: HomeV2PinnedAppsDraft) => void | Promise<void>;
   readonly onRename: (pin: DashboardPin, title: string) => void | Promise<void>;
   readonly onRemove: (pin: DashboardPin) => void | Promise<void>;
@@ -102,7 +110,9 @@ export function HomeV2PinnedApps({
   error,
   busy = false,
   allowAdd = true,
+  getContextMenuItems,
   onOpen,
+  onContextMenuAction,
   onAdd,
   onRename,
   onRemove,
@@ -484,6 +494,9 @@ export function HomeV2PinnedApps({
   const menuPinIndex = menuPin
     ? pins.findIndex((pin) => pin.id === menuPin.id)
     : -1;
+  const menuContextItems = menuPin && getContextMenuItems && onContextMenuAction
+    ? getContextMenuItems(menuPin)
+    : [];
 
   return (
     <section
@@ -726,6 +739,32 @@ export function HomeV2PinnedApps({
             </form>
           ) : (
             <>
+              {menuContextItems.length > 0
+                ? menuContextItems.map((item) => {
+                    const Icon = item.group === "open" ? ExternalLink : Copy;
+                    return (
+                      <button
+                        key={item.action}
+                        type="button"
+                        role="menuitem"
+                        disabled={controlsDisabled}
+                        onClick={() =>
+                          void runAction(
+                            `context:${menuPin.id}:${item.action}`,
+                            () => onContextMenuAction!(menuPin, item.action),
+                            () => closeMenu(true),
+                          )
+                        }
+                      >
+                        <Icon aria-hidden="true" size={17} />
+                        {item.label}
+                      </button>
+                    );
+                  })
+                : null}
+              {menuContextItems.length > 0 ? (
+                <div className="home-v2-pinned-apps__menu-separator" role="separator" />
+              ) : null}
               <button
                 type="button"
                 role="menuitem"

@@ -39,7 +39,10 @@ single-request approval before changing Home preferences. See
 the live settings-change event. Bookmark and notification management use
 separate durable capabilities and revision-checked mutations; see
 [Home data manager QDN bridge](HOME_DATA_MANAGERS.md). Other supported actions include
-`WHICH_UI`, and `SHOW_ACTIONS`. Desktop isolated QDN apps and Android tokenized
+`WHICH_UI`, `SHOW_ACTIONS`, and the route-independent Home-owned
+`SHOW_CONTEXT_MENU`. See [Home 2 context menus](HOME_V2_CONTEXT_MENUS.md) for
+the structured target, safe action, result, desktop-native, Android-sheet, and
+standalone-gateway boundaries. Desktop isolated QDN apps and Android tokenized
 APP/WEBSITE pages also support `PUBLISH_QDN_RESOURCE`,
 `PUBLISH_MULTIPLE_QDN_RESOURCES`, `DELETE_QDN_RESOURCE`,
 `APPROVE_GROUP_JOIN_REQUEST`, `INVITE_TO_GROUP`, `JOIN_GROUP`, `LEAVE_GROUP`,
