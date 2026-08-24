@@ -43,6 +43,19 @@ settings already behave. Community feedback asked for the two networks
 to be cleanly separable; with this change, disabling Qortal (or
 Qortium) removes it from the everyday chrome completely until it is
 re-enabled.
+### 2026-08-24 - feat(home-v2): draggable tabs and browser tab gestures
+
+Tabs in Home 2 can now be dragged to reorder, the way they could in
+Home 1: hold and drag a tab sideways and the strip reorders live under
+the pointer. Home page tabs reorder among themselves and app tabs among
+themselves, so pages stay grouped ahead of apps. The strip also gained
+the familiar browser gestures: middle-click closes a tab,
+double-clicking the empty area of the strip opens a new tab, and with
+focus in the strip the Left/Right arrow keys (plus Home and End) move
+between tabs without switching to them. The new order is remembered
+across restarts. Dragging a tab out to detach it into its own window is
+not included yet — it needs a design for how separate windows share
+saved state.
 
 ### 2026-08-24 - feat(home-v2): allow multiple internal pages open as tabs
 
