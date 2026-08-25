@@ -32,6 +32,7 @@ import { prewarmRunningCoreApiKeyCache } from './local-api-key.js';
 import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
+import { sanitizeHomeV2WindowAddress } from './home-v2-window-startup.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
@@ -157,9 +158,17 @@ type WindowStartupPayload = {
   tab: WindowTabSnapshot;
 };
 
+// Home 2's detach payload is deliberately just an address: the receiving
+// window opens it through the ordinary address route, so nothing about a tab's
+// internal shape has to survive a trip through the main process.
+type HomeV2WindowStartup = {
+  address: string;
+};
+
 type CreateWindowOptions = {
   placement?: 'primary' | 'secondary';
   startupPayload?: WindowStartupPayload;
+  homeV2Startup?: HomeV2WindowStartup;
 };
 
 type MenuCommand =
@@ -172,6 +181,7 @@ type MenuCommand =
   | 'reopen-closed-tab';
 
 const windowStartupPayloads = new Map<number, WindowStartupPayload>();
+const homeV2WindowStartups = new Map<number, HomeV2WindowStartup>();
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -540,6 +550,15 @@ function createWindow(options: CreateWindowOptions = {}) {
     });
   }
 
+  if (options.homeV2Startup) {
+    // Same capture-the-id rule as above.
+    const webContentsId = window.webContents.id;
+    homeV2WindowStartups.set(webContentsId, options.homeV2Startup);
+    window.once('closed', () => {
+      homeV2WindowStartups.delete(webContentsId);
+    });
+  }
+
   watchWindowState(window);
   instrumentStartupTiming(window);
 
@@ -854,6 +873,33 @@ function registerZoomIpcHandlers() {
   });
 }
 
+/**
+ * Home 2's window channels. The legacy `windows:*` handlers stay v1-only:
+ * their payload is a route-history snapshot, and Home 2 needs nothing but an
+ * address. Kept separate so neither shell can be handed the other's shape.
+ */
+function registerHomeV2WindowIpcHandlers() {
+  ipcMain.handle('home-v2-windows:getStartup', (event) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    const payload = homeV2WindowStartups.get(event.sender.id) ?? null;
+
+    // One-shot: a reload must not reopen the detached tab a second time.
+    homeV2WindowStartups.delete(event.sender.id);
+
+    return payload;
+  });
+
+  ipcMain.handle('home-v2-windows:openTab', (event, value: unknown) => {
+    assertAuthorizedHomeV2Sender(event);
+
+    createWindow({
+      homeV2Startup: { address: sanitizeHomeV2WindowAddress(value) },
+      placement: 'secondary',
+    });
+  });
+}
+
 function registerWindowIpcHandlers() {
   ipcMain.handle('windows:getStartupPayload', (event) => {
     return windowStartupPayloads.get(event.sender.id) ?? null;
@@ -934,6 +980,7 @@ app.whenReady().then(async () => {
     registerHomeV2AppBridgeIpcHandlers();
     registerQdnViewIpcHandlers();
     registerHomeV2ZoomIpcHandlers();
+    registerHomeV2WindowIpcHandlers();
     // The application menu is what carries the browser keyboard accelerators
     // (new/close/reopen tab, back/forward, reload, focus address bar). Home 2
     // windows keep the menu BAR hidden (autoHideMenuBar) so only the

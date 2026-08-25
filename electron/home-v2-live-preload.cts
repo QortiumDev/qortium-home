@@ -57,11 +57,21 @@ contextBridge.exposeInMainWorld('homeV2Zoom', {
   },
 })
 
+contextBridge.exposeInMainWorld('homeV2Windows', {
+  // Null in the window Home started with; an address in one detached from it.
+  getStartup: (): Promise<{ address: string } | null> =>
+    ipcRenderer.invoke('home-v2-windows:getStartup'),
+  openTab: (address: string): Promise<void> =>
+    ipcRenderer.invoke('home-v2-windows:openTab', address),
+})
+
 contextBridge.exposeInMainWorld('homeV2Nodes', {
   getSnapshot: () => ipcRenderer.invoke('home-v2-nodes:getSnapshot'),
   getShellState: () => ipcRenderer.invoke('home-v2-shell:getState'),
   saveShellState: (value: unknown) =>
     ipcRenderer.invoke('home-v2-shell:saveState', value),
+  saveShellGlobalState: (value: unknown) =>
+    ipcRenderer.invoke('home-v2-shell:saveGlobalState', value),
   listAccounts: () => ipcRenderer.invoke('home-v2-accounts:list'),
   listAppResources: (network: 'qortal' | 'qortium', name: string) =>
     ipcRenderer.invoke('home-v2-nodes:listAppResources', network, name),
