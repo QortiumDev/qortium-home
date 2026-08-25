@@ -18,6 +18,7 @@ import {
   parseHomeV2QortalMaintenanceRelease,
   parseHomeV2QortalMaintenanceStatus,
 } from '../../home-v2-live/core-manager-client'
+import { useHomeV2QortalMaintenance } from '../../home-v2-live/qortal-maintenance-controller'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { QortalMaintenancePanel } from './QortalMaintenancePanel'
 
@@ -145,6 +146,19 @@ const management = {
   statuses: {} as never,
 } satisfies HomeV2CoreManagement
 
+// The panel takes its controller as a prop now, so the app can own exactly one
+// per domain. This harness stands in for HomeV2LiveApp: it calls the real
+// controller hook and hands the whole return to the panel, so the polling, the
+// adoption flow and the busy gating below are still exercised end to end.
+function QortalMaintenanceHarness({
+  management: coreManagement,
+}: {
+  readonly management: HomeV2CoreManagement
+}) {
+  const maintenance = useHomeV2QortalMaintenance(coreManagement.onRefresh)
+  return <QortalMaintenancePanel maintenance={maintenance} />
+}
+
 assert.deepEqual(parseHomeV2QortalMaintenanceStatus(missingStatus), missingStatus)
 assert.throws(() => parseHomeV2QortalMaintenanceStatus({
   ...missingStatus,
@@ -263,7 +277,7 @@ async function render(
 ) {
   window.homeV2CoreManagers = nextClient
   await act(async () => {
-    root.render(<QortalMaintenancePanel management={nextManagement} />)
+    root.render(<QortalMaintenanceHarness management={nextManagement} />)
     await Promise.resolve()
     await Promise.resolve()
   })
@@ -799,7 +813,7 @@ try {
   root = createRoot(container)
   delete window.homeV2CoreManagers
   await act(async () => {
-    root.render(<QortalMaintenancePanel management={management} />)
+    root.render(<QortalMaintenanceHarness management={management} />)
     await Promise.resolve()
   })
   assert.equal(container.textContent, '')
@@ -833,7 +847,7 @@ try {
       },
     })
     await act(async () => {
-      root.render(<QortalMaintenancePanel management={management} />)
+      root.render(<QortalMaintenanceHarness management={management} />)
       await Promise.resolve()
     })
     await act(async () => { await Promise.resolve() })

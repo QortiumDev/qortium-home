@@ -1,8 +1,7 @@
 import type { HomeV2CoreUpdatePolicy } from '../../home-v2-live/core-manager-client'
-import { useHomeV2CoreMaintenance } from '../../home-v2-live/core-maintenance-controller'
+import type { HomeV2CoreMaintenance } from '../../home-v2-live/core-maintenance-controller'
 import { t } from '../../i18n'
 import type { NetworkId } from '../contracts'
-import type { HomeV2CoreManagement } from './CoreManagerCards'
 
 function corePolicyDescription(policy: HomeV2CoreUpdatePolicy) {
   if (policy === 'off') return 'Scheduled Qortium Core release checks are off.'
@@ -28,20 +27,22 @@ function qortalPolicyDescription(policy: HomeV2CoreUpdatePolicy) {
   return 'Home installs a strictly newer stable release only when its Home-managed Qortal Core is proven stopped. Adopted and node-native installs are never changed.'
 }
 
+/**
+ * The Qortium/Qortal Core maintenance panel. It owns no state: the controller
+ * is instantiated once per app and passed in, so this panel and the dashboard
+ * tile always show the same busy flag, the same notice and the same release.
+ */
 export function CoreMaintenancePanel({
-  management,
+  maintenance,
   networks = ['qortium', 'qortal'],
 }: {
-  readonly management: HomeV2CoreManagement
+  readonly maintenance?: HomeV2CoreMaintenance
   readonly networks?: readonly NetworkId[]
 }) {
   const qortiumEnabled = networks.includes('qortium')
   const qortalEnabled = networks.includes('qortal')
-  const maintenance = useHomeV2CoreMaintenance({
-    onCoreRefresh: management.onRefresh,
-    qortalEnabled,
-    qortiumEnabled,
-  })
+
+  if (!maintenance?.available || networks.length === 0) return null
   const {
     busy,
     check,
@@ -55,7 +56,6 @@ export function CoreMaintenancePanel({
     status,
   } = maintenance
 
-  if (!maintenance.available || networks.length === 0) return null
   if (!status || !policy) {
     return (
       <section className="home-v2-core-maintenance" aria-busy={!initialLoadFailed}

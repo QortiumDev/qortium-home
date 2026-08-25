@@ -34,6 +34,22 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - refactor(home-v2): one shared view of Core maintenance
+
+Settings and the Dashboard both offer the same Core maintenance work — check for
+a release, install or update Qortium Core, install managed Java, install or
+start the I2P router, install or adopt Qortal Core — and until now each of them
+watched the machine separately. Two watchers meant two answers: start an install
+from the Dashboard tile and the Settings panel would still show its buttons
+ready and its last message from before, because it had no idea anything had
+happened. Nothing was ever installed twice — Home refuses that underneath — but
+the screen could contradict itself, which is its own kind of wrong. Settings and
+the Dashboard now read from one shared view, so whichever one you start
+something from, both agree on what is running, which buttons are unavailable
+while it runs, and how it ended. Home also asks each thing about itself once
+rather than twice while Settings is open. Nothing on screen moved or changed
+wording.
+
 ### 2026-08-25 - feat(home-v2): close to tray, and a warning before closing several tabs
 
 Closing the main window has always meant closing Qortium Home, with no warning,

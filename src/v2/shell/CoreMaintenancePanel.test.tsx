@@ -7,6 +7,8 @@ import type {
   HomeV2CoreUpdatePolicyState,
 } from '../../home-v2-live/core-manager-client'
 import { parseHomeV2CoreUpdatePolicySetResult } from '../../home-v2-live/core-manager-client'
+import { useHomeV2CoreMaintenance } from '../../home-v2-live/core-maintenance-controller'
+import type { NetworkId } from '../contracts'
 import type { HomeV2CoreManagement } from './CoreManagerCards'
 import { CoreMaintenancePanel } from './CoreMaintenancePanel'
 
@@ -93,12 +95,30 @@ const client: HomeV2CoreManagerClient = {
 }
 window.homeV2CoreManagers = client
 
-const management = {
+const management: HomeV2CoreManagement = {
   available: true,
   busyActions: { qortal: null, qortium: null },
   lastActions: { qortal: null, qortium: null },
   statuses: {} as never,
-} satisfies HomeV2CoreManagement
+}
+
+// The panel takes its controller as a prop now, so the app can own exactly one
+// per domain. This harness stands in for HomeV2LiveApp: it calls the real
+// controller hook and hands the whole return to the panel, so everything below
+// still exercises the live polling, busy gating and serialized policy writes.
+function CoreMaintenanceHarness({
+  networks = ['qortium', 'qortal'],
+}: {
+  readonly networks?: readonly NetworkId[]
+}) {
+  const maintenance = useHomeV2CoreMaintenance({
+    onCoreRefresh: management.onRefresh,
+    qortalEnabled: networks.includes('qortal'),
+    qortiumEnabled: networks.includes('qortium'),
+  })
+  return <CoreMaintenancePanel maintenance={maintenance} networks={networks} />
+}
+
 const container = document.createElement('div')
 document.body.appendChild(container)
 let root = createRoot(container)
@@ -133,7 +153,7 @@ assert.throws(() => parseHomeV2CoreUpdatePolicySetResult({
 
 try {
   await act(async () => {
-    root.render(<CoreMaintenancePanel management={management} />)
+    root.render(<CoreMaintenanceHarness />)
     await Promise.resolve()
   })
   assert.match(container.textContent ?? '', /Qortium Core maintenance/)
@@ -160,7 +180,7 @@ try {
   }
   root = createRoot(container)
   await act(async () => {
-    root.render(<CoreMaintenancePanel management={management} />)
+    root.render(<CoreMaintenanceHarness />)
     await Promise.resolve()
   })
   const corePolicy = container.querySelector('[data-home-v2-core-update-policy]') as HTMLSelectElement
@@ -233,9 +253,7 @@ try {
   ])
 
   await act(async () => {
-    root.render(
-      <CoreMaintenancePanel management={management} networks={['qortal']} />,
-    )
+    root.render(<CoreMaintenanceHarness networks={['qortal']} />)
     await Promise.resolve()
   })
   assert.equal(container.querySelector('[data-home-v2-core-update-policy]'), null)
@@ -243,9 +261,7 @@ try {
   assert.match(container.textContent ?? '', /Managed Java/)
 
   await act(async () => {
-    root.render(
-      <CoreMaintenancePanel management={management} networks={['qortium']} />,
-    )
+    root.render(<CoreMaintenanceHarness networks={['qortium']} />)
     await Promise.resolve()
   })
   assert.ok(container.querySelector('[data-home-v2-core-update-policy]'))
@@ -258,7 +274,7 @@ try {
   client.getUpdatePolicy = async () => { throw new Error('unavailable') }
   root = createRoot(container)
   await act(async () => {
-    root.render(<CoreMaintenancePanel management={management} />)
+    root.render(<CoreMaintenanceHarness />)
     await Promise.resolve()
     await Promise.resolve()
   })

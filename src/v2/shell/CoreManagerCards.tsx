@@ -21,10 +21,10 @@ export interface HomeV2CoreManagement {
   readonly onAction?: (network: NetworkId, action: 'start' | 'stop') => void
   readonly onRefresh?: () => void
   // Maintenance slices for the combined "Node & Core" dashboard tile and the
-  // actionable node-status menus. HomeV2LiveApp populates all three. They stay
-  // optional because the Settings and Welcome panels still each own their own
-  // maintenance controller for as long as they are mounted, and the other call
-  // sites build a management object without them.
+  // actionable node-status menus. HomeV2LiveApp populates all three from the
+  // same controllers the Settings and Welcome panels render, so the tile and
+  // the panels always agree. They stay optional because the fixture and test
+  // call sites build a management object without any bridge behind it.
   readonly coreMaintenance?: HomeV2CoreMaintenanceManagement
   readonly qortalMaintenance?: HomeV2QortalMaintenanceManagement
   readonly transport?: HomeV2TransportManagement
