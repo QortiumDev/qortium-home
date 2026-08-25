@@ -34,6 +34,16 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - fix(home-v2): make the tray's "Open Qortium Home" open or raise
+
+Choosing "Open Qortium Home" from the tray now reliably gets you a Home window.
+If one is minimized, hidden, or buried behind other applications it is brought
+properly to the front — on Linux it previously only blinked in the taskbar. If
+the Home window you last used is already open and in front, the menu item now
+opens another window rather than appearing to do nothing, and that new window
+is offset from the ones already on screen instead of landing exactly on top of
+your main one.
+
 ### 2026-08-25 - fix(home-v2): a tidier Welcome tab that closes when you are done
 
 The Welcome tab is now labelled just "Welcome" instead of "Welcome to Qortium

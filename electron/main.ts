@@ -997,7 +997,7 @@ app.whenReady().then(async () => {
     // Widgets outlive main Home windows, so Home can end up running with
     // nothing on screen. The tray is what makes that state visible, and it is
     // the only route to closing a widget whose app never painted.
-    installTray({ openHome: () => createWindow() });
+    installTray({ openHome: ({ placement }) => createWindow({ placement }) });
     try {
       ensureHomeV2ProfileBackup();
       autoUnlockHomeV2SelectedAccount();
