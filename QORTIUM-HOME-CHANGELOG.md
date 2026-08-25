@@ -34,6 +34,20 @@ both networks through explicit compatibility and security boundaries.
 
 ## Change Entries
 
+### 2026-08-25 - refactor(home-v2): share the Core maintenance logic behind one set of hooks
+
+Nothing changes on screen with this one. The logic behind Settings > Runtime —
+checking for Core releases, installing or updating Qortium Core and Qortal
+Core, installing managed Java, adopting an existing Qortal installation,
+managing the I2P router and transport mode, and the automatic update policies —
+used to live inside the three settings panels that displayed it. It now lives
+in shared controllers that those panels read from, so the same information and
+the same buttons can be offered elsewhere without a second copy of the rules
+drifting away from the first. This is groundwork for a combined "Node & Core"
+tile on the dashboard and for node-status menus you can act on directly. The
+panels themselves render exactly as before, poll on the same schedule, and keep
+the same confirmations and guards around externally controlled Cores.
+
 ### 2026-08-25 - feat(home-v2): a quieter account button and a readable account menu
 
 The toolbar account button no longer prints your account name beside the
