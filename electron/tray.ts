@@ -1,3 +1,4 @@
+import { homeWindowFocus } from './home-window-focus.js'
 import { app, BrowserWindow, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -40,9 +41,17 @@ export function trayIcon() {
 
 function runCommand(commandId: string) {
   if (commandId === TRAY_COMMAND_OPEN_HOME) {
-    const existing = BrowserWindow.getAllWindows().find(
+    const homeWindows = BrowserWindow.getAllWindows().filter(
       (window) => !window.isDestroyed() && window.webContents.getURL().includes('v2-live.html'),
     )
+    // Creation order is arbitrary once more than one window is open, and can
+    // surface the one behind whatever the user was just using. Prefer the most
+    // recently focused, falling back to first-found when none has been.
+    const mostRecentId = homeWindowFocus.mostRecent(
+      homeWindows.map((window) => window.id),
+    )
+    const existing =
+      homeWindows.find((window) => window.id === mostRecentId) ?? homeWindows[0]
     if (existing) {
       if (existing.isMinimized()) existing.restore()
       existing.show()

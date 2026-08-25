@@ -33,6 +33,14 @@ import { registerNodeSettingsIpcHandlers } from './node-settings.js';
 import { registerHomeV2NodeBridgeIpcHandlers } from './home-v2-node-bridge.js';
 import { assertAuthorizedHomeV2Sender, authorizeHomeV2Sender } from './home-v2-authorized-senders.js';
 import { sanitizeHomeV2WindowAddress } from './home-v2-window-startup.js';
+import { homeWindowFocus } from './home-window-focus.js';
+import {
+  initialWindowState,
+  mergeWindowState,
+  parseWindowStates,
+  type WindowStateRole,
+  type WindowStatesRecord,
+} from './home-window-state.js';
 import { registerHomeV2AppBridgeIpcHandlers } from './home-v2-app-bridge.js';
 import { registerHomeV2CoreManagerBridgeIpcHandlers } from './home-v2-core-manager-bridge.js';
 import { registerHomeV2AppUpdateBridgeIpcHandlers } from './home-v2-app-update-bridge.js';
@@ -274,53 +282,29 @@ function isVisibleOnAnyDisplay(bounds: Rectangle) {
   return screen.getAllDisplays().some((display) => rectanglesOverlap(bounds, display.workArea));
 }
 
-function readWindowState(): WindowState | undefined {
+const WINDOW_STATE_LIMITS = {
+  defaultHeight: DEFAULT_WINDOW_HEIGHT,
+  defaultWidth: DEFAULT_WINDOW_WIDTH,
+  minHeight: MIN_WINDOW_HEIGHT,
+  minWidth: MIN_WINDOW_WIDTH,
+};
+
+function readWindowStates(): WindowStatesRecord {
   try {
-    const parsedState: unknown = JSON.parse(readFileSync(getWindowStatePath(), 'utf8'));
+    const parsed: unknown = JSON.parse(readFileSync(getWindowStatePath(), 'utf8'));
 
-    if (!parsedState || typeof parsedState !== 'object') {
-      return undefined;
-    }
-
-    const state = parsedState as Partial<WindowState>;
-    const width = isFiniteNumber(state.width)
-      ? Math.max(Math.round(state.width), MIN_WINDOW_WIDTH)
-      : DEFAULT_WINDOW_WIDTH;
-    const height = isFiniteNumber(state.height)
-      ? Math.max(Math.round(state.height), MIN_WINDOW_HEIGHT)
-      : DEFAULT_WINDOW_HEIGHT;
-    const nextState: WindowState = {
-      width,
-      height,
-      isMaximized: state.isMaximized === true,
-    };
-
-    if (isFiniteNumber(state.x) && isFiniteNumber(state.y)) {
-      const candidateBounds = {
-        x: Math.round(state.x),
-        y: Math.round(state.y),
-        width,
-        height,
-      };
-
-      if (isVisibleOnAnyDisplay(candidateBounds)) {
-        nextState.x = candidateBounds.x;
-        nextState.y = candidateBounds.y;
-      }
-    }
-
-    return nextState;
+    return parseWindowStates(parsed, WINDOW_STATE_LIMITS, isVisibleOnAnyDisplay);
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-function writeWindowState(state: WindowState) {
+function writeWindowStates(states: WindowStatesRecord) {
   const statePath = getWindowStatePath();
 
   try {
     mkdirSync(path.dirname(statePath), { recursive: true });
-    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    writeFileSync(statePath, `${JSON.stringify(states, null, 2)}\n`, 'utf8');
   } catch (error) {
     console.warn('Unable to save window state.', error);
   }
@@ -338,13 +322,17 @@ function getCurrentWindowState(window: BrowserWindow): WindowState {
   };
 }
 
-function persistWindowState(window: BrowserWindow) {
+// Read-merge-write, so saving one window's geometry leaves the other role's
+// alone. Both happen in the main process, so the pair cannot interleave.
+function persistWindowState(window: BrowserWindow, role: WindowStateRole) {
   if (!window.isDestroyed()) {
-    writeWindowState(getCurrentWindowState(window));
+    writeWindowStates(
+      mergeWindowState(readWindowStates(), role, getCurrentWindowState(window)),
+    );
   }
 }
 
-function watchWindowState(window: BrowserWindow) {
+function watchWindowState(window: BrowserWindow, role: WindowStateRole) {
   let saveWindowStateTimeout: NodeJS.Timeout | undefined;
 
   function scheduleWindowStateSave() {
@@ -353,22 +341,22 @@ function watchWindowState(window: BrowserWindow) {
     }
 
     saveWindowStateTimeout = setTimeout(() => {
-      persistWindowState(window);
+      persistWindowState(window, role);
       saveWindowStateTimeout = undefined;
     }, WINDOW_STATE_SAVE_DELAY_MS);
   }
 
   window.on('move', scheduleWindowStateSave);
   window.on('resize', scheduleWindowStateSave);
-  window.on('maximize', () => persistWindowState(window));
-  window.on('unmaximize', () => persistWindowState(window));
+  window.on('maximize', () => persistWindowState(window, role));
+  window.on('unmaximize', () => persistWindowState(window, role));
   window.on('close', () => {
     if (saveWindowStateTimeout) {
       clearTimeout(saveWindowStateTimeout);
       saveWindowStateTimeout = undefined;
     }
 
-    persistWindowState(window);
+    persistWindowState(window, role);
   });
 }
 
@@ -421,10 +409,25 @@ function getSecondaryWindowState(savedState: WindowState | undefined): WindowSta
   };
 }
 
-function getInitialWindowState(options: CreateWindowOptions): WindowState | undefined {
-  const savedState = readWindowState();
+/**
+ * Which geometry a window owns. Read and write must agree on this, or a
+ * secondary window saves over the primary's remembered size.
+ */
+function getWindowStateRole(options: CreateWindowOptions): WindowStateRole {
+  return options.startupPayload ||
+    options.homeV2Startup ||
+    options.placement === 'secondary'
+    ? 'secondary'
+    : 'primary';
+}
 
-  if (options.startupPayload || options.placement === 'secondary') {
+function getInitialWindowState(
+  options: CreateWindowOptions,
+  role: WindowStateRole,
+): WindowState | undefined {
+  const savedState = initialWindowState(readWindowStates(), role);
+
+  if (role === 'secondary') {
     return getSecondaryWindowState(savedState);
   }
 
@@ -489,7 +492,8 @@ function createWindow(options: CreateWindowOptions = {}) {
       ? pathToFileURL(path.join(__dirname, '../dist/v2-live.html')).href
       : `${developmentUrl}/v2-live.html`
     : null;
-  const windowState = getInitialWindowState(options);
+  const windowStateRole = getWindowStateRole(options);
+  const windowState = getInitialWindowState(options, windowStateRole);
   const window = new BrowserWindow({
     width: windowState?.width ?? DEFAULT_WINDOW_WIDTH,
     height: windowState?.height ?? DEFAULT_WINDOW_HEIGHT,
@@ -559,7 +563,11 @@ function createWindow(options: CreateWindowOptions = {}) {
     });
   }
 
-  watchWindowState(window);
+  watchWindowState(window, windowStateRole);
+  // The tray raises the window the user actually used last, rather than
+  // whichever comes first in creation order.
+  window.on('focus', () => homeWindowFocus.note(window.id));
+  window.on('closed', () => homeWindowFocus.forget(window.id));
   instrumentStartupTiming(window);
 
   window.on('app-command', (_event, command) => {
