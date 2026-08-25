@@ -10,6 +10,7 @@ import {
   trayTooltip,
   type TrayMenuNode,
 } from './tray-menu.js'
+import { planTrayOpenHome, type TrayOpenHomePlacement } from './tray-open-home.js'
 import { listWidgets, onWidgetsChanged } from './widget-registry.js'
 import { closeWidget, setWidgetWindowOpacity } from './widget-window.js'
 
@@ -21,7 +22,9 @@ const TRAY_ICON_SIZE = 16
 
 let tray: Tray | null = null
 let trayMenu: Menu | null = null
-let openHomeWindow: (() => void) | null = null
+let openHomeWindow:
+  | ((options: { readonly placement: TrayOpenHomePlacement }) => void)
+  | null = null
 
 // Exported so scripts/smoke-desktop-widgets.mjs can prove the icon actually
 // loaded. An empty image still produces a working Tray, so a wrong path shows
@@ -50,15 +53,39 @@ function runCommand(commandId: string) {
     const mostRecentId = homeWindowFocus.mostRecent(
       homeWindows.map((window) => window.id),
     )
-    const existing =
-      homeWindows.find((window) => window.id === mostRecentId) ?? homeWindows[0]
-    if (existing) {
-      if (existing.isMinimized()) existing.restore()
-      existing.show()
-      existing.focus()
-      return
+    const plan = planTrayOpenHome(
+      homeWindows.map((window) => ({
+        id: window.id,
+        isFocused: window.isFocused(),
+        isMinimized: window.isMinimized(),
+        isVisible: window.isVisible(),
+      })),
+      mostRecentId,
+    )
+
+    if (plan.kind === 'raise') {
+      const target = homeWindows.find((window) => window.id === plan.windowId)
+      if (target) {
+        if (target.isMinimized()) target.restore()
+        target.show()
+        // A raise asked for from the tray is not a user interaction as far as
+        // X11 and Wayland are concerned, so focus() on its own is demoted by
+        // focus-stealing prevention to a taskbar flash. moveTop() plus an
+        // app-level steal is what actually puts the window in front.
+        target.moveTop()
+        target.focus()
+        app.focus({ steal: true })
+        return
+      }
     }
-    openHomeWindow?.()
+
+    // Nothing to raise, or the window is already in front and taking input: the
+    // menu item says "Open", so open one. Secondary placement offsets it from
+    // the windows already on screen instead of stacking it on the primary's
+    // remembered geometry.
+    openHomeWindow?.({
+      placement: plan.kind === 'open-new' ? plan.placement : 'secondary',
+    })
     return
   }
 
@@ -124,12 +151,16 @@ function refreshTray() {
  * widget whose app failed to load would be an invisible window with no route to
  * closing it short of killing the process.
  */
-export function installTray(options: { readonly openHome: () => void }) {
+export function installTray(options: {
+  readonly openHome: (options: { readonly placement: TrayOpenHomePlacement }) => void
+}) {
   if (tray && !tray.isDestroyed()) return tray
   openHomeWindow = options.openHome
   tray = new Tray(trayIcon())
   // Windows only opens the context menu on right click, so give the left click
-  // the most likely intent instead of nothing at all.
+  // the most likely intent instead of nothing at all. This fires on Windows and
+  // macOS only: Linux tray icons go through libappindicator, which delivers no
+  // click event at all and offers the menu as the sole way in.
   tray.on('click', () => runCommand(TRAY_COMMAND_OPEN_HOME))
   refreshTray()
   onWidgetsChanged(refreshTray)
