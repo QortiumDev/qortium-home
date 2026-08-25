@@ -60,6 +60,36 @@ export const HOME_V2_ACCOUNT_READ_ACTIONS = Object.freeze([
 
 const ACCOUNT_READ_ACTIONS = new Set<string>(HOME_V2_ACCOUNT_READ_ACTIONS)
 
+/**
+ * Actions that need no prompt at all (owner decision 2026-08-24: reading is
+ * permissionless). Deliberately NARROWER than HOME_V2_ACCOUNT_READ_ACTIONS:
+ * a member here must be a pure read with no side effect beyond returning the
+ * caller's own data.
+ *
+ * Excluded on purpose, though they are "reads":
+ * - GET_PRIVATE_GROUP_* — resolving a group key PERSISTS it to disk
+ *   (persistQpgcKey / the Qortal ring store), and GET_PRIVATE_GROUP_CHAT_STATE
+ *   returns memberPublicKeys for an arbitrary groupId with no membership
+ *   assertion, so it discloses more than the caller's own data.
+ * - GET_CHAT_ATTACHMENT_STREAM_URL / OPEN_CHAT_ATTACHMENT_VIEWER — allocate a
+ *   retained decrypted-stream capability, can trigger the same key writes, and
+ *   the viewer opens Home UI.
+ * Revisit each once those side effects are removed or accepted explicitly.
+ */
+export const HOME_V2_PERMISSIONLESS_ACTIONS = Object.freeze([
+  'GET_SELECTED_ACCOUNT',
+  'GET_USER_ACCOUNT',
+  'GET_PENDING_TRANSACTIONS',
+  'GET_PRIVATE_DIRECT_ACTIVE_CHATS',
+  'SEARCH_PRIVATE_DIRECT_CHAT_MESSAGES',
+] as const)
+
+const PERMISSIONLESS_ACTIONS = new Set<string>(HOME_V2_PERMISSIONLESS_ACTIONS)
+
+export function isHomeV2PermissionlessAction(action: string): boolean {
+  return PERMISSIONLESS_ACTIONS.has(action)
+}
+
 export function isHomeV2AccountReadAction(action: string): boolean {
   return ACCOUNT_READ_ACTIONS.has(action)
 }

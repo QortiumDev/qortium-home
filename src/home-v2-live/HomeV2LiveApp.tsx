@@ -166,6 +166,7 @@ import {
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
+  isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
 import {
@@ -2616,7 +2617,10 @@ export function HomeV2LiveApp() {
           target: forgetRequest?.signature ? `signature:${forgetRequest.signature}` : '',
         })
         const singleRequestOnly = action === 'FORGET_PENDING_TRANSACTION'
-        if (singleRequestOnly || !androidSessionAccountGrants.current.has(grantKey)) {
+        // Reading the journal is permissionless; forgetting an entry mutates
+        // it and still prompts.
+        if (singleRequestOnly || (!isHomeV2PermissionlessAction(action) &&
+          !androidSessionAccountGrants.current.has(grantKey))) {
           const appId = brand<AppId>(`home-v2:permission-app:${parsedApp.identityKey}`)
           const prompt = createPermissionPrompt({
             id: brand<PermissionRequestId>(globalThis.crypto.randomUUID()),
@@ -3280,7 +3284,10 @@ export function HomeV2LiveApp() {
           tabId: context.tabId,
           target: `group:${membershipRequest.groupId}`,
         })
-        if (!androidSessionAccountGrants.current.has(grantKey)) {
+        // Read-only actions are permissionless (owner decision 2026-08-24);
+        // mirrors the desktop bridge. Sends and mutations still gate.
+        if (!isHomeV2PermissionlessAction(action) &&
+          !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
               `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -3879,7 +3886,10 @@ export function HomeV2LiveApp() {
           tabId: context.tabId,
           target: `direct:${otherAddress}`,
         })
-        if (!androidSessionAccountGrants.current.has(grantKey)) {
+        // Read-only actions are permissionless (owner decision 2026-08-24);
+        // mirrors the desktop bridge. Sends and mutations still gate.
+        if (!isHomeV2PermissionlessAction(action) &&
+          !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
               `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -4072,7 +4082,10 @@ export function HomeV2LiveApp() {
           tabId: context.tabId,
           target: `public-group:${chatRequest.txGroupId}`,
         })
-        if (!androidSessionAccountGrants.current.has(grantKey)) {
+        // Read-only actions are permissionless (owner decision 2026-08-24);
+        // mirrors the desktop bridge. Sends and mutations still gate.
+        if (!isHomeV2PermissionlessAction(action) &&
+          !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
               `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -4237,80 +4250,12 @@ export function HomeV2LiveApp() {
         (candidate) => candidate.id === context.selectedAccountId,
       )
       if (!account) throw new Error('The selected account is no longer available.')
-      const nodeBefore = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-      const nodeRoute = `${nodeBefore.mode}|${nodeBefore.nodeApiUrl ?? ''}`
-      const grantKey = homeV2PermissionGrantKey({
-        accountId: context.selectedAccountId,
-        accountUnlocked: account.isUnlocked,
-        action,
-        appIdentity: context.resourceLocation,
-        nodeRoute,
-        principalId: 'android',
-        protocol,
-        tabId: context.tabId,
-      })
-      if (!androidSessionAccountGrants.current.has(grantKey)) {
-        const requestId = brand<PermissionRequestId>(
-          globalThis.crypto.randomUUID?.() ??
-            `home-v2-permission-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        )
-        const appTitle = (() => {
-          try {
-            return parseAppResourceLocation(context.resourceLocation).identity.name
-          } catch {
-            return 'QDN app'
-          }
-        })()
-        const appIdentityKey = context.resourceLocation || `home-v2-tab:${context.tabId}`
-        const appId = brand<AppId>(`home-v2:permission-app:${appIdentityKey}`)
-        const prompt = createPermissionPrompt({
-          id: requestId,
-          protocol,
-          action,
-          capability: 'account.read',
-          appId,
-          appIdentityKey,
-          appTitle,
-          context: {
-            appId,
-            identityId: brand<IdentityId>(`home-v2:identity:${context.selectedAccountId}`),
-            nodeProfileRef: snapshot.nodes[targetNetwork].ref,
-            tabId: brand<TabId>(context.tabId),
-            targetNetwork,
-            walletRef: account
-              ? brand<WalletRef>(`home-v2:wallet:${account.walletId}`)
-              : null,
-          },
-          title: 'Allow read-only account access?',
-          summary: homeV2AccountReadPermissionSummary(appTitle),
-          details: homeV2AccountReadPermissionDetails(account?.label ?? context.selectedAccountId),
-          allowedScopes: ['single-request', 'session'],
-        })
-        const decision = await queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
-        if (!decision.approved) throw new Error('Account access was denied.')
-        if (decision.scope === 'session') {
-          androidSessionAccountGrants.current.add(grantKey, {
-            family: homeV2PermissionGrantFamily(action),
-            hostWebContentsId: 'android',
-            network: targetNetwork,
-            tabId: context.tabId,
-          })
-        }
-        const freshTab = productState.tabs.find((tab) => tab.id === context.tabId)
-        const freshAccount = accountCatalogueRef.current.accounts.find(
-          (candidate) => candidate.id === context.selectedAccountId,
-        )
-        const nodeAfter = parseHomeV2NodesSnapshot(await nodeClient.getSnapshot())[targetNetwork]
-        if (
-          selectedAccountId !== context.selectedAccountId ||
-          !freshTab ||
-          freshTab.context.resourceLocation !== context.resourceLocation ||
-          freshAccount?.isUnlocked !== account.isUnlocked ||
-          `${nodeAfter.mode}|${nodeAfter.nodeApiUrl ?? ''}` !== nodeRoute
-        ) {
-          throw new Error('Account access context changed before approval completed.')
-        }
-      }
+      // Read-only identity access is permissionless (owner decision,
+      // 2026-08-24): Home never hands an app key material, so a read exposes
+      // only what the app is trusted with once opened. The prompt, its
+      // session grant and the post-approval context recheck are gone with it
+      // — the recheck existed solely to close the await-the-user window.
+      // Everything that sends, publishes, spends or unlocks still gates.
       if (action === 'GET_SELECTED_ACCOUNT') {
         const current = accountCatalogueRef.current.accounts.find(
           (candidate) => candidate.id === context.selectedAccountId,
