@@ -36,6 +36,8 @@ import { sanitizeQdnManagerAppKey } from './qdn-manager-permissions.js'
 import {
   grantQdnManagerPermission,
   hasQdnManagerPermission,
+  hasQdnAppCapability,
+  grantQdnAppCapabilityPermission,
 } from './qdn-manager-permission-store.js'
 import {
   validateBookmarkManagerMutationRequest,
@@ -149,6 +151,7 @@ import {
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
+  isHomeV2ChatSendAction,
   isHomeV2PermissionlessAction,
 } from './home-v2-session-grants.js'
 import {
@@ -752,6 +755,14 @@ async function requireAccountReadPermission(
     writeDetails?.kind === 'journal' ||
     (writeDetails?.kind === 'group' || writeDetails?.kind === 'direct' || writeDetails?.kind === 'private-group') &&
     writeDetails.singleRequestOnly === true
+  // A durable per-app chat-send grant ("always allow", revocable in QDN Apps
+  // settings) skips the prompt entirely. Scoped to chat sends only: publishing,
+  // unlocking, group admin and key rotation are never grantable this way.
+  const chatSendGrantable = isHomeV2ChatSendAction(action) && !singleRequestOnly
+  const appGrantKey = context.resourceUrl ?? ''
+  if (chatSendGrantable && appGrantKey && hasQdnAppCapability(appGrantKey, 'chat.send')) {
+    return
+  }
   if (!singleRequestOnly && sessionAccountReadGrants.has(grantKey)) return
   const hostWindow = getContextWindow(context)
   if (!hostWindow || hostWindow.isDestroyed()) {
@@ -893,6 +904,10 @@ async function requireAccountReadPermission(
     if (`${nodeAfter.mode}|${nodeAfter.nodeApiUrl}` !== nodeRoute) {
       throw new Error('Account access node route changed before approval completed.')
     }
+  }
+  if (decision.scope === 'always' && chatSendGrantable && appGrantKey) {
+    grantQdnAppCapabilityPermission(appGrantKey, 'chat.send')
+    return
   }
   if (!singleRequestOnly && decision.scope === 'session') {
     sessionAccountReadGrants.add(grantKey, {

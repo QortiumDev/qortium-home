@@ -166,6 +166,7 @@ import {
   homeV2PermissionGrantKey,
   homeV2PermissionGrantFamily,
   isHomeV2AccountReadAction,
+  isHomeV2ChatSendAction,
   isHomeV2PermissionlessAction,
 } from '../../electron/home-v2-session-grants'
 import { getHomeV2BridgeStateDetails } from '../../electron/home-v2-app-runtime'
@@ -197,7 +198,9 @@ import {
 } from '../notificationStore'
 import {
   grantQdnManagerPermission,
+  grantQdnAppCapabilityPermission,
   getQdnAppRolesStore,
+  hasQdnAppCapability,
   hasQdnManagerPermission,
   onQdnManagerPermissionsChanged,
   revokeQdnAppCapabilityPermission,
@@ -2184,6 +2187,13 @@ export function HomeV2LiveApp() {
           ? ['always']
           : isBookmarkManager
           ? ['always']
+          // Chat sends may be granted persistently so trusted apps stop
+          // asking on every restart; the grant is revocable in QDN Apps
+          // settings. Publishing, unlock, group admin and key rotation are
+          // deliberately absent from isHomeV2ChatSendAction.
+          : isHomeV2ChatSendAction(value.action) &&
+            value.writeSingleRequestOnly !== true
+          ? ['single-request', 'session', 'always']
           : value.writeSingleRequestOnly === true
           ? ['single-request']
           : ['single-request', 'session'],
@@ -2655,6 +2665,15 @@ export function HomeV2LiveApp() {
             ? queueAndroidPermissionPrompt(prompt, context.tabId)
             : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
+          // Self-contained so it is correct at every prompt site and a no-op
+          // for anything that is not a chat send.
+          if (
+            decision.scope === 'always' &&
+            isHomeV2ChatSendAction(action) &&
+            context.resourceLocation
+          ) {
+            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
+          }
           if (!singleRequestOnly && decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -3286,7 +3305,14 @@ export function HomeV2LiveApp() {
         })
         // Read-only actions are permissionless (owner decision 2026-08-24);
         // mirrors the desktop bridge. Sends and mutations still gate.
-        if (!isHomeV2PermissionlessAction(action) &&
+        // A durable per-app chat-send grant ("always allow") skips the prompt;
+        // it is revocable in QDN Apps settings. Mirrors the desktop bridge.
+        const chatSendGrantable = isHomeV2ChatSendAction(action)
+        const appCapabilityKey = context.resourceLocation || ''
+        const heldChatSendGrant = chatSendGrantable && appCapabilityKey
+          ? await hasQdnAppCapability(appCapabilityKey, 'chat.send')
+          : false
+        if (!heldChatSendGrant && !isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -3339,10 +3365,21 @@ export function HomeV2LiveApp() {
               { label: 'Route', value: `${nodeBefore.mode} · ${nodeBefore.nodeApiUrl}` },
               { label: 'Group', value: target.groupName },
             ],
-            allowedScopes: ['single-request', 'session'],
+            allowedScopes: isHomeV2ChatSendAction(action)
+              ? ['single-request', 'session', 'always']
+              : ['single-request', 'session'],
           })
           const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
+          // Self-contained so it is correct at every prompt site and a no-op
+          // for anything that is not a chat send.
+          if (
+            decision.scope === 'always' &&
+            isHomeV2ChatSendAction(action) &&
+            context.resourceLocation
+          ) {
+            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
+          }
           if (decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -3706,6 +3743,15 @@ export function HomeV2LiveApp() {
             ? queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId)
             : queueAndroidPermissionPrompt(prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
+          // Self-contained so it is correct at every prompt site and a no-op
+          // for anything that is not a chat send.
+          if (
+            decision.scope === 'always' &&
+            isHomeV2ChatSendAction(action) &&
+            context.resourceLocation
+          ) {
+            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
+          }
           if (!singleRequestOnly && decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -3888,7 +3934,14 @@ export function HomeV2LiveApp() {
         })
         // Read-only actions are permissionless (owner decision 2026-08-24);
         // mirrors the desktop bridge. Sends and mutations still gate.
-        if (!isHomeV2PermissionlessAction(action) &&
+        // A durable per-app chat-send grant ("always allow") skips the prompt;
+        // it is revocable in QDN Apps settings. Mirrors the desktop bridge.
+        const chatSendGrantable = isHomeV2ChatSendAction(action)
+        const appCapabilityKey = context.resourceLocation || ''
+        const heldChatSendGrant = chatSendGrantable && appCapabilityKey
+          ? await hasQdnAppCapability(appCapabilityKey, 'chat.send')
+          : false
+        if (!heldChatSendGrant && !isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -3946,12 +3999,23 @@ export function HomeV2LiveApp() {
                     : []),
                 ]
               : homeV2AccountReadPermissionDetails(account.label),
-            allowedScopes: ['single-request', 'session'],
+            allowedScopes: isHomeV2ChatSendAction(action)
+              ? ['single-request', 'session', 'always']
+              : ['single-request', 'session'],
           })
           const decision = await (isWrite
             ? queueAndroidPermissionPrompt(prompt, context.tabId)
             : queueAndroidSessionGrantPermission(grantKey, prompt, context.tabId))
           if (!decision.approved) throw new Error('Account access was denied.')
+          // Self-contained so it is correct at every prompt site and a no-op
+          // for anything that is not a chat send.
+          if (
+            decision.scope === 'always' &&
+            isHomeV2ChatSendAction(action) &&
+            context.resourceLocation
+          ) {
+            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
+          }
           if (decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(action),
@@ -4084,7 +4148,14 @@ export function HomeV2LiveApp() {
         })
         // Read-only actions are permissionless (owner decision 2026-08-24);
         // mirrors the desktop bridge. Sends and mutations still gate.
-        if (!isHomeV2PermissionlessAction(action) &&
+        // A durable per-app chat-send grant ("always allow") skips the prompt;
+        // it is revocable in QDN Apps settings. Mirrors the desktop bridge.
+        const chatSendGrantable = isHomeV2ChatSendAction(action)
+        const appCapabilityKey = context.resourceLocation || ''
+        const heldChatSendGrant = chatSendGrantable && appCapabilityKey
+          ? await hasQdnAppCapability(appCapabilityKey, 'chat.send')
+          : false
+        if (!heldChatSendGrant && !isHomeV2PermissionlessAction(action) &&
           !androidSessionAccountGrants.current.has(grantKey)) {
           const requestId = brand<PermissionRequestId>(
             globalThis.crypto.randomUUID?.() ??
@@ -4162,10 +4233,21 @@ export function HomeV2LiveApp() {
                 ? [{ label: 'Reference', value: chatRequest.chatReference }]
                 : []),
             ],
-            allowedScopes: ['single-request', 'session'],
+            allowedScopes: isHomeV2ChatSendAction(action)
+              ? ['single-request', 'session', 'always']
+              : ['single-request', 'session'],
           })
           const decision = await queueAndroidPermissionPrompt(prompt, context.tabId)
           if (!decision.approved) throw new Error('Account access was denied.')
+          // Self-contained so it is correct at every prompt site and a no-op
+          // for anything that is not a chat send.
+          if (
+            decision.scope === 'always' &&
+            isHomeV2ChatSendAction(action) &&
+            context.resourceLocation
+          ) {
+            await grantQdnAppCapabilityPermission(context.resourceLocation, 'chat.send')
+          }
           if (decision.scope === 'session') {
             androidSessionAccountGrants.current.add(grantKey, {
               family: homeV2PermissionGrantFamily(effectiveAction),
