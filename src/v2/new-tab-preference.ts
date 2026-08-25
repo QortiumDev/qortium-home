@@ -11,7 +11,7 @@ export const DEFAULT_NEW_TAB_PREFERENCE: NewTabPreference = Object.freeze({
 })
 
 const INTERNAL_ADDRESS_PATTERN =
-  /^home:\/\/(dashboard|apps|activity|newtab|settings|welcome)\/?$/i
+  /^home:\/\/(dashboard|newtab|settings|welcome)\/?$/i
 const RELEASE_NOTES_ADDRESS_PATTERN =
   /^home:\/\/releases\/(core|home)\/([^/?#]+)\/?$/i
 

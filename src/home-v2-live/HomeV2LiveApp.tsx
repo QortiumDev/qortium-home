@@ -5055,6 +5055,16 @@ export function HomeV2LiveApp() {
       void nodeCoreController.refreshAll()
     }
   }
+  // Leaving Welcome (skip or finish) navigates away, but the welcome tab used
+  // to stay in the strip, so the guide the user just dismissed was one click
+  // from coming back. Restarting setup deliberately keeps its tab.
+  const closeWelcomeTabs = () => {
+    for (const entry of productStateRef.current.entries) {
+      if (entry.kind === 'internal' && entry.page === 'welcome') {
+        dispatchProduct({ type: 'close-tab', tabId: entry.id })
+      }
+    }
+  }
   menuNavigation.current = {
     goBack: () => navigateActiveApp(-1),
     goForward: () => navigateActiveApp(1),
@@ -5226,6 +5236,7 @@ export function HomeV2LiveApp() {
       onWelcomeSkip={() => {
         setOnboarding(finishHomeV2Onboarding('skipped'))
         dispatchProduct({ type: 'navigate', destination: 'dashboard' })
+        closeWelcomeTabs()
       }}
       onWelcomeComplete={(destination) => {
         setOnboarding(finishHomeV2Onboarding('completed'))
@@ -5233,6 +5244,7 @@ export function HomeV2LiveApp() {
           type: 'navigate',
           destination: destination === 'appearance' ? 'settings' : destination,
         })
+        closeWelcomeTabs()
       }}
       onRefreshNode={() => void nodeCoreController.refreshNodes()}
       onSetNodeMode={setNodeMode}

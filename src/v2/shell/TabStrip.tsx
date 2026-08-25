@@ -32,7 +32,9 @@ export const internalTabLabelKeys: Readonly<Record<TabPageId, TranslationKey>> =
   dashboard: 'common.dashboard',
   newtab: 'home2.tabs.newTab',
   settings: 'common.settings',
-  welcome: 'welcome.title',
+  // Short label: the full 'welcome.title' ("Welcome to Qortium Home") is the
+  // page heading and is far too long for a tab.
+  welcome: 'home2.tabs.welcome',
 }
 
 /**

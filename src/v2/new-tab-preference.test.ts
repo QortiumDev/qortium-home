@@ -47,6 +47,10 @@ function testCustomAddressValidation(): void {
     '   ',
     'dashboard',
     'home://unknown',
+    // The 'apps' and 'activity' shell destinations were removed, so their
+    // addresses are no longer internal pages and must not be accepted.
+    'home://apps',
+    'home://activity',
     'home://releases',
     'home://releases/other/v2.1.0',
     'core://admin/stop',
