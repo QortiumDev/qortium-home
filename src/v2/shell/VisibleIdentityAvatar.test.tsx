@@ -217,4 +217,51 @@ try {
   URL.revokeObjectURL = originalRevokeObjectUrl
 }
 
+// Some nodes serve avatars as application/octet-stream because they cannot
+// infer a type. Those are real images and must render, decided by their magic
+// bytes rather than the server's claim — this is why several publishers'
+// avatars showed a monogram. Anything whose bytes are not an image is still
+// refused.
+{
+  const octetContainer = document.createElement('div')
+  document.body.appendChild(octetContainer)
+  const octetRoot = createRoot(octetContainer)
+  const createdTypes: string[] = []
+  const originalCreate = URL.createObjectURL
+  URL.createObjectURL = ((blob: Blob) => {
+    createdTypes.push(blob.type)
+    return 'blob:octet-test'
+  }) as typeof URL.createObjectURL
+  try {
+    clearHomeV2ImageCacheForTests()
+    await act(async () => {
+      octetRoot.render(
+        <VisibleIdentityAvatar
+          identity={identity}
+          loader={async () => ({
+            // A real PNG served without a usable content type.
+            body: 'iVBORw0KGgo=',
+            contentLength: 8,
+            contentType: 'application/octet-stream',
+            status: 'ready' as const,
+          })}
+          network="qortal"
+          query="Alice"
+        />,
+      )
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+    assert.deepEqual(
+      createdTypes,
+      ['image/png'],
+      'an untyped PNG must render as image/png, sniffed from its bytes',
+    )
+  } finally {
+    URL.createObjectURL = originalCreate
+    act(() => octetRoot.unmount())
+    octetContainer.remove()
+  }
+}
+
 console.log('Home v2 visible identity avatar tests passed.')

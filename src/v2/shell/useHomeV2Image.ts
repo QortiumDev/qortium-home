@@ -23,6 +23,9 @@ const MAX_CACHE_ENTRIES = 200
 const MISSING_CACHE_MS = 5 * 60_000
 const READY_CACHE_MS = 5 * 60_000
 const UNAVAILABLE_CACHE_MS = 30_000
+/** Types that carry no information, so the bytes decide. */
+const UNTYPED_CONTENT_TYPES = new Set(['application/octet-stream', 'binary/octet-stream'])
+
 const ALLOWED_CONTENT_TYPES = new Set([
   'image/bmp',
   'image/gif',
@@ -87,7 +90,9 @@ export function validateHomeV2ImagePayload(
   contentType: string,
   maxBytes: number,
 ) {
-  if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+  // An untyped payload is allowed through to the magic-byte sniff in
+  // imageObjectUrl; anything else claiming a non-image type is refused here.
+  if (!ALLOWED_CONTENT_TYPES.has(contentType) && !UNTYPED_CONTENT_TYPES.has(contentType)) {
     throw new Error('Image content type is not allowed.')
   }
   const binary = globalThis.atob(body)
@@ -101,6 +106,28 @@ export function validateHomeV2ImagePayload(
   return bytes
 }
 
+/**
+ * Some nodes serve avatars as application/octet-stream because they cannot
+ * infer a type from the stored file — real, valid images that were being
+ * rejected outright, leaving a monogram in place of the avatar. Sniff the
+ * magic bytes and use the SNIFFED type (never the server's claim) so an
+ * untyped-but-genuine image renders while anything that is not an image is
+ * still refused.
+ */
+function sniffImageContentType(bytes: Uint8Array): string | null {
+  const startsWith = (signature: readonly number[], offset = 0) =>
+    signature.every((byte, index) => bytes[offset + index] === byte)
+  if (startsWith([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png'
+  if (startsWith([0xff, 0xd8, 0xff])) return 'image/jpeg'
+  if (startsWith([0x47, 0x49, 0x46, 0x38])) return 'image/gif'
+  if (startsWith([0x42, 0x4d])) return 'image/bmp'
+  if (startsWith([0x00, 0x00, 0x01, 0x00])) return 'image/vnd.microsoft.icon'
+  if (startsWith([0x52, 0x49, 0x46, 0x46]) && startsWith([0x57, 0x45, 0x42, 0x50], 8)) {
+    return 'image/webp'
+  }
+  return null
+}
+
 function imageObjectUrl(result: Extract<VisibleAvatarReadResult, { status: 'ready' }>, maxBytes: number) {
   const bytes = validateHomeV2ImagePayload(
     result.body,
@@ -108,7 +135,11 @@ function imageObjectUrl(result: Extract<VisibleAvatarReadResult, { status: 'read
     result.contentType,
     maxBytes,
   )
-  return URL.createObjectURL(new Blob([bytes], { type: result.contentType }))
+  const type = ALLOWED_CONTENT_TYPES.has(result.contentType)
+    ? result.contentType
+    : sniffImageContentType(bytes)
+  if (!type) throw new Error('Image content type is not allowed.')
+  return URL.createObjectURL(new Blob([bytes], { type }))
 }
 
 function pruneCache() {
